@@ -295,15 +295,15 @@ def _without_events(arm: int, visit: int) -> Any:
 
 @pytest.mark.parametrize("model", study.MODELS)
 def test_a_node_with_no_event_is_a_recordable_failure(model: str) -> None:
-    """The fit translates ``constant_node_plugin`` into a ``DataError`` the driver records."""
+    """The fit translates a constant node (now a boundary-node supplement) into a ``DataError``."""
     frame = _without_events(0, 3)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        with pytest.raises(DataError, match="constant_node_plugin") as caught:
+        with pytest.raises(DataError, match="boundary-node supplement") as caught:
             study.fit(model, frame)
         # The same draw through the primary runner's replicate: it raises the same error.
         truth = dict(law.TRUTH)
-        with pytest.raises(DataError, match="constant_node_plugin"):
+        with pytest.raises(DataError, match="boundary-node supplement"):
             study._replicate((model, 0, study.PRIMARY_N), (frame, truth))
     assert recordable(caught.value)
 

@@ -39,7 +39,14 @@ from ._assessment_cache import (
     _frame_payload,
     _normalize,
     _pack_cached,
+    _result_backend,
     _unpack_cached,
+)
+from ._continuous_survival_family import (
+    CONTINUOUS_SURVIVAL_FAMILY,
+    SCORE_TOLERANCE_REFUSAL,
+    continuous_survival_refusal,
+    is_continuous_survival,
 )
 from ._declarations import declarations_pass
 from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
@@ -331,6 +338,7 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "structural": ("snmm",),
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
     "effect_modification": ("tmle", "ep"),
+    CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
 }
 
 
@@ -670,6 +678,69 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         refusal=augmented_trial_refusal("refute", "refutation"),
         interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
     ),
+    # The continuous-time survival TMLE (X6, X101). Its diagnostics read the engine's own
+    # record; the refutation and the truncation curve refit the stored estimator.
+    _capability(
+        "support",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=("estimated treatment probabilities", "estimated censoring survival"),
+        interpretation=(
+            "overlap of the treatment and censoring fits, and the share of cells the floor "
+            "on pi(a | L) S_c(u- | a, L) raised"
+        ),
+    ),
+    _capability(
+        "nuisance_models",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=("hazard selections", "censoring selection", "treatment selection"),
+        interpretation=(
+            "the cross-validated selection of each cause's hazard, the censoring hazard and "
+            "the treatment model"
+        ),
+    ),
+    _capability(
+        "score_equations",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=("standardized scores at the end of the walk", "targeting record"),
+        interpretation=(
+            "each target's |P_n D*| / sigma against the stopping cutoff of the one-step walk"
+        ),
+    ),
+    _capability(
+        "corrections",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=continuous_survival_refusal("corrections"),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        cost="expensive",
+        requires_replay="refit_nuisances",
+        interpretation=(
+            "estimate stability across floors on pi(a | L) S_c(u- | a, L), rerun from "
+            "refitted initial hazards after an exact replay of the fit at its own floor"
+        ),
+    ),
+    _capability(
+        "refute",
+        CONTINUOUS_SURVIVAL_FAMILY,
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        deterministic=False,
+        cost="expensive",
+        accepts_random_state=True,
+        requires_replay="rerun_configuration",
+        interpretation=(
+            "behavior under a treatment placebo on a contrast, a noise covariate and "
+            "subsampling on the fit's folds, read descriptively"
+        ),
+    ),
     # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
     # the producing fit, and declares four of its own, which only a curve has.
     _capability(
@@ -901,9 +972,9 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
-    if family == AUGMENTED_TRIAL_FAMILY:
+    if family in (AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY):
         # The rows read the engine's own record; none of the point-treatment or
-        # longitudinal rules below reads an adaptive TMLE fit.
+        # longitudinal rules below reads an adaptive TMLE or continuous-time fit.
         return rows
     if family == "point" and _is_projection(result):
         rows = _refuse_on_projection(rows, {"refute"})
@@ -975,14 +1046,31 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator in ("gcomp", "parametric_gformula"):
+    truncation = None
+    if family == "longitudinal":
         # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
-        # moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
+        # moves it; a SurvivalCTMLE or SurvivalDRTMLE replay would rerun a selection or a
+        # drift loop that no study measures. The call reads the same helper.
+        from .longitudinal.estimator import longitudinal_truncation_refusal
 
-        truncation = (
-            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
-        )
+        truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
+    if truncation is not None:
         rows = tuple(
             replace(
                 row,
@@ -995,12 +1083,14 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "longitudinal":
-        from .longitudinal.estimator import hazard_mtp_replay
+        from .longitudinal.estimator import hazard_replay
 
-        # A hazard fit targets each modified treatment policy by its own weighted walk,
-        # which the truncation replay does not rebuild (H25).
-        walk = hazard_mtp_replay(result)
-        if walk is not None:
+        # The truncation replay does not rebuild a hazard fit's regressions of the future on
+        # covariates after baseline (H31), nor the weighted walk of each modified treatment
+        # policy (H25). The call raises the method's own refusal above before it reaches the
+        # replay, so that one stands.
+        walk = hazard_replay(result)
+        if walk is not None and truncation is None:
             rows = tuple(
                 replace(
                     row,
@@ -1782,6 +1872,20 @@ def replayability(result: Any) -> Replayability:
         # changed data. It stores no point-treatment targeting state or representer, and a
         # refit selects its own working model, so nothing retargets or refits in place.
         return Replayability(True, False, False, False, False, (), rerun_configuration=True)
+    if _family(result) == CONTINUOUS_SURVIVAL_FAMILY:
+        # A continuous-time fit keeps its estimator, with the seed resolved, and its data,
+        # so it refits its nuisances and reruns on changed data. It keeps no hazard jumps,
+        # so nothing retargets in place, and no representer.
+        absent = tuple(
+            name
+            for name, held in (
+                ("estimator configuration", getattr(result, "estimator", None)),
+                ("analysis data", getattr(result, "data", None)),
+            )
+            if held is None
+        )
+        ok = not absent
+        return Replayability(True, False, False, ok, False, absent, rerun_configuration=ok)
     if _family(result) == "structural":
         # A structural fit keeps its settings and its split. It reruns on a changed panel;
         # it stores no targeting state or representer to retarget or evaluate.
@@ -2617,7 +2721,7 @@ class _CapabilityFacade:
                     items.append(
                         replace(
                             interpreted,
-                            _report=_pack_cached(report, self._result.data.backend),
+                            _report=_pack_cached(report, _result_backend(self._result)),
                             arguments=effective,
                         )
                     )
@@ -2625,7 +2729,7 @@ class _CapabilityFacade:
                 tuple(items),
                 include_refits=include_refits,
                 include_retargets=include_retargets,
-                backend=self._result.data.backend,
+                backend=_result_backend(self._result),
                 surface=self._attribute,
             )
 
@@ -2760,7 +2864,7 @@ class _CapabilityFacade:
         if _normalize(resolved) != _normalize(effective):
             self._result.assessment_cache[
                 _cache_key(f"{self._attribute}.{operation}", (), resolved)
-            ] = _pack_cached(report, self._result.data.backend)
+            ] = _pack_cached(report, _result_backend(self._result))
         return report
 
 
@@ -2825,6 +2929,10 @@ def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
         bound.arguments["n_replicates"],
         bound.arguments["negative_control_outcome"],
         bound.arguments["placebo_mode"],
+        bound.arguments["negative_control_kind"],
+        bound.arguments["negative_control_floor"],
+        bound.arguments["future_treatment_control"],
+        bound.arguments["future_treatment_node"],
     )
 
 
@@ -3083,6 +3191,12 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("support")
         if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
             return _cached(self._result, "diagnostics.support", (), {}, self._result.support_report)
+        if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+            from .survival.diagnostics import support_report
+
+            return _cached(
+                self._result, "diagnostics.support", (), {}, lambda: support_report(self._result)
+            )
         if _family(self._result) == "longitudinal":
             return _cached(
                 self._result,
@@ -3175,6 +3289,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         def compute() -> Any:
             if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
                 return self._result.nuisance_report()
+            if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+                from .survival.diagnostics import nuisance_report
+
+                return nuisance_report(self._result)
             if _family(self._result) == "longitudinal":
                 return _longitudinal_nuisances(self._result)
             from .validation.nuisance import nuisance_diagnostics
@@ -3226,16 +3344,19 @@ class DiagnosticsFacade(_CapabilityFacade):
         def compute() -> Any:
             from .inference.sparse import influence_report
 
-            alpha = (
-                float(self._result.method.inference.alpha)
-                if _family(self._result) == AUGMENTED_TRIAL_FAMILY
-                else float(getattr(self._result.config, "alpha_sig", 0.05))
-            )
+            family = _family(self._result)
+            if family == AUGMENTED_TRIAL_FAMILY:
+                alpha = float(self._result.method.inference.alpha)
+            elif family == CONTINUOUS_SURVIVAL_FAMILY:
+                # Every estimate of the fit carries the one alpha the engine was given.
+                alpha = float(next(iter(self._result.estimates.values())).alpha)
+            else:
+                alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
             report = influence_report(
                 self._result.estimates,
                 alpha=alpha,
-                backend=self._result.data.backend,
-                cluster=getattr(self._result.data, "cluster", None),
+                backend=_result_backend(self._result),
+                cluster=getattr(getattr(self._result, "data", None), "cluster", None),
             )
             warned = any(
                 record.category == "SparseInfluenceWarning"
@@ -3279,6 +3400,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("score_equations")
         if tolerance is not None and _family(self._result) == AUGMENTED_TRIAL_FAMILY:
             raise CapabilityError.from_refusal(score_tolerance_refusal())
+        if tolerance is not None and _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+            raise CapabilityError.from_refusal(SCORE_TOLERANCE_REFUSAL)
         resolved = DEFAULT_TOLERANCE if tolerance is None else tolerance
 
         def compute() -> Any:
@@ -3286,6 +3409,11 @@ class DiagnosticsFacade(_CapabilityFacade):
                 # The fit's own stopping rule gates the report; ``tolerance`` is the
                 # point-treatment relative bound and has no meaning here.
                 return self._result.score_report()
+            if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+                # The walk's own cutoff gates the report, as for an adaptive TMLE fit.
+                from .survival.diagnostics import score_report
+
+                return score_report(self._result)
             if _family(self._result) == "longitudinal":
                 return _longitudinal_scores(self._result, tolerance=resolved)
             from .validation.score import score_check
@@ -3351,13 +3479,19 @@ class DiagnosticsFacade(_CapabilityFacade):
         estimands: Sequence[str] | None = None,
         mechanism: bool | None = None,
     ) -> Any:
-        """Evaluate fitted estimates across a sequence of mechanism bounds.
+        r"""Evaluate fitted estimates across a sequence of mechanism bounds.
 
         Point-treatment and longitudinal results intentionally have different
         contracts. A point-treatment curve retargets the stored nuisance fits. A
         longitudinal curve repeats the complete backward recursion while reusing the
         fitted treatment/censoring mechanism, folds, prepared data, scaler, and frozen
         resolved regimen plans.
+
+        A continuous-time survival curve refits the initial hazards from the stored estimator,
+        replays the fit at its own floor exactly, and reruns the targeting walk at each floor
+        on :math:`\pi(a \mid L) S_c(u^- \mid a, L)`; it refuses ``mechanism=True``, and its
+        default grid is the fitted floor times 1/4, 1/2, 1, 2 and 4
+        (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`).
 
         A longitudinal fit refuses ``mechanism=True``. It has one cumulative
         treatment-and-censoring bound, so there is no separate observation mechanism for a
@@ -3414,6 +3548,20 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("truncation_curve", {"mechanism": mechanism})
         # The cache key holds these arguments, so a one-shot iterator is read once here.
         (bounds, estimands), _ = _single_pass((bounds, estimands), {})
+        if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+            from .survival.diagnostics import MECHANISM_REFUSAL, continuous_truncation_curve
+
+            if mechanism:
+                raise CapabilityError.from_refusal(MECHANISM_REFUSAL)
+            return TruncationCurve(
+                _cached(
+                    self._result,
+                    "diagnostics.truncation_curve",
+                    (bounds,),
+                    {"estimands": estimands, "mechanism": mechanism},
+                    lambda: continuous_truncation_curve(self._result, bounds, estimands=estimands),
+                )
+            )
         longitudinal = _family(self._result) == "longitudinal"
         if longitudinal and bounds is None:
             raise CapabilityError(
@@ -3632,11 +3780,57 @@ def _augmented_trial_item(operation: str, report: Any) -> AssessmentItem:
     )
 
 
+def _continuous_survival_item(operation: str, report: Any) -> AssessmentItem:
+    """The combined-report row of one continuous-time diagnostic, read off its report."""
+    if operation == "support":
+        overall = report.propensity_quantiles["overall"]
+        floors = (
+            f"floor {report.weight_floor:.3g} on pi(a | L) S_c(u- | a, L) raised "
+            f"{report.bounded_share:.1%} of the followed cells"
+        )
+        censoring = min(min(values.values()) for values in report.censoring_quantiles.values())
+        ess = min(values["ratio"] for values in report.effective_sample_size.values())
+        detail = (
+            f"P(treated | L) in [{overall[0.0]:.3g}, {overall[1.0]:.3g}]; smallest "
+            f"S_c(t- | A, L) at a target time {censoring:.3g}; {floors}; "
+            f"{report.last_time_floor_share:.1%} of (unit, arm) pairs below it at the last "
+            f"target time; minimum effective-sample-size ratio {ess:.1%}"
+        )
+        if report.severity == "adequate":
+            return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.WARNING,
+            f"{detail}; {_POSITIVITY_SEVERITY_REASON[report.severity]}",
+            ("inspect result.diagnostics.support()",),
+        )
+    if operation == "score_equations":
+        detail = (
+            f"{len(report.standardized_score)} score row(s); worst |P_n D*| / sigma = "
+            f"{report.worst_ratio:.3g} x the cutoff {report.cutoff:.3g}; "
+            f"{report.steps} step(s), {report.halvings} halving(s)"
+        )
+        if report.passed:
+            return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.FAILED,
+            detail,
+            ("inspect result.diagnostics.score_equations()",),
+        )
+    chosen = "; ".join(f"{row.role}: {row.chosen}" for row in report.rows)
+    where = f"first of {report.n_folds} folds" if report.cross_fitted else "full sample"
+    detail = f"{len(report.rows)} selection(s) ({where}); {chosen}"
+    return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
+
+
 def _score_item(
     report: Any, result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
     if is_augmented_trial(result):
         return _augmented_trial_item("score_equations", report)
+    if is_continuous_survival(result):
+        return _continuous_survival_item("score_equations", report)
     ratios = []
     for row in getattr(report, "rows", ()):
         if hasattr(row, "ratio"):
@@ -3656,6 +3850,8 @@ def _score_item(
     detail = f"{len(ratios)} score row(s); worst abs(score) / threshold = {worst:.3g}"
     if conditioning:
         detail += f"; {conditioning}"
+    if not passed:
+        detail += _constant_cell_cause(result)
     steps = (
         ("inspect result.repeats[*].fluctuations['mean'].reduction.ill_conditioned",)
         if conditioning
@@ -3664,6 +3860,29 @@ def _score_item(
         else ("inspect result.diagnostics.score_equations()",)
     )
     return AssessmentItem("score_equations", status, detail, steps)
+
+
+def _constant_cell_cause(result: Any) -> str:
+    """The constant-arm cause of an unsolved score, as a clause, or ``""`` when it is absent.
+
+    An arm whose observed outcomes hold one value leaves every residual of that arm one sign,
+    so a logistic fluctuation has no finite step and its equation stays unsolved.  The
+    estimates that read the arm already withhold their intervals.
+    """
+    from .inference.influence import CONSTANT_ARM_CELL_STATUS
+
+    names = [
+        name
+        for name, estimate in getattr(result, "estimates", {}).items()
+        if getattr(estimate, "inference", None) == CONSTANT_ARM_CELL_STATUS
+    ]
+    if not names:
+        return ""
+    return (
+        f"; {', '.join(names)} read an arm with one observed outcome value "
+        f"({CONSTANT_ARM_CELL_STATUS}), where a logistic fluctuation has no finite step, and "
+        "withhold their intervals"
+    )
 
 
 def _intervention_rows(report: Any) -> tuple[tuple[str, Any], ...]:
@@ -3759,6 +3978,8 @@ def _support_item(
 ) -> AssessmentItem:
     if is_augmented_trial(_result):
         return _augmented_trial_item("support", report)
+    if is_continuous_survival(_result):
+        return _continuous_survival_item("support", report)
     warning = _support_warning(report)
     facts = _support_facts(*_support_metrics(report))
     group_fact = _group_load_fact(report)
@@ -3807,6 +4028,8 @@ def _nuisance_item(
 ) -> AssessmentItem:
     if is_augmented_trial(_result):
         return _augmented_trial_item("nuisance_models", report)
+    if is_continuous_survival(_result):
+        return _continuous_survival_item("nuisance_models", report)
     findings = tuple(getattr(report, "findings", ()))
     if isinstance(report, LongitudinalNuisanceDiagnostics):
         finite = [row.loss for row in report.rows if np.isfinite(row.loss)]
@@ -4571,10 +4794,10 @@ def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -
             items.append(
                 replace(
                     INTERPRETERS[name](report, result, _NO_ARGUMENTS),
-                    _report=_pack_cached(report, result.data.backend),
+                    _report=_pack_cached(report, _result_backend(result)),
                 )
             )
-        return ValidationReport(tuple(items), result.data.backend)
+        return ValidationReport(tuple(items), _result_backend(result))
 
     return _cached(result, "validate", (), {}, compute)
 
@@ -4728,9 +4951,13 @@ def _marginal_structural_refusal() -> Refusal:
 
 def _marginal_row(result: Any, family: str) -> AssessmentCapability:
     """The marginal sensitivity model row, declared from the bound's own refusal."""
-    from .sensitivity.marginal import marginal_bound_refusal
+    from .sensitivity.marginal import marginal_bound_refusal, marginal_estimand_refusal
 
     refusal = marginal_bound_refusal(result)
+    if refusal is None:
+        # The row reads the default estimand, as the E-value row does; an explicit one is
+        # the call's to answer (``_dispatch``).
+        refusal = marginal_estimand_refusal(result)
     return _capability(
         "marginal_bounds",
         family,
@@ -4861,6 +5088,34 @@ def _augmented_trial_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
 _AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_trial_sensitivity_rows()
 
 
+def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of a continuous-time survival fit but the E-value, each refused.
+
+    The omitted-variable, marginal and tilt rows name F16 and the simulated common cause X101
+    (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).  The E-value
+    reads the fit's risk ratio, so :meth:`SensitivityFacade._evalue_row` builds its row.
+    """
+    return tuple(
+        _capability(
+            row.operation,
+            CONTINUOUS_SURVIVAL_FAMILY,
+            artifacts=row.required_artifacts,
+            interpretation=row.interpretation,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            refusal=continuous_survival_refusal(row.operation),
+        )
+        for row in _STRUCTURAL_SENSITIVITY
+        if row.operation != "evalue"
+    )
+
+
+#: The refused sensitivity declarations of a continuous-time survival fit (X101).
+_CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
+    _continuous_survival_sensitivity_rows()
+)
+
+
 class SensitivityFacade(_CapabilityFacade):
     """Access sensitivity analyses supported by a fitted causal result.
 
@@ -4932,6 +5187,8 @@ class SensitivityFacade(_CapabilityFacade):
             return _STRUCTURAL_SENSITIVITY
         if family == AUGMENTED_TRIAL_FAMILY:
             return _AUGMENTED_TRIAL_SENSITIVITY
+        if family == CONTINUOUS_SURVIVAL_FAMILY:
+            return (*_CONTINUOUS_SURVIVAL_SENSITIVITY, self._evalue_row())
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -5201,12 +5458,14 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result) not in ("structural", AUGMENTED_TRIAL_FAMILY)
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
@@ -5390,6 +5649,14 @@ class SensitivityFacade(_CapabilityFacade):
         tuple of str
             Eligible reported names, empty when the route settles its own estimand.
         """
+        if operation == "marginal_bounds":
+            # Its ``estimand=None`` resolves to the fit's own reported parameter, and the
+            # call raises when that leaves a choice (Fix-15), so the row defers on the same
+            # candidates rather than run on a parameter the fit did not report.
+            from .sensitivity.marginal import default_estimand_candidates
+
+            candidates = default_estimand_candidates(self._result)
+            return () if len(candidates) == 1 else candidates
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
@@ -5526,7 +5793,11 @@ class SensitivityFacade(_CapabilityFacade):
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
         args, kwargs = _single_pass(args, kwargs)
-        if _family(self._result) not in ("longitudinal", AUGMENTED_TRIAL_FAMILY):
+        if _family(self._result) not in (
+            "longitudinal",
+            AUGMENTED_TRIAL_FAMILY,
+            CONTINUOUS_SURVIVAL_FAMILY,
+        ):
             bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
             _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
@@ -5657,9 +5928,20 @@ class SensitivityFacade(_CapabilityFacade):
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in ("structural", AUGMENTED_TRIAL_FAMILY):
+        # The marginal bounds refuse a withheld default estimand by row; a named one is the
+        # call's to answer, and the call asks the fit-level refusal itself.
+        explicit_evalue = explicit_evalue or (
+            operation == "marginal_bounds" and kwargs.get("estimand") is not None
+        )
+        # A structural, adaptive TMLE or projection fit declares every row refused, and a
+        # continuous-time survival fit every row but the E-value, so an explicit estimand
+        # lifts none of those.
+        if (
+            not explicit_evalue
+            or _family(self._result) in ("structural", AUGMENTED_TRIAL_FAMILY)
+            or (_family(self._result) == CONTINUOUS_SURVIVAL_FAMILY and operation != "evalue")
+            or _is_projection(self._result)
+        ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
                 operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None

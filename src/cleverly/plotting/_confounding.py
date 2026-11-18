@@ -310,6 +310,15 @@ def _check_robustness(data: Any, robustness: Any) -> float | None:
         )
     if not _close(robustness.psi, data.psi):
         raise ValueError("the robustness value and the contour describe different estimates")
+    side = robustness.get("side")
+    if side is not None and side != data.bound:
+        # The bound of the value of the optimal rule has two scales, and a robustness value
+        # records the side it solved (X11 (f3)).
+        raise ValueError(
+            f"the robustness value was solved on the {side} side of an asymmetric bound, but "
+            f"the contour maps the {data.bound} bound; build it with contour_data(..., "
+            f"bound={side!r})"
+        )
     estimator = robustness.get("nu2_estimator", "doubly_robust")
     if estimator != data.nu2_estimator:
         raise ValueError(

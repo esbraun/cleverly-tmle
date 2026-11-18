@@ -589,6 +589,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.asymmetric_wald import STUDY as ASYMMETRIC_WALD
     from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
     from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
+    from tests.studies.boundary_node_ltmle import STUDY as BOUNDARY_NODE_LTMLE
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_adaptive_iptw import STUDY as ADAPTIVE_IPTW
     from tests.studies.canonical_adaptive_iptw_pairing import STUDY as ADAPTIVE_IPTW_PAIRING
@@ -628,6 +629,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_full_refit_bootstrap import STUDY as FULL_REFIT_BOOTSTRAP
     from tests.studies.canonical_hazard_msm import STUDY as HAZARD_MSM
     from tests.studies.canonical_hazard_mtp import STUDY as HAZARD_MTP
+    from tests.studies.canonical_hazard_multinode import STUDY as HAZARD_MULTINODE
+    from tests.studies.canonical_hazard_time_varying import STUDY as HAZARD_TIME_VARYING
+    from tests.studies.canonical_hazard_time_varying_multinode import (
+        STUDY as HAZARD_TIME_VARYING_MULTINODE,
+    )
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
@@ -636,6 +642,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
+    from tests.studies.canonical_known_sample_weights import STUDY as KNOWN_SAMPLE_WEIGHTS
     from tests.studies.canonical_learned_weighted_tmle import (
         STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
@@ -677,6 +684,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
     from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
+    from tests.studies.canonical_mtp_pricing_censored import STUDY as MTP_PRICING_CENSORED
     from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
         STUDY as CANONICAL_MULTI_ARM_CTMLE_OAT,
@@ -742,6 +750,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
+    from tests.studies.continuous_survival_functionals import (
+        STUDY as CONTINUOUS_SURVIVAL_FUNCTIONALS,
+    )
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -754,9 +765,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
+    from tests.studies.few_cluster_fold_variance import STUDY as FEW_CLUSTER_FOLD_VARIANCE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.known_score_att import STUDY as KNOWN_SCORE_ATT
     from tests.studies.learned_regimen_ltmle import STUDY as LEARNED_REGIMEN_LTMLE
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
@@ -767,6 +780,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
+    from tests.studies.learned_rule_optimal_compositions import (
+        STUDY as LEARNED_RULE_OPTIMAL_COMPOSITIONS,
+    )
     from tests.studies.learned_rule_optimal_value import STUDY as LEARNED_RULE_OPTIMAL_VALUE
     from tests.studies.learned_rule_split_mean import STUDY as LEARNED_RULE_SPLIT_MEAN
     from tests.studies.learned_rule_stacked import STUDY as LEARNED_RULE_STACKED
@@ -845,6 +861,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_ARMS,
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
+        LEARNED_RULE_OPTIMAL_COMPOSITIONS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         EP_CATE,
@@ -857,7 +874,11 @@ def registered() -> tuple[StudyRecord, ...]:
         SURVIVAL_DR_TMLE,
         HAZARD_MSM,
         HAZARD_MTP,
+        HAZARD_MULTINODE,
+        HAZARD_TIME_VARYING,
+        HAZARD_TIME_VARYING_MULTINODE,
         CONTINUOUS_SURVIVAL,
+        CONTINUOUS_SURVIVAL_FUNCTIONALS,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,
@@ -882,6 +903,7 @@ def registered() -> tuple[StudyRecord, ...]:
         VECTOR_MTP,
         MTP_BOUNDARIES,
         MTP_PRICING,
+        MTP_PRICING_CENSORED,
         MTP_TUNING,
         MTP_POLICY_VARIANCE,
         LONGITUDINAL_SDR,
@@ -906,6 +928,8 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_STOPPING_LTMLE,
         OPTION_RATIO_TRIM,
         OPTION_MARKOV_ORDER,
+        BOUNDARY_NODE_LTMLE,
+        FEW_CLUSTER_FOLD_VARIANCE,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -919,12 +943,14 @@ def registered() -> tuple[StudyRecord, ...]:
         ADAPTIVE_TMLE_SELECTIVE,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
+        KNOWN_SCORE_ATT,
         DRTMLE_ONE_WRONG,
         DRTMLE_FOLDWISE,
         DRTMLE_FOLDWISE_N1500,
         MULTI_ARM_DRTMLE_FOLDWISE,
         STRATIFIED_DRTMLE_FOLDWISE,
         KNOWN_NODE_MECHANISMS,
+        KNOWN_SAMPLE_WEIGHTS,
         SEQUENTIAL_BASELINES,
         STRUCTURAL_NESTED_MEAN,
         PARAMETRIC_GFORMULA,

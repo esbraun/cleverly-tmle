@@ -499,6 +499,12 @@ SCREEN_REASONS: dict[str, str] = {
         "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this "
         "screen does not model; asymmetric_audit reads it under MOVER"
     ),
+    "few-cluster-fold-variance": (
+        "the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is "
+        "clustered (id=), and a clustered mean keeps the identity interval on its t reference; "
+        "the range-logit scale applies to an unclustered mean only "
+        "(ParameterEstimate.interval_scale)"
+    ),
     "option-patience": (
         "late_confounder_stop/lc3_ordered reads an exclusion share in its covered column, not an "
         "interval; the selector path withholds its interval (the study module states it)"

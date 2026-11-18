@@ -1547,6 +1547,9 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("drtmle", "univariate")
+    #: A constant node keeps the constant-node status: the curve subtracts residual-regression
+    #: terms at each node, which the boundary-node supplement does not bound.
+    _boundary_kind: ClassVar[str | None] = "drift"
 
     def __init__(
         self,

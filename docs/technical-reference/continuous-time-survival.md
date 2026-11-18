@@ -42,7 +42,8 @@ An event and a censoring at one time are ordered event first, so the censoring h
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
 initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival that reaches zero before the last target time.
+of one or more, and an initial survival that reaches zero before the grid's end, the last target
+time or restricted horizon.
 
 ## The one-step walk
 
@@ -78,7 +79,7 @@ accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, w
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
 arm is the target's arm, which a mutation test shows is not doubly robust. And a step that would
-take some unit's survival at the last target time below $10^{-8}$ holds that (unit, arm) pair
+take some unit's survival at the grid's end below $10^{-8}$ holds that (unit, arm) pair
 still for that step and tries the step again; the pair moves on the next step. The record's
 `frozen_share` counts the pairs ever held.
 
@@ -99,6 +100,179 @@ weights raised to the positivity floor (`bounded_share`), the pairs below it at 
 (`last_time_floor_share`), the pairs held by the walk (`frozen_share`), and the random times at
 which the score equation also holds (`off_grid_share`).
 
+The record also stores the factors of the positivity condition, for overlap plots and the
+support diagnostic below. `p1` holds each row's $\hat\pi(1 \mid L_i)$, the probability of the
+treated arm, with shape `(n,)`. `retention_before` holds $\hat S_c(t_k^- \mid a, L_i)$, the
+probability of remaining uncensored just before each target time had the row received arm $a$,
+with shape `(2, n, n_target_times)` and the arms in the order of `arms`. Both are predicted out of
+fold when the fit is cross-fitted, in sample otherwise, and stored as fitted, before any bound.
+The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for both arms and
+never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
+received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
+arrays.
+
+## Restricted means, ratios and the curve
+
+The restricted mean time lost to cause $j$ up to $\tau$ and the restricted mean survival time are
+
+$$
+\mathrm{RMTL}_{a,j}(\tau) = E_L \int_0^\tau F_j(u \mid a, L)\, du, \qquad
+\mathrm{RMST}_a(\tau) = \tau - \sum_{j=1}^J \mathrm{RMTL}_{a,j}(\tau).
+$$
+
+The fitted $F_j$ is a step function on the grid $u_1 < \dots < u_M$ of observed times, so its
+integral is $\sum_{u_m \le \tau} F_j(u_m)\, \Delta_m(\tau)$ with
+$\Delta_m(\tau) = \min(u_{m+1}, \tau) - u_m$, exactly. Every observed time up to $\tau$ is a
+grid point, so $D_{a,j,u}$ is constant between grid points and the efficient influence curve of
+the RMTL is $\sum_m \Delta_m(\tau)\, D_{a,j,u_m}$. A test checks it against the Gateaux derivative
+of an exact law.
+
+The walk solves the score equations of the risks at the target times only. In the registered
+study the score equation also held at about 40% of 100 random times on average
+(`tests/canonical/continuous_survival/targeting-readings.csv`, `mean_off_grid_share`), so the
+integral of the targeted curve has no solved score. Rytgaard and van der Laan (2024), Theorem 1,
+cover the whole curve only on a grid of mesh $O_P(n^{-1/3-\eta})$, which a user's few target times
+do not meet. Each restriction time in `restricted_horizons=` therefore adds
+$\mathrm{RMTL}_{a,j}(\tau)$, for both arms and every cause, to the targets of the walk.
+
+A target
+with grid weights $\omega_m$ has the clever covariate
+$1\{l = j\}\, W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) - W(u) F_j(u)\} / S(u)$, with
+$W(u) = \sum_{u_m \ge u} \omega_m$, divided by $\pi\, S_c$. Both sums are reverse cumulative sums,
+so a step still costs $O(JnM)$, and a risk is the target whose weights pick one grid point. The RMST
+is linear in the RMTLs, so its score is solved with theirs. The extra targets change the walk, so
+the risks of a fit with restricted horizons differ slightly from those of a fit without them; a fit
+without them is unchanged bit for bit.
+
+The result reads only targeted estimates and smooth functions of them:
+
+| method | reports |
+| --- | --- |
+| `rmtl(arm, tau, cause, versus=)` | a targeted $\mathrm{RMTL}_{a,j}(\tau)$, or the difference of the two arms' |
+| `rmst(arm, tau, versus=)` | $\mathrm{RMST}_a(\tau)$, or the difference of the two arms' |
+| `ratio(numerator, denominator, kind=, view=)` | the risk ratio or odds ratio of the two arms' risks at one cause and time, on the log scale; `view="survival"` takes the ratio of $1 - F$ on a fit with one event type |
+| `contrast(function, names)` | a smooth function of reported estimates by the delta method |
+| `curve(scale=, times=)` | the risks and risk differences at the target times, with the band columns when the fit has one; `scale="survival"` reports $1 - F$ on a fit with one event type |
+| `to_dict()` | every estimate's record, the selected models, the walk's record and the settings, ready for JSON |
+
+An RMTL and an RMST carry the bounds $(0, \tau)$, and their differences $(-\tau, \tau)$. A
+level's interval is the range-logit interval on $(0, \tau)$ of [small-sample
+scale](inference.md#small-sample-scale), so it stays inside its range, while its standard
+error and curve stay in time units, as a risk's stay on the risk scale. A difference keeps the
+identity scale, as a risk difference does.
+`cleverly.sensitivity.evalue(result, (numerator, denominator))` reads the E-value of
+`result.ratio(numerator, denominator)`, the two arms' risks at one cause and time. The bound needs
+the unmeasured confounder to affect the treatment and the event only, and not censoring given
+$(A, L)$. No coverage study registers its confidence-limit E-value, so the limit prints as
+descriptive.
+
+## Assessment
+
+`ContinuousSurvivalResult` declares a capability row for every assessment operation, so
+`result.assess()` reports each operation as run or refused and does not raise for a refused one.
+The support, score, nuisance and influence diagnostics read the record and the influence curves
+and refit nothing. The result also stores a copy of its estimator, with the seed resolved and the
+outer fold labels recorded, and its data, so `result.estimator.refit(result.data,
+random_state=result.estimator.random_state)` reproduces the fit bit for bit in one process. The
+refutation and the truncation curve refit that copy.
+
+| operation | status | what it reads, or why it refuses |
+| --- | --- | --- |
+| `diagnostics.support()` | runs, `completed`; `warning` when the floor raised more than 1% of the followed cells | the quantiles of $\hat\pi(1 \mid L)$ overall and by arm, its tail shares, the Kish ratio of $1 / \hat\pi(A \mid L)$ in each arm, the quantiles of $\hat S_c(t_k^- \mid A, L)$ at each target time, `bounded_share` (which grades the row on the point support report's 1% and 5% truncation tiers), `last_time_floor_share` and `frozen_share` |
+| `diagnostics.score_equations()` | runs, `passed` or `failed` | each target's $\lvert P_n D^* \rvert / \hat\sigma$ against the walk's cutoff, the steps and halvings; an explicit `tolerance` is refused, because the cutoff is the fit's own stopping rule |
+| `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
+| `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
+| `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
+| `diagnostics.refute()` | runs, descriptive (`passed=None`) | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
+| `diagnostics.truncation_curve()` | runs, descriptive | the walk rerun at each floor on $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ from refitted initial hazards, after an exact replay of the fit at its own floor; [truncation stability](validation-methods.md#truncation-stability) states the grid and columns |
+| `sensitivity.simulated_confounding()` | refused, [X101](../roadmap.md#x101-assessment-of-continuous-time-survival-fits) | the replay redraws event and censoring times under a latent shift of the hazards, and the shipped survival replay reads a time grid |
+| `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
+| `sensitivity.marginal_bounds()` | refused, F16 | the point-treatment bound tilts the outcome regression of an arm mean, and no tilt of the cause-specific hazards is derived |
+| `sensitivity.missingness()`, `tipping_gamma()` | refused, F16 | the tilt perturbs a missing-at-random outcome, and no tilt of independent censoring in continuous time is derived |
+| `sensitivity.evalue(estimand=(numerator, denominator))` | runs, `passed`; deferred without an estimand | the E-value of `result.ratio(numerator, denominator)`, the two arms' risks at one cause and target time, as [above](#restricted-means-ratios-and-the-curve) |
+
+Each refusal is a `CapabilityError` carrying the record its row declares. The free functions of
+`cleverly.sensitivity` and `cleverly.validation` raise the same record before they read any
+point-treatment attribute, and `cleverly.validation.refute` and
+`cleverly.sensitivity.truncation_curve` run as the facade does.
+`tests/unit/test_continuous_survival_assessment.py` checks every row and every refusal, and that
+`influence()` reads each estimate's influence curve. The capability sweep
+(`tests/unit/test_capability_row_sweep.py`) asks every row of a continuous-time fit whether its call
+agrees, and requires `refute` and `truncation_curve` to answer.
+
+A refute with the default tests and replicates costs 60 refits of the fit (40 on an arm risk), and the curve one refit
+of the nuisances plus one walk per floor. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
+(`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
+jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
+fit, so each prints its numbers without a verdict.
+
+The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
+support row, and a censoring model that depends on the arm. Under that model each arm's stored
+censoring survival matches the model's prediction under that arm, recomputed as the product over the
+observed times strictly before each target, and the two arms differ. One target sits on an observed
+censoring time, so a lookup that includes that time's own jump fails. Under cross-fitting, a patched
+treatment fit whose value encodes its training rows shows that each row stores the probability from
+the model its own fold did not train. `tests/unit/test_continuous_survival_refute.py` holds the
+witnesses and mutation controls of the stored estimator, the refutation and the curve: a refit at
+another seed moves a cross-fitted estimate, an unseeded SAGA treatment learner breaks the replay
+unless the fit seeds it, and the curve and refutation controls listed in the validation reference.
+
+### Covariate balance
+
+`covariate_balance(result)` returns a `BalanceOverTime` with three diagnostics, each over the
+baseline covariates $W$, unweighted and weighted, with no interval. The general definitions and
+the averages are in [covariate balance over time](longitudinal-tmle.md#covariate-balance-over-time).
+
+| diagnostic | rows | compares | weight |
+| --- | --- | --- | --- |
+| `"confounding"` | every unit | the arms | $1 / \hat\pi(A \mid L)$, the point-treatment ATE weight |
+| `"joint"`, at each $t_k$ | units whose status at $t_k$ is known: an event of any cause at $\tilde T \le t_k$, or $\tilde T \ge t_k$ | the arms | $1 / \max(\hat\pi(A \mid L)\,\hat S_c(\min(\tilde T, t_k)^- \mid A, L), \text{floor})$ |
+| `"censoring"`, at each $t_k$ and arm $a$ | the arm's status-known units against the whole arm | known against all | $1 / \hat S_c(\min(\tilde T, t_k)^- \mid a, L)$ on the known units |
+
+For a continuous all-cause $T$, $E[\mathbb 1\{\text{known}\} / S_c(\min(\tilde T, t_k)^-) \mid A, L]
+= P(T \le t_k \mid A, L) + P(T \ge t_k \mid A, L) = 1$, so under correct models both weighted
+differences are zero in expectation. The `"joint"` row is the weighted population the risk at
+$t_k$ stands on, but it is an arm contrast and cannot see a censoring-model error that shifts both
+arms alike; the `"censoring"` row can. Its standardized column divides by the arm's unweighted
+standard deviation. A unit with an event before $t_k$ reads $\hat S_c(\tilde T^-)$ from
+`record.retention_at_time`; the others read `record.retention_before`. A result built by hand with
+no data is refused, and there is no feedback diagnostic, because the fit has no covariates after
+baseline. `tests/unit/test_balance_over_time.py` checks both rows at large $n$ under the true
+censoring model and under one that ignores $W$.
+
+## Memory
+
+The engine holds both arms' hazard jumps, survival and incidences for every unit at every grid
+time: arrays of shape $(2, n, M)$ and $(2, J, n, M)$, with $M$ the distinct observed times up to
+the last target time or restricted horizon. When $M$ grows with $n$, memory grows as $n^2$. A fit
+holds at most about $\max(73 J + 97,\ 81 J + 81)\, n M$ bytes at once, $170\, n M$ with one cause,
+reached in the walk's trial step; a truncation curve keeps the initial jumps and weight product
+beside every walk, $16 (J + 1)\, n M$ bytes more. At $n = 100{,}000$ with one cause and
+$M = 59{,}980$ that is about 1 TB.
+
+Before fitting any nuisance, the fit predicts that peak phase by phase from $n$, $J$, $M$, the
+target rows and the largest prediction fold (`cleverly.survival._memory.peak_bytes`), and refuses
+with `MethodConfigurationError` when the prediction exceeds the budget. The budget is the memory
+available at that moment (`cleverly.utils.memory.available_memory`, which reads the control
+group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it
+in either direction. Where the platform reports no available memory, as on macOS, nothing is
+checked unless `max_memory_bytes=` is passed. Every refit of a result, and so every refutation,
+assessment replay and truncation curve, uses the fit's `max_memory_bytes`.
+`TimeToEvent(grid="continuous")` has no such setting; its refusal spells the
+`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the
+budget can be set.
+
+The prediction counts NumPy arrays the engine and the shipped hazard learners allocate. It does
+not count a user learner's own allocations, which can only make the check miss a refusal. It
+exceeds the peak by about 10% at most when the walk takes a step, and by up to about 20% when the
+initial fit already meets the stopping rule, since the check cannot know that in advance.
+`tests/unit/test_continuous_survival_memory.py` checks that the `tracemalloc` peak of a fit stays
+at or below the prediction and within 10% of it. Its fixtures have one to three causes, a
+restricted mean, cross-fitting, the factual tilt and a truncation curve, and each phase's peak
+stays at or below that phase's prediction. Dropping one $(2, J, n, M)$ array from the fit's
+prediction, or the censoring jumps from the nuisance phase's, falls below the measured peak.
+Coarsening the time grid would lower $M$ but changes the analysis, so the engine never does it.
+
 ## What is refused
 
 | request | why |
@@ -109,6 +283,12 @@ which the score equation also holds (`off_grid_share`).
 | a declared cause with no event | its risk is zero by construction |
 | a user treatment learner with `cross_fit=False` | the in-sample interval assumes a finite-dimensional model |
 | a method other than `TMLEMethod`, or a setting the engine does not read | the continuous-time engine runs this one estimator |
+| `rmtl()` or `rmst()` at a $\tau$ not in `restricted_horizons=` | the risks at the target times do not solve the score of their integral |
+| `curve()` or `ratio()` at a time that is not a target time | a risk between target times solves no score equation of the fit |
+| `ratio()` of anything but the two arms' risks at one cause and one time | `contrast()` takes any other smooth function of reported estimates |
+| a restricted horizon past one arm's follow-up, or before the first event of some cause in some arm | as for a target time |
+| `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
+| a fit whose predicted peak memory exceeds the memory available or `max_memory_bytes=` | the dense arrays would not fit; see [Memory](#memory) |
 
 ## Evidence
 
@@ -121,6 +301,32 @@ cause have happened
 (`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
 ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
 early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has. `tests/unit/test_continuous_survival.py` checks the influence curve
+how many events each arm and cause has.
+
+The registered study [continuous-time survival restricted means and risk
+ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
+`restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
+differences of that fit, whose extra targets move them, the log risk ratios at the median and
+upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
+at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
+calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
+its last target time reads `supported` under the conditions above, and its restricted means read
+`supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
+(`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
+earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
+heavily.
+
+A fit with several restricted horizons, or one past its last target time, whose grid
+the walk then extends, reads experimental for every estimate: only the exact-law tests below
+measure that extension. The risk ratio of a fit without restricted means, an odds ratio, the
+survival view, a smooth contrast and the band read experimental. A risk-only walk on the
+study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
+this law, so the claim that a restricted mean must be targeted rests on the score test below.
+
+`tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
-control for each censoring, survival and tilting term.
+control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
+checks the restricted mean's curve against the Gateaux derivative of the same law and the weighted
+direction against a sum over grid points, with the term $W(u) F_j(u)$ dropped as a mutation. It
+also checks that the walk removes the bias of a restricted mean under a wrong hazard, and that a
+restricted mean left out of the direction stays unsolved and biased.

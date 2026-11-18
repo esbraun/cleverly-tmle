@@ -36,7 +36,7 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators import drtmle as drtmle_module
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
-from cleverly.interventions import Shift
+from cleverly.interventions import LearnedRule, Shift
 from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
@@ -1127,9 +1127,10 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
 class TestASingleEventOutcomeStatesASampleMinimum:
     """W10. One unit holding an outcome class is a fact about the sample, not the draw.
 
-    Every partition leaves the complement of that unit's own fold without the class, so
-    the refusal states the minimum rather than describing one drawn split, exactly as the
-    arm minimum beside it does.
+    Every partition leaves the complement of that unit's own fold without the class, so a
+    method that refuses such a complement states the minimum rather than describing one
+    drawn split, exactly as the arm minimum beside it does. DR-TMLE is that method here: a
+    plain TMLE takes the constant-target rule instead (:class:`TestAPlainTMLETakesTheRule`).
     """
 
     @staticmethod
@@ -1147,7 +1148,7 @@ class TestASingleEventOutcomeStatesASampleMinimum:
         return frame
 
     @staticmethod
-    def binary_fit(**overrides: Any) -> TMLE:
+    def binary_fit(kind: type[TMLE] = DRTMLE, **overrides: Any) -> TMLE:
         settings: dict[str, Any] = {
             "outcome_learner": LogisticRegression(max_iter=1000),
             "treatment_learner": LogisticRegression(max_iter=1000),
@@ -1157,8 +1158,11 @@ class TestASingleEventOutcomeStatesASampleMinimum:
             "simultaneous": False,
             "estimands": ["ate"],
         }
+        if kind is DRTMLE:
+            settings["reduced_outcome_learner"] = LinearRegression()
+            settings["reduced_mechanism_residual_learner"] = LinearRegression()
         settings.update(overrides)
-        return TMLE(**settings)
+        return kind(**settings)
 
     def test_the_refusal_states_the_minimum_and_names_no_split(self) -> None:
         Counting.calls = 0
@@ -1206,6 +1210,103 @@ class TestASingleEventOutcomeStatesASampleMinimum:
         assert "training complement contains no observed outcome 1" in message
 
 
+class TestAPlainTMLETakesTheRule:
+    """A plain TMLE's pooled outcome regression predicts the one value of its complement.
+
+    The fold whose complement holds no event is ``ConstantFit`` at 0, the maximum-likelihood
+    fit, as the per-arm regression already is. The sample still owes each class one unit:
+    with none, every complement holds one value and there is no regression to fit. A
+    complement without an arm stays refused, because the treatment mechanism never takes
+    the rule.
+    """
+
+    frame = staticmethod(TestASingleEventOutcomeStatesASampleMinimum.single_event_frame)
+
+    @staticmethod
+    def stranded(cv_evaluation: bool) -> tuple[TMLE, pd.DataFrame]:
+        frame = TestASingleEventOutcomeStatesASampleMinimum.single_event_frame()
+        frame.loc[30, "Y"] = 1.0
+        seed = seed_stranding_rows(len(frame), 5, np.array([0, 30]))
+        estimator = TestASingleEventOutcomeStatesASampleMinimum.binary_fit(
+            TMLE, random_state=seed, cv_evaluation=cv_evaluation
+        )
+        return estimator, frame
+
+    @pytest.mark.parametrize("cv_evaluation", [False, True], ids=["stacked", "fold-evaluated"])
+    def test_a_complement_without_an_event_fits_and_names_its_fold(
+        self, cv_evaluation: bool
+    ) -> None:
+        estimator, frame = self.stranded(cv_evaluation)
+        fit = estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        result = fit.single()
+        folds = np.asarray(result.nuisance.folds.assignment)
+        fold = int(folds[0])
+        assert fold == int(folds[30])
+        # The record counts folds from 1.
+        assert result.nuisance.outcome_constant_folds == (fold + 1,)
+        # The fold that holds both events trains on a complement of zeros, so its rows'
+        # initial outcome predictions are exactly 0 (a nonzero witness: the rows are events).
+        rows = folds == fold
+        assert np.all(result.nuisance.outcome.observed[rows] == 0.0)
+        # Two events can leave an arm with one value, whose status withholds the interval;
+        # the plug-in standard error is still computed.
+        assert np.isfinite(result["ate"].psi) and np.isfinite(result["ate"].plugin_std_error)
+
+    def test_one_event_in_the_sample_fits(self) -> None:
+        estimator = TestASingleEventOutcomeStatesASampleMinimum.binary_fit(TMLE)
+        fit = estimator.fit(self.frame(), outcome="Y", treatment="A", covariates=["W1", "W2"])
+        assert np.isfinite(fit.single()["ate"].psi)
+
+    def test_a_sample_without_an_event_is_refused(self) -> None:
+        frame = self.frame()
+        frame["Y"] = 0.0
+        with pytest.raises(DataError, match="needs both outcome classes among the observed"):
+            TestASingleEventOutcomeStatesASampleMinimum.binary_fit(TMLE).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+            )
+
+    def test_without_the_rule_the_complement_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: a plain TMLE that does not take the rule refuses the same draw."""
+        original = TMLE._check_training_support
+
+        def refusing(self: TMLE, *args: Any, **kwargs: Any) -> None:
+            kwargs["constant_outcome"] = False
+            original(self, *args, **kwargs)
+
+        monkeypatch.setattr(TMLE, "_check_training_support", refusing)
+        estimator, frame = self.stranded(cv_evaluation=True)
+        with pytest.raises(DataError, match="training complement contains no observed outcome 1"):
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+
+    def test_a_learned_rule_fit_keeps_the_refusal(self) -> None:
+        """A learned rule reads the outcome regression in its rule fit: the rule is not taken.
+
+        Pins the ``learned_rule is None`` condition: the stranded draw that a plain fit takes is
+        refused, with the learned-rule remedy.
+        """
+        estimator, frame = self.stranded(cv_evaluation=False)
+        learned = TestASingleEventOutcomeStatesASampleMinimum.binary_fit(
+            TMLE, random_state=estimator.random_state, learned_rule=LearnedRule(), estimands=None
+        )
+        with pytest.raises(DataError) as raised:
+            learned.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        message = str(raised.value)
+        assert "training complement contains no observed outcome 1" in message
+        assert "value of the full-sample rule" in message
+
+    def test_a_complement_without_an_arm_stays_refused(self) -> None:
+        frame = self.frame()
+        frame["Y"] = np.tile([0.0, 1.0], len(frame) // 2)
+        treated = np.flatnonzero(frame["A"].to_numpy() == 1.0)
+        frame.loc[treated[2:], "A"] = 0.0
+        seed = seed_stranding_rows(len(frame), 5, treated[:2])
+        estimator = TestASingleEventOutcomeStatesASampleMinimum.binary_fit(TMLE, random_state=seed)
+        with pytest.raises(DataError, match="training complement contains no row in arm 1"):
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+
+
 # ------------------------------- I2: no post-draw refusal names a repartition, anywhere
 
 
@@ -1227,7 +1328,7 @@ class TestTheReducedRegressionRefusalNamesNoRedraw:
 
         monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
         # The leave-two-out preflight refuses the same draw first; disable it too.
-        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a: None)
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a, **k: None)
         n, n_folds = 60, 6
         rng = np.random.default_rng(0)
         frame = pd.DataFrame(

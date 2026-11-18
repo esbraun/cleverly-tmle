@@ -151,7 +151,8 @@ def _user_names(result: Any, key: str | None = None) -> set[str]:
         *getattr(data, "event_names", ()),
         *getattr(data, "cause_labels", ()),
     }
-    if data.is_weighted:
+    # A continuous-time survival fit's data carries no weights.
+    if getattr(data, "is_weighted", False):
         names.add(data.weight_report().name)
     return {str(name) for name in names if name}
 
@@ -660,9 +661,13 @@ def _header_value(summary: Summary, label: str) -> str | None:
 
 def _check_header_counts(result: Any, summary: Summary) -> None:
     data = result.data
-    assert _header_value(summary, vocabulary.ROWS) == f"{data.n:,}"
+    # A one-row-per-unit fit (continuous-time survival) labels its count as units.
+    count = _header_value(summary, vocabulary.ROWS)
+    if count is None:
+        count = _header_value(summary, vocabulary.UNITS)
+    assert count == f"{data.n:,}"
     share = _header_value(summary, vocabulary.TREATED_SHARE)
-    if share is not None and not data.is_weighted:
+    if share is not None and not getattr(data, "is_weighted", False):
         assert _close(share, float(np.mean(data.treatment)))
 
 

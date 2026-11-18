@@ -231,16 +231,29 @@ POLICY_VARIANCE_BAND_REFUSAL = Refusal(
     ),
 )
 
+#: Why no band covers an estimate with the boundary-node supplement (X54 part (i)).
+BOUNDARY_NODE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() draws its multiplier process from the influence curves, and an "
+    "estimate with the boundary-node supplement adds a variance that the curves do not "
+    "carry, so the band's critical value would not cover it.",
+    alternative=(
+        "Report the pointwise intervals, or report horizons at which the followers of every "
+        "regimen hold both outcome values."
+    ),
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result over a learned-rule value, the known-regime "
-    "values beside it (ey_known_regime) and their contrasts (ate_learned_rule). Joint "
-    "normality of the stack gives each contrast's own interval, and a band over a "
-    "data-adaptive value and fixed regimes has no witness (X11 (c2) in docs/roadmap.md).",
+    "values beside it (ey_known_regime) and their contrasts (ate_learned_rule, or "
+    "ate_optimal_rule beside the value of the optimal rule). Joint normality of the stack "
+    "gives each contrast's own interval, and a band over a data-adaptive value and fixed "
+    "regimes has no witness (X11 (c2) in docs/roadmap.md).",
     alternative=(
         "Report the pointwise intervals, or pass simultaneous_bands() the estimates without "
-        "the ey_known_regime and ate_learned_rule ones."
+        "the ey_known_regime, ate_learned_rule and ate_optimal_rule ones."
     ),
     roadmap="X11",
 )
@@ -494,9 +507,14 @@ def _fill_multipliers(rng: np.random.Generator, out: FloatArray, kind: Multiplie
         # half the bytes drawn, and the comparison writes a bool array the size of the
         # buffer instead of a second float64 one.  The threshold moves the low point's
         # probability by less than 2**-32 (the exact moments are pinned in the tests).
+        # The flags are then written as flag * (LOW - HIGH) + HIGH, two plain passes over the
+        # buffer, about 4x faster than a fill followed by a masked copy.  It is exact, not
+        # merely close: LOW - HIGH and (LOW - HIGH) + HIGH are both representable doubles,
+        # so neither step rounds, and a clear flag gives -0.0 + HIGH == HIGH (both pinned in
+        # the tests).  ``out`` must be float64, as both callers allocate it.
         flags = rng.integers(0, 2**32, size=out.shape, dtype=np.uint32) < _MAMMEN_THRESHOLD
-        np.copyto(out, _MAMMEN_HIGH)
-        np.copyto(out, _MAMMEN_LOW, where=flags)
+        np.multiply(flags, _MAMMEN_LOW - _MAMMEN_HIGH, out=out)
+        np.add(out, _MAMMEN_HIGH, out=out)
         return
     raise ValueError(f"kind must be 'rademacher', 'mammen' or 'normal'; got {kind!r}")
 
@@ -738,7 +756,8 @@ def simultaneous_bands(
         influence curve, which matches the raw second moment only on a mean-zero curve,
         and this function does not check the mean. Also, with code ``inference_gap``, if
         any estimate is a known-regime value (``ey_known_regime``) or a contrast of the
-        learned rule with a known regime (``ate_learned_rule``): no joint result covers a
+        learned rule with a known regime (``ate_learned_rule``, or ``ate_optimal_rule`` beside
+        the value of the optimal rule): no joint result covers a
         band over a data-adaptive value and fixed regimes (X11 (c2)). Also, with code
         ``inference_gap``, under ``band_scale="logit"``, if a bounded estimate with a
         positive standard error lies on or outside its range, where the logit band is not
@@ -919,7 +938,8 @@ def band_member(estimate: ParameterEstimate) -> bool:
     An estimate that supplies inference does, and so does a bounded estimate on or outside its
     range (status ``"out_of_range_plugin"``), which keeps the band behaviour it had before the
     status: the logit band refuses it and the identity band covers it.  Every other withheld
-    estimate leaves the band.
+    estimate leaves the band, and so does an estimate with the boundary-node supplement,
+    whose added variance the band's multiplier process does not carry.
 
     Parameters
     ----------
@@ -931,6 +951,8 @@ def band_member(estimate: ParameterEstimate) -> bool:
     bool
         ``True`` for a member.
     """
+    if getattr(estimate, "node", None) is not None:
+        return False
     return bool(estimate.supplies_inference) or str(estimate.inference) == OUT_OF_RANGE_STATUS
 
 
@@ -974,6 +996,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(KNOWN_REGIME_BAND_REFUSAL)
     if any(estimate.covariance_rule == "policy_weighted" for _, estimate in items):
         raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
+    if any(estimate.node is not None for _, estimate in items):
+        raise CapabilityError.from_refusal(BOUNDARY_NODE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]
@@ -998,8 +1022,8 @@ def _checked_items(
 def known_regime_estimates(names: Iterable[str]) -> list[str]:
     """The names among ``names`` that read a known regime beside a learned rule.
 
-    Each is an ``ey_known_regime`` or ``ate_learned_rule`` parameter, a stratum alias
-    included, and no band covers it (:data:`KNOWN_REGIME_BAND_REFUSAL`).
+    Each is an ``ey_known_regime``, ``ate_learned_rule`` or ``ate_optimal_rule`` parameter, a
+    stratum alias included, and no band covers it (:data:`KNOWN_REGIME_BAND_REFUSAL`).
 
     Parameters
     ----------

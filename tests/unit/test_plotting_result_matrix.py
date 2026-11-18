@@ -175,6 +175,56 @@ def _time_to_event() -> Any:
     )
 
 
+def _boundary_node() -> Any:
+    """The hazard curve fit with no event in ``arm1`` at node 2, which adds the supplement."""
+    frame, design = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        treatment_learner=_logistic(),
+        survival_model="hazard",
+        cross_fit=False,
+    )
+
+
+def _boundary_node_iterated() -> Any:
+    """The clustered iterated-mean curve fit with no event in ``arm1`` at node 2."""
+    frame, _ = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    frame["site"] = np.arange(len(frame)) // 10
+    design = TimeToEvent(
+        time="time",
+        event="event",
+        treatment="A",
+        baseline=("W1", "W2"),
+        grid=(1, 2, 3, 4),
+        cluster="site",
+    )
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=_logistic(),
+        cross_fit=False,
+    )
+
+
+def _boundary_node_bootstrap() -> Any:
+    """The supplemented hazard curve fit with a full-refit bootstrap."""
+    frame, design = _point_survival()
+    frame.loc[(frame["A"] == 1) & (frame["time"] == 2), "event"] = 0
+    return CausalStudy(frame, design=design).estimate(
+        RegimeMean({"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4)),
+        outcome_learner=_logistic(),
+        treatment_learner=_logistic(),
+        survival_model="hazard",
+        cross_fit=False,
+        n_bootstrap=19,
+        random_state=0,
+    )
+
+
 def _survival_method(method: Any) -> Callable[[], Any]:
     def fit() -> Any:
         frame, design = _point_survival()
@@ -328,15 +378,34 @@ def _effect_curve_continuous() -> Any:
     return fit.effect_curve()
 
 
+def _mtp_censored(estimator: str) -> Callable[[], Any]:
+    """A continuous-treatment modified policy with dropout after each node (X77)."""
+
+    def build() -> Any:
+        from tests.unit import _capability_sweep_support as sweep
+
+        return sweep._fit_mtp_censored(estimator)
+
+    return build
+
+
 #: One small fit per result family.
 FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_repeats": _point_tmle,
     "point_tmle_bootstrap": _point_bootstrap,
+    # The known-score ATT and ATC on a declared mechanism (X35): the same result class, whose
+    # ATT and ATC carry a different plug-in and influence curve.
+    "point_tmle_known_score": sweep.fit_known_score,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
+    "time_to_event_boundary_node": _boundary_node,
+    "time_to_event_boundary_node_iterated": _boundary_node_iterated,
+    "time_to_event_boundary_node_bootstrap": _boundary_node_bootstrap,
     "time_to_event_ctmle": _survival_method(CollaborativeTMLEMethod()),
     "time_to_event_drtmle": _survival_method(DRTMLEMethod()),
     "continuous_survival": _continuous_survival,
+    # X6 (c): restricted_horizons= adds restricted means, in time units, beside the risks.
+    "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "effect_curve_continuous": _effect_curve_continuous,
@@ -344,9 +413,21 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_withheld": _point_withheld,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
+    # plot answers as it does on an estimated-mechanism fit of the same kind.
+    "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
+    "ltmle_known_sample": sweep.fit_ltmle_known_sample_weights,
+    "ltmle_mtp_censored": _mtp_censored("ltmle"),
+    "sdr_mtp_censored": _mtp_censored("sdr"),
     # X70 (d) and (c): the hazard working model and the hazard modified treatment policy.
     "hazard_msm": sweep.fit_hazard_msm,
     "hazard_mtp": sweep.fit_hazard_mtp,
+    # X70 (b1): the hazard path on a held design with covariates after baseline.
+    "hazard_time_varying": sweep.fit_hazard_time_varying,
+    # X70 (b2): the same backward pass with a treatment at several nodes.
+    "hazard_time_varying_multinode": sweep.fit_hazard_time_varying_multinode,
+    # X70 (a): the hazard path with a treatment at several nodes and baseline covariates.
+    "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
 }
@@ -367,6 +448,30 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "ltmle_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "DataError: A1 is a continuous treatment,",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "sdr_mtp_censored": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "DataError: A1 is a continuous treatment,",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "point_tmle_repeats": {
         "forest": "draws",
         "curve": "TypeError: curve() draws a longitudinal fit,",
@@ -391,13 +496,25 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
     },
+    "point_tmle_known_score": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "ltmle_repeats": {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",
-        "balance": "X103",
+        "balance": "draws",
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
         "repeats": "draws",
@@ -409,11 +526,47 @@ EXPECTED: dict[str, dict[str, str]] = {
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",
-        "balance": "X103",
+        "balance": "draws",
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node_iterated": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "time_to_event_boundary_node_bootstrap": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "draws",
     },
     "time_to_event_ctmle": {
         "forest": "draws",
@@ -421,7 +574,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "influence": "ValueError: risk_regimen[arm1 @ t=2]: this estimate's",
         "overlap": "draws",
         "weights": "draws",
-        "balance": "X103",
+        "balance": "draws",
         "learners": "draws",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
@@ -433,7 +586,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",
-        "balance": "X103",
+        "balance": "draws",
         "learners": "draws",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
@@ -441,12 +594,24 @@ EXPECTED: dict[str, dict[str, str]] = {
     },
     "continuous_survival": {
         "forest": "draws",
-        "curve": "X100",
+        "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
-        "weights": "X100",
-        "balance": "X103",
-        "learners": "X100",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "continuous_survival_restricted": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "draws",
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
@@ -535,16 +700,40 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "point_tmle_known_sample": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_known_sample": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     # The coefficients have no horizon, so the curve refuses and forest draws them.
     "hazard_msm": {
         "forest": "draws",
         "curve": "CapabilityError: this fit reports the coefficients",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -552,11 +741,48 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
-        "overlap": "X100",
+        "overlap": "draws",
         "weights": "draws",
-        "balance": "X100",
-        "learners": "X100",
-        "calibration": "X100",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_time_varying": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_time_varying_multinode": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        # The known policy at both nodes is a ratio of probabilities, not one probability.
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "hazard_multinode": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -597,7 +823,7 @@ def _raised_by_cleverly(error: BaseException) -> bool:
     return in_package and line.startswith("raise")
 
 
-def outcome(plot: str, result: Any) -> str:
+def outcome(plot: str, result: Any, **options: Any) -> str:
     """``"draws"``, the roadmap id a refusal names, or the refusal's class and first words.
 
     An exception that a ``raise`` statement of ``cleverly`` did not raise, or that is not a
@@ -606,7 +832,7 @@ def outcome(plot: str, result: Any) -> str:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            fig = getattr(plotting, plot)(result)
+            fig = getattr(plotting, plot)(result, **options)
     except (ValueError, TypeError) as error:
         if not _raised_by_cleverly(error):
             raise
@@ -624,6 +850,87 @@ def outcome(plot: str, result: Any) -> str:
 @pytest.mark.parametrize("plot", PLOTS)
 def test_each_plot_draws_or_refuses_each_family(fits: Any, family: str, plot: str) -> None:
     assert outcome(plot, fits(family)) == EXPECTED[family][plot]
+
+
+#: Each display limit, the call that sets it small, and the note a limit that reduces adds.
+#: A limit changes only what is drawn: the figure's numbers and refusals stay as they are.
+LIMITED: dict[str, tuple[dict[str, Any], str]] = {
+    "influence": ({"max_points": 16}, "Line drawn through"),
+    "curve": ({"max_rug_points": 3}, "Rug: at most 3"),
+    "balance": ({"max_covariates": 1, "page": 1}, "Page 1 of"),
+}
+
+
+def _drawn_arrays(fig: Figure) -> list[Any]:
+    """Every line's and collection's drawn coordinates, panel by panel."""
+    arrays: list[Any] = []
+    for axis in fig.axes:
+        arrays.extend(np.asarray(line.get_xydata()).tolist() for line in axis.lines)
+        for item in axis.collections:
+            segments = getattr(item, "get_segments", None)
+            drawn = segments() if segments is not None else item.get_offsets()
+            arrays.append([np.asarray(piece).tolist() for piece in drawn])
+        arrays.append([label.get_text() for label in axis.get_yticklabels()])
+    return arrays
+
+
+def _limited_count(plot: str, fig: Figure) -> list[int]:
+    """What each display limit bounds, per panel: line points, rug ticks or covariate rows."""
+    counts = []
+    for axis in fig.axes:
+        if plot == "influence":
+            counts.extend(
+                len(line.get_xdata())
+                for line in axis.lines
+                if line.get_gid() == "cleverly-influence-curve"
+            )
+        elif plot == "curve":
+            counts.extend(
+                len(item.get_segments())
+                for item in axis.collections
+                if item.get_gid() == "cleverly-rug"
+            )
+        elif any(item.get_gid() == "cleverly-balance-after" for item in axis.collections):
+            counts.append(len([t for t in axis.get_yticklabels() if t.get_text()]))
+    return counts
+
+
+def _quiet_plot(plot: str, result: Any, **options: Any) -> Figure:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return getattr(plotting, plot)(result, **options)
+
+
+@_SHARED
+@pytest.mark.parametrize("family", list(FAMILIES))
+@pytest.mark.parametrize("plot", list(LIMITED))
+def test_a_display_limit_bounds_the_drawing_and_nothing_else(
+    fits: Any, family: str, plot: str
+) -> None:
+    """Where the plot refuses, the limited call refuses alike; where it draws, the limit holds.
+
+    A limit that reduces leaves at most its count drawn and says so in the notes. Where it
+    has nothing to reduce (a ``curve`` view with no rug, a short influence line), the figure
+    is the plain one, so a limit that is ignored, or that changes another figure, fails.
+    """
+    options, note = LIMITED[plot]
+    result = fits(family)
+    plain = EXPECTED[family][plot]
+    assert outcome(plot, result, **options) == plain
+    if plain != "draws":
+        return
+    bound = next(iter(value for key, value in options.items() if key != "page"))
+    before = _quiet_plot(plot, result)
+    after = _quiet_plot(plot, result, **options)
+    reduces = any(count > bound for count in _limited_count(plot, before))
+    if plot == "balance" or reduces:
+        assert all(count <= bound for count in _limited_count(plot, after))
+        assert any(line.startswith(note) for line in plotting.notes(after)), plotting.notes(after)
+    else:
+        assert _drawn_arrays(after) == _drawn_arrays(before)
+        assert plotting.notes(after) == plotting.notes(before)
+    plt.close(before)
+    plt.close(after)
 
 
 def test_every_public_plot_is_in_the_matrix() -> None:
@@ -752,6 +1059,38 @@ def test_the_interval_families_carry_their_intervals(fits: Any) -> None:
 
 
 @_SHARED
+def test_the_curve_draws_a_supplemented_interval_and_names_the_band_gap(fits: Any) -> None:
+    """A boundary-node estimate: the curve draws its own interval and says the band skips it."""
+    result = fits("time_to_event_boundary_node")
+    name = "risk_regimen[arm1 @ t=2]"
+    estimate = result.estimates[name]
+    assert estimate.node is not None
+    # The supplement widens the interval past the curve's own, so a plot that redrew the
+    # interval from the influence curve alone would miss these limits.
+    assert estimate.variance > float(np.var(estimate.influence_curve)) / estimate.n
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fig = plotting.curve(result)
+    drawn = [
+        vertex
+        for collection in fig.axes[0].collections
+        if collection.get_gid() == "cleverly-interval"
+        for path in collection.get_paths()
+        for vertex in path.vertices
+        if 2.0 <= vertex[0] < 3.0
+    ]
+    heights = {round(float(y), 9) for _, y in drawn}
+    low, high = estimate.ci
+    assert round(float(low), 9) in heights
+    assert round(float(high), 9) in heights
+    gap = [note for note in plotting.notes(fig) if "boundary-node variance" in note]
+    assert len(gap) == 1
+    assert name in gap[0]
+    assert "risk_regimen[arm1 @ t=1]" not in gap[0]
+    plt.close(fig)
+
+
+@_SHARED
 def test_a_hazard_working_model_draws_its_coefficients_not_curves(fits: Any) -> None:
     """X70 (d): the plot of a hazard MSM fit is the forest of its terms, never a curve."""
     result = fits("hazard_msm")
@@ -762,6 +1101,43 @@ def test_a_hazard_working_model_draws_its_coefficients_not_curves(fits: Any) -> 
     assert len(fig.axes) == 1
     assert sorted(labels) == sorted(result.estimates)
     plt.close(fig)
+
+
+@_SHARED
+def test_influence_says_the_curve_is_not_a_supplemented_variance(fits: Any) -> None:
+    result = fits("time_to_event_boundary_node")
+    phrase = "so this curve is not the reported variance"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        supplemented = plotting.influence(result, name="risk_regimen[arm1 @ t=2]")
+        plain = plotting.influence(result, name="risk_regimen[arm1 @ t=1]")
+    assert any(
+        "node with no event" in note and phrase in note for note in plotting.notes(supplemented)
+    )
+    assert not any(phrase in note for note in plotting.notes(plain))
+    plt.close(supplemented)
+    plt.close(plain)
+
+
+@_SHARED
+def test_the_bootstrap_of_a_supplemented_estimate_draws_as_a_named_diagnostic(fits: Any) -> None:
+    """A row resample keeps the flagged node's one value: the plot and the band say so."""
+    result = fits("time_to_event_boundary_node_bootstrap")
+    reason = "every resample of rows keeps the flagged node's one value"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        supplemented = plotting.bootstrap(result, name="risk_regimen[arm1 @ t=2]")
+        plain = plotting.bootstrap(result, name="risk_regimen[arm1 @ t=1]")
+        curve = plotting.curve(result, band="bootstrap")
+    assert any(reason in note for note in plotting.notes(supplemented))
+    assert not any(reason in note for note in plotting.notes(plain))
+    assert "risk_regimen[arm1 @ t=2]" not in result.bootstrap_band.bands
+    assert any(
+        "nor a row resample carries" in note and "risk_regimen[arm1 @ t=2]" in note
+        for note in plotting.notes(curve)
+    )
+    for fig in (supplemented, plain, curve):
+        plt.close(fig)
 
 
 @_SHARED
@@ -776,4 +1152,55 @@ def test_a_hazard_policy_names_its_shifted_weights(fits: Any) -> None:
     text = " ".join(plotting.notes(fig))
     assert "modified treatment policy" in text
     assert "held" not in text
+    plt.close(fig)
+
+
+@_SHARED
+def test_a_static_arm_of_a_multinode_hazard_fit_draws_its_overlap(fits: Any) -> None:
+    """X70 (b2): overlap of every regimen refuses on the known policy, so one static arm is
+    drawn on its own, by the same path as the held designs."""
+    result = fits("hazard_time_varying_multinode")
+    fig = plotting.overlap(result, regimen="a1")
+    assert fig.axes
+    plt.close(fig)
+
+
+def test_a_held_rule_is_capped_at_its_last_node() -> None:
+    """A one-node known rule on a held design: later nodes are held, and the limit caps them.
+
+    A held node repeats the baseline decision and adds no treatment factor, so the weight at
+    the last node is still the data's weight over the bounded cumulative probability.
+    """
+    from cleverly.longitudinal import DynamicRegimen, node_weights
+    from cleverly.plotting._weights import _capped
+
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    rule = DynamicRegimen(
+        "rule", (lambda h: np.asarray(h["W1"] > 0, dtype=int),), rule_kind="known"
+    )
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = study.identify(
+            RegimeContrast(regimens={"rule": rule, "a0": 0}, reference="a0")
+        ).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+            treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+            censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+            survival_model="hazard",
+            targeting="one_step",
+            random_state=5,
+            simultaneous=False,
+            **sweep.IN_SAMPLE,
+        )
+    kinds = node_weights(result, regimen="rule", horizon=4).node_kinds
+    assert kinds == ("rule", "held", "held", "held")
+    assert _capped(kinds, len(kinds) - 1)
+    # A static arm reports label at every node.
+    assert node_weights(result, regimen="a0", horizon=4).node_kinds == ("label",) * 4
+    fig = plotting.weights(result, regimens=["rule"])
+    assert "held" not in " ".join(plotting.notes(fig))
     plt.close(fig)

@@ -464,6 +464,7 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "strata": "baseline strata",
         "known_mechanism": "a known treatment mechanism",
+        "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
         "rule_learner_blip": "a rule learner",
@@ -539,6 +540,11 @@ BOOTSTRAP_DIAGNOSTIC: Final[Mapping[str, str]] = MappingProxyType(
             "The bootstrap range of {names} is a diagnostic, not a confidence interval, "
             "because the fit reads fewer than {clusters} clusters, and no validation study "
             "measures a bootstrap interval at so few."
+        ),
+        "boundary_node": (
+            "The bootstrap range of {names} is a diagnostic, not a confidence interval: every "
+            "resample of rows keeps the flagged node's one value, so the bootstrap cannot see "
+            "the variance that the boundary-node supplement adds."
         ),
         "declared": (
             "The bootstrap range of {names} is a diagnostic, not a confidence interval: the "
@@ -1658,6 +1664,11 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
+        "folds": (
+            "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
+            "those predictions clipped at 1e-12, so each held-out row of the other class "
+            "adds log(1e12), about 27.6, to the row's sum."
+        ),
     }
 )
 MODEL_NOTHING_OMITTED: Final = "The fit reported every model this check reads."
@@ -2087,6 +2098,10 @@ T3_BATTERY_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
+
+#: The battery's label of the nuisance row of a continuous-time survival fit, whose models are
+#: the cause hazards, the censoring hazard and the treatment model.
+CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
 
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
@@ -4016,6 +4031,8 @@ T4_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "incremental_reading": "note",
         "learned_rule_reading": "note",
         "learned_rule_bound": "note",
+        "optimal_rule_reading": "note",
+        "optimal_rule_bound": "note",
         "observation_reads": "note",
         "bounded_rows": "note",
         "redrawn_folds": "note",
@@ -4240,6 +4257,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The bound keeps the rules the fit learned fixed, so it reads confounding of the "
             "value of those fixed rules, not of the procedure that learned them."
         ),
+        "optimal_rule_reading": (
+            "Each cell learns the rule again from its altered data, so it reads confounding "
+            "of the value of the best rule, and the rule itself moves with the confounding."
+        ),
+        "optimal_rule_bound": (
+            "The bound reads the strengths as limits that hold for every rule, random rules "
+            "included. Its lower side is the bound of the value of the rules the fit learned, "
+            "and its upper side adds the largest bias any rule can carry, so the interval is "
+            "not symmetric."
+        ),
         "observation_reads": (
             "The cells that move the treatment are valid only if whether a value is recorded "
             "depends on {reads} alone, as declared."
@@ -4284,6 +4311,13 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "value is a point bound, because the estimate of the average squared weight "
             "applies each fold's rule to rows that rule was learned on, and no standard "
             "error is derived for that. {alternative}"
+        ),
+        "limits_withheld_optimal_rule": (
+            "No one-sided limits or limit robustness value: the bound of the value of the "
+            "best rule is a point bound. Its upper side reads the average of the largest "
+            "inverse treatment probability over arms, a maximum with no derived standard "
+            "error, and its lower side is the point bound of the learned rules' value. "
+            "{alternative}"
         ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "
@@ -4731,6 +4765,80 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
             "{before} of {total} covariate differences are larger than {threshold} before "
             "weighting and {after} after. The largest left is {worst} ({size}), so the "
             "treatment model has not made the groups alike on it."
+        ),
+    }
+)
+
+# --------------------------------------------------------- covariate balance over time (X103)
+
+BALANCE_TIME_TITLE: Final = "Covariate balance over time"
+BALANCE_TIME_TREATMENTS: Final = "Treatments"
+BALANCE_TIME_DIAGNOSTICS: Final = "Checks"
+BALANCE_TIME_COLUMNS: Final[tuple[str, ...]] = (
+    "exposure",
+    "covariate",
+    "before weighting",
+    "after weighting",
+)
+#: The title of each diagnostic's table.
+BALANCE_TIME_DIAGNOSTIC_TITLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "confounding": "Confounding: covariates up to each treatment, across it",
+        "feedback": "Feedback (weights do not remove it): later covariates across each treatment",
+        "censoring": "Censoring: covariates across leaving the study and staying",
+        "joint": "Joint: covariates across the arms among units whose status is known",
+    }
+)
+BALANCE_TIME_DROPPED_TITLE: Final = "Strata with no comparison"
+BALANCE_TIME_DROPPED_LINE: Final = "{diagnostic}, {exposure}: {strata} strata, {units} rows"
+
+#: The notes a balance-over-time summary can print.
+BALANCE_TIME_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "balance_time_descriptive": "note",
+        "balance_time_averaged": "note",
+        "balance_time_bounds": "note",
+        "balance_time_omitted": "note",
+        "balance_time_collaborative": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_TIME_NOTE_CODES})
+
+BALANCE_TIME_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balance_time_descriptive": (
+            "These differences describe the data and the fitted weights and carry no interval "
+            "or test. Each is the mean in the first group minus the mean in the second, within "
+            "the units that share the same earlier treatments, divided by a spread read there "
+            "before weighting: the square root of the mean of the two groups' variances, or, "
+            "for units whose status is known against their whole arm, the arm's standard "
+            "deviation."
+        ),
+        "balance_time_averaged": (
+            "Each row is averaged over the strata of earlier treatments, each stratum counting "
+            "by its size; the averages are of signed differences, so strata that differ in "
+            "opposite directions offset each other. to_frame() holds every stratum."
+        ),
+        "balance_time_bounds": (
+            "Each cumulative probability is kept within [{lower:.3g}, {upper:.3g}] before it is "
+            "inverted; the limits moved {share} of the weighted rows."
+        ),
+        "balance_time_omitted": "This fit reports no {diagnostic} balance: {reason}.",
+        "balance_time_collaborative": "{text}",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **BALANCE_TIME_NOTE_TEXTS})
+
+BALANCE_TIME_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balanced": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after."
+        ),
+        "residual": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after. The largest left is {worst} at {exposure} "
+            "({size}), so the weights have not made the groups alike on it there."
         ),
     }
 )

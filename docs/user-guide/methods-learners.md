@@ -381,9 +381,14 @@ in sample with `CrossFitting(enabled=False)`. Never read the interval off the sa
 Because the split reads no treatment, it cannot keep a rare arm in every training complement. The
 fit checks the realized draw instead, before the first learner. Each arm must appear in at least
 two independent units, which are rows for iid data and *clusters* under `id=`. Each training
-complement must hold every arm, and both observed outcome classes of a binary outcome. A package
-classification `SuperLearner` needs two rows of each class of its target in each complement, which
-the default library makes the common case.
+complement must hold every arm.
+
+A binary outcome needs both classes in every training complement, with one exception. For
+a plain `TMLE` of a two-level or multi-level treatment, each class needs only one unit in the
+sample. A training complement that holds one outcome value then predicts that value in its fold
+([a binary outcome regression with one value](../technical-reference/point-treatment-tmle.md#a-binary-outcome-regression-with-one-value)).
+A package classification `SuperLearner` needs two rows of each class of its target in each
+complement, which the default library makes the common case.
 
 None of these refusals names a redraw. The remedy is `CrossFitting(enabled=False)`, or more
 observations at the rare level.
@@ -474,13 +479,15 @@ the whole contract: the counts, the row binding, what validation checks, and eve
 finite-sample estimating procedure and should be reported with support diagnostics. The logistic
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
-Four `Targeting` options choose how the targeting step runs. Each default runs the shipped step.
+Five `Targeting` options choose how the targeting step runs or how its result is summarized. Each
+default runs the shipped step.
 
 | option | what it chooses |
 | --- | --- |
 | `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The adjustment can stop with a small error left over, so each interval and band built from the fit's estimates is widened by the leftover amount it carries, to keep its coverage. The bootstrap is refused under these rules, because nothing bounds what the leftover does to it. The result prints the leftover in standard errors |
 | `step_bound=` and `step_search=` | the longest step of one iteration, and whether a line search sets its length |
 | `iterate="best"` | the iterate of smallest score norm, in place of the last |
+| `conditional_form="known_score"` | on a design that declares `treatment_probabilities=`, the ATT and ATC average every unit's effect weighted by its declared chance of the conditioning arm, which is the efficient form when those chances are known ([declare the design](data-design.md)) |
 
 `ModelSpec(outcome_by_arm=True)` fits one outcome regression for each treatment arm.
 `PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset of the

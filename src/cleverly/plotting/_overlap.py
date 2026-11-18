@@ -69,19 +69,25 @@ def _mirror(
     names: tuple[str, str | None],
     bounds: Sequence[Limit],
     peak: float | None = None,
+    counts: Sequence[Any] | None = None,
 ) -> float:
     """One arm's probability, rows of that arm above the axis and the rest below.
 
-    With no second name only the rows ``inside`` are drawn, above the axis.
+    With no second name only the rows ``inside`` are drawn, above the axis. ``counts`` are
+    the two groups' weighted histogram counts over the plot's bins when the caller has them
+    already (rows ``inside`` first), so they are not computed twice.
     """
     edges = np.linspace(0.0, 1.0, _BINS + 1)
     total = float(weights.sum())
     groups = [(1.0, inside, names[0], _core.PALETTE[0])]
     if names[1] is not None:
         groups.append((-1.0, ~inside, names[1], _core.PALETTE[1]))
-    for sign, mask, name, color in groups:
-        counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
-        share = sign * counts / total if total > 0.0 else counts * 0.0
+    for index, (sign, mask, name, color) in enumerate(groups):
+        if counts is None:
+            group_counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
+        else:
+            group_counts = counts[index]
+        share = sign * group_counts / total if total > 0.0 else group_counts * 0.0
         ax.bar(
             edges[:-1],
             share,
@@ -154,7 +160,7 @@ def overlap(
     regimen: str | None = None,
     nodes: Sequence[int] | None = None,
     censoring: bool = False,
-    horizon: int | None = None,
+    horizon: float | None = None,
     cause: str | None = None,
     time_label: str = "Time point",
     title: str | Literal[False] | None = None,
@@ -197,11 +203,18 @@ def overlap(
     * An adaptive TMLE fit with external data draws the treatment probability on the trial
       rows, and the probability of being in the trial for trial against external rows,
       with the floor its positivity warning checks.
+    * A continuous-time survival fit draws the predicted probability of the treated arm,
+      units given it above and units given the reference arm below. Its floor bounds the
+      product of the treatment probability and the probability of staying uncensored, so
+      ``censoring=True`` adds that product just before the chosen target time for the units
+      given each arm, with the floor.
 
     Parameters
     ----------
-    result : TMLEResult or LongitudinalResult or StructuralNestedMeanResult or AdaptiveTMLEResult
-        A fitted result with an estimated treatment mechanism.
+    result : TMLEResult or another fitted result
+        A fitted result with an estimated treatment mechanism: a ``TMLEResult``,
+        ``LongitudinalResult``, ``StructuralNestedMeanResult``, ``AdaptiveTMLEResult`` or
+        ``ContinuousSurvivalResult``.
     treatment_label : str or None, default=None
         Words for the treatment in the axis label: ``"Predicted probability of smoking =
         1"``, or with ``labels=`` ``"Predicted probability of smoking: smoking mothers"``.
@@ -210,7 +223,7 @@ def overlap(
         Words for each arm, keyed by the arm's level as in the data, such as
         ``{1: "offered", 0: "not offered"}``. Each names its group of units on its own. On
         a fit with a treatment at several time points, words for each regimen keyed by its
-        label.
+        label. On a continuous-time survival fit, words for each arm keyed by its label.
     regimen : str or None, default=None
         On a fit with a treatment at several time points, the one regimen to draw; every
         regimen of the result, one block of panels each, when omitted. A result with more
@@ -222,9 +235,10 @@ def overlap(
         On a longitudinal or survival fit with censoring, also draw the probability of
         staying under observation: the cumulative product with the treatment probability
         for a baseline treatment, each time point's probability for a treatment over time.
-    horizon : int or None, default=None
+    horizon : float or None, default=None
         The horizon of the cumulative product ``censoring=True`` draws for a baseline
-        treatment; the largest when omitted.
+        treatment, or the target time on a continuous-time survival fit; the largest when
+        omitted.
     cause : str or None, default=None
         The cause of that product under competing events; the first when omitted.
     time_label : str, default="Time point"
@@ -256,16 +270,16 @@ def overlap(
     ------
     CapabilityError
         When the fit estimated no treatment mechanism; when a time point's treatment is a
-        dose or a policy whose weight is a density ratio, which has no probability per arm;
-        or for a continuous-time survival fit, whose probabilities this plot does not
-        draw yet.
+        dose or a policy whose weight is a density ratio, which has no probability per arm.
     DataError
         When the treatment is continuous, which has no probability per arm; when the
-        regimen, a time point, the horizon or the cause is not in the result; or when a fit
-        over time holds more than three regimens and ``regimen`` is omitted.
+        regimen, a time point, the horizon, the target time or the cause is not in the
+        result; or when a fit over time holds more than three regimens and ``regimen`` is
+        omitted.
     ValueError
-        When ``censoring=True`` and the fit has no censoring, or a keyword for a fit over
-        time is given for one that is not.
+        When ``censoring=True`` and the fit has no censoring, a keyword for a fit over
+        time is given for one that is not, or a continuous-time survival fit is given
+        ``horizon`` without ``censoring=True``.
 
     See Also
     --------
@@ -306,7 +320,7 @@ def overlap(
     'Predicted probability of A = 1'
     >>> plt.close(fig)
     """
-    from ..sensitivity.positivity import positivity_report
+    from ..sensitivity.positivity import _refuse_unreportable
     from ._overlap_time import over_time
 
     drawn = over_time(
@@ -323,31 +337,22 @@ def overlap(
     if drawn is not None:
         return drawn
     if not hasattr(result, "repeats") or not hasattr(result, "nuisance"):
-        from .._refusal import NO_ALTERNATIVE, RefusalReason
+        from .._refusal import RefusalReason
         from ..exceptions import CapabilityError
 
-        gap = _unread_overlap(result)
-        if gap is None:
-            raise CapabilityError(
-                "overlap() draws a point-treatment fit's predicted probability of treatment; "
-                + _not_a_propensity(result)
-                + ".",
-                reason=RefusalReason.INVALID_DECLARATION,
-            )
         raise CapabilityError(
             "overlap() draws a point-treatment fit's predicted probability of treatment; "
-            + gap
-            + ", which this plot does not draw yet.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=NO_ALTERNATIVE,
-            roadmap="X100",
+            + _not_a_propensity(result)
+            + ".",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if regimen is not None or nodes is not None or censoring or horizon is not None or cause:
         raise ValueError(
             "regimen=, nodes=, censoring=, horizon= and cause= apply to a fit over time; this "
             f"{type(result).__name__} fits its treatment once"
         )
-    positivity_report(result)  # the report's own refusals: no mechanism, a continuous dose
+    # The support report's own refusals (no mechanism, a continuous dose), without building it.
+    _refuse_unreportable(result)
     data = result.data
     name = treatment_label or str(data.treatment_name)
     propensity = result.repeats[0].nuisance.propensity
@@ -387,13 +392,17 @@ def overlap(
     edges = np.linspace(0.0, 1.0, _BINS + 1)
     weights = weights_all[recorded]
     peak = 0.0
+    panels = []
     for arm in shown:
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
+        counts = []
         for mask in (inside, ~inside):
-            counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
-            peak = max(peak, float(counts.max(initial=0.0)) / float(weights.sum()))
-    for axis, arm in zip(axes, shown, strict=True):
+            group_counts, _ = np.histogram(raw[mask], bins=edges, weights=weights[mask])
+            counts.append(group_counts)
+            peak = max(peak, float(group_counts.max(initial=0.0)) / float(weights.sum()))
+        panels.append(counts)
+    for axis, arm, counts in zip(axes, shown, panels, strict=True):
         raw = raw_all[recorded, propensity.column_for(arm)]
         inside = treatment[recorded] == arm
         rest = group(arms[0]) if binary else "Units in every other arm"
@@ -405,6 +414,7 @@ def overlap(
             names=(group(arm), rest),
             bounds=bounds,
             peak=peak,
+            counts=counts,
         )
         axis.set_ylabel("Share of units")
         axis.set_xlabel(axis_words(arm))
@@ -479,17 +489,8 @@ def _limits(result: Any) -> list[Limit]:
 __all__ = ["overlap"]
 
 
-def _unread_overlap(result: Any) -> str | None:
-    """What a fit X100 will draw holds in place of one propensity, or ``None``."""
-    from ..survival.result import ContinuousSurvivalResult
-
-    if isinstance(result, ContinuousSurvivalResult):
-        return "a continuous-time survival fit does not keep each row's treatment probability"
-    return None
-
-
 def _not_a_propensity(result: Any) -> str:
-    """Why a result outside X100 has no propensity this plot can draw, in words."""
+    """Why a result has no propensity this plot can draw, in words."""
     from ..effect_curves import EffectCurveResult
     from ..estimators.dose_response import DoseResponseResult
     from ..longitudinal.estimator import LongitudinalResult

@@ -18,7 +18,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | the plan draws the arm at random | a known policy $q_t(a \mid H_t)$ at a node, with the integrated influence curve | the policy is part of the estimand and must be fixed before the fit |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
-| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one categorical baseline treatment and no covariate after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
+| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one baseline treatment held over the nodes, and `targeting="one_step"` when a covariate is measured after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
 
@@ -763,6 +763,23 @@ At a continuous node the treatment factor of the cumulative product is the ratio
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
+**Censoring at a continuous node.** With `censoring=`, the censoring indicator is part of the
+intervention at each node and the plan sets it to one. Díaz, Williams, Hoffman and Schenck (2023),
+arXiv v4, Section 3, identify the mean by Theorem 1 with that component set to one. The condition
+adds positivity of staying uncensored and censoring at random given $(H_t, A_t)$. By the chain
+rule the joint ratio of node $t$ is
+
+$$r_t = \frac{g^d_t(A_t \mid H_t)}{g_t(A_t \mid H_t)} \cdot \frac{1\{C_t = 1\}}{P(C_t = 1 \mid A_t, H_t)},$$
+
+with the retention evaluated at the **observed** treatment. The policy ratio sits in the numerator
+of the cumulative product and the learned retention in the bounded denominator, so `g_bounds`
+reaches the retention and not the policy ratio. The classifier trains on the units uncensored
+through $t - 1$. The exact-law witnesses and their four mutation controls are in
+`tests/unit/test_longitudinal_mtp_censored.py`. The
+[censored continuous-policy study](method-evidence/mtp-pricing-censored.md) supports `LTMLE` and
+`SDR` at three cross-fitted nodes on the classifier route (`G39.<engine>.tau3_cross_fitted_censored`).
+Other censored continuous-policy keys stay experimental.
+
 **The bin count of the density route.** A binned density at a fixed bin count is not
 consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
 errs most there. One draw of the `longitudinal-mtp` law, fitted with the exact bin probabilities so
@@ -824,8 +841,9 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 ### Limits of the continuous-policy evidence
 
 The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
-[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
-test the continuous policies of this section. They publish these limits.
+[`mtp-pricing`](method-evidence/mtp-pricing.md), [`mtp-pricing-censored`](method-evidence/mtp-pricing-censored.md)
+and [`mtp-tuning`](method-evidence/mtp-tuning.md) test the continuous policies of this section.
+They publish these limits.
 
 | limit | what it means for use |
 | --- | --- |
@@ -833,6 +851,7 @@ test the continuous policies of this section. They publish these limits.
 | the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
 | the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
 | the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+| censoring at a continuous policy node is covered at three cross-fitted nodes on the classifier route only | `mtp-pricing-censored` validates `LTMLE` and `SDR` with a correctly specified main-terms logistic censoring model, per-node retention of at least 0.58 and one plan. In-sample fits, the density route, other node counts, a continuous outcome, survival outcomes and pooled censoring with a continuous policy stay experimental. Its `lmtp` comparison is pending and would read this package's own joint ratio, so it cannot check the retention model |
 
 ### Vector nodes with a continuous component
 
@@ -1044,32 +1063,90 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 
 | case | result |
 | --- | --- |
-| no follower had the event at every node through the horizon | risk zero and a zero influence curve. The parameter takes the `constant_node_plugin` status, so it reports no interval or p-value |
-| a node of the recursion read a constant, at a horizon with events at other nodes | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status too |
+| no follower had the event at every node through the horizon | risk zero, on the bound of the parameter's range, so the parameter takes `out_of_range_plugin` and reports no interval or p-value. A contrast against it takes that status too |
+| a node of the recursion read a constant, at a horizon with events at other nodes, inside the supplement's reach | the point estimate stands, and the variance adds the node-variance supplement below |
+| the same, outside the reach | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status |
 | the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
 | `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
-A node's term of the influence curve is identically zero when the node reads a constant. The
-true outcome variance there can still be positive, so the plug-in standard error leaves that node's variance
-out. A risk of zero would report a standard error of zero, and a contrast against it would carry
-the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
-the `constant_node_plugin` status
-([inference status](inference.md#inference-status)). The other parameters of the fit keep
-theirs.
+A node's term of the influence curve, $C_{t,i}(Z_{t,i} - \bar Q^*_{t,i})$, is identically zero
+when the node reads a constant. The true residual variance there can still be positive, so the
+plug-in standard error leaves that node's variance out.
+
+**The node-variance supplement.** With no event among the $m$ independent units of the node's
+fitted rows (rows, or clusters on a fit with `id=`), the exact one-sided $1 - \alpha/2$ upper
+limit of a binomial proportion with zero events is $\hat h_U = 1 - (\alpha/2)^{1/m}$, and a
+row's residual variance is at most $s^2 = \hat h_U(1 - \hat h_U)$. A cluster holds no event with
+probability at most $1 - h$ whatever the dependence inside it, so the clustered limit needs no
+dependence model. All ones is the mirror image. Each unit $u$ then carries the loading
+$\ell_u = s \sum_{i \in u} k\,|C_{t,i}|$, with $k$ the residuals the node dropped (the causes held
+at zero, plus one for a cell held at one), and an estimate with gradient $\lambda$ over the levels
+adds
+
+$$\hat\sigma^2_{node} = n^{-2} \sum_u \Big(\sum_t \sum_r |\lambda_r|\,\ell_{r,t,u}\Big)^2$$
+
+when clustered, and $n^{-2}\sum_u \sum_t (\sum_r |\lambda_r| \ell_{r,t,u})^2$ on independent rows,
+whose residuals at different nodes are uncorrelated martingale increments. On the hazard path
+$C$ is the clever weight at the node, which bounds the coefficient of every residual of the cell.
+The reported variance is $\hat\sigma^2_{IC} + \hat\sigma^2_{node}$, on the interval scale and
+reference the estimate already uses, and `variance_source` reads `"boundary_node"`
+(`cleverly.inference.node_variance`; the witnesses are in
+`tests/unit/test_boundary_node_variance.py`). There a central difference of the estimate in one
+unit's weight, on cell-mean learners, gives the coefficient of the last node's residual without
+reading the clever weight, and it equals the clever weight to $10^{-6}$; a stored weight off by
+half, or without its censoring inverse, fails that check.
+
+What it claims: at a law whose node hazards lie in $(0, 1)$ and whose node risk sets grow with
+$n$, a flagged node has probability at most $(1 - h_{min})^{cn}$, and the supplemented interval
+differs from the ordinary one only on that event. At a true hazard of exactly 0 the node term is
+zero and the supplement only widens a correct interval. In finite samples at a law where the
+event is common, nothing here guarantees coverage.
+
+The registered study [`boundary-node-ltmle`](method-evidence/boundary-node-ltmle.md) measures it,
+and a supplemented estimate carries the support label its fit already has. Its gates read only what
+the supplement changes: coverage on the draws where node 4 is flagged, bias, and a zero-hazard
+cell. Every gated row passes. On the iterated-mean path at n = 200, the supplemented interval
+covers every one of the 2,039 draws where node 4 is flagged under `always`. The interval without
+the supplement covers 0.830 of them, and the same estimate with the flagged node's true variance
+added covers 346 draws more than it, an exact 99% lower end of 0.149 against the declared 0.05.
+
+On the hazard path, which targets a held baseline treatment only, a flagged node carries a small
+share of the variance, so no such paired control has power. Law B measures the coverage of the
+hazard-path interval on draws with a flagged node, and the coefficient bound rests on its unit
+witness.
+
+The supplement is a bound, so it costs width. For the risk under `always`, on the flagged draws
+of the law A cells, the supplemented interval is 1.6 to 1.8 times as wide as the one with the
+node's true variance, 3.2 times in the zero cell, and 1.07 times on law B. The primary's standard-error ratio reads 1.26 for the risk under `always` and
+1.17 for the contrast, above the 1.20 band's upper end or with an interval reaching past it,
+while their coverage reads 0.927 and 0.947. Those two SE-ratio legs were declared red before the
+run under the owner `X54-supplement-width`. A draw on which no node is flagged or supplemented
+keeps the ordinary interval at a node with one or two events. The study publishes that coverage,
+whose exact lower end falls below 0.90 at n = 100 and 200, as F31's rare-event limit and not as a
+failure of the supplement (`tests/canonical/boundary_node_ltmle/regenerate.py`).
+
+The supplement covers an `LTMLE` iterated-mean or hazard fit of a binary outcome or event, with
+one fold draw, the default variance, and no isotonic projection, fold average, learned rule or
+separable intervention. A hazard fit with covariates measured after baseline is outside it: its
+curve adds at each node the residual of a regression of the future, which no binomial bound
+covers. Every other fit keeps `constant_node_plugin`, and its warning names what
+is missing (`BOUNDARY_NODE_OUT_OF_REACH` in `cleverly._inference_status`).
 
 | output | what it shows |
 | --- | --- |
-| the fit | one `DataWarning` with the count of such parameters, the first 10 names, and the reason. `constant_node_parameters(result)` lists them all |
-| `summary()` | the estimate with its name starred, `-` for the standard error, the interval and the p-value, and a `no_inference` note that gives the reason and the plug-in spread |
-| `curve()` and `to_frame()` | the status in the `inference` column, NaN in the inferential spread columns, and the plug-in spread in the `plugin_` columns |
-| `incidence_total()` | each total takes the status of the incidences it sums, with the same columns as `curve()` |
-| a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
-| the simultaneous band | the other parameters only. A `CausalStudy` band narrowed to `RegimeMean` or `RegimeContrast` leaves them out too |
-| `assess()` | the nuisance item adds the status note, with the count of such parameters |
+| the fit | one `DataWarning` per kind: the supplemented parameters, and the `constant_node_plugin` ones with the reason. `boundary_node_parameters(result)` and `constant_node_parameters(result)` list them |
+| `to_frame()` | `variance_source`, `influence_curve_std_err` and `boundary_node_std_err` beside the reported standard error |
+| a contrast, a ratio, `rmst()` and `rmtl()` | the supplement at their own gradient, through the same loadings |
+| `covariance()` | `CapabilityError`: the supplement bounds each functional's variance and is not a quadratic form |
+| the simultaneous band | the other parameters only. The multiplier process does not carry the node term, and the summary and the curve plot name the parameters it leaves out |
+| `n_bootstrap=` | a diagnostic range for each supplemented parameter, and the bootstrap sup-t band leaves it out. Every row resample keeps the flagged node's one value, so the bootstrap cannot see the variance the supplement bounds; the summary's `bootstrap_diagnostic` note says so |
+| `diagnostics.score_equations()` | unchanged: each node's relative score is read on the curve, which the supplement does not enter |
+| `refute()` | the reported standard error, supplement included. A placebo refit permutes treatment, so the refitted arm can hold events at the node, and the supplement is then part of the spread the reading compares. For a refit that keeps the node's one value, such as an added common cause or a subset, the larger scale makes the reading conservative |
+| a `constant_node_plugin` parameter | as an estimate with no interval: `-` in `summary()`, NaN in the inferential columns of `curve()` and `to_frame()`, the plug-in spread in the `plugin_` columns, and out of the band |
 
-[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) holds an interval at such a node at a fixed law, and
-[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime.
+[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the kinds outside the reach
+and the rare-event regime.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
 regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
 sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's
@@ -1094,8 +1171,8 @@ node, and $t$ is a reported horizon.
 
 | item | contract |
 | --- | --- |
-| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome, and no covariate is measured after baseline. Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
-| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)) |
+| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`), or a categorical treatment at several nodes ([a treatment at several nodes on the hazard path](#a-treatment-at-several-nodes-on-the-hazard-path)). The held treatment is categorical, or continuous or a vector with a dose under a modified treatment policy. The outcome is a survival or competing-risk outcome. A covariate measured after baseline is taken under `targeting="one_step"`, on a held design and beside a categorical treatment at several nodes ([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)). Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy at the baseline decision is targeted by its own weighted walk ([a modified treatment policy on the hazard path](#a-modified-treatment-policy-on-the-hazard-path)). With a treatment at several nodes, a regimen sets a static arm, a known rule of $W$ or a known policy at each node |
 | estimand | $\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)$, the estimand of the [held design](#one-baseline-treatment-held-over-the-nodes). Contrasts, ratios, the survival view, `rmst` and `rmtl` derive from it as on an iterated-mean fit. No parameter name changes |
 | identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, and positivity. Moore and van der Laan (2009), Section 2. Cai and van der Laan (2020), Section 2 |
 | hazard | $\lambda_l(k \mid a, W) = P(\text{cause } l \text{ at } k \mid \text{uncensored through } k,\ \text{event-free before } k,\ A = a,\ W)$. Then $S(k) = \prod_{s \le k}(1 - \sum_l \lambda_l(s))$ and $F_j(t) = \sum_{k \le t} S(k - 1)\,\lambda_j(k)$ |
@@ -1107,9 +1184,11 @@ node, and $t$ is a reported horizon.
 | inference | the influence-curve variance and the multiplier band over the reported parameters, as on an iterated-mean fit. With `id=`, the cluster sums and the fit statuses of [clusters](#clusters) apply |
 | cross-fitting | with `n_folds > 1`, the hazards, $g$ and $G$ are out of fold. One pooled targeting then runs over every row |
 
-`outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
-fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
-together, so the score of every contrast is solved.
+`outcome_learner` is the hazard learner on a hazard fit. On a design with baseline covariates only,
+`pseudo_learner=` is refused (H6), because the fit regresses the event indicator at each node and
+fits no pseudo-outcome. With a covariate after baseline it fits the regressions of the future
+([covariates after baseline on the hazard path](#covariates-after-baseline-on-the-hazard-path)).
+Every arm is targeted together, so the score of every contrast is solved.
 
 `SurvivalCTMLE` runs this per-horizon targeting on a collaborative selection of its treatment and
 censoring models, one arm at a time
@@ -1299,10 +1378,13 @@ then need that hazard below the floor, so the one-step walk cannot solve them.
 The mutation `test_m_a_clipped_cell_stalls_the_walk` removes the hold and sees the walk fail to converge.
 The full-cell module has a mutation of the same name, and it clips the full cell instead.
 
-Each parameter whose regimen reads a flagged cell at a node up to its horizon takes the
-`constant_node_plugin` status. A regimen reads a level when it puts mass on that level for some
-unit. `RegimenFit.hazard_constant_nodes` lists the flagged nodes, and `constant_nodes(fit)` reports
-them. The status then works as [a node with no event](#a-node-with-no-event) states.
+Each parameter whose regimen reads a flagged cell at a node up to its horizon adds the
+node-variance supplement, or outside its reach takes the `constant_node_plugin` status, as
+[a node with no event](#a-node-with-no-event) states. A regimen reads a level when it puts mass on
+that level for some unit, and on a policy of a continuous dose the cell is the key of each unit's
+observed slot. `RegimenFit.hazard_constant_nodes` lists the flagged nodes, `constant_nodes(fit)`
+reports them, and `RegimenFit.hazard_boundary` holds each flagged cell's rows and dropped
+residuals.
 
 The empty-cell witness is
 `make_point_survival(n=400, seed=36, layout="wide", hazard_scale={3: 0.05})`. Arm 1 has followers at
@@ -1381,7 +1463,7 @@ one cause only, because with two causes `survtmle` uses a different scale.
 | `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
 | `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
 | `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence. With two and three causes, a full cell keeps the fitted shares, the maximum-likelihood fallback reads it over the causes alone, and a correct split survives a wrong treatment model. The upper clip keeps the cause ratios of a unit outside a full cell, and with one cause it equals the plain clip. Each has a deliberate mutation |
-| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H6, H8 to H10, H12, H14, H16, H19, H20 and H24 by type and message, before any learner, and H25 before any targeting. Also fits of the designs H7 and H11 refused |
+| `tests/unit/test_hazard_refusals.py` | each refusal H3 to H6, H8 to H10, H12, H14 to H16, H18 to H24 and H26 by type and message, before any learner, and H25 before any targeting. Also fits of the designs H1, H2, H7 and H11 refused |
 | `tests/unit/test_hazard_targeting_rules.py` | the targeting rules on both algorithms, and H13 |
 | `tests/unit/test_hazard_node_bounds.py` | bounded hazards: the refusals, the identities, the exact checks, the finite-sample witness, the held cells and the mutation controls |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
@@ -1438,6 +1520,150 @@ intervals, and the simultaneous band on the six-level and density fits. Another 
 such as `targeting="iterative"`, observation weights, clusters or `node_bounds=`, matches no row
 and is labelled `experimental`.
 
+### Covariates after baseline on the hazard path
+
+`survival_model="hazard"` with `targeting="one_step"` takes a baseline treatment held over the
+nodes beside covariates $L_k$ measured at nodes $k \ge 2$. It follows the form of Rytgaard, Gerds
+and van der Laan (2022): no model of $p(L_{k+1} \mid \text{past})$ is fitted, and at each node the
+event hazards and a regression that integrates the next covariates out are fluctuated with the
+regimen's clever weight. The implementation is `longitudinal/hazard_backward.py`. A block at node 1
+alone precedes the treatment, so it is a baseline confounder, and such a design runs the hazard
+engine above unchanged, or on a treatment at several nodes the path engine of
+[a treatment at several nodes on the hazard path](#a-treatment-at-several-nodes-on-the-hazard-path).
+The same pass takes a categorical treatment at several nodes; the table below states the held
+design, and [a treatment at several nodes with covariates after baseline](#a-treatment-at-several-nodes-with-covariates-after-baseline)
+states what changes.
+
+Write $H_k = (W, \bar L_k, A_1)$ for the history at node $k$ on the rows uncensored and event-free
+through $k - 1$, $\bar q_{r,k}$ for the regimen's density at node 1 (one at each later node, which
+holds $A_1$), and $h^r_k = \bar q_{r,k} / \prod_{s \le k} g_s c_s$, the iterated-mean clever
+covariate of the plan at node $k$.
+
+| item | contract |
+| --- | --- |
+| design | one baseline treatment held over every node, a survival or competing-risk outcome, and a `time_varying=` block at some node $k \ge 2$. $L_k$ may be binary, categorical or continuous: no density is fitted |
+| regimens | at node 1: a static arm, a known rule, a known stochastic policy, an odds tilt of a declared mechanism (which `_resolve_tilts` turns into a known policy before the hazard route runs), or a modified treatment policy. The tests cover a modified treatment policy on a categorical node and a shift of a continuous dose |
+| estimand | $\psi_{r,j}(t) = E\,Q^r_{1,jt}(H_1)$ with $Q^r_{k,jt}(H_k) = \sum_a q_{r,k}(a \mid H_k)[\lambda_j(k \mid H_k, a) + (1 - \sum_l \lambda_l(k \mid H_k, a)) M^r_{k,jt}(H_k, a)]$, $M^r_{k,jt} = E[Q^r_{k+1,jt}(H_{k+1}) \mid H_k, A = a, C_k = 1, Y_k = 0]$ for $k < t$ and $M^r_{t,jt} = 0$. It is the iterated-mean survival recursion with its node regression split by the value of $Y_k$, so the parameter names, contrasts, `rmst` and `rmtl` are those of the iterated-mean fit |
+| identification | that of the iterated-mean fit on the same design: no unmeasured confounding of $A$ given $(W, L_1)$, censoring at random given $(H_k, A)$, and positivity of the regimen. Díaz et al. (2023), Theorem 1, with the identity policy at $k \ge 2$ ([held design](#one-baseline-treatment-held-over-the-nodes)) |
+| influence curve | the iterated-mean EIF regrouped by the identity $Z_k - \bar Q_k = \sum_l (dN_l(k) - \lambda_l(k))(1\{l = j\} - M_k) + (1 - \sum_l dN_l(k))(Q_{k+1} - M_k)$, so $D_{r,j,t} = \sum_{k \le t} h^r_k R_k [\sum_l \kappa^l(k)(dN_l(k) - \lambda_l(k)) + (1 - \sum_l dN_l(k))(Q^r_{k+1,jt} - M^r_{k,jt})] + Q^r_{1,jt}(H_1) - \psi_{r,j}(t)$, with $\kappa^l(k) = 1\{l = j\} - M^r_{k,jt}$. The first bracket is the hazard term, the second the covariate term. The identity holds for any nuisances, so the efficiency is the iterated-mean fit's. At one cause on the grid it is display (19) of Rytgaard et al. (2022) |
+| continuation | $M^r_{k,jt}$ for every $(j, t)$ is the incidence of one hazard curve $\nu^r_k(s, l \mid H_k, a)$ over the later nodes $s = k + 1, \ldots, t_{\max}$. Its pseudo-outcome is the sub-distribution $p(s, l)$ that node $k + 1$'s targeted curve implies, with soft at-risk $\rho(s) = 1 - \sum_{u < s, l} p(u, l)$. `pseudo_learner` fits it cause by cause, regressing $p(s, j)/(\rho(s) - \sum_{l < j} p(s, l))$ with weight $w(\rho(s) - \sum_{l < j} p(s, l))$ on the node design stacked over the later nodes with one indicator per node, clipped into $[0, 1]$ |
+| node panel | the node hazard (sub-node 0) and the continuation (sub-nodes $\sigma \ge 1$) as one curve, in the weighted `HazardInputs` form: at sub-node 0 the events $dN_l(k)$, inverse $h^r_k$ and loss weight $w h^r_k$; at sub-node $\sigma$ the events $p(s, l)/\rho(s)$, inverse $h^r_k \rho(s)$ and loss weight $w h^r_k \rho(s)$. The shipped $\kappa$ read on this curve is $1\{l = j\} - M^r_{k,jt}$ at sub-node 0 and the continuation's own bracket after it, so the shipped score of the panel is the node-$k$ bracket of $D_{r,j,t}$ for every horizon and cause together. The panel holds the rows at risk entering node $k$ |
+| targeting | one backward pass per regimen. At node $t_{\max}$ down to 1 the shipped one-step walk runs once on the node panel, over every horizon $t \ge k$ and cause; node $k$'s pseudo-outcome is then read from its targeted curve, and $\nu^r_{k-1}$ is fitted on it. No score of node $k$ reads an earlier node, so after node 1 every term of $P_n D^*$ is solved. The record sums each node's score and scale times $n_k / n$, its `relative_score` and the score-equation row read the largest node walk's own relative score, so a stalled node is not diluted by the others, and `converged` holds when every node walk converged; `result.fits[...].hazard.nodes` holds the node records, node 1 first |
+| slots and held cells | node 1 takes the slots of the held engine (the arm, the policy's levels, or the observed dose and the branch doses); a later node has one slot, the observed $A_1$. A cell (sub-node, slot key, cause) is held at zero when no follower with positive loss weight has a (soft) event of that cause, and the all-cause hazard is held at one when every such follower's event fraction is one |
+| remainder | $\sum_{k \le t} E_0[(\hat h^r_k - h^r_{0,k}) R_k \{\sum_l (\lambda_{0,l} - \hat\lambda_l)(k)\hat\kappa^l(k) + (1 - \sum_l \lambda_{0,l}(k))(\tilde M_k - \hat M_k)\}]$, with $\tilde M_k$ the true regression of the estimated next stage: the iterated-mean product with its node error split into a hazard and a continuation error. It is zero when the mechanism is right, or when every hazard and continuation is. Rytgaard et al. (2022), display (13), is its continuous-time form; their Theorem 2 gives asymptotic linearity in sample under its Donsker condition |
+| cross-fitting | with `n_folds > 1`, each fold fits its node hazards and runs an untargeted backward pass on its training rows; the held-out continuations are stitched, and one pooled pass walks every node over every row, as the cross-fitted iterated-mean recursion does ([cross-fitting the recursion](#cross-fitting-the-recursion)). That Theorem 3 of Díaz et al. (2023) carries to the node-panel walk is this package's reading, not the paper's |
+| settings | competing causes, observation weights, clusters, `g_bounds` (on the cumulative), `alpha`, `node_bounds=` (on the node hazard only; a bound that excludes a cell is stamped on the record and warned, as on the held engine), cross-fitting, `iterate=` and the bootstrap. `pseudo_learner` defaults to `outcome_learner`'s library read as a regression, so a single classifier passed as `outcome_learner` needs an explicit `pseudo_learner`. The nuisance report scores the node hazards and lists each continuation as `LONGITUDINAL_CONTINUATION_NOT_SCORED` |
+| refused | the per-horizon algorithm (H28), `msm=` (H29), a declared `stopping=` rule (H30) and any hazard replay, such as `truncation_curve()` (H31) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+Each one-step node walk keeps the hazards and each continuation in $[0, 1)$ with
+$\sum_l < 1$, so each unit's $p(s, l)$ is a sub-distribution and the reported curve is a mean of
+running sums of non-negative terms. Every curve is then non-decreasing in floating point, as
+"Monotonicity" in [hazard-based survival targeting](#hazard-based-survival-targeting) argues, and
+each unit's incidences and the all-cause survival from the same hazards sum to one.
+
+| property | iterated mean with $L_k$ | hazard fit with $L_k$ |
+| --- | --- | --- |
+| estimand, identification, EIF, efficiency | the same | the same; the EIF is regrouped by an identity |
+| remainder | product of weight and node-regression errors | the same product, the node error split into hazard and continuation errors |
+| curve over horizons | no claim; `isotonic=True` projects each curve on its own and keeps its influence curves | non-decreasing in floating point, with the influence curve of the reported estimate |
+| causes | each cause its own recursion | one sub-distribution per unit, so $\sum_j F_j \le 1$ |
+| fits per regimen and cause, every horizon reported | $T(T + 1)/2$ regressions of composite pseudo-outcomes | $T$ node hazard fits shared by the regimens, and $T - 1$ continuation fits pooled over the later nodes |
+| node bounds | bounds on each node regression | bounds on the cause-specific hazards |
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_time_varying.py` | on law (H) of `tests/discrete_law_hazard_time_varying.py` passed as weighted data, a wrong hazard and a wrong continuation (both without $L_k$) with the true mechanism give the enumerated truth within `1e-8` at one and two causes, for static arms, a rule, a known policy, an odds tilt at node 1, a "one level up" policy on three arms and a shift of a continuous dose; the untargeted pass misses. A hazard that reads $L_k$ but is misspecified, with a constant continuation, is exact too: the one witness whose covariate term is first order at the initial fit (without $L_k$ in the hazard, every fitted $Q_{k+1}$ is a function of $(W, A)$ and the covariate term is zero there). Saturated learners leave every walk still, and the influence curve equals the iterated-mean curve and the exact EIF within `1e-10`. The regrouping and soft-hazard identities, the held-cell variant, the panel rows and scale, and $w h^r_k$ against the iterated-mean clever covariate. Mutations, each detected by more than `1e-3` and with a control on which its term vanishes: the curve or the panel without the covariate term, without the hazard term, a weight with its own node's retention, a stale pseudo-outcome, a hard at-risk set, $\kappa$ without its tail (on a fit reporting the last horizon only, since a walk over every horizon masks it), and the observed slot at a policy node. Also a coherent curve on a draw where the iterated-mean curve decreases, held continuation cells, $L_1$ alone (also under pooled censoring on the iterated-mean path), `node_bounds=` and an excluded cell, five folds on 20,000 draws within four standard errors, a continuous $L_k$ against a Gauss-Hermite truth, clusters, `iterate="best"` and the bootstrap, the nuisance-report omissions, a walk stopped short, H6 and H28 to H31, and `markov_order=0` on law (H): with saturated outcome learners and a wrong treatment model the fit is exact, and a window whose first arm skips the held treatment (the pre-Fix-12 `window_arm_start`) misses by more than `1e-3` |
+| `tests/unit/test_hazard_time_varying_multinode.py` | on law (M) of the same module, three binary nodes with $A_k$ reading $(W_1, A_{k-1}, L_k)$ and a hazard reading $A_{k-1}$, passed as weighted data: a wrong hazard and continuation with the true mechanism give the truth within `1e-8` at one and two causes for static arms, a rule of $L_k$ and a known policy reading $A_{k-1}$, and the untargeted pass misses. The influence curve equals the iterated-mean curve and the exact EIF; the weight is the iterated-mean clever covariate; a multi-node fit whose later treatments copy $A_1$ equals the held fit within `1e-10`. Slot defects are invisible under a true mechanism, so their mutations run with saturated hazard and continuation and a mechanism without $L_k$, each with a control: the held slot at later nodes, the level-plan predictions, a policy read at the level path, and the observed slot at every policy node. A three-level node 2, a held cell keyed by $A_3$, `markov_order=0`, declared factors at every node, $L_1$ alone (path engine, H23 and H26 still refusing), a continuous $L_k$ against a Gauss-Hermite truth, five folds on 20,000 draws, H27 and the refusal order |
+
+The [hazard covariates-after-baseline study](method-evidence/hazard-time-varying.md) covers
+one-step fits with one binary covariate per node after baseline on Markov laws, with correctly
+specified or misspecified low-dimensional learners: two static arms with one cause and with two
+causes, in sample and on five folds, and a policy one level up at node 1 against the natural
+course on three levels. Support rows `G63.held` license their point estimates and Wald
+intervals, and the simultaneous band on the one-cause and two-cause fits. The support key marks
+these fits with its `later_covariates` option, so no row of the hazard engine above covers them.
+Another composition, such as a rule or known policy, observation weights, clusters,
+`node_bounds=` or a Markov order, matches no row and is labelled `experimental`.
+
+### A treatment at several nodes with covariates after baseline
+
+With a categorical treatment $A_k$ at every node, the history is
+$H_k = (W, \bar L_k, \bar A_{k-1})$, a regimen sets a static arm, a known rule $d_k(W, \bar L_k)$, which reads no earlier treatment, or a
+known policy $q_{r,k}(a \mid H_k)$ at each node, and $h^r_k = \prod_{s \le k} q_{r,s}(A_s \mid H_s) / (g_s c_s)$
+is the iterated-mean clever covariate at the observed history. The estimand, the influence curve,
+the node panel, the backward pass and the remainder are those of this section's first table with $H_k$ in
+place of $(W, \bar L_k, A_1)$. Identification is sequential randomization of $A_k$ given $H_k$,
+censoring at random and positivity of the regimen, Díaz et al. (2023), Theorem 1. The pass reads
+each node at the observed history and builds no treatment path, so the path enumeration and its cap
+(H17) do not arise.
+
+| item | contract |
+| --- | --- |
+| slots | the regimen's values of $A_k$ at the observed history. A static arm or a rule has one slot, its level at $H_k$; a known policy has every level of node $k$, with $q = q_{r,k}(\cdot \mid H_k)$ read at the observed earlier treatments, and its observed slot is the observed $A_k$ |
+| initial hazards | the current-level predictions: slot $a$ at node $k$ holds $\lambda_l(k \mid H_k, A_k = a)$, the hazard learner's prediction at the observed $\bar A_{k-1}$ with only $A_k$ set to $a$ |
+| held cells | keyed by the level of $A_k$, with node $k$'s own level count, so nodes may differ in their number of levels |
+| mechanism | fitted on the regimens' plans at the observed histories and read as the iterated-mean cumulative. A declared treatment or retention factor is one value per row at the observed history, which is what the pass reads, so declared factors fit at every node (H26 does not apply) |
+| `markov_order=` | each nuisance design reads the window of `LongitudinalData.window_arm_start`, which keeps the arm before the window's first covariate, as on the iterated-mean path (H23 does not apply) |
+| refused | H28 to H31 as on a held design; a continuous or mixed node (H22); a modified treatment policy or an odds tilt of a declared mechanism at any node (H27), which is not built on this route yet. A tilt of an estimated mechanism meets the targeted fit's tilt refusal ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+`refuse_hazard_design` checks H3, then H28, H29 and H30, then H22, then H27 per regimen and node, a
+modified treatment policy before a tilt at each node, all before any learner.
+
+The [hazard multi-node covariates-after-baseline study](method-evidence/hazard-time-varying-multinode.md)
+covers one-step fits on one law with a binary treatment at each of three nodes and one binary
+Markov covariate before the treatment at nodes 2 and 3, under always, never, a known rule and a
+known policy, with correctly specified or misspecified low-dimensional learners, in sample and on
+five folds. Support rows `G63.multinode` license their point estimates and Wald intervals, and the
+simultaneous band on the in-sample fit. The key's `later_covariates` option on the unheld
+treatment axis keeps these fits off the rows of the path engine (`G62`) and of the held design
+(`G63.held`). Another composition, such as competing causes, more than two levels at a node,
+observation weights, clusters, `node_bounds=`, declared factors or a Markov order, matches no
+row and is labelled `experimental`.
+
+### A treatment at several nodes on the hazard path
+
+`survival_model="hazard"` takes a categorical treatment at several nodes,
+$O = (W, A_1, C_1, Y_1, \ldots, A_T, C_T, Y_T)$ with no covariate measured after baseline, on both
+algorithms. With a covariate after baseline the fit is the backward pass of
+[a treatment at several nodes with covariates after baseline](#a-treatment-at-several-nodes-with-covariates-after-baseline),
+which builds none of the paths below. A regimen sets a known density $q_{r,k}(a_k \mid \bar a_{k-1}, W)$ at each node: one-hot
+for a static arm or a known rule of $W$, and the declared density for a known stochastic policy. The
+implementation is `path_slots` and the multi-node branches of `longitudinal/hazard.py`. The notation
+is that of [hazard-based survival targeting](#hazard-based-survival-targeting), with a treatment path
+$u = (u_1, \ldots, u_T)$ and $\lambda_l(k \mid \bar u_k, W)$ the hazard given the treatment history
+through node $k$.
+
+| item | contract |
+| --- | --- |
+| estimand | $\psi_{r,j}(t) = E \sum_u q_r(u \mid W)\, F_j(t \mid u, W)$ with $q_r(u \mid W) = \prod_k q_{r,k}(u_k \mid \bar u_{k-1}, W)$ and $F_j(t \mid u, W)$ built from $\lambda(\cdot \mid \bar u_k, W)$ as in the held case |
+| identification | sequential randomization of $A_k$ given $(W, \bar A_{k-1})$ among the units at risk, censoring at random given $(W, \bar A_k)$, and positivity of the regimen along every path it puts mass on. This is the g-formula of a longitudinal design without covariates after baseline |
+| influence curve | $D_{r,j,t} = \sum_{k \le t} \sum_l \bigl[\sum_{u:\, \bar u_k = \bar A_k} \frac{q_r(u \mid W)}{\prod_{s \le k} g_s(u_s \mid \bar u_{s-1}, W)\, c_s(\bar u_s, W)}\, \kappa^l_{j,t}(k, u, W)\bigr] R_k\,(dN_l(k) - \lambda_l(k \mid \bar A_k, W)) + \sum_u q_r(u \mid W) F_j(t \mid u, W) - \psi_{r,j}(t)$, with $\kappa^l_{j,t}(k, u, W) = 1\{k \le t\}[1\{l = j\} - (F_j(t \mid u) - F_j(k \mid u)) / S(k \mid u)]$ read on path $u$'s own curve. The inner sum runs over the paths that agree with the observed history through $k$. It is the discrete-time special case of the canonical gradient of Rytgaard, Gerds and van der Laan (2022), Theorem 1, display (19), with no covariate intensity: only the event intensities carry a term, and the treatment and censoring factors enter the weight $h^G$ alone. On a held design the inner sum has one term and the curve is the held one |
+| submodel | the multinomial logistic fluctuation of the held case, with direction $\sum_{u:\, \bar u_k = \bar s_k} q_r(u \mid W) \kappa_r(k, u, W) / \overline{gc}_k(u, W)$ at slot $s$ and node $k$. The treatment and censoring factors are never fluctuated (Rytgaard, Gerds and van der Laan 2022, Section 5.2) |
+| slots | every slot is a full treatment path for every unit, built from the regimen on every row: a static arm broadcasts its labels, a rule is evaluated on $W$, and a policy contributes every path with positive mass for some unit, enumerated node by node from the declared density at each counterfactual prefix, with prefixes of zero mass pruned. Each regimen owns its slots, so a path two regimens share is two slots, each carrying only its own regimen's mass |
+| one law | one hazard $\lambda(k \mid \bar a_k, W)$ appears in every slot whose prefix through $k$ is $\bar a_k$. The initial copies are equal, and the direction is summed over the prefix class, so every copy moves by the same amount and the state stays one law. The plug-in is then a substitution estimator |
+| at risk | the risk set at node $k$ is the units at risk whose observed history through $k$ matches some slot's prefix. A unit that left every slot keeps no residual, and its own hazard on a path that no slot follows is never moved |
+| mechanism | the weight of slot $u$ needs $g_s(u_s \mid \bar u_{s-1}, W)$ and $c_s(\bar u_s, W)$ at the slot's own history, also where it differs from the unit's observed history. Each slot is filed as an internal static plan with the slot's codes, so an estimated mechanism is predicted at that history and the cumulative $\prod_{s \le k} g_s c_s$ is the iterated-mean cumulative of that plan, with `g_bounds` on the product. A declared factor is one value per row at the observed history, so it can stand only where every history agrees: the treatment probabilities of the first node, declared in the mapping form `treatment_probabilities={first column: {level: column or array}}` (an array over every node is refused even with missing later columns). A declared treatment factor at a later node, or declared retention at any node, is refused (H26); with it the copies of one hazard drift apart across units and the estimate misses the truth while the walk converges. The cumulative diagnostics read the mechanism at the observed history |
+| cap (H17) | when a regimen draws from a known policy, the fit refuses before any learner if the predicted traced (`tracemalloc`, not resident) peak $(a + bJ)\,nTU + c\,nUp$ passes 2 GiB, where $U$ counts the slots over every regimen and $p$ the design columns. The walk state and its copies hold $(n, T, U, J)$ arrays, and the curves, weights and copy structure hold $(n, T, U)$ arrays that do not grow with the causes. Eight whole one-step fits at `iterate="best"` give $a \approx 145$ and $b \approx 132$ bytes by least squares; `PATH_SLOT_BYTES` $a = 165$ and `PATH_STATE_BYTES` $b = 150$ with the design floor put the prediction 13 to 42 per cent above every measured peak (13 to 20 per cent except at the 44-column fixture, where the floor adds), with no growth of the bytes per value in $T$ or $U$ up to $U = 128$. A design with 44 columns peaked no higher than one with 5, and `PATH_DESIGN_BYTES` $c = 8$ is a floor. A static arm or rule adds one slot per regimen, as an arm adds one level on the held design, which has no cap, so a fit without a policy draw is never capped |
+| held cells | a cell is (node $k$, prefix value $\bar a_k$, cause), and its followers are the units at risk at $k$, of positive weight, whose observed history through $k$ is $\bar a_k$. When followers exist and none has an event of that cause, every copy of that hazard is held at zero; a full cell holds every copy at all-cause one. A prefix with no follower holds nothing |
+| remainder | a sum over nodes of products of the hazard error and the error of the cumulative path weight $q_r / \overline{gc}$ (Rytgaard, Gerds and van der Laan 2022, display (13) and Remark 1), so the estimate is consistent when either every hazard or every treatment and censoring factor is consistent. Asymptotic linearity follows under a remainder of $o_P(n^{-1/2})$ and a Donsker condition (their Theorem 2) |
+| settings | competing causes, observation weights, clusters, cross-fitting, `node_bounds=`, `stopping=`, `step_bound=`, `iterate=`, `msm=` and `truncation_curve()` act on the walk as on a held design |
+| refused | `markov_order=` (H23), a continuous or mixed node (H22), a modified treatment policy at the first node (H21) or after it (H15), a declared treatment factor after the first node or declared retention at any node, which also covers a tilt of a declared mechanism there (H26), and `hazard_pooling="pooled"`, a `Separable` regimen, `SurvivalCTMLE` and `SurvivalDRTMLE` (H18) ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_hazard_multinode.py` | on an exact law with two and three binary nodes, realised exactly as weighted data, a wrong hazard learner with the true mechanism gives the exact $\psi_{r,j}(t)$ within `1e-8` on both algorithms for a static arm, a rule of $W$, a policy that reads the earlier arm, and a regimen that draws at node 1 and then stays, while its plug-in misses. The same holds for each of two competing causes and for a working model over four two-node paths. The copies of one hazard are bit-equal after the walk, and with saturated hazards the influence curve equals the iterated-mean curve within `1e-10`. Declared first-node treatment probabilities give the same exactness, and the true mechanism declared at every node, or the true retention declared, is refused before any learner (H26). Mutations: dropping the plug-in term, slots read from the observed plan values, each slot's later treatment factor read at the unit's observed history (the walk converges and the estimate misses), copies updated apart, slot mass counted twice, a wrong node-1 weight, a residual kept for a deviated unit, and a working model targeting the cells, each miss or break an identity. Also an empty prefix cell holds every copy, a treatment that never changes reduces to the held fit, the settings above carry over, the cluster variance is that of the summed curve, the cross-fitted path hazards equal a manual refit, the replay at the fitted bound is bit-identical, H17 fires before any learner when a policy draws, and static arms past the same predicted peak reach the learners |
+| `tests/unit/test_hazard_refusals.py` | H15, H18, H21, H22, H23 and H26 by type and message, before any learner |
+
+The registered study [treatment at several nodes on the hazard path](method-evidence/hazard-multinode.md)
+measures this fit on a three-node and a four-node law with a binary treatment, one cause and
+logistic learners, in sample, at n = 2,000. Its regimen fits use `targeting="iterative"`, and the
+support rows `G62.three_node` and `G62.four_node` license static arms, known rules and known
+policies there, with the simultaneous band. `G62.msm` licenses a working model over the static
+paths of three nodes with `targeting="one_step"`. The one-step walk over regimen curves is reported
+on 200 draws with no verdict, so a one-step regimen fit matches no row. A cross-fitted or
+competing-risk fit, another node count, or a treatment with more than two levels also matches
+no row. Each is labelled `experimental`.
+
 ### The isotonic projection
 
 `isotonic=True` projects each survival or competing-risk curve onto a non-decreasing curve over the
@@ -1451,7 +1677,7 @@ pool-adjacent-violators algorithm (PAVA).
 | curve band limits | the fit builds the band at the unprojected levels. It then projects each curve's lower limits and upper limits by the same PAVA (Westling et al. 2020, Theorem 1 (iv) and (v)) |
 | contrasts | each contrast is the difference or ratio of projected levels. Its band is kept as built |
 | what does not move | every influence curve, every standard error, and the critical value |
-| a parameter with no interval | a `constant_node_plugin` parameter is left out of the band, and so out of the band projection |
+| a parameter with no interval or a supplemented variance | a `constant_node_plugin` parameter, and one that adds the node-variance supplement, is left out of the band, and so out of the band projection |
 | record | `result.isotonic_moves` lists `(regimen, cause, horizon, before, after)` for each moved level. `summary()` prints an `isotonic_moves` note that names each moved level, in any split |
 | identity | a one-step hazard fit, a fit with one reported horizon, and a curve that does not decrease |
 | refused | an end-of-study outcome (H3), `msm=` (H5), and a point-treatment functional (H10) |
@@ -1576,6 +1802,39 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
+
+**Weights.** A weighted fit estimates the regimen mean in the tilted law
+$dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
+$P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the
+same with $C_t$ given $(H_t, A_t)$. Beside non-constant weights a declared node therefore needs
+`mechanism_law=`, as in the [point case](point-treatment-tmle.md#known-treatment-mechanism). A
+node whose every declared value is 0 or 1, such as a retention of one for every unit still
+observed, is the same law under both readings and needs none, and constant weights tilt nothing.
+
+| `mechanism_law` | at each declared node with a value in $(0,1)$ |
+| --- | --- |
+| `"target"` | the fit divides by the declaration, and everything above holds in $P_w$ |
+| `"sample"` | the fit estimates the tilted factor as the normalised product of the declaration and the node learner's classification on the rows at risk, with weights $w$ over the declared probability of what each row did, normalised to mean one in each training fold. A treatment or retention factor reads the classifier at each plan's history and the declaration at the observed row |
+
+A `"sample"` node is an estimated factor: it is not a known factor in
+`LongitudinalConfig.known_factors`, the support key or the summary, and `g_bounds` truncates it
+like any estimate. The remainder is then the ordinary product of the factor errors and the outcome
+errors, so the interval holds when both are consistent at a product rate faster than
+$n^{-1/2}$, and the fit is not efficient in the model in which the declaration is known. The node
+learner must accept `sample_weight`. `LTMLE` refuses an odds tilt (`Incremental`) at a
+`"sample"` node, because it reads a tilt as a known policy only from a declaration it divides by;
+`IPSI` estimates that tilt with its mechanism term. The parametric g-formula draws the natural
+treatment at a `"sample"` node from the same product. `tests/unit/test_known_mechanism_weights_longitudinal.py`
+checks LTMLE, SDR and IPSI against a longhand g-formula on $P_w$ on the censored SMART law with a
+weight that reads $L_0$, $A_1$, $C_1$ and $L_1$, with mutation controls for the training rows,
+`fit_rows`, the plan history of the retention and the declared factor.
+The registered study
+[a declared treatment mechanism beside sample-reading weights](method-evidence/known-mechanism-sample-weights.md)
+measures cross-fitted `LTMLE` under `"sample"` on a two-node law with a continuous outcome and a
+weight that tilts the first node, at n = 4,000 (support row `G64`, which requires the
+qualifier `tilted_mechanism` and so covers no ordinary weighted fit). The interval is calibrated with
+every nuisance correct, the estimate stays unbiased with the first node regression wrong, and the
+`"target"` reading is biased.
 
 The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
 `LongitudinalConfig.known_factors` names the declared treatment and censoring columns, and the
@@ -1748,6 +2007,74 @@ sums no risk curve.
 | licensing scope | The `bootstrap` kind of a support row decides the label. A fit is covered when it has an end-of-study or single-cause survival outcome, is fitted in sample, uses static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit, such as a held baseline treatment, matches no such row. The rows `G01` and `G11.nodes4` list it, and the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) measured them. A cross-fitted fit, a clustered fit and a clustered cross-fitted fit have no such row, so their percentile interval carries the label `experimental`. Owner `X20-bootstrap` holds the red cells. A fit with fewer than 20 clusters prints its bootstrap as a diagnostic range, whatever its status. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
 | BCa and band scope | A BCa interval needs the `bootstrap_bca` kind, and the bootstrap band needs the `bootstrap_band` kind. The rows `G46` list `bootstrap_bca` for ten single-fold rows: `G46.tmle.binary_k3`, `binary_k4`, `binary_k5`, `categorical_k3`, `categorical_k4` and `categorical_k5`, and `G46.sdr.sdr_binary_k3`, `sdr_binary_k4`, `sdr_binary_k5` and `sdr_categorical_k5`. Six of them, the rows of three and four decisions, license BCa for plans without a known stochastic node only. The study gates no BCa row of a stochastic plan there. `G46.sdr.sdr_categorical_k3` and `sdr_categorical_k4` are Wald-only, and the learned-mechanism rows list `point` only. The rows list `bootstrap_band` for the three-level `LTMLE` row `G46.tmle.categorical_k5`, and `band` for `G46.tmle.binary_k5`. The three long-horizon studies measured these kinds. Each study gates a BCa interval only where its Wald interval does not gate, that is where $n$ is below twice the exact-law tail size $n_\kappa$. Where the Wald row gates, the BCa row reports. A row checks the plan family, and it does not check $n$, the learners or the quantity. A fit at another $n$ or on another quantity reads as the row, and the first note of the row states the sizes at which the study gates each interval. A cross-fitted fit, an MSM fit and the `SDR` bootstrap band carry the label `experimental`. A fit outside every `G46` row carries it too, such as a clustered fit. R `ltmle` 1.3-0 and R `lmtp` 1.5.5 match the long-horizon point estimates and standard errors on the cells their exact gates cover, so the comparators check the fit and not these interval kinds: neither fits a bootstrap. `SparseInfluenceWarning` fires on an unclustered Wald fit when the relative standard deviation of the variance estimate exceeds 0.125. A fit with a percentile bootstrap warns too, because its first interval is the Wald one, and a fit with `bootstrap_interval="bca"` does not. `result.diagnostics.influence()` is a direct call and is not part of `run_all()`. With `id=` it reports the cluster-level measures. The study set that threshold after it read the pilots |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
+
+## Covariate balance over time
+
+`covariate_balance(result)` on a longitudinal, discrete-time survival or IPSI fit returns a
+`BalanceOverTime`: the time-varying diagnostics of Jackson (2016, Table 1) computed from the fit's
+own first-repeat treatment and censoring probabilities. It is descriptive and carries no interval.
+For a diagnostic, an exposure node $t$, a covariate node $t_c$, a history stratum $h$ and a
+covariate $C$, each row is
+
+$$
+Q_{h} = M_{a'} - M_{a''}, \qquad
+M_a = \frac{\sum_i w_i\,\mathbb 1\{A_{it} = a, H_i = h\}\,C_i}{\sum_i w_i\,\mathbb 1\{A_{it} = a, H_i = h\}},
+$$
+
+with $w_i = b_i$ (the observation weight) in the unweighted column and $w_i = b_i W_i$ in the
+weighted one. $a''$ is the reference arm and each other arm is an $a'$. The standardized column
+divides both differences by $s_h = \sqrt{(v_{a',h} + v_{a'',h})/2}$, the unweighted variances in the
+stratum (Table 1, footnote a); a stratum with $s_h = 0$ or one row in an arm has no standardized
+value.
+
+| diagnostic | Jackson | compares | within | rows | $W_i$ |
+| --- | --- | --- | --- | --- | --- |
+| `"confounding"` | Diagnostics 1 and 3 | $W, L_1, \dots, L_t$ across $A_t$ | $\bar A_{t-1}$ | at risk before $A_t$: uncensored, and event-free on a survival fit, through $t-1$ | $1 / \mathrm{bound}(\prod_{s \le t} g_s \prod_{s < t} c_s)$ |
+| `"feedback"` | Diagnostic 2a | $L_t$ across an earlier $A_s$, $s < t$ | $\bar A_{s-1}$ | at risk before node $t$ | $1 / (g_s\, \mathrm{bound}(\prod_{u < t} c_u))$ |
+| `"censoring"` | censoring as an exposure | $W, L_1, \dots, L_t$ across staying after $t$ and leaving at $t$ | $\bar A_t$ | at risk before $C_t$ | the confounding weight through $g_t$, times one over the probability of the unit's own censoring outcome at $t$ |
+
+$g_s$ is the fitted probability of the observed arm at node $s$ given the observed history, and
+$c_s$ the fitted probability of staying observed after $s$; `bound` clips the product into
+`g_bounds`, as the fit bounds its cumulative prefix. The unit's own factor at the exposure
+($g_s$ in the feedback row, the censoring outcome in the censoring row) multiplies in after the
+bound, unclipped, apart from a floor of $10^{-9}$ that keeps a fitted probability of zero finite. Jackson's Diagnostic 3 reweights treatment
+alone among the uncensored. The retention factors before $A_t$ move the reference population to
+the one without censoring, the population of the fit's estimand, and leave the expected difference
+at zero: once $1/g_t$ makes $A_t$ independent of the past, a factor fixed before $A_t$ multiplies
+both arms' cell means alike. After $A_s$ in the feedback diagnostic, the retention factors select
+on $A_s$ and do move the expectation.
+
+Jackson weights with stabilized weights. Their numerators depend on the treatment history alone,
+which is fixed inside a cell $(H = h, A_t = a)$, so the cell means are the same with the
+unstabilized inverse probabilities the report uses. The stabilized weights enter only the
+person-time $N_h$, the stratum's summed weight, with the empirical frequency of each observed
+treatment among the units at risk as numerator. `average(over=...)` gives the $N$-weighted signed
+averages of Table 2 over the history, over history and time, or over everything; the unweighted
+and weighted columns average with their own $N$, and a stratum with no standardized value leaves
+the standardized average. Strata with only one arm present are counted in `dropped`, as Section 7
+of the paper allows.
+
+A fit that eliminates competing causes uses the composite retention ($c_s$ times the competing
+factor) in every prefix and the composite risk set. Each removal is its own exposure: the
+`"censoring"` row at $t$ reads the censoring node alone with its own factor, and a row whose
+exposure reads `eliminated causes at t` reads the competing event with its factor, among the units
+that passed the censoring node, with the censoring factor of $t$ in the prefix.
+
+A survival fit omits `"feedback"`: its later covariates exist only on units free of the event, so
+a difference across an earlier treatment mixes the treatment's effect on the covariate with its
+effect on survival. A held baseline treatment is an exposure at its first node only. A continuous
+or mixed treatment node raises `DataError`. The strata are every observed treatment history, as in
+the paper, not only the histories a regimen follows, because balance is a property of the
+treatment and censoring models; the regimen does not enter. A collaborative fit's summary notes that
+its treatment model is the selection, so covariates the selection left out are not expected to
+balance.
+
+`tests/unit/test_balance_over_time.py` computes a ten-unit report by hand, and checks each
+diagnostic at large $n$ on laws where the true probabilities give zero imbalance and a wrong factor
+gives a nonzero one: the cumulative treatment factors, the feedback retention, the censoring
+outcome's own factor, and the pairing of the eliminated-cause factors. A factor fixed before the
+exposure cannot move the expected difference, so only the hand computation pins the retention
+prefix. A control at `g_bounds=(0.05, 1)` checks that the bound leaves each unit's own factor out.
 
 ## Variations
 
@@ -1955,8 +2282,10 @@ through a `CausalStudy`. The default `"node"` fits one model per node.
 
 The design matches `survtmle`'s `glm.ctime` in `t`. A linear time column is invariant to a
 constant offset, because the intercept absorbs it. Every node's design must have the same columns.
-So the option needs one baseline treatment and no time-varying covariate, and a fit refuses other
-designs with `CapabilityError`. A point-treatment fit refuses `hazard_pooling=`.
+So the option needs one baseline treatment and no covariate block at a node after the first, and a
+fit refuses other designs with `CapabilityError`. A block at node 1 alone enters every node's design
+as a baseline column does, so it is accepted, though under `markov_order=` the window leaves it out
+of the later nodes' designs. A point-treatment fit refuses `hazard_pooling=`.
 
 `tests/unit/test_hazard_pooled.py` holds the evidence for the cause hazards. It checks the
 stacked rows, the fold of each unit, the hazards against a hand-fit pooled regression, and a
