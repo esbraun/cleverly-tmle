@@ -865,4 +865,5 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
             frame.iloc[:600], time="time", event="event", treatment="Z", baseline=["X3"]
         )
     assert all("n_folds" in estimate.support.reason for estimate in half.values())
-    assert all("600 units" in estimate.support.reason for estimate in half.values())
+    # 600 units clear the size floor of 500 the variance study measured: only n_folds binds.
+    assert not any("600 units" in estimate.support.reason for estimate in half.values())

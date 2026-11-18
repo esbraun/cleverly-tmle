@@ -363,11 +363,13 @@ def test_the_relative_sd_floor_labels_risks_and_differences(
     assert "sparse" in label(0.5, share=0.3).reason
 
 
-def test_the_pending_floor_labels_nothing_and_the_engine_passes_each_curves_spread(
+def test_the_engine_passes_each_curves_spread_to_the_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """T-a9 on a fit: the engine hands each estimate's own relative SD to the floor."""
-    assert result_module.MEASURED_REL_SD is None  # pending continuous-survival-variance
+    # The measured floor (continuous-survival-variance) is replaced by one this small fit
+    # straddles, so both sides of it are exercised.
+    assert result_module.MEASURED_REL_SD is not None
     floor = 0.3
     monkeypatch.setattr(result_module, "MEASURED_REL_SD", floor)
     monkeypatch.setattr(result_module, "MEASURED_REL_SD_EARLY", floor)

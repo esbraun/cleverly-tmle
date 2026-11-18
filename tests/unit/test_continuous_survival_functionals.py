@@ -393,7 +393,7 @@ def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> 
     assert several.label == "experimental"
     assert "targets 2 restricted horizons" in several.reason
     # The other conditions still bind on a restricted fit.
-    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=500)
+    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=400)
     assert small.label == "experimental"
 
 

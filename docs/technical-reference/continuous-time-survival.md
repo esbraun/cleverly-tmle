@@ -311,7 +311,7 @@ replicate. The other rows raise `CapabilityError`.
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
+that configuration: cross-fitted, the default libraries and settings, at least 500 units, two
 causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
 cause have happened
 (`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
@@ -339,12 +339,14 @@ survival view, a smooth contrast and the band read experimental. A risk-only wal
 study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
 this law, so the claim that a restricted mean must be targeted rests on the score test below.
 
-Both registered studies' rows were written under the influence-curve variance. On exploratory fits
-of the first study's law the switched variance widened the gated rows' intervals by 0% to 4.7%,
-and both studies regenerate under the switched default once the switched-variance study ships it.
-That study also sets a floor on `variance_rel_sd`: a risk or risk difference whose curve is
-sparser than every gated row that passed reads experimental. Until the study runs the floor is
-pending and labels no estimate.
+The registered study [continuous-time survival switched
+variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
+default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
+four gated cells passes at 6,000 replicates. It sets three floors. A risk or risk difference whose
+`variance_rel_sd` lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at
+0.40, because not every first-quartile row passed. Its gated 500-unit cell passed every row, so the
+size floor is 500 units (`MEASURED_N`), not the 1,000 the first study gated. Both studies above
+were written under the influence-curve variance and regenerate under the switched default.
 
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation

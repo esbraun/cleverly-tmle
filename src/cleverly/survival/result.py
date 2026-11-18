@@ -34,9 +34,11 @@ CONTINUOUS_SURVIVAL_STUDY: Final[str] = "continuous-time-survival"
 #: of each arm and cause nor n, which :data:`MEASURED_N` bounds.
 MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
 
-#: The sample size the study gates.  A smaller fit has fewer events of each arm and cause; at the
-#: early time the cell with the fewest events (about 16 per fit) covered least.
-MEASURED_N: Final[int] = 1_000
+#: The smallest sample size a study gates.  The registered study gates n = 1,000, where at the
+#: early time the cell with the fewest events (about 16 per fit) covered least; the gated
+#: 500-unit cell of :data:`VARIANCE_STUDY` (``v3_half_n``) passed every primary row, which lowers
+#: the floor to 500.  The design test checks it against that study's committed ``floors.csv``.
+MEASURED_N: Final[int] = 500
 
 #: The study that measures the default interval's sparse-cell floors (X6 part (a)).
 VARIANCE_STUDY: Final[str] = "continuous-survival-variance"
@@ -44,11 +46,9 @@ VARIANCE_STUDY: Final[str] = "continuous-survival-variance"
 #: The largest relative standard deviation of the influence-curve variance (``variance_rel_sd``)
 #: at which a risk or risk difference reads supported: :data:`VARIANCE_STUDY`'s
 #: :math:`r^*_{\mathrm{prim}}`, the largest median rung over its gated cells such that every
-#: primary row at or below it passes.  ``None`` until that study's readings are committed: no
-#: study has yet measured the default interval away from the registered base law, so no floor is
-#: read from data the library does not hold.  The design test checks it against the committed
-#: ``floors.csv``.
-MEASURED_REL_SD: Final[float | None] = None
+#: primary row at or below it passes, read from that study's committed ``floors.csv`` (the
+#: design test checks the value; the run at 0cb80a56 measured it).
+MEASURED_REL_SD: Final[float | None] = 0.24582894675266365
 
 #: The same floor for event shares in ``[0.25, 0.40)``, :math:`r^*_{\mathrm{cal}}`, read from the
 #: first-quartile rows under the calibration rule.  It applies only if the study lowers the
