@@ -212,6 +212,8 @@ REGENERATE: dict[str, str] = {
     "(Fix-3, 2026-11-18)",
     "cde-tmle": "moved at the R_a bound; regenerated in full instead of settled, approved "
     "(Fix-3, 2026-11-18)",
+    "hazard-time-varying-multinode": "moved at the R_a bound; a full regeneration (about 5 "
+    "CPU-hours) costs less than its settle (about 175)",
 }
 
 #: How far a refit may sit from the committed row it replays, in sampling standard deviations
