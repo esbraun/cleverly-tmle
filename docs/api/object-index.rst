@@ -23,6 +23,7 @@ categorized API tables.
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
    cleverly.IdentifiedEffect
+   cleverly.PlannedFits
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.estimators.DoseResponseResult
@@ -129,6 +130,7 @@ categorized API tables.
    cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
+   cleverly.ImportanceFacts
    cleverly.variable_importance
    cleverly.load
    cleverly.SuperLearner

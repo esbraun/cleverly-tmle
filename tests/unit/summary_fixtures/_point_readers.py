@@ -471,7 +471,11 @@ def read_importance(result: Any, text: str) -> None:
         text,
         {
             "Candidates": len(result.entries),
-            "Rows": len(result.fits[result.entries[0].candidate].data.outcome),
+            "Rows": (
+                len(result.fits[result.entries[0].candidate].data.outcome)
+                if result.keep_fits
+                else result.facts.n
+            ),
         },
     )
 

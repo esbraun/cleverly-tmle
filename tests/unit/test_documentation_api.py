@@ -86,6 +86,7 @@ EXAMPLE_TARGETS = (
     "cleverly.assessment.DiagnosticsFacade",
     "cleverly.assessment.SensitivityFacade",
     "cleverly.effect_curves.EffectCurveResult.predict",
+    "cleverly.PlannedFits",
     # Learners and data.
     "cleverly.SuperLearner",
     "cleverly.datasets.make_linear_ate",
@@ -93,6 +94,7 @@ EXAMPLE_TARGETS = (
     # Core workflow methods. Their own anchors must answer how to make the call.
     "cleverly.CausalStudy.identify",
     "cleverly.IdentifiedEffect.estimate",
+    "cleverly.IdentifiedEffect.planned_fits",
     "cleverly.estimators.TMLEResult.validate",
     "cleverly.assessment.DiagnosticsFacade.run_all",
     "cleverly.assessment.SensitivityFacade.omitted_confounding",

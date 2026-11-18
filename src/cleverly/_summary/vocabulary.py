@@ -3791,6 +3791,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "learners_failed": "warning",
         "ensemble_risk": "note",
         "fit_cautions": "warning",
+        "fit_cautions_listed": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
         "guard_scope": "note",
@@ -3894,6 +3895,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."
+        ),
+        "fit_cautions_listed": (
+            "The fits of {names} carry warnings that change how to read their rows. This run "
+            "kept no fits (keep_fits=False), so they are listed here: {listing}"
         ),
         "stacked_interval": (
             "Each interval is pointwise and comes from one stacked estimating equation of "
@@ -4894,3 +4899,43 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})
+
+# ----------------------------------------------------------------- planned fits (X106 I)
+
+PLANNED_FITS_TITLE: Final = "Planned model fits"
+PLANNED_FITS_TOTAL: Final = "Model fits"
+PLANNED_CANDIDATE_TOTAL: Final = "Candidate fits"
+PLANNED_BOUND: Final = "Count"
+PLANNED_BOUND_TEXT: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "exact", False: "upper bound, at least {low} model fits"}
+)
+PLANNED_FOLDS: Final = "Folds"
+PLANNED_FOLDS_TEXT: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "realized": "the ones the fit uses (seeded)",
+        "outer realized": "outer folds as the fit uses them; inner folds drawn afresh",
+        "one draw": "one draw; the fit draws its own (no random_state)",
+    }
+)
+PLANNED_ROWS_TITLE: Final = "Fits by model"
+PLANNED_ROW_COLUMNS: Final = ("model", "fits", "candidate fits", "what and how often")
+PLANNED_LEARNERS_TITLE: Final = "Learners"
+PLANNED_LEARNER_COLUMNS: Final = ("model", "learner")
+PLANNED_CANDIDATES_TITLE: Final = "Fits by candidate"
+PLANNED_CANDIDATE_COLUMNS: Final = ("candidate", "fits", "own CV folds")
+PLANNED_UPPER_MARK: Final = "at most {fits}"
+SECTION_MULTIPLIERS: Final = "Where the counts come from"
+SECTION_PLANNED_NOTES: Final = "What the counts include"
+SECTION_UNPREVIEWED: Final = "Checks left to the fit"
+PLANNED_UNPREVIEWED_LEAD: Final = (
+    "These checks read a fitted tuner, so estimate() runs them after the count stops:"
+)
+PLANNED_NO_NOTES: Final = (
+    "The correction step that follows the model fits fits no learner and is not counted."
+)
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_FITS_TOTAL,
+    PLANNED_CANDIDATE_TOTAL,
+    PLANNED_BOUND,
+    PLANNED_FOLDS,
+}
