@@ -1,0 +1,53 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 80,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 260,
+    "seconds_capture": 0.77,
+    "seconds_fit": 1.57,
+    "stage": "refits",
+    "study": "known-mechanism-sample-weights"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 5,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 16,
+    "seconds_capture": 0.71,
+    "seconds_fit": 0.42,
+    "stage": "scope",
+    "study": "known-mechanism-sample-weights"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/lw_n4000__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 4000,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 12000,
+    "seconds_capture": 0.78,
+    "seconds_fit": 2912.91,
+    "stage": "settle",
+    "study": "known-mechanism-sample-weights"
+  }
+}
