@@ -159,7 +159,7 @@ CONFIGURATION = {
         "censoring_wrong": "CoxHazard('treatment') on the dependent-censoring law",
     },
     "sizes": {name: n for name, (_, n) in SCENARIOS.items()},
-    "variance_method": "influence curve",
+    "variance_method": "switched (influence curve raised to predictable variation)",
 }
 
 
