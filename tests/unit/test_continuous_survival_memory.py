@@ -364,6 +364,44 @@ def test_the_guard_reads_the_full_grid_with_no_block_kept() -> None:
     assert reduced.bytes <= full.bytes <= kept.bytes
 
 
+@pytest.mark.parametrize("margin", [None, 1.0])
+def test_kept_blocks_leave_the_allocator_margin_within_an_explicit_budget(
+    margin: float | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-2.2g: the kept blocks are as many as keep the walk's prediction times the margin
+    within the budget; without the margin (mutation control) they overrun it."""
+    shape = {
+        "n": 4_000,
+        "causes": 2,
+        "times": 3_000,
+        "rows": 2,
+        "covariates": 3,
+        "train_size": 4_000,
+        "design_width": 4,
+        "simultaneous": False,
+        "n_multiplier": 1_000,
+        "kept": 2_000,
+    }
+    from cleverly.survival._chunked import blocks, chunk_size
+
+    bounds = blocks(4_000, chunk_size(4_000, 2, 3_000))
+
+    def need(count: int) -> int:
+        rows = sum(hi - lo for lo, hi in bounds[:count])
+        phases = _memory.peak_bytes(**shape, resident_rows=rows, resident_blocks=count).phases
+        return max(phases["walk"], phases["off_grid"])
+
+    budget = int(_memory.ALLOCATOR_MARGIN * need(len(bounds) // 2))
+    if margin is not None:
+        monkeypatch.setattr(_memory, "ALLOCATOR_MARGIN", margin)
+    count = _memory.resident_count(shape, bounds, budget)
+    assert 0 < count < len(bounds)
+    within = 1.15 * need(count) <= budget
+    assert within is (margin is None)
+    if margin is None:
+        assert 1.15 * need(count + 1) > budget
+
+
 def test_a_truncation_curve_holds_about_what_its_fit_holds() -> None:
     data = _data(1_000, 1)
     # The curve's walks keep the blocks the fit's did, under the same default budget.
