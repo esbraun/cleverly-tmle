@@ -729,7 +729,7 @@ purpose. Censoring is again drawn afresh only where the treatment changed, and b
 zero give back the recorded times and the original estimate. Each grid cell other than that one
 refits the whole analysis, so a 3 by 3 grid costs 8 refits: seconds at a few hundred people, and
 minutes for a large cross-fitted fit. The surface prints numbers, not a pass or fail.
-[Continuous-time survival replay](../technical-reference/validation-methods.md#continuous-time-survival-replay)
+[Continuous-time survival replay](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 gives the law and its checks.
 :::
 

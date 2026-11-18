@@ -874,7 +874,7 @@ estimator and data; `refute` runs the placebo on a contrast, the random common c
 subset, descriptively, and the truncation curve reruns the walk at other floors
 ([refutation operations](technical-reference/validation-methods.md#refutation-operations)).
 `simulated_confounding` replays event and censoring times under a simulated common cause
-([continuous-time survival replay](technical-reference/validation-methods.md#continuous-time-survival-replay)).
+([continuous-time survival replay](technical-reference/validation-methods.md#simulated-common-cause-stress-surface)).
 
 | part | what to add | base |
 | --- | --- | --- |
