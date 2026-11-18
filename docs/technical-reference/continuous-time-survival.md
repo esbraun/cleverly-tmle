@@ -396,8 +396,9 @@ ratios](method-evidence/continuous-survival-functionals.md) gates the same confi
 `restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
 differences of that fit, whose extra targets move them, the log risk ratios at the median and
 upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
-at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
-calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
+at $\tau$. Its record was regenerated under the switched default interval. All 25 rows pass,
+with coverage 0.939 to 0.954, and the RMST difference meets the calibration bands (coverage 0.945,
+SE ratio 0.996). A fit with one restricted horizon at or before
 its last target time reads `supported` under the conditions above with at least 1,000 units
 (`FUNCTIONALS_N`), the one size that study ran, and its restricted means read
 `supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
@@ -415,8 +416,8 @@ this law, so the claim that a restricted mean must be targeted rests on the scor
 The registered study [continuous-time survival switched
 variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
 default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
-four gated cells passes at 6,000 replicates. Both studies above were written under the
-influence-curve variance and regenerate under the switched default.
+four gated cells passes at 6,000 replicates. The continuous-time survival TMLE study was written
+under the influence-curve variance and regenerates under the switched default.
 
 The switched-variance study sets three floors. A risk or risk difference whose `variance_rel_sd`
 lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at 0.40, because

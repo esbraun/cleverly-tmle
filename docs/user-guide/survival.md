@@ -293,7 +293,7 @@ is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci
 
 The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
 with one cut-off at the last target time found the restricted means unbiased and their 95%
-intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+intervals covering 94% to 95% of the time. It measured a cut-off by which three quarters of the
 events had happened, and a mean up to an earlier cut-off leans more on the early times, where
 intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
 of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The
