@@ -476,9 +476,19 @@ def _released(build: Callable[[], Any], key_part: str) -> tuple[int, int]:
     return counted, before - after
 
 
+#: Allocator slack on the lower bound: deleting an entry can also free or keep a few allocator
+#: blocks that are not the answer's (27 bytes on a CI runner). One percent of the answer is far
+#: above that noise and far below the 99% an arrayless count misses (the control below).
+_LOWER_SLACK = 0.01
+
+
+def _counted_within_bounds(counted: int, released: int) -> bool:
+    return (1 - _LOWER_SLACK) * released <= counted <= 1.25 * released
+
+
 def test_the_elements_are_counted_within_a_quarter_of_what_they_hold() -> None:
     counted, released = _released(lambda: _point_fit(n=20_000), "elements")
-    assert released <= counted <= 1.25 * released
+    assert _counted_within_bounds(counted, released), (counted, released)
 
 
 def test_dropping_arrays_from_the_count_fails_the_lower_bound(
@@ -495,7 +505,9 @@ def test_dropping_arrays_from_the_count_fails_the_lower_bound(
 
     monkeypatch.setattr(cache_module, "_payload_nbytes", arrayless)
     counted, released = _released(lambda: _point_fit(n=20_000), "elements")
-    assert counted < released
+    assert not _counted_within_bounds(counted, released)
+    # Not a near miss: the arrays are almost all of what the entry holds.
+    assert counted < 0.1 * released, (counted, released)
 
 
 def test_the_count_of_a_filled_cache_is_at_most_twice_what_clearing_it_releases() -> None:
