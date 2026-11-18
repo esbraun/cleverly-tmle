@@ -239,6 +239,15 @@ def _shown_candidates(selection: CTMLESelection) -> list[int]:
     return sorted(keep)
 
 
+def _search_work_text(selection: CTMLESelection) -> str:
+    """The search's candidates, mechanism fits and solves over every branch, in words."""
+    return (
+        f"{sum(selection.candidates)} candidates, {sum(selection.mechanism_fits)} mechanism "
+        f"fits, {sum(selection.target_solves)} solves; {selection.candidates[0]} candidates "
+        "on the analysis sample"
+    )
+
+
 def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
     """The summary of a collaborative search.
 
@@ -314,6 +323,8 @@ def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
         (vocabulary.FOLDS, count_text(selection.folds.n_folds)),
         (vocabulary.COVARIATES_SEARCHED, pool),
     ]
+    if selection.candidates:
+        header.append((vocabulary.SEARCH_WORK, _search_work_text(selection)))
     notes: list[Note] = []
     for code, text in (
         ("left_out", _left_out_text(selection)),
