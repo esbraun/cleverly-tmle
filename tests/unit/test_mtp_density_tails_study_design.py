@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -746,24 +747,49 @@ def _calibration_rows(pilot_rows: pd.DataFrame, label: str) -> pd.DataFrame:
     return rows
 
 
+def calibration_stop(pilot_rows: pd.DataFrame, label: str) -> tuple[pd.DataFrame, float, str]:
+    """The extension rule read block by block: the rows it reads, their plug-in, and its stop.
+
+    The rule reads the first :data:`~pilot.CALIBRATION_DRAWS` replicates, then each further
+    block of :data:`~pilot.EXTENSION_DRAWS`, and stops at the first block where it decides:
+    ``"target"`` (plug-in at least 0.90), ``"departure"`` (a confirmed departure), ``"cap"``
+    (below 0.90 after :data:`~pilot.MAX_EXTENSIONS` extensions), or ``"extend"`` (below 0.90 and
+    the next block not yet complete).  Every draw beyond the stop is ignored, so blocks run ahead
+    of the reading change nothing.
+    """
+    held = set(pilot_rows.loc[pilot_rows["label"] == label, "replicate"].astype(int))
+    every = _calibration_rows(pilot_rows, label)
+    truth = _pilot_truth(label)
+    read: tuple[pd.DataFrame, float, str] | None = None
+    for extensions in range(pilot.MAX_EXTENSIONS + 1):
+        draws = pilot.CALIBRATION_DRAWS + extensions * pilot.EXTENSION_DRAWS
+        if not set(range(draws)) <= held:
+            assert read is not None, f"{label}: the first {draws} replicates are incomplete"
+            return read[0], read[1], "extend"
+        rows = every.loc[every["replicate"] < draws]
+        ratio, coverage, _ = pooled_calibration(rows, truth)
+        plug = calibration_plug_in(ratio, coverage, properties.CALIBRATION_REPLICATES)
+        if plug >= FLOOR_ARM:
+            return rows, plug, "target"
+        if departure(rows, truth, label):
+            return rows, plug, "departure"
+        read = (rows, plug, "cap")
+    assert read is not None
+    return read
+
+
 def arm_reading(pilot_rows: pd.DataFrame, label: str) -> float:
     """The arm's pass probability under the extension rule, or a failed assertion.
 
     An arm whose plug-in reaches 0.90 enters at target; an arm at the cap enters at its plug-in
     once :data:`DIAGNOSED_AT_CAP` records a diagnosis with no defect.  A confirmed departure, or
-    an arm below 0.90 with an extension left, stops the declaration.
+    an arm below 0.90 with an extension left, stops the declaration (:func:`calibration_stop`).
     """
-    rows = _calibration_rows(pilot_rows, label)
-    truth = _pilot_truth(label)
-    ratio, coverage, draws = pooled_calibration(rows, truth)
-    extensions = (draws - pilot.CALIBRATION_DRAWS) // pilot.EXTENSION_DRAWS
-    assert draws == pilot.CALIBRATION_DRAWS + extensions * pilot.EXTENSION_DRAWS, (label, draws)
-    assert 0 <= extensions <= pilot.MAX_EXTENSIONS, (label, draws)
-    plug = calibration_plug_in(ratio, coverage, properties.CALIBRATION_REPLICATES)
-    if plug >= FLOOR_ARM:
+    _, plug, stop = calibration_stop(pilot_rows, label)
+    if stop == "target":
         return arm_pass(properties.CALIBRATION_REPLICATES)
-    assert not departure(rows, truth, label), f"{label}: a confirmed departure; diagnose it"
-    assert extensions == pilot.MAX_EXTENSIONS, f"{label}: plug-in {plug:.3f}; extend by 400"
+    assert stop != "departure", f"{label}: a confirmed departure; diagnose it"
+    assert stop == "cap", f"{label}: plug-in {plug:.3f}; extend by 400"
     assert label in DIAGNOSED_AT_CAP, f"{label}: at the cap; diagnose it before the declaration"
     return plug
 
@@ -829,7 +855,7 @@ class TestThePilot:
     ) -> None:
         family = 1.0
         for label in GATED_CALIBRATION:
-            rows = _calibration_rows(pilot_rows, label)
+            rows = calibration_stop(pilot_rows, label)[0]
             truth = _pilot_truth(label)
             spread = rows["estimate"].std() / math.sqrt(len(rows))
             assert abs(rows["estimate"].mean() - truth) < 5 * spread, label
@@ -847,7 +873,7 @@ class TestThePilot:
             "calibration_LTMLE": properties.LTMLE_GATED,
         }
         for label, prefix in arms.items():
-            rows = _calibration_rows(pilot_rows, label)
+            rows = calibration_stop(pilot_rows, label)[0]
             unit = properties.efficiency_bounds()[prefix] / math.sqrt(properties.CALIBRATION_N)
             spread = float(rows["estimate"].std(ddof=1)) / unit
             assert spread < bound, (label, spread, bound)
@@ -915,6 +941,62 @@ def test_the_committed_readings_match_their_recomputation() -> None:
         pytest.skip("the readings are written after the declared run")
     recomputed = pilot.reported_readings(pilot.load(), pd.read_csv(pilot.PROPERTIES))
     assert json.loads(json.dumps(recomputed)) == json.loads(pilot.READINGS.read_text())
+
+
+def _calibration_block_rows(draws: int, label: str = "calibration_classifier_G") -> pd.DataFrame:
+    """``draws`` replicates of one calibration arm; the estimates do not matter here."""
+    return pd.DataFrame(
+        {
+            "label": label,
+            "replicate": np.arange(draws),
+            "reading": "",
+            "estimate": np.zeros(draws),
+            "std_error": np.ones(draws),
+            "refusal": np.nan,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("schedule", "departs_at", "stop", "read"),
+    [
+        ({400: 0.95}, None, "target", 400),
+        ({400: 0.5, 800: 0.93}, None, "target", 800),
+        ({400: 0.5, 800: 0.6}, 800, "departure", 800),
+        ({400: 0.5, 800: 0.6, 1200: 0.7, 1600: 0.8}, None, "cap", 1600),
+    ],
+)
+def test_draws_past_the_extension_stop_change_nothing(
+    schedule: dict[int, float],
+    departs_at: int | None,
+    stop: str,
+    read: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rule reads 0:400, then 0:800 and so on, and ignores every block after its stop."""
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), 0.0, 0))
+    monkeypatch.setattr(module, "calibration_plug_in", lambda draws, coverage, r: schedule[draws])
+    monkeypatch.setattr(module, "departure", lambda rows, truth, label: len(rows) == departs_at)
+    readings = []
+    for draws in range(read, 2_400, 200):
+        rows, plug, found = calibration_stop(
+            _calibration_block_rows(draws), "calibration_classifier_G"
+        )
+        readings.append((len(rows), plug, found))
+    assert set(readings) == {(read, schedule[read], stop)}
+
+
+def test_an_incomplete_block_asks_for_the_extension(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), 0.0, 0))
+    monkeypatch.setattr(module, "calibration_plug_in", lambda draws, coverage, r: 0.5)
+    monkeypatch.setattr(module, "departure", lambda rows, truth, label: False)
+    for draws in (400, 600, 799):
+        rows, _, found = calibration_stop(
+            _calibration_block_rows(draws), "calibration_classifier_G"
+        )
+        assert (len(rows), found) == (400, "extend")
 
 
 def _pilot_sets(

@@ -48,7 +48,8 @@ label                              what it reads
 
 A calibration pilot whose plug-in pass probability is below 0.90 is extended by
 :data:`EXTENSION_DRAWS` replicates on its own stream (``--replicates 400:800`` and so on), at most
-:data:`MAX_EXTENSIONS` times; the design test applies the rule.
+:data:`MAX_EXTENSIONS` times; the design test applies the rule block by block and ignores every
+draw past the block where it stops, so blocks may run ahead of the reading.
 
 Every row records the draw's per-fit seconds (``seconds``), so the design test rebudgets each
 cell from its pilot.  Each shipped learned-hazard row also records the misfit signature's three
