@@ -244,8 +244,12 @@ def test_the_comparison_sees_a_one_ulp_factor(
     assert new.c.tobytes() != old.c.tobytes()
 
 
-def test_regressions_are_released_after_the_products() -> None:
-    """The products peak below the baseline, which cached every regression to the end."""
+def test_regressions_are_released_after_the_products(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Few regressions stay cached, and the peak net of the fixed products is O(tau).
+
+    The baseline cached every regression to the end of the horizon, about 2 tau^2 arrays
+    (146 entries at tau = 8); the fixed products ``r`` and ``l`` are another 2 tau^2.
+    """
     rng = np.random.default_rng(5)
     n, tau = 4000, 8
     k = tau + 1
@@ -266,23 +270,68 @@ def test_regressions_are_released_after_the_products() -> None:
     def regress(x: np.ndarray, y: np.ndarray, rows: np.ndarray) -> np.ndarray:
         return 0.5 * x + 0.01
 
-    def peak(function: Any) -> int:
+    def run(function: Any) -> tuple[int, int, int]:
         state = drift._State(view.g_a.copy(), view.g_r.copy(), view.h.copy())
         reductions = drift._Reductions(view, state, tau, GB, regress)
+        held = [0]
+        original = drift._Reductions.fit
+
+        def counting(self: drift._Reductions, *args: Any) -> np.ndarray:
+            value = original(self, *args)
+            held[0] = max(held[0], len(self._cache))
+            return value
+
+        monkeypatch.setattr(drift._Reductions, "fit", counting)
         tracemalloc.start()
         try:
             function(reductions, tau, GB[0])
-            return tracemalloc.get_traced_memory()[1]
+            peak = tracemalloc.get_traced_memory()[1]
         finally:
             tracemalloc.stop()
+            monkeypatch.undo()
+        return len(reductions._cache), held[0], peak
 
     array = 8 * n
-    ours = peak(drift.fit_coefficients)
-    theirs = peak(_baseline_fit_coefficients)
-    # The fixed products are 2 tau^2 + 2 tau arrays; the carried products and the e_L, e_R
-    # families add about 6 tau more.  The baseline holds about 300 at tau = 8.
-    assert ours <= (2 * tau * tau + 10 * tau) * array
-    assert ours < 0.75 * theirs
+    fixed = 2 * tau * tau * array
+    left, most, peak = run(drift.fit_coefficients)
+    theirs_left, _, theirs_peak = run(_baseline_fit_coefficients)
+    assert left <= 2 * tau + 2  # e_L, e_R, e_A and q only
+    assert theirs_left > 8 * left  # the baseline kept every regression (146 at tau = 8)
+    assert most <= 4 * tau + 2  # the e_L, e_R families (2 tau) and one horizon step of u, v
+    assert peak - fixed <= 10 * tau * array
+    assert theirs_peak - fixed > 2 * (peak - fixed)
+
+
+def test_the_loo_shortcut_is_seen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control for the all-finite early exit: taking it when only some residuals
+    are finite changes the error on an input with a gap."""
+    rng = np.random.default_rng(9)
+    x = np.concatenate([rng.uniform(0.0, 1.0, 3000), [3.0, 7.5]])
+    y = rng.binomial(1, 0.5, x.size).astype(float)
+    order = np.lexsort((y, x))
+    x, y = x[order], y[order]
+    low, width = float(x[0]), float(x[-1] - x[0]) / (BINS - 1)
+    left, left_weight, right_weight, binned = _kernel._bin(x, y, low, width)
+    bandwidth = float(_kernel.bandwidth_grid(x, width)[0])
+    kernel = _kernel._kernel(bandwidth, width)
+    sums = _kernel._convolve(binned, kernel)
+    honest = _kernel._loo_error(y, left, left + 1, left_weight, right_weight, sums, kernel)
+    assert honest == _baseline_loo_error(y, left, left_weight, right_weight, sums, kernel)
+    # The residuals the scan scores, as both bodies compute them.
+    near, step = kernel[BINS - 1], kernel[BINS]
+    fits = np.zeros(y.size)
+    own_l = near * left_weight + step * right_weight
+    own_r = step * left_weight + near * right_weight
+    for bins, own, weight in ((left, own_l, left_weight), (left + 1, own_r, right_weight)):
+        denominator = sums[0, bins] - own
+        safe = denominator > 1e-300
+        ratio = np.where(safe, (sums[1, bins] - own * y) / np.where(safe, denominator, 1.0), np.nan)
+        fits += weight * ratio
+    residual = y - fits
+    assert np.isfinite(residual).any() and not np.isfinite(residual).all()
+    # The early exit taken on ``finite.any()`` would score mean(residual**2): not finite.
+    mutated = float(np.mean(residual**2))
+    assert np.isfinite(honest) and not np.isfinite(mutated)
 
 
 def test_bincount_binning_is_the_add_at_binning() -> None:
