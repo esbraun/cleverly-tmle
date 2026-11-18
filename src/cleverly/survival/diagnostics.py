@@ -471,21 +471,19 @@ def continuous_truncation_curve(
             )
     seed = estimator.random_state
     assert seed is not None  # a stored estimator carries its resolved seed
-    initial = estimator._initial(data, int(seed), folds=estimator._fold_override, retained=True)
+    initial = estimator._initial(data, int(seed), folds=estimator._fold_override)
     settings = {key: getattr(estimator, key) for key in MEASURED_DEFAULTS}
-    replayed, record = estimator._target(initial, fitted, settings=settings, consume=False)
+    replayed, record = estimator._target(initial, fitted, settings=settings)
     if not _reproduces(result, replayed, record):
         raise CapabilityError.from_refusal(REPLAY_REFUSAL)
-    product = initial.product
-    assert product is not None
-    lowest = product.min(axis=(0, 2))
+    lowest = initial.lowest
     rows: list[dict[str, Any]] = []
     for floor in grid:
         if floor == fitted:
             estimates, at = replayed, record
         else:
             estimates, at = estimator._target(
-                initial, floor, settings={**settings, "g_bounds": floor}, consume=False
+                initial, floor, settings={**settings, "g_bounds": floor}
             )
         truncated = float(np.mean(lowest < floor))
         for name in names:
@@ -518,7 +516,7 @@ def continuous_truncation_curve(
                     ),
                 }
             )
-    del initial, product
+    del initial
     keys = list(dict.fromkeys(key for row in rows for key in row))
     return emit_frame({key: [row.get(key) for row in rows] for key in keys}, backend=result.backend)
 

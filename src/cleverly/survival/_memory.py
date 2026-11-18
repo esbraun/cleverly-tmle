@@ -204,6 +204,11 @@ def peak_bytes(
     )
 
 
+def resident_count(plan: object, max_memory_bytes: int | None) -> int:
+    """The blocks a walk keeps (placeholder: every block)."""
+    return len(plan.bounds)  # type: ignore[attr-defined]
+
+
 def _gib(value: int) -> str:
     return f"{value / 1024.0**3:.2f} GiB ({value:,} bytes)"
 
