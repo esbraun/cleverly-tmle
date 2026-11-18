@@ -471,7 +471,13 @@ def continuous_truncation_curve(
             )
     seed = estimator.random_state
     assert seed is not None  # a stored estimator carries its resolved seed
-    initial = estimator._initial(data, int(seed), folds=estimator._fold_override, retained=True)
+    initial = estimator._initial(
+        data,
+        int(seed),
+        folds=estimator._fold_override,
+        retained=True,
+        plan=estimator._plan_override,
+    )
     settings = {key: getattr(estimator, key) for key in MEASURED_DEFAULTS}
     replayed, record = estimator._target(initial, fitted, settings=settings, consume=False)
     if not _reproduces(result, replayed, record):

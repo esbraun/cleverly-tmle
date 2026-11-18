@@ -284,7 +284,7 @@ inherit them through `inference_status`.
 | --- | --- |
 | `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `STATUS_RECORDS` |
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
-| `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
+| `variable_importance` | none. Under either `keep_fits` setting, and in `variable_importance_plan`, which shares its checks, it raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of each draw, so the replay of each draw at the fitted bound equals that draw in every field that `_fitted_replay_matches` compares |
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty and the fit's `boundary_reach` names a kind outside the supplement's reach. Inside the reach the estimate keeps the fit status and carries `node` (`boundary_loadings`). `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
 | a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
@@ -512,6 +512,21 @@ invariant above states that rule for every saved object.
 *Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
+
+The cache (`AssessmentCache`) keeps every answer unless its `max_bytes` budget is set. Under a
+budget it may drop only an answer it can recompute bit for bit: a request whose resolved row is a
+`summarize` or `retarget` declared deterministic from saved artifacts, `validate`,
+`diagnostics.influence`, a derived risk ratio except on guarded DR-TMLE or AdaptiveIPTW, or a
+combined report, and only when the
+answer's own computation made no mark in `cleverly.utils.random` (fresh entropy, a `fit_learner`
+fit, a `map_parallel` section). Every refit is kept whatever its seed, because a seed fixes only
+the randomness the package routes through it. Marks go to the innermost computation, so a refit
+inside a combined report pins itself and not the report. `max_bytes` is not a memory guard: `None`
+means no budget, and it is outside any facade-level `max_memory_bytes` override.
+`tests/unit/test_assessment_cache_budget.py` holds the witnesses and their mutation controls.
+*Reconsider when* a new site draws entropy, fits a learner outside `fit_learner` from a row the rule
+allows, or starts a pool outside `map_parallel`: that test's site tables then fail until it is
+classified.
 
 Both assessment facades route through one base. Lookup, refusal, and the combined report are
 written once. A refusal therefore always carries the reason its own capability row declares, and a

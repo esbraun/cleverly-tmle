@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
+from .._continuous_survival_family import CONTINUOUS_SURVIVAL_FAMILY
 from .._refusal import Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
@@ -50,6 +51,7 @@ from ._simulated_confounding_common import (
     point_study_or_refuse,
     replay_classes,
 )
+from ._simulated_confounding_continuous import continuous_survival_simulated_refusal
 from ._simulated_confounding_fixed import fixed_replay_refusal, validate_fixed_replay
 from ._simulated_confounding_incremental import (
     INCREMENTAL_TARGETS,
@@ -224,6 +226,8 @@ def _refuse_longitudinal(result: Any) -> Refusal | None:
     family = getattr(result, "assessment_family", None)
     if family == "longitudinal":
         return longitudinal_fit_refusal(result)
+    if family == CONTINUOUS_SURVIVAL_FAMILY:
+        return continuous_survival_simulated_refusal(result)
     if family == AUGMENTED_TRIAL_FAMILY:
         return augmented_trial_refusal("simulated_confounding", "bound")
     if family is not None and family != "point":
@@ -555,14 +559,19 @@ def _fit_wide_refusal(result: Any) -> Refusal | None:
         refusal = rule(result)
         if refusal is not None:
             return refusal
-        if name == "longitudinal" and _is_longitudinal(result):
-            # The longitudinal rules answered in full; the point rules read a TMLEResult.
+        if name == "longitudinal" and _has_own_rules(result):
+            # The longitudinal or continuous-time rules answered in full; the point rules
+            # read a TMLEResult.
             return None
     return None
 
 
-def _is_longitudinal(result: Any) -> bool:
-    return getattr(result, "assessment_family", None) == "longitudinal"
+def _has_own_rules(result: Any) -> bool:
+    """Whether a family's own rules answer for the whole fit: longitudinal or continuous time."""
+    return getattr(result, "assessment_family", None) in (
+        "longitudinal",
+        CONTINUOUS_SURVIVAL_FAMILY,
+    )
 
 
 def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
@@ -1182,9 +1191,9 @@ def simulated_confounding_refusal(
     refusal = _fit_wide_refusal(result)
     if refusal is not None:
         return refusal
-    if _is_longitudinal(result):
-        # Every longitudinal refusal is fit-wide; the estimand and covariate checks raise
-        # ``ValueError`` or ``TypeError`` from the call.
+    if _has_own_rules(result):
+        # Every longitudinal or continuous-time refusal is fit-wide; the estimand and
+        # covariate checks raise ``ValueError`` or ``TypeError`` from the call.
         return None
     try:
         _validated_parameter(result, estimand, benchmark_covariates)

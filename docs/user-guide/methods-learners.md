@@ -299,6 +299,48 @@ Outcome regressions need predictions on the outcome's mean scale. Binary treatme
 mechanisms need probability predictions. Continuous treatment policies use a conditional density
 model. `cleverly` validates learner task compatibility and sample-weight support.
 
+## Count the model fits before a long run
+
+Call `planned_fits` with the same arguments you would pass to `estimate`. It reads your data,
+folds, and learners and counts the models the fit would train, without training any of them.
+
+```python
+plan = effect.planned_fits(random_state=3)
+print(plan.total_fits, plan.total_candidate_fits)
+```
+
+```text
+20 360
+```
+
+With the default learners, a binary-treatment ATE fits two models, one for the treatment and one
+for the outcome, on each of the 10 outer folds: 20 fits. Each of those fits is an ensemble of three
+candidates, and the ensemble trains every candidate once per inner fold and once more on all the
+rows it was given, so 3 × (5 + 1) = 18 candidate fits per model. That makes 360 candidate fits, of
+which 120 are random forests. `print(plan.summary())` lists the fits by model and by candidate.
+Lasso runs its own 5-fold search for a penalty inside each of its fits, and the summary shows those
+folds beside the count rather than adding them to it.
+
+`study.planned_fits(ATE(), random_state=3)` gives the same count straight from the study. Pass
+`random_state` when you can. The count then uses the exact folds the fit will use. Without it the
+count describes one random draw of the folds, and a count that depends on the folds can differ
+from the draw the fit makes.
+
+Some methods stop when a rule is met, so the count is the most they can fit. `plan.exact` is then
+`False`, `plan.min_fits` gives the fewest fits, and the printed plan says "at most". On the same
+data, `effect.planned_fits("drtmle", random_state=3)` counts at most 3170 fits and at least 230,
+because its alternating updates can stop before their limit of 50 rounds. Adaptive IPTW updates,
+bootstrap replicates, and folds where a regression target turns out constant give upper bounds for
+the same kind of reason. The `why` column of `plan.to_frame()` names the reason for each row.
+
+If the fit would refuse your data or settings before training its first model, `planned_fits`
+raises the same error. To cut the count, use fewer outer folds, fewer inner folds, or a smaller
+library, as [Two fold layers](#two-fold-layers) describes.
+
+`variable_importance` fits one model set per candidate exposure. `variable_importance_plan`,
+called with the same arguments apart from `keep_fits`, counts those fits in the same way, with each
+row labelled by its candidate.
+
 ## Use GLM for the sequential baselines
 
 `cleverly.learners.GLM` is an unpenalized maximum-likelihood fit with a canonical link. Its score

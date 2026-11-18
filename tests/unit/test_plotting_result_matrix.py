@@ -405,7 +405,10 @@ NOT_FITS = {
     "RefutationResult": "a refutation report of a fit",
     "SimulatedConfoundingResult": "a simulated-confounding report; sensitivity() draws it",
     "StudyResult": "a simulation study; zipper() draws it",
-    "VariableImportanceResult": "one TMLEResult per candidate, each covered as a point fit",
+    "VariableImportanceResult": (
+        "one TMLEResult per candidate, each covered as a point fit; a keep_fits=False "
+        "result keeps no fit to plot"
+    ),
     "TMLEResultSet": "one TMLEResult per level, each covered as a point fit",
 }
 

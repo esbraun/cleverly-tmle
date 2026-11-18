@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     InferenceStatus,
     is_labelled,
@@ -527,7 +528,7 @@ class TMLEResult:
 
     Attributes
     ----------
-    assessment_cache : dict
+    assessment_cache : AssessmentCache
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache. A result derived with
         :func:`dataclasses.replace` therefore starts empty and cannot serve the original
@@ -609,7 +610,7 @@ class TMLEResult:
     #: original's cached verdicts under a different method stamp.  A constructed result
     #: now owns an empty cache, and joblib persistence restores the saved mapping with the
     #: instance state rather than through ``__init__``.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+    assessment_cache: AssessmentCache = field(default_factory=AssessmentCache, init=False)
 
     #: Which family of assessment declarations applies to this result.  A class constant
     #: rather than a property: the family is a property of the result *type*, and nothing

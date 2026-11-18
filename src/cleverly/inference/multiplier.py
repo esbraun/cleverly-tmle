@@ -206,6 +206,7 @@ from .._inference_status import (
 from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
+from ..utils.random import note_fresh_entropy
 from .cluster import cluster_sums
 from .delta import Transform
 from .influence import ParameterEstimate, kish_count, with_precedent_status
@@ -628,6 +629,8 @@ def multiplier_critical_value(
     if not usable.any():
         return float("nan")
 
+    if random_state is None:
+        note_fresh_entropy()
     rng = np.random.default_rng(random_state)
     if kind == "normal":
         statistics = _normal_statistics(

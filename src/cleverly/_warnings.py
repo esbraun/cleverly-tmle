@@ -34,6 +34,7 @@ __all__ = [
     "FitWarning",
     "attach",
     "merge",
+    "muted",
     "recording",
     "records_data",
     "records_fit",
@@ -106,6 +107,10 @@ _SUPPRESSED: ContextVar[tuple[type[Warning], ...]] = ContextVar(
 )
 
 
+#: Whether :func:`warn` records without showing, inside :func:`muted`.
+_MUTED: ContextVar[bool] = ContextVar("cleverly_muted_warnings", default=False)
+
+
 def _is_suppressed(category: type[Warning]) -> bool:
     suppressed = _SUPPRESSED.get()
     return bool(suppressed) and issubclass(category, suppressed)
@@ -137,7 +142,8 @@ def warn(
         recorder = _RECORDER.get()
         if recorder is not None:
             recorder.add(FitWarning(category.__name__, str(message), category))
-    warnings.warn(message, category, stacklevel=stacklevel + 1)
+    if not _MUTED.get():
+        warnings.warn(message, category, stacklevel=stacklevel + 1)
 
 
 @contextmanager
@@ -224,6 +230,25 @@ def suppressed(category: type[Warning] = Warning) -> Iterator[None]:
             yield
     finally:
         _SUPPRESSED.reset(token)
+
+
+@contextmanager
+def muted() -> Iterator[None]:
+    """Record the package's warnings without showing them, inside the block.
+
+    For work repeated on purpose whose warnings the user has already seen: the records still
+    reach the result they describe, and the user is not shown each one a second time.
+
+    Yields
+    ------
+    None
+        Nothing; the block runs with warnings recorded and not shown.
+    """
+    token = _MUTED.set(True)
+    try:
+        yield
+    finally:
+        _MUTED.reset(token)
 
 
 def attach(result: Any, records: Iterable[FitWarning]) -> Any:

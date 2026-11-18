@@ -1698,6 +1698,8 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_power,detections at least 38 of 50,rejection/0.01
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_size,rejections at most 17 of 200,none
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated
