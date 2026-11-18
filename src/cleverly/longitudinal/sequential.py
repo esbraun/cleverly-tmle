@@ -682,6 +682,9 @@ class NodeInputs:
 class SequentialStep:
     """One retained node of the backward recursion.
 
+    ``trained_on``, ``at_risk`` and ``clever`` may be shared with the same node's step at
+    another horizon and read-only; copy before writing.
+
     Parameters
     ----------
     time : int
@@ -865,7 +868,11 @@ class FitSimulation:
 
 @dataclass(frozen=True)
 class RegimenFit:
-    """The estimate under one regimen, with the pieces that produced it."""
+    """The estimate under one regimen, with the pieces that produced it.
+
+    The arrays a fit reads at several horizons (the cumulative products, and each step's masks
+    and clever covariate) may be shared between records and read-only; copy before writing.
+    """
 
     regimen: RegimenSpec
     #: On the ``[0, 1]`` outcome scale, as everything inside the recursion is.

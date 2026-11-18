@@ -20,8 +20,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.interventions import Incremental
 from cleverly.learners import GLM
-from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData
-from cleverly.longitudinal import _fit_cache
+from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, _fit_cache
 from cleverly.longitudinal import data as data_module
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
@@ -94,10 +93,12 @@ def _fit(case: str, *, n_folds: int = 3, **options: Any) -> Any:
 
 def _uncached(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run every fit without the cache: the context never becomes active."""
-    monkeypatch.setattr(_fit_cache, "fit_cache", _no_cache)
+    monkeypatch.setattr(_fit_cache, "fit_cache", _NoCache)
 
 
-class _no_cache:  # noqa: N801 - stands in for the context manager
+class _NoCache:
+    """Stands in for the cache context: nothing becomes active."""
+
     def __enter__(self) -> None:
         return None
 
@@ -270,8 +271,8 @@ def test_the_covariate_blocks_are_cleaned_once_per_panel() -> None:
             assert matrix.flags.c_contiguous == shipped.flags.c_contiguous
 
 
-class _WritesIntoX(LogisticRegression):  # type: ignore[misc]
-    def predict_proba(self, X: Any) -> Any:  # noqa: N803
+class _WritesIntoX(LogisticRegression):
+    def predict_proba(self, X: Any) -> Any:
         X[0, 0] = 0.0
         return super().predict_proba(X)
 
@@ -298,7 +299,9 @@ def test_a_learner_that_writes_into_its_design_is_refused_by_numpy() -> None:
         (np.array(["a", "b"], dtype=object), [True, True]),
     ],
 )
-def test_the_presence_check_is_the_per_cell_reading(values: np.ndarray, expected: list[bool]) -> None:
+def test_the_presence_check_is_the_per_cell_reading(
+    values: np.ndarray, expected: list[bool]
+) -> None:
     """The fast paths answer what the per-cell reading answers, including a long double above
     the ``float64`` range and a Python integer too large for a float."""
     per_cell = [data_module._categorical_value_is_present(value) for value in values]
