@@ -174,8 +174,8 @@ variance and never replaces it with a smaller one. On exploratory fits its gain 
 curve came mostly from a wider interval in the rows where the curve is sparse, not from per-draw
 information at matched width. The study
 [continuous-time survival switched variance](method-evidence/continuous-survival-variance.md)
-decides on fresh laws whether the switched variance stays the default. It is declared and has not
-run.
+decided on five fresh laws that the switched variance stays the default; the floors it set are
+stated under [evidence](#evidence).
 
 With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final

@@ -126,6 +126,7 @@ hazard-time-varying
 hazard-time-varying-multinode
 continuous-time-survival
 continuous-survival-functionals
+continuous-survival-variance
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
