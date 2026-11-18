@@ -473,6 +473,45 @@ def test_a_single_size_never_evaluates_the_family(monkeypatch: Any) -> None:
     assert inside == [fit.fit.estimator.member(2).n_terms] * 2
 
 
+def test_a_bspline_sieve_does_no_more_work_than_the_per_size_path(
+    monkeypatch: Any, uncached: Any
+) -> None:
+    """Work guard for a sieve that is not nested (acceptance review m1): each member evaluates
+    itself, ``M + 2FM + 1`` evaluations in the fit as on the per-size path (plus the result's raw
+    curve and its fitted values, two more after the fit), and the inputs are read
+    ``F + 1`` times where the per-size path reads them ``FM + 1`` times. A wasted family
+    evaluation, or a family shared across members that do not nest, fails the first count."""
+
+    def counts() -> tuple[int, int, int, int]:
+        evaluations: list[int] = []
+        reads: list[int] = []
+        original, pieces = BSpline.evaluate, ep._pieces
+
+        def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
+            evaluations.append(1)
+            return original(self, *args, **kwargs)
+
+        def reading(fit: Any) -> Any:
+            reads.append(1)
+            return pieces(fit)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(BSpline, "evaluate", counting)
+            patch.setattr(ep, "_pieces", reading)
+            fit = ep_fit(frame(), sieve=Sieve(BSpline(["W1"], 3)))
+        folds, sizes = len(fit.fit.sieve.inner_seeds), len(fit.fit.sieve.sizes)
+        return len(evaluations), len(reads), folds, sizes
+
+    evaluations, reads, folds, sizes = counts()
+    assert sizes > 1
+    assert evaluations == sizes + 2 * folds * sizes + 1 + 2
+    assert reads == folds + 1
+    uncached()
+    per_size_evaluations, per_size_reads, _, _ = counts()
+    assert per_size_evaluations == evaluations
+    assert per_size_reads == folds * sizes + 1
+
+
 def test_the_rule_learner_evaluates_the_basis_once_per_set_of_rows(monkeypatch: Any) -> None:
     from cleverly.interventions import _rule_learners as rule_learners
 
