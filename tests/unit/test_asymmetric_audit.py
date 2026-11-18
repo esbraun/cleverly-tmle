@@ -287,6 +287,117 @@ def test_the_recorder_names_each_interval_a_fit_reads() -> None:
         assert refit.match(row, []) == {"scale": "own"}
 
 
+def _bound_fit(binary: bool, *, cross_fit: bool = False) -> Any:
+    """A small two-arm fit whose sensitivity bounds the recorder reads."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from cleverly import ATE, CausalStudy, PointTreatment
+
+    rng = np.random.default_rng(11)
+    n = 400
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    y = (
+        rng.binomial(1, 1 / (1 + np.exp(-(0.5 * a + w - 1)))).astype(float)
+        if binary
+        else 0.5 * a + w + rng.gamma(2.0, 1.0, n)
+    )
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    study = CausalStudy(frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)))
+    return study.identify(ATE()).estimate(
+        outcome_learner=LogisticRegression() if binary else LinearRegression(),
+        treatment_learner=LogisticRegression(),
+        cross_fit=cross_fit,
+        random_state=0,
+    )
+
+
+@pytest.mark.parametrize(("binary", "scale"), [(False, "skew_t"), (True, "mover")])
+def test_the_recorder_reads_an_omitted_variable_bound_at_the_row_alpha(
+    binary: bool, scale: str
+) -> None:
+    """A row at a bound end and its own standard error matches the bound's read at the row's
+    alpha, whose shipped limits are the two-sided interval about the end; the bounds' own
+    one-sided reads are at alpha 0.10.  Mutation control: the standard error read back off the
+    limit with a normal quantile, which the harnesses reported before, matches nothing."""
+    from cleverly.inference import interval_reference
+    from cleverly.inference.cluster import influence_variance
+    from cleverly.sensitivity import omitted_variable as ov
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    fit = _bound_fit(binary)
+    with refit.logging() as log:
+        bounds = ov.omitted_variable_bounds(fit, "ate", cf_y=0.3, cf_d=0.2, rho=1.0)
+    assert {round(float(entry["alpha"]), 12) for entry in log} == {0.05, 0.1}
+    estimate = fit["ate"]
+    assert estimate.interval_scale == scale
+    elements = ov.sensitivity_elements(fit, "ate")
+    curve = np.asarray(estimate.influence_curve) - bounds.confounding_strength * np.asarray(
+        elements.psi_max_bias
+    )
+    se = float(np.sqrt(influence_variance(curve, None)))
+    entry = refit.match({"estimate": bounds.lower, "std_error": se}, log)
+    assert entry["scale"] == scale
+    assert entry["alpha"] == pytest.approx(refit.ROW_ALPHA)
+    shipped = interval_reference(
+        estimate, level=0.95, psi=bounds.lower, std_error=se, influence_curve=curve
+    )
+    assert (entry["shipped_lower"], entry["shipped_upper"]) == pytest.approx(
+        (shipped.lower, shipped.upper), rel=1e-12
+    )
+    z = stats.norm.ppf(0.975)
+    assert (entry["normal_lower"], entry["normal_upper"]) == pytest.approx(
+        (bounds.lower - z * se, bounds.lower + z * se), rel=1e-12
+    )
+    # Not vacuous: the shipped read is not the normal one on this sample.
+    assert abs(entry["shipped_lower"] - entry["normal_lower"]) > 1e-6
+    backed_out = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
+    assert abs(backed_out - se) > 1e-8
+    assert refit.match({"estimate": bounds.lower, "std_error": backed_out}, log) == {"scale": "own"}
+
+
+def test_the_recorder_reads_a_marginal_bound_at_the_row_alpha() -> None:
+    """A marginal-sensitivity row at an end and its reported standard error matches the
+    bound's MOVER read; the bound's own read is already at the row's alpha."""
+    from cleverly.sensitivity import marginal_sensitivity_bounds
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    fit = _bound_fit(True, cross_fit=True)
+    with refit.logging() as log:
+        result = marginal_sensitivity_bounds(fit, (1.5,))
+    (row,) = result.rows
+    entry = refit.match({"estimate": row.lower, "std_error": row.lower_std_error}, log)
+    assert entry["scale"] == "mover"
+    assert entry["alpha"] == pytest.approx(refit.ROW_ALPHA)
+    assert entry["shipped_lower"] == pytest.approx(row.lower_limit, rel=1e-12)
+    assert abs(entry["shipped_lower"] - entry["normal_lower"]) > 1e-6
+
+
+def test_a_bound_row_reads_only_its_own_alpha() -> None:
+    """``match`` keeps a bound read at the row's alpha over one at another level, raises on a
+    bound row with no read at its alpha, and matches every other entry as before."""
+    from tests.studies.evidence import asymmetric_refit as refit
+
+    def entry(alpha: float, scale: str, lower: float, source: str | None) -> dict[str, Any]:
+        out: dict[str, Any] = {"psi": 1.0, "std_error": 0.1, "scale": scale, "alpha": alpha,
+                               "shipped_lower": lower}  # fmt: skip
+        if source is not None:
+            out["source"] = source
+        return out
+
+    row = {"estimate": 1.0, "std_error": 0.1}
+    one_sided = entry(0.10, "skew_t", 0.8, "bound")
+    two_sided = entry(0.05, "skew_t", 0.7, "bound")
+    assert refit.match(row, [one_sided, two_sided])["shipped_lower"] == 0.7
+    assert refit.match(row, [two_sided, one_sided])["shipped_lower"] == 0.7
+    with pytest.raises(ValueError, match="alpha"):
+        refit.match(row, [one_sided])
+    # An estimate's own entry at another alpha is matched as it always was.
+    own = entry(0.10, "identity", 0.6, None)
+    assert refit.match(row, [own])["shipped_lower"] == 0.6
+    assert refit.match(row, [own, one_sided, two_sided])["scale"] == "identity+skew_t"
+
+
 def _replay_records(rows: list[tuple[str, str, float, float]]) -> pd.DataFrame:
     """Mismatched scope records: ``(group, scale, estimate shift, standard-error shift)``
     against replicate 0 of :func:`_truth_group`."""

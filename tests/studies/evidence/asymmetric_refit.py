@@ -14,8 +14,16 @@ replicate 0 of every property cell and primary scenario.  A recorder inside each
 :class:`~cleverly.inference.ParameterEstimate` whose interval or test is read, and every call of
 :func:`~cleverly.inference.skew_widened_ci` (the working-model and effect-curve paths), with the
 interval scale, the degrees of freedom, the acceleration, MOVER's arms and the shipped and normal
-limits.  Each written row is matched to the logged estimates by its estimate and standard error,
-and its estimate and standard error are held to the committed row at :data:`REPLAY_TOLERANCE`
+limits.  A sensitivity bound forms its limits through
+:func:`~cleverly.sensitivity._limits.bound_limits`, which none of those paths sees, so the
+recorder also wraps that function where the bounds bind it (:data:`BOUND_MODULES`) and logs each
+read about a bound end with its standard error.  A registered row reads the two-sided interval at
+:data:`ROW_ALPHA` about the end, and the per-side ratio of a t quantile, a MOVER multiple or a
+logit slope depends on the level, so a read at another level (the one-sided limits of
+:func:`~cleverly.sensitivity.omitted_variable_bounds`) is also logged at :data:`ROW_ALPHA`, and
+:func:`match` reads a bound row only at its row's alpha.  Each written row is matched to the
+logged estimates by its estimate and standard error, and its estimate and standard error are held
+to the committed row at :data:`REPLAY_TOLERANCE`
 (``replay`` = ``ok``, ``mismatch`` or ``absent``).  A row that matches no logged estimate is
 ``own``: the study formed that interval itself, so the shipped default does not reach its
 committed verdict.  A mismatch is recorded, not a stop: the screen judges each one
@@ -62,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import json
 import math
 import time
@@ -99,6 +108,11 @@ NEW_SCALES = frozenset({"mover", "skew_t"})
 REPLAY_TOLERANCE = band_rerun.REPLAY_TOLERANCE
 #: The matching tolerance of a row to a logged estimate, relative.
 MATCH_TOLERANCE = 1e-10
+#: The two-sided alpha of the row interval a sensitivity bound's read is matched to.
+ROW_ALPHA = 0.05
+#: The modules whose bounds form their limits through ``bound_limits``, each binding the name
+#: at import, so each is wrapped where it reads it.
+BOUND_MODULES = ("cleverly.sensitivity.omitted_variable", "cleverly.sensitivity.marginal")
 
 RECORD_COLUMNS = (
     "stage",
@@ -188,6 +202,33 @@ def _estimate_entry(estimate: Any, original: Callable[..., Any]) -> dict[str, An
     return entry
 
 
+def _read_alpha(read: Any) -> float:
+    """The two-sided alpha of an :class:`~cleverly.inference.IntervalReference`."""
+    level = float(read.level)
+    return 1.0 - level if read.sided == "two" else 2.0 * (1.0 - level)
+
+
+def _bound_entry(read: Any) -> dict[str, Any]:
+    """The log entry of one read of a bound end (:func:`~cleverly.inference.interval_reference`):
+    its point, its standard error and its shipped and normal limits at the read's alpha."""
+    psi, se, alpha = float(read.psi), float(read.std_error), _read_alpha(read)
+    half = _z(alpha) * se + float(read.margin)
+    return {
+        "source": "bound",
+        "psi": psi,
+        "std_error": se,
+        "plugin_se": se,
+        "scale": str(read.interval_scale),
+        "effective_df": _float(read.df),
+        "acceleration": _float(read.acceleration),
+        "alpha": alpha,
+        "shipped_lower": float(read.lower),
+        "shipped_upper": float(read.upper),
+        "normal_lower": psi - half,
+        "normal_upper": psi + half,
+    }
+
+
 def install() -> None:
     """Log every interval or test the package forms, in this process (idempotent)."""
     if _INSTALLED[0]:
@@ -239,6 +280,29 @@ def install() -> None:
             )
         return low, high
 
+    from cleverly.sensitivity import _limits
+
+    bound = _limits.bound_limits
+
+    def logged_bound(estimate: Any, **options: Any) -> Any:
+        read = bound(estimate, **options)
+        if _GUARD[0] or estimate.scale == "ratio":  # a ratio's spread is not on the row's scale
+            return read
+        _GUARD[0] = True
+        try:
+            _LOG.append(_bound_entry(read))
+            if abs(_read_alpha(read) - ROW_ALPHA) > 1e-12:
+                again = bound(estimate, **{**options, "sided": "two", "level": 1.0 - ROW_ALPHA})
+                _LOG.append(_bound_entry(again))
+        except Exception:  # the recorder never changes a fit
+            pass
+        finally:
+            _GUARD[0] = False
+        return read
+
+    for name in BOUND_MODULES:
+        module: Any = importlib.import_module(name)
+        module.bound_limits = logged_bound
     ParameterEstimate._wald_interval = logged_interval  # type: ignore[method-assign]
     ParameterEstimate._plugin_wald_test = logged_test  # type: ignore[method-assign]
     delta.skew_widened_ci = logged_skew  # type: ignore[assignment]
@@ -460,11 +524,16 @@ def _close(a: float, b: float, tolerance: float) -> bool:
     return abs(a - b) <= tolerance * max(1.0, abs(b))
 
 
-def match(row: Mapping[str, Any], log: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def match(
+    row: Mapping[str, Any], log: Sequence[Mapping[str, Any]], *, alpha: float = ROW_ALPHA
+) -> dict[str, Any]:
     """The logged estimate a written row reports, by its estimate and standard error.
 
     Returns the entry, with ``scale`` the sorted ``+``-joined scales when several entries of
     different scales match, ``own`` when none does, and ``failed`` for a row with no estimate.
+    A read of a sensitivity bound end counts only at the row's ``alpha``: the recorder logs
+    each such read at :data:`ROW_ALPHA` too, and a row at another alpha raises, since its
+    ratios were never read.  Every other entry matches as before.
     """
     estimate, se = _float(row.get("estimate")), _float(row.get("std_error"))
     if not (math.isfinite(estimate) and math.isfinite(se)):
@@ -478,6 +547,15 @@ def match(row: Mapping[str, Any], log: Sequence[Mapping[str, Any]]) -> dict[str,
             or _close(se, entry.get("plugin_se", float("nan")), MATCH_TOLERANCE)
         )
     ]
+    bound = [entry for entry in hits if entry.get("source") == "bound"]
+    if bound:
+        at = [entry for entry in bound if abs(float(entry["alpha"]) - alpha) <= 1e-12]
+        if not at:
+            raise ValueError(
+                f"a bound row at alpha {alpha} matches reads at "
+                f"{sorted({float(entry['alpha']) for entry in bound})} only"
+            )
+        hits = [entry for entry in hits if entry.get("source") != "bound"] + at
     if not hits:
         return {"scale": "own"}
     scales = sorted({str(entry["scale"]) for entry in hits})
@@ -520,8 +598,13 @@ def records(
     job: Job,
     values: Sequence[Mapping[str, Any]],
     committed: Mapping[tuple[str, str, int], tuple[float, float]],
+    *,
+    alpha: float = ROW_ALPHA,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """The audit records of one job's fitted keys, and the messages of its failed keys."""
+    """The audit records of one job's fitted keys, and the messages of its failed keys.
+
+    ``alpha`` is the study's row alpha (``margins.alpha``), at which a bound row is matched.
+    """
     out: list[dict[str, Any]] = []
     errors: list[str] = []
     for value in values:
@@ -533,7 +616,7 @@ def records(
                 continue
             group = _group(job.phase, row)
             replicate = int(row["replicate"])
-            entry = match(row, value["log"])
+            entry = match(row, value["log"], alpha=alpha)
             estimate, se = _float(row.get("estimate")), _float(row.get("std_error"))
             before = committed.get((job.phase, group, replicate))
             if before is None:
@@ -688,7 +771,7 @@ def run_study(
             continue
         values = _fit(record, job, jobs=jobs, cache=cache, stage=stage)
         fitted += len(job.selected)
-        out, failed = records(stage, job, values, committed)
+        out, failed = records(stage, job, values, committed, alpha=record.margins.alpha)
         rows.extend(out)
         errors.extend(failed)
     frame = pd.DataFrame(rows, columns=list(RECORD_COLUMNS))
