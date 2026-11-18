@@ -18,6 +18,7 @@ tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_estimated__unequal
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_estimated__unequal_informative__j4__iid_t_control,control power,,,,,
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_estimated__unequal_informative__j5__t_reference,below floor (finite-sample),,,,,
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_estimated__unequal_informative__j7__t_reference,below floor (finite-sample),,,,,
+tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_estimated__unequal_informative__j7__iid_t_control,control power,,,,,
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_known__equal10__j4__t_reference,below floor (finite-sample),,,,,
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_known__equal10__j4__iid_t_control,control power,,,,,
 tmle_stacked,predicted red,few_cluster_reference/tmle_stacked_known__equal10__j5__t_reference,below floor (finite-sample),,,,,

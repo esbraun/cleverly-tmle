@@ -42,6 +42,8 @@ file                       content
       python -m tests.studies.few_cluster_floor_pilot tmle --jobs 4
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
       python -m tests.studies.few_cluster_floor_pilot ltmle --jobs 4
+
+``--resize`` rewrites ``pilot-sizing.csv`` from the committed ``pilot-summary.csv`` alone.
 """
 
 from __future__ import annotations
@@ -71,7 +73,8 @@ MODULES: Final[dict[str, str]] = {
 DECLARED_CPU_HOURS: Final[dict[str, float]] = {"tmle": 60.0, "ltmle": 22.0}
 #: A measured total above this multiple of the declared budget goes back to the row thread.
 BUDGET_TOLERANCE: Final[float] = 1.25
-#: The clause-1 power a control cell needs at the chosen R not to be a predicted red.
+#: The power under both control clauses a control cell needs at the chosen R not to be a
+#: predicted red.
 CONTROL_POWER: Final[float] = 0.90
 #: The single-cell plug-in pass probability below which a cell is a predicted red.
 RED_PROBABILITY: Final[float] = 0.90
@@ -176,14 +179,19 @@ def cell_table(summary: pd.DataFrame, failures: pd.DataFrame) -> pd.DataFrame:
 
 
 def control_power(inputs: dict[str, float], replicates: int) -> float:
-    """Clause 1's plug-in power at ``replicates``: the paired ratio's 99% upper end below 0.80."""
-    from scipy import stats
+    """Both control clauses' plug-in power at ``replicates``.
 
-    sd = inputs["ratio_sd"] * math.sqrt(inputs["pilot_draws"] / replicates)
-    z = float(stats.norm.ppf(0.995))
-    if sd <= 0:
-        return float(inputs["ratio"] < 0.80)
-    return float(stats.norm.cdf((0.80 - inputs["ratio"] - z * sd) / sd))
+    Clause 1: the paired IID/cluster ratio's 99% upper end below 0.80. Clause 2: the positive
+    arm's shown-only SE-ratio upper end at most 1.20, so a control whose positive reports
+    inflated SEs turns red jointly with it (:func:`~tests.studies.few_cluster_floor.control_pass_probability`).
+    """
+    scale = math.sqrt(inputs["pilot_draws"] / replicates)
+    return floor.control_pass_probability(
+        inputs["ratio"],
+        inputs["ratio_sd"] * scale,
+        (inputs["se_ratio"], inputs["se_ratio_sd"] * scale),
+        replicates,
+    )
 
 
 def predicted_reds(
@@ -195,8 +203,8 @@ def predicted_reds(
     """Each predicted red ``family/cell`` with the reading the declared route would give it.
 
     A positive cell whose plug-in G1 and G2 figure at the chosen R is below
-    :data:`RED_PROBABILITY`, and a control cell whose clause-1 power is below
-    :data:`CONTROL_POWER`. Below the anchor a red sits below the floor it forces
+    :data:`RED_PROBABILITY`, and a control cell whose power under both clauses
+    (:func:`control_power`) is below :data:`CONTROL_POWER`. Below the anchor a red sits below the floor it forces
     (:func:`~tests.studies.few_cluster_floor.red_reading`, or the control reading); at or
     above it, it is a chance red that needs a recorded diagnosis.
     """
@@ -424,6 +432,20 @@ def run(
     return tables
 
 
+def resize(which: str, output: Path | None = None) -> pd.DataFrame:
+    """Rewrite ``pilot-sizing.csv`` from the committed ``pilot-summary.csv``, without refitting.
+
+    The sizing is a function of the summary alone, so a change to the sizing code is read off
+    the committed pilot; ``tests/unit/test_few_cluster_floor_design.py`` recomputes it.
+    """
+    module = importlib.import_module(MODULES[which])
+    output = module.STUDY.artifacts if output is None else output
+    summary = pd.read_csv(output / "pilot-summary.csv", keep_default_na=False, na_values=[""])
+    sized = sizing_table(which, module, summary)
+    sized.to_csv(output / "pilot-sizing.csv", index=False)
+    return sized
+
+
 def main() -> None:
     """The command line of :func:`run`."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -433,7 +455,13 @@ def main() -> None:
     parser.add_argument(
         "--from-raw", action="store_true", help="summarise the raw files of an earlier fit"
     )
+    parser.add_argument(
+        "--resize", action="store_true", help="rewrite pilot-sizing.csv from pilot-summary.csv"
+    )
     args = parser.parse_args()
+    if args.resize:
+        resize(args.study, args.output)
+        return
     run(args.study, args.output, args.jobs, from_raw=args.from_raw)
 
 

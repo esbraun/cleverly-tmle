@@ -13,7 +13,9 @@ replicate and no other fit's, and the failure accounting counts it as a miss.
 misses and lost draws by the accounting's worst case, at least 0.90) and G2 (the bias within
 0.25 empirical SD over every draw with a point); on each ``iid_t_control`` row, the paired
 IID/cluster SE ratio's 99% upper end below 0.80 and the positive arm's SE-ratio upper end at
-most 1.20. Every other arm is reported.
+most 1.20. The rule runs with ``shown_only``: the SE ratios read the shown draws, the paired
+ratio the draws both arms show, and a cell with fewer than two shown draws fails its control.
+Every other arm is reported.
 
 **Readings** (:func:`tests.studies.few_cluster_floor.floor_readings`): shown and withheld counts, the
 withheld share by trigger, shown-only coverage with its exact interval, all-draw coverage with

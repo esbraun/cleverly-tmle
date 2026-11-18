@@ -149,15 +149,118 @@ G_BOUNDS: Final[tuple[float, float]] = (1e-9, 1.0 - 1e-9)
 DRTMLE_G_BOUNDS: Final[tuple[float, float]] = (0.01, 0.99)
 #: The largest outer fold count of a cross-fitted fit.
 MAX_FOLDS: Final[int] = 5
-#: Replications per cell (plan 5.1): 4,000, raised per family by the family-wise rule (M5)
-#: once the pilot is read; ``tests/unit/test_few_cluster_floor_design.py`` recomputes it.
-PROPERTY_REPLICATES: Final[dict[str, int]] = dict.fromkeys(ANCHORS, 4000)
-#: The pilot's predicted reds, ``cell -> reading`` (review M4): empty until the pilot is read;
-#: the design test checks this against the committed ``pilot-sizing.csv``.
-PILOT_PREDICTED_REDS: Final[dict[str, str]] = {}
-#: Families whose plug-in pass probability stays under the target at ``R_CAP`` (review M4).
-PILOT_SHORTFALLS: Final[frozenset[str]] = frozenset()
-#: Families whose (C) arm the pilot measures as short of admissibility (review M4).
+#: Replications per cell (plan 5.1): 4,000, raised per family by the family-wise rule (M5) off
+#: the committed pilot (``pilot-sizing.csv``); ``tests/unit/test_few_cluster_floor_design.py``
+#: recomputes it from ``pilot-summary.csv``. Four point families reach the cap of 6,000 (only
+#: ``tmle_stacked`` meets the 0.95 target there, at 0.966); in-sample LTMLE meets it at 4,000
+#: (0.999). The d5 configurations read ``tmle_stacked``'s R.
+PROPERTY_REPLICATES: Final[dict[str, int]] = {
+    "tmle_in_sample": 6_000,
+    "tmle_stacked": 6_000,
+    "tmle_fold_evaluated": 6_000,
+    "drtmle_known": 6_000,
+    "ltmle_in_sample": 4_000,
+}
+#: The pilot's predicted reds, grouped by the reading the declared route gives each
+#: (``pilot-sizing.csv``, review M4): a positive whose plug-in G1 and G2 figure at the declared
+#: R is below 0.90, and a control whose power under both clauses is below 0.90, which includes
+#: a control that turns red jointly with its positive (clause 2). Every one is held by
+#: :data:`~tests.studies.few_cluster_floor.RED_OWNER` as the property row
+#: ``RedKey(slug, "property", "few_cluster_reference/<cell>")``; a
+#: :data:`~tests.studies.few_cluster_floor.CHANCE_READING` red sits at the anchor and is held
+#: only once a no-defect diagnosis is recorded. The design test checks both directions.
+_PILOT_REDS: Final[dict[str, tuple[str, ...]]] = {
+    floor.AVAILABILITY_READING: (
+        "tmle_stacked_estimated__equal10__j4__t_reference",
+        "tmle_stacked_estimated__equal10__j5__t_reference",
+    ),
+    floor.FINITE_SAMPLE_READING: (
+        "tmle_in_sample_estimated__equal10__j4__t_reference",
+        "tmle_in_sample_estimated__equal10__j5__t_reference",
+        "tmle_in_sample_estimated__unequal_informative__j4__t_reference",
+        "tmle_in_sample_estimated__unequal_informative__j7__t_reference",
+        "tmle_in_sample_known__equal10__j4__t_reference",
+        "tmle_in_sample_known__equal10__j5__t_reference",
+        "tmle_in_sample_known__equal10__j8__t_reference",
+        "tmle_stacked_estimated__unequal_informative__j4__t_reference",
+        "tmle_stacked_estimated__unequal_informative__j5__t_reference",
+        "tmle_stacked_estimated__unequal_informative__j7__t_reference",
+        "tmle_stacked_known__equal10__j4__t_reference",
+        "tmle_stacked_known__equal10__j5__t_reference",
+        "tmle_fold_evaluated_estimated__equal10__j4__t_reference",
+        "tmle_fold_evaluated_estimated__equal10__j5__t_reference",
+        "tmle_fold_evaluated_estimated__equal10__j6__t_reference",
+        "tmle_fold_evaluated_estimated__equal10__j8__t_reference",
+        "tmle_fold_evaluated_known__equal10__j4__t_reference",
+        "tmle_fold_evaluated_known__equal10__j5__t_reference",
+        "tmle_fold_evaluated_known__equal10__j6__t_reference",
+        "tmle_fold_evaluated_known__equal10__j8__t_reference",
+        "ltmle_in_sample__equal10__j4__t_reference",
+        "ltmle_in_sample__equal10__j5__t_reference",
+        "ltmle_in_sample__equal10__j6__t_reference",
+        "ltmle_in_sample__equal10__j8__t_reference",
+        "ltmle_in_sample__equal10__j10__t_reference",
+        "ltmle_in_sample__equal10__j19__t_reference",
+        "ltmle_in_sample__unequal_informative__j4__t_reference",
+        "ltmle_in_sample__unequal_informative__j7__t_reference",
+        "tmle_stacked_d5_estimated__unequal_informative__j4__t_reference",
+        "tmle_stacked_d5_estimated__unequal_informative__j5__t_reference",
+        "tmle_stacked_d5_estimated__unequal_informative__j6__t_reference",
+        "tmle_stacked_d5_estimated__unequal_informative__j7__t_reference",
+        "tmle_stacked_d5_known__unequal_informative__j4__t_reference",
+    ),
+    floor.CONTROL_READING: (
+        "tmle_stacked_estimated__equal10__j4__iid_t_control",
+        "tmle_stacked_estimated__equal10__j5__iid_t_control",
+        "tmle_stacked_estimated__equal10__j6__iid_t_control",
+        "tmle_stacked_estimated__unequal_informative__j4__iid_t_control",
+        "tmle_stacked_estimated__unequal_informative__j7__iid_t_control",
+        "tmle_stacked_known__equal10__j4__iid_t_control",
+        "tmle_fold_evaluated_estimated__equal10__j4__iid_t_control",
+        "tmle_fold_evaluated_estimated__equal10__j5__iid_t_control",
+        "tmle_fold_evaluated_estimated__equal10__j6__iid_t_control",
+        "tmle_fold_evaluated_estimated__equal10__j7__iid_t_control",
+        "tmle_fold_evaluated_estimated__equal10__j8__iid_t_control",
+        "tmle_fold_evaluated_known__equal10__j4__iid_t_control",
+        "tmle_fold_evaluated_known__equal10__j5__iid_t_control",
+        "tmle_fold_evaluated_known__equal10__j6__iid_t_control",
+        "tmle_fold_evaluated_known__equal10__j7__iid_t_control",
+        "drtmle_known__equal10__j4__iid_t_control",
+        "drtmle_known__equal10__j5__iid_t_control",
+        "drtmle_known__equal10__j6__iid_t_control",
+        "drtmle_known__equal10__j8__iid_t_control",
+        "drtmle_known__unequal_informative__j4__iid_t_control",
+        "drtmle_known__unequal_informative__j5__iid_t_control",
+        "tmle_stacked_d5_estimated__unequal_informative__j4__iid_t_control",
+        "tmle_stacked_d5_estimated__unequal_informative__j5__iid_t_control",
+        "tmle_stacked_d5_estimated__unequal_informative__j6__iid_t_control",
+        "tmle_stacked_d5_estimated__unequal_informative__j7__iid_t_control",
+        "tmle_stacked_d5_estimated__unequal_informative__j9__iid_t_control",
+    ),
+    floor.CHANCE_READING: (
+        "tmle_in_sample_known__equal10__j10__t_reference",
+        "tmle_fold_evaluated_estimated__equal10__j10__iid_t_control",
+        "tmle_fold_evaluated_known__equal10__j10__t_reference",
+        "tmle_fold_evaluated_known__equal10__j10__iid_t_control",
+    ),
+}
+PILOT_PREDICTED_REDS: Final[dict[str, str]] = {
+    f"{FAMILY}/{cell}": reading for reading, cells in _PILOT_REDS.items() for cell in cells
+}
+#: Families whose plug-in pass probability stays under the target at ``R_CAP`` (review M4): R
+#: stays 6,000 and the shortfall is declared, not rescued (plan 5, M5). ``tmle_in_sample`` reads
+#: 0.0047 (the anchor cell ``tmle_in_sample_known`` ``equal10`` J10 covers 0.900 in the pilot),
+#: ``tmle_fold_evaluated`` 1.8e-12 (at J10 the paired IID/cluster ratio is 0.80 to 0.81, so
+#: clause 1 has no power at the anchor) and ``drtmle_known`` 0.920 (``equal10`` J30 covers
+#: 0.915). Each such cell, if red, is a red at or above the anchor: a defect suspect that keeps
+#: the floor at the anchor and no owner holds until :data:`~tests.studies.few_cluster_floor.NO_DEFECT_DIAGNOSES`
+#: records a diagnosis (plan 5.8).
+PILOT_SHORTFALLS: Final[frozenset[str]] = frozenset(
+    {"tmle_in_sample", "tmle_fold_evaluated", "drtmle_known"}
+)
+#: Families whose (C) arm the pilot measures as short of admissibility (review M4): none. The
+#: clause (i) probability of a (C) as good as (A) is 0.993 for ``tmle_in_sample`` (discordance
+#: 4.7%, 44 cells), 1.000 for ``tmle_stacked`` (1.0%) and 1.000 for ``ltmle_in_sample`` (1.7%).
 JACKKNIFE_SHORTFALLS: Final[frozenset[str]] = frozenset()
 #: The primary's estimands.
 ESTIMANDS: Final[tuple[str, ...]] = (

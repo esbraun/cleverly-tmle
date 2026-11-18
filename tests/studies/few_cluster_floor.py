@@ -1165,7 +1165,9 @@ AVAILABILITY_READING: Final[str] = "below floor (availability)"
 #: Any other red positive cell below its family's floor.
 FINITE_SAMPLE_READING: Final[str] = "below floor (finite-sample)"
 #: A red IID control below its family's floor: four to nine clusters cannot show the
-#: IID-to-cluster SE ratio below 0.80 (plan 5.1).
+#: IID-to-cluster SE ratio below 0.80 (plan 5.1, clause 1), or the control turns red jointly
+#: with its positive because the positive's shown-only SE-ratio upper end exceeds 1.20
+#: (clause 2), or the cell has fewer than two shown draws.
 CONTROL_READING: Final[str] = "control power"
 #: A red at or above the anchor whose recorded diagnosis (:data:`NO_DEFECT_DIAGNOSES`) finds no
 #: defect, cited against the pilot's predictive family figure.
@@ -1544,13 +1546,16 @@ def sizing_inputs(positive: Mapping[str, Any], control: Mapping[str, Any]) -> di
     # The requested draws, not the kept rows: a lost draw is a miss in the all-draw coverage,
     # so the hits and the pilot size both count it (review m2).
     requested = float(positive["requested_draws"])
+    # Clause 2 reads the positive's SE-ratio interval on its shown draws (``shown_only``), so
+    # its point is the shown-only SE ratio too; the shared ``se_ratio`` also reads withheld rows.
+    shown = float(positive.get("shown_se_ratio", math.nan))
     return {
         "coverage": float(positive["all_draw_coverage"]),
         "hits": float(positive["all_draw_coverage"]) * requested,
         "standardized_bias": float(positive["standardized_bias"]),
         "ratio": float(control["paired_se_ratio"]),
         "ratio_sd": sd(control, "paired_se_ratio_ci_lower", "paired_se_ratio_ci_upper"),
-        "se_ratio": float(positive["se_ratio"]),
+        "se_ratio": shown if math.isfinite(shown) else float(positive["se_ratio"]),
         "se_ratio_sd": sd(positive, "se_ratio_ci_lower", "se_ratio_ci_upper"),
         "pilot_draws": requested,
     }

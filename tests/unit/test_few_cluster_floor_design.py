@@ -23,6 +23,7 @@ from tests.canonical import property_differential as differential
 from tests.studies import few_cluster_floor as floor
 from tests.studies import few_cluster_floor_ltmle as study_b
 from tests.studies import few_cluster_floor_ltmle_properties as properties_b
+from tests.studies import few_cluster_floor_pilot as pilot
 from tests.studies import few_cluster_floor_tmle as study_a
 from tests.studies import few_cluster_floor_tmle_properties as properties_a
 from tests.studies.evidence import property_failures, red_cells
@@ -968,32 +969,110 @@ def _committed(study, name: str):
     return path if path.exists() else None
 
 
+def _pilot_summary(study) -> pd.DataFrame | None:
+    path = _committed(study, "pilot-summary.csv")
+    return None if path is None else pd.read_csv(path, keep_default_na=False, na_values=[""])
+
+
 @pytest.mark.parametrize(("study", "properties"), STUDIES)
 def test_the_declaration_reads_the_committed_pilot(study, properties):
-    """M4: once the pilot is committed, R per family, the predicted reds and their owners, and
-    (C)'s shortfalls are those it reads. Before it, the declaration holds the plan's R."""
-    path = _committed(study, "pilot-summary.csv")
+    """M4: once the pilot is committed, R per family, the predicted reds and their readings, the
+    shortfalls and (C)'s shortfalls are those it reads, and the committed ``pilot-sizing.csv`` is
+    the sizing code's reading of the committed ``pilot-summary.csv``. Before it, the declaration
+    holds the plan's R."""
+    summary = _pilot_summary(study)
     replicates = study.PROPERTY_REPLICATES
     replicates = replicates if isinstance(replicates, dict) else {study.FIT: replicates}
-    if path is None:
+    if summary is None:
         assert set(replicates.values()) == {4_000}
         assert not study.PILOT_PREDICTED_REDS and not study.PILOT_SHORTFALLS
         assert not study.JACKKNIFE_SHORTFALLS
         return
-    summary = pd.read_csv(path, keep_default_na=False, na_values=[""])
     sized = properties.sizing(summary)
     sized = sized if isinstance(sized, dict) else {study.FIT: sized}
+    assert set(sized) == set(replicates)
     for family, result in sized.items():
         assert replicates[family] == result.replicates
-        if result.plugin < floor.FAMILY_PASS_TARGET:
-            assert result.replicates == floor.R_CAP and family in study.PILOT_SHORTFALLS
+    # M5: a family short of the target at the cap keeps R = 6,000 and declares the shortfall.
+    short = {family for family, result in sized.items() if result.plugin < floor.FAMILY_PASS_TARGET}
+    assert short == study.PILOT_SHORTFALLS
+    assert all(sized[family].replicates == floor.R_CAP for family in short)
+    which = "tmle" if study is study_a else "ltmle"
+    recomputed = pilot.sizing_table(which, properties, summary)
     table = pd.read_csv(study.STUDY.artifacts / "pilot-sizing.csv", keep_default_na=False)
-    reds = table.loc[table["kind"] == "predicted red"]
-    assert dict(zip(reds["cell"], reds["reading"], strict=True)) == study.PILOT_PREDICTED_REDS
+    for frame in (recomputed, table):
+        reds = frame.loc[frame["kind"] == "predicted red"]
+        assert dict(zip(reds["cell"], reds["reading"], strict=True)) == study.PILOT_PREDICTED_REDS
     assert set(study.PILOT_PREDICTED_REDS.values()) <= set(floor.READINGS)
     candidates = pd.read_csv(study.STUDY.artifacts / "pilot-candidates.csv")
     shortfalls = set(candidates.loc[candidates["shortfall"].astype(bool), "family"])
     assert shortfalls == study.JACKKNIFE_SHORTFALLS
+
+
+def _parts(cell: str) -> tuple[str, int, bool]:
+    """A cell's fit, its count and whether it is a control."""
+    fit, _, count, arm = cell.split("__")
+    return fit, int(count.removeprefix("j")), arm == "iid_t_control"
+
+
+@pytest.mark.parametrize(("study", "properties"), STUDIES)
+def test_every_predicted_red_has_a_reading_and_an_owner(study, properties):
+    """Each predicted red is a published property row, keyed as the red-cell ledger keys it
+    (``RedKey(slug, "property", "few_cluster_reference/<cell>")``), held by the roadmap owner
+    under the reading its position gives: below the anchor a control reads ``control power``
+    and a positive the availability or finite-sample reading; at or above the anchor the red is
+    the chance reading, held only once a diagnosis is recorded, and none is recorded before the
+    run, so such a red is a defect suspect."""
+    del properties
+    assert floor.RED_OWNER in red_cells.owner_ids()
+    assert not floor.NO_DEFECT_DIAGNOSES
+    published = {f"{floor.FAMILY}/{cell}" for cell in study.PUBLISHED_CELLS}
+    keys = {
+        red_cells.RedKey(study.STUDY.slug, "property", name): (floor.RED_OWNER, reading)
+        for name, reading in study.PILOT_PREDICTED_REDS.items()
+    }
+    assert len(keys) == len(study.PILOT_PREDICTED_REDS)
+    for key, (_, reading) in keys.items():
+        assert key.key in published, key
+        fit, count, control = _parts(key.key.split("/", 1)[1])
+        anchor = study.ANCHORS[study.FITS[fit]] if study is study_a else study.ANCHOR
+        if count >= anchor:
+            assert reading == floor.CHANCE_READING, key
+        elif control:
+            assert reading == floor.CONTROL_READING, key
+        else:
+            assert reading in (floor.AVAILABILITY_READING, floor.FINITE_SAMPLE_READING), key
+    if study is study_a and _pilot_summary(study) is not None:
+        # The control that turns red jointly with its positive (clause 2: the positive's
+        # shown-only SE-ratio upper end above 1.20) is listed beside it.
+        joint = "tmle_stacked_estimated__unequal_informative__j7"
+        assert f"{floor.FAMILY}/{joint}__t_reference" in study.PILOT_PREDICTED_REDS
+        assert f"{floor.FAMILY}/{joint}__iid_t_control" in study.PILOT_PREDICTED_REDS
+
+
+def test_the_sizing_reads_the_shown_se_ratio():
+    """Clause 2 reads the positive's shown-only SE-ratio interval (``shown_only``), so the sizing
+    reads the shown-only point; the shared ``se_ratio`` also reads withheld rows."""
+    positive = {
+        "requested_draws": 400.0,
+        "all_draw_coverage": 0.95,
+        "standardized_bias": 0.0,
+        "se_ratio": 1.0,
+        "shown_se_ratio": 1.18,
+        "se_ratio_ci_lower": 1.10,
+        "se_ratio_ci_upper": 1.26,
+    }
+    control = {
+        "paired_se_ratio": 0.6,
+        "paired_se_ratio_ci_lower": 0.55,
+        "paired_se_ratio_ci_upper": 0.65,
+    }
+    inputs = floor.sizing_inputs(positive, control)
+    assert inputs["se_ratio"] == 1.18
+    assert pilot.control_power(inputs, 6_000) < pilot.CONTROL_POWER
+    # The mutation that reads the shared point passes clause 2 and hides the joint red.
+    mutated = {**inputs, "se_ratio": positive["se_ratio"]}
+    assert pilot.control_power(mutated, 6_000) > pilot.CONTROL_POWER
 
 
 def test_the_committed_runs_reproduce_the_shipped_floors():

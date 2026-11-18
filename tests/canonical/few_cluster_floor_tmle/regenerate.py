@@ -10,22 +10,53 @@ record is not in ``registered()`` until its run is committed. Until then its pro
 a synthetic subject of the property differential, on the subset it declares
 (``DIFFERENTIAL_BUDGET`` and ``differential_cells()``).
 
-**State: declared for design review, pilot not run.** The pilot
-(:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on the ``"pilot"`` stream) runs
-after the design review and before the run. It sets each family's R by the family-wise rule
-(steps of 400 from 4,000 to 6,000, M5) and writes ``pilot.csv.gz``, ``pilot-failures.csv``,
-``pilot-summary.csv``, ``pilot-cells.csv``, ``pilot-sizing.csv``, ``pilot-candidates.csv`` and
-``pilot-timing.csv`` here. The declaration then copies R per family, the predicted reds with
-their readings and (C)'s predicted shortfalls into the study module (``PROPERTY_REPLICATES``,
-``PILOT_PREDICTED_REDS``, ``PILOT_SHORTFALLS``, ``JACKKNIFE_SHORTFALLS``), and the design test
-checks them against the committed tables. It changes no rule.
+**State: redeclared after the pilot (committed here), awaiting the design-review confirmation
+and the run.** The pilot (:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on
+the ``"pilot"`` stream) wrote ``pilot.csv.gz``, ``pilot-failures.csv``, ``pilot-summary.csv``,
+``pilot-cells.csv``, ``pilot-sizing.csv``, ``pilot-candidates.csv`` and ``pilot-timing.csv``
+here. The declaration copies its readings into the study module, and the design test recomputes
+each from ``pilot-summary.csv`` (``pilot-sizing.csv`` is rewritten from it by ``--resize``). The
+pilot changed no rule, margin, law or ladder.
+
+- **R per family** (``PROPERTY_REPLICATES``, the family-wise rule M5: from the expected floor
+  up, a plug-in probability of at least 0.95 that every cell passes, R in steps of 400 from
+  4,000 to 6,000). ``tmle_stacked`` 6,000 (plug-in 0.966, met); ``tmle_in_sample`` 6,000
+  (0.0047), ``tmle_fold_evaluated`` 6,000 (1.8e-12) and ``drtmle_known`` 6,000 (0.920), each
+  short of the target at the cap; ``ltmle_in_sample`` 4,000 (0.999). The d5 configurations read
+  the stacked R. Every expected floor is the anchor (10, and 20 for ``LTMLE``).
+- **Shortfalls** (``PILOT_SHORTFALLS``). R stays 6,000 and the shortfall is declared, as M5
+  requires. Each is driven by a cell at or above the anchor: ``tmle_in_sample_known``
+  ``equal10`` J10 covers 0.900 in the pilot; the fold-evaluated controls at J10 read a paired
+  IID/cluster ratio of 0.80 to 0.81, so clause 1 has no power at the anchor, and
+  ``tmle_fold_evaluated_known`` ``equal10`` J10 covers 0.9125; ``drtmle_known`` ``equal10`` J30
+  covers 0.915. A red there takes the declared route of a red at or above the anchor: the floor
+  stays at the anchor, the family is a defect suspect and is diagnosed first, and the red is
+  held by ``X54-cluster-floor`` under ``finite-sample (plug-in sizing)`` only once a no-defect
+  diagnosis is recorded in ``NO_DEFECT_DIAGNOSES``. No floor or threshold moves.
+- **Predicted reds** (``PILOT_PREDICTED_REDS``, 65 rows, 10 of them the d5 reading's): a positive
+  whose plug-in G1 and G2 figure at its R is below 0.90, and a control whose power under both
+  clauses is below 0.90, which lists a control that turns red jointly with its positive
+  (``tmle_stacked_estimated`` ``unequal_informative`` J7, clause 2). Each carries the reading
+  the declared route gives it and is keyed as the ledger keys a property row.
+- **(C)** (``JACKKNIFE_SHORTFALLS``): none. A (C) as good as (A) passes clause (i) in every cell
+  with probability 0.993 for ``tmle_in_sample`` (discordance 4.7%), 1.000 for ``tmle_stacked``
+  and for ``ltmle_in_sample``.
+- **Losses**: 105 lost keys, all ``DataError``, at 4 to 7 clusters: 58 singular GLM
+  information matrices (43 of them the d5 treatment GLM at 4 clusters, which loses 47 of 400
+  keys there), 31
+  training-support refusals, 10 GLM separations and 6 DR-TMLE leave-two-out refusals.
+- **Budget**: ``pilot-timing.csv`` projects 42.9 CPU-h at the declared R (43.2 at 6,000 for
+  every family), under the declared 60 and the 75 that would go back to the row thread.
 
 **What is gated** (the registered two-clause rule of ``clustered-few-cluster-tmle``,
 ``property_verdicts._few_cluster_rule``). On each ``t_reference`` row: G1, the exact 99% lower
 end of coverage over every requested draw at least 0.90 (a withheld row is a miss; a lost draw
 is judged by the failure accounting's worst case); G2, the bias within 0.25 empirical SD. On
 each ``iid_t_control`` row: the paired IID/cluster SE ratio's 99% upper end below 0.80, and the
-paired positive arm's SE-ratio upper end at most 1.20. Every other arm is reported.
+paired positive arm's SE-ratio upper end at most 1.20. The rule runs with ``shown_only``: both SE
+ratios read only the shown draws (a finite positive SE), the paired ratio the draws both arms
+show, while coverage still counts every withheld draw as a miss; a cell with fewer than two
+shown draws publishes no SE ratio and its control fails. Every other arm is reported.
 
 **Floors** (plan 5.8). A count passes for a family when both mechanism configurations
 (``_known`` and ``_estimated``; ``drtmle_known`` and ``ltmle_in_sample`` have one) pass G1, G2
@@ -81,7 +112,9 @@ lists any class this paragraph omits; a 24-draw smoke of every cell lost 11 keys
 one of three readings (:func:`tests.studies.few_cluster_floor.declared_route`). A positive cell
 whose withheld-and-lost share exceeds 3% while its shown-only coverage is consistent with 0.95
 and its SE ratio with 1 reads ``below floor (availability)``; any other red positive reads
-``below floor (finite-sample)``; a red control reads ``control power``. A red at or above the
+``below floor (finite-sample)``; a red control reads ``control power``, whichever clause it
+fails (including a control that turns red with its positive through clause 2, or a cell with
+fewer than two shown draws). A red at or above the
 anchor makes the family a defect suspect. It is held under ``finite-sample (plug-in sizing)``
 only after a diagnosis that finds no defect is recorded, and it is otherwise held by nobody. A
 part (c) candidate cell that fails below its admissibility count reads ``candidate not

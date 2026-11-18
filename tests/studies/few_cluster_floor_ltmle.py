@@ -90,15 +90,32 @@ FIT: Final[str] = "ltmle_cross_fitted"
 #: The fit's baseline covariates, for (B)'s :math:`p = \max(2, d)`.
 BASELINE_COVARIATES: Final[int] = len(NODES["baseline"])
 MAX_FOLDS: Final[int] = 5
-#: Replications per cell (plan 5.2): 4,000, raised by the family-wise rule (M5) once the
-#: pilot is read.
+#: Replications per cell (plan 5.2): 4,000, raised by the family-wise rule (M5) off the
+#: committed pilot; the pilot meets the 0.95 target at 4,000 (plug-in 1.000, predictive 0.814,
+#: expected floor 19), so R stays 4,000.
 PROPERTY_REPLICATES: Final[int] = 4_000
-#: The pilot's predicted reds, ``cell -> reading`` (review M4): empty until the pilot is read;
-#: the design test checks this against the committed ``pilot-sizing.csv``.
-PILOT_PREDICTED_REDS: Final[dict[str, str]] = {}
-#: Families whose plug-in pass probability stays under the target at ``R_CAP`` (review M4).
+#: The pilot's predicted reds, grouped by the reading the declared route gives each
+#: (``pilot-sizing.csv``, review M4): a positive whose plug-in G1 and G2 figure at the declared
+#: R is below 0.90, and a control whose power under both clauses is below 0.90, which includes
+#: a control that turns red jointly with its positive (clause 2). Every one is held by
+#: :data:`~tests.studies.few_cluster_floor.RED_OWNER` as the property row
+#: ``RedKey(slug, "property", "few_cluster_reference/<cell>")``; a
+#: :data:`~tests.studies.few_cluster_floor.CHANCE_READING` red sits at the anchor and is held
+#: only once a no-defect diagnosis is recorded. The design test checks both directions.
+_PILOT_REDS: Final[dict[str, tuple[str, ...]]] = {
+    floor.FINITE_SAMPLE_READING: (
+        "ltmle_cross_fitted__unequal40__j7__t_reference",
+        "ltmle_cross_fitted__unequal40__j8__t_reference",
+    ),
+}
+PILOT_PREDICTED_REDS: Final[dict[str, str]] = {
+    f"{FAMILY}/{cell}": reading for reading, cells in _PILOT_REDS.items() for cell in cells
+}
+#: Families whose plug-in pass probability stays under the target at ``R_CAP`` (review M4): none;
+#: the pilot reads 1.000 at R = 4,000 from the expected floor 19.
 PILOT_SHORTFALLS: Final[frozenset[str]] = frozenset()
-#: Families whose (C) arm the pilot measures as short of admissibility (review M4).
+#: Families whose (C) arm the pilot measures as short of admissibility (review M4): none
+#: (discordance 1.5% over 26 cells, clause (i) probability 1.000).
 JACKKNIFE_SHORTFALLS: Final[frozenset[str]] = frozenset()
 #: The fit name of a (C) key (review B1).
 JACKKNIFE_FIT: Final[str] = f"{FIT}__jackknife"

@@ -7,7 +7,8 @@ raises is a lost key, a miss under the failure accounting.
 
 The gated rule is the registered two-clause rule of ``clustered-few-cluster-tmle``
 (:func:`~tests.studies.evidence.property_verdicts.few_cluster_reference_verdicts`): G1 and G2 on
-``t_reference``, both control clauses on ``iid_t_control``. The readings are
+``t_reference``, both control clauses on ``iid_t_control``, with ``shown_only`` (the SE ratios
+read the shown draws; a cell with fewer than two shown draws fails its control). The readings are
 :func:`tests.studies.few_cluster_floor.floor_readings`. Part (c) is the module's own
 :data:`PROPERTY_RULES` (review M1): each ``few_cluster_candidate`` pair passes when the 99% lower
 end of the candidate's paired coverage gain over (A) is at least -0.03 (S7), and each

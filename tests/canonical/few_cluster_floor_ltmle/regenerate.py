@@ -10,15 +10,21 @@ record is not in ``registered()`` until its run is committed. Until then its pro
 a synthetic subject of the property differential, on the subset it declares
 (``DIFFERENTIAL_BUDGET`` and ``differential_cells()``).
 
-**State: declared for design review, pilot not run.** The pilot
-(:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on the ``"pilot"`` stream) runs
-after the design review and before the run. It sets R by the family-wise rule (M5) and writes
-the tables listed in ``few-cluster-floor-tmle`` here; the declaration copies R, the predicted
-reds and (C)'s predicted shortfall into the study module, and the design test checks them.
+**State: redeclared after the pilot (committed here), awaiting the design-review confirmation
+and the run.** The pilot (:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on
+the ``"pilot"`` stream) wrote the tables listed in ``few-cluster-floor-tmle`` here; the
+declaration copies its readings into the study module, and the design test recomputes them from
+``pilot-summary.csv``. It changed no rule. R is 4,000 (the family-wise rule M5 is met there:
+plug-in 1.000, predictive 0.814, expected floor 19). The two predicted reds,
+``unequal40`` J7 and J8 (pilot coverage 0.900 and 0.9125), read ``below floor
+(finite-sample)``. (C) has no predicted shortfall (discordance 1.5% over 26 cells, clause (i)
+probability 1.000). No key was lost. ``pilot-timing.csv`` projects 13.3 CPU-h at R = 4,000
+(14.9 at 6,000), under the declared 22.
 
 **What is gated**: the registered two-clause rule of ``clustered-few-cluster-tmle``, as in
 ``few-cluster-floor-tmle``: G1 and G2 on each ``t_reference`` row, both control clauses on each
-``iid_t_control`` row. Every other arm is reported, and so are the package-GLM columns of each
+``iid_t_control`` row, with ``shown_only`` (the SE ratios read the shown draws; a cell with fewer
+than two shown draws fails its control). Every other arm is reported, and so are the package-GLM columns of each
 positive row (the raised share by count with its exact interval, and the study learner's shown
 coverage split by whether the package GLM raised, M2 and Q15).
 
