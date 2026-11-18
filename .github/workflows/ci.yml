@@ -68,8 +68,10 @@ jobs:
   #
   # Each interpreter's run is split across runners (`tests/conftest.py`), because one runner took
   # 2 hours 1 minute on 3.12 (November 2026) and the repository's rule is a CI run under 1.5
-  # hours. 3.12 also runs `test_method_evidence.py`, so it has four shards and the others two. A
-  # shard holds whole `xdist_group`s. `tests-verdict` below reports them as one check.
+  # hours. Every interpreter has four shards. With two, 3.11's and 3.13's second shard ran 40 to
+  # 65 minutes, and on 2026-11-18 four of them lost their runner at 50 minutes with no log (main
+  # and three pull requests), while no shorter job did. A shard holds whole `xdist_group`s.
+  # `tests-verdict` below reports them as one check.
   tests:
     name: tests (${{ matrix.python-version }}, shard ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-latest
@@ -78,14 +80,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python-version: "3.11", shard: 1, shards: 2}
-          - {python-version: "3.11", shard: 2, shards: 2}
+          - {python-version: "3.11", shard: 1, shards: 4}
+          - {python-version: "3.11", shard: 2, shards: 4}
+          - {python-version: "3.11", shard: 3, shards: 4}
+          - {python-version: "3.11", shard: 4, shards: 4}
           - {python-version: "3.12", shard: 1, shards: 4}
           - {python-version: "3.12", shard: 2, shards: 4}
           - {python-version: "3.12", shard: 3, shards: 4}
           - {python-version: "3.12", shard: 4, shards: 4}
-          - {python-version: "3.13", shard: 1, shards: 2}
-          - {python-version: "3.13", shard: 2, shards: 2}
+          - {python-version: "3.13", shard: 1, shards: 4}
+          - {python-version: "3.13", shard: 2, shards: 4}
+          - {python-version: "3.13", shard: 3, shards: 4}
+          - {python-version: "3.13", shard: 4, shards: 4}
     steps:
       - uses: actions/checkout@v4
       # The matrix version is threaded through to `uv venv --python`; without that, every
