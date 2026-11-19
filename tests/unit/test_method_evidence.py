@@ -4431,7 +4431,7 @@ def _verdict_families(module: Any) -> set[str]:
     for study in STUDIES:
         path = study.artifact("properties.csv")
         if study.properties() is module and path.exists():
-            published = pd.read_csv(path)
+            published = property_verdicts.read_property_table(study)
             families |= set(
                 published.loc[published["role"] != property_verdicts.DIAGNOSTIC_ROLE, "property"]
             )
