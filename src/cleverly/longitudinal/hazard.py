@@ -115,6 +115,7 @@ from ..fluctuation._score import (
 from ..fluctuation.iterative import TargetingFailure, _line_step, _Visited
 from ..learners.crossfit import Folds
 from ..msm import ProjectionFit, solve_projection
+from ._fit_cache import frozen
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM
 from .pooled_hazards import refuse_pooled_designs, stacked_design
@@ -4252,16 +4253,18 @@ def _cell_fits(
         q = inputs.q_observed()
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
     for r, plan in enumerate(plans):
+        # One read-only clever weight per regimen: every cause and horizon reads the same
+        # base, and each record keeps the view of its nodes up to the horizon.
+        if inputs.multinode:
+            base = frozen(np.array(carried[r], dtype=float))
+        else:
+            base = frozen(np.where(inputs.at_risk, q[r][:, None] * inverse, 0.0))
         for j, cause in enumerate(causes):
             for t in horizons:
                 report, record = reports[t]
                 levels, curves = report.levels, report.curves
                 h = report.column[t]
-                if inputs.multinode:
-                    clever = np.array(carried[r], dtype=float)
-                else:
-                    clever = np.where(inputs.at_risk, q[r][:, None] * inverse, 0.0)
-                clever[:, t:] = 0.0
+                clever = base[:, :t]
                 out[(plan.label, cause, t)] = RegimenFit(
                     regimen=plan.regimen,
                     psi_scaled=float(levels[r, j, h]),

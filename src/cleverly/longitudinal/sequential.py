@@ -947,10 +947,11 @@ class RegimenFit:
     #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
     #: A one-step fit shares one record between every reported parameter.
     hazard: HazardFit | None = None
-    #: ``(n, T)`` the hazard fit's clever weight at each node, at the observed level:
-    #: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at a node up to the horizon, and
-    #: zero elsewhere.  It stands in for each node's clever covariate in
-    #: :attr:`scored_nodes` and :attr:`leverage`.  ``None`` on an iterated-mean fit.
+    #: ``(n, horizon)`` the hazard fit's clever weight at each node up to the horizon, at
+    #: the observed level: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at the node,
+    #: and zero elsewhere.  It stands in for each node's clever covariate in
+    #: :attr:`scored_nodes` and :attr:`leverage`.  Read-only; the records of one regimen
+    #: hold views of one array across causes and horizons.  ``None`` on an iterated-mean fit.
     #:
     #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
     #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.
