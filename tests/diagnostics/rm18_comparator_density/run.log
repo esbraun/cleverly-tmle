@@ -1,17 +1,16 @@
 === CD, cap None
-command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\tests\diagnostics\rm18_comparator_density\run.py' --part CD --output 'C:\Users\erics\Documents\Projects\cleverly-beta-plans\_x12_rm18'
-commit: 0df91b92c1581a5524a77dab22359f98dd018ef4; upstream 0df91b92c1581a5524a77dab22359f98dd018ef4
+command: /home/user/cleverly-tmle-run/.venv/bin/python /home/user/cleverly-tmle-run/tests/diagnostics/rm18_comparator_density/run.py --part CD --output /home/user/fix9-checks/rm18 --jobs 4
+commit: 58538bfa7ce7a5395afa2137aa447db1b707e81e; upstream 58538bfa7ce7a5395afa2137aa447db1b707e81e
 clean tree: True
-cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\src\cleverly\__init__.py
-python 3.13.7; numpy 2.5.3; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 130, sha256 b829f1ebe405c1d9668583dbd5449dc0d036653b560b831a93b48ed17e9542fe
+cleverly 0.2.6 from /home/user/cleverly-tmle-run/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 7aa7dbb011a0e45ca4e42c681fd6e5ea2e2f30831ecd708f9c0afb6ac646c927
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-cores: 16
-started: 2026-10-07T22:56:35+00:00
-finished: 2026-10-07T23:09:10+00:00
-wall seconds: 755.1
+cores: 4
+started: 2026-11-19T09:12:24+00:00
+finished: 2026-11-19T09:30:12+00:00
+wall seconds: 1068.5
 exit code: 0
-sha256 cd-reading.csv: 7fe48bf6c685db953f25df93b74cc870fd1a03c1d2fa59fd4ff7744085790db2
-sha256 cd-rows.csv.gz: 6ae172ad1c2e763405d356eeb5d7098e3bd8b94efc38a4c90862ffce99beb5f2
-sha256 cd-validation.csv: 6031795fb0a188d76ddb4b261ce417b8f31731c4f2dec6818983a3f4fc3180ad
+sha256 cd-reading.csv: b7588cb0f229b578eef96d792c3f17b794dd88adc422fc6764f5c2504e143137
+sha256 cd-validation.csv: 0bf26119d476ced4939cf68e1f0f626936b11e6169962ccbaf647dc462972c03
 
