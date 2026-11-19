@@ -1,0 +1,24 @@
+=== few-cluster-floor-cross-fitted-ltmle declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/few_cluster_floor_ltmle/regenerate.py --output /tmp/x54-sb-out --jobs 4
+commit: a28732b76e3a366065aba449132650c9d89df78b; upstream a28732b76e3a366065aba449132650c9d89df78b
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 53a819d16fe5a51f8229234e14ec978111cf69c103ac8cd65d6dcf4d5b8a8627
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-19T01:14:14+00:00
+finished: 2026-11-19T05:57:53+00:00
+wall seconds: 17019.1
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 446fc8748490c251f5e7b2ada31acbb6c2b1c96e15cccb550626064b5bef2ff0
+sha256 performance-tests.csv: 50dbde08d0ac9d583db9c35cea930c9cc3004a48e9a30a35ee214a6419b1098c
+sha256 properties.csv: b6e69e7920659139ce0f611378e0482c403dfec16b4b58e8d99fb7d565cdc0a8
+sha256 property-failure-accounting.csv: 79b355b5cd212540678e1347f3784ae883efb4280ef8cce5485ca00b141fdf92
+sha256 property-failure-witnesses.parquet: f6e061c7a0f5a6108573741449d67628d795dc311e38d52a96ebd4e274d99831
+sha256 property-failures.csv: 069d67abaaaff9e774b2b4d372b1852f8496375e5d2be7ea2a4b542d7a2c1eda
+sha256 property-replicates.parquet: 2d8391e012cac207ecc0afcec11450bbf6144a6e24cf58caad150040c8bca343
+sha256 replicates.parquet: dbe43782d82fa0ce728b9e341edb726a82d532daaf53a5c208e1981ec4095b08
+sha256 summary.csv: 7f0b3e9da04bf39d5032503478a68711ff3c74e45bfe4fbfdfa4c7d2db0a427c
+
