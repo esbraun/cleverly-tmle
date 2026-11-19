@@ -1,7 +1,7 @@
 """Size and power of the continuous-time survival refutation rules (X101 PR 2).
 
-Two families. ``refuter_size`` holds one cell per rule and estimand: 200 trials on the size
-law, and the cell passes when the rule rejects in at most 17. ``refuter_power`` holds one cell
+Two families. ``refuter_size`` holds one cell per rule and estimand: 600 trials on the size
+law, and the cell passes when the rule rejects in at most 68. ``refuter_power`` holds one cell
 per defect and estimand, and passes when the rule detects the defect in at least 38 of 50
 trials. The stale-row placebo cells read 50 trials of their own on the power law; the rescaled
 subset cells read size trials 0 to 49, so they differ from their size cell only in the defect.
@@ -18,7 +18,7 @@ cells (no verdict) through a checkpointed loop of their own and writes
 
 The verdicts are the plan's count rules. The failure accounting reads them through the exact
 99% Clopper-Pearson interval of the shared S3 clause: :data:`SIZE_CEILING` lies strictly
-between the upper endpoints at 17 and 18 rejections of 200, and :data:`POWER_FLOOR` strictly
+between the upper endpoints at 68 and 69 rejections of 600, and :data:`POWER_FLOOR` strictly
 between the lower endpoints at 37 and 38 detections of 50. With no lost trial the interval rule
 and the count rule agree, and :func:`count_rule_agrees` proves it for every count.
 """
@@ -82,7 +82,7 @@ def _midpoint(low: float, high: float) -> float:
     return 0.5 * (low + high)
 
 
-#: Between the 99% Clopper-Pearson upper endpoints at 17 and 18 rejections of 200.
+#: Between the 99% Clopper-Pearson upper endpoints at 68 and 69 rejections of 600.
 SIZE_CEILING = _midpoint(
     clopper_pearson(SIZE_MAX_REJECTIONS, SIZE_TRIALS, confidence_level=_LEVEL).high,
     clopper_pearson(SIZE_MAX_REJECTIONS + 1, SIZE_TRIALS, confidence_level=_LEVEL).high,
@@ -501,7 +501,7 @@ def _rules() -> tuple[pf.FamilyRule, ...]:
             shared="summarize_properties",
             clauses=(
                 pf.proportion_clause(
-                    "rejections at most 17 of 200",
+                    "rejections at most 68 of 600",
                     statistic="S3",
                     judge=pf.ceiling_judge(lambda ctx: SIZE_CEILING),
                     applies=every,
