@@ -318,7 +318,11 @@ def fit_counts(
         paths=paths,
         censored=bool(data.has_censoring),
         markov=data.markov_order is not None,
-        levels=max((len(levels) for levels in data.treatment_levels), default=2),
+        levels=(
+            2
+            if continuous
+            else max((len(levels) for levels in data.treatment_levels), default=2)
+        ),
     )
 
 
