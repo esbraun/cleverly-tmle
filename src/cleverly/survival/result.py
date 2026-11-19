@@ -123,6 +123,30 @@ FUNCTIONALS_LIMITS: Final[tuple[str, ...]] = (
     "target time extends the grid of the walk, which only the exact-law tests measure.",
 )
 
+#: The study that measures a fit with one cause and a fit with three (X6 part (b)).
+CAUSES_STUDY: Final[str] = "continuous-survival-causes"
+
+#: The numbers of causes at which a risk or risk difference can read supported.
+#: :data:`CONTINUOUS_SURVIVAL_STUDY` measures two; :data:`CAUSES_STUDY` measures one and three, and
+#: each joins this set only once every gated row of its law passes in that study's committed
+#: record (``performance-tests.csv``), which the study's design test checks.  Until the declared
+#: run is committed, a fit with one or three causes reads experimental.
+MEASURED_CAUSES: Final[frozenset[int]] = frozenset({2})
+
+#: The most causes any study measures.
+CAUSES_CAP: Final[int] = 3
+
+#: The sample size :data:`CAUSES_STUDY` measures; a fit with one cause or three below it reads
+#: experimental, since :data:`MEASURED_N` was measured with two causes.
+CAUSES_N: Final[int] = 1_000
+
+#: The limits a fit with one cause or three states beside :data:`CONTINUOUS_LIMITS`.
+CAUSES_LIMITS: Final[tuple[str, ...]] = (
+    "One cause and three causes are measured on the registered law with its cause-2 hazard "
+    "removed (one cause) or with a third constant hazard added (three causes), at n = 1,000, "
+    "target times at each law's event-time quartiles, cross-fitted, the default libraries.",
+)
+
 #: Why a ratio of two continuous-time risks reads experimental in a fit without restricted means.
 RATIO_REASON: Final[str] = (
     "The registered continuous-survival-functionals study measures the risk ratio of a fit "
@@ -133,6 +157,40 @@ RATIO_REASON: Final[str] = (
 
 def _experimental(reason: str, limits: tuple[str, ...] = CONTINUOUS_LIMITS) -> Support:
     return Support("experimental", reason, ("X91",), limits=limits)
+
+
+def _causes_noun(causes: int) -> str:
+    return "one cause" if causes == 1 else f"{causes} causes"
+
+
+def _causes_reasons(causes: int, functionals: bool, n: int) -> list[str]:
+    """Why a fit's number of causes keeps its estimates experimental, if it does."""
+    noun = _causes_noun(causes)
+    if causes > CAUSES_CAP:
+        return [
+            f"The fit has {noun}, and no study measures more than {CAUSES_CAP}: "
+            f"{CONTINUOUS_SURVIVAL_STUDY} measures two and {CAUSES_STUDY} one and three. With "
+            "more causes each has fewer events and the walk targets more risks at once."
+        ]
+    if causes not in MEASURED_CAUSES:
+        return [
+            f"The fit has {noun}. The {CAUSES_STUDY} study measures one cause and three causes, "
+            "and its record does not show every gated row of this number of causes passing; "
+            "until it does, the estimates read experimental."
+        ]
+    out = []
+    if functionals and causes != 2:
+        out.append(
+            f"The fit has {noun} and a restricted horizon; the registered {FUNCTIONALS_STUDY} "
+            "study measures restricted horizons with two causes only."
+        )
+    elif causes != 2 and n < CAUSES_N:
+        out.append(
+            f"The fit has {n:,} units, and the registered {CAUSES_STUDY} study measures "
+            f"{noun} at n = {CAUSES_N:,} only; the size floor of {MEASURED_N:,} was measured "
+            "with two causes."
+        )
+    return out
 
 
 def continuous_survival_support(
@@ -153,7 +211,9 @@ def continuous_survival_support(
 
     A risk or a risk difference of a fit without ``restricted_horizons=`` reads ``supported``
     when the registered ``continuous-time-survival`` study measures its configuration: two
-    causes, at a time by which between 40% and 85% of the observed events have happened
+    causes (or a number of causes in :data:`MEASURED_CAUSES`, which the registered
+    ``continuous-survival-causes`` study measures with one and three, and which then names that
+    study), at a time by which between 40% and 85% of the observed events have happened
     (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with the default libraries and the
     settings of :data:`MEASURED_DEFAULTS`, with at least :data:`MEASURED_N` units and its
     influence curve's relative SD at most :data:`MEASURED_REL_SD`, the two floors the registered
@@ -175,7 +235,7 @@ def continuous_survival_support(
     n : int
         The number of units.
     causes : int
-        The number of event types.
+        The number of event types.  More than :data:`CAUSES_CAP` always reads experimental.
     cross_fitted : bool
         Whether the nuisances are fitted out of fold.
     default_nuisances : bool
@@ -288,11 +348,7 @@ def continuous_survival_support(
             f"risks and risk differences down to n = {MEASURED_N:,}; a smaller sample has fewer "
             "events of each arm and cause."
         )
-    if causes != 2:
-        reasons.append(
-            "The registered study measures two causes; no study measures a single event type "
-            "or more than two."
-        )
+    reasons.extend(_causes_reasons(causes, functionals, n))
     if not cross_fitted:
         reasons.append(
             "The fit is in-sample. The registered study gates cross-fitted fits; its in-sample "
@@ -312,9 +368,16 @@ def continuous_survival_support(
             "measures the defaults only."
         )
     limits = (*CONTINUOUS_LIMITS, *FUNCTIONALS_LIMITS) if functionals else CONTINUOUS_LIMITS
+    if causes != 2:
+        limits = (*limits, *CAUSES_LIMITS)
     if reasons:
         return _experimental(" ".join(reasons), limits)
-    study = FUNCTIONALS_STUDY if functionals else CONTINUOUS_SURVIVAL_STUDY
+    if functionals:
+        study = FUNCTIONALS_STUDY
+    elif causes != 2:
+        study = CAUSES_STUDY
+    else:
+        study = CONTINUOUS_SURVIVAL_STUDY
     # The variance study measures risks and differences at n = 500 and sets their relative-SD
     # floor, so it is evidence for each of them; restricted means and ratios it does not measure.
     evidence = (study, VARIANCE_STUDY) if floored else (study,)
@@ -323,7 +386,11 @@ def continuous_survival_support(
         measured += (
             f" The registered {VARIANCE_STUDY} study sets the floor on the sparsity of its "
             "influence curve"
-            + ("." if functionals else f" and measures it down to n = {MEASURED_N:,}.")
+            + (
+                "."
+                if functionals or causes != 2
+                else f" and measures it down to n = {MEASURED_N:,}."
+            )
         )
     return Support("supported", measured, evidence, limits=limits)
 
