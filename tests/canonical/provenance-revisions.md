@@ -658,3 +658,14 @@ estimate or standard error, the run log records no failed replicate, and the stu
 primary `failures.csv`. So no bound decided any primary verdict, and a run at 0.01 would write the
 same rows. The property phase's own bound, `property_failure_bound` 0.05, is a separate key and is
 unchanged.
+
+## The compact encoding of `few-cluster-floor-tmle`'s property rows
+
+The declared run at `a28732b7` wrote `property-replicates.parquet` as 105.4 MB (sha256
+`317f4d4a…7e5a1`, recorded in `run.log`), over GitHub's 100 MB file limit. `write_rows` in
+`tests/studies/evidence/manifest.py` now rewrites a row file above `COMPACT_BYTES` (90 MB) with
+the float columns byte-stream split, one row group and zstd level 19. The committed file is that
+encoding of the run's own file: 93.4 MB, sha256 `01c78004…71b49ed0`, which is what the manifest
+now records. The decoded table equals the run's table (`pyarrow.Table.equals` with metadata),
+and the CSV text of the rows has the same digest before and after (`cedd3489…01800560`). No row,
+verdict or seed changed; only the bytes of the encoding did.
