@@ -6,12 +6,12 @@ The record has no comparator, so the run starts no container. Law, fit, ladder, 
 seeds and replicate counts are those of :mod:`tests.studies.few_cluster_floor_ltmle`,
 :mod:`tests.studies.few_cluster_floor_ltmle_properties` and :mod:`tests.studies.few_cluster_floor`,
 fixed before any run and recomputed by ``tests/unit/test_few_cluster_floor_design.py``. The
-record is not in ``registered()`` until its run is committed. Until then its property module is
-a synthetic subject of the property differential, on the subset it declares
-(``DIFFERENTIAL_BUDGET`` and ``differential_cells()``).
+record is registered; its run is committed (``3a64ef44``), and the property differential reads
+the committed rows on the subset its property module declares (``DIFFERENTIAL_BUDGET`` and
+``differential_cells()``).
 
-**State: redeclared after the pilot (committed here), awaiting the design-review confirmation
-and the run.** The pilot (:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on
+**State: registered.** The declared run is committed (``3a64ef44``). Before it, the study was
+redeclared after the pilot (committed here). The pilot (:mod:`tests.studies.few_cluster_floor_pilot`, 400 draws per cell on
 the ``"pilot"`` stream) wrote the tables listed in ``few-cluster-floor-tmle`` here; the
 declaration copies its readings into the study module, and the design test recomputes them from
 ``pilot-summary.csv``. It changed no rule. R is 4,000 (the family-wise rule M5 is met there:

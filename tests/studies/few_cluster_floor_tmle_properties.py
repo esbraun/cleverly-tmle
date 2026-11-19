@@ -32,8 +32,7 @@ Calibration and length stay reported.
 
 **Floors and the outcome.** :func:`routes` reads each family's floor, route and red owners off
 the verdicts (:func:`tests.studies.few_cluster_floor.declared_route`); :func:`decisions` reads
-the part (c) decision, and :func:`tests.studies.few_cluster_floor.declared_outcome` folds both
-studies' into the declared outcome.
+the part (c) decision, and the design test folds both studies' into the declared outcome.
 """
 
 from __future__ import annotations

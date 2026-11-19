@@ -17,10 +17,14 @@ $t_{J-2}$ reference with Wang et al.'s inflated variance and the delete-one-clus
 
 ## State of this directory
 
-Redeclared after the pilot. The pilot's tables are committed here (`pilot.csv.gz`, the raw
-rows and the six `pilot-*.csv` tables), and the study module holds the R, predicted reds and
-shortfalls they give. No run artifact is committed, so the record is not in `registered()`. Until its run commits, the property differential reads synthetic rows
-of the subset the property module declares. `regenerate.py` holds the declaration: the gates,
+Registered. The declared run (artifacts `d4fbd52e`) took 15.3 hours on 4 cores. The floors it
+reads ship in `CLUSTER_INTERVAL_FLOORS` for the ATE: in-sample TMLE 6, fold-evaluated TMLE 8,
+cross-fitted DR-TMLE with a declared mechanism 8 and in-sample LTMLE 6 (for the always-treat
+versus never-treat contrast). Every other estimate keeps the default floor of its kind. The
+stacked family keeps 10: the d5 IID control is red at 10 clusters, and
+`X54-stacked-d5-redeclaration` holds it. Every other red cell lies below its estimate's floor,
+and `X54-cluster-floor` holds it. The property differential reads the committed rows.
+`regenerate.py` holds the declaration: the gates,
 the floor rule, the part (c) decision, the measured budget and the red-cell readings, owned by
 `X54-cluster-floor` in `docs/roadmap.md`.
 

@@ -111,9 +111,11 @@ def test_the_red_owner_is_a_roadmap_owner():
 
 @pytest.mark.parametrize(("study", "properties"), STUDIES)
 def test_the_differential_reads_a_declared_subset_of_whole_groups(study, properties):
-    """B4: both modules are differential subjects at a declared size, on whole groups."""
-    module = properties.__name__
-    assert module in differential.SYNTHETIC_MODULES
+    """B4: both registered studies are differential subjects at a declared size, on whole
+    groups, under their slugs."""
+    assert properties.__name__ not in differential.SYNTHETIC_MODULES
+    module = study.STUDY.slug
+    assert module in differential.SUBJECTS
     assert properties.DIFFERENTIAL_BUDGET == 200
     cells = properties.differential_cells()
     for family in (floor.FAMILY, floor.CANDIDATE_FAMILY):
@@ -1190,6 +1192,37 @@ def test_the_sizing_reads_the_shown_se_ratio():
     assert pilot.control_power(mutated, 6_000) > pilot.CONTROL_POWER
 
 
+def declared_outcome(
+    summary_a: pd.DataFrame,
+    rows_a: pd.DataFrame,
+    summary_b: pd.DataFrame,
+    rows_b: pd.DataFrame,
+) -> dict[str, floor.Outcome]:
+    """The declared outcome of every floor family of S-a and S-b, from their summaries and rows.
+
+    Rule 3 reads both studies' decisions together, so the two are folded at once. It lives here,
+    not in :mod:`tests.studies.few_cluster_floor`, so that neither study's runner imports the
+    other study.
+    """
+    routes = {
+        **properties_a.routes(summary_a),
+        "ltmle_cross_fitted": properties_b.route(summary_b),
+    }
+    # A d5 red at or above the anchor has no committed counterpart: it sends tmle_stacked, whose
+    # configurations the d5 fits are, to a redeclaration with its floor at the anchor.
+    reported = properties_a.reported_route(summary_a)
+    if reported.route.startswith(floor.REDECLARATION):
+        stacked = routes["tmle_stacked"]
+        routes["tmle_stacked"] = dataclasses.replace(
+            stacked, floor=study_a.ANCHORS["tmle_stacked"], route=f"{reported.route} (d5)"
+        )
+    decisions = {
+        **properties_a.decisions(summary_a, rows_a),
+        "ltmle_cross_fitted": properties_b.decision(summary_b, rows_b),
+    }
+    return floor.outcomes(routes, decisions)
+
+
 def test_the_committed_runs_reproduce_the_shipped_floors():
     """M1: once both runs are committed, the floors, the decisions and the outcome read off
     their committed summaries and rows are the shipped ``CLUSTER_INTERVAL_FLOORS`` and (C)
@@ -1204,7 +1237,7 @@ def test_the_committed_runs_reproduce_the_shipped_floors():
         pd.read_csv(study.STUDY.artifacts / "properties.csv", keep_default_na=False, na_values=[""])
         for study in (study_a, study_b)
     )
-    outcomes = floor.declared_outcome(summary_a, rows_a, summary_b, rows_b)
+    outcomes = declared_outcome(summary_a, rows_a, summary_b, rows_b)
     for family, outcome in outcomes.items():
         assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor
         assert shipped_status(family, outcome.jackknife) == floor.SHIPPED_JACKKNIFE.get(
@@ -1247,6 +1280,9 @@ def test_every_committed_red_has_an_owner_and_the_ledger_claims_it():
     if not summaries:
         return
     owners = committed_owners(summaries)
+    for slug, rows in committed_primary_owners().items():
+        assert None not in rows.values(), f"{slug}: a primary red has no owner: {rows}"
+        owners.setdefault(slug, {}).update(rows)
     claimed = {
         (key.slug, key.key): owner
         for owner, keys in red_cells.CLAIMS.items()
@@ -1265,6 +1301,80 @@ def test_every_committed_red_has_an_owner_and_the_ledger_claims_it():
     assert redeclared == sorted(floor.REDECLARED_REDS["few-cluster-floor-tmle"])
     assert floor.REDECLARATION_OWNER in red_cells.owner_ids()
     assert not floor.NO_DEFECT_DIAGNOSES
+
+
+#: Each study's primary: its floor family, its cluster count and the contrast its property
+#: cells read (post-run ruling 2).
+PRIMARIES = (
+    (study_a, "ltmle_in_sample", study_a.LTMLE_TARGET),
+    (study_b, study_b.FIT, study_b.TARGET),
+)
+
+
+def committed_primary_owners(**settings):
+    """Each committed study's red primary truth rows, through :func:`floor.primary_owners`."""
+    out = {}
+    for study, family, measured in PRIMARIES:
+        path = _committed(study, "performance-tests.csv")
+        if path is None:
+            continue
+        out[study.STUDY.slug] = floor.primary_owners(
+            pd.read_csv(path),
+            family=family,
+            clusters=study.PRIMARY_CLUSTERS,
+            measured=measured,
+            **settings,
+        )
+    return out
+
+
+def test_the_primary_arm_mean_red_is_below_its_estimand_floor():
+    """R3: the S-a primary's ``ey_regimen[never]`` red at 10 clusters is below the arm-mean floor
+    of 20, so ``X54-cluster-floor`` holds it. The mutation that reads the contrast floor (6) for
+    every estimand leaves it unowned."""
+    owners = committed_primary_owners()
+    if study_a.STUDY.slug not in owners:
+        return
+    key = "cleverly/floor_unequal_informative_j10/ey_regimen[never]"
+    assert owners[study_a.STUDY.slug] == {key: (floor.RED_OWNER, floor.FINITE_SAMPLE_READING)}
+    assert owners.get(study_b.STUDY.slug, {}) == {}
+    contrast_floor = committed_primary_owners(
+        read_floor=lambda family, estimand, measured: CLUSTER_INTERVAL_FLOORS[family]
+    )
+    assert contrast_floor[study_a.STUDY.slug] == {key: None}
+
+
+def _red(estimand):
+    return pd.DataFrame(
+        {
+            "implementation": ["cleverly"],
+            "scenario": ["s"],
+            "estimand": [estimand],
+            "passed": [False],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("estimand", "clusters"),
+    [("ey_regimen[never]", 20), ("ey_regimen[never]", 30), (study_a.LTMLE_TARGET, 10)],
+)
+def test_a_primary_red_at_or_above_its_estimand_floor_stays_unowned(estimand, clusters):
+    """R3: an arm mean red at or above 20, or the contrast red at or above 6, has no owner. The
+    mutation that holds every red owns each, and the one that reads the default floor for every
+    estimand owns the contrast's."""
+    settings = {"family": "ltmle_in_sample", "clusters": clusters, "measured": study_a.LTMLE_TARGET}
+    assert floor.primary_owners(_red(estimand), **settings) == {f"cleverly/s/{estimand}": None}
+    mutations = [lambda family, estimand, measured: 10_000]
+    if estimand == study_a.LTMLE_TARGET:
+        mutations.append(
+            lambda family, estimand, measured: floor.estimand_floor(family, "", measured)
+        )
+    for mutation in mutations:
+        with pytest.raises(AssertionError):
+            assert floor.primary_owners(_red(estimand), **settings, read_floor=mutation) == {
+                f"cleverly/s/{estimand}": None
+            }
 
 
 def committed_owners(summaries):
@@ -1320,7 +1430,7 @@ def test_a_d5_redeclaration_sends_the_stacked_family_to_a_redeclaration(monkeypa
         winner=floor.REFERENCE_ARM, admissible={floor.JACKKNIFE_ARM: None}, reasons={}
     )
     monkeypatch.setattr(properties_b, "decision", lambda summary, rows: refused)
-    outcomes = floor.declared_outcome(None, None, None, None)
+    outcomes = declared_outcome(None, None, None, None)
     stacked = outcomes["tmle_stacked"]
     assert stacked.floor == study_a.ANCHORS["tmle_stacked"]
     assert stacked.route == f"{floor.REDECLARATION}: 15 (d5)"

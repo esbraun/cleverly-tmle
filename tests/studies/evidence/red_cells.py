@@ -606,8 +606,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # The few-cluster floor studies (X54 parts (a) to (c)): every red of
     # ``few-cluster-floor-tmle`` below its family's floor, under the reading ``declared_route``
     # or ``candidate_owners`` returns from the committed summary (``few_cluster_floor.red_owners``;
-    # the design test recomputes it). ``few-cluster-floor-cross-fitted-ltmle`` has no red row.
+    # the design test recomputes it), and the primary's arm-mean truth row below the arm-mean
+    # floor of 20 (``few_cluster_floor.primary_owners``; post-run ruling 2, R3).
+    # ``few-cluster-floor-cross-fitted-ltmle`` has no red row.
     "X54-cluster-floor": _keys(
+        "few-cluster-floor-tmle",
+        "truth",
+        "cleverly/floor_unequal_informative_j10/ey_regimen[never]",
+    )
+    + _keys(
         "few-cluster-floor-tmle",
         "property",
         "few_cluster_candidate/tmle_in_sample_estimated__equal10__j4__cluster_jackknife",

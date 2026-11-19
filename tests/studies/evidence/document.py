@@ -683,6 +683,9 @@ def measured(row: Any) -> str:
                 "paired positive SE-ratio upper endpoint "
                 f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
             )
+        if pd.isna(row.se_ratio_ci_lower) and getattr(row, "shown_draws", 1) == 0:
+            # Wang et al.'s inflation is undefined while J <= p, so no draw shows its interval.
+            return f"no draw of {int(row.replicates):,} shows an interval"
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

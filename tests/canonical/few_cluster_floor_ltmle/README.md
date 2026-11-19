@@ -16,10 +16,11 @@ with Wang et al.'s inflated variance and the delete-one-cluster jackknife
 
 ## State of this directory
 
-Redeclared after the pilot. The pilot's tables are committed here (`pilot.csv.gz`, the raw
-rows and the six `pilot-*.csv` tables), and the study module holds the R, predicted reds and
-shortfalls they give. No run artifact is committed, so the record is not in `registered()`. Until its run commits, the property differential reads synthetic rows
-of the subset the property module declares. `regenerate.py` holds the declaration: the gates,
+Registered. The declared run (artifacts `3a64ef44`) took 4.7 hours on 4 cores. Every count from
+4 to 39 passes on both laws, so `CLUSTER_INTERVAL_FLOORS` ships a floor of 4 for the cross-fitted
+LTMLE always-treat versus never-treat contrast. Every other estimate keeps the longitudinal
+default of 20. No cell is red. The property differential reads the committed rows.
+`regenerate.py` holds the declaration: the gates,
 the floor rule, the part (c) decision, the measured budget and the red-cell readings, owned by
 `X54-cluster-floor` in `docs/roadmap.md`.
 

@@ -1619,6 +1619,32 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
 
+        # ``few-cluster-floor-tmle`` part (c), restated from the declaration in ``regenerate.py``.
+        # A candidate row's own verdict holds unless its cell's draws exceed the failure bound
+        # (``property-failure-accounting.csv``); the paired gain against (A) is the joint
+        # clause in ``property_passed``. A pooled row passes when its gain's lower end lies
+        # above the pooled margin.
+        candidate = published.loc[published["property"] == "few_cluster_candidate"]
+        if not candidate.empty:
+            accounting = _property_accounting(study)
+            exceeded = set(
+                accounting.loc[
+                    (accounting["property"] == "few_cluster_candidate")
+                    & (accounting["reason"] == property_failures.BOUND_EXCEEDED),
+                    "cell",
+                ].astype(str)
+            )
+            for row in candidate.itertuples():
+                assert bool(row.passed) is (str(row.cell) not in exceeded), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        pooled = published.loc[published["property"] == "few_cluster_candidate_pooled"]
+        for row in pooled.itertuples():
+            margin = study.properties().floor.POOLED_MARGIN
+            assert bool(row.passed) is bool(row.coverage_gain_ci_lower > margin), (
+                f"{row.cell} publishes passed={row.passed} against its pooled gain"
+            )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -2006,6 +2032,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # and the variance-ratio lower end; a deflated control must fail that rule; the IID
         # control to its median ratio's upper end. Checked row by row below.
         "fold_variance_calibration",
+        # ``few-cluster-floor-tmle`` part (c): a candidate pair's rows each hold their own
+        # verdict, lost only when the pair's draws exceed the failure bound; the paired gain is
+        # the joint clause. A pooled row answers to its pooled gain's lower end. Checked row by
+        # row below.
+        "few_cluster_candidate",
+        "few_cluster_candidate_pooled",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -2178,6 +2210,14 @@ SAME_DRAW_FAMILIES = {
         frozenset({"double_robustness", "targeting_necessity"}),
     ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # X54 part (c): each ``few_cluster_candidate`` pair refits a candidate interval on the draws
+    # of the ``few_cluster_reference`` cell at that count and files (A)'s copy beside it, so the
+    # paired coverage gain compares the two on the same draws. The floor verdicts read the
+    # reference family alone, and the part (c) decision reads the pairs.
+    "few-cluster-floor-tmle": (frozenset({"few_cluster_candidate", "few_cluster_reference"}),),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        frozenset({"few_cluster_candidate", "few_cluster_reference"}),
+    ),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
     # the fit that the bias row reads.

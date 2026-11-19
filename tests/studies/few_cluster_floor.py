@@ -54,6 +54,11 @@ import pandas as pd
 from scipy import stats
 from scipy.special import betaln, gammaln
 
+from cleverly._inference_status import (
+    CLUSTER_INTERVAL_FLOORS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
+)
 from cleverly.inference import influence_variance
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
 from tests.studies.clustered_few_cluster_tmle import ExactLongitudinalPropensity
@@ -1573,7 +1578,7 @@ PACKAGE_FAMILIES: Final[dict[str, str]] = {
     "ltmle_cross_fitted": "ltmle_cross_fitted",
 }
 #: The (C) status the package ships for each compared floor family (``Outcome.jackknife``
-#: before any reason). The post-run test reads ``declared_outcome`` off the committed runs and
+#: before any reason). The post-run test reads its ``declared_outcome`` off the committed runs and
 #: compares: each family ships its declared status, except a family named in
 #: :data:`JACKKNIFE_DEPARTURES`, which ships the departure's status instead.
 SHIPPED_JACKKNIFE: Final[dict[str, str]] = {
@@ -1646,6 +1651,65 @@ def red_owners(
             f"unowned {sorted(set(named) - unowned)}"
         )
     out.update(dict.fromkeys(sorted(unowned), (REDECLARATION_OWNER, REDECLARATION_READING)))
+    return out
+
+
+def estimand_floor(family: str, estimand: str, measured: str) -> int:
+    """The package floor a ``family`` fit's ``estimand`` is read against (post-run ruling 2, R1).
+
+    A family's floor (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) certifies the
+    contrast every property cell reads, ``measured``. Every other estimate keeps the default
+    floor of its kind.
+    """
+    if estimand == measured:
+        return int(CLUSTER_INTERVAL_FLOORS[family])
+    return (
+        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+        if family.startswith("ltmle")
+        else DEFAULT_POINT_INTERVAL_CLUSTERS
+    )
+
+
+def primary_owners(
+    performance: pd.DataFrame,
+    *,
+    family: str,
+    clusters: int,
+    measured: str,
+    read_floor: Callable[[str, str, str], int] = estimand_floor,
+) -> dict[str, tuple[str, str] | None]:
+    """Every red truth row of a study's primary and its ``(owner, reading)`` (ruling 2, R3).
+
+    The primary fits ``family`` at ``clusters``. A red row below its estimand's floor
+    (``read_floor``, default :func:`estimand_floor`) reads :data:`FINITE_SAMPLE_READING` under
+    :data:`RED_OWNER`, the reading of any other red positive below its floor. A red row at or
+    above that floor has no owner (``None``): a defect suspect.
+
+    Parameters
+    ----------
+    performance : DataFrame
+        The study's ``performance-tests.csv``.
+    family : str
+        The primary's floor family.
+    clusters : int
+        The primary's cluster count.
+    measured : str
+        The contrast every property cell of the study reads.
+    read_floor : callable, optional
+        ``read_floor(family, estimand, measured)``, the floor a row is read against.
+
+    Returns
+    -------
+    dict
+        The ledger key ``implementation/scenario/estimand`` of each red row, and its owner.
+    """
+    out: dict[str, tuple[str, str] | None] = {}
+    for row in performance.itertuples():
+        if bool(row.passed):
+            continue
+        key = f"{row.implementation}/{row.scenario}/{row.estimand}"
+        below = clusters < read_floor(family, str(row.estimand), measured)
+        out[key] = (RED_OWNER, FINITE_SAMPLE_READING) if below else None
     return out
 
 
@@ -1838,35 +1902,6 @@ def outcomes(routes: Mapping[str, Route], decisions: Mapping[str, Decision]) -> 
             status = "option"
         out[family] = Outcome(PACKAGE_FAMILIES[family], floor, route.route, status, wang)
     return out
-
-
-def declared_outcome(
-    summary_a: pd.DataFrame,
-    rows_a: pd.DataFrame,
-    summary_b: pd.DataFrame,
-    rows_b: pd.DataFrame,
-) -> dict[str, Outcome]:
-    """The declared outcome of every floor family of S-a and S-b, from their summaries and rows.
-
-    Rule 3 reads both studies' decisions together, so the two are folded at once.
-    """
-    from tests.studies import few_cluster_floor_ltmle_properties as sb
-    from tests.studies import few_cluster_floor_tmle_properties as sa
-
-    routes = {**sa.routes(summary_a), "ltmle_cross_fitted": sb.route(summary_b)}
-    # A d5 red at or above the anchor has no committed counterpart: it sends tmle_stacked, whose
-    # configurations the d5 fits are, to a redeclaration with its floor at the anchor.
-    reported = sa.reported_route(summary_a)
-    if reported.route.startswith(REDECLARATION):
-        stacked = routes["tmle_stacked"]
-        routes["tmle_stacked"] = dataclasses.replace(
-            stacked, floor=sa.study.ANCHORS["tmle_stacked"], route=f"{reported.route} (d5)"
-        )
-    decisions = {
-        **sa.decisions(summary_a, rows_a),
-        "ltmle_cross_fitted": sb.decision(summary_b, rows_b),
-    }
-    return outcomes(routes, decisions)
 
 
 # ------------------------------------------------------------------------------------ sizing
