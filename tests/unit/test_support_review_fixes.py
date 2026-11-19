@@ -16,10 +16,11 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
 
-from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS
+from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS, FEW_CLUSTER_ESTIMAND_STATUS
 from cleverly._support import Support, combine_support, registered_rows, support_for
 from cleverly.datasets import make_clustered, make_longitudinal
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.inference import results as inference_results
 from cleverly.inference.influence import bootstrap_is_diagnostic, bootstrap_line
 from cleverly.longitudinal import SequentialGComputation
 from cleverly.validation.simulation import EstimandSummary, ReplicationRecord
@@ -27,6 +28,7 @@ from tests.conftest import linear_in_sample
 from tests.studies.support_cases import CASES, classification
 from tests.unit.test_group_a_experimental_fits import N_LABEL, SITES, draw
 from tests.unit.test_group_a_experimental_fits import fit as group_a_fit
+from tests.unit.test_longitudinal_cluster_status import fit_one_node
 from tests.unit.test_ltmle_bootstrap import _end_columns, _estimator
 from tests.unit.test_sequential_baselines import CENSORED, TIGHT, _draw_binary
 
@@ -76,26 +78,78 @@ class TestTheBootstrapBelowTheClusterFloor:
         assert "percentile CI" in bootstrap_line(estimate)
         assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(estimate.to_dict())
 
-    def test_a_longitudinal_arm_mean_has_the_floor_of_twenty(self) -> None:
-        """An arm mean keeps the longitudinal default of 20; the measured always-versus-never
-        contrast (here never versus always) of in-sample LTMLE reads its family's floor, below 15."""
+    def test_an_unmeasured_longitudinal_design_has_the_floor_of_twenty(self) -> None:
+        """A two-node censored panel is not the in-sample floor's measured design, so every
+        estimate's bootstrap, the always-versus-never contrast included, reads the default of
+        20 (the ``unmeasured`` branch of ``attach_bootstrap``)."""
         columns = {"id": "id", **_end_columns()}
         flags = {}
-        contrast = {}
         for clusters in (15, 20):
             data, _ = make_longitudinal(n=10 * clusters, seed=1, cluster_size=10)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 result = _estimator(n_bootstrap=3, simultaneous=False).fit(data, **columns)
             assert result.config.support_key is not None
-            estimate = result["ey_regimen[always]"]
-            flags[clusters] = (estimate.bootstrap.below_floor, bootstrap_is_diagnostic(estimate))
-            assert estimate.bootstrap.cluster_floor == (20 if clusters < 20 else None)
-            measured = result["ate_regimen[never vs always]"]
-            contrast[clusters] = measured.bootstrap.below_floor
-        assert flags == {15: (True, True), 20: (False, False)}
+            flags[clusters] = {
+                name: (
+                    estimate.bootstrap.below_floor,
+                    bootstrap_is_diagnostic(estimate),
+                    estimate.bootstrap.cluster_floor,
+                )
+                for name, estimate in result.estimates.items()
+            }
         assert CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"] < 15
-        assert contrast == {15: False, 20: False}
+        assert set(flags[15].values()) == {(True, True, 20)}
+        assert set(flags[20].values()) == {(False, False, None)}
+
+    @staticmethod
+    def point_at_seven(**settings: Any) -> Any:
+        frame = make_clustered(n=7 * 30, cluster_size=30, seed=7)[0]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return (
+                TMLE(**linear_in_sample(estimands=("ate", "ey1"), n_bootstrap=20, **settings))
+                .fit(frame, outcome="Y", treatment="A", id="cluster")
+                .single()
+            )
+
+    def test_an_unmeasured_point_estimate_reads_the_default_floor(self) -> None:
+        """B2: in-sample TMLE at 7 clusters is above its family's floor of 6. Its ATE keeps a
+        percentile CI; ``ey1`` keeps the default floor of 10, so its bootstrap is a range."""
+        result = self.point_at_seven()
+        assert result.data.n_clusters == 7 >= CLUSTER_INTERVAL_FLOORS["tmle_in_sample"]
+        ey1, ate = result["ey1"], result["ate"]
+        assert ey1.inference == FEW_CLUSTER_ESTIMAND_STATUS
+        assert (ey1.bootstrap.below_floor, ey1.bootstrap.cluster_floor) == (True, 10)
+        assert bootstrap_is_diagnostic(ey1)
+        assert "percentile range" in bootstrap_line(ey1)
+        assert ate.inference == "influence_curve"
+        assert (ate.bootstrap.below_floor, ate.bootstrap.cluster_floor) == (False, None)
+        assert "percentile CI" in bootstrap_line(ate)
+
+    def test_a_guard_blind_to_the_estimand_status_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation: the guard no longer recognizes the status, and ``ey1`` prints a CI."""
+        monkeypatch.setattr(inference_results, "FEW_CLUSTER_ESTIMAND_STATUS", "not a status")
+        ey1 = self.point_at_seven()["ey1"]
+        assert not ey1.bootstrap.below_floor
+        assert "percentile CI" in bootstrap_line(ey1)
+
+    def test_a_measured_ltmle_design_splits_the_bootstrap_floor(self) -> None:
+        """B2, longitudinal: on the measured one-node design at the in-sample floor, the means'
+        bootstraps read the default of 20 and the always-versus-never contrast's does not."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit_one_node(
+                CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"], n_bootstrap=20, simultaneous=False
+            )
+        for name in ("ey_regimen[always]", "ey_regimen[never]"):
+            summary = result[name].bootstrap
+            assert (summary.below_floor, summary.cluster_floor) == (True, 20)
+        contrast = result["ate_regimen[always vs never]"]
+        assert contrast.inference == "influence_curve"
+        assert (contrast.bootstrap.below_floor, contrast.bootstrap.cluster_floor) == (False, None)
 
     def test_a_derived_bootstrap_keeps_the_floor(self) -> None:
         result = drtmle_estimated_weights(7)
