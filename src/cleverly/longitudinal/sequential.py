@@ -950,8 +950,10 @@ class RegimenFit:
     #: ``(n, horizon)`` the hazard fit's clever weight at each node up to the horizon, at
     #: the observed level: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at the node,
     #: and zero elsewhere.  It stands in for each node's clever covariate in
-    #: :attr:`scored_nodes` and :attr:`leverage`.  Read-only; the records of one regimen
-    #: hold views of one array across causes and horizons.  ``None`` on an iterated-mean fit.
+    #: :attr:`scored_nodes` and :attr:`leverage`.  Read-only as a fit returns it: the records
+    #: of one regimen (of one level pair on a separable fit) hold views of one array across
+    #: causes and horizons, and a collaborative fit's record holds its own.  A loaded result
+    #: holds writable, unshared copies.  ``None`` on an iterated-mean fit.
     #:
     #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
     #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.

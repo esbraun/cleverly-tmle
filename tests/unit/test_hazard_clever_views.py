@@ -1,10 +1,11 @@
 """The hazard fits' clever weight: one read-only base per regimen, one view per record.
 
-Every producer of :attr:`~cleverly.longitudinal.sequential.RegimenFit.hazard_clever` builds a
-clever weight that depends on the regimen alone (a separable fit: on its level pair), so the
-records of every cause and horizon hold views ``base[:, :horizon]`` of one read-only array.
-These tests pin the sharing, the width, the read-only flag and, for the separable fit, the
-values, with a witness that fails if one level pair's base is given to another.
+The hazard, backward-hazard and drift producers build a clever weight that depends on the
+regimen alone, so the records of every cause and horizon hold views ``base[:, :horizon]`` of
+one read-only array; a separable fit shares one per level pair, across labels.  A
+collaborative fit's weight reads each horizon's own state, so each record holds its own
+read-only ``(n, horizon)`` array.  These tests pin the sharing, the width, the read-only flag
+and each regimen's values, with witnesses that fail if one regimen's base is given to another.
 """
 
 from __future__ import annotations
@@ -78,6 +79,9 @@ def _check_views(result: Any, n: int, n_times: int, *, causes: int) -> None:
                 clever[0, 0] = 1.0
         owners.append(base)
     assert len({id(base) for base in owners}) == len(groups)
+    for i, first in enumerate(owners):
+        for second in owners[i + 1 :]:
+            assert not np.shares_memory(first, second)
     assert sum(base.nbytes for base in owners) == len(groups) * n * n_times * 8
 
 
@@ -104,6 +108,13 @@ def test_a_single_node_hazard_fit_shares_one_base_per_regimen(causes: int) -> No
     data = LongitudinalData.from_frame(law.frame(), **law.fit_columns())
     result = _quiet(lambda: _point_ltmle().fit(data))
     _check_views(result, data.n, data.n_times, causes=causes)
+    # Witness that each static arm keeps its own weight: it weights only its own arm's rows.
+    arm = np.nan_to_num(np.asarray(data.treatment, dtype=float)[:, 0], nan=-1.0)
+    for label, level in (("a0", 0), ("a1", 1)):
+        base = _owner(_by_regimen(result)[label][0].hazard_clever)
+        rows = np.any(base != 0.0, axis=1)
+        assert rows.any()
+        assert np.all(arm[rows] == level)
 
 
 def test_a_single_node_hazard_fit_per_horizon_shares_one_base() -> None:
@@ -283,3 +294,7 @@ def test_a_loaded_hazard_fit_keeps_the_values_and_widths() -> None:
         again = loaded.fits[key].hazard_clever
         assert again.shape == (data.n, fit.horizon)
         np.testing.assert_array_equal(again, fit.hazard_clever)
+    for fits in _by_regimen(loaded).values():
+        for i, first in enumerate(fits):
+            for second in fits[i + 1 :]:
+                assert not np.shares_memory(first.hazard_clever, second.hazard_clever)
