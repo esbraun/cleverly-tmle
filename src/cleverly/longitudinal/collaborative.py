@@ -72,6 +72,7 @@ from ..inference.multiplier import (
 from ..learners.crossfit import Folds, make_folds
 from ..learners.glm import _active_columns
 from ..utils.bounds import bound
+from ._fit_cache import frozen
 from .data import LongitudinalData
 from .estimator import (
     DEFAULT_LTMLE_G_BOUNDS,
@@ -2351,8 +2352,13 @@ def _regimen_fit(
     unbounded = np.stack(candidate.unbounded, axis=2)[rows, :, observed]
     bounded = np.stack(candidate.cumulative, axis=2)[rows, :, observed]
     q = inputs.q_observed()
-    clever = np.where(inputs.at_risk, q[0][:, None] * inputs.inverse_observed(), 0.0)
-    clever[:, horizon:] = 0.0
+    clever = frozen(
+        np.where(
+            inputs.at_risk[:, :horizon],
+            q[0][:, None] * inputs.inverse_observed()[:, :horizon],
+            0.0,
+        )
+    )
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=float(levels[0, 0, 0]),
