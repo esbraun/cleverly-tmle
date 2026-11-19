@@ -32,20 +32,35 @@ cell                   cleverly                                     ``concrete``
                        treatment models
 =====================  ===========================================  =================================
 
-**Readings, declared before any run** (X6 plan 2.6 and 5.6).
+**Readings, declared before any run** (X6 plan 2.6 and 5.6, as the design review of part f
+amended them).  Each gated reading needs at least :data:`MIN_PAIRED` of the :data:`REPLICATES`
+draws fitted by both sides; with fewer it reads ``fail``.
 
-* ``p1_parity``: every estimate of cleverly's factual fit agrees with ``concrete``'s to
-  :data:`PARITY_TOLERANCE` on every draw.  The agreement shows that cleverly's walk and stopping
-  rule reproduce an independent implementation of the factual form.  The tolerance covers the
-  three numerical forms the two implementations do not share: ``concrete`` computes each
-  survival as :math:`\exp(-\Lambda)` where cleverly takes the product limit, accumulates each
-  cause's risk with the survival after the jump where cleverly takes it before, and also stops
-  on the all-cause survival's score.  ``max_abs_initial_difference`` in ``parity.csv`` reads
-  the plug-ins before any step, so a reader can tell those forms from a difference of the walk.
-* ``p3_hazard_wrong``: ``concrete``'s standardized bias on :data:`DECLARED_TARGET` lies above
-  :data:`MARGIN` (its lower one-sided 95% bound), and cleverly's default fit lies inside it (its
-  upper bound).  This is the factual-tilt mutation control seen from outside: with the event
-  hazards wrong and the treatment model right only the all-unit tilt is doubly robust.
+* ``p1_parity``, gated (P1a): on every paired draw, every target's untargeted plug-in in
+  ``concrete``'s form, computed here from the mirrored hazards (:func:`concrete_initial_form`),
+  agrees with ``concrete``'s own g-computation row to :data:`INITIAL_TOLERANCE`.  This pins the
+  hazard mirror, the ``nocenter`` rule, the grid and the alignment of times, with no numerical
+  form left unshared.
+* ``p1_parity``, reported only (P1b): the targeted estimates of cleverly's factual fit against
+  ``concrete``'s, read in ``agreement.csv`` as a distribution over the draws where both walks
+  converged: the median of each draw's largest absolute difference over the targets, the
+  shares of draws within 2e-3 and within 1e-2, and the largest.  The same summary of the
+  plug-ins (cleverly's own form against ``concrete``'s) separates the forms from the walks.  No
+  bound is declared, because the two walks do not share these forms: ``concrete`` computes each
+  survival as :math:`\exp(-\Lambda)` where cleverly takes the product limit; accumulates each
+  cause's risk with the survival after the jump where cleverly takes it before; weights by the
+  censoring retention :math:`\exp(-\Lambda_c)` where cleverly takes the product limit; tilts each
+  hazard jump as :math:`d\Lambda\, e^{x}` where cleverly uses the multinomial-logistic tilt;
+  halves its step and never regrows it, where cleverly doubles back after each accepted step;
+  accepts a step that leaves the norm unchanged; and also stops on the all-cause survival's
+  score.  The forms alone moved the plug-ins by up to 5.6e-3 on 100 draws, and halving the
+  first step of cleverly's own walk moved the largest estimate past 2e-3 on 5 of 24 draws
+  (the design review's exploratory runs).  The review's expectation from the latter:
+  a median near 4e-4 with a tail to 1e-2.
+* ``p3_hazard_wrong``, gated: ``concrete``'s standardized bias on :data:`DECLARED_TARGET` lies
+  above :data:`MARGIN` (its lower one-sided 95% bound), and cleverly's default fit lies inside
+  it (its upper bound).  This is the factual-tilt mutation control seen from outside: with the
+  event hazards wrong and the treatment model right only the all-unit tilt is doubly robust.
 * ``p2_correct`` and every other row are reported as measured, with no verdict.  The X6 plan
   predicted both fits unbiased; ``concrete`` 1.0.5 takes each hazard's baseline from the
   treatment-only Cox model (``getHazEstimate.R``, ``BaseHazCox``) whatever model it selected,
@@ -57,8 +72,8 @@ cell                   cleverly                                     ``concrete``
 at :math:`Z = 0` by :math:`\exp\{(x - m)^\top\hat\beta\}`, where :math:`\hat\beta` is the selected
 model's and :math:`m` holds the column means of its design, except that ``survival::coxph``
 leaves a column whose values all lie in :math:`\{-1, 0, 1\}` uncentered (``nocenter``).
-:class:`ConcreteCoxHazard` builds the same hazard, so P1 compares targeting with targeting rather
-than two baselines.  The registered study's Breslow baseline (``CoxHazard``) is what P2 and P3's
+:class:`ConcreteCoxHazard` builds the same hazard, so P1 compares the two walks from one
+baseline.  The registered study's Breslow baseline (``CoxHazard``) is what P2 and P3's
 default fit use.
 
 **Pin.**  The comparator is the CRAN archive tarball :data:`TARBALL_URL`, checked against
@@ -106,8 +121,23 @@ REPLICATES = 500
 N = 1_000
 CELLS = ("p1_parity", "p2_correct", "p3_hazard_wrong")
 
-#: The bound on every paired estimate difference of ``p1_parity``.
-PARITY_TOLERANCE = 2e-3
+#: P1a's bound on every paired plug-in difference in ``concrete``'s form.  Both sides compute
+#: the same functional of the same hazards, so only float error separates them: the
+#: coefficients of ``survival::coxph`` (stopped at a relative log-likelihood change of 1e-9,
+#: after which a Newton step leaves an error of order 1e-8 in each coefficient) against
+#: ``CoxHazard``'s (score below 1e-10), ``write.csv``'s 15 significant digits, and the order of
+#: sums over about 800 grid times and 1,000 units (about 1e-13).  Propagated to a mean risk, each
+#: is below 1e-7.  The bound sits two orders above that, and an order below both the smallest
+#: unshared-form gap the design review measured in any cell (8e-5) and the mutation control of
+#: the unit test (1e-4).
+INITIAL_TOLERANCE = 1e-5
+#: The bounds whose shares of draws P1b reports.
+AGREEMENT_BOUNDS = (2e-3, 1e-2)
+#: The fewest draws, of :data:`REPLICATES`, that a gated reading may read; with fewer it fails.
+#: Ninety percent tolerates a ``concrete`` failure rate of one draw in ten, and it costs P3 little
+#: power: at 450 draws cleverly's reading passes when its standardized bias is below
+#: 0.2 - 1.645 * 0.047 = 0.122, against 0.126 at 500 (the design review read about 0.02 to 0.04).
+MIN_PAIRED = 450
 #: The standardized-bias margin of the registered record.
 MARGIN = float(registered.MARGINS.standardized_bias)
 #: The one-sided normal quantile of the P3 bounds.
@@ -166,6 +196,9 @@ CONCRETE_CELLS: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...
 #: variances.  For cleverly it repeats ``std_error``.
 EXTRA_COLUMNS = ("ic_std_error", "steps", "converged", "seconds")
 ROW_COLUMNS = (*REPLICATE_COLUMNS, *EXTRA_COLUMNS)
+#: The phase's rows add, on cleverly's P1 rows only, each target's untargeted plug-in in
+#: ``concrete``'s form (:func:`concrete_initial_form`); the R rows leave it empty.
+PHASE_COLUMNS = (*ROW_COLUMNS, "initial_concrete_form")
 SAMPLE_COLUMNS = ("scenario", "replicate", "row", "time", "event", "Z", *law.BASELINE)
 
 
@@ -271,6 +304,71 @@ class ConcreteCoxHazard(BaseEstimator):  # type: ignore[misc]
         risk = np.exp((_design(X, self.terms) - self.means_) @ self.model_.coef_)
         base = self.baseline_.cumulative_hazard(np.zeros((1, X.shape[1])), times)[0]
         return np.asarray(risk[:, None] * base[None, :])
+
+
+# ------------------------------------------------------------- concrete's plug-in form
+
+
+def concrete_risks(jumps: np.ndarray, at: Sequence[int]) -> np.ndarray:
+    r"""Each cause's mean risk at the grid positions ``at``, in ``concrete``'s form.
+
+    ``getHazSurvPred`` takes the event-free survival as :math:`S(u) = \exp\{-\sum_{v \le u}
+    \sum_l d\Lambda_l(v)\}`, floored at 1e-12, and ``getGComp`` accumulates
+    :math:`F_j(t) = \sum_{u \le t} S(u)\, d\Lambda_j(u)` with the survival *after* the jump at
+    :math:`u`, then averages over units.  The censoring hazard does not enter the plug-in.
+
+    Parameters
+    ----------
+    jumps : ndarray
+        ``(J, n, M)`` each cause's hazard jump of each unit at each grid time.
+    at : sequence of int
+        The grid positions of the target times.
+
+    Returns
+    -------
+    ndarray
+        ``(J, len(at))`` the mean risks.
+    """
+    survival = np.exp(-np.cumsum(jumps.sum(axis=0), axis=-1))
+    survival[survival < 1e-12] = 1e-12
+    risks = np.cumsum(jumps * survival[None], axis=-1)
+    return np.asarray(risks[:, :, list(at)].mean(axis=1))
+
+
+def concrete_initial_form(frame: pd.DataFrame, hazards: str = "interaction") -> dict[str, float]:
+    """Every target's untargeted plug-in in ``concrete``'s form, from the mirrored hazards.
+
+    The grid is ``concrete``'s: zero, then the target times and the observed times up to the
+    last target time.  Each cause's hazard is :class:`ConcreteCoxHazard` of ``hazards`` fitted on
+    every row, as P1's fit and ``concrete`` both take it.
+    """
+    X = frame[["Z", *law.BASELINE]].to_numpy(dtype=float)
+    observed = frame["time"].to_numpy(dtype=float)
+    event = frame["event"].to_numpy()
+    times = np.asarray(law.TIMES)
+    grid = np.unique(np.concatenate([[0.0], times, observed[observed <= times[-1]]]))
+    at = [int(np.flatnonzero(grid == t)[0]) for t in times]
+    codes = tuple(law.CAUSES)
+    models = [
+        ConcreteCoxHazard(hazards).fit(X, observed, (event == code).astype(float)) for code in codes
+    ]
+    out: dict[str, float] = {}
+    for arm, level in law.ARMS.items():
+        Xa = X.copy()
+        Xa[:, 0] = level
+        jumps = np.stack(
+            [np.diff(m.cumulative_hazard(Xa, grid), axis=1, prepend=0.0) for m in models]
+        )
+        risks = concrete_risks(jumps, at)
+        for j, code in enumerate(codes):
+            for k, t in enumerate(law.TIMES):
+                out[law.level_name(arm, law.CAUSES[code], t)] = float(risks[j, k])
+    for cause in law.CAUSES.values():
+        for t in law.TIMES:
+            out[law.difference_name(cause, t)] = (
+                out[law.level_name("treated", cause, t)] - out[law.level_name("control", cause, t)]
+            )
+    return out
 
 
 # ------------------------------------------------------------------------------ the fits
@@ -394,7 +492,10 @@ def fit_replicate(cell: str, replicate: int, n: int = N) -> list[dict[str, Any]]
             start = time.perf_counter()
             result = fit(frame, configuration)
             seconds = time.perf_counter() - start
-        rows += result_rows(result, implementation, cell, replicate, seconds)
+        form = concrete_initial_form(frame) if configuration == "parity" else {}
+        for row in result_rows(result, implementation, cell, replicate, seconds):
+            row["initial_concrete_form"] = form.get(row["estimand"], float("nan"))
+            rows.append(row)
     return rows
 
 
@@ -421,33 +522,79 @@ def _paired(rows: pd.DataFrame, cell: str, left: str, right: str) -> pd.DataFram
 
 
 def parity(rows: pd.DataFrame) -> pd.DataFrame:
-    """Per cell and target: cleverly's factual fit against ``concrete`` on the same draws."""
+    """Per cell and target: cleverly's factual fit against ``concrete`` on the same draws.
+
+    ``max_abs_concrete_form_difference`` is P1a's statistic: the plug-in in ``concrete``'s form
+    computed here against ``concrete``'s own.  The other columns are reported.
+    """
     records = []
     for cell in ("p1_parity", "p3_hazard_wrong"):
         paired = _paired(rows, cell, SUBJECT_FACTUAL, REFERENCE)
         for name in ESTIMANDS:
             group = paired[paired["estimand"] == name]
+            fits = len(group)
+
+            def largest(values: pd.Series, fits: int = fits) -> float:
+                return float(np.max(np.abs(values))) if fits else float("nan")
+
             difference = group["estimate_left"] - group["estimate_right"]
             initial = group["initial_estimate_left"] - group["initial_estimate_right"]
-            largest = float(np.max(np.abs(difference))) if len(group) else float("nan")
+            form = group["initial_concrete_form_left"] - group["initial_estimate_right"]
             records.append(
                 {
                     "cell": cell,
                     "estimand": name,
-                    "fits": len(group),
-                    "max_abs_difference": largest,
-                    "mean_difference": float(np.mean(difference)) if len(group) else np.nan,
-                    "max_abs_initial_difference": (
-                        float(np.max(np.abs(initial))) if len(group) else np.nan
+                    "fits": fits,
+                    "max_abs_difference": largest(difference),
+                    "mean_difference": float(np.mean(difference)) if fits else np.nan,
+                    "max_abs_initial_difference": largest(initial),
+                    "max_abs_concrete_form_difference": (
+                        largest(form) if cell == "p1_parity" else np.nan
                     ),
                     "mean_std_error_ratio": (
                         float(np.mean(group["ic_std_error_left"] / group["ic_std_error_right"]))
-                        if len(group)
+                        if fits
                         else np.nan
                     ),
-                    "within_tolerance": bool(largest <= PARITY_TOLERANCE),
                 }
             )
+    return pd.DataFrame.from_records(records)
+
+
+def agreement(rows: pd.DataFrame) -> pd.DataFrame:
+    """P1b and its plug-in companion: each draw's largest gap, summarized over draws.
+
+    The draws are those where both walks converged and every target is paired.  ``targeted``
+    reads the estimates, ``initial`` cleverly's own plug-in against ``concrete``'s, and
+    ``concrete_form`` (P1 only) the plug-in in ``concrete``'s form against ``concrete``'s.
+    """
+    records = []
+    for cell in ("p1_parity", "p3_hazard_wrong"):
+        paired = _paired(rows, cell, SUBJECT_FACTUAL, REFERENCE)
+        converged = (paired["converged_left"] == 1) & (paired["converged_right"] == 1)
+        complete = paired[converged].groupby("replicate")["estimand"].transform("size")
+        paired = paired[converged][complete == len(ESTIMANDS)]
+        quantities = {
+            "targeted": ("estimate_left", "estimate_right"),
+            "initial": ("initial_estimate_left", "initial_estimate_right"),
+        }
+        if cell == "p1_parity":
+            quantities["concrete_form"] = ("initial_concrete_form_left", "initial_estimate_right")
+        for quantity, (left, right) in quantities.items():
+            gap = (paired[left] - paired[right]).abs().groupby(paired["replicate"]).max()
+            draws = int(gap.size)
+            record: dict[str, Any] = {
+                "cell": cell,
+                "quantity": quantity,
+                "draws": draws,
+                "median_max_abs_difference": float(gap.median()) if draws else np.nan,
+            }
+            for bound in AGREEMENT_BOUNDS:
+                record[f"share_within_{bound:g}"] = (
+                    float((gap <= bound).mean()) if draws else np.nan
+                )
+            record["max_abs_difference"] = float(gap.max()) if draws else np.nan
+            records.append(record)
     return pd.DataFrame.from_records(records)
 
 
@@ -512,63 +659,84 @@ def paired_differences(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
-def verdicts(parity_table: pd.DataFrame, performance_table: pd.DataFrame) -> pd.DataFrame:
-    """The three declared readings, each with its statistic, threshold and verdict."""
-    declared = parity_table[parity_table["cell"] == "p1_parity"]
-    largest = float(declared["max_abs_difference"].max())
+def _verdict(passed: bool, fits: int) -> str:
+    """``pass`` only when the reading read at least :data:`MIN_PAIRED` draws."""
+    return "pass" if passed and fits >= MIN_PAIRED else "fail"
 
-    def standardized(implementation: str) -> tuple[float, float]:
-        row = performance_table[
+
+def verdicts(parity_table: pd.DataFrame, performance_table: pd.DataFrame) -> pd.DataFrame:
+    """The three gated readings, each with its statistic, threshold, draws and verdict."""
+    declared = parity_table[parity_table["cell"] == "p1_parity"]
+    form = float(declared["max_abs_concrete_form_difference"].max())
+    form_fits = int(declared["fits"].min()) if len(declared) else 0
+
+    def standardized(implementation: str) -> tuple[float, float, int]:
+        selected = performance_table[
             (performance_table["cell"] == "p3_hazard_wrong")
             & (performance_table["implementation"] == implementation)
             & (performance_table["estimand"] == DECLARED_TARGET)
-        ].iloc[0]
-        return abs(float(row["standardized_bias"])), float(row["standardized_bias_se"])
+        ]
+        if selected.empty:
+            return float("nan"), float("nan"), 0
+        row = selected.iloc[0]
+        return (
+            abs(float(row["standardized_bias"])),
+            float(row["standardized_bias_se"]),
+            int(row["fits"]),
+        )
 
-    reference, reference_se = standardized(REFERENCE)
-    subject, subject_se = standardized(SUBJECT)
+    reference, reference_se, reference_fits = standardized(REFERENCE)
+    subject, subject_se, subject_fits = standardized(SUBJECT)
     detected = reference - ONE_SIDED * reference_se
     inside = subject + ONE_SIDED * subject_se
     return pd.DataFrame(
         [
             {
-                "reading": "p1_estimates_agree",
+                "reading": "p1_initial_plugins_agree",
                 "cell": "p1_parity",
                 "estimand": "every target",
-                "statistic": largest,
-                "threshold": PARITY_TOLERANCE,
-                "verdict": "pass" if largest <= PARITY_TOLERANCE else "fail",
+                "fits": form_fits,
+                "minimum_fits": MIN_PAIRED,
+                "statistic": form,
+                "threshold": INITIAL_TOLERANCE,
+                "verdict": _verdict(form <= INITIAL_TOLERANCE, form_fits),
             },
             {
                 "reading": "p3_concrete_bias_above_margin",
                 "cell": "p3_hazard_wrong",
                 "estimand": DECLARED_TARGET,
+                "fits": reference_fits,
+                "minimum_fits": MIN_PAIRED,
                 "statistic": detected,
                 "threshold": MARGIN,
-                "verdict": "pass" if detected > MARGIN else "fail",
+                "verdict": _verdict(detected > MARGIN, reference_fits),
             },
             {
                 "reading": "p3_cleverly_bias_within_margin",
                 "cell": "p3_hazard_wrong",
                 "estimand": DECLARED_TARGET,
+                "fits": subject_fits,
+                "minimum_fits": MIN_PAIRED,
                 "statistic": inside,
                 "threshold": MARGIN,
-                "verdict": "pass" if inside < MARGIN else "fail",
+                "verdict": _verdict(inside < MARGIN, subject_fits),
             },
         ]
     )
 
 
 #: The phase's tables, by file name, in the order the manifest hashes them.
-TABLES = ("parity.csv", "performance.csv", "paired.csv", "verdicts.csv")
+TABLES = ("parity.csv", "agreement.csv", "performance.csv", "paired.csv", "verdicts.csv")
 
 
 def tables(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Every published table, a function of the committed rows alone."""
+    rows = rows.reindex(columns=list(PHASE_COLUMNS))
     parity_table = parity(rows)
     performance_table = performance(rows)
     return {
         "parity.csv": parity_table,
+        "agreement.csv": agreement(rows),
         "performance.csv": performance_table,
         "paired.csv": paired_differences(rows),
         "verdicts.csv": verdicts(parity_table, performance_table),
@@ -584,7 +752,9 @@ def declaration() -> Mapping[str, Any]:
         "replicates": REPLICATES,
         "n": N,
         "estimands": list(ESTIMANDS),
-        "parity_tolerance": PARITY_TOLERANCE,
+        "initial_tolerance": INITIAL_TOLERANCE,
+        "agreement_bounds": list(AGREEMENT_BOUNDS),
+        "minimum_paired": MIN_PAIRED,
         "margin": MARGIN,
         "declared_target": DECLARED_TARGET,
         "fits": {cell: [list(pair) for pair in pairs] for cell, pairs in FITS.items()},

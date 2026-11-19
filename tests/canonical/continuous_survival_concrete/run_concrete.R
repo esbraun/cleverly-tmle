@@ -1,12 +1,18 @@
 # The concrete 1.0.5 side of the continuous-time-survival comparator phase (roadmap X6 part f).
 #
-# Each group is one replicate: the three cells' draws, written by
-# tests/canonical/continuous_survival_concrete/run_phase.py.  Each cell is one formatArguments,
+# Each group is one cell's draw of one replicate, written by
+# tests/canonical/continuous_survival_concrete/run_phase.py, so a concrete failure in one cell
+# costs that cell's draw and not the replicate's other cells.  Each cell is one formatArguments,
 # doConcrete and getOutput call on the cell's models (tests/studies/continuous_survival_concrete.py,
 # CONCRETE_CELLS), with concrete's defaults for the update: 500 steps, a first step of 0.1, the
 # positivity bound 5 / (sqrt(n) log(n)) and its stopping rule.  The published std_error is
 # getOutput's; ic_std_error reads the influence curves, which for a risk difference is the
 # difference of the two arms' curves where getOutput adds their variances.
+#
+# doTmleUpdate.R:106 calls browser() when the new norm of the mean influence curve is NA.  That
+# branch is unreachable: the norm is NA only when an influence curve is, and getIC (getEIC.R)
+# stops with "IC overflow" on any NA or NaN curve before the norm is formed, which the stage
+# records as a failure of the draw.  The container also runs without a terminal on stdin.
 suppressPackageStartupMessages({
   library(concrete)
   library(data.table)
@@ -176,16 +182,22 @@ fit_cell <- function(frame) {
   do.call(rbind, rows)
 }
 
-fit_one <- function(frame) {
-  # One replicate's draws of every cell, which the Python side writes contiguously.
-  do.call(rbind, lapply(split(frame, frame$scenario), fit_cell))
-}
-
 versions <- c(
   study_version("concrete"), study_version("survival"), study_version("SuperLearner"),
   study_version("glmnet"), study_version("data.table")
 )
 writeLines(c(versions, R.version.string), file.path(dirname(paths$output), "concrete-versions.txt"))
-expected <- length(unique(truths$replicate))
-results <- study_stream(paths$samples, fit_one, expected)
-study_collect(results, expected, paths$output, versions = versions)
+samples <- read.csv(paths$samples, stringsAsFactors = FALSE)
+groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
+cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_cell)
+results <- parallel::mclapply(seq_along(groups), fit_group, mc.cores = cores, mc.preschedule = TRUE)
+study_collect(
+  results,
+  expected = length(groups),
+  output = paths$output,
+  versions = versions,
+  key = c("scenario", "replicate")
+)

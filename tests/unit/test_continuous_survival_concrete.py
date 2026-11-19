@@ -194,14 +194,69 @@ def test_the_draws_and_seeds_are_the_phases_own() -> None:
     pd.testing.assert_frame_equal(phase.draw("p1_parity", 4, 50), phase.draw("p1_parity", 4, 50))
 
 
+# ---------------------------------------------------------------- concrete's plug-in form
+
+
+def test_the_plugin_form_is_concretes_on_a_hand_computed_case() -> None:
+    """Two causes, two units, three grid times: exp(-Lambda), the survival after the jump."""
+    jumps = np.array(
+        [
+            [[0.0, 0.1, 0.2], [0.0, 0.3, 0.0]],  # cause 1, units 1 and 2
+            [[0.0, 0.2, 0.1], [0.0, 0.0, 0.4]],  # cause 2
+        ]
+    )
+    # Unit 1: S = exp(-0), exp(-0.3), exp(-0.6); unit 2: exp(-0), exp(-0.3), exp(-0.7).
+    s1 = [1.0, np.exp(-0.3), np.exp(-0.6)]
+    s2 = [1.0, np.exp(-0.3), np.exp(-0.7)]
+    f1_unit1 = [0.0, 0.1 * s1[1], 0.1 * s1[1] + 0.2 * s1[2]]
+    f1_unit2 = [0.0, 0.3 * s2[1], 0.3 * s2[1]]
+    f2_unit1 = [0.0, 0.2 * s1[1], 0.2 * s1[1] + 0.1 * s1[2]]
+    f2_unit2 = [0.0, 0.0, 0.4 * s2[2]]
+    expected = np.array(
+        [
+            [(f1_unit1[k] + f1_unit2[k]) / 2 for k in (1, 2)],
+            [(f2_unit1[k] + f2_unit2[k]) / 2 for k in (1, 2)],
+        ]
+    )
+    np.testing.assert_allclose(phase.concrete_risks(jumps, [1, 2]), expected, rtol=1e-14)
+    # cleverly's form (product limit, the survival before the jump) differs on the same jumps.
+    before = 0.5 * (0.1 + 0.3)
+    assert abs(phase.concrete_risks(jumps, [1])[0, 0] - before) > 0.05
+
+
+def test_the_plugin_form_floors_the_survival_as_concrete_does() -> None:
+    # exp(-40.5) is below 1e-12, so both later jumps weight the floor, not the survival.
+    jumps = np.array([[[0.5, 40.0, 1.0]]])
+    risks = phase.concrete_risks(jumps, [2])
+    expected = 0.5 * np.exp(-0.5) + 40.0 * 1e-12 + 1.0 * 1e-12
+    assert risks[0, 0] == pytest.approx(expected, rel=1e-12)
+
+
+def test_the_plugin_form_reads_every_target_on_concretes_grid(frame: pd.DataFrame) -> None:
+    form = phase.concrete_initial_form(frame)
+    assert set(form) == set(phase.ESTIMANDS)
+    for cause in law.CAUSES.values():
+        for t in law.TIMES:
+            assert form[law.difference_name(cause, t)] == pytest.approx(
+                form[law.level_name("treated", cause, t)]
+                - form[law.level_name("control", cause, t)]
+            )
+    assert all(
+        0.0 < form[law.level_name(a, c, t)] < 1.0
+        for a in law.ARMS
+        for c in law.CAUSES.values()
+        for t in law.TIMES
+    )
+
+
 # ------------------------------------------------------------------- the reading tables
 
 
-def _synthetic_rows() -> pd.DataFrame:
-    """Rows of a tiny run where concrete equals cleverly's factual fit plus a known offset."""
+def _synthetic_rows(replicates: int = phase.REPLICATES) -> pd.DataFrame:
+    """Rows of a run where concrete equals cleverly's factual fit plus a known offset."""
     records = []
     for cell in phase.CELLS:
-        for replicate in range(200):
+        for replicate in range(replicates):
             for name in phase.ESTIMANDS:
                 truth = float(law.TRUTH[name])
                 base = truth + 0.02 * (-1) ** replicate  # mean zero over the draws
@@ -210,8 +265,10 @@ def _synthetic_rows() -> pd.DataFrame:
                     for impl, _ in phase.FITS[cell]
                 ]
                 shift = 0.03 if cell == "p3_hazard_wrong" and name == phase.DECLARED_TARGET else 0
-                implementations.append((phase.REFERENCE, base + 0.0005 + shift))
+                reference = base + 0.0005 + shift
+                implementations.append((phase.REFERENCE, reference))
                 for implementation, value in implementations:
+                    factual_p1 = implementation == phase.SUBJECT_FACTUAL and cell == "p1_parity"
                     records.append(
                         {
                             "implementation": implementation,
@@ -232,49 +289,104 @@ def _synthetic_rows() -> pd.DataFrame:
                             "steps": 3.0,
                             "converged": 1.0,
                             "seconds": 1.0,
+                            "initial_concrete_form": reference + 1e-7 if factual_p1 else np.nan,
                         }
                     )
-    return pd.DataFrame(records, columns=list(phase.ROW_COLUMNS))
+    return pd.DataFrame(records, columns=list(phase.PHASE_COLUMNS))
 
 
-def test_the_tables_read_the_declared_outcomes() -> None:
-    tables = phase.tables(_synthetic_rows())
+@pytest.fixture(scope="module")
+def synthetic() -> pd.DataFrame:
+    return _synthetic_rows()
+
+
+def _verdicts(rows: pd.DataFrame) -> dict[str, str]:
+    table = phase.tables(rows)["verdicts.csv"]
+    return dict(zip(table["reading"], table["verdict"], strict=True))
+
+
+def test_the_tables_read_the_declared_outcomes(synthetic: pd.DataFrame) -> None:
+    tables = phase.tables(synthetic)
     parity = tables["parity.csv"]
     declared = parity[parity["cell"] == "p1_parity"]
     np.testing.assert_allclose(declared["max_abs_difference"], 0.0005, rtol=1e-6)
-    assert declared["within_tolerance"].all() and (declared["fits"] == 200).all()
-    verdicts = tables["verdicts.csv"].set_index("reading")["verdict"]
-    assert verdicts.to_dict() == {
-        "p1_estimates_agree": "pass",
+    np.testing.assert_allclose(declared["max_abs_concrete_form_difference"], 1e-7, rtol=1e-3)
+    assert (declared["fits"] == phase.REPLICATES).all()
+    agreement = tables["agreement.csv"].set_index(["cell", "quantity"])
+    targeted = agreement.loc[("p1_parity", "targeted")]
+    assert targeted["draws"] == phase.REPLICATES
+    assert targeted["median_max_abs_difference"] == pytest.approx(0.0005)
+    assert targeted["share_within_0.002"] == 1.0 and targeted["share_within_0.01"] == 1.0
+    assert ("p1_parity", "concrete_form") in agreement.index
+    assert _verdicts(synthetic) == {
+        "p1_initial_plugins_agree": "pass",
         "p3_concrete_bias_above_margin": "pass",
         "p3_cleverly_bias_within_margin": "pass",
     }
+    assert set(tables["verdicts.csv"]["fits"]) == {phase.REPLICATES}
 
 
-def test_a_parity_gap_above_the_tolerance_fails_its_reading() -> None:
-    """Mutation control: an offset of 0.005 on one target turns the P1 reading red."""
-    rows = _synthetic_rows()
+def test_a_mirror_off_by_1e_4_fails_the_plugin_reading(synthetic: pd.DataFrame) -> None:
+    """Mutation control: one plug-in in concrete's form moved by 1e-4 turns P1a red."""
+    rows = synthetic.copy()
     moved = (
-        (rows["implementation"] == phase.REFERENCE)
+        (rows["implementation"] == phase.SUBJECT_FACTUAL)
         & (rows["scenario"] == "p1_parity")
         & (rows["estimand"] == phase.ESTIMANDS[0])
         & (rows["replicate"] == 7)
     )
+    rows.loc[moved, "initial_concrete_form"] += 1e-4
+    assert _verdicts(rows)["p1_initial_plugins_agree"] == "fail"
+
+
+def test_the_targeted_gap_is_reported_and_gates_nothing(synthetic: pd.DataFrame) -> None:
+    rows = synthetic.copy()
+    moved = (
+        (rows["implementation"] == phase.REFERENCE)
+        & (rows["scenario"] == "p1_parity")
+        & (rows["replicate"] < 50)
+    )
     rows.loc[moved, "estimate"] += 0.005
-    verdicts = phase.tables(rows)["verdicts.csv"].set_index("reading")["verdict"]
-    assert verdicts["p1_estimates_agree"] == "fail"
+    targeted = phase.tables(rows)["agreement.csv"].set_index(["cell", "quantity"])
+    assert targeted.loc[("p1_parity", "targeted"), "share_within_0.002"] == pytest.approx(0.9)
+    assert _verdicts(rows)["p1_initial_plugins_agree"] == "pass"
 
 
-def test_a_concrete_without_bias_fails_the_robustness_reading() -> None:
-    rows = _synthetic_rows()
+def test_a_concrete_without_bias_fails_the_robustness_reading(synthetic: pd.DataFrame) -> None:
+    rows = synthetic.copy()
     target = (
         (rows["implementation"] == phase.REFERENCE)
         & (rows["scenario"] == "p3_hazard_wrong")
         & (rows["estimand"] == phase.DECLARED_TARGET)
     )
     rows.loc[target, "estimate"] -= 0.03
-    verdicts = phase.tables(rows)["verdicts.csv"].set_index("reading")["verdict"]
+    assert _verdicts(rows)["p3_concrete_bias_above_margin"] == "fail"
+
+
+def test_too_few_paired_draws_fail_every_gated_reading(synthetic: pd.DataFrame) -> None:
+    """S1: below the minimum count a reading fails, whatever its statistic."""
+    lost = (synthetic["implementation"] == phase.REFERENCE) & (
+        synthetic["replicate"] >= phase.MIN_PAIRED - 1
+    )
+    verdicts = _verdicts(synthetic[~lost])
+    assert verdicts["p1_initial_plugins_agree"] == "fail"
     assert verdicts["p3_concrete_bias_above_margin"] == "fail"
+    kept = (synthetic["implementation"] == phase.REFERENCE) & (
+        synthetic["replicate"] >= phase.MIN_PAIRED
+    )
+    assert _verdicts(synthetic[~kept])["p1_initial_plugins_agree"] == "pass"
+
+
+def test_a_failed_walk_leaves_the_agreement_draws(synthetic: pd.DataFrame) -> None:
+    rows = synthetic.copy()
+    stalled = (
+        (rows["implementation"] == phase.REFERENCE)
+        & (rows["scenario"] == "p1_parity")
+        & (rows["replicate"] < 10)
+    )
+    rows.loc[stalled, "converged"] = 0.0
+    agreement = phase.tables(rows)["agreement.csv"].set_index(["cell", "quantity"])
+    assert agreement.loc[("p1_parity", "targeted"), "draws"] == phase.REPLICATES - 10
 
 
 def test_the_reference_reader_keeps_every_float(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -342,20 +454,22 @@ def test_every_table_is_a_function_of_the_committed_rows() -> None:
 
 
 @committed
-@pytest.mark.parametrize("cell", phase.CELLS)
-def test_the_first_draw_of_each_cell_refits_to_its_committed_rows(cell: str) -> None:
+def test_the_first_parity_draw_refits_to_its_committed_rows() -> None:
+    """One refit, of P1's draw 0 (no saga member), at a tolerance for floating library versions.
+
+    The other cells' rows are covered by the hash gates and the tables-from-rows test, as
+    ``docs/development/testing-strategy.md`` asks of the fast tier.
+    """
     rows = read_rows(phase.ARTIFACTS / "replicates.parquet")
-    implementations = [implementation for implementation, _ in phase.FITS[cell]]
     held = rows[
-        (rows["scenario"] == cell)
+        (rows["scenario"] == "p1_parity")
         & (rows["replicate"] == 0)
-        & rows["implementation"].isin(implementations)
+        & (rows["implementation"] == phase.SUBJECT_FACTUAL)
     ]
     if held.empty:
-        pytest.skip(f"the first draw of {cell} failed in the committed run")
-    refit = pd.DataFrame(phase.fit_replicate(cell, 0))
-    keys = ["implementation", "estimand"]
-    joined = held.merge(refit, on=keys, suffixes=("", "_refit"))
+        pytest.skip("the first draw of p1_parity failed in the committed run")
+    refit = pd.DataFrame(phase.fit_replicate("p1_parity", 0))
+    joined = held.merge(refit, on=["implementation", "estimand"], suffixes=("", "_refit"))
     assert len(joined) == len(held)
-    for column in ("estimate", "std_error", "initial_estimate"):
-        np.testing.assert_allclose(joined[column], joined[f"{column}_refit"], rtol=1e-9)
+    for column in ("estimate", "std_error", "initial_estimate", "initial_concrete_form"):
+        np.testing.assert_allclose(joined[column], joined[f"{column}_refit"], rtol=1e-6)

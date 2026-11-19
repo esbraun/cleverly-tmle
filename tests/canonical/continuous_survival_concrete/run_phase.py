@@ -64,6 +64,68 @@ REFERENCE = Reference(
 )
 
 
+#: The run configuration a scratch directory holds, written by its first run.
+CONFIGURATION = "run.json"
+
+
+def configuration(replicates: int) -> dict[str, Any]:
+    """What a scratch directory's draws, seeds and declaration are, for the resume check."""
+
+    def digest(values: Any) -> str:
+        return hashlib.sha256(json.dumps(values, sort_keys=True).encode("utf-8")).hexdigest()
+
+    return {
+        "replicates": replicates,
+        "sample_seeds_sha256": digest(
+            [phase.sample_seed(cell, r) for r in range(replicates) for cell in phase.CELLS]
+        ),
+        "group_seeds_sha256": digest([phase.group_seed(r) for r in range(replicates)]),
+        "declaration_sha256": digest(phase.declaration()),
+    }
+
+
+def claim(scratch: Path, replicates: int) -> None:
+    """Record the run in ``scratch``, or refuse a scratch written by another configuration."""
+    path = scratch / CONFIGURATION
+    wanted = configuration(replicates)
+    if path.exists():
+        held = json.loads(path.read_text(encoding="utf-8"))
+        if held != wanted:
+            differing = sorted(key for key in wanted if held.get(key) != wanted[key])
+            raise SystemExit(
+                f"{scratch} holds a run with another configuration ({', '.join(differing)}); "
+                "use a new --output directory"
+            )
+        return
+    if any(scratch.iterdir()):
+        raise SystemExit(f"{scratch} holds files but no {CONFIGURATION}; use an empty directory")
+    path.write_text(json.dumps(wanted, indent=2, sort_keys=True) + NEWLINE, encoding="utf-8")
+
+
+def coverage_gaps(rows: pd.DataFrame, failures: pd.DataFrame, replicates: int) -> list[str]:
+    """Each (implementation, cell, replicate) the run declared that neither rows nor failures hold."""
+    gaps = []
+    fitted = set(zip(rows["implementation"], rows["scenario"], rows["replicate"], strict=True))
+    failed: set[tuple[str, str, int]] = set()
+    for record in failures.to_dict("records") if len(failures) else []:
+        implementation = str(record["implementation"])
+        if implementation == phase.REFERENCE:
+            # A harness record names its group's scenarios and replicates, ';'-joined.
+            for cell in str(record["scenarios"]).split(";"):
+                for r in str(record["replicates"]).split(";"):
+                    failed.add((phase.REFERENCE, cell, int(r)))
+        else:
+            for name, _ in phase.FITS[str(record["scenario"])]:
+                failed.add((name, str(record["scenario"]), int(record["replicate"])))
+    for cell in phase.CELLS:
+        names = [name for name, _ in phase.FITS[cell]] + [phase.REFERENCE]
+        for r in range(replicates):
+            for name in names:
+                if (name, cell, r) not in fitted and (name, cell, r) not in failed:
+                    gaps.append(f"{name} {cell} {r}")
+    return gaps
+
+
 def write_inputs(scratch: Path, replicates: int) -> None:
     """The draws, the truths and the R seeds, written once per scratch directory."""
     samples = scratch / "samples.csv.gz"
@@ -86,12 +148,12 @@ def _fit_one(cell: str, replicate: int, directory: str) -> None:
     if path.exists():
         return
     try:
-        rows = pd.DataFrame(phase.fit_replicate(cell, replicate), columns=list(phase.ROW_COLUMNS))
+        rows = pd.DataFrame(phase.fit_replicate(cell, replicate), columns=list(phase.PHASE_COLUMNS))
     except Exception as error:  # a failed fit costs its replicate, and is recorded
         record = {"implementation": "cleverly", "scenario": cell, "replicate": replicate}
         record["message"] = f"{type(error).__name__}: {error}".replace("\n", " ")
         pd.DataFrame([record]).to_csv(path.with_suffix(".failure"), index=False)
-        rows = pd.DataFrame(columns=list(phase.ROW_COLUMNS))
+        rows = pd.DataFrame(columns=list(phase.PHASE_COLUMNS))
     temporary = path.with_suffix(".tmp")
     write_csv(rows, temporary)
     temporary.replace(path)
@@ -112,7 +174,7 @@ def fit_python(scratch: Path, replicates: int, jobs: int) -> tuple[pd.DataFrame,
     rows = pd.concat([frame for frame in frames if len(frame)], ignore_index=True)
     failed = sorted(directory.glob("*.failure"))
     failures = pd.concat([pd.read_csv(path) for path in failed]) if failed else pd.DataFrame()
-    return rows.loc[:, list(phase.ROW_COLUMNS)], failures
+    return rows.loc[:, list(phase.PHASE_COLUMNS)], failures
 
 
 def run_reference(scratch: Path, cores: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -142,7 +204,8 @@ def run_reference(scratch: Path, cores: int) -> tuple[pd.DataFrame, pd.DataFrame
 def publish(scratch: Path, rows: pd.DataFrame, failures: pd.DataFrame, cores: int) -> Path:
     """The phase's artifacts and manifest, under ``SCRATCH/artifacts``."""
     artifacts = scratch / "artifacts"
-    artifacts.mkdir(exist_ok=True)
+    shutil.rmtree(artifacts, ignore_errors=True)
+    artifacts.mkdir()
     written = [artifacts / "replicates.parquet"]
     write_rows(rows, written[0])
     for name, table in phase.tables(rows).items():
@@ -192,17 +255,26 @@ def main(argv: list[str] | None = None) -> int:
     if options.publish and options.replicates != phase.REPLICATES:
         parser.error(f"a published run fits the declared {phase.REPLICATES} replicates")
     scratch.mkdir(parents=True, exist_ok=True)
+    claim(scratch, options.replicates)
     write_inputs(scratch, options.replicates)
     python_rows, python_failures = fit_python(scratch, options.replicates, options.jobs)
     reference_rows, reference_failures = run_reference(scratch, options.r_cores)
     rows = pd.concat([python_rows, reference_rows], ignore_index=True)
     rows = rows.sort_values(["scenario", "replicate", "implementation", "estimand"], kind="stable")
     failures = pd.concat([python_failures, reference_failures], ignore_index=True)
+    gaps = coverage_gaps(rows, failures, options.replicates)
+    if gaps:
+        raise SystemExit(f"{len(gaps)} declared fits have neither rows nor a failure: {gaps[:10]}")
     artifacts = publish(scratch, rows.reset_index(drop=True), failures, options.r_cores)
     print(phase.tables(rows)["verdicts.csv"].to_string(index=False))
     if options.publish:
-        for path in artifacts.iterdir():
-            shutil.copy2(path, HERE / path.name)
+        # A file an earlier publish left (a failures.csv, say) must not outlive this one.
+        for path in HERE.iterdir():
+            if path.is_file() and path.suffix not in (".py", ".R"):
+                path.unlink()
+        for name in (*phase.TABLES, "replicates.parquet", "failures.csv", "manifest.json"):
+            if (artifacts / name).exists():
+                shutil.copy2(artifacts / name, HERE / name)
         print(f"copied the artifacts into {HERE.relative_to(ROOT)}")
     return 0
 
