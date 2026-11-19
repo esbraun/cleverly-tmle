@@ -87,6 +87,12 @@ class FitCounts:
         Bytes of the prepared panel's arrays, which a parallel replicate copies.
     paths : int or None
         The slots of a path fit whose regimens draw from a known policy, ``None`` otherwise.
+    censored : bool
+        Whether the panel has censoring.
+    markov : bool
+        Whether the panel has a Markov order.
+    levels : int
+        The most treatment levels at any node (2 for a binary treatment).
     """
 
     estimator: str
@@ -105,6 +111,9 @@ class FitCounts:
     jobs: int
     panel_bytes: int
     paths: int | None = None
+    censored: bool = False
+    markov: bool = False
+    levels: int = 2
 
     @property
     def steps(self) -> int:
@@ -287,7 +296,9 @@ def fit_counts(
     bins = 0
     if continuous:
         bins = int(estimator.density_bins or default_density_bins(n))
-    width = data.history_width(n_times, include_current=True)
+    # The widest design any node builds: without a Markov order that is the last node, but a
+    # window can drop an early node's wide covariate block (design review of rev 10, finding 3).
+    width = max(data.history_width(t, include_current=True) for t in range(1, n_times + 1))
     return FitCounts(
         estimator=type(estimator).__name__,
         family=family,
@@ -305,6 +316,9 @@ def fit_counts(
         jobs=effective_jobs(getattr(estimator, "n_jobs", 1)),
         panel_bytes=panel_bytes(data),
         paths=paths,
+        censored=bool(data.has_censoring),
+        markov=data.markov_order is not None,
+        levels=max((len(levels) for levels in data.treatment_levels), default=2),
     )
 
 
