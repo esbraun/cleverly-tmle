@@ -34,10 +34,13 @@ __all__ = [
     "CONSTANT_NODE_STATUS",
     "DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS",
     "DEFAULT_POINT_INTERVAL_CLUSTERS",
+    "FEW_CLUSTER_ESTIMAND_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "FLOOR_FAMILY_NAMES",
     "HELD_OUT_SCALE",
     "JACKKNIFE_REFIT_STATUS",
+    "MEASURED_CONTRASTS",
+    "MEASURED_POINT_ESTIMAND",
     "MINIMUM_FOLD_TRAINING_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_CONSTANT_ARM_BANDS",
@@ -81,6 +84,7 @@ InferenceStatus = Literal[
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
+    "few_cluster_estimand_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
     "jackknife_refit_plugin",
@@ -152,13 +156,16 @@ FLOOR_FAMILY_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
-#: The smallest positive-mass cluster count from which each measured fit family reports its
-#: interval without the few-cluster label: the smallest count from which every registered count
-#: of the family passes in ``few-cluster-floor-tmle`` or ``few-cluster-floor-cross-fitted-ltmle``,
-#: each passing count certifying an all-draw coverage whose exact 99% lower end is at least
-#: 0.90. Stacked TMLE keeps the default floor: its five-covariate configuration's IID control is
-#: red at 10 clusters with no committed cell to compare, so the family is redeclared before any
-#: lower floor ships.
+#: The smallest positive-mass cluster count from which each measured fit family reports the
+#: interval of its measured contrast (:data:`MEASURED_CONTRASTS`) without the few-cluster label:
+#: the smallest count from which every registered count of the family passes in
+#: ``few-cluster-floor-tmle`` or ``few-cluster-floor-cross-fitted-ltmle``, each passing count
+#: certifying an all-draw coverage whose exact 99% lower end is at least 0.90. Every cell of those
+#: studies reads that one contrast, so a floor certifies it alone: every other estimate of the fit
+#: keeps :data:`DEFAULT_POINT_INTERVAL_CLUSTERS` or :data:`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`
+#: (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`). Stacked TMLE keeps the default
+#: floor: its five-covariate configuration's IID control is red at 10 clusters with no committed
+#: cell to compare, so the family is redeclared before any lower floor ships.
 CLUSTER_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
     {
         "tmle_in_sample": 6,
@@ -167,6 +174,25 @@ CLUSTER_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
         "drtmle_cross_fitted_known_mechanism": 8,
         "ltmle_in_sample": 6,
         "ltmle_cross_fitted": 4,
+    }
+)
+
+#: The point-treatment estimand a point floor family's study measured at every count: the ATE.
+MEASURED_POINT_ESTIMAND: Final[str] = "ate"
+
+#: The contrast each floor family's study measured at every count, as a status text names it.
+#: A point fit's is the ATE (:data:`MEASURED_POINT_ESTIMAND`). An ``LTMLE`` fit's is the
+#: difference between the static plan that treats at every node and the static plan that treats
+#: at none, on an outcome without horizons, causes or a policy-weighted variance
+#: (:func:`~cleverly.longitudinal.estimator.measured_contrast`).
+MEASURED_CONTRASTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "tmle_in_sample": "the ATE",
+        "tmle_stacked": "the ATE",
+        "tmle_fold_evaluated": "the ATE",
+        "drtmle_cross_fitted_known_mechanism": "the ATE",
+        "ltmle_in_sample": "the always-treat versus never-treat contrast",
+        "ltmle_cross_fitted": "the always-treat versus never-treat contrast",
     }
 )
 
@@ -272,19 +298,33 @@ def cluster_interval_floor(family: str | None, *, longitudinal: bool) -> int:
 
 
 def floor_table() -> str:
-    """The interval floors by fit, as one clause a status text prints.
+    """The interval floors by fit and estimate, as one clause a status text prints.
 
     Returns
     -------
     str
-        Each family's plain name and floor, then the default floors of every other
-        point-treatment and longitudinal fit, joined by commas.
+        Each family's plain name and floor with the contrast it holds for, then the default
+        floors of every other estimate: those of the measured families and those of every other
+        point-treatment and longitudinal fit.
     """
-    parts = [
-        f"{FLOOR_FAMILY_NAMES[name]} {floor}" for name, floor in CLUSTER_INTERVAL_FLOORS.items()
-    ]
-    parts.append(f"every other point-treatment fit {DEFAULT_POINT_INTERVAL_CLUSTERS}")
-    parts.append(f"every other longitudinal fit {DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS}")
+    parts = []
+    for name, floor in CLUSTER_INTERVAL_FLOORS.items():
+        longitudinal = name.startswith("ltmle")
+        default = (
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+            if longitudinal
+            else DEFAULT_POINT_INTERVAL_CLUSTERS
+        )
+        held = "" if floor == default else f" for {MEASURED_CONTRASTS[name]}"
+        parts.append(f"{FLOOR_FAMILY_NAMES[name]} {floor}{held}")
+    parts.append(
+        "every other estimate of a point-treatment fit, and every other point-treatment fit, "
+        f"{DEFAULT_POINT_INTERVAL_CLUSTERS}"
+    )
+    parts.append(
+        "every other estimate of a longitudinal fit, and every other longitudinal fit, "
+        f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS}"
+    )
     return ", ".join(parts)
 
 
@@ -732,10 +772,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"The floors by fit are: {floor_table()}. Each measured fit's floor is the "
                 "smallest count from which every count the registered few-cluster-floor-tmle "
                 "or few-cluster-floor-cross-fitted-ltmle study measures passes; below it a "
-                "measured count fails or no study measures it. The estimate carries the "
-                "experimental label. F28 in docs/roadmap.md records the measured limits below "
-                "each floor, and X54 holds the redeclaration of the stacked TMLE floor. A "
-                "fold-evaluated "
+                "measured count fails or no study measures it. Every cell of those studies "
+                "reads one contrast, so the floor holds for that contrast alone, and every "
+                "other estimate of the fit keeps the default floor of its kind. The estimate "
+                "carries the experimental label. F28 in docs/roadmap.md records the measured "
+                "limits below each floor, among them an in-sample LTMLE arm-mean measurement "
+                "below the default longitudinal floor, and X54 holds the redeclaration of the "
+                "stacked TMLE floor and the arm-mean cells. A fold-evaluated "
                 "TMLE whose smallest training complement holds fewer positive-mass clusters "
                 "than MINIMUM_FOLD_TRAINING_CLUSTERS at its treatment mechanism ("
                 f"{MINIMUM_FOLD_TRAINING_CLUSTERS['estimated']} estimated, "
@@ -762,6 +805,52 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"({floor_table()}), or a fold-evaluated interval whose smallest training "
                 "complement holds fewer than MINIMUM_FOLD_TRAINING_CLUSTERS. F28 in "
                 "docs/roadmap.md records the measured limits."
+            ),
+        ),
+        "few_cluster_estimand_plugin": StatusRecord(
+            plain_reason=(
+                "This fit has enough clusters for its measured effect, but this estimate is not "
+                "that effect, and no validation study supports its interval at so few clusters, "
+                "so cleverly marks it experimental. The interval uses a t distribution with the "
+                "degrees of freedom in the df column."
+            ),
+            reason=(
+                "A clustered fit of a measured fit family that reads at least its family's "
+                "interval floor in positive-mass clusters, but fewer than the default floor of "
+                f"its kind ({DEFAULT_POINT_INTERVAL_CLUSTERS} for a point-treatment fit, "
+                f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), shows the "
+                "interval of every estimate other than its measured contrast under the "
+                "experimental label, on the same Student t reference with J - 2 degrees of "
+                "freedom. The registered few-cluster-floor-tmle and "
+                "few-cluster-floor-cross-fitted-ltmle studies measure one contrast per family "
+                "at every count: the ATE for a point-treatment fit, and the difference between "
+                "always treating and never treating for an LTMLE fit. A family's floor "
+                f"({floor_table()}) certifies that contrast alone. The one arm-mean "
+                "measurement below a default floor, of an in-sample LTMLE fit, fails its "
+                "coverage floor. X54 in docs/roadmap.md holds the cells "
+                "that would measure the other estimates."
+            ),
+            assessment_note=(
+                "the reported interval is experimental: no registered study supports this "
+                "estimate of the fit below the default floor of its kind, since the fit's "
+                "family floor holds for its measured contrast alone, and X54 in the roadmap "
+                "holds the cells that would measure it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of this estimate at so "
+                "few clusters"
+            ),
+            diagnostic_noun="unmeasured-estimand few-cluster interval",
+            reopened_by="X54",
+            alternative=NO_ALTERNATIVE,
+            interval="shown",
+            shown_reason=(
+                "The interval uses a Student t reference with J - 2 degrees of freedom. The "
+                "fit's family floor holds for its measured contrast alone, and no registered "
+                "study supports any other estimate of the fit below the default floor of its "
+                f"kind ({DEFAULT_POINT_INTERVAL_CLUSTERS} for a point-treatment fit, "
+                f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). X54 in "
+                "docs/roadmap.md holds the cells that would measure it."
             ),
         ),
         "low_dose_support_plugin": StatusRecord(
@@ -1094,6 +1183,12 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
     }
 )
 
+#: The status of an estimate of a measured fit family other than its measured contrast, when the
+#: fit reads at least the family's floor but fewer than the default floor of its kind. A
+#: parameter status, the one that shows its interval
+#: (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`).
+FEW_CLUSTER_ESTIMAND_STATUS: Final[InferenceStatus] = "few_cluster_estimand_plugin"
+
 #: The statuses one parameter takes beside the status of its fit. Every other status holds
 #: for the whole fit. :data:`CONSTANT_NODE_STATUS` marks a longitudinal parameter whose
 #: recursion read a constant node regression, and the other parameters of that fit keep their
@@ -1102,6 +1197,7 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
 PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
     {
         CONSTANT_NODE_STATUS,
+        FEW_CLUSTER_ESTIMAND_STATUS,
         "stack_failure_plugin",
         "jackknife_refit_plugin",
         "constant_arm_cell_plugin",

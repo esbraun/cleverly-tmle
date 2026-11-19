@@ -48,6 +48,7 @@ PRECEDENCE = (
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
+    "few_cluster_estimand_plugin",
     "low_dose_support_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
@@ -59,10 +60,13 @@ PRECEDENCE = (
 
 #: The statuses whose interval is shown under the experimental label. Eric's answer of
 #: 2026-10-15 keeps the other labelled statuses point-only. The adaptive TMLE of a trial
-#: with external data (X90) shows its working-model projection interval.
+#: with external data (X90) shows its working-model projection interval. An estimate of a
+#: measured few-cluster family other than its measured contrast shows its interval as the
+#: few-cluster status does (X54 post-run ruling 2, R1).
 SHOWN = (
     "estimated_weight_plugin",
     "few_cluster_plugin",
+    "few_cluster_estimand_plugin",
     "low_dose_support_plugin",
     "working_model_projection",
 )
@@ -327,8 +331,16 @@ class TestTheFewClusterThreshold:
         point = _inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS
         longitudinal = _inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
         assert table.endswith(
-            f"every other point-treatment fit {point}, every other longitudinal fit {longitudinal}"
+            "every other estimate of a point-treatment fit, and every other point-treatment fit, "
+            f"{point}, every other estimate of a longitudinal fit, and every other longitudinal "
+            f"fit, {longitudinal}"
         )
+        for family, contrast in _inference_status.MEASURED_CONTRASTS.items():
+            floor = _inference_status.CLUSTER_INTERVAL_FLOORS[family]
+            default = longitudinal if family.startswith("ltmle") else point
+            if floor != default:
+                assert f"{floor} for {contrast}" in table
+        assert "the floor holds for that contrast alone" in reason
         assert "below it a measured count fails or no study measures it" in reason
         assert (
             f"fewer than {t_floor} clusters" in STATUS_RECORDS["no_cluster_variance_plugin"].reason

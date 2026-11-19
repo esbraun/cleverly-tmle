@@ -5,8 +5,10 @@ The point-treatment few-cluster status applies to the longitudinal path too, wit
 fit with 3 positive-mass clusters up to one below its floor stamps ``"few_cluster_plugin"`` on
 every mean, contrast and MSM coefficient. Each estimate keeps its interval on a Student t
 reference with ``J - 2`` degrees of freedom, under the experimental label, and F28 records the
-measured limits below the floor. From the floor to 39 such clusters every estimate keeps the
-same reference and the ordinary status. The witness and
+measured limits below the floor. The floor holds for the always-versus-never contrast its study
+measured: from it to 39 clusters that contrast keeps the same reference and the ordinary status,
+and every other estimate does so from the default longitudinal floor of 20
+(:class:`TestTheFloorHoldsForTheMeasuredContrast`). The witness and
 the control run in sample and at five whole-cluster folds, for every kind but the working model,
 which ``LTMLE`` refuses above one fold for every fit.
 
@@ -32,6 +34,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean, _inference_status
 from cleverly._inference_status import (
     CLUSTER_INTERVAL_FLOORS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+    FEW_CLUSTER_ESTIMAND_STATUS,
     FEW_CLUSTER_THRESHOLD,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
@@ -44,7 +48,8 @@ from cleverly.datasets import (
 )
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cluster_inference_status
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen, Regimen
+from cleverly.longitudinal import estimator as longitudinal_estimator_module
 from tests.unit._inference_status_support import (
     INFERENTIAL_COLUMNS,
     ROUTES,
@@ -146,6 +151,18 @@ def floor(n_folds: int) -> int:
     return CLUSTER_INTERVAL_FLOORS["ltmle_in_sample" if n_folds == 1 else "ltmle_cross_fitted"]
 
 
+def control_count(design: tuple[str, int]) -> int:
+    """The fewest clusters at which every estimate of a kind keeps the ordinary status.
+
+    The family floor holds for the always-versus-never contrast alone, so the end-of-study fit
+    keeps that contrast at its floor, and its means take the parameter status
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS` until the default floor. A
+    curve or a working model reports no such contrast, so its control sits at the default floor.
+    """
+    kind, n_folds = design
+    return floor(n_folds) if kind == "end of study" else DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+
+
 @pytest.fixture(scope="module", params=DESIGNS, ids=[f"{k}-{f} fold(s)" for k, f in DESIGNS])
 def design(request: pytest.FixtureRequest) -> tuple[str, int]:
     return request.param  # type: ignore[no-any-return]
@@ -170,7 +187,7 @@ def control_result(design: tuple[str, int]) -> Any:
     kind, n_folds = design
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return FITS[kind](floor(n_folds), n_folds=n_folds)
+        return FITS[kind](control_count(design), n_folds=n_folds)
 
 
 def assert_reports_show(result: Any, kind: str) -> None:
@@ -308,7 +325,9 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
         if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
         assert STATUS_RECORDS[FEW].shown_reason not in control_result.summary()
-        assert {e.reference_df for e in control_result.estimates.values()} == {floor(design[1]) - 2}
+        assert {e.reference_df for e in control_result.estimates.values()} == {
+            control_count(design) - 2
+        }
 
     def test_the_default_bands_are_built_at_forty_clusters(self) -> None:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)
@@ -341,6 +360,78 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
         result = fit_end_of_study(IN_SAMPLE_FLOOR, weights=lambda cluster: np.ones(cluster.size))
         assert_keeps_inference(result)
         assert "positive weight mass in" not in result.summary()
+
+
+MEANS = ("ey_regimen[always]", "ey_regimen[never]")
+CONTRAST = "ate_regimen[always vs never]"
+
+
+def assert_floor_holds_for_the_contrast(result: Any) -> None:
+    """At the family floor the contrast is ordinary and each mean shows a labelled interval."""
+    assert result.data.n_clusters == IN_SAMPLE_FLOOR
+    assert result[CONTRAST].inference == "influence_curve"
+    for name in MEANS:
+        estimate = result[name]
+        assert estimate.inference == FEW_CLUSTER_ESTIMAND_STATUS
+        assert estimate.support.label == "experimental"
+        assert "X54" in estimate.support.evidence
+        assert estimate.reference_df == IN_SAMPLE_FLOOR - 2
+        low, high = estimate.ci
+        assert low < high
+    assert result.inference_status == "influence_curve"
+
+
+class TestTheFloorHoldsForTheMeasuredContrast:
+    """R1 of the X54 post-run ruling: a family floor certifies the contrast its study measured.
+
+    The in-sample and cross-fitted LTMLE floors rest on cells that read the always-versus-never
+    contrast alone. Every other estimate keeps the default longitudinal floor: below it, and at
+    or above its family's floor, it shows its interval under the parameter status
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`.
+    """
+
+    def test_at_the_floor_only_the_contrast_is_ordinary(self) -> None:
+        assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
+
+    @pytest.mark.parametrize("kind", ["survival", "competing risks", "msm"])
+    def test_a_curve_or_a_coefficient_keeps_the_default_floor(self, kind: str) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = FITS[kind](IN_SAMPLE_FLOOR)
+        assert {e.inference for e in result.estimates.values()} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        assert {e.support.label for e in result.estimates.values()} == {"experimental"}
+
+    def test_the_default_floor_clears_the_label(self) -> None:
+        below = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+        assert {below[name].inference for name in MEANS} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        at = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
+        assert {e.inference for e in at.estimates.values()} == {"influence_curve"}
+
+    def test_the_measured_contrast_is_always_against_never(self) -> None:
+        measured = longitudinal_estimator_module.measured_contrast
+        always, never = Regimen("always", (1, 1)), Regimen("never", (0, 0))
+        assert measured(always, never)
+        assert measured(never, always)
+        assert not measured(Regimen("once", (1, 0)), never)
+        assert not measured(always, Regimen("never too", (1, 1)))
+        rule = DynamicRegimen("rule", (1, lambda history: history["L2"] > 0), rule_kind="known")
+        assert not measured(rule, never)
+
+    def test_a_contrast_read_as_unmeasured_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            longitudinal_estimator_module, "measured_contrast", lambda *regimens: False
+        )
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
+
+    def test_means_read_at_the_contrast_floor_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            longitudinal_estimator_module,
+            "unmeasured_estimand_status",
+            lambda status, *args, **kwargs: status,
+        )
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
 
 
 class TestTheMutationsFailTheWitness:

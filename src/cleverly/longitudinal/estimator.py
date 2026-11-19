@@ -152,6 +152,7 @@ from ..inference.cluster import (
     cluster_reference_df,
     influence_covariance,
     influence_variance,
+    unmeasured_estimand_status,
 )
 from ..inference.cluster_jackknife import (
     CLUSTER_VARIANCES,
@@ -335,6 +336,7 @@ from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
     Plan,
+    Regimen,
     RegimenSpec,
     attach_policy_numerators,
     declares_tuned,
@@ -4424,6 +4426,15 @@ def _estimates(
     object
         The estimates, the parameter index, and the fits behind each name.
     """
+    # A floor family's floor holds for the contrast its study measured at every count, the
+    # always-treat versus never-treat difference (measured_contrast). Every other estimate keeps
+    # the default longitudinal floor.
+    general = unmeasured_estimand_status(
+        inference,
+        data.cluster,
+        weights=data.weights if data.is_weighted else None,
+        longitudinal=True,
+    )
     if policy is not None:
         return _policy_estimates(
             data,
@@ -4431,7 +4442,7 @@ def _estimates(
             scaler,
             reference,
             alpha_sig=alpha_sig,
-            inference=inference,
+            inference=general,
             classification=classification,
             policy=policy,
         )
@@ -4493,7 +4504,7 @@ def _estimates(
         level = scaler.unscale_level(fit.psi_scaled)
         bounds = parameter_bounds("mean", data.family)
         status = bounded_status(
-            _parameter_status(inference, fit, supplemented=supplemented), level, bounds
+            _parameter_status(general, fit, supplemented=supplemented), level, bounds
         )
         estimates[name] = make_estimate(
             name,
@@ -4526,13 +4537,27 @@ def _estimates(
         difference = scaler.unscale_difference(fit.psi_scaled - base.psi_scaled)
         bounds = parameter_bounds("difference", data.family)
         # A contrast reads both levels and takes the status of either, an estimate on its
-        # bound included, before its own range check.
+        # bound included, before its own range check. The measured contrast reads its levels
+        # at the family's floor, which holds for it alone.
+        if not curve and measured_contrast(fit.regimen, base.regimen):
+            mean_bounds = parameter_bounds("mean", data.family)
+            levels = tuple(
+                bounded_status(
+                    _parameter_status(inference, read, supplemented=supplemented),
+                    level_of[id(read)].psi,
+                    mean_bounds,
+                )
+                for read in (fit, base)
+            )
+            own = inference
+        else:
+            levels = (level_of[id(fit)].inference, level_of[id(base)].inference)
+            own = general
         status = bounded_status(
             precedent_status(
                 (
-                    _parameter_status(inference, fit, base, supplemented=supplemented),
-                    level_of[id(fit)].inference,
-                    level_of[id(base)].inference,
+                    _parameter_status(own, fit, base, supplemented=supplemented),
+                    *levels,
                 )
             ),
             difference,
@@ -4555,6 +4580,42 @@ def _estimates(
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def measured_contrast(first: RegimenSpec, second: RegimenSpec) -> bool:
+    """Whether a contrast of two plans is the one the LTMLE floor studies measured.
+
+    ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` measure, at every
+    count, the difference between the static plan that treats at every node and the static plan
+    that treats at none, on an outcome without horizons or causes. A floor family's floor
+    (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) holds for that contrast alone,
+    in either order, since the interval of a negated difference is the negated interval.
+
+    Parameters
+    ----------
+    first, second : Regimen or DynamicRegimen
+        The two plans the contrast reads.
+
+    Returns
+    -------
+    bool
+        ``True`` when one plan assigns treatment 1 at every node and the other 0 at every node.
+    """
+    arms = {_static_arm(first), _static_arm(second)}
+    return arms == {0, 1}
+
+
+def _static_arm(regimen: RegimenSpec) -> int | None:
+    """``1`` or ``0`` for a static plan that assigns that arm at every node, else ``None``."""
+    if not isinstance(regimen, Regimen):
+        return None
+    for arm in (0, 1):
+        if all(
+            isinstance(value, (bool, int, float, np.integer, np.floating)) and value == arm
+            for value in regimen.values
+        ):
+            return arm
+    return None
 
 
 def _policy_estimates(
@@ -4812,6 +4873,10 @@ def _warn_parameter_statuses(
     """
     _warn_boundary_nodes(estimates)
     for status in sorted(PARAMETER_STATUSES):
+        if status_record(status).interval == "shown":
+            # A shown parameter status labels its interval, as a fit-level cluster status does,
+            # and the summary says so; it is not a lost interval to warn about.
+            continue
         names = [name for name, estimate in estimates.items() if estimate.inference == status]
         if not names:
             continue
@@ -4957,6 +5022,13 @@ def _msm_estimates(
     estimates: dict[str, ParameterEstimate] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
     reference_df = _reference_df(data, inference)
+    # No floor study measured a working-model coefficient, so each keeps the default floor.
+    inference = unmeasured_estimand_status(
+        inference,
+        data.cluster,
+        weights=data.weights if data.is_weighted else None,
+        longitudinal=True,
+    )
     for msm_fit in msm_fits:
         for column, term in enumerate(msm_fit.model.terms):
             # Composed forward, as every other name here is: a term may contain a

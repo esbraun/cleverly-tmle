@@ -52,6 +52,7 @@ from typing import Any, Final, Literal
 import numpy as np
 
 from .._inference_status import (
+    FEW_CLUSTER_ESTIMAND_STATUS,
     JACKKNIFE_REFIT_STATUS,
     OUT_OF_RANGE_STATUS,
     PARAMETER_STATUSES,
@@ -545,7 +546,8 @@ def refit_withheld(status: str) -> bool:
     value of the refit is not the estimator's, so the jackknife of that estimate is undefined.
     A fit-level status, such as the cluster-count statuses a refit on ``J - 1`` clusters
     takes, says nothing about the point value, and an estimate on or outside its range keeps
-    a finite value, so neither counts.
+    a finite value, so neither counts. Nor does the cluster-count parameter status
+    ``"few_cluster_estimand_plugin"``, which only labels a shown interval.
 
     Parameters
     ----------
@@ -555,9 +557,13 @@ def refit_withheld(status: str) -> bool:
     Returns
     -------
     bool
-        ``True`` for a parameter status other than ``"out_of_range_plugin"``.
+        ``True`` for a parameter status other than ``"out_of_range_plugin"`` and
+        ``"few_cluster_estimand_plugin"``.
     """
-    return status in PARAMETER_STATUSES and status != OUT_OF_RANGE_STATUS
+    return status in PARAMETER_STATUSES and status not in (
+        OUT_OF_RANGE_STATUS,
+        FEW_CLUSTER_ESTIMAND_STATUS,
+    )
 
 
 def jackknife_estimates(

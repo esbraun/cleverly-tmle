@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
 
+from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS
 from cleverly._support import Support, combine_support, registered_rows, support_for
 from cleverly.datasets import make_clustered, make_longitudinal
 from cleverly.estimators import DRTMLE, TMLE
@@ -75,18 +76,26 @@ class TestTheBootstrapBelowTheClusterFloor:
         assert "percentile CI" in bootstrap_line(estimate)
         assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(estimate.to_dict())
 
-    def test_a_longitudinal_fit_has_the_floor_of_twenty(self) -> None:
+    def test_a_longitudinal_arm_mean_has_the_floor_of_twenty(self) -> None:
+        """An arm mean keeps the longitudinal default of 20; the measured always-versus-never
+        contrast (here never versus always) of in-sample LTMLE reads its family's floor, below 15."""
         columns = {"id": "id", **_end_columns()}
         flags = {}
+        contrast = {}
         for clusters in (15, 20):
             data, _ = make_longitudinal(n=10 * clusters, seed=1, cluster_size=10)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 result = _estimator(n_bootstrap=3, simultaneous=False).fit(data, **columns)
             assert result.config.support_key is not None
-            estimate = next(iter(result.estimates.values()))
+            estimate = result["ey_regimen[always]"]
             flags[clusters] = (estimate.bootstrap.below_floor, bootstrap_is_diagnostic(estimate))
+            assert estimate.bootstrap.cluster_floor == (20 if clusters < 20 else None)
+            measured = result["ate_regimen[never vs always]"]
+            contrast[clusters] = measured.bootstrap.below_floor
         assert flags == {15: (True, True), 20: (False, False)}
+        assert CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"] < 15
+        assert contrast == {15: False, 20: False}
 
     def test_a_derived_bootstrap_keeps_the_floor(self) -> None:
         result = drtmle_estimated_weights(7)

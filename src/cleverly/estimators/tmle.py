@@ -94,6 +94,7 @@ import numpy as np
 from .._inference_status import (
     CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
+    MEASURED_POINT_ESTIMAND,
     MINIMUM_FOLD_TRAINING_CLUSTERS,
     OUT_OF_RANGE_STATUS,
     InferenceStatus,
@@ -199,6 +200,7 @@ from ..inference.cluster import (
     influence_variance,
     smallest_training_clusters,
     unequal_positive_cluster_mass,
+    unmeasured_estimand_status,
 )
 from ..inference.cluster_jackknife import (
     CLUSTER_VARIANCES,
@@ -5747,8 +5749,21 @@ class TMLE:
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )
+        # A floor family's floor holds for the ATE its study measured at every count; every
+        # other estimate keeps the default floor (unmeasured_estimand_status).
+        general = unmeasured_estimand_status(
+            status,
+            prepared.cluster,
+            strata=prepared.strata,
+            weights=prepared.weights if prepared.is_weighted else None,
+        )
+        statuses = {
+            name: status if name == MEASURED_POINT_ESTIMAND else general
+            for report in (estimates, pooled_report, fold_evaluated_report)
+            for name in report
+        }
         ordered = stamp_inference(
-            _in_report_order(estimates, requested), status, headline_reference, classification
+            _in_report_order(estimates, requested), statuses, headline_reference, classification
         )
         detail = (
             CVTargeting(
@@ -5761,7 +5776,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
-            ).stamped(status, cluster_reference, classification)
+            ).stamped(statuses, cluster_reference, classification)
             if indices
             else None
         )

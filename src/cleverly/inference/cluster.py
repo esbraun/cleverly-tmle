@@ -33,7 +33,9 @@ from typing import Final
 import numpy as np
 
 from .._inference_status import (
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     DEFAULT_POINT_INTERVAL_CLUSTERS,
+    FEW_CLUSTER_ESTIMAND_STATUS,
     FEW_CLUSTER_THRESHOLD,
     MINIMUM_T_REFERENCE_CLUSTERS,
     InferenceStatus,
@@ -57,6 +59,7 @@ __all__ = [
     "stacked_second_moment_variance",
     "unequal_cluster_sizes",
     "unequal_positive_cluster_mass",
+    "unmeasured_estimand_status",
 ]
 
 
@@ -743,6 +746,64 @@ def cluster_inference_status(
     if fewest < floor:
         return "few_cluster_plugin"
     return "influence_curve"
+
+
+def unmeasured_estimand_status(
+    status: InferenceStatus,
+    cluster: IntArray | None,
+    strata: IntArray | None = None,
+    weights: FloatArray | None = None,
+    *,
+    longitudinal: bool = False,
+) -> InferenceStatus:
+    """The status of an estimate that no floor study measured, from its fit's status.
+
+    A floor family's floor (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) holds
+    for the one contrast its study measured at every count
+    (:data:`~cleverly._inference_status.MEASURED_CONTRASTS`). Every other estimate of the fit keeps
+    the default floor of its kind. When the fit's status is ``"influence_curve"`` and the fit
+    reads fewer positive-mass clusters than that floor, in total or in one baseline stratum, such
+    an estimate takes the parameter status
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`, which shows its interval under
+    the experimental label. Any other fit status stands: a labelled or withheld fit status already
+    says more. On a fit whose floor is the default this returns ``status`` unchanged.
+
+    Parameters
+    ----------
+    status : str
+        The fit's status, read at its family's floor.
+    cluster : ndarray of int or None
+        The cluster label of each row, or ``None`` for an unclustered fit.
+    strata : ndarray of int or None, default None
+        The baseline stratum code of each row, or ``None`` for a fit without strata.
+    weights : ndarray of float or None, default None
+        The observation weight of each row, or ``None`` for an unweighted fit.
+    longitudinal : bool, default False
+        Whether the fit is longitudinal, which picks the default floor.
+
+    Returns
+    -------
+    str
+        One of :data:`~cleverly.inference.influence.InferenceStatus`.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import unmeasured_estimand_status
+    >>> unmeasured_estimand_status("influence_curve", np.repeat(np.arange(8), 3))
+    'few_cluster_estimand_plugin'
+    >>> unmeasured_estimand_status("influence_curve", np.repeat(np.arange(10), 3))
+    'influence_curve'
+    >>> unmeasured_estimand_status("few_cluster_plugin", np.repeat(np.arange(5), 3))
+    'few_cluster_plugin'
+    """
+    if cluster is None or status != "influence_curve":
+        return status
+    floor = (
+        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS if longitudinal else DEFAULT_POINT_INTERVAL_CLUSTERS
+    )
+    default = cluster_inference_status(cluster, strata=strata, weights=weights, minimum=floor)
+    return FEW_CLUSTER_ESTIMAND_STATUS if default == "few_cluster_plugin" else status
 
 
 def cluster_reference_df(

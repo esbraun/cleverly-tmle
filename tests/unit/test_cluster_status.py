@@ -50,6 +50,7 @@ from cleverly import (
 from cleverly._inference_status import (
     CLUSTER_INTERVAL_FLOORS,
     DEFAULT_POINT_INTERVAL_CLUSTERS,
+    FEW_CLUSTER_ESTIMAND_STATUS,
     STATUS_RECORDS,
 )
 from cleverly.datasets import make_clustered
@@ -602,6 +603,51 @@ class TestTheStatusIsTheHooksToWithhold:
         assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, FEW_CLUSTERS - 2)
         with pytest.raises(AssertionError):
             assert_keeps_inference(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+
+def assert_floor_holds_for_the_ate(result: Any) -> None:
+    """At the in-sample floor the ATE is ordinary and the arm mean shows a labelled interval."""
+    assert result["ate"].inference == "influence_curve"
+    mean = result["ey0"]
+    assert mean.inference == FEW_CLUSTER_ESTIMAND_STATUS
+    assert mean.support.label == "experimental"
+    assert "X54" in mean.support.evidence
+    assert mean.reference_df == CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 2
+    low, high = mean.ci
+    assert low < high
+    assert result.inference_status == "influence_curve"
+
+
+class TestTheFloorHoldsForTheMeasuredAte:
+    """R1 of the X54 post-run ruling: a point family's floor certifies the ATE alone.
+
+    Every cell of ``few-cluster-floor-tmle`` reads the ATE. An arm mean, an ATT, an ATC or a
+    ratio keeps the default floor of 10: from the family's floor up to it, such an estimate shows
+    its interval under :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`.
+    """
+
+    def test_at_the_floor_only_the_ate_is_ordinary(self, in_sample_floor_frame: Any) -> None:
+        assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+    def test_the_default_floor_clears_the_label(self, floor_frame: Any) -> None:
+        result = fit(floor_frame, **IN_SAMPLE)
+        assert {e.inference for e in result.estimates.values()} == {"influence_curve"}
+
+    def test_an_arm_mean_read_at_the_ate_floor_fails(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            tmle_module, "unmeasured_estimand_status", lambda status, *args, **kwargs: status
+        )
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+    def test_the_ate_read_at_the_default_floor_fails(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(tmle_module, "MEASURED_POINT_ESTIMAND", "no estimand")
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
 
 
 class TestTheWorkflowPageRunsOnUnequalClusters:

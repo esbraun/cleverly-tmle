@@ -511,7 +511,7 @@ class TestAShownStatus:
         reason = result["ate"].support.reason
         assert STATUS_RECORDS["estimated_weight_plugin"].shown_reason in reason
         assert STATUS_RECORDS["few_cluster_plugin"].shown_reason in reason
-        assert {"X50", "X54"} <= set(result["ate"].support.evidence)
+        assert {"X50", "F28"} <= set(result["ate"].support.evidence)
 
 
 class TestFewClusterT:

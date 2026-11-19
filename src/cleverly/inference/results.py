@@ -17,7 +17,13 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
+from .._inference_status import (
+    FEW_CLUSTER_ESTIMAND_STATUS,
+    PARAMETER_STATUSES,
+    InferenceStatus,
+    cluster_interval_floor,
+    precedent_status,
+)
 from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
@@ -1499,8 +1505,10 @@ def attach_bootstrap(
     classification : Classification or None, default=None
         The fit's classification. Each summary takes the support that
         :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
-        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. ``None``
-        leaves it unclassified.
+        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. A summary reads
+        below the cluster floor when the key's dependence is ``"below_floor"``, or when its
+        estimate carries ``"few_cluster_estimand_plugin"``, which keeps the default floor of the
+        fit's kind. ``None`` leaves it unclassified.
     interval : {"percentile", "bca"}, default="percentile"
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
@@ -1515,6 +1523,13 @@ def attach_bootstrap(
     below_floor = classification is not None and classification.key.dependence == "below_floor"
     cluster_floor = (
         interval_floor(classification.key) if classification is not None and below_floor else None
+    )
+    # An estimate no floor study measured keeps the default floor of its kind, so a fit at or
+    # above its family's floor still reads such an estimate's bootstrap below that default.
+    default_floor = (
+        cluster_interval_floor(None, longitudinal=classification.key.kind != "point")
+        if classification is not None
+        else None
     )
     kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
     # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
@@ -1537,12 +1552,17 @@ def attach_bootstrap(
             drawn = bootstrap.interval(name, alpha)
         # A row resample keeps a flagged node's one value, so the bootstrap spread leaves out
         # the variance the boundary-node supplement bounds; that interval is a diagnostic.
+        unmeasured = (
+            not below_floor
+            and default_floor is not None
+            and estimate.inference == FEW_CLUSTER_ESTIMAND_STATUS
+        )
         return replace(
             drawn,
             diagnostic=diagnostic or estimate.node is not None,
             boundary_node=estimate.node is not None,
-            below_floor=below_floor,
-            cluster_floor=cluster_floor,
+            below_floor=below_floor or unmeasured,
+            cluster_floor=default_floor if unmeasured else cluster_floor,
             support=support_for(
                 classification, estimate.inference, estimate.reference_df, kind=kind
             ),

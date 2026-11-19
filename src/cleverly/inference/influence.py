@@ -709,7 +709,7 @@ class ClusterReference:
 
 def stamp_inference(
     estimates: Mapping[str, ParameterEstimate],
-    status: InferenceStatus,
+    status: InferenceStatus | Mapping[str, InferenceStatus],
     reference: ClusterReference | None = None,
     classification: Classification | None = None,
 ) -> dict[str, ParameterEstimate]:
@@ -731,8 +731,10 @@ def stamp_inference(
     ----------
     estimates : mapping of str to ParameterEstimate
         The report, keyed by estimand.
-    status : str
-        One of :data:`InferenceStatus`.
+    status : str or mapping of str to str
+        One of :data:`InferenceStatus`, or one per estimand when the estimates of one fit take
+        different statuses: a floor family's floor holds for its measured contrast alone
+        (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`).
     reference : ClusterReference or None, default=None
         The rows each estimate reads, on a clustered fit. ``None`` keeps every
         :attr:`ParameterEstimate.reference_df` as built.
@@ -745,21 +747,18 @@ def stamp_inference(
     dict of str to ParameterEstimate
         ``estimates`` in the same order. Every array and number is unchanged.
     """
-    stamped: dict[str, ParameterEstimate]
-    if not supplies_inference(status):
-        stamped = {
-            name: replace(estimate, inference=status, reference_df=None)
-            for name, estimate in estimates.items()
-        }
-    else:
-        stamped = {}
-        for name, estimate in estimates.items():
-            changes: dict[str, Any] = {}
-            if is_labelled(status) and estimate.inference == "influence_curve":
-                changes["inference"] = status
-            if reference is not None:
-                changes["reference_df"] = reference.reference_df(name)
-            stamped[name] = replace(estimate, **changes) if changes else estimate
+    stamped: dict[str, ParameterEstimate] = {}
+    for name, estimate in estimates.items():
+        own = status if isinstance(status, str) else status[name]
+        if not supplies_inference(own):
+            stamped[name] = replace(estimate, inference=own, reference_df=None)
+            continue
+        changes: dict[str, Any] = {}
+        if is_labelled(own) and estimate.inference == "influence_curve":
+            changes["inference"] = own
+        if reference is not None:
+            changes["reference_df"] = reference.reference_df(name)
+        stamped[name] = replace(estimate, **changes) if changes else estimate
     if classification is None:
         return stamped
     return {
