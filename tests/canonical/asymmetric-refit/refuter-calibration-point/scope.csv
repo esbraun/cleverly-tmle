@@ -1,0 +1,15 @@
+stage,phase,group,replicate,estimate,std_error,committed_estimate,committed_std_error,replay,scale,effective_df,acceleration,alpha,shipped_lower,shipped_upper,normal_lower,normal_upper,minuend,minuend_se,subtrahend,subtrahend_se,correlation
+scope,primary,binomial/ate,0,0.062841842977610307,0.014464217272753141,0.062841842977610293,0.014464217272753099,ok,mover,,0.0043284709399342321,0.050000000000000003,0.034438001242385927,0.091568688512579932,0.03449249805845199,0.091191187896768625,0.13352667591340059,0.011604386066318641,0.070684832935790282,0.0087104984768266898,0.0065343220489928492
+scope,primary,gaussian/ate,0,0.99646070516343155,0.048537289314601162,0.99646070516343155,0.048537289314601099,ok,skew_t,1161.9445833348848,0.00041330267875668779,0.050000000000000003,0.90123016903363018,1.0918654257587435,0.90132936619961246,1.0915920441272506,,,,,
+scope,property,refuter_size/C1__placebo,0,2.4817214498271705,1,2.4817214498271705,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/D1__negative_control,0,0.40184824828561655,1,0.40184824828561655,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/D1__placebo,0,-0.689471089122912,1,-0.68947108912291066,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/D1__subset,0,0.81266857281737781,1,0.81266857281737792,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/D2__placebo,0,0.081140147647844968,1,0.081140147647863453,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T1__negative_control,0,0.82797508436719314,1,0.8280012893299622,1,mismatch,own,,,,,,,,,,,,
+scope,property,refuter_size/T1__placebo,0,0.32852955781144172,1,0.32852955781144605,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T1__subset,0,0.99259341911618304,1,0.99259341911619214,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T2__negative_control,0,-0.80568171373084685,1,-0.80568171373084685,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T2__placebo,0,0.97416518119587836,1,0.97416518119587725,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T2__subset,0,1.1451260003369159,1,1.1451260003369159,1,ok,own,,,,,,,,,,,,
+scope,property,refuter_size/T3__placebo,0,-1.049175507375617,1,-1.0491755073756175,1,ok,own,,,,,,,,,,,,

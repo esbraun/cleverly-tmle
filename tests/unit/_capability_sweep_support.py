@@ -118,6 +118,20 @@ def fit_binary() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
 
 
+def fit_constant_arm_cell() -> Any:
+    """A binary fit whose treated arm shows one outcome value, so its estimates withhold.
+
+    Every treated row of ``make_binary_outcome(400, 17)`` takes ``Y = 1``. Each estimate that
+    reads the treated arm carries ``"constant_arm_cell_plugin"``, which reports no interval
+    and no p-value, and ``ey0`` keeps its range-logit interval.
+    """
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    frame.loc[frame["A"] == 1, "Y"] = 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
+
+
 def fit_missing() -> Any:
     """A binary-treatment fit with missing outcomes, which both tilt rows admit."""
     return (
@@ -292,6 +306,48 @@ def fit_learned_rule() -> Any:
     return learned_rule_support.fit()
 
 
+def _projection(scale: str = "difference") -> Any:
+    from cleverly.bases import Linear, Modifiers
+    from cleverly.effect_modification import EffectModification
+
+    return EffectModification(Linear(["W1"]), Modifiers(["W1"]), scale)  # type: ignore[arg-type]
+
+
+def _projection_binary_frame() -> Any:
+    """``make_binary_outcome(400, 17)`` with a baseline stratum ``V`` and a recording flag."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    rng = np.random.default_rng(3)
+    recorded = rng.uniform(size=len(frame)) < 0.75 + 0.15 * np.tanh(frame["W2"].to_numpy())
+    return frame.assign(
+        V=(frame["W3"] > 0).astype(float),
+        DeltaA=recorded.astype(float),
+        A=frame["A"].where(recorded),
+    )
+
+
+def fit_projection() -> Any:
+    """The projection of the CATE on ``Linear(["W1"])``, in sample (P1 part (a))."""
+    return (
+        TMLE(**linear_in_sample(), effect_modification=_projection())
+        .fit(_linear_frame(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_missing_treatment() -> Any:
+    """The projection with a missing treatment, through the composite indicator (P1 PR 1)."""
+    frame = _projection_binary_frame()
+    return (
+        TMLE(
+            **linear_in_sample(),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            effect_modification=_projection(),
+        )
+        .fit(frame.drop(columns=["V"]), outcome="Y", treatment="A", treatment_delta="DeltaA")
+        .single()
+    )
+
+
 def fit_learned_rule_estimated_weights() -> Any:
     """The fold-evaluated learned-rule fit with nonconstant weights declared estimated.
 
@@ -311,6 +367,72 @@ def fit_learned_rule_estimated_weights() -> Any:
             weights="w",
             weights_estimated=True,
         )
+        .single()
+    )
+
+
+def _projection_strata(scale: str) -> Any:
+    frame = _projection_binary_frame().drop(columns=["DeltaA"])
+    frame["A"] = make_binary_outcome(n=400, seed=17)[0]["A"]
+    return (
+        TMLE(**linear_in_sample(), effect_modification=_projection(scale))
+        .fit(frame, outcome="Y", treatment="A", strata=["V"])
+        .single()
+    )
+
+
+def fit_projection_strata() -> Any:
+    """The projection with ``strata=``: marginal and stratum coefficients (P1 PR 1)."""
+    return _projection_strata("difference")
+
+
+def fit_projection_strata_crr() -> Any:
+    """The log-ratio projection with ``strata=``: two fluctuation groups (P1 PR 1)."""
+    return _projection_strata("log_ratio")
+
+
+def fit_projection_repeated() -> Any:
+    """The cross-fitted projection with ``repeats=3``, the median rule (P1 PR 1)."""
+    settings = {**linear_in_sample(), "cross_fit": True, "n_folds": 3, "repeats": 3}
+    settings["outcome_learner"] = LogisticRegression(max_iter=1000)
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return (
+        TMLE(**settings, effect_modification=_projection())
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def _ep_rule(**keywords: Any) -> Any:
+    from cleverly.bases import Modifiers
+    from cleverly.interventions import LearnedRule
+
+    modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
+    return LearnedRule(loss="ep", modifiers=modifiers, **keywords)
+
+
+def fit_learned_rule_ep_sieve() -> Any:
+    """The EP rule with a declared fixed-size B-spline sieve (P1 PR 1, part (v))."""
+    from cleverly.bases import Additive, BSpline, Indicators, Sieve
+
+    sieve = Sieve(Additive(BSpline(["W1"], 4), Indicators("W2")), size=3)
+    return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve))
+
+
+def fit_learned_rule_ep_learner() -> Any:
+    """The EP rule with a declared final learner and a fixed-size default sieve (P1 PR 1)."""
+    from cleverly.bases import Modifiers, Sieve
+
+    modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
+    sieve = Sieve.default(modifiers, max_size=3, size=2)
+    return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve, learner=LinearRegression()))
+
+
+def fit_projection_bootstrap() -> Any:
+    """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
+    return (
+        TMLE(**linear_in_sample(), n_bootstrap=10, effect_modification=_projection())
+        .fit(_linear_frame(), outcome="Y", treatment="A")
         .single()
     )
 
@@ -2099,11 +2221,15 @@ def fit_separable() -> Any:
     return LTMLE(regimens, **settings).fit(frame, **law.fit_columns())
 
 
-def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
+def fit_continuous_survival(
+    restricted_horizons: tuple[float, ...] = (), variance: str = "switched"
+) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
     selects nothing by cross-validated partial likelihood and runs in well under a second.
+    ``variance`` is the fit's variance option, the default switched variance unless a kind
+    names another.
     """
     from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
 
@@ -2122,6 +2248,7 @@ def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
     return ContinuousSurvivalTMLE(
         [0.5, 1.0],
         restricted_horizons=restricted_horizons,
+        variance=variance,
         cross_fit=False,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
@@ -2136,6 +2263,16 @@ def fit_continuous_survival_restricted() -> Any:
     reports restricted means and their influence curves beside the risks.
     """
     return fit_continuous_survival(restricted_horizons=(1.0,))
+
+
+def fit_continuous_survival_influence_curve() -> Any:
+    """The continuous-time fit above under ``variance="influence_curve"``.
+
+    The other continuous-time kinds read the default switched variance, so this kind asks
+    every row of a fit whose estimates carry the influence-curve variance alone and no
+    predictable-variation covariance.
+    """
+    return fit_continuous_survival(variance="influence_curve")
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -2219,6 +2356,9 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, "marginal_bounds", *_ARM),
+    # A withheld interval (Fix-3 PR 3): the E-value, which needs an interval, refuses by the
+    # status; the plug-in bound rows and the benchmark answer.
+    "constant_arm_cell": _kind(fit_constant_arm_cell, *_LIVE, *_PLUGIN_BOUND, "benchmark"),
     # A declared mechanism leaves no omitted confounder of the treatment, so benchmark
     # refuses it, as on every declared-mechanism fit. The bound rows answer the ATE; their
     # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
@@ -2235,6 +2375,23 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed (X11 part (n)). A refit relearns the
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
+    # The projection of a conditional contrast and its P1 PR 1 compositions. The summarize
+    # rows and the truncation curve run; refute and every sensitivity row refuse a
+    # working-model coefficient by name, with the ATE or the risk ratio as the alternative.
+    "projection": _kind(fit_projection, *_READ, "truncation_curve"),
+    "projection+missing_treatment": _kind(
+        fit_projection_missing_treatment, *_READ, "truncation_curve"
+    ),
+    "projection+strata": _kind(fit_projection_strata, *_READ, "truncation_curve"),
+    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
+    "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
+    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    "learned_rule_ep_sieve": _kind(
+        fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
+    "learned_rule_ep_learner": _kind(
+        fit_learned_rule_ep_learner, *_READ, "truncation_curve", *_PLUGIN_BOUND
+    ),
     # Estimated weights change no number under the conditional reading (X11 (k2)).
     "learned_rule+estimated_weights": _kind(
         fit_learned_rule_estimated_weights, *_READ, "truncation_curve", *_PLUGIN_BOUND
@@ -2427,10 +2584,16 @@ KINDS: dict[str, Kind] = {
     "learned_regimen": _kind(fit_learned_regimen, *_READ),
     # The stored estimator refits on the stored data (X101): refute answers through the first
     # reported estimate, an arm risk, so it runs the noise test. The E-value reads the risk
-    # ratio of the pair of risks the sweep names.
-    "continuous_survival": _kind(fit_continuous_survival, *_READ, *_POINT, "evalue"),
+    # ratio of the pair of risks the sweep names. The simulated common cause replays event and
+    # censoring times and refits in each cell (X101 part (b)).
+    "continuous_survival": _kind(
+        fit_continuous_survival, *_READ, *_POINT, "evalue", "simulated_confounding"
+    ),
     "continuous_survival+restricted": _kind(
-        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue"
+        fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
+    ),
+    "continuous_survival+influence_curve": _kind(
+        fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
     ),
 }
 
@@ -2718,11 +2881,14 @@ MUTATIONS: dict[str, Mutation] = {
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
         # The learned-rule kinds came after RM23. Their tilt rule is one the pre-RM23 rows did
-        # not read, so M1 makes their tilt rows read available while both calls refuse.
+        # not read, so M1 makes their tilt rows read available while both calls refuse. The EP
+        # rule kinds with a declared sieve or learner are learned-rule fits too.
         frozenset(
             (
                 *DECLINED_TILT_KINDS,
                 "learned_rule",
+                "learned_rule_ep_sieve",
+                "learned_rule_ep_learner",
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
                 "learned_rule_known",
@@ -2788,6 +2954,7 @@ MUTATIONS: dict[str, Mutation] = {
                 # fixed null, so the placebo declines there (X101).
                 "continuous_survival",
                 "continuous_survival+restricted",
+                "continuous_survival+influence_curve",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
@@ -2843,6 +3010,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "regime",
                 "regime+missing",
                 "learned_rule",
+                "learned_rule_ep_sieve",
+                "learned_rule_ep_learner",
                 "learned_rule+estimated_weights",
                 # The bound of the value of the optimal rule runs, and its benchmark refit
                 # refuses (X11 (f3), (n2)).

@@ -245,11 +245,11 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert random_fit[name].std_error == pytest.approx(gain.std_error, abs=1e-6)
 
     robustness, bound = namespace["robustness"], namespace["bound"]
-    # "The robustness value, 0.076 ... 0.039 on both sides".
-    assert round(robustness["rv"], 3) == 0.076 and round(robustness["rva"], 3) == 0.039
-    # "would shift the gain by at most 0.0008, leaving one-sided 95% limits of 0.0124 and 0.0400".
+    # "The robustness value, 0.076 ... 0.040 on both sides".
+    assert round(robustness["rv"], 3) == 0.076 and round(robustness["rva"], 3) == 0.040
+    # "would shift the gain by at most 0.0008, leaving one-sided 95% limits of 0.0128 and 0.0404".
     assert round(bound.bias, 4) == 0.0008 and bound.ci_lower > 0.0
-    assert round(bound.ci_lower, 4) == 0.0124 and round(bound.ci_upper, 4) == 0.0400
+    assert round(bound.ci_lower, 4) == 0.0128 and round(bound.ci_upper, 4) == 0.0404
     # "They are one-sided, which is why they sit inside the two-sided interval".
     low, high = random_fit[name].ci
     assert low < bound.ci_lower and bound.ci_upper < high

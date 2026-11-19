@@ -75,12 +75,17 @@ parameters are means of the same summands.
 
 **The interval.**  ``[lower - z se_lower, upper + z se_upper]`` with
 :math:`z = \Phi^{-1}(1 - (1 - \text{level})/2)` covers the identified set with asymptotic
-probability at least ``level`` by the union bound.  A clustered fit below the few-cluster
-threshold replaces :math:`z` with the Student t quantile on the fit's own ``J - 2`` degrees
-of freedom over the rows the bounded parameter reads.  It is a set interval: the tighter
-interval for the parameter alone (Imbens and Manski 2004) is not shipped.  The binary
-quantile is a plug-in threshold, so its sharpness needs a margin condition: the outcome
-regression puts little mass near :math:`1 - \tau`.  Validity needs no such condition.
+probability at least ``level`` by the union bound.  Each limit is the matching side of the
+two-sided interval at ``level`` that the bounded estimate's own rule forms about that end
+(:func:`~cleverly.inference.interval_reference`): the range-logit scale of a bounded mean,
+the skew-widened t of a continuous outcome and the MOVER multiples of a bounded difference
+replace the normal ``z`` where the estimate's interval reads them.  A clustered fit below the
+few-cluster threshold replaces :math:`z` with the Student t quantile on the fit's own
+``J - 2`` degrees of freedom over the rows the bounded parameter reads.  It is a set
+interval: the tighter interval for the parameter alone (Imbens and Manski 2004) is not
+shipped.  The binary quantile is a plug-in threshold, so its sharpness needs a margin
+condition: the outcome regression puts little mass near :math:`1 - \tau`.  Validity needs no
+such condition.
 
 **What the interval may claim.**  It resolves through the registry of
 :mod:`cleverly.validation._interpretation`, instrument :data:`MSM_BOUND_INSTRUMENT`.  Study
@@ -106,7 +111,9 @@ from ..exceptions import CapabilityError
 from ..inference.cluster import cluster_reference_df, influence_variance
 from ..inference.cluster_jackknife import jackknife_fit
 from ..inference.delta import reference_quantile
+from ..inference.influence import ParameterEstimate
 from ..utils.frames import emit_frame
+from ._limits import bound_limits
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
@@ -168,9 +175,10 @@ class MarginalSensitivityRow:
     upper_std_error : float
         The standard error of ``upper``.
     lower_limit : float
-        ``lower`` less ``z`` standard errors.
+        The lower side of the estimate's own interval rule about ``lower``: ``lower`` less
+        ``z`` standard errors under the normal identity rule.
     upper_limit : float
-        ``upper`` plus ``z`` standard errors.
+        The upper side of that rule about ``upper``.
     """
 
     gamma: float
@@ -1191,6 +1199,46 @@ def _target_ends(
     return lower, upper
 
 
+def _shipped_limit(
+    estimate: ParameterEstimate | None,
+    end: float,
+    std_error: float,
+    curve: FloatArray | None,
+    level: float,
+    side: float,
+    *,
+    ratio: bool,
+    df: int | None = None,
+    clustered: bool = False,
+) -> float:
+    """One limit of the set interval, under the interval rule the bounded estimate ships.
+
+    ``end`` is the bound on the reported scale (a ratio's on the ratio scale) and
+    ``std_error`` its standard error on the inference scale. The limit is the side ``side``
+    (``-1`` lower, ``1`` upper) of the two-sided interval at ``level`` that
+    :func:`~cleverly.inference.interval_reference` forms about the bound: the estimate's t
+    reference over the target's rows, the range-logit scale of a bounded mean, the
+    skew-widened t of a continuous outcome (reading ``curve`` on one draw), and the MOVER
+    multiples of a bounded difference (:func:`~cleverly.sensitivity._limits.bound_limits`).
+    A target the fit reports no estimate of takes the normal reference on the bound's scale,
+    the log scale for a ``ratio``.  On a ``clustered`` fit, ``df`` is the few-cluster t
+    reference over the target's rows (:func:`_reference_df`, ``None`` for the normal one): a
+    clustered estimate keeps its own symmetric reference under every shipped rule, so the
+    limit is the normal or t limit on the bound's scale, on the bound's own degrees of
+    freedom, which can differ from the estimate's (a fold-evaluated CV-TMLE pools the cluster
+    variance on ``J - 2``).
+    """
+    if estimate is None or clustered:
+        # No rule is shipped for an unreported target, and a clustered one keeps its
+        # symmetric reference: the normal or t quantile on the bound's scale.
+        z = reference_quantile(1.0 - level, df)
+        if ratio:
+            return float(np.exp(np.log(end) + side * z * std_error))
+        return float(end + side * z * std_error)
+    read = bound_limits(estimate, level=level, psi=end, std_error=std_error, influence_curve=curve)
+    return float(read.lower if side < 0 else read.upper)
+
+
 def _median_rule(values: FloatArray, variances: FloatArray) -> tuple[float, float]:
     """The repeat median and its variance (Chernozhukov et al. 2018, eq. 3.14)."""
     centre = float(np.median(values))
@@ -1334,14 +1382,15 @@ def marginal_sensitivity_bounds(
     if withheld is not None:
         raise CapabilityError.from_refusal(withheld)
     cluster = result.data.cluster
+    reported = result.estimates.get(target.name)
     df = _reference_df(result, target)
-    z = reference_quantile(1.0 - level, df)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"
     rows: list[MarginalSensitivityRow] = []
     quantile_names: set[str] = set()
     pseudo_names: set[str] = set()
     for value in grid:
         lowers, uppers, lower_vars, upper_vars = [], [], [], []
+        lower_curves, upper_curves = [], []
         for repeat in result.repeats:
             sides = _draw_sides(
                 result, repeat, value, _wanted(target), quantile_learner, pseudo_outcome_learner
@@ -1371,13 +1420,36 @@ def marginal_sensitivity_bounds(
             uppers.append(up.value)
             lower_vars.append(influence_variance(low.curve, cluster))
             upper_vars.append(influence_variance(up.curve, cluster))
+            lower_curves.append(low.curve)
+            upper_curves.append(up.curve)
         lower, lower_var = _median_rule(np.asarray(lowers), np.asarray(lower_vars))
         upper, upper_var = _median_rule(np.asarray(uppers), np.asarray(upper_vars))
         lower_se, upper_se = float(np.sqrt(lower_var)), float(np.sqrt(upper_var))
-        lower_limit, upper_limit = lower - z * lower_se, upper + z * upper_se
         if target.ratio:
             lower, upper = float(np.exp(lower)), float(np.exp(upper))
-            lower_limit, upper_limit = float(np.exp(lower_limit)), float(np.exp(upper_limit))
+        single = len(lower_curves) == 1
+        lower_limit = _shipped_limit(
+            reported,
+            lower,
+            lower_se,
+            lower_curves[0] if single else None,
+            level,
+            -1.0,
+            ratio=target.ratio,
+            df=df,
+            clustered=cluster is not None,
+        )
+        upper_limit = _shipped_limit(
+            reported,
+            upper,
+            upper_se,
+            upper_curves[0] if single else None,
+            level,
+            1.0,
+            ratio=target.ratio,
+            df=df,
+            clustered=cluster is not None,
+        )
         rows.append(
             MarginalSensitivityRow(
                 gamma=value,

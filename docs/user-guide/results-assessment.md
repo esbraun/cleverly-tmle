@@ -33,11 +33,14 @@ much the estimate would move from sample to sample. The `95% CI` is the interval
 and the `p-value` tests whether the effect is zero. A row with no interval says why in a note.
 
 In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
-on a scale that keeps it inside the possible range, so the interval need not be centred on the
-estimate. When a treatment group shows only one outcome value, in the data or in a subgroup, or an
-estimate sits exactly at 0 or 100 percent, it reports no interval for that estimate or for the
-effects and ratios that use it
-([small-sample scale](../technical-reference/inference.md#small-sample-scale)).
+on a scale that keeps it inside the possible range, and builds the interval of a difference from
+the two groups' intervals, so an interval need not be centred on the estimate. For an outcome
+measured on a continuous scale, without clusters, it widens the interval with a t distribution
+when a few observations carry most of the uncertainty, and widens it further on the side where a
+skewed outcome makes misses more likely. The `df` column of the summary says how much. When a
+treatment group shows only one outcome value, in the data or in a subgroup, or an estimate sits
+exactly at 0 or 100 percent, it reports no interval for that estimate or for the effects and
+ratios that use it ([small-sample scale](../technical-reference/inference.md#small-sample-scale)).
 
 Numbered notes follow the table, and they appear only when something changes how to read a number.
 A note can say that an estimate is experimental because no validation study covers that kind of
@@ -1351,6 +1354,26 @@ A new fit under a supported configuration restores the refits.
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the
 result that answered them, so a derived result starts with an empty cache of its own.
+
+### Limit the memory of saved answers
+
+A result keeps every assessment answer it has computed, so a repeated call returns at once. Most
+answers are a few kilobytes. The omitted-confounder elements that `elements()` returns, and that
+`run_all()` and `assess()` compute along the way, hold four numbers per row: about 32 MB for each
+estimand and `nu2_estimator` at a million rows. A derived risk ratio holds one number per row. Many
+distinct requests on a large fit can therefore add up.
+
+Set `result.assessment_cache.max_bytes` to a number of bytes to cap the memory of all saved
+answers. When the total passes the cap, the cache drops the answers it can compute again exactly
+from the fitted result, least recently used first, and a later call recomputes a dropped answer
+with bit-for-bit the same numbers. It never drops an answer that refits a model, draws a random
+seed of its own, fits a learner or runs work in parallel, because computing that again could give
+different numbers. Those answers count toward the cap and can hold the cache above it. `result.assessment_cache.info()` lists each answer with its size and whether
+the cap may drop it, and `result.assessment_cache.evict()` drops every answer it may drop now.
+
+There is no cap by default. A cap trades memory for the time to recompute, and `save()` writes only
+the answers that survive it. `result.assessment_cache.clear()` removes every answer, including the
+refits; a repeated unseeded refit then draws a new seed, as it would after any removal.
 
 The artifact contains the complete result graph, including nuisance estimator templates, so
 successfully restored results retain refit-based assessment. `save()` writes the graph with

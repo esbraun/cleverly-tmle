@@ -206,23 +206,33 @@ predicted rates, in small steps, until the risks satisfy the equations that make
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
 about ten seconds at 1,000 people.
 
-The fit's memory grows with the number of people times the number of distinct event and
-censoring times up to the last horizon, so when times rarely repeat it grows with the square of
-the number of people. With one kind of event, 100,000 people and a last horizon that covers most
-follow-up times, it would need about 1 TB. Before fitting anything, the fit predicts how much
-memory it needs and stops with an error when that is more than the machine has free; on macOS,
-which does not report free memory, it checks only a limit you set. The error spells the
-`ContinuousSurvivalTMLE` call that runs the same fit, whose `max_memory_bytes=` sets the limit,
-as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+The fit works through the people in small groups, so its memory grows with the number of people
+and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
+people and two horizons, it needs about 0.7 GB. About 0.4 GB of that is working space for the
+default standard errors (`variance="switched"` on `ContinuousSurvivalTMLE`), which does not grow
+with the number of people; `variance="influence_curve"` skips that step and needs about 0.3 GB.
+Before fitting anything, the fit checks that the machine has the memory it needs free and stops
+with an error when it does not; on macOS, which does not report free memory, it checks only a
+limit you set. Between passes it keeps as many groups as the free memory holds and recomputes the
+rest, so a larger limit makes a large fit faster and never changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
+whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
-competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
+competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
-time by which a quarter had happened the intervals were too narrow, and some covered only 88% of
-the time. So an estimate reads `supported` only at a time by which 40% to 85% of the events of
-any cause have happened, not counting people who left follow-up. By time 0.5 about a fifth had,
+time by which a quarter had happened its intervals covered 93% to 96%, but in a
+[second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
+other data-generating setups some intervals at that early time were still too narrow. So an
+estimate reads `supported` only at a time by which 40% to 85% of the events of any cause have
+happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
+
+A [third study](../technical-reference/method-evidence/continuous-survival-causes.md) ran the same
+fit at 1,000 people with one kind of event and with three competing ones, and its intervals
+covered 93% to 96% of the time at the same two times. So those fits can read `supported` too, but
+only from 1,000 people. With four or more kinds of event every estimate reads `experimental`,
+because no study has checked such a fit.
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
@@ -293,7 +303,7 @@ is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci
 
 The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
 with one cut-off at the last target time found the restricted means unbiased and their 95%
-intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+intervals covering 94% to 95% of the time. It measured a cut-off by which three quarters of the
 events had happened, and a mean up to an earlier cut-off leans more on the early times, where
 intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
 of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The
@@ -569,7 +579,8 @@ is measured after baseline. A plan can fix the treatment at each time point, fol
 reads the baseline covariates, or draw the treatment with known probabilities that may depend on
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
-memory use passes 2 GiB is refused before any model is fitted.
+memory use passes 2 GiB is refused before any model is fitted. On a machine with more memory,
+`LTMLE(..., max_memory_bytes=...)` sets a different limit, higher or lower.
 
 If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
@@ -707,7 +718,7 @@ not record could change the answer.
 | call | what it does | where it runs |
 | --- | --- | --- |
 | `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
-| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not |
+| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not, and a fit with exact times |
 
 `simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in
 the grid you pass. To read it, find the weakest confounder at which the estimate crosses zero, and judge
@@ -722,6 +733,15 @@ changed, and a person whose event the confounder removes stays in follow-up on f
 grid cell with both strengths at zero gives the original estimate.
 [The stress surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
 gives the replay and its checks.
+
+On a fit with exact times, the confounder scales each person's event rate of every event type
+up or down, and new event and censoring times are drawn from models the analysis fits for this
+purpose. Censoring is again drawn afresh only where the treatment changed, and both strengths at
+zero give back the recorded times and the original estimate. Each grid cell other than that one
+refits the whole analysis, so a 3 by 3 grid costs 8 refits: seconds at a few hundred people, and
+minutes for a large cross-fitted fit. The surface prints numbers, not a pass or fail.
+[Continuous-time survival replay](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the law and its checks.
 :::
 
 Both analyses, and the checks that generate new outcomes (`dummy_outcome`, `simulated_outcome`,

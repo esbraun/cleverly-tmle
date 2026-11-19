@@ -123,6 +123,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from ._fit_cache import cached
 from .panel import PanelLayout
 
 __all__ = [
@@ -3985,8 +3986,13 @@ class RegimenMasks:
     def at_risk(self, time: int) -> BoolArray:
         """:math:`H_t` observed, regimen-consistent and event-free: reads ``time - 1``."""
         index = max(0, time - 1)
-        return np.asarray(
-            self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+        return cached(
+            "at_risk",
+            (self,),
+            index,
+            lambda: np.asarray(
+                self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+            ),
         )
 
     def following(self, time: int) -> BoolArray:
@@ -3999,8 +4005,15 @@ class RegimenMasks:
         generalises rather than breaks.  Tidying the asymmetry away is the single easiest
         mistake to make here.
         """
-        return np.asarray(
-            self.uncensored[:, time] & self.followed[:, time] & self.event_free[:, max(0, time - 1)]
+        return cached(
+            "following",
+            (self,),
+            time,
+            lambda: np.asarray(
+                self.uncensored[:, time]
+                & self.followed[:, time]
+                & self.event_free[:, max(0, time - 1)]
+            ),
         )
 
 

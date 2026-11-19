@@ -1580,6 +1580,7 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "random_state": _witness("test_none_seed_draws_fresh_concrete_seeds"),
     "run_id": _witness(EACH_DRAW, "settings"),
     "n_jobs": _witness(EACH_DRAW, "settings"),
+    "max_memory_bytes": _witness(EACH_DRAW, "settings"),
     "n_bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
     "bootstrap_resampling": _witness(EACH_DRAW, "settings"),
     "bootstrap_interval": _witness("test_repeats_refuse_the_bootstrap"),

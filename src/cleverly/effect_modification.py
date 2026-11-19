@@ -48,6 +48,7 @@ __all__ = [
     "EffectModificationSet",
     "ModifierReader",
     "effect_modification_data_refusal",
+    "effect_modification_ep_refusal",
     "effect_modification_gap",
     "log_ratio_scale_refusal",
     "modifier_frame",
@@ -62,11 +63,6 @@ TARGET_OF_SCALE = {"difference": "cate_projection", "log_ratio": "log_crr_projec
 
 #: What each composition outside P1 is missing (R7 of the P1 plan), by the name of the axis.
 COMPOSITION_GAPS: dict[str, str] = {
-    "missing treatments": (
-        "the shipped missing-treatment route models the composite indicator of an observed "
-        "treatment and outcome, and its clever covariate with a modifier basis and its study "
-        "cell are not built."
-    ),
     "an intermediate": (
         "the controlled direct effect fixes an intermediate variable, and the projection's "
         "clever covariate with the intermediate mechanism and its study cell are not built."
@@ -74,29 +70,13 @@ COMPOSITION_GAPS: dict[str, str] = {
     "a continuous or vector treatment": (
         "the projection contrasts two arms, and a dose has no pair of arms to contrast."
     ),
-    "strata=": (
-        "the modifiers already condition the effect, and a projection per stratum would need "
-        "one block of basis terms per stratum, which is not built."
-    ),
-    "repeats above 1": (
-        "the median over repeated splits of a coefficient vector has no reviewed joint "
-        "covariance, and no study measures it."
-    ),
-    "the full-refit bootstrap": (
-        "the refit bootstrap of the projection is not built; the interval comes from the "
-        "influence curve."
-    ),
 }
 
 _COMPOSITION_ALTERNATIVE = {
-    "missing treatments": "Drop the rows with a missing treatment, or fit ATE() on this design.",
     "an intermediate": "Fit ControlledDirectEffect(...) for the effect at a fixed intermediate.",
     "a continuous or vector treatment": (
         "Discretize the treatment and declare treatment= and reference= on the contrast."
     ),
-    "strata=": "Declare the stratifying column as a modifier, and an Indicators basis of it.",
-    "repeats above 1": "Fit with repeats=1.",
-    "the full-refit bootstrap": "Fit with n_bootstrap=0; the Wald interval is reported.",
 }
 
 
@@ -124,6 +104,10 @@ def effect_modification_gap(axis: str) -> Refusal:
 def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
     """The R7 refusal the data decide, or ``None``.
 
+    A missing treatment and baseline strata compose with the projection (the in-sample
+    composite construction, and one block of basis terms per stratum), so only a dose and
+    an intermediate are refused here.
+
     Parameters
     ----------
     data : CausalData
@@ -136,12 +120,52 @@ def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
     """
     if data.is_continuous_treatment or data.treatment_kind == "vector":
         return effect_modification_gap("a continuous or vector treatment")
-    if data.has_missing_treatment:
-        return effect_modification_gap("missing treatments")
     if data.has_intermediate:
         return effect_modification_gap("an intermediate")
+    return None
+
+
+#: R7-ep-mt of the P1 plan: the EP learner with a missing treatment.
+EP_MISSING_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The EP learner cross-fits its nuisances and pools every row in one debiasing "
+    "regression, and the cross-fitted composite construction of a missing treatment is "
+    "open (roadmap X53).",
+    alternative=(
+        "Fit method='tmle' with model= declared and cross_fit=False (in sample), or drop the "
+        "rows with a missing treatment if they are missing completely at random."
+    ),
+    roadmap="X53",
+)
+
+#: R7-ep-strata of the P1 plan: the EP learner with baseline strata.
+EP_STRATA_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "The EP curve is a function of the modifiers, and a baseline stratum is one more "
+    "modifier: the curve given V within stratum s is the curve given (V, S).",
+    alternative=(
+        "Declare the stratum column as a modifier, with an Indicators basis of it in the sieve."
+    ),
+)
+
+
+def effect_modification_ep_refusal(data: CausalData) -> Refusal | None:
+    """The refusal of an EP-learner conditional contrast the data decide, or ``None``.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    Refusal or None
+        R7-ep-mt for a missing treatment, R7-ep-strata for baseline strata.
+    """
+    if data.has_missing_treatment:
+        return EP_MISSING_TREATMENT_REFUSAL
     if data.has_strata:
-        return effect_modification_gap("strata=")
+        return EP_STRATA_REFUSAL
     return None
 
 

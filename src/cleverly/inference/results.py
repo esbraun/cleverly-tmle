@@ -42,8 +42,10 @@ from .influence import (
     median_estimates,
     minimum_reference_df,
     spread_name,
+    with_components,
     with_precedent_status,
 )
+from .switched import SWITCHED_REFUSAL
 
 __all__ = [
     "RepeatSpread",
@@ -109,9 +111,14 @@ def covariance_rule(
     """The one covariance rule every selected estimate declares.
 
     A selection that mixes rules is refused. No derivation here supplies the
-    cross-covariance between a centred curve and a raw second moment.
+    cross-covariance between a centred curve and a raw second moment. A selection of
+    ``"switched"`` estimates is refused too: their variance is not the variance of their
+    curves, so a contrast of the curves would report the influence-curve variance beside
+    inputs that report the predictable variation.
     """
     rules = {estimates[name].covariance_rule for name in names}
+    if "switched" in rules:
+        raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
     if len(rules) != 1:
         raise ValueError(
             f"the selected estimates {list(names)} declare different covariance rules "
@@ -536,7 +543,37 @@ def smooth_contrast(
         outcome_family=shared_family([estimates[key] for key in chosen]),
         rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
-    return estimate if transform is None else replace(estimate, transform=transform)
+    if transform is not None:
+        return replace(estimate, transform=transform)
+    return _difference_of_means(estimate, [estimates[key] for key in chosen])
+
+
+def _difference_of_means(
+    estimate: ParameterEstimate, inputs: Sequence[ParameterEstimate]
+) -> ParameterEstimate:
+    """A contrast that is the difference of two bounded means of one fit, with its components.
+
+    Such a contrast lies in ``(-1, 1)`` and gets those bounds and the two means as
+    :attr:`~cleverly.inference.ParameterEstimate.components`, so its interval is correlated
+    MOVER on the means' logit intervals. :func:`~cleverly.inference.with_components` checks
+    that the contrast is the difference of the two in its estimate and its curve. Any other
+    contrast, and every clustered one, is returned unchanged.
+    """
+    if (
+        estimate.scale != "difference"
+        or estimate.n_clusters < estimate.n
+        or estimate.reference_df is not None
+        or len(inputs) != 2
+        or any(part.bounds != (0.0, 1.0) or part.scale != "level" for part in inputs)
+    ):
+        return estimate
+    bounded = replace(estimate, bounds=(-1.0, 1.0))
+    first, second = inputs
+    for minuend, subtrahend in ((first, second), (second, first)):
+        recorded = with_components(bounded, minuend, subtrahend)
+        if recorded.components is not None:
+            return recorded
+    return estimate
 
 
 def check_transform_scale(scale: Scale, transform: Transform | None) -> None:
@@ -588,9 +625,11 @@ def transform_estimate(
 
     The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
     by the transform's slope at the value, and the variance is read off that curve under the
-    estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
-    ``smooth_contrast(..., transform=T)`` bit for bit, support record included: a change of
-    inference scale does not change where the estimate came from.
+    estimate's covariance rule; a switched estimate's predictable variation is multiplied by
+    the slope squared, and the switch is read on the mapped curve.  So
+    ``transform_estimate(smooth_contrast(...), T)`` equals ``smooth_contrast(..., transform=T)``
+    bit for bit, support record included: a change of inference scale does not change where
+    the estimate came from.
 
     Parameters
     ----------
@@ -644,6 +683,10 @@ def transform_estimate(
         support=estimate.support,
         outcome_family=estimate.outcome_family,
         rule_widened=estimate.rule_widened,
+        # The delta method carries the predictable variation by the same slope as the curve.
+        predictable_variance=None
+        if estimate.switched is None
+        else slope**2 * estimate.switched.predictable_variance,
     )
     return replace(mapped, transform=transform)
 
@@ -1485,6 +1528,7 @@ def attach_bootstrap(
     diagnostic: bool = False,
     classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
+    experimental_reason: str | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -1513,6 +1557,12 @@ def attach_bootstrap(
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
         clusters when the bootstrap resamples clusters.
+    experimental_reason : str or None, default=None
+        The sentence a summary whose support reads experimental gives as its reason, in place
+        of the generic one.  When the estimate itself reads experimental, the summary keeps
+        the generic reason, which names why, and adds this sentence after it.  The
+        point-treatment TMLE passes the reason of a cross-fitted bootstrap (roadmap F2);
+        ``None`` keeps the generic reason.
 
     Returns
     -------
@@ -1557,15 +1607,23 @@ def attach_bootstrap(
             and default_floor is not None
             and estimate.inference == FEW_CLUSTER_ESTIMAND_STATUS
         )
+        support = support_for(classification, estimate.inference, estimate.reference_df, kind=kind)
+        # An estimate that is itself experimental keeps the generic reason, which names why
+        # its own fit reads experimental, and adds the given one after it.
+        if experimental_reason is not None and support.label == "experimental":
+            reason = (
+                f"{support.reason} {experimental_reason}"
+                if estimate.support.label == "experimental" and support.reason
+                else experimental_reason
+            )
+            support = replace(support, reason=reason)
         return replace(
             drawn,
             diagnostic=diagnostic or estimate.node is not None,
             boundary_node=estimate.node is not None,
             below_floor=below_floor or unmeasured,
             cluster_floor=default_floor if unmeasured else cluster_floor,
-            support=support_for(
-                classification, estimate.inference, estimate.reference_df, kind=kind
-            ),
+            support=support,
         )
 
     estimates = {

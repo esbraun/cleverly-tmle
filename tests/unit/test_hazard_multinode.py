@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import CapabilityError, RefusalReason
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.longitudinal import hazard as hazard_module
@@ -491,7 +491,7 @@ def test_an_influence_curve_without_its_plug_in_term_misses(
 
 
 def _from_plan_values(
-    data: Any, plans: Any
+    data: Any, plans: Any, **cap: Any
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[int], tuple[int, ...]]:
     """The mutation: each slot built from ``Plan.values`` and the plan's evaluated policy.
 
@@ -557,8 +557,8 @@ def test_mutation_double_counted_slot_mass_misses(monkeypatch: pytest.MonkeyPatc
     """The "always" regimen also carries mass on the duplicate of its path that "stay" owns."""
     original = hazard_module.path_slots
 
-    def doubled(data: Any, plans: Any) -> Any:
-        slots = original(data, plans)
+    def doubled(data: Any, plans: Any, *args: Any, **kwargs: Any) -> Any:
+        slots = original(data, plans, *args, **kwargs)
         q = slots.q.copy()
         ones = [
             u
@@ -633,8 +633,8 @@ def test_mutation_a_deviated_residual_misses(monkeypatch: pytest.MonkeyPatch) ->
     """A unit whose observed prefix no slot carries contributes its residual at slot 0."""
     original = hazard_module.path_slots
 
-    def leaking(data: Any, plans: Any) -> Any:
-        slots = original(data, plans)
+    def leaking(data: Any, plans: Any, *args: Any, **kwargs: Any) -> Any:
+        slots = original(data, plans, *args, **kwargs)
         match = slots.observed_match.copy()
         at_risk, _ = hazard_module.event_indicators(data)
         deviated = at_risk & ~match.any(axis=2)
@@ -975,25 +975,54 @@ def test_h17_a_policy_at_many_nodes_is_refused_before_any_learner() -> None:
     assert float(found.group(8)) == pytest.approx(peak / 1024.0**3, abs=0.05)
 
 
-#: A record, not a run: the traced peak (MB) of whole one-step fits at ``iterate="best"`` of a
-#: known policy with full support at every node, ``(n, T, J, p, U, peak)``, from which
-#: :data:`~cleverly.longitudinal.hazard.PATH_SLOT_BYTES`, ``PATH_STATE_BYTES`` and
-#: ``PATH_DESIGN_BYTES`` were set.
+#: A record, not a run: the traced peak (MB) of whole fits of a known coin policy with full
+#: support at every node (logistic learners), ``(n, T, J, p, U, targeting, iterate, n_folds,
+#: peak)``, measured after X106 J2c released each horizon's state
+#: (``rows/X106/J2/evidence/2026-11-18/peaks.py`` in the plans repository): the eight fixtures in
+#: both targeting modes at one fold and ``iterate="best"``, and two of them at ten folds in both
+#: modes and both ``iterate`` values.  :data:`~cleverly.longitudinal.hazard.PATH_SLOT_BYTES`,
+#: ``PATH_STATE_BYTES`` and ``PATH_DESIGN_BYTES`` cover every row.
 PEAKS = (
-    (20_000, 4, 1, 5, 16, 367.7),
-    (20_000, 5, 1, 6, 32, 874.0),
-    (20_000, 4, 2, 5, 16, 522.6),
-    (20_000, 4, 1, 44, 16, 362.2),
-    (40_000, 4, 1, 5, 16, 711.9),
-    (2_000, 6, 1, 7, 64, 219.8),
-    (10_000, 4, 2, 5, 16, 261.4),
-    (1_000, 7, 1, 8, 128, 241.8),
+    (20_000, 4, 1, 5, 16, "one_step", "best", 1, 346.2),
+    (20_000, 5, 1, 6, 32, "one_step", "best", 1, 848.9),
+    (20_000, 4, 2, 5, 16, "one_step", "best", 1, 513.4),
+    (20_000, 4, 1, 44, 16, "one_step", "best", 1, 352.4),
+    (40_000, 4, 1, 5, 16, "one_step", "best", 1, 692.2),
+    (2_000, 6, 1, 7, 64, "one_step", "best", 1, 202.2),
+    (10_000, 4, 2, 5, 16, "one_step", "best", 1, 256.8),
+    (1_000, 7, 1, 8, 128, "one_step", "best", 1, 235.5),
+    (20_000, 4, 1, 5, 16, "iterative", "best", 1, 331.1),
+    (20_000, 5, 1, 6, 32, "iterative", "best", 1, 806.2),
+    (20_000, 4, 2, 5, 16, "iterative", "best", 1, 485.8),
+    (20_000, 4, 1, 44, 16, "iterative", "best", 1, 337.3),
+    (40_000, 4, 1, 5, 16, "iterative", "best", 1, 662.0),
+    (2_000, 6, 1, 7, 64, "iterative", "best", 1, 191.1),
+    (10_000, 4, 2, 5, 16, "iterative", "best", 1, 243.0),
+    (1_000, 7, 1, 8, 128, "iterative", "best", 1, 221.5),
+    (20_000, 4, 1, 5, 16, "iterative", "last", 10, 331.1),
+    (10_000, 4, 2, 5, 16, "iterative", "last", 10, 243.0),
+    (20_000, 4, 1, 5, 16, "iterative", "best", 10, 331.1),
+    (10_000, 4, 2, 5, 16, "iterative", "best", 10, 243.0),
+    (20_000, 4, 1, 5, 16, "one_step", "last", 10, 346.2),
+    (10_000, 4, 2, 5, 16, "one_step", "last", 10, 256.8),
+    (20_000, 4, 1, 5, 16, "one_step", "best", 10, 346.2),
+    (10_000, 4, 2, 5, 16, "one_step", "best", 10, 256.8),
 )
 
 
-@pytest.mark.parametrize(("n", "n_times", "causes", "columns", "paths", "peak"), PEAKS)
+@pytest.mark.parametrize(
+    ("n", "n_times", "causes", "columns", "paths", "targeting", "iterate", "folds", "peak"), PEAKS
+)
 def test_h17_the_predicted_peak_covers_each_measured_fit(
-    n: int, n_times: int, causes: int, columns: int, paths: int, peak: float
+    n: int,
+    n_times: int,
+    causes: int,
+    columns: int,
+    paths: int,
+    targeting: str,
+    iterate: str,
+    folds: int,
+    peak: float,
 ) -> None:
     """The prediction stays at least 5 per cent above each recorded peak and within twice it."""
     predicted = hazard_module.path_peak(n, n_times, paths, causes, columns) / 1e6
@@ -1148,6 +1177,82 @@ def test_h17_counts_every_regimen_whatever_their_order(
         LTMLE(chosen, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
     with pytest.raises(_Reached):
         LTMLE(arms, survival_model="hazard", n_folds=1, **_untouched()).fit(frame, **columns)
+
+
+@pytest.mark.parametrize("raised", [False, True])
+def test_h17_max_memory_bytes_replaces_the_limit_in_both_directions(
+    monkeypatch: pytest.MonkeyPatch, raised: bool
+) -> None:
+    """A coin at every one of six nodes holds 64 paths.  One byte below the predicted peak
+    refuses and names the override, the predicted peak itself admits.  With ``raised`` the
+    bytes per state value put the prediction above the fixed 2 GiB limit, which refuses the
+    fit without the override, so the override admits a fit the limit refuses."""
+    n, n_times = 2_000, 6
+    if raised:
+        monkeypatch.setattr(hazard_module, "PATH_STATE_BYTES", 3e4)
+    frame, columns = _random_panel(n, n_times)
+    coin = {"coin": DynamicRegimen("coin", tuple(_coin(k) for k in range(1, n_times + 1)))}
+    peak = hazard_module.path_peak(n, n_times, 2**n_times, 1, n_times + 1)
+    assert (peak > hazard_module.PATH_PEAK_LIMIT) is raised
+
+    def fit(**options: Any) -> None:
+        LTMLE(coin, survival_model="hazard", n_folds=1, **options, **_untouched()).fit(
+            frame, **columns
+        )
+
+    if raised:
+        with pytest.raises(CapabilityError, match="above the limit of 2 GiB"):
+            fit()
+    else:
+        with pytest.raises(_Reached):
+            fit()
+    budget = int(np.ceil(peak))
+    with pytest.raises(CapabilityError, match=rf"above max_memory_bytes={budget - 1} ") as caught:
+        fit(max_memory_bytes=budget - 1)
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert "64 paths" in str(caught.value)
+    with pytest.raises(_Reached):
+        fit(max_memory_bytes=budget)
+
+
+def test_h17_a_fit_admitted_by_max_memory_bytes_runs_to_the_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The override reaches every rebuild of the slots in the fit, not only the preflight.
+
+    The bytes per state value put a small coin fit far above the fixed limit.  With the
+    override at the prediction its fit preview counts the fits, and the fit plans, fits,
+    targets and reports; the preview and mechanism rebuilds read the override, and the
+    targeting rebuild checks no cap again.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    n, n_times = 1_000, 3
+    monkeypatch.setattr(hazard_module, "PATH_STATE_BYTES", 1e6)
+    frame, columns = _random_panel(n, n_times)
+    coin = {"coin": DynamicRegimen("coin", tuple(_coin(k) for k in range(1, n_times + 1)))}
+    peak = hazard_module.path_peak(n, n_times, 2**n_times, 1, n_times + 1)
+    assert peak > hazard_module.PATH_PEAK_LIMIT
+    learners = {
+        name: LogisticRegression(max_iter=1000)
+        for name in ("outcome_learner", "treatment_learner", "censoring_learner")
+    }
+    options: dict[str, Any] = {"survival_model": "hazard", "n_folds": 1, "simultaneous": False}
+    with pytest.raises(CapabilityError, match="above the limit of 2 GiB"):
+        LTMLE(coin, **options, **learners).fit(frame, **columns)
+    admitted = LTMLE(coin, max_memory_bytes=int(np.ceil(peak)), **options, **learners)
+    assert admitted._planned_fits(frame, **columns).total_fits > 0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = admitted.fit(frame, **columns)
+    assert all(np.isfinite(estimate.psi) for estimate in result.values())
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True, "2GiB"])
+def test_h17_max_memory_bytes_must_be_a_positive_integer(value: Any) -> None:
+    """Anything but ``None`` or a positive integer is refused when the estimator is built."""
+    with pytest.raises(DataError, match="max_memory_bytes must be a positive integer"):
+        LTMLE({"always": 1}, survival_model="hazard", max_memory_bytes=value)
 
 
 # ------------------------------------------------------------------- the nuisance report

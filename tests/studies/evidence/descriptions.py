@@ -1261,6 +1261,70 @@ ARMS.update(
     }
 )
 
+#: ``projection-compositions`` (P1 PR 1): the projection TMLE of ``conditional-projection``
+#: with a missing treatment in sample, ``strata=``, ``repeats=3`` and the full-refit bootstrap.
+#: The groups and cell names are those of ``tests/studies/projection_compositions.py``, which
+#: this module cannot import; ``tests/unit/test_projection_pc_design.py`` pins the
+#: two equal.
+_PC_SLUG = "projection-compositions"
+_PC_GROUPS = {
+    "insample_2k": "the observational law, in-sample fit, n = 2,000",
+    "insample_crr_2k": "the observational law on the log-ratio scale, in-sample fit, n = 2,000",
+    "boot_stacked_2k": (
+        "the observational law, stacked cross-fitting with the full-refit bootstrap, n = 2,000"
+    ),
+    "mtreat_4k": (
+        "the missing-treatment law, treatment recorded with P = expit(1 + 2 W3 - 0.5 A), "
+        "in-sample composite fit, n = 4,000"
+    ),
+    "mtreat_both_4k": (
+        "the missing-treatment law with outcomes also missing at random, in-sample composite "
+        "fit, n = 4,000"
+    ),
+    "mtreat_crr_4k": (
+        "the missing-treatment law on the log-ratio scale, in-sample composite fit, n = 4,000"
+    ),
+    "strata_4k": (
+        "the two-stratum law, S ~ Bernoulli(0.4) with a stratum-specific CATE, strata=('S',), "
+        "stacked cross-fitting, n = 4,000"
+    ),
+    "strata_crr_4k": (
+        "the two-stratum law on the log-ratio scale, strata=('S',), stacked cross-fitting, "
+        "n = 4,000"
+    ),
+    "rep3_obs_4k": "the observational law, stacked cross-fitting with repeats=3, n = 4,000",
+    "rep3_crr_4k": (
+        "the observational law on the log-ratio scale, stacked cross-fitting with repeats=3, "
+        "n = 4,000"
+    ),
+}
+#: The basis terms of each group's projection: ``(1, W1)`` on the missing-treatment law.
+_PC_TERMS = {
+    group: (("intercept", "W1") if group.startswith("mtreat") else tuple(_PROJECTION_TERMS))
+    for group in _PC_GROUPS
+}
+_PC_STRATA = {"": "", "_S0": " in stratum S = 0", "_S1": " in stratum S = 1"}
+
+
+def _pc_basis(group: str) -> str:
+    return "(1, W1)" if group.startswith("mtreat") else "(1, W1, W3)"
+
+
+def _pc_arms(group: str) -> dict[str, str]:
+    """The ``label`` of each calibration row of ``group``: ``<group>_<term>[_S<s>]``."""
+    strata = _PC_STRATA if group.startswith("strata") else {"": ""}
+    return {
+        f"{group}_{term}{suffix}": (
+            f"{_PC_GROUPS[group]}: the {_PROJECTION_TERMS[term]} of the projection "
+            f"on {_pc_basis(group)}{where}"
+        )
+        for term in _PC_TERMS[group]
+        for suffix, where in strata.items()
+    }
+
+
+ARMS.update({label: words for group in _PC_GROUPS for label, words in _pc_arms(group).items()})
+
 #: The laws and groups of the EP studies (P1 part (b)): ``ep-cate``, ``ep-crr`` and
 #: ``ep-assessment``.  Mirrored from ``tests.studies.ep_cate``, ``ep_crr`` and
 #: ``ep_assessment``, which this module cannot import.  A group is ``<law>_<size>`` and a growth
@@ -1665,6 +1729,19 @@ ARMS.update(
             "the continuous-time competing-risks law with covariate-dependent censoring, the "
             "treated arm's risk of cause 1 by t = 1.12, ten outer folds, n = 1,000"
         ),
+    }
+)
+
+#: The property labels of ``continuous-survival-causes`` (X6 part (b)), mirrored from
+#: ``tests.studies.continuous_survival_causes_properties``; :data:`STUDY_ARMS` gives the study's
+#: own words.
+ARMS.update(
+    {
+        "l1_rd": "the one-cause law's risk difference at its median event time",
+        "l3_rd": "the three-cause law's cause-3 risk difference at its median event time",
+        "l1_c1": "the one-cause law's treated risk at its median event time",
+        "l3_c1": "the three-cause law's treated risk of cause 1 at its median event time",
+        "l3_c3": "the three-cause law's treated risk of cause 3 at its median event time",
     }
 )
 
@@ -4175,6 +4252,10 @@ STUDY_ARMS: dict[tuple[str, str], str] = {
         "without L_t"
     ),
 }
+#: Cells described for one study only, keyed by ``(slug, family, cell)``, for a study whose
+#: family and cell names coincide with another study's but whose cells differ.
+STUDY_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {}
+
 STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
     ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
         "the cluster-robust interval from the cluster-level influence curve of a single-fold "
@@ -5329,6 +5410,8 @@ def cell(
     if size is not None:
         base = size.group("cell")
     scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
+    if slug is not None and (slug, family, key) in STUDY_CELLS:
+        return STUDY_CELLS[slug, family, key]
     try:
         tested, required = (
             scoped
@@ -8246,6 +8329,123 @@ CELLS.update(
 )
 
 
+#: Each calibration arm's reading of the group's fit.
+_PC_KINDS = {
+    "wald_diff": "the influence-curve Wald interval",
+    "boot_diff": "the full-refit bootstrap percentile interval, 200 replicates",
+    "wald_crr": "the influence-curve Wald interval",
+    "boot_crr": "the full-refit bootstrap percentile interval, 200 replicates",
+    "boot_stacked": (
+        "the bootstrap percentile interval of the cross-fitted fit, 200 replicates; diagnostic, "
+        "no verdict"
+    ),
+    "mtreat": "the Wald interval of the composite route",
+    "mtreat_both": "the Wald interval of the composite route",
+    "mtreat_crr": "the Wald interval of the composite route",
+    "strata": "the Wald interval, marginal and stratum coefficients targeted jointly",
+    "strata_crr": (
+        "the Wald interval; the stratum coefficients from the stratified fluctuation and the "
+        "marginal ones from the unstratified log-ratio group"
+    ),
+    "rep3": "the median-rule Wald interval over three fold draws",
+    "rep3_crr": "the median-rule Wald interval over three fold draws",
+}
+_PC_ARM_OF = {
+    "insample_2k": ("wald_diff", "boot_diff"),
+    "insample_crr_2k": ("wald_crr", "boot_crr"),
+    "boot_stacked_2k": ("boot_stacked",),
+    "mtreat_4k": ("mtreat",),
+    "mtreat_both_4k": ("mtreat_both",),
+    "mtreat_crr_4k": ("mtreat_crr",),
+    "strata_4k": ("strata",),
+    "strata_crr_4k": ("strata_crr",),
+    "rep3_obs_4k": ("rep3",),
+    "rep3_crr_4k": ("rep3_crr",),
+}
+_PC_CALIBRATION_CONTROLS = {
+    "insample_2k": (
+        "shrunken_se_control",
+        "the percentile interval shrunk by 0.70 about the replicates' median",
+    ),
+    "rep3_obs_4k": (
+        "independent_splits_control",
+        "the reported SE divided by sqrt(3), as if the three fold draws were independent samples",
+    ),
+}
+STUDY_SCENARIOS[(_PC_SLUG, "mtreat_4k")] = _PC_GROUPS["mtreat_4k"]
+STUDY_ESTIMANDS.update(
+    {
+        (_PC_SLUG, f"cate_projection[{term}]"): (
+            f"the {words} of the least-squares projection of the CATE on (1, W1)"
+        )
+        for term, words in (("(intercept)", "intercept"), ("W1", "W1 slope"))
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_PC_SLUG, "interval_calibration", label, kind): (
+                _PC_KINDS[kind],
+                (
+                    "publishes its coverage and SE-ratio intervals; no verdict"
+                    if kind == "boot_stacked"
+                    else "SE ratio and coverage intervals both inside their calibration bands"
+                ),
+            )
+            for group, kinds in _PC_ARM_OF.items()
+            for label in _pc_arms(group)
+            for kind in kinds
+        },
+        **{
+            (_PC_SLUG, "interval_calibration", f"{group}_{term}", kind): (
+                words,
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for group, (kind, words) in _PC_CALIBRATION_CONTROLS.items()
+            for term in _PC_TERMS[group]
+        },
+        (_PC_SLUG, "type_i_error", "heterogeneity", "rep3_sharp_null"): (
+            "slope s = 0, so the effect does not vary, repeats=3, n = 2,000",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_PC_SLUG, "power", "heterogeneity", "rep3_slope_0.10"): (
+            "slope s = 0.10, repeats=3, n = 4,000",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"mtreat_dr_4k_{term}"): (
+                "the missing-treatment law with a declared wrong outcome regression, n = 4,000: "
+                f"the composite TMLE's {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for term in ("intercept", "W1")
+        },
+        ("bias", "complete_case_4k_intercept"): (
+            "the missing-treatment law, n = 4,000: the projection fitted on the rows with a "
+            "recorded treatment, with the same learners, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        ("bias", "no_treatment_observation_4k_intercept"): (
+            "the missing-treatment law with a declared wrong outcome regression, n = 4,000: the "
+            "one-step with the treatment-recording probability replaced by 1, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        **{
+            ("bias", f"marginal_as_stratum_4k_{term}"): (
+                "the two-stratum law, n = 4,000: the marginal coefficient read against the "
+                f"stratum S = 1 truth, {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for term in ("intercept", "W1")
+        },
+    }
+)
+
+
 #: The EP studies (P1 part (b)).  Every ``oracle_comparison`` row is the mean over replicates
 #: of ``log ISE(estimator) - log ISE(oracle)``, paired within a replicate, where the oracle is
 #: the least-squares fit (``ep-cate``) or the one-step log-CRR risk minimiser (``ep-crr``) of
@@ -8853,7 +9053,14 @@ PROPERTIES.update(
         ),
         "control": "the gated cells' fits read under the rejected candidate intervals",
         "reported": "the rule's interval at other sizes, fits and owner laws, with no verdict",
-        "witness": "the plug-in interval misses on the constant-cell fits the rule withholds",
+        "witness": (
+            "a deliberately broken interval, or the plug-in interval the rule withholds, misses "
+            "where it should, so the instrument can tell"
+        ),
+        "owner_coverage": (
+            "the corrected interval repairs the owner cells it targets, with a paired gain over "
+            "today's interval"
+        ),
     }
 )
 _SSW_BOUNDARY = "the stratified law of `canonical-stratified-tmle`, stratified TMLE"
@@ -8888,11 +9095,11 @@ _SSW_CELLS = {
     ),
     "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, n = 2,000",
     "lognormal06_ey1": (
-        "a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, "
         "n = 2,000"
     ),
     "lognormal_ey1": (
-        "a continuous outcome with a lognormal error of skewness 6.2, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 11.2, treated mean in V = 2, "
         "n = 2,000"
     ),
     "leverage_crossfit_ey1": (
@@ -9085,6 +9292,202 @@ CELLS.update(
             "the fits of boundary_mean_n500_ey1 whose treated V = 2 cell holds one outcome "
             "value: the plug-in interval on the range-logit scale, the point itself on a bound",
             "reported: its coverage's 99% upper end below 0.50 shows why the interval is withheld",
+        ),
+    }
+)
+
+
+#: ``asymmetric-wald`` (Fix-3 PR 3): correlated MOVER for a bounded difference and the
+#: skew-widened t for a continuous target.  Mirrored from ``tests.studies.asymmetric_wald``,
+#: which this module cannot import; ``tests/unit/test_asymmetric_wald_design.py`` pins the
+#: cells described here to the study's.  Its family and some cell names coincide with
+#: ``small-sample-wald``'s, so its cells are described per study (:data:`STUDY_CELLS`).
+_AW_SLUG = "asymmetric-wald"
+IMPLEMENTATIONS["cleverly-asymmetric-wald"] = (
+    "`cleverly` stratified TMLE with the PR 3 interval rule: correlated MOVER on the two arms' "
+    "range-logit intervals for a bounded difference, the range-logit normal interval for a "
+    "bounded mean, and the skew-widened t at max(df, 5) for a continuous outcome, with no "
+    "interval when an arm's stratum holds one outcome value or an estimate sits on a bound"
+)
+STUDY_SCENARIOS[(_AW_SLUG, "boundary_v2")] = STUDY_SCENARIOS[(_SSW_SLUG, "boundary_v2")]
+STUDY_ESTIMANDS[(_AW_SLUG, "ate[V=2]")] = (
+    "average treatment effect in stratum V = 2, with MOVER's interval (a withheld one counts as "
+    "a miss)"
+)
+_AW_CELLS = {
+    "d1_ey1": "held-out law D1, a sparse treated arm near 0 in a small stratum, treated mean in "
+    "V = 2, n = 3,000",
+    "d1_ate": "held-out law D1, a sparse treated arm near 0 in a small stratum, effect in V = 2, "
+    "n = 3,000",
+    "d1_ey0": "held-out law D1, untreated mean in V = 2, n = 3,000",
+    "d1_ate_v0": "held-out law D1, effect in the large stratum V = 0, n = 3,000",
+    "d2_ey0": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "untreated mean, n = 2,000",
+    "d2_ate": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "effect, n = 2,000",
+    "d2_ey1": "held-out law D2, treated mean, n = 2,000",
+    "c1_ey1": "held-out law C1, right-skewed gamma errors scaled by arm, treated mean in V = 2, "
+    "n = 2,500",
+    "c1_ate": "held-out law C1, right-skewed gamma errors scaled by arm, effect in V = 2, "
+    "n = 2,500",
+    "c1_ey0": "held-out law C1, untreated mean in V = 2, n = 2,500",
+    "c2_ey1": "held-out law C2, a left-skewed Beta outcome with a coarse covariate, treated mean "
+    "in V = 2, n = 2,000",
+    "c2_ate": "held-out law C2, effect in V = 2, n = 2,000",
+    "c2_ey0": "held-out law C2, untreated mean in V = 2, n = 2,000",
+    "c3_ey1": "held-out law C3, symmetric Laplace errors (the no-harm control), treated mean in "
+    "V = 2, n = 2,500",
+    "c3_ate": "held-out law C3, symmetric Laplace errors (the no-harm control), effect in V = 2, "
+    "n = 2,500",
+    "c3_ey0": "held-out law C3, untreated mean in V = 2, n = 2,500",
+    "ho_sparse_treat_ate": "study 1's held-out law H1, a sparse treated arm near 1 with no "
+    "strata, effect, n = 2,000",
+    "ho_hurdle_ey1": "study 1's held-out law H2, a point mass at 0 and a gamma part, saturated "
+    "cell-mean outcome model, treated mean in V = 2, n = 2,000",
+    "ho_hurdle_ate": "study 1's held-out law H2, effect in V = 2, n = 2,000",
+    "ho_hurdle_ey0": "study 1's held-out law H2, untreated mean in V = 2, n = 2,000",
+    "lognormal06_ey1": "a continuous outcome with a lognormal error of skewness 2.3, treated mean "
+    "in V = 2, n = 2,000",
+    "student_ey1": "a continuous outcome with a Student t error on 3 df, treated mean in V = 2, "
+    "n = 2,000",
+    "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, "
+    "n = 2,000",
+    "lognormal_ey1": "a continuous outcome with a lognormal error of skewness 11.2 (the stated "
+    "limit), treated mean in V = 2, n = 2,000",
+    "boundary_2000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 2,000",
+    "boundary_1000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 1,000",
+    "rare_ate": "a rare binary outcome, three strata, effect in V = 2, n = 2,000",
+    "identity_msm_v2_w": "the alternating Beta-outcome law, identity working MSM, W coefficient "
+    "in V = 2, n = 2,000",
+}
+_AW_BINARY = ("d1", "d2", "ho_sparse_treat", "boundary", "rare")
+
+
+def _aw_kind(name: str) -> str:
+    """``difference``, ``mean`` or ``continuous``, as the study's ``kind_of`` reads a cell."""
+    if not name.startswith(_AW_BINARY):
+        return "continuous"
+    return "difference" if "_ate" in name else "mean"
+
+
+def _aw_rule(name: str) -> str:
+    kind = _aw_kind(name)
+    return {
+        "difference": "MOVER's interval",
+        "mean": "the range-logit normal interval",
+        "continuous": "the skew-widened t",
+    }[kind]
+
+
+def _aw_controls(name: str) -> tuple[str, ...]:
+    """The controls a gated cell is re-read under, as the study's ``controls_of`` picks them."""
+    kind = _aw_kind(name)
+    if kind == "difference":
+        return (
+            "normal_reference_control",
+            "range_logit_control",
+            "logit_t_control",
+            "cf_shift_control",
+        )
+    if kind == "mean":
+        return ("normal_reference_control", "logit_t_control")
+    return ("normal_reference_control", "capped_t_control", "cf_shift_control")
+
+
+_AW_GATED = {
+    "heldout_coverage": (
+        "d1_ey1",
+        "d1_ate",
+        "d2_ey0",
+        "d2_ate",
+        "c1_ey1",
+        "c1_ate",
+        "c2_ey1",
+        "c3_ey1",
+        "c3_ate",
+    ),
+    "owner_coverage": ("ho_sparse_treat_ate", "ho_hurdle_ey1", "lognormal06_ey1"),
+}
+_AW_REPORTED = (
+    "d1_ey0",
+    "d1_ate_v0",
+    "d2_ey1",
+    "c1_ey0",
+    "c2_ate",
+    "c2_ey0",
+    "c3_ey0",
+    "ho_hurdle_ate",
+    "ho_hurdle_ey0",
+    "student_ey1",
+    "student_ate",
+    "lognormal_ey1",
+    "boundary_2000_ate",
+    "boundary_1000_ate",
+    "rare_ate",
+    "identity_msm_v2_w",
+)
+_AW_GAINS = {
+    "ho_sparse_treat_ate": "the identity normal interval",
+    "ho_hurdle_ey1": "the t interval at max(df, 5)",
+    "lognormal06_ey1": "the t interval at max(df, 5)",
+}
+_AW_LEGS = (
+    "on the first 2,000 fits, the lower leg's 99% lower end at least 0.92, lost and withheld "
+    "fits as misses, and the shown fits' 99% upper end at most 0.98; on all 4,000, each side's "
+    "one-sided miss rate with a 99% lower end at most 0.040"
+)
+_AW_CONTROLS = {
+    "normal_reference_control": "the normal interval on the identity scale",
+    "range_logit_control": "the normal interval on the difference's own range-logit scale",
+    "logit_t_control": "a Student t interval on the range-logit scale at max(df, 5)",
+    "capped_t_control": "a Student t interval at max(df, 5), without the skew widening",
+    "cf_shift_control": "the two-sided Cornish-Fisher shift by the curve's acceleration",
+}
+STUDY_CELLS.update(
+    {
+        **{
+            (_AW_SLUG, family, name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                _AW_LEGS
+                + (
+                    f", and the exact 99.5% lower bound of the paired gain over {_AW_GAINS[name]} "
+                    "above 1/2"
+                    if name in _AW_GAINS
+                    else ""
+                ),
+            )
+            for family, names in _AW_GATED.items()
+            for name in names
+        },
+        **{
+            (_AW_SLUG, "control", f"{name}__{control}"): (
+                f"{_AW_CELLS[name]}: the same fits read under {_AW_CONTROLS[control]}",
+                "reported with no verdict; a falsifier may read it",
+            )
+            for names in _AW_GATED.values()
+            for name in names
+            for control in _aw_controls(name)
+        },
+        **{
+            (_AW_SLUG, "reported", name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                "reported with no verdict: both legs and both tails",
+            )
+            for name in _AW_REPORTED
+        },
+        (_AW_SLUG, "witness", "sign_flip_witness"): (
+            "the fits of ho_hurdle_ey1 read under the skew-widened t with the acceleration's sign "
+            "flipped, a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong sign",
+        ),
+        (_AW_SLUG, "witness", "mover_swap_witness"): (
+            "the fits of ho_sparse_treat_ate read under MOVER with each arm's two sides swapped, "
+            "a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong pairing",
         ),
     }
 )
@@ -10431,8 +10834,8 @@ CELLS.update(
 _CONTINUOUS_SLUG = "continuous-time-survival"
 IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
     "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
-    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
-    "2024)"
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024)"
 )
 STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
     "a three-level factor and a normal covariate, a binary treatment, two competing causes with "
@@ -10545,6 +10948,154 @@ STUDY_ARM_CELLS[(_FUNCTIONALS_SLUG, "interval_calibration", "rmst_rd", "correctl
     "the default libraries, each of which holds the true model",
     "SE ratio and coverage intervals both inside their calibration bands",
 )
+
+#: ``continuous-survival-variance`` (X6 part (a)): the continuous-time TMLE with its default
+#: switched standard error, on five laws that each change one feature of the base law.  The
+#: names are those of ``tests/studies/continuous_survival_variance.py`` and its law module.
+_VARIANCE_SLUG = "continuous-survival-variance"
+IMPLEMENTATIONS["cleverly-continuous-survival-switched"] = (
+    "`cleverly` ContinuousSurvivalTMLE with variance='switched': the one-step TMLE's "
+    "influence-curve standard error, raised to the predictable variation where the relative SD "
+    "of the variance estimate exceeds 0.125 (Rytgaard and van der Laan 2024)"
+)
+_VARIANCE_FIT = "the default Cox libraries and treatment learner"
+STUDY_SCENARIOS.update(
+    {
+        (_VARIANCE_SLUG, "v1_rare_cause2"): (
+            "the base continuous-time competing-risks law with a rarer second cause (cause-2 "
+            f"log-hazard intercept -2.6); {_VARIANCE_FIT}, ten outer folds, n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v2_heavy_weights"): (
+            "reported cell, passing by declaration (three rows at t = 1.12 fall short of the "
+            "primary rule): the base continuous-time competing-risks law with heavier control "
+            "weights "
+            f"(treatment model coefficients 2, -1, 1.5); {_VARIANCE_FIT}, ten outer folds, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v3_half_n"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, ten outer folds, "
+            "n = 500"
+        ),
+        (_VARIANCE_SLUG, "v4_in_sample"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, fitted in sample, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v7_quadratic"): (
+            "the base continuous-time competing-risks law with 0.3 (X3^2 - 1) added to the "
+            f"cause-1 log hazard, which no default Cox model holds; {_VARIANCE_FIT}, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+for _time in ("1.12", "2.32", "1.29", "2.69"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        for _cause in (1, 2):
+            STUDY_ESTIMANDS[(_VARIANCE_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} by t = {_time} under {_words}"
+            )
+    for _cause in (1, 2):
+        STUDY_ESTIMANDS[
+            (_VARIANCE_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+
+#: ``continuous-survival-causes`` (X6 part (b)): the continuous-time TMLE in its shipped default
+#: on the base law with one cause and with three.  The names are those of
+#: ``tests/studies/continuous_survival_causes.py``, its law module and its properties module.
+_CAUSES_SLUG = "continuous-survival-causes"
+IMPLEMENTATIONS["cleverly-continuous-survival-causes"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024), with one cause and with three"
+)
+_CAUSES_FIT = "the default Cox libraries and treatment learner, ten outer folds, n = 1,000"
+STUDY_SCENARIOS.update(
+    {
+        (_CAUSES_SLUG, "l1_cf_1k"): (
+            "the base continuous-time law with its cause-2 hazard removed, so every event is of "
+            f"one type; {_CAUSES_FIT}, target times 0.58, 1.48 and 3.24"
+        ),
+        (_CAUSES_SLUG, "l3_cf_1k"): (
+            "the base continuous-time competing-risks law with a third cause of hazard "
+            f"exp(-2.5 + 0.5 X1 + 0.5 X3 + 0.5 Z); {_CAUSES_FIT}, target times 0.37, 0.9 and "
+            "1.86"
+        ),
+    }
+)
+for _time in ("0.58", "1.48", "3.24"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        STUDY_ESTIMANDS[(_CAUSES_SLUG, f"risk_regimen[{_arm} @ t={_time}]")] = (
+            f"risk of the event by t = {_time} under {_words}, one cause"
+        )
+    STUDY_ESTIMANDS[(_CAUSES_SLUG, f"ate_regimen[treated vs control @ t={_time}]")] = (
+        f"difference in the risk of the event by t = {_time} between treatment and no "
+        "treatment, one cause"
+    )
+for _time in ("0.37", "0.9", "1.86"):
+    for _cause in (1, 2, 3):
+        for _arm, _words in _CONTINUOUS_ARMS.items():
+            STUDY_ESTIMANDS[(_CAUSES_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} of three by t = {_time} under {_words}"
+            )
+        STUDY_ESTIMANDS[
+            (_CAUSES_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} of three by t = {_time} between treatment "
+            "and no treatment"
+        )
+STUDY_ARMS.update(
+    {
+        (_CAUSES_SLUG, "l1_rd"): (
+            "the one-cause law, the difference in the risk of the event by t = 1.48 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_rd"): (
+            "the three-cause law, the difference in the risk of cause 3 by t = 0.9 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l1_c1"): (
+            "the one-cause law, the treated arm's risk of the event by t = 1.48, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c1"): (
+            "the three-cause law, the treated arm's risk of cause 1 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c3"): (
+            "the three-cause law, the treated arm's risk of cause 3 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+_CAUSES_WRONG = (
+    "the event hazards wrong (a Cox model on the treatment alone), with the default treatment "
+    "learner and censoring library, which hold the true models"
+)
+for _label in ("l1_c1", "l3_c1", "l3_c3"):
+    STUDY_ARM_CELLS.update(
+        {
+            (_CAUSES_SLUG, "double_robustness", _label, "mechanism_correct"): (
+                f"{_CAUSES_WRONG}; the targeted estimate",
+                "bias interval inside the equivalence margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "plug_in_control"): (
+                f"{_CAUSES_WRONG}; the initial plug-in of the same fit, before the walk",
+                "bias interval must fall entirely outside the margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "factual_tilt_control"): (
+                f"{_CAUSES_WRONG}; the same draw fitted with tilt='factual', which tilts only "
+                "each unit's received arm",
+                "bias interval must fall entirely outside the margin",
+            ),
+        }
+    )
+for _label in ("l1_rd", "l3_rd"):
+    STUDY_ARM_CELLS[(_CAUSES_SLUG, "interval_calibration", _label, "correctly_specified")] = (
+        "the default libraries, each of which holds the true model",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this

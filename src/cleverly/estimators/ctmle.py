@@ -347,6 +347,8 @@ from .._inference_status import (
     precedent_status,
     status_record,
 )
+from .._planned_fits import Count, FitCounter, PlanBuilder, PlanItem
+from .._summary._learners import learner_name
 from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
@@ -1297,6 +1299,25 @@ class CTMLESelection:
         the patience counter stopped it. ``None`` when the counter never triggered, and always
         ``None`` without :attr:`patience`. When it is set, :attr:`path` and every array that
         runs along it end at this index.
+    candidate_fits : tuple of int
+        The candidate fluctuations the search scored on each branch: the analysis sample
+        first, then each selection fold in fold order. One per fluctuation of a candidate
+        mechanism, so it counts every trial of a greedy step, the trials scored again after a
+        retry from a further targeted fit, every candidate of every pass of a ``"lasso"`` or
+        ``"learners"`` path, and the options of the ``"lasso"`` final step. Under
+        :attr:`patience` it counts the work done, which can pass :attr:`stopped_at`. With
+        ``repeats=``, the record and its counts describe the first draw, the one reported.
+    mechanism_fits : tuple of int
+        The candidate treatment mechanisms each branch computed, in the order of
+        :attr:`candidate_fits`. A covariate set or learner counts once however many folds it is
+        cross-fitted over, the intercept-only candidate included; each penalty of a
+        ``"lasso"`` path counts once; the ``"logistic"`` preorder's one-covariate models
+        count. A :class:`PropensityArrays` entry and a mechanism the branch already holds
+        are not counted.
+    target_solves : tuple of int
+        The fluctuation solves of each branch, in the order of :attr:`candidate_fits`: one per
+        candidate, plus one per covariate the ``"logistic"`` preorder scores. The
+        estimator's final targeting of the reported candidate is not part of the search.
     """
 
     strategy: CTMLEStrategy
@@ -1320,6 +1341,9 @@ class CTMLESelection:
     restricted_pool: tuple[str, ...] | None = None
     patience: int | None = None
     stopped_at: int | None = None
+    candidate_fits: tuple[int, ...] = ()
+    mechanism_fits: tuple[int, ...] = ()
+    target_solves: tuple[int, ...] = ()
 
     @property
     def reported(self) -> int:
@@ -1777,6 +1801,15 @@ class CTMLEDerivativeFit:
 
     def _repr_html_(self) -> str:
         return self.summary().as_html()
+
+
+@dataclass
+class _SearchWork:
+    """The work one search branch did: what :class:`CTMLESelection` reports per branch."""
+
+    candidate_fits: int = 0
+    mechanism_fits: int = 0
+    target_solves: int = 0
 
 
 @dataclass(frozen=True)
@@ -2821,6 +2854,9 @@ default="greedy"
             ),
             patience=self.patience,
             stopped_at=stopped_at,
+            candidate_fits=selector.counts("candidate_fits"),
+            mechanism_fits=selector.counts("mechanism_fits"),
+            target_solves=selector.counts("target_solves"),
         )
         return nuisance, {"ctmle": selection}
 
@@ -3059,6 +3095,376 @@ default="greedy"
                 remedy=_SELECTION_SPLIT_REMEDY,
             )
 
+    # ------------------------------------------------------------ planned fits
+
+    def _plan_flags(self, data: CausalData, estimands: Sequence[str]) -> dict[str, bool]:
+        """The flags :meth:`_nuisances` passes to the base nuisances: no treatment mechanism."""
+        del data, estimands
+        return {"fit_treatment": False, "fit_treatment_observation": not is_per_arm_oat(self)}
+
+    def _plan_extras(
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int | None,
+        *,
+        counter: FitCounter,
+        builder: PlanBuilder,
+        config: TMLEConfig,
+        level: float | None,
+    ) -> list[PlanItem]:
+        """The fits of the collaborative search of one draw, counted as :meth:`_nuisances` fits.
+
+        A selector strategy fits each covariate set once per search branch: cross-fitted
+        over the outer folds on the analysis sample, and over each selection fold's nested
+        split.  A strategy that reads its path lazily (greedy, ordered, discrete) stops
+        early under ``patience``, so its rows are then upper bounds.
+        """
+        del config, level
+        if self.strategy == "derivative":
+            return self._plan_derivative(data, folds, seed, counter)
+        if not is_selector_strategy(self.strategy):
+            return self._plan_outcome_adaptive(data, folds, seed, counter)
+        if not counter.nominal:
+            self._preflight_selection_folds(data, seed)
+        return self._plan_selector(data, folds, seed, counter, builder)
+
+    def _plan_derivative(
+        self, data: CausalData, folds: Folds, seed: int | None, counter: FitCounter
+    ) -> list[PlanItem]:
+        """The mechanism and partner of :meth:`_derivative_nuisances`: each learner entry."""
+        entries = self.treatment_candidates
+        if entries is None:
+            return []  # the lasso source is fitted in house
+        count = Count()
+        names: list[str] = []
+        for entry in entries:
+            if _is_array_like(entry):
+                continue
+            learner = resolve_learner(
+                entry,
+                task="classification",
+                n_folds=self.learner_folds,
+                random_state=self.random_state if seed is None else seed,
+            )
+            count.add(counter.cross(learner, data.treatment, folds, task="classification"))
+            names.append(learner_name(entry))
+        label = ", ".join(dict.fromkeys(names))
+        return [PlanItem("treatment_learner", "C-TMLE0 mechanism and partner", label, count)]
+
+    def _plan_outcome_adaptive(
+        self, data: CausalData, folds: Folds, seed: int | None, counter: FitCounter
+    ) -> list[PlanItem]:
+        """The fits of :meth:`_outcome_adaptive_nuisances`.
+
+        Each fold fits the mechanism on the generated design (per arm, factor and stratum
+        under the per-arm design); cross-fitted, each fold first refits the outcome on its
+        training rows.
+        """
+        learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+        every: IntArray = np.arange(data.n)
+        pairs = [(every, every)] if folds.is_single else list(folds)
+        mechanism = Count()
+        for train, test in pairs:
+            if self.oat_design == "per_arm":
+                mechanism.add(self._plan_per_arm_factors(data, learner, train, test, counter))
+            else:
+                mechanism.add(counter.one(learner, data.treatment, train, task="classification"))
+        items = [
+            PlanItem(
+                "treatment_learner",
+                "outcome-adaptive mechanism, per fold",
+                learner_name(self.treatment_learner),
+                mechanism,
+            )
+        ]
+        if folds.is_single:
+            return items
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        model = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
+        treatment = np.asarray(data.treatment, dtype=float)
+        outcome = Count()
+        for train, _ in pairs:
+            rows = train[data.observed[train]]
+            if self.outcome_by_arm:
+                for arm in data.arm_codes:
+                    outcome.add(
+                        counter.one(
+                            model, data.outcome, rows[treatment[rows] == arm], task=outcome_task
+                        )
+                    )
+            else:
+                outcome.add(counter.one(model, data.outcome, rows, task=outcome_task))
+        items.append(
+            PlanItem(
+                "outcome_learner",
+                "outcome-adaptive fold-local outcome regression, per fold",
+                learner_name(self.outcome_learner),
+                outcome,
+            )
+        )
+        return items
+
+    @staticmethod
+    def _plan_per_arm_factors(
+        data: CausalData, learner: Learner, train: IntArray, test: IntArray, counter: FitCounter
+    ) -> Count:
+        """The fits of :func:`_fit_per_arm_factors` on one training set."""
+        weights = np.asarray(data.weights, dtype=float)
+        regions = (
+            [np.ones(data.n, dtype=bool)]
+            if data.strata is None
+            else [data.strata == code for code in range(data.n_strata)]
+        )
+        out = Count()
+        for spec in _per_arm_factor_specs(data):
+            for arm in data.arm_codes:
+                target = spec.target(arm)
+                eligible = spec.rows(arm)
+                for inside in regions:
+                    if not inside[test].any():
+                        continue
+                    rows = train[eligible[train] & inside[train]]
+                    if (
+                        spec.constant
+                        and not counter.nominal
+                        and np.unique(target[rows[weights[rows] > 0.0]]).size == 1
+                    ):
+                        continue
+                    out.add(counter.one(learner, target, rows, task="classification"))
+        return out
+
+    def _plan_selector(
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int | None,
+        counter: FitCounter,
+        builder: PlanBuilder,
+    ) -> list[PlanItem]:
+        """The fits of :class:`_Selector`: the selection-fold nuisances and the candidates.
+
+        Every selection fold's nuisances are fitted before the first candidate.  A
+        covariate set is fitted once per branch (the ``(tag, covariates)`` cache); the empty
+        set is the intercept, which fits nothing.
+        """
+        seed_value = self.random_state if seed is None else seed
+        fixed = counter.seed_fixed and not counter.nominal
+        drawn = (
+            None
+            if fixed or counter.nominal
+            else "the selection folds are drawn from a seed drawn afresh on every fit, so they "
+            "are counted at their nominal counts"
+        )
+        inner_counter = (
+            counter
+            if drawn is None
+            else FitCounter(weights=data.weights, groups=data.cluster, nominal=True)
+        )
+        names = tuple(data.mechanism_covariate_names)
+        p = len(names)
+        learner = resolve_learner(
+            self.treatment_learner,
+            task="classification",
+            n_folds=self.learner_folds,
+            random_state=seed_value,
+        )
+        branches: list[tuple[Folds, BoolArray | None]] = []
+        for train, _ in self._selection_partition(data, seed):
+            inner = self._nested_partition(data.subset(train), seed)
+            assignment = np.full(data.n, inner.n_folds, dtype=np.int64)
+            assignment[train] = inner.assignment
+            inside = np.zeros(data.n, dtype=bool)
+            inside[train] = True
+            branches.append((Folds(assignment, inner.n_folds + 1), inside))
+
+        # Each selection fold's nuisances (:meth:`_Selector._selection_base`).
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        outcome_model = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
+        treatment = np.asarray(data.treatment, dtype=float)
+        observed = np.asarray(data.observed, dtype=bool)
+        outcome = Count()
+        missing = Count()
+        missing_model = (
+            self._resolve_learner(
+                self.missingness_learner,
+                task="classification",
+                fallback=self.treatment_learner,
+                seed=seed,
+            )
+            if data.has_missing_outcome
+            else None
+        )
+        for nested, mask in branches:
+            assert mask is not None
+            arms = data.arm_codes if self.outcome_by_arm else (None,)
+            for arm in arms:
+                rows = mask & observed if arm is None else mask & observed & (treatment == arm)
+                outcome.add(
+                    inner_counter.cross(
+                        outcome_model, data.outcome, nested, task=outcome_task, fit_mask=rows
+                    )
+                )
+            if missing_model is not None:
+                missing.add(
+                    inner_counter.cross(
+                        missing_model,
+                        observed.astype(float),
+                        nested,
+                        task="classification",
+                        fit_mask=mask,
+                    )
+                )
+        items = [
+            PlanItem(
+                "outcome_learner",
+                "C-TMLE selection fold's outcome regression, per selection fold",
+                learner_name(self.outcome_learner),
+                outcome,
+                upper=drawn,
+                min_fits=None if drawn is None else outcome.fits,
+            ),
+            PlanItem(
+                "missingness_learner",
+                "C-TMLE selection fold's outcome observed, per selection fold",
+                learner_name(
+                    self.missingness_learner
+                    if self.missingness_learner is not None
+                    else self.treatment_learner
+                ),
+                missing,
+                upper=drawn,
+                min_fits=None if drawn is None else missing.fits,
+            ),
+        ]
+
+        # The candidates: the fits of one covariate set on each branch, and how many sets.
+        def one_set(
+            model: Learner, branch: Folds, mask: BoolArray | None, where: FitCounter
+        ) -> Count:
+            return where.cross(model, data.treatment, branch, task="classification", fit_mask=mask)
+
+        full_set = one_set(learner, folds, None, counter)
+        cv_sets = [one_set(learner, branch, mask, inner_counter) for branch, mask in branches]
+        lazy = self.strategy in ("greedy", "ordered", "discrete")
+        if self.strategy in ("greedy", "ordered"):
+            length = p + 1
+        elif self.strategy == "discrete":
+            assert self.candidates is not None
+            length = len(self.candidates)
+        elif self.strategy == "lasso":
+            length = int(
+                (
+                    check_penalty_grid(self.lambdas)
+                    if self.lambdas is not None
+                    else default_penalty_grid(
+                        data.mechanism_covariates, data.treatment, data.weights
+                    )
+                ).size
+            )
+        else:
+            length = len(self.treatment_candidates or ()) + 1
+        reached = length if self.patience is None else min(int(self.patience) + 1, length)
+
+        def sets_through(positions: int) -> int:
+            """The covariate sets the path fits to settle its first ``positions`` positions."""
+            if self.strategy == "greedy":
+                return sum(p - k + 1 for k in range(1, positions))
+            if self.strategy == "ordered":
+                return max(positions - 1, 0)
+            assert self.candidates is not None
+            return len({tuple(c) for c in self.candidates[:positions] if len(c)})
+
+        candidates_full = Count()
+        candidates_cv = Count()
+        low_full = low_cv = 0
+        if self.strategy in ("greedy", "ordered", "discrete"):
+            most, least = sets_through(length), sets_through(reached)
+            candidates_full.add(full_set, most)
+            low_full = full_set.fits * least
+            for count in cv_sets:
+                candidates_cv.add(count, most)
+                low_cv += count.fits * least
+        elif self.strategy == "learners":
+            for entry in self.treatment_candidates or ():
+                if isinstance(entry, PropensityArrays):
+                    continue
+                model = resolve_learner(
+                    entry,
+                    task="classification",
+                    n_folds=self.learner_folds,
+                    random_state=seed_value,
+                )
+                if not names:
+                    continue
+                candidates_full.add(one_set(model, folds, None, counter))
+                for branch, mask in branches:
+                    candidates_cv.add(one_set(model, branch, mask, inner_counter))
+            if names:
+                candidates_full.add(full_set)
+                for count in cv_sets:
+                    candidates_cv.add(count)
+        early = (
+            "a patience stop ends the candidate search before the end of its path"
+            if lazy and self.patience is not None
+            else None
+        )
+        label = learner_name(self.treatment_learner)
+        if self.strategy == "learners":
+            label = ", ".join(
+                dict.fromkeys(
+                    [
+                        learner_name(entry)
+                        for entry in self.treatment_candidates or ()
+                        if not isinstance(entry, PropensityArrays)
+                    ]
+                    + [label]
+                )
+            )
+        items.append(
+            PlanItem(
+                "treatment_learner",
+                "C-TMLE candidate propensities on the analysis sample",
+                label,
+                candidates_full,
+                upper=early,
+                min_fits=low_full if early else None,
+            )
+        )
+        why = "; ".join(reason for reason in (early, drawn) if reason)
+        items.append(
+            PlanItem(
+                "treatment_learner",
+                "C-TMLE candidate propensities, per selection fold",
+                label,
+                candidates_cv,
+                upper=why or None,
+                min_fits=(low_cv if early else candidates_cv.fits) if why else None,
+            )
+        )
+        if self.strategy == "ordered" and self.ordering is None and self.preorder == "logistic":
+            # The logistic preorder fits each covariate alone on every branch, eagerly.
+            logistic = LogisticRegression(C=1e6, max_iter=1000, random_state=seed_value)
+            preorder = one_set(logistic, folds, None, counter).scaled(p)
+            for branch, mask in branches:
+                preorder.add(one_set(logistic, branch, mask, inner_counter), p)
+            items.append(
+                PlanItem(
+                    "preorder",
+                    "C-TMLE logistic preorder, one fit per covariate and branch",
+                    "LogisticRegression",
+                    preorder,
+                )
+            )
+        fits = candidates_full.fits + candidates_cv.fits
+        builder.search(
+            "C-TMLE candidate path positions",
+            length * (1 + len(branches)),
+            early is not None,
+            fits,
+        )
+        return items
+
     def _derivative_nuisances(
         self,
         data: CausalData,
@@ -3176,7 +3582,7 @@ default="greedy"
         if chosen_risks:
             treatment_risk = float(np.mean(chosen_risks))
         else:
-            columns = np.array([propensity.column_for(float(arm)) for arm in data.treatment])
+            columns = propensity.columns_for(data.treatment)
             observed = propensity.values[everything, columns]
             treatment_risk = float(
                 -np.sum(data.weights * np.log(np.clip(observed, _LOSS_EPS, 1.0)))
@@ -3290,9 +3696,7 @@ default="greedy"
             }
         else:
             propensity = Propensity(factors["treatment"], arms)
-            observed_columns = np.array(
-                [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
-            )
+            observed_columns = propensity.columns_for(data.treatment)
             observed_probability = propensity.values[np.arange(data.n), observed_columns]
             risk = float(
                 -np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0)))
@@ -3911,6 +4315,11 @@ class _Selector:
         self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
         self._active: dict[tuple[Any, ...], tuple[str, ...]] = {}
+        #: The work this branch did, for :attr:`CTMLESelection.candidate_fits`,
+        #: :attr:`~CTMLESelection.mechanism_fits` and :attr:`~CTMLESelection.target_solves`.
+        self.work = _SearchWork()
+        #: The work of each selection fold's branch, in fold order, once it has run.
+        self.fold_work: list[_SearchWork] = []
         self.reference = estimator._reference_arm(data)
         self.target_names = self._target_names()
         #: The penalty grid of ``strategy="lasso"``. It reads treatment and covariates only
@@ -3923,6 +4332,10 @@ class _Selector:
                 if estimator.lambdas is not None
                 else default_penalty_grid(data.mechanism_covariates, data.treatment, data.weights)
             )
+
+    def counts(self, kind: str) -> tuple[int, ...]:
+        """One work count of the analysis-sample branch, then of each selection fold's branch."""
+        return tuple(int(getattr(work, kind)) for work in (self.work, *self.fold_work))
 
     # ------------------------------------------------------------ propensities
 
@@ -3945,6 +4358,9 @@ class _Selector:
         self, learner: Learner, covariates: tuple[str, ...], train: IntArray | None
     ) -> Propensity:
         data = self.data
+        # Each call fits one mechanism: the candidate paths cache the result per branch, and
+        # the logistic preorder fits each one-covariate model once.
+        self.work.mechanism_fits += 1
         if not covariates:
             return self._intercept_propensity(train)
 
@@ -4054,6 +4470,7 @@ class _Selector:
         Fitting and applying are separated because the cross-validated selector needs
         an ``epsilon`` fit on training rows and evaluated on held-out ones.
         """
+        self.work.target_solves += 1
         fluctuation = solve_submodel(
             self.scaled[rows],
             _restrict_fit(initial, rows),
@@ -4320,6 +4737,7 @@ class _Selector:
         keys = [(tag, ("lasso", k)) for k in range(count)]
         if all(key in self._cache for key in keys):
             return [Propensity(self._cache[key], data.arm_codes) for key in keys]
+        self.work.mechanism_fits += count
         values = np.empty((count, data.n, data.n_arms))
         active: list[set[int]] = [set() for _ in range(count)]
         for fit_rows, predict_rows, layer in self._fit_rows(train, tag):
@@ -4485,14 +4903,13 @@ class _Selector:
         label: str = "",
     ) -> _Candidate:
         """Fluctuate ``initial`` along one candidate mechanism and score it on ``rows``."""
+        self.work.candidate_fits += 1
         submodel = self.submodel(propensity)
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
         penalty = self.penalty(targeted, submodel, rows) if self.est.penalty else 0.0
         g = np.clip(propensity.values[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
-        columns = np.array(
-            [propensity.column_for(float(arm)) for arm in self.data.treatment[rows]], dtype=int
-        )
+        columns = propensity.columns_for(self.data.treatment[rows])
         w = self.data.weights[rows]
         treatment_risk = float(-np.sum(w * np.log(g[np.arange(rows.size), columns])))
         return _Candidate(
@@ -4599,6 +5016,7 @@ class _Selector:
         influence = np.zeros((len(path), data.n, dimension))
         for fold, (train, test) in enumerate(folds):
             fold_selector = self._fold_selector(train)
+            self.fold_work.append(fold_selector.work)
             fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
                 raise RuntimeError(
@@ -4680,6 +5098,7 @@ class _Selector:
         dimension = len(self.target_names)
         full = self.iter_path(train=None, tag="full")
         fold_selectors = [self._fold_selector(train) for train, _ in folds]
+        self.fold_work.extend(fold_selector.work for fold_selector in fold_selectors)
         fold_paths = [
             fold_selector.iter_path(train=train, tag=f"cv{fold}")
             for fold, (fold_selector, (train, _)) in enumerate(

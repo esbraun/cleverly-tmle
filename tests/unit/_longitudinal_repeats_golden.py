@@ -156,7 +156,7 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "treat_if_l2|None|2",
             ],
             "warnings": [
-                "SparseInfluenceWarning: 2 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[always] (Kish 41, relative SD 0.155, Edgeworth coverage loss 0.000); ate_regimen[treat_if_l2 vs never] (Kish 47, relative SD 0.144, Edgeworth coverage loss 0.001). The Wald interval may under-cover. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
+                "SparseInfluenceWarning: 2 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[always] (Kish 41, relative SD 0.155, Edgeworth coverage loss 0.000); ate_regimen[treat_if_l2 vs never] (Kish 47, relative SD 0.144, Edgeworth coverage loss 0.001). The Wald interval may under-cover. On an unclustered estimate of a continuous outcome the interval already takes a t at the capped degrees of freedom and widens the side a skewed outcome misses on; on any other estimate the reference does not widen for this noise. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
             ],
         },
     },
@@ -235,7 +235,7 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "always|None|3",
             ],
             "warnings": [
-                "SparseInfluenceWarning: 3 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[never] (Kish 25, relative SD 0.194, Edgeworth coverage loss 0.000); ey_regimen[always] (Kish 6, relative SD 0.409, Edgeworth coverage loss 0.014); ate_regimen[always vs never] (Kish 11, relative SD 0.297, Edgeworth coverage loss 0.005). The Wald interval may under-cover. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
+                "SparseInfluenceWarning: 3 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[never] (Kish 25, relative SD 0.194, Edgeworth coverage loss 0.000); ey_regimen[always] (Kish 6, relative SD 0.409, Edgeworth coverage loss 0.014); ate_regimen[always vs never] (Kish 11, relative SD 0.297, Edgeworth coverage loss 0.005). The Wald interval may under-cover. On an unclustered estimate of a continuous outcome the interval already takes a t at the capped degrees of freedom and widens the side a skewed outcome misses on; on any other estimate the reference does not widen for this noise. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
             ],
         },
     },
@@ -284,7 +284,7 @@ GOLDEN: dict[str, dict[str, Any]] = {
             ],
             "fold_fingerprint": "d870c840b10b3ea3",
             "warnings": [
-                "SparseInfluenceWarning: 2 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[always] (Kish 41, relative SD 0.155, Edgeworth coverage loss 0.001); ate_regimen[treat_if_l2 vs never] (Kish 46, relative SD 0.146, Edgeworth coverage loss 0.001). The Wald interval may under-cover. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
+                "SparseInfluenceWarning: 2 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: ey_regimen[always] (Kish 41, relative SD 0.155, Edgeworth coverage loss 0.001); ate_regimen[treat_if_l2 vs never] (Kish 46, relative SD 0.146, Edgeworth coverage loss 0.001). The Wald interval may under-cover. On an unclustered estimate of a continuous outcome the interval already takes a t at the capped degrees of freedom and widens the side a skewed outcome misses on; on any other estimate the reference does not widen for this noise. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
             ],
         },
     },
@@ -363,7 +363,7 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "always|3|3",
             ],
             "warnings": [
-                "SparseInfluenceWarning: 1 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: risk_regimen[always @ t=3] (Kish 59, relative SD 0.128, Edgeworth coverage loss 0.000). The Wald interval may under-cover. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
+                "SparseInfluenceWarning: 1 estimate(s) read their influence curve from few rows, so the variance estimate's relative SD is above 0.125: risk_regimen[always @ t=3] (Kish 59, relative SD 0.128, Edgeworth coverage loss 0.000). The Wald interval may under-cover. On an unclustered estimate of a continuous outcome the interval already takes a t at the capped degrees of freedom and widens the side a skewed outcome misses on; on any other estimate the reference does not widen for this noise. No validated interval exists for a cross-fitted fit in this regime: its full-refit bootstrap over-covers and is a diagnostic only (roadmap X20). Read the Wald interval with care, and see result.diagnostics.influence().",
             ],
         },
     },

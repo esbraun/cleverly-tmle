@@ -83,6 +83,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -92,6 +93,7 @@ from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import ConvergenceWarning, Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
+from ._fit_cache import frozen
 from .data import LongitudinalData, RegimenMasks
 from .hazard import (
     HAZARD_BOUND_EXCLUDES_DATA,
@@ -1492,6 +1494,73 @@ def target_time_varying(
     return initial, out
 
 
+def plan_time_varying(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    horizons: Sequence[int],
+    counter: Any,
+) -> tuple[Any, Any]:
+    """The fits :func:`target_time_varying` makes, counted without fitting.
+
+    The node hazards in sample, or on each outer fold's training rows, exactly as
+    :func:`~cleverly.longitudinal.hazard.plan_hazards` counts them.  Then one continuation
+    per regimen, node below the last horizon and cause, in sample or in each fold's
+    untargeted pass.  A continuation regresses the next node's pseudo-outcome, which can turn
+    out all zero or all one, so its count is the most it can make, each at the learner's
+    declared inner folds.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+    outcome_learner : Learner
+        The node hazard learner.
+    pseudo_learner : Learner
+        The continuation learner.
+    folds : Folds
+        The outer split.
+    horizons : sequence of int
+        The reported horizons.
+    counter : FitCounter
+        Counts each fit.
+
+    Returns
+    -------
+    tuple of Count
+        The node hazards' fits and the continuations' fits.
+    """
+    from .._planned_fits import Count, count_nominal
+    from .hazard import plan_hazards
+
+    single = Folds.single(data.n)
+    trains: list[BoolArray | None] = []
+    if folds.is_single:
+        trains.append(None)
+        hazards = plan_hazards(data, learner=outcome_learner, folds=folds, counter=counter)
+    else:
+        hazards = Count()
+        for _, test in folds:
+            train = np.ones(data.n, dtype=bool)
+            train[test] = False
+            trains.append(train)
+            hazards.add(
+                plan_hazards(
+                    data, learner=outcome_learner, folds=single, counter=counter, fit_rows=train
+                )
+            )
+    n_causes = max(len(data.cause_labels), 1)
+    nodes = max(horizons) - 1
+    one = count_nominal(pseudo_learner, np.arange(data.n, dtype=float), 1, task="regression")
+    continuations = one.scaled(len(plans) * len(trains) * nodes * n_causes)
+    return hazards, continuations
+
+
 def _stitched_continuations(
     data: LongitudinalData,
     plan: Plan,
@@ -1560,10 +1629,11 @@ def _regimen_fits(
     numerator = plan.cumulative_numerator(data)
     ratio = node_ratios(data, plan, mechanism)
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
+    # One read-only clever weight for the pass; each cause and horizon keeps its view.
+    base = frozen(np.where(at_risk, weight, 0.0))
     for j, cause in enumerate(causes):
         for h, t in enumerate(horizons):
-            clever = np.where(at_risk, weight, 0.0)
-            clever[:, t:] = 0.0
+            clever = base[:, :t]
             # Node k is flagged when any held cell of its panel up to t lies in a cell the
             # regimen reads, a continuation sub-node included.  That can flag a node whose own
             # hazard is not held, which only adds a conservative constant_node_plugin status.

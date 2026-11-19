@@ -131,7 +131,9 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
             else pd.read_csv(record.artifact(filename))
         )
         for name, (filename, _) in ARTIFACTS.items()
+        if name != "properties"
     }
+    frames["properties"] = property_verdicts.read_property_table(record)
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
     harness_file = _harness_file(record)

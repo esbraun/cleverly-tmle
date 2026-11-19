@@ -213,9 +213,18 @@ class StudyRecord:
     #: Scenarios declared as reported stress rows: a law on which the method's guarantee is
     #: pointwise and the study measures how far the estimate sits from the target, with no
     #: verdict on it.  Their truth rows publish bias, coverage and the SE ratio, and pass by
-    #: declaration on those three legs.  The failure bound still gates them, so a lost
-    #: replicate is not hidden.  Their paired rows run no calibration leg.
+    #: declaration on those three legs.  Their failure bound legs are published in the failure
+    #: accounting, red when the bound is exceeded, so a lost replicate is not hidden, and they
+    #: still gate the record unless it opts out with :attr:`reported_bounds_gate`.  Their paired
+    #: rows run no calibration leg.
     reported_scenarios: frozenset[str] = frozenset()
+    #: Whether a reported scenario's failure bound gates the record.  ``True`` (the default): a
+    #: reported scenario over its bound fails the gate like any other cell.  ``False``: a
+    #: reported scenario's failure bound is published red but gates nothing
+    #: (``failures.BOUND_REPORTED``), for a record that declared after its pilot that a reported
+    #: cell's failures are evidence for an owner row rather than a defect of the gated cells.
+    #: Every other scenario's bound gates either way.
+    reported_bounds_gate: bool = True
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -586,6 +595,7 @@ def registered() -> tuple[StudyRecord, ...]:
     """
     from tests.studies.adaptive_tmle_selective import STUDY as ADAPTIVE_TMLE_SELECTIVE
     from tests.studies.adaptive_tmle_trial import STUDY as ADAPTIVE_TMLE_TRIAL
+    from tests.studies.asymmetric_wald import STUDY as ASYMMETRIC_WALD
     from tests.studies.band_t_reference import STUDY as BAND_T_REFERENCE
     from tests.studies.band_t_reference_held_out import STUDY as BAND_T_REFERENCE_HELD_OUT
     from tests.studies.boundary_node_ltmle import STUDY as BOUNDARY_NODE_LTMLE
@@ -749,9 +759,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
+    from tests.studies.continuous_survival_causes import STUDY as CONTINUOUS_SURVIVAL_CAUSES
     from tests.studies.continuous_survival_functionals import (
         STUDY as CONTINUOUS_SURVIVAL_FUNCTIONALS,
     )
+    from tests.studies.continuous_survival_variance import STUDY as CONTINUOUS_SURVIVAL_VARIANCE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -797,6 +809,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
@@ -865,6 +878,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_COMPOSITIONS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
+        PROJECTION_COMPOSITIONS,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,
@@ -880,6 +894,8 @@ def registered() -> tuple[StudyRecord, ...]:
         HAZARD_TIME_VARYING_MULTINODE,
         CONTINUOUS_SURVIVAL,
         CONTINUOUS_SURVIVAL_FUNCTIONALS,
+        CONTINUOUS_SURVIVAL_VARIANCE,
+        CONTINUOUS_SURVIVAL_CAUSES,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,
@@ -888,6 +904,7 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_PATIENCE,
         ISOTONIC_BINDING,
         SMALL_SAMPLE_WALD,
+        ASYMMETRIC_WALD,
         DOSE_RESPONSE,
         MISSINGNESS_TILT_INFERENCE,
         DOSE_RESPONSE_NPCAUSAL,

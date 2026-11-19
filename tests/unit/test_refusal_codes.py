@@ -423,6 +423,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/sensitivity/simulated_confounding.py", "must contain only numeric"): (
         _MALFORMED
     ),
+    (
+        "src/cleverly/sensitivity/_simulated_confounding_continuous.py",
+        "a grouped replay model has no atom at an observed time",
+    ): "an internal invariant, not a request: a fitted replay model has a jump at every "
+    "observed time (check_models), so this raises only for a hand-built step model; the "
+    "surface records it as each moved cell's failure",
     ("src/cleverly/sensitivity/marginal.py", "this fit leaves a choice"): "a missing "
     "argument: the fit reports two or more parameters the bounds take, so the call must name "
     "one; the sensitivity facade defers the same case and asks for estimand=",

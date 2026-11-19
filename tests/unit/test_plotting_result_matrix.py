@@ -345,6 +345,39 @@ def _structural_nested_mean() -> Any:
     )
 
 
+def _point_binary() -> Any:
+    """Asymmetric intervals: range-logit arm means and a MOVER difference (Fix-3 PR 3)."""
+    return sweep.fit_binary()
+
+
+def _point_withheld() -> Any:
+    """Withheld intervals: the treated arm shows one outcome value (constant_arm_cell_plugin)."""
+    return sweep.fit_constant_arm_cell()
+
+
+def _effect_curve_continuous() -> Any:
+    """Skew-widened t rows: an effect curve of a continuous, right-skewed outcome."""
+    rng = np.random.default_rng(0)
+    n = 500
+    w, z = rng.uniform(-1, 1, n), rng.uniform(-1, 1, n)
+    treated = rng.binomial(1, 0.5, n)
+    y = treated * (w > 0) + 0.2 * z + rng.lognormal(0.0, 1.0, n)
+    frame = pd.DataFrame({"Y": y, "A": treated, "W": w, "Z": z})
+    design = PointTreatment(outcome="Y", treatment="A", adjustment=("W", "Z"))
+    question = ConditionalContrast(Modifiers(["W"], domains={"W": (-1, 1)}), model=Linear(["W"]))
+    fit = (
+        CausalStudy(frame, design=design)
+        .identify(question)
+        .estimate(
+            outcome_learner=LinearRegression(),
+            treatment_learner=_logistic(),
+            cross_fit=False,
+            random_state=0,
+        )
+    )
+    return fit.effect_curve()
+
+
 def _mtp_censored(estimator: str) -> Callable[[], Any]:
     """A continuous-treatment modified policy with dropout after each node (X77)."""
 
@@ -375,8 +408,20 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
+    "effect_curve_continuous": _effect_curve_continuous,
+    "point_tmle_binary": _point_binary,
+    "point_tmle_withheld": _point_withheld,
     "dose_response": _dose_response,
     "structural_nested_mean": _structural_nested_mean,
+    # The P1 PR 1 compositions of the conditional-contrast projection, and the EP rule with a
+    # declared sieve or final learner: the capability sweep's own fits.
+    "projection_missing_treatment": sweep.fit_projection_missing_treatment,
+    "projection_strata": sweep.fit_projection_strata,
+    "projection_strata_log_ratio": sweep.fit_projection_strata_crr,
+    "projection_repeats": sweep.fit_projection_repeated,
+    "projection_bootstrap": sweep.fit_projection_bootstrap,
+    "learned_rule_ep_sieve": sweep.fit_learned_rule_ep_sieve,
+    "learned_rule_ep_learner": sweep.fit_learned_rule_ep_learner,
     # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
     # plot answers as it does on an estimated-mechanism fit of the same kind.
     "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
@@ -417,7 +462,10 @@ NOT_FITS = {
     "RefutationResult": "a refutation report of a fit",
     "SimulatedConfoundingResult": "a simulated-confounding report; sensitivity() draws it",
     "StudyResult": "a simulation study; zipper() draws it",
-    "VariableImportanceResult": "one TMLEResult per candidate, each covered as a point fit",
+    "VariableImportanceResult": (
+        "one TMLEResult per candidate, each covered as a point fit; a keep_fits=False "
+        "result keeps no fit to plot"
+    ),
     "TMLEResultSet": "one TMLEResult per level, each covered as a point fit",
 }
 
@@ -664,6 +712,42 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "TypeError: bootstrap() takes a fitted result",
     },
+    "effect_curve_continuous": {
+        "forest": "TypeError: forest() takes fitted results, result",
+        "curve": "draws",
+        "influence": "TypeError: influence() takes a ParameterEstimate or",
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "TypeError: bootstrap() takes a fitted result",
+    },
+    "point_tmle_binary": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "point_tmle_withheld": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "ValueError: ate: this estimate's interval is",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "dose_response": {
         "forest": "draws",
         "curve": "draws",
@@ -686,6 +770,90 @@ EXPECTED: dict[str, dict[str, str]] = {
         "learners": "TypeError: learners() cannot read the nuisance",
         "calibration": "CapabilityError: no nuisance model here reports",
         "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_missing_treatment": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_strata": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_strata_log_ratio": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_repeats": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "draws",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_bootstrap": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "draws",
+    },
+    "learned_rule_ep_sieve": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "learned_rule_ep_learner": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "point_tmle_known_sample": {
@@ -1026,6 +1194,24 @@ def test_calibration_does_not_call_a_hazard_library_a_continuous_outcome(fits: A
     with pytest.raises(CapabilityError) as caught:
         plotting.calibration(fits("continuous_survival"))
     assert "continuous outcome" not in str(caught.value)
+
+
+@_SHARED
+def test_the_interval_families_carry_their_intervals(fits: Any) -> None:
+    """Nonzero witnesses that the Fix-3 PR 3 families hold the intervals they stand for."""
+    binary = fits("point_tmle_binary")
+    assert binary["ate"].interval_scale == "mover"
+    assert binary["ey1"].interval_scale == "range_logit"
+    withheld = fits("point_tmle_withheld")
+    assert withheld["ate"].inference == "constant_arm_cell_plugin"
+    assert not withheld["ate"].supplies_inference
+    curve = fits("effect_curve_continuous")
+    assert curve.model.skew_widened()
+    table = curve.predict({"W": np.linspace(-1.0, 1.0, 5)}, interval=True)
+    estimate = np.asarray(table["estimate"], dtype=float)
+    below = estimate - np.asarray(table["ci_lower"], dtype=float)
+    above = np.asarray(table["ci_upper"], dtype=float) - estimate
+    assert np.max(np.abs(above - below)) > 1e-3 * float(np.max(above + below))
 
 
 @_SHARED

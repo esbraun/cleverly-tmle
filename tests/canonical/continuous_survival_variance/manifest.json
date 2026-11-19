@@ -1,0 +1,215 @@
+{
+  "schema_version": 2,
+  "study": "continuous-time survival switched variance",
+  "slug": "continuous-survival-variance",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-continuous-survival-switched",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "0cb80a56bca80d98a6f9f083fe6bfb9c63800ec2",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 1000,
+    "scenario_n": {
+      "v3_half_n": 500
+    },
+    "seed": 2026611461,
+    "resampling_seed": 2026611462,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-continuous-survival-switched": 0.01
+    },
+    "scenarios": {
+      "v1_rare_cause2": [
+        "cif_regimen[treated, cause1 @ t=1.29]",
+        "cif_regimen[treated, cause1 @ t=2.69]",
+        "cif_regimen[treated, cause2 @ t=1.29]",
+        "cif_regimen[treated, cause2 @ t=2.69]",
+        "cif_regimen[control, cause1 @ t=1.29]",
+        "cif_regimen[control, cause1 @ t=2.69]",
+        "cif_regimen[control, cause2 @ t=1.29]",
+        "cif_regimen[control, cause2 @ t=2.69]",
+        "ate_regimen[treated vs control, cause1 @ t=1.29]",
+        "ate_regimen[treated vs control, cause1 @ t=2.69]",
+        "ate_regimen[treated vs control, cause2 @ t=1.29]",
+        "ate_regimen[treated vs control, cause2 @ t=2.69]"
+      ],
+      "v2_heavy_weights": [
+        "cif_regimen[treated, cause1 @ t=1.12]",
+        "cif_regimen[treated, cause1 @ t=2.32]",
+        "cif_regimen[treated, cause2 @ t=1.12]",
+        "cif_regimen[treated, cause2 @ t=2.32]",
+        "cif_regimen[control, cause1 @ t=1.12]",
+        "cif_regimen[control, cause1 @ t=2.32]",
+        "cif_regimen[control, cause2 @ t=1.12]",
+        "cif_regimen[control, cause2 @ t=2.32]",
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ],
+      "v3_half_n": [
+        "cif_regimen[treated, cause1 @ t=1.12]",
+        "cif_regimen[treated, cause1 @ t=2.32]",
+        "cif_regimen[treated, cause2 @ t=1.12]",
+        "cif_regimen[treated, cause2 @ t=2.32]",
+        "cif_regimen[control, cause1 @ t=1.12]",
+        "cif_regimen[control, cause1 @ t=2.32]",
+        "cif_regimen[control, cause2 @ t=1.12]",
+        "cif_regimen[control, cause2 @ t=2.32]",
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ],
+      "v4_in_sample": [
+        "cif_regimen[treated, cause1 @ t=1.12]",
+        "cif_regimen[treated, cause1 @ t=2.32]",
+        "cif_regimen[treated, cause2 @ t=1.12]",
+        "cif_regimen[treated, cause2 @ t=2.32]",
+        "cif_regimen[control, cause1 @ t=1.12]",
+        "cif_regimen[control, cause1 @ t=2.32]",
+        "cif_regimen[control, cause2 @ t=1.12]",
+        "cif_regimen[control, cause2 @ t=2.32]",
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ],
+      "v7_quadratic": [
+        "cif_regimen[treated, cause1 @ t=1.12]",
+        "cif_regimen[treated, cause1 @ t=2.32]",
+        "cif_regimen[treated, cause2 @ t=1.12]",
+        "cif_regimen[treated, cause2 @ t=2.32]",
+        "cif_regimen[control, cause1 @ t=1.12]",
+        "cif_regimen[control, cause1 @ t=2.32]",
+        "cif_regimen[control, cause2 @ t=1.12]",
+        "cif_regimen[control, cause2 @ t=2.32]",
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ]
+    },
+    "construction": "Rytgaard and van der Laan (2024) one-step TMLE, both arms tilted; variance='switched' (IC raised to PV where variance_rel_sd > 0.125)",
+    "laws": {
+      "v1_rare_cause2": "rare_cause2",
+      "v2_heavy_weights": "heavy_weights",
+      "v3_half_n": "base",
+      "v4_in_sample": "base",
+      "v7_quadratic": "quadratic"
+    },
+    "times": {
+      "v1_rare_cause2": [
+        0.52,
+        1.29,
+        2.69
+      ],
+      "v2_heavy_weights": [
+        0.46,
+        1.12,
+        2.32
+      ],
+      "v3_half_n": [
+        0.46,
+        1.12,
+        2.32
+      ],
+      "v4_in_sample": [
+        0.46,
+        1.12,
+        2.32
+      ],
+      "v7_quadratic": [
+        0.46,
+        1.12,
+        2.32
+      ]
+    },
+    "quadratic": 0.3,
+    "n_folds": 10,
+    "learner_folds": 5,
+    "learners": "cox.default_library() for each hazard; logistic + lasso C in (1, 0.1, 0.03)",
+    "sizes": {
+      "v1_rare_cause2": 1000,
+      "v2_heavy_weights": 1000,
+      "v3_half_n": 500,
+      "v4_in_sample": 1000,
+      "v7_quadratic": 1000
+    },
+    "variance_method": "switched (influence curve raised to predictable variation)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.2,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/continuous_survival_variance.py": "c56a4a887eb80faf63cbb4fc71dc6bd2c8e04a70daf23098155b5925dae90e37",
+    "tests/studies/continuous_survival_variance_law.py": "e64a78acd8e2a86deb12b5d4e33e6dd840e2f3547510e62b0a31fb139ea3002f",
+    "tests/studies/continuous_survival_variance_properties.py": "b8825db6552afca9b771838fbfdaf54d8ca59310a5dafcced78ed6a692fbde95",
+    "tests/studies/continuous_survival_variance_readings.py": "7cc451ece81861dc54bf4462af8420146b98d2ba6d209298b51ec1ecbfeccfec",
+    "tests/studies/continuous_survival.py": "61202d8bee9c011630fd3511d65ca57051acad5ae29ca86350464af00c8ccd29",
+    "tests/studies/continuous_survival_law.py": "0b022895d8115269d5e5324d0ed1be969134d538c8df0f142778a32cff5f1b7b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/stratified_incremental_msm_properties.py": "628403ef4caf95d465f20c8d44e510a405eaa95ab66db9a8478aa6bba42482d6",
+    "tests/studies/canonical_stratified_incremental_msm.py": "c53a6365f91e03ab6876c36624e6034390a0510288f4eac0c5a186bf96b98f04",
+    "tests/studies/stratified_alternating_law.py": "06dd359ac9b20bbbedad07080baeca51b5d35f4940a9e3bb750e54c86620f276",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/discrete_law.py": "71a2e5d3c64d0018c2615e4f5b26568edc70ce6d9cce5f1495484f55a80675af"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "3e87ba8d360b5dd792b61b5aadb24ecc7c080b16b9b8d35a4c4bb3185bb8377f",
+    "summary.csv": "ec6fee3ab4f31fe66216d1f4c9f5c47d4fdbdececf780134568797914e132b52",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "2353b915dcc9bf015f7e58b043bf799f058c3849eae150a5427ac6c14a9ba264",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "12c8dbdd614a895ef7df2e5261a922df365630e2d8c7dffca24bc2c1564cfdb2",
+    "targeting-readings.csv": "9f4e43bfda7b1b6a169c69858612caa994f5742f0739104bdab98afafe60de31",
+    "variance-rows.csv.gz": "f3b9dc5e1b022503f8f8ed7dc8a70a57e29dd595226f71151e25a8faaa39941c",
+    "candidate-readings.csv": "3a456726bd5ba23420280bf99d95d8fddeb4ad4bfd4b7526fa0ff8ff73d91fe2",
+    "ship-rule.csv": "b81889a478ed629d625b8e5145e747ee6c7682551064ae43ff5805e2045aa622",
+    "floors.csv": "f240e629bb0efd30ede7d642cf78500ad7bffd9080138588acd3d76048d7563f",
+    "failures.csv": "79850ee464a94a773c6e7fd7cb10a3fdf3b73e43f1507ac16fa3bf580c03a49f",
+    "failure-accounting.csv": "0431568c606084728ac5e9de2e41a543189cf088bc3b7d8d5ee65fd7e7ee684f"
+  }
+}

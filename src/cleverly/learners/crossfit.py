@@ -76,6 +76,7 @@ from ..exceptions import (
     Refusal,
     RefusalReason,
 )
+from ..utils.random import note_fresh_entropy
 
 __all__ = [
     "CrossFitPlan",
@@ -1408,6 +1409,7 @@ def _fresh_seed() -> int:
     int
         A new seed.
     """
+    note_fresh_entropy()
     return int(np.random.SeedSequence().generate_state(1)[0]) % (2**31 - 1)
 
 

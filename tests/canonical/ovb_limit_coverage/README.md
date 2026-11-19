@@ -15,8 +15,8 @@ design. A passing row licenses its `ovb_limit` rule. A red row leaves the rule d
 `tests/studies/sensitivity_limit_laws.py` states the part G law and the closed form of `psi`,
 `sigma^2` and `nu^2` for each parameter. Each cell fixes `cf_y = 0.3`, `cf_d = 0.2` and `rho = 1`.
 Each row reads one end of a bound as an estimate of its population value. The standard error
-comes from the reported one-sided limit: `(lower - ci_lower) / z_0.95`, and the mirror for the
-upper end.
+is the influence standard error of the end's own curve, and the harness checks that it
+reproduces the reported one-sided limit under the estimate's interval rule.
 
 Each replication draws `n = 2000` rows. Every nuisance is a logistic regression on all pairwise
 products of its inputs, which is saturated on these laws. Each fit is in sample. Each cell has

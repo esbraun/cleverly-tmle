@@ -392,8 +392,8 @@ class CurveSpy:
         nuisances = ep.EPEstimator._nuisances
         spy = self
 
-        def recording_curve(self: Any, nuisance_fit: Any, size: int) -> Any:
-            curve, debiased = curve_at(self, nuisance_fit, size)
+        def recording_curve(self: Any, nuisance_fit: Any, size: int, *state: Any) -> Any:
+            curve, debiased = curve_at(self, nuisance_fit, size, *state)
             spy.betas.append(np.asarray(curve.beta).copy())
             spy.curves.append(curve)
             return curve, debiased

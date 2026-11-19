@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import math
 import warnings
+from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
+from scipy import stats
 
+from cleverly.inference.cluster import influence_variance
+from cleverly.sensitivity import omitted_variable as ov
 from tests.studies import evalue_limit_coverage as evalue_study
 from tests.studies import ovb_limit_coverage as ovb_study
 from tests.studies import sensitivity_limit_laws as laws
@@ -96,6 +101,94 @@ class TestTheOCells:
                 estimate, std_error = values[end]
                 assert math.isfinite(estimate)
                 assert std_error > 0.0
+
+
+def _end_errors(cell: str, fitted: Any, label: str) -> dict[str, tuple[float, float, Any]]:
+    """Each end's own standard error, rebuilt here, and the reported bound."""
+    result, name = ovb_study.parameter_result(cell, fitted, label)
+    spec = ovb_study.CELLS[cell]
+    bounds = ov.omitted_variable_bounds(result, name, cf_y=spec.cf_y, cf_d=spec.cf_d, rho=1.0)
+    elements = ov.sensitivity_elements(result, name)
+    curve = np.asarray(result[name].influence_curve, dtype=float)
+    bias = bounds.confounding_strength * np.asarray(elements.psi_max_bias, dtype=float)
+    return {
+        end: (
+            float(np.sqrt(influence_variance(curve + sign * bias, result.data.cluster))),
+            (bounds.lower - bounds.ci_lower if sign < 0 else bounds.ci_upper - bounds.upper)
+            / stats.norm.ppf(0.95),
+            result[name].interval_scale,
+        )
+        for end, sign in (("lower", -1.0), ("upper", 1.0))
+    }
+
+
+class TestTheRowStandardError:
+    """Each row reports its end's own standard error, not one read back off the limit.
+
+    The limit reads the estimate's interval rule about the end (MOVER, range-logit, identity),
+    so the shipped half-width over ``z_0.95`` is not the end's standard error.
+    """
+
+    @pytest.mark.parametrize("cell", list(ovb_study.CELLS))
+    def test_each_row_reads_the_end_s_own_curve(self, cell: str) -> None:
+        frame, _ = ovb_study.draw_from_seed(cell, ovb_study.PRIMARY_N, seed=11)
+        fitted = ovb_study.fit(cell, frame)
+        for label in ovb_study.CELLS[cell].parameters:
+            values = ovb_study.bound_values(cell, fitted, label)
+            rebuilt = _end_errors(cell, fitted, label)
+            for end in ovb_study.ENDS:
+                assert values[end][1] == pytest.approx(rebuilt[end][0], rel=1e-13)
+
+    def test_a_read_back_error_differs_on_each_asymmetric_rule(self) -> None:
+        """Nonzero witness: on O1 the MOVER and range-logit ends move off the back-out."""
+        frame, _ = ovb_study.draw_from_seed("O1", ovb_study.PRIMARY_N, seed=11)
+        fitted = ovb_study.fit("O1", frame)
+        scales = set()
+        for label in ("ate", "ey1"):
+            for own, backed_out, scale in _end_errors("O1", fitted, label).values():
+                assert abs(own - backed_out) > 1e-6, (label, scale)
+                scales.add(scale)
+        assert scales == {"mover", "range_logit"}
+
+    def test_a_moved_standard_error_fails_the_limit_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deliberate mutation: a standard error 1e-6 off no longer reproduces the limit."""
+        frame, _ = ovb_study.draw_from_seed("O1", ovb_study.PRIMARY_N, seed=11)
+        fitted = ovb_study.fit("O1", frame)
+        original = ovb_study.influence_variance
+        monkeypatch.setattr(
+            ovb_study,
+            "influence_variance",
+            lambda curve, cluster: (1.0 + 1e-6) ** 2 * original(curve, cluster),
+        )
+        with pytest.raises(RuntimeError, match="not the reported"):
+            ovb_study.bound_values("O1", fitted, "ate")
+
+
+def test_replicate_zero_reproduces_the_committed_rows() -> None:
+    """The harness is result-neutral for the committed artifact: replicate 0 of every cell
+    refits to the committed estimate, standard error and interval
+    (``tests/canonical/provenance-revisions.md``, "Study module edits after a run")."""
+    from tests.studies.evidence.manifest import read_rows
+
+    rows = []
+    for cell in ovb_study.CELLS:
+        frame, truth = ovb_study.draw_scenario(cell, ovb_study.PRIMARY_N, 0)
+        rows += ovb_study.cleverly_rows(frame, truth, cell, 0)
+    fitted = pd.DataFrame(rows)
+    committed = read_rows(ovb_study.STUDY.artifacts / "replicates.parquet")
+    committed = committed.loc[
+        (committed["implementation"] == ovb_study.STUDY.implementation)
+        & (committed["replicate"] == 0)
+    ]
+    merged = fitted.merge(committed, on=["scenario", "estimand", "replicate"], suffixes=("", "_c"))
+    assert len(merged) == len(fitted) == 20
+    # The refit matched to about 1e-16 when written; 1e-6 leaves room for a library's rounding
+    # and still fails a standard error read back off the limit, which moves it by about 1e-2.
+    for column in ("estimate", "std_error", "ci_lower", "ci_upper"):
+        np.testing.assert_allclose(merged[column], merged[f"{column}_c"], rtol=1e-6, atol=0)
+    assert (merged["covered"] == merged["covered_c"]).all()
 
 
 class TestTheECells:

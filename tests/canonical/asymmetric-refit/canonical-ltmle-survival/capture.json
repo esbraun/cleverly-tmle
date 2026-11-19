@@ -1,0 +1,62 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 180,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion",
+      "properties/curve"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 560,
+    "seconds_capture": 1.14,
+    "seconds_fit": 300.17,
+    "stage": "refits",
+    "study": "canonical-ltmle-survival"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 14,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion",
+      "properties/curve"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 38,
+    "seconds_capture": 1.15,
+    "seconds_fit": 74.62,
+    "stage": "scope",
+    "study": "canonical-ltmle-survival"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/dynamic_t2__correctly_specified",
+      "interval_calibration/static_t2__correctly_specified",
+      "root_n_and_efficiency/dynamic_t2__n_2000",
+      "root_n_and_efficiency/static_t2__n_2000"
+    ],
+    "jobs": 16,
+    "keys_fitted": 10400,
+    "primary_captured": true,
+    "property_calls": [
+      "properties",
+      "properties/recursion",
+      "properties/curve"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 40800,
+    "seconds_capture": 1.33,
+    "seconds_fit": 10225.99,
+    "stage": "settle",
+    "study": "canonical-ltmle-survival"
+  }
+}

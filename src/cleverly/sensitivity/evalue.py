@@ -144,12 +144,22 @@ _CONTINUOUS_FORM = (
     "'cif_regimen[control, death @ t=2]')), for the E-value of their risk ratio."
 )
 
-#: The conditions of the continuous-time risk-ratio E-value, printed beside it.
+#: What the continuous-time E-value bounds: U confounds the treatment and the event only.
+_CONTINUOUS_CENSORING = (
+    "The bound needs U to confound the treatment and the event only: censoring is independent "
+    "of the event times given (A, L), and U does not affect censoring given (A, L)."
+)
+
+#: The conditions of the continuous-time risk-ratio E-value with competing causes.
 _CONTINUOUS_CONDITIONS = (
     "The risk by time t is the probability of an event of the reported cause by t, which a "
-    "competing cause can prevent. The bound needs U to confound the treatment and the event "
-    "only: censoring is independent of the event times given (A, L), and U does not affect "
-    "censoring given (A, L)."
+    f"competing cause can prevent. {_CONTINUOUS_CENSORING}"
+)
+
+#: The same conditions on a fit with one event type, where the risk is one minus survival.
+_CONTINUOUS_SINGLE_CONDITIONS = (
+    "The risk by time t is the probability of the event by t, one minus the event-free "
+    f"survival; the fit has no competing cause. {_CONTINUOUS_CENSORING}"
 )
 
 #: Printed beside the limit of a DR-TMLE fit whose treatment mechanism is estimated.
@@ -959,11 +969,12 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         reported_estimand = ratio.name
         support = ratio.support
         rr, ci, approximate, scale = ratio.psi, ratio.ci, False, "risk ratio"
-        conditions = (
-            _CONTINUOUS_CONDITIONS
-            if selection.branch == "continuous_rr"
-            else _TIME_TO_EVENT_CONDITIONS
-        )
+        if selection.branch == "time_to_event_rr":
+            conditions = _TIME_TO_EVENT_CONDITIONS
+        elif result._single():  # type: ignore[attr-defined]
+            conditions = _CONTINUOUS_SINGLE_CONDITIONS
+        else:
+            conditions = _CONTINUOUS_CONDITIONS
         parts = [("censoring", conditions)]
     elif selection.branch == "reported_rr":
         rr, ci, approximate, scale = estimate.psi, (low, high), False, "risk ratio"

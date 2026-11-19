@@ -82,6 +82,19 @@ so no contrast is privileged by its position. `ey` contributes all `K` arm curve
 `or` contribute all `K - 1` curves against the reference. `CTMLESelection.target_names` records the
 exact vector that was optimized.
 
+**The record counts the search's work.** `CTMLESelection.candidate_fits`, `mechanism_fits` and
+`target_solves` hold one count per search branch: the analysis sample first, then each selection
+fold. A candidate fit is one fluctuation of a candidate mechanism, so a greedy step that retries
+from a further targeted fit scores its remaining covariates twice. A mechanism counts once however many
+folds it is cross-fitted over.
+
+Each penalty of a lasso path counts as one mechanism, and supplied
+`PropensityArrays` count as none. Solves are the candidates plus the logistic preorder's
+one-covariate solves. The estimator's final targeting of the chosen candidate is not counted.
+Under `patience` the counts are the work done: `lasso` and `learners` pass the stop, and the
+logistic preorder scores every covariate before the path starts. With `repeats`, the record
+describes the first draw. The summary's "Search work" line sums the counts.
+
 Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju et al. (2019); see
 [collaborative TMLE](../references.md#collaborative-tmle). Implementation:
 [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
@@ -467,7 +480,9 @@ column, and a $2K$ solve that does not converge. An array entry refuses cross-fi
 bootstrap, and every refit, because it describes one fit on the original rows and columns.
 
 **Evidence.** The registered study [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md)
-validates the strategy on three scenarios. Both sides pass all three truth tests. The paired rows
+validates the strategy on three scenarios. Five of the six truth tests pass: the `cleverly` row of
+`binary_declared_pair` covers 741 of 800 fits under correlated MOVER, a 99% lower limit of 0.8992
+against the 0.90 floor, which its page reads as chance on one draw set. The paired rows
 against R `ctmle` type 3 are equivalent on all three scenarios, and the parity witness passes on
 `binary_declared_pair` and `binary_constant_q`. All 21 property cells pass,
 including the both-wrong control, the cluster-robust cell against its IID control, and three
@@ -538,6 +553,11 @@ engine and is refused. A hazard clipped at $10^{-12}$ inside the loss is counted
 `result.selection[...].clipped`. A held cell already keeps every validation hazard away from zero,
 so the clip is a backstop. The default cumulative bound `g_bounds=(0.01, 1.0)` applies, while the
 paper truncated nothing.
+
+Each selection record also counts the search's work. `target_solves` holds the hazard targeting
+solves of the full-data path and of each selection fold's path, and `candidate_pairs` the distinct
+mechanism pairs each path targeted. Regimens on one arm share that arm's search, so their
+records report the same counts, and a sum over regimens counts that search once per regimen.
 
 **Contrasts.** Each arm has its own selection, so a contrast combines two selected curves by the
 delta method. `ate_regimen[...]` is the risk difference, and `ratio(..., view="survival")` is the
@@ -782,7 +802,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. All three paired rows against R `ctmle` `ctmletype = 3` are equivalent. All six truth tests and all 21 property cells pass |
+| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. All three paired rows against R `ctmle` `ctmletype = 3` are equivalent. Five of six truth tests and all 21 property cells pass; the `cleverly` declared-pair row's coverage is red on one draw set |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |

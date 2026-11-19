@@ -121,18 +121,17 @@ The test fails on four states.
 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) | 2 | cross-fitted weighted end-of-study longitudinal TMLE |
 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) | 8 | selector-based multi-arm C-TMLE, DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE, cross-fitted weighted end-of-study longitudinal TMLE |
 | [`RM18-one-sided-bias`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
-| [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
+| [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 5 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 1 | ordinary point-treatment TMLE with baseline strata |
 | [`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners) | 1 | Learned treatment rules over three arms |
-| [`F3-normal-reference`](../../roadmap.md#red-cell-owners) | 3 | ordinary point-treatment TMLE with baseline strata |
+| [`ctmle-derivative-coverage-draws`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE0 derivative covariate |
+| [`F3-normal-reference`](../../roadmap.md#red-cell-owners) | 6 | ordinary point-treatment TMLE with baseline strata, Small-sample Wald intervals |
 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 1 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 2 | sequentially doubly robust longitudinal estimation, long-horizon sequentially doubly robust estimation |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | stratified incremental and MSM targeting, Small-sample Wald intervals |
-| [`F3-difference-near-bound`](../../roadmap.md#red-cell-owners) | 1 | Small-sample Wald intervals |
-| [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) | 2 | Small-sample Wald intervals |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata, DR-TMLE with baseline strata and fold-wise reduced regressions |
@@ -161,7 +160,7 @@ The test fails on four states.
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
-| total | 289 | 45 studies |
+| total | 289 | 46 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -200,6 +199,7 @@ same text as the "measured" column of its study page.
 | [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/empty_control` | control | the family's joint clause | bias 0.0494 to 0.0511, margin 0.0023 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/lasso_collaborative` | positive | the family's joint clause | bias -0.0025 to -0.000412, margin 0.0028, RMSE ratio 0.2205, 99% upper 0.2333 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/learners_collaborative` | positive | its own rule | bias 0.0029 to 0.0051, margin 0.0031, RMSE ratio 0.2542, 99% upper 0.2721 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
+| [C-TMLE0 derivative covariate](ctmle-derivative.md) | truth | `cleverly-ctmle-derivative/binary_declared_pair/ate` | cleverly-ctmle-derivative | its truth gate | bias -0.0030 to 0.0013, coverage 0.9263, SE ratio 0.9318 | [`ctmle-derivative-coverage-draws`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/estimated` | positive | its own rule | coverage 0.9267 to 0.9677, SE ratio 0.9694 to 1.1026 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/oracle_design` | positive | its own rule | coverage 0.9282 to 0.9688, SE ratio 0.9797 to 1.1151 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [DR-TMLE for binary complete data](canonical-dr-tmle.md) | property | `double_robust_contraction/treatment_correct_n1500` | positive | its own rule | coverage 0.8864 to 0.9385, bias 0.0115 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
@@ -216,22 +216,21 @@ same text as the "measured" column of its study page.
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000514 to 0.000732, coverage 0.8948, SE ratio 0.8314 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [Learned treatment rules over three arms](learned-rule-arms.md) | property | `conservative_coverage/missing_quadratic__declared` | positive | its own rule | bias -0.0019 to 0.000403, margin 0.0039, coverage 0.9173 to 0.9541, SE ratio 0.9960 | [`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners) |
 | [Targeting curves (TOC, cumulative gain, AUTOC, Qini)](targeting-curves.md) | property | `interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified` | positive | its own rule | coverage 0.9559 to 0.9687, SE ratio 1.0350 to 1.0857 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) |
-| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `diagnosis_continuous/lognormal06_ey1` | positive | its own rule | lower leg 0.9178 to 0.9471, shown 0.9178 to 0.9471 | [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) |
-| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_hurdle_ey1` | positive | its own rule | lower leg 0.9135 to 0.9435, shown 0.9145 to 0.9443, failures 2 of 2000 (complete case fails) | [`F3-skewed-continuous`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `diagnosis_continuous/lognormal06_ey1` | positive | its own rule | lower leg 0.9178 to 0.9471, shown 0.9178 to 0.9471 | [`F3-normal-reference`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_hurdle_ey1` | positive | its own rule | lower leg 0.9135 to 0.9435, shown 0.9145 to 0.9443, failures 2 of 2000 (complete case fails) | [`F3-normal-reference`](../../roadmap.md#red-cell-owners) |
 | [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_logit_msm_a` | positive | its own rule | lower leg 0.9195 to 0.9484, shown 0.9195 to 0.9484 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_logit_msm_w` | positive | its own rule | lower leg 0.8638 to 0.9013, shown 0.8638 to 0.9013 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
-| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_sparse_treat_ate` | positive | its own rule | lower leg 0.9124 to 0.9426, shown 0.9124 to 0.9426 | [`F3-difference-near-bound`](../../roadmap.md#red-cell-owners) |
+| [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_sparse_treat_ate` | positive | its own rule | lower leg 0.9124 to 0.9426, shown 0.9124 to 0.9426 | [`F3-normal-reference`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=2.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000134 to 0.000323 within 0.0039, RMSE ratio bound 0.9870 vs 1.1000, coverage difference bound -0.000834 vs -0.0250, calibration excess bound 0.0391 vs 0.0500, resolution 0.0079, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=3.5]` | paired | inconclusive: calibration leg | difference -0.000247 to 0.000594 within 0.0045, RMSE ratio bound 1.0392 vs 1.1000, coverage difference bound 0.0015 vs -0.0250, calibration excess bound 0.0558 vs 0.0500, resolution 0.0141, failures 6 of 4800 (complete case fails) | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2.5,a=3.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000187 to 0.000730 within 0.0043, RMSE ratio bound 1.0710 vs 1.1000, coverage difference bound -0.0035 vs -0.0250, calibration excess bound 0.0393 vs 0.0500, resolution 0.0213, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
 | [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | paired | `continuous_modified_policy/ate_policy[+0.25 vs natural course]` | paired | inconclusive: calibration leg | difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, calibration excess bound 0.0648 vs 0.0500, resolution 0.0439 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) |
 | [ordinary point modified treatment policies](point-modified-treatment-policies.md) | property | `interval_calibration/halve__correctly_specified` | positive | its own rule | coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to 1.0034 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) |
-| [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
+| [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9241 to 0.9499, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0019, margin 0.0075 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__untargeted` | control | the family's joint clause | bias 0.0229 to 0.0284, margin 0.0093 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/static__targeted` | positive | the family's joint clause | bias -0.0027 to 0.0075, margin 0.0172 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/static__untargeted` | control | its own rule | bias -0.0242 to -0.0148, margin 0.0158 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
-| [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `type_i_error/static__sharp_null` | positive | its own rule | rejection 0.0750, 0.0530 to 0.1022 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary known stochastic categorical longitudinal TMLE](stochastic-categorical-longitudinal-tmle.md) | property | `power/mix__alternative` | positive | its own rule | rejection 0.5575, 0.5114 to 0.6029 | [`F1-power-design`](../../roadmap.md#red-cell-owners) |
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
 | [modified treatment policies at declared boundaries](mtp-boundaries.md) | property | `interval_calibration/p4_sdr__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9467, SE ratio 0.9060 to 0.9775 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) |
@@ -455,7 +454,7 @@ same text as the "measured" column of its study page.
 | [longitudinal refutation verdict rules](refuter-calibration-longitudinal.md) | truth | `cleverly-refute-longitudinal/survival/ate` | cleverly-refute-longitudinal | its truth gate | bias -0.0068 to 0.0085, coverage 0.9450, SE ratio 0.9993 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/binomial/ate` | cleverly-refute-point | its truth gate | bias -0.0018 to 0.0031, coverage 0.9650, SE ratio 1.0462 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/gaussian/ate` | cleverly-refute-point | its truth gate | bias -0.0035 to 0.0140, coverage 0.9400, SE ratio 1.0087 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
-| [band-rank placebo verdict rule](refuter-calibration-band.md) | truth | `cleverly-refute-band/point/ate` | cleverly-refute-band | its truth gate | bias -0.0024 to 0.0078, coverage 0.9500, SE ratio 1.0145 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [band-rank placebo verdict rule](refuter-calibration-band.md) | truth | `cleverly-refute-band/point/ate` | cleverly-refute-band | its truth gate | bias -0.0024 to 0.0078, coverage 0.9550, SE ratio 1.0145 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9191 to 0.9458 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9119 to 0.9397 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [full-refit bootstrap and derived contrasts](full-refit-bootstrap-and-derived-contrasts.md) | property | `interval_calibration/boot_ate_clustered__correctly_specified` | positive | its own rule | coverage 0.9123 to 0.9342, SE ratio 0.9496 to 1.0065 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) |
@@ -478,7 +477,6 @@ row. A move to `gated` is a separate registry decision.
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 32 | 0 |
 | [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
-| [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [collaborative TMLE of a risk curve](survival-ctmle.md) | 14 | 0 |
 | [Stopping rules on point TMLE](option-stopping-point.md) | 32 | 0 |
@@ -486,6 +484,7 @@ row. A move to `gated` is a separate registry decision.
 | [per-arm outcome regressions on point TMLE](option-outcome-by-arm.md) | 17 | 0 |
 | [Patience on the cross-validated C-TMLE path](option-patience.md) | 7 | 0 |
 | [Binding isotonic projection of a survival curve](isotonic-binding.md) | 6 | 0 |
+| [Asymmetric Wald intervals](asymmetric-wald-intervals.md) | 13 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [censored continuous-treatment modified policies](mtp-pricing-censored.md) | 16 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |

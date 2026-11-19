@@ -71,6 +71,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, 
 import numpy as np
 from sklearn.base import clone
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
@@ -86,6 +87,8 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._planned_fits import FitCounter, PlanBuilder, PlannedFits
+from .._summary._learners import learner_name
 from .._support import (
     UNCLASSIFIED,
     Classification,
@@ -178,6 +181,7 @@ from ..inference.influence import (
     median_estimates,
     parameter_bounds,
     spread_name,
+    with_components,
     with_precedent_status,
 )
 from ..inference.multiplier import (
@@ -218,6 +222,8 @@ from ..inference.results import (
 )
 from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
+from ..utils.memory import check_max_memory_bytes
+from ..utils.random import note_fresh_entropy
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
@@ -264,6 +270,7 @@ from ..utils.bounds import (
 )
 from ..utils.parallel import map_parallel
 from ..utils.phases import PhaseProfile, phase, profile_phases
+from ._fit_cache import in_fit_cache
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -279,6 +286,7 @@ from .gformula import (
     has_set_dose,
     monte_carlo_share,
     normal_learner_refusal,
+    plan_models,
     plan_node,
     resolve_covariates,
     run_gformula,
@@ -296,6 +304,7 @@ from .hazard import (
     mtp_inputs,
     mtp_slots,
     path_slots,
+    plan_hazards,
     project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
@@ -307,6 +316,7 @@ from .hazard import (
 from .hazard_backward import (
     hazard_replay_refusal,
     later_covariates,
+    plan_time_varying,
     target_time_varying,
 )
 from .ipsi import IPSICell, fit_cells_ipsi
@@ -341,6 +351,7 @@ from .regimen import (
     RegimenSpec,
     attach_policy_numerators,
     declares_tuned,
+    plan_tuned_fits,
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
@@ -366,6 +377,8 @@ from .sequential import (
     fit_regimen,
     known_product_refusal,
     node_ratios,
+    plan_mechanism,
+    plan_recursion,
     preflight_declared_doses,
     preflight_known_mechanisms,
     preflight_mechanism_support,
@@ -1762,6 +1775,54 @@ class _HazardBlock(NamedTuple):
     msm_fits: tuple[MSMRegimenFit, ...] = ()
 
 
+def _tuned_regimen(regimen: Any) -> bool:
+    """Whether ``regimen`` holds a data-tuned cap."""
+    return declares_tuned((regimen,))
+
+
+@dataclass(frozen=True)
+class _UnresolvedPlan:
+    """A tuned regimen in a preview, which resolves no plan because it fits no tuner."""
+
+    label: str
+
+
+def _tuner_label(regimens: Sequence[Any]) -> str:
+    """The first learner-backed boundary's learner, named as a summary names it."""
+    from ..interventions.policy import tuned_maps
+    from ..interventions.tuning import SupportBoundary
+
+    for regimen in regimens:
+        for node in getattr(regimen, "plan", ()):
+            for _, tuned, _ in tuned_maps(node):
+                cap = tuned.cap
+                if isinstance(cap, SupportBoundary) and not cap.finite_dimensional:
+                    return learner_name(cap.learner)
+    return learner_name(None)
+
+
+class _Preflight(NamedTuple):
+    """What :meth:`_SequentialEstimator._preflight` resolves before the first learner."""
+
+    prepared: LongitudinalData
+    #: The learned regimen, ``None`` without one.
+    learned: Any
+    separable: tuple[SeparablePlan, ...]
+    regimens: tuple[Any, ...]
+    reference: RegimenSpec
+    #: The resolved plans; ``None`` in a preview of a tuned cap, which fits no tuner.
+    plans: tuple[Plan, ...] | None
+    tuned_folds: Folds | None
+    draws: list[tuple[Folds, int | None]]
+    policy_available: bool
+    multiplier_seed: int | None
+    scaler: OutcomeScaler
+    bounds: tuple[float, float]
+    resolved_bounds: dict[str | None, dict[int, NodeBound]] | None
+    declared_bounds: Any
+    horizons: tuple[int, ...]
+
+
 @dataclass(frozen=True)
 class LongitudinalResult(Mapping[str, ParameterEstimate]):
     """Store estimates and fitted artifacts for longitudinal regimens.
@@ -1833,7 +1894,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     Attributes
     ----------
-    assessment_cache : dict
+    assessment_cache : AssessmentCache
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache. Persistence restores the mapping without
         the constructor.
@@ -1913,7 +1974,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: .assessment_cache` gives: the key names the operation and its arguments and not
     #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
     #: would answer for a fit that never produced it.
-    assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+    assessment_cache: AssessmentCache = field(default_factory=AssessmentCache, init=False)
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
@@ -4585,6 +4646,9 @@ def _estimates(
             outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
+        # A bounded contrast is the difference of the two levels in its estimate and its
+        # curve, so its interval reads them (correlated MOVER on their logit intervals).
+        estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
@@ -4793,6 +4857,9 @@ def _policy_estimates(
             outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
+        # As in _estimates: the contrast's interval reads its two levels by MOVER, on their
+        # influence-curve spreads, joined with the normal interval at its policy-weighted SE.
+        estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
@@ -5126,6 +5193,9 @@ class _SequentialEstimator:
     #: The variance of a clustered fit, ``"influence_curve"`` or ``"jackknife"``. Only
     #: :class:`LTMLE` takes it.
     cluster_variance: str = "influence_curve"
+    #: The traced-memory limit of a multi-node hazard fit, ``None`` for the fixed limit.  Only
+    #: :class:`LTMLE` takes it.
+    max_memory_bytes: int | None = None
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
@@ -6105,22 +6175,7 @@ class _SequentialEstimator:
             the fits behind them.
         """
         refuse_unsupported(refused, where=f"{type(self).__name__}.fit")
-        # A learned regimen (X11 (b)) refuses every setting it does not support before the
-        # data are read, so that its refusals come before those of the data or the design.
-        learned = learned_regimen_in(self.regimens)
-        if learned is not None:
-            refuse_learned_regimen_settings(self)
-        if self.msm is not None:
-            # Checked again here, before any learner, because ``MSM`` checks its design and
-            # weight declarations only when it is declared, and a modified model can carry
-            # one this version refuses.
-            refuse_msm_functions(self.msm)
-        # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
-        # carries no declaration, and a modified regimen can carry one this version
-        # refuses.  Its refusal comes before any refusal of the data or the design.
-        if learned is None:
-            refuse_regimen_rules(self.regimens)
-        prepared = self._prepare(
+        state = self._preflight(
             data,
             outcome=outcome,
             treatment=treatment,
@@ -6137,204 +6192,19 @@ class _SequentialEstimator:
             censoring_probabilities=censoring_probabilities,
             mechanism_law=mechanism_law,
             dose_atoms=dose_atoms,
-        ).eliminating(eliminate)
-        # A container built by hand can carry node declarations beside weights with no
-        # reading, and a tilted node's classifier is defined by its weights.
-        refuse_ambiguous_node_declaration(prepared.known_mechanisms, prepared.weights)
-        self._refuse_unweighted_tilt(prepared)
-        self._refuse_prepared(prepared)
-        refusal = self._jackknife_data_refusal(prepared, learned)
-        if refusal is not None:
-            raise CapabilityError.from_refusal(refusal)
-        if learned is not None:
-            refuse_learned_regimen_data(prepared)
-        if prepared.is_repeated:
-            refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
-        declared, separable_specs = split_separable(self.regimens)
-        separable: tuple[SeparablePlan, ...] = ()
-        if separable_specs:
-            self._refuse_separable(prepared, learned)
-            separable = resolve_separable(prepared, separable_specs)
-        regimens: tuple[Any, ...] = (
-            (learned,)
-            if learned is not None
-            else resolve_regimens(
-                declared,
-                prepared.n_decisions,
-                held_nodes=prepared.n_times if prepared.treatment_held else None,
-            )
+            eliminate=eliminate,
         )
-        if separable:
-            # A modified treatment policy meets the hazard refusal that names its own walk
-            # (H20) before the companion check.
-            refuse_separable_mtp(regimens)
-            refuse_separable_companions(regimens)
-        if prepared.reports_curve:
-            infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
-            for infix in infixes:
-                clashing = sorted(r.label for r in (*regimens, *separable) if infix in r.label)
-                if clashing:
-                    raise ValueError(
-                        f"regimen label(s) {clashing} contain {infix!r}, which is what "
-                        "separates a regimen from the cause and horizon it is reported at. "
-                        "Two parameters would then share a name; rename the regimen"
-                    )
-                bad_causes = sorted(c for c in prepared.cause_labels if infix in c)
-                if bad_causes:
-                    raise ValueError(
-                        f"cause label(s) {bad_causes} contain {infix!r}, which is what "
-                        "separates a cause from the regimen and horizon it is reported at. "
-                        "Two parameters would then share a name; rename the cause"
-                    )
-        # Before any rule is evaluated and before any learner: a hazard fit and a projection
-        # read only the design and the regimen declarations to refuse.
-        refuse_hazard_design(
-            prepared,
-            regimens,
-            survival_model=self.survival_model,
-            isotonic=self.isotonic,
-            msm=self.msm is not None,
-            targeting=self.targeting,
-            stopping=getattr(self, "stopping", "relative"),
-            pseudo_learner=self.pseudo_learner is not None,
+        prepared, learned, separable = state.prepared, state.learned, state.separable
+        regimens, reference, plans = state.regimens, state.reference, state.plans
+        tuned_folds, draws, policy_available = (
+            state.tuned_folds,
+            state.draws,
+            state.policy_available,
         )
-        reference = self._reference(regimens)
-        # The declared support and the declared atoms of each continuous dose, and the
-        # undeclared-atom check, before any plan or learner (X40 parts (a) and (b)).
-        preflight_declared_doses(
-            prepared,
-            regimens,
-            ratio=self.ratio,
-            density_bins=self.density_bins,
-            undeclared_atoms=self._reads_density_ratio,
-        )
-        # Every rule is called here and nowhere else, so a mask and the design the
-        # mechanism was evaluated at cannot disagree about what the regimen assigned.
-        tuned_folds: Folds | None = None
-        draws: list[tuple[Folds, int | None]] | None = None
-        if learned is not None:
-            # The plan holds no rule until each training fold learns one, so the preflights
-            # below read the four static plans whose followers the fold regressions need.
-            plans: tuple[Plan, ...] = (learned_plan(learned, prepared),)
-        elif declares_tuned(regimens):
-            if self.repeats > 1:
-                raise CapabilityError(
-                    "repeats above 1 is not combined with a data-tuned policy cap: the cap "
-                    "is fitted on the training rows of one outer split, and the policy of a "
-                    "second draw would need its own fit.",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    roadmap="X75",
-                    alternative="Fit the tuned policy with repeats=1.",
-                )
-            # A tuned cap is fitted before any learner, on each outer fold's training rows as
-            # well as on every row at risk, so the split is drawn first (X40 part (e)).
-            draws = self._draws(prepared)
-            tuned_folds = draws[0][0]
-            plans = resolve_tuned_plans(regimens, prepared, tuned_folds)
-            # A fold-average plan reports under its own label; a reference that is one is
-            # read under that label too.
-            for declared, plan in zip(regimens, plans, strict=True):
-                if plan.fold_average and declared.label == reference.label:
-                    reference = plan.regimen
-            regimens = tuple(
-                plan.regimen if plan.fold_average else declared
-                for declared, plan in zip(regimens, plans, strict=True)
-            )
-            self._refuse_fold_average_compositions(plans)
-        else:
-            plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
-        # An odds tilt node reads the mechanism, so each estimator decides here, before any
-        # learner, whether it fits one.
-        plans = self._resolve_tilts(prepared, plans)
-        self._refuse_design(prepared, plans)
-        self._refuse_policy_variance(
-            prepared,
-            learned=learned is not None,
-            separable=bool(separable),
-            tuned=tuned_folds is not None,
-        )
-        # Whether the sparse-influence advice may name ``variance="policy_weighted"``: a
-        # default-variance fit of a modified treatment policy that the option would accept.
-        policy_available = (
-            self.variance == "influence_curve"
-            and any(plan.has_mtp for plan in plans)
-            # ``simultaneous=True`` is the default and the advice names ``False``.
-            and not set(self._policy_variance_setting_conflicts()) - {"simultaneous"}
-            and not _policy_variance_design_conflicts(
-                prepared,
-                learned=learned is not None,
-                separable=bool(separable),
-                tuned=tuned_folds is not None,
-            )
-        )
-        if (
-            getattr(self, "survival_model", None) == "hazard"
-            and is_multinode(prepared)
-            and not later_covariates(prepared)
-        ):
-            # The treatment paths of every regimen, with each policy evaluated at every
-            # counterfactual prefix, before any learner: the cap (H17) and every density
-            # check are raised here (X70 part (a)).  With covariates after baseline the
-            # backward pass evaluates every node at the observed history and builds no path
-            # (part (b2)).
-            path_slots(prepared, plans)
-        checked = branch_plans(plans[0]) if learned is not None else plans
-        # Every declared factor is checked against the bounds before any learner.
-        preflight_known_mechanisms(prepared, checked, resolve_cumulative_g_bounds(self.g_bounds))
-
-        self._refuse_undeclared_policy_scale(prepared, plans)
-        self._refuse_unbounded_cross_fitted_scale(prepared)
-        if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
-            # The refusal ``run_bootstrap`` would raise after the fit, raised before any
-            # learner.
-            raise ValueError("resampling='cluster' requires the data to carry cluster ids")
-        if draws is None:
-            draws = self._draws(prepared)
-        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
-            # The jackknife holds the drawn split fixed, after the fold count was reduced to
-            # the cluster count, so every fold must keep a positive-mass cluster after any one
-            # removal. The check reads the drawn labels, before any learner.
-            for folds, _ in draws:
-                if folds.is_single:
-                    continue
-                refusal = jackknife_fold_refusal(
-                    prepared.cluster,
-                    prepared.weights if prepared.is_weighted else None,
-                    folds.assignment,
-                    folds.n_folds,
-                )
-                if refusal is not None:
-                    raise CapabilityError.from_refusal(refusal)
-        # One seed for every multiplier draw, fixed before any fold draw.
-        multiplier_seed = self._multiplier_seed()
-        scaler = self._scaler(prepared)
-        # Before any learner: a bound the data cannot hold is a declaration error.
-        resolved_bounds, declared_bounds = self._resolve_node_bounds(prepared, scaler)
-        # A cumulative path probability is not a point-treatment propensity.  There is no
-        # automatic rule here: the constructor default is the visible fixed R ``ltmle``
-        # heuristic, and every other accepted value is an explicit scalar or pair.
-        bounds = resolve_cumulative_g_bounds(self.g_bounds)
-        horizons = self._horizons(prepared)
-        if self.hazard_pooling == "pooled":
-            refuse_pooled_designs(
-                prepared,
-                mtp=(
-                    [plan.label for plan in plans if plan.has_mtp]
-                    if self.survival_model == "hazard"
-                    else ()
-                ),
-            )
-        # Every draw is realized and preflighted before the first learner of any draw, so a
-        # split that cannot be fitted is refused before any fitting time is spent.
-        masks = prepared.regimen_masks(prepared.treatment)
-        for index, (folds, _) in enumerate(draws, start=1):
-            try:
-                preflight_mechanism_support(prepared, masks, folds, ratio=self.ratio)
-                self._preflight_followers(prepared, checked, horizons, folds)
-            except Exception as error:
-                if len(draws) == 1:
-                    raise
-                raise _named_draw(error, index, len(draws)) from error
+        multiplier_seed, scaler, bounds = state.multiplier_seed, state.scaler, state.bounds
+        resolved_bounds, declared_bounds = state.resolved_bounds, state.declared_bounds
+        horizons = state.horizons
+        assert plans is not None
         # A bootstrap replicate carries its fit's label and never classifies.  The key reads
         # ``repeats``, so a repeated fit matches no row of a single-draw study.
         classification = (
@@ -6551,6 +6421,906 @@ class _SequentialEstimator:
         record_fit(classification, result, source=f"{type(self).__name__}.fit")
         return result
 
+    def _preflight(
+        self,
+        data: Any,
+        *,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None,
+        treatment: str | Sequence[str] | None,
+        baseline: Sequence[str] | None,
+        time_varying: Sequence[Sequence[str]] | None,
+        censoring: Sequence[str] | None,
+        id: str | None,
+        weights: str | None,
+        weights_type: str,
+        weights_estimated: bool,
+        family: str,
+        continuous_treatment: Sequence[str] | Mapping[str, DeclaredSupport | None],
+        treatment_probabilities: Any,
+        censoring_probabilities: Any,
+        mechanism_law: MechanismLaw | None,
+        dose_atoms: Mapping[str, Sequence[float]] | None,
+        eliminate: Sequence[str],
+        preview: bool = False,
+    ) -> _Preflight:
+        """Every check :meth:`fit` runs before its first learner, and what they resolve.
+
+        :meth:`fit` and :meth:`_planned_fits` both call it, so the preview refuses what the
+        fit refuses.  With ``preview=True`` a data-tuned policy cap is not fitted: the split
+        is drawn, and the checks that read the tuned plans are left to the fit, with
+        ``plans`` ``None``.
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            As :meth:`fit`.
+        outcome : str, sequence of str, mapping, Repeated, or None
+            As :meth:`fit`.
+        treatment : str, sequence of str, or None
+            As :meth:`fit`.
+        baseline : sequence of str or None
+            As :meth:`fit`.
+        time_varying : sequence of sequence of str or None
+            As :meth:`fit`.
+        censoring : sequence of str or None
+            As :meth:`fit`.
+        id : str or None
+            As :meth:`fit`.
+        weights : str or None
+            As :meth:`fit`.
+        weights_type : str
+            As :meth:`fit`.
+        weights_estimated : bool
+            As :meth:`fit`.
+        family : {"auto", "binomial", "gaussian"}
+            As :meth:`fit`.
+        continuous_treatment : sequence of str or mapping
+            As :meth:`fit`.
+        treatment_probabilities : array-like, mapping, or None
+            As :meth:`fit`.
+        censoring_probabilities : array-like, mapping, or None
+            As :meth:`fit`.
+        mechanism_law : {"target", "sample"} or None
+            As :meth:`fit`.
+        dose_atoms : mapping of str to sequence of float, or None
+            As :meth:`fit`.
+        eliminate : sequence of str
+            As :meth:`fit`.
+        preview : bool
+            Stop before a tuned cap's fit, as described above.
+
+        Returns
+        -------
+        _Preflight
+            The prepared data, the plans and draws, and the settings the fit reads.
+        """
+        # A learned regimen (X11 (b)) refuses every setting it does not support before the
+        # data are read, so that its refusals come before those of the data or the design.
+        learned = learned_regimen_in(self.regimens)
+        if learned is not None:
+            refuse_learned_regimen_settings(self)
+        if self.msm is not None:
+            # Checked again here, before any learner, because ``MSM`` checks its design and
+            # weight declarations only when it is declared, and a modified model can carry
+            # one this version refuses.
+            refuse_msm_functions(self.msm)
+        # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
+        # carries no declaration, and a modified regimen can carry one this version
+        # refuses.  Its refusal comes before any refusal of the data or the design.
+        if learned is None:
+            refuse_regimen_rules(self.regimens)
+        prepared = self._prepare(
+            data,
+            outcome=outcome,
+            treatment=treatment,
+            baseline=baseline,
+            time_varying=time_varying,
+            censoring=censoring,
+            id=id,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            family=family,
+            continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
+            mechanism_law=mechanism_law,
+            dose_atoms=dose_atoms,
+        ).eliminating(eliminate)
+        # A container built by hand can carry node declarations beside weights with no
+        # reading, and a tilted node's classifier is defined by its weights.
+        refuse_ambiguous_node_declaration(prepared.known_mechanisms, prepared.weights)
+        self._refuse_unweighted_tilt(prepared)
+        self._refuse_prepared(prepared)
+        refusal = self._jackknife_data_refusal(prepared, learned)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
+        if learned is not None:
+            refuse_learned_regimen_data(prepared)
+        if prepared.is_repeated:
+            refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
+        declared, separable_specs = split_separable(self.regimens)
+        separable: tuple[SeparablePlan, ...] = ()
+        if separable_specs:
+            self._refuse_separable(prepared, learned)
+            separable = resolve_separable(prepared, separable_specs)
+        regimens: tuple[Any, ...] = (
+            (learned,)
+            if learned is not None
+            else resolve_regimens(
+                declared,
+                prepared.n_decisions,
+                held_nodes=prepared.n_times if prepared.treatment_held else None,
+            )
+        )
+        if separable:
+            # A modified treatment policy meets the hazard refusal that names its own walk
+            # (H20) before the companion check.
+            refuse_separable_mtp(regimens)
+            refuse_separable_companions(regimens)
+        if prepared.reports_curve:
+            infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
+            for infix in infixes:
+                clashing = sorted(r.label for r in (*regimens, *separable) if infix in r.label)
+                if clashing:
+                    raise ValueError(
+                        f"regimen label(s) {clashing} contain {infix!r}, which is what "
+                        "separates a regimen from the cause and horizon it is reported at. "
+                        "Two parameters would then share a name; rename the regimen"
+                    )
+                bad_causes = sorted(c for c in prepared.cause_labels if infix in c)
+                if bad_causes:
+                    raise ValueError(
+                        f"cause label(s) {bad_causes} contain {infix!r}, which is what "
+                        "separates a cause from the regimen and horizon it is reported at. "
+                        "Two parameters would then share a name; rename the cause"
+                    )
+        # Before any rule is evaluated and before any learner: a hazard fit and a projection
+        # read only the design and the regimen declarations to refuse.
+        refuse_hazard_design(
+            prepared,
+            regimens,
+            survival_model=self.survival_model,
+            isotonic=self.isotonic,
+            msm=self.msm is not None,
+            targeting=self.targeting,
+            stopping=getattr(self, "stopping", "relative"),
+            pseudo_learner=self.pseudo_learner is not None,
+        )
+        reference = self._reference(regimens)
+        # The declared support and the declared atoms of each continuous dose, and the
+        # undeclared-atom check, before any plan or learner (X40 parts (a) and (b)).
+        preflight_declared_doses(
+            prepared,
+            regimens,
+            ratio=self.ratio,
+            density_bins=self.density_bins,
+            undeclared_atoms=self._reads_density_ratio,
+        )
+        # Every rule is called here and nowhere else, so a mask and the design the
+        # mechanism was evaluated at cannot disagree about what the regimen assigned.
+        tuned_folds: Folds | None = None
+        draws: list[tuple[Folds, int | None]] | None = None
+        if learned is not None:
+            # The plan holds no rule until each training fold learns one, so the preflights
+            # below read the four static plans whose followers the fold regressions need.
+            plans: tuple[Plan, ...] | None = (learned_plan(learned, prepared),)
+        elif declares_tuned(regimens):
+            if self.repeats > 1:
+                raise CapabilityError(
+                    "repeats above 1 is not combined with a data-tuned policy cap: the cap "
+                    "is fitted on the training rows of one outer split, and the policy of a "
+                    "second draw would need its own fit.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    roadmap="X75",
+                    alternative="Fit the tuned policy with repeats=1.",
+                )
+            # A tuned cap is fitted before any learner, on each outer fold's training rows as
+            # well as on every row at risk, so the split is drawn first (X40 part (e)).
+            draws = self._draws(prepared)
+            tuned_folds = draws[0][0]
+            if preview:
+                # The preview fits no tuner, so it stops before the checks that read the
+                # tuned plans; :meth:`_planned_fits` names them in ``unpreviewed``.
+                plans = None
+            else:
+                plans = resolve_tuned_plans(regimens, prepared, tuned_folds)
+                # A fold-average plan reports under its own label; a reference that is one
+                # is read under that label too.
+                for declared, plan in zip(regimens, plans, strict=True):
+                    if plan.fold_average and declared.label == reference.label:
+                        reference = plan.regimen
+                regimens = tuple(
+                    plan.regimen if plan.fold_average else declared
+                    for declared, plan in zip(regimens, plans, strict=True)
+                )
+                self._refuse_fold_average_compositions(plans)
+        else:
+            plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
+        # An odds tilt node reads the mechanism, so each estimator decides here, before any
+        # learner, whether it fits one.
+        if plans is not None:
+            plans = self._resolve_tilts(prepared, plans)
+            self._refuse_design(prepared, plans)
+        self._refuse_policy_variance(
+            prepared,
+            learned=learned is not None,
+            separable=bool(separable),
+            tuned=tuned_folds is not None,
+        )
+        # Whether the sparse-influence advice may name ``variance="policy_weighted"``: a
+        # default-variance fit of a modified treatment policy that the option would accept.
+        policy_available = (
+            plans is not None
+            and self.variance == "influence_curve"
+            and any(plan.has_mtp for plan in plans)
+            # ``simultaneous=True`` is the default and the advice names ``False``.
+            and not set(self._policy_variance_setting_conflicts()) - {"simultaneous"}
+            and not _policy_variance_design_conflicts(
+                prepared,
+                learned=learned is not None,
+                separable=bool(separable),
+                tuned=tuned_folds is not None,
+            )
+        )
+        checked: tuple[Plan, ...] | None = None
+        if plans is not None:
+            if (
+                getattr(self, "survival_model", None) == "hazard"
+                and is_multinode(prepared)
+                and not later_covariates(prepared)
+            ):
+                # The treatment paths of every regimen, with each policy evaluated at every
+                # counterfactual prefix, before any learner: the cap (H17) and every density
+                # check are raised here (X70 part (a)).  With covariates after baseline the
+                # backward pass evaluates every node at the observed history and builds no path
+                # (part (b2)).
+                path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
+            checked = branch_plans(plans[0]) if learned is not None else plans
+            # Every declared factor is checked against the bounds before any learner.
+            preflight_known_mechanisms(
+                prepared, checked, resolve_cumulative_g_bounds(self.g_bounds)
+            )
+
+            self._refuse_undeclared_policy_scale(prepared, plans)
+        self._refuse_unbounded_cross_fitted_scale(prepared)
+        if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
+            # The refusal ``run_bootstrap`` would raise after the fit, raised before any
+            # learner.
+            raise ValueError("resampling='cluster' requires the data to carry cluster ids")
+        if draws is None:
+            draws = self._draws(prepared)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            # The jackknife holds the drawn split fixed, after the fold count was reduced to
+            # the cluster count, so every fold must keep a positive-mass cluster after any one
+            # removal. The check reads the drawn labels, before any learner.
+            for folds, _ in draws:
+                if folds.is_single:
+                    continue
+                refusal = jackknife_fold_refusal(
+                    prepared.cluster,
+                    prepared.weights if prepared.is_weighted else None,
+                    folds.assignment,
+                    folds.n_folds,
+                )
+                if refusal is not None:
+                    raise CapabilityError.from_refusal(refusal)
+        # One seed for every multiplier draw, fixed before any fold draw.
+        multiplier_seed = self._multiplier_seed()
+        scaler = self._scaler(prepared)
+        # Before any learner: a bound the data cannot hold is a declaration error.
+        resolved_bounds, declared_bounds = self._resolve_node_bounds(prepared, scaler)
+        # A cumulative path probability is not a point-treatment propensity.  There is no
+        # automatic rule here: the constructor default is the visible fixed R ``ltmle``
+        # heuristic, and every other accepted value is an explicit scalar or pair.
+        bounds = resolve_cumulative_g_bounds(self.g_bounds)
+        horizons = self._horizons(prepared)
+        if self.hazard_pooling == "pooled" and (
+            plans is not None or self.survival_model != "hazard"
+        ):
+            refuse_pooled_designs(
+                prepared,
+                mtp=(
+                    [plan.label for plan in plans if plan.has_mtp]
+                    if plans is not None and self.survival_model == "hazard"
+                    else ()
+                ),
+            )
+        # Every draw is realized and preflighted before the first learner of any draw, so a
+        # split that cannot be fitted is refused before any fitting time is spent.
+        masks = prepared.regimen_masks(prepared.treatment)
+        for index, (folds, _) in enumerate(draws, start=1):
+            try:
+                preflight_mechanism_support(prepared, masks, folds, ratio=self.ratio)
+                if checked is not None:
+                    self._preflight_followers(prepared, checked, horizons, folds)
+            except Exception as error:
+                if len(draws) == 1:
+                    raise
+                raise _named_draw(error, index, len(draws)) from error
+        return _Preflight(
+            prepared=prepared,
+            learned=learned,
+            separable=separable,
+            regimens=regimens,
+            reference=reference,
+            plans=plans,
+            tuned_folds=tuned_folds,
+            draws=draws,
+            policy_available=bool(policy_available),
+            multiplier_seed=multiplier_seed,
+            scaler=scaler,
+            bounds=bounds,
+            resolved_bounds=resolved_bounds,
+            declared_bounds=declared_bounds,
+            horizons=horizons,
+        )
+
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None = None,
+        treatment: str | Sequence[str] | None = None,
+        baseline: Sequence[str] | None = None,
+        time_varying: Sequence[Sequence[str]] | None = None,
+        censoring: Sequence[str] | None = None,
+        id: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
+        family: str = "auto",
+        continuous_treatment: Sequence[str] | Mapping[str, DeclaredSupport | None] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
+        mechanism_law: MechanismLaw | None = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
+        eliminate: Sequence[str] = (),
+        **refused: Any,
+    ) -> PlannedFits:
+        """The learner fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Takes :meth:`fit`'s arguments.  It runs the same checks before the first learner
+        (:meth:`_preflight`), draws the outer splits as the fit draws them, and counts every
+        nuisance of every draw: the mechanism node by node, the training-fold mechanisms of a
+        cross-fitted SDR or IPSI fit, and the regressions of every regimen, cause and
+        horizon.  A tuner whose boundary is a learner is counted, not fitted, and the checks
+        that read the tuned plans are left to the fit and named in
+        :attr:`~cleverly.PlannedFits.unpreviewed`.
+        """
+        refuse_unsupported(refused, where=f"{type(self).__name__}.fit")
+        state = self._preflight(
+            data,
+            outcome=outcome,
+            treatment=treatment,
+            baseline=baseline,
+            time_varying=time_varying,
+            censoring=censoring,
+            id=id,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            family=family,
+            continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
+            mechanism_law=mechanism_law,
+            dose_atoms=dose_atoms,
+            eliminate=eliminate,
+            preview=True,
+        )
+        return self._plan_state(state)
+
+    def _plan_fold_state(self) -> Literal["realized", "outer realized", "one draw"]:
+        """What the counted folds describe: see :attr:`~cleverly.PlannedFits.folds`."""
+        if self.random_state is not None or self._frozen_seeds is not None:
+            return "realized"
+        if self._frozen_folds is not None:
+            return "outer realized"
+        return "realized" if self.n_folds <= 1 else "one draw"
+
+    def _plan_roles(self) -> dict[str, tuple[str, str]]:
+        """Each learner's role and printed name, by its key in :meth:`_plan_learners`."""
+        pseudo = self.pseudo_learner if self.pseudo_learner is not None else self.outcome_learner
+        censoring = (
+            self.censoring_learner if self.censoring_learner is not None else self.treatment_learner
+        )
+        competing = self.competing_learner if self.competing_learner is not None else censoring
+        return {
+            "outcome": ("outcome_learner", learner_name(self.outcome_learner)),
+            "pseudo": ("pseudo_learner", learner_name(pseudo)),
+            "treatment": ("treatment_learner", learner_name(self.treatment_learner)),
+            "censoring": ("censoring_learner", learner_name(censoring)),
+            "competing": ("competing_learner", learner_name(competing)),
+        }
+
+    def _plan_learners(self, prepared: LongitudinalData, seed: int | None) -> dict[str, Any]:
+        """The learners :meth:`_fit_draw` resolves at ``seed``."""
+        outcome_task = "classification" if prepared.family == "binomial" else "regression"
+        return {
+            "outcome": resolve_learner(
+                self.outcome_learner,
+                task=outcome_task,  # type: ignore[arg-type]
+                n_folds=self.learner_folds,
+                random_state=seed,
+            ),
+            "pseudo": self._pseudo_learner(seed),
+            "treatment": resolve_learner(
+                self.treatment_learner,
+                task="classification",
+                n_folds=self.learner_folds,
+                random_state=seed,
+            ),
+            "censoring": resolve_learner(
+                self.censoring_learner,
+                task="classification",
+                n_folds=self.learner_folds,
+                random_state=seed,
+                fallback=self.treatment_learner,
+            ),
+            "competing": (
+                None
+                if self.competing_learner is None
+                else resolve_learner(
+                    self.competing_learner,
+                    task="classification",
+                    n_folds=self.learner_folds,
+                    random_state=seed,
+                )
+            ),
+        }
+
+    def _unpreviewed_checks(self, prepared: LongitudinalData) -> tuple[str, ...]:
+        """The checks a preview of a learner-backed tuned cap leaves to the fit.
+
+        :meth:`_preflight` with ``preview=True`` stops before the tuner's fit.  The fit then
+        runs, before its first nuisance learner, the tuner fits and every check that can
+        refuse the tuned plans: the policies built from the tuned values, the fold-average
+        compositions, the tilts, a subclass's design refusal, the declared factors against
+        the bounds, the policy scale, and the followers of each draw.  The list is the one
+        the profiler witness of ``tests/unit/test_planned_fits_parity.py`` finds, with the
+        hazard paths and the pooled designs added where the fit reaches them.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+
+        Returns
+        -------
+        tuple of str
+            The qualified names, for :attr:`~cleverly.PlannedFits.unpreviewed`.
+        """
+        from .._planned_fits import qualified_names
+        from ..interventions.policy import (
+            ModifiedPolicy,
+            Piece,
+            _check_monotone,
+            _check_partition,
+            _check_pieces,
+            _per_row,
+        )
+        from ..interventions.tuning import fit_tuner
+        from .regimen import _guarded, _resolve_tuned_plan
+        from .sequential import _check_policy_arm_support, _require_regimen_followers
+
+        cls = type(self)
+        checks: list[Any] = [
+            _resolve_tuned_plan,
+            _guarded,
+            fit_tuner,
+            Piece.__post_init__,
+            ModifiedPolicy.__post_init__,
+            _check_pieces,
+            _check_partition,
+            _check_monotone,
+            _per_row,
+            cls._refuse_fold_average_compositions,
+            cls._resolve_tilts,
+            preflight_known_mechanisms,
+            cls._refuse_undeclared_policy_scale,
+            _check_policy_arm_support,
+            _require_regimen_followers,
+        ]
+        if cls._refuse_design is not _SequentialEstimator._refuse_design:
+            # A subclass's design refusal reads the resolved plans, which the preview does
+            # not resolve under a learner-backed cap; the base check refuses nothing.
+            checks.append(cls._refuse_design)
+        if self.survival_model == "hazard" and is_multinode(prepared):
+            checks.append(path_slots)
+        if self.survival_model == "hazard" and self.hazard_pooling == "pooled":
+            checks.append(refuse_pooled_designs)
+        return qualified_names(*checks)
+
+    def _plan_state(self, state: _Preflight) -> PlannedFits:
+        """The record of :meth:`_planned_fits` from the resolved preflight."""
+        prepared = state.prepared
+        if state.learned is not None:
+            # CausalStudy.identify declares no learned regimen, so no estimate call reaches
+            # one, and its inner rule folds have no count here.
+            raise CapabilityError(
+                "The planned-fit preview does not count a LearnedRegimen fit: "
+                "CausalStudy.identify does not declare a learned two-node regimen (X11 (b2) "
+                "in docs/roadmap.md), so no estimate call fits one.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Fit LTMLE(regimens=LearnedRegimen()) without a preview, or preview "
+                    "DynamicRegimen(..., rule_kind='known') through CausalStudy.planned_fits."
+                ),
+                roadmap="X11",
+            )
+        builder = PlanBuilder()
+        fold_state = self._plan_fold_state()
+        seed_fixed = fold_state == "realized"
+        plans: tuple[Any, ...]
+        unresolved: tuple[Any, ...] = ()
+        if state.plans is None:
+            builder.defer(*self._unpreviewed_checks(prepared))
+            declared = tuple(r for r in state.regimens if not _tuned_regimen(r))
+            plans = tuple(resolve_plans(declared, prepared, allow_set_dose=self._allow_set_dose))
+            unresolved = tuple(
+                _UnresolvedPlan(r.label) for r in state.regimens if _tuned_regimen(r)
+            )
+        else:
+            plans = state.plans
+        draws = state.draws
+        builder.multiply("repeats", len(draws))
+        if self.n_bootstrap:
+            builder.multiply("bootstrap replicates", int(self.n_bootstrap))
+        repeated = len(draws) > 1
+        for folds, seed in draws:
+            counter = FitCounter(
+                weights=prepared.weights, groups=prepared.cluster, seed_fixed=seed_fixed
+            )
+            self._plan_draw(
+                state,
+                plans,
+                unresolved,
+                folds,
+                self._plan_learners(prepared, seed if repeated else self.random_state),
+                counter,
+                builder,
+            )
+        if state.tuned_folds is not None:
+            count = plan_tuned_fits(state.regimens, prepared, state.tuned_folds)
+            builder.add(
+                "tuner",
+                "tuned cap fitted on every row at risk and per fold",
+                _tuner_label(state.regimens),
+                count,
+            )
+        if self.n_bootstrap:
+            self._plan_bootstrap(state, plans, unresolved, builder)
+        return builder.build(fold_state)
+
+    def _plan_draw(
+        self,
+        state: _Preflight,
+        plans: tuple[Any, ...],
+        unresolved: tuple[Any, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: FitCounter,
+        builder: PlanBuilder,
+        *,
+        replicates: int = 0,
+    ) -> None:
+        """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` bootstrap draws."""
+        prepared = state.prepared
+        roles = self._plan_roles()
+        suffix = "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
+        why = (
+            "bootstrap replicates are counted at their nominal folds, with no fold of a binary "
+            "target fitted as a constant and no replicate dropped"
+        )
+
+        def add(
+            key: str,
+            what: str,
+            count: Any,
+            *,
+            exact: bool = True,
+            reason: str = "",
+            named: tuple[str, str] | None = None,
+        ) -> None:
+            role, label = roles[key] if named is None else named
+            if replicates:
+                builder.add(
+                    role,
+                    f"{what}, {suffix}",
+                    label,
+                    count.scaled(replicates),
+                    upper=why,
+                    min_fits=0,
+                )
+            else:
+                builder.add(
+                    role,
+                    f"{what}, {suffix}",
+                    label,
+                    count,
+                    upper=None if exact else reason,
+                    min_fits=None if exact else 0,
+                )
+
+        hazard = self.survival_model == "hazard"
+        levels: tuple[Plan, ...] = ()
+        if (
+            hazard
+            and is_multinode(prepared)
+            and not later_covariates(prepared)
+            and state.plans is not None
+        ):
+            levels = path_slots(prepared, state.plans, max_memory_bytes=self.max_memory_bytes).plans
+        elif hazard and prepared.node_kind(1) == "categorical" and not is_multinode(prepared):
+            levels = level_plans(prepared)
+        if hazard:
+            self._plan_hazard_block(
+                state, (*plans, *levels), plans, levels, folds, learners, counter, add
+            )
+            return
+        if self._plan_fits_mechanism(prepared, plans):
+            self._plan_mechanism(
+                prepared, (*plans, *levels), len(unresolved), folds, learners, counter, add
+            )
+        if self._estimator in ("sdr", "ipsi") and not folds.is_single:
+            single = Folds.single(prepared.n)
+            for train, _ in folds:
+                rows = np.zeros(prepared.n, dtype=bool)
+                rows[train] = True
+                self._plan_mechanism(
+                    prepared,
+                    plans,
+                    len(unresolved),
+                    single,
+                    learners,
+                    counter,
+                    add,
+                    fit_rows=rows,
+                    scope="training-fold ",
+                )
+        self._plan_outcomes(state, plans, unresolved, folds, learners, counter, add)
+
+    def _plan_fits_mechanism(self, prepared: LongitudinalData, plans: Sequence[Plan]) -> bool:
+        """Whether :meth:`_fit_mechanism` fits the mechanism on these plans."""
+        return True
+
+    def _plan_mechanism(
+        self,
+        prepared: LongitudinalData,
+        plans: Sequence[Plan],
+        unresolved: int,
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: FitCounter,
+        add: Callable[..., None],
+        *,
+        fit_rows: BoolArray | None = None,
+        scope: str = "",
+    ) -> None:
+        """The fits of one :func:`fit_mechanism` call, by factor."""
+        for factor, what, count in plan_mechanism(
+            prepared,
+            plans,
+            treatment_learner=learners["treatment"],
+            censoring_learner=learners["censoring"],
+            competing_learner=learners["competing"],
+            folds=folds,
+            counter=counter,
+            density_bins=self.density_bins,
+            ratio=self.ratio,
+            fit_rows=fit_rows,
+            hazard_pooling=self.hazard_pooling,
+            unresolved=unresolved,
+            n_jobs=self.n_jobs,
+        ):
+            add(factor, f"{scope}{what}", count)
+
+    def _plan_outcomes(
+        self,
+        state: _Preflight,
+        plans: tuple[Any, ...],
+        unresolved: tuple[Any, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: FitCounter,
+        add: Callable[..., None],
+    ) -> None:
+        """The regressions of every regimen, cause and horizon, in each outer fold."""
+        prepared = state.prepared
+        if self._estimator == "ipw":
+            return
+        if self._estimator == "parametric_gformula":
+            # The refusal of :meth:`ParametricGFormula._preflight_followers`, which a preview of
+            # a tuned cap defers: ``plan_models`` reads each node as one column.
+            for time in range(1, prepared.n_times + 1):
+                if prepared.node_kind(time) == "mixed":
+                    raise CapabilityError.from_refusal(GFORMULA_MIXED_NODE_REFUSAL)
+            settings = self._gformula_settings(prepared)
+            assert settings is not None
+            for role, label, count in plan_models(
+                prepared, plans, settings, nominal=counter.nominal
+            ):
+                add(role, f"{role} model", count, named=(f"{role}_learner", label))
+            return
+        trains: list[BoolArray | None] = []
+        if folds.is_single:
+            trains.append(None)
+        else:
+            for train, _ in folds:
+                rows = np.zeros(prepared.n, dtype=bool)
+                rows[train] = True
+                trains.append(rows)
+        causes: tuple[str | None, ...] = prepared.cause_labels or (None,)
+        node_bounds = state.resolved_bounds if self._estimator == "tmle" else None
+        constant = (
+            "a node below the horizon fits nothing when the later node's predictions make its "
+            "target one value"
+        )
+        followers = "a tuned regimen's followers are counted as every row at risk"
+        cells = [(plan, plan.masks(prepared), False) for plan in plans] + [
+            (plan, prepared.regimen_masks(prepared.treatment), True) for plan in unresolved
+        ]
+        for fit_rows in trains:
+            for _, masks, tuned in cells:
+                for cause in causes:
+                    for horizon in state.horizons:
+                        for key, exact, count in plan_recursion(
+                            prepared,
+                            masks,
+                            horizon=horizon,
+                            cause=cause,
+                            scaler=state.scaler,
+                            outcome_learner=learners["outcome"],
+                            pseudo_learner=learners["pseudo"],
+                            counter=counter,
+                            fit_rows=fit_rows,
+                            bounds=None if node_bounds is None else node_bounds.get(cause),
+                        ):
+                            what = (
+                                "outcome regression at the horizon"
+                                if key == "outcome"
+                                else "pseudo-outcome regression"
+                            )
+                            add(
+                                key,
+                                what,
+                                count,
+                                exact=exact and not tuned,
+                                reason=followers if tuned and exact else constant,
+                            )
+
+    def _plan_hazard_block(
+        self,
+        state: _Preflight,
+        mechanism_plans: tuple[Any, ...],
+        plans: tuple[Any, ...],
+        levels: tuple[Plan, ...],
+        folds: Folds,
+        learners: dict[str, Any],
+        counter: FitCounter,
+        add: Callable[..., None],
+    ) -> None:
+        """The fits of :meth:`_hazard_block`: the mechanism and the initial hazards."""
+        prepared = state.prepared
+        self._plan_mechanism(prepared, mechanism_plans, 0, folds, learners, counter, add)
+        if later_covariates(prepared):
+            hazards, continuations = plan_time_varying(
+                prepared,
+                plans,
+                outcome_learner=learners["outcome"],
+                pseudo_learner=learners["pseudo"],
+                folds=folds,
+                horizons=state.horizons,
+                counter=counter,
+            )
+            add("outcome", "initial hazard by node and cause", hazards)
+            add(
+                "pseudo",
+                "continuation regression by regimen, node and cause",
+                continuations,
+                exact=False,
+                reason=(
+                    "a continuation fits nothing when the next node's pseudo-outcome is all "
+                    "zero or all one, and its inner folds are counted as declared"
+                ),
+            )
+            return
+        separable = state.separable
+        add(
+            "outcome",
+            "initial hazard by node and cause",
+            plan_hazards(
+                prepared,
+                learner=learners["outcome"],
+                folds=folds,
+                counter=counter,
+                hazard_pooling=self.hazard_pooling,
+                cause_order=(
+                    None if not separable else (separable[0].first, 1 - separable[0].first)
+                ),
+            ),
+        )
+
+    def _plan_bootstrap(
+        self,
+        state: _Preflight,
+        plans: tuple[Any, ...],
+        unresolved: tuple[Any, ...],
+        builder: PlanBuilder,
+    ) -> None:
+        """The fits of :meth:`_attach_bootstrap` over every replicate, as an upper bound.
+
+        The frequency-weighted replicate refits the regressions of the one horizon only.
+        Every other replicate refits the whole fit, counted at the realized outer fold count,
+        the learners' nominal inner folds and no constant-fold skip.
+        """
+        prepared = state.prepared
+        folds = state.draws[0][0]
+        replicates = int(self.n_bootstrap)
+        learners = self._plan_learners(prepared, self.random_state)
+        nominal = FitCounter(
+            weights=prepared.weights, groups=prepared.cluster, seed_fixed=False, nominal=True
+        )
+        if state.plans is not None and self._frequency_eligible(
+            prepared,
+            folds,
+            state.plans,
+            model=self.msm,
+            hazard=self.survival_model == "hazard",
+            outcome_learner=learners["outcome"],
+            pseudo_learner=learners["pseudo"],
+        ):
+            roles = self._plan_roles()
+            horizon = state.horizons[-1]
+            for plan in state.plans:
+                for key, _, count in plan_recursion(
+                    prepared,
+                    plan.masks(prepared),
+                    horizon=horizon,
+                    cause=None,
+                    scaler=state.scaler,
+                    outcome_learner=learners["outcome"],
+                    pseudo_learner=learners["pseudo"],
+                    counter=nominal,
+                ):
+                    role, label = roles[key]
+                    builder.add(
+                        role,
+                        "frequency-weighted regression, per bootstrap replicate",
+                        label,
+                        count.scaled(replicates),
+                        upper=(
+                            "a frequency-weighted replicate's regression fits nothing when its "
+                            "target is one value on the rows the resample holds"
+                        ),
+                        min_fits=0,
+                    )
+            return
+        draws = len(state.draws)
+        for _ in range(draws):
+            self._plan_draw(
+                state,
+                plans,
+                unresolved,
+                folds,
+                learners,
+                nominal,
+                builder,
+                replicates=replicates,
+            )
+        if state.tuned_folds is not None:
+            per = 0 if folds.is_single else folds.n_folds
+            count = plan_tuned_fits(state.regimens, prepared, folds, nominal_folds=per)
+            builder.add(
+                "tuner",
+                "tuned cap fitted on every row at risk and per fold, per bootstrap replicate",
+                _tuner_label(state.regimens),
+                count.scaled(replicates),
+                upper="bootstrap replicates are counted at their nominal folds",
+                min_fits=0,
+            )
+
     def _hazard_block(
         self,
         prepared: LongitudinalData,
@@ -6765,6 +7535,7 @@ class _SequentialEstimator:
             mechanism,
         )
 
+    @in_fit_cache
     def _fit_draw(
         self,
         prepared: LongitudinalData,
@@ -6807,6 +7578,7 @@ class _SequentialEstimator:
         # A learned regimen learns each fold's rule pair before the mechanism is fitted, because
         # the mechanism is evaluated at each row's own learned rule (X11 (b)).
         rules: LearnedRules | None = None
+        learned_record: LearnedRegimenRecord | None = None
         if any(isinstance(plan.regimen, LearnedRegimen) for plan in plans):
             (plan,) = plans
             rules = learn_fold_rules(
@@ -6820,6 +7592,11 @@ class _SequentialEstimator:
                 bounds=None if node_bounds is None else node_bounds.get(None),
             )
             plans = (plan.with_assignment(rules.stitched()),)
+            # The record reads only the panel, the plan's label and masks, and the rules, none of
+            # which the rest of the fit changes, so it is built here; the recursion then carries
+            # only the codes and the split, not every fold's blips.
+            learned_record = learned_regimen_record(prepared, plans[0], rules, seed=seed)
+            rules = rules.codes_only()
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
@@ -6846,7 +7623,7 @@ class _SequentialEstimator:
             # A design with a treatment at several nodes: one internal static plan per
             # treatment path of every regimen (X70 part (a)), at which the mechanism and the
             # hazards are evaluated.
-            levels = path_slots(prepared, plans).plans
+            levels = path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes).plans
         elif hazard and prepared.node_kind(1) == "categorical" and not is_multinode(prepared):
             levels = level_plans(prepared)
         # A multi-node design with covariates after baseline keeps no level plan: its backward
@@ -7067,11 +7844,7 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             isotonic_moves=moves,
             initial_hazards=initial,
-            learned_regimen=(
-                None
-                if rules is None
-                else learned_regimen_record(prepared, plans[0], rules, seed=seed)
-            ),
+            learned_regimen=learned_record,
         )
         return _DrawOutcome(
             draw,
@@ -7175,7 +7948,7 @@ class _SequentialEstimator:
         )
         return replace(result, bootstrap_band=band)
 
-    def _frequency_replicate(
+    def _frequency_eligible(
         self,
         prepared: LongitudinalData,
         folds: Folds,
@@ -7183,22 +7956,36 @@ class _SequentialEstimator:
         *,
         model: Any,
         hazard: bool,
-        contributors: Mapping[str, tuple[RegimenFit, ...]],
-        learners: tuple[Learner, Learner, Learner, Learner],
-        g_bounds: tuple[float, float],
-        names: tuple[str, ...],
-    ) -> FrequencyReplicate | None:
-        """The frequency-weighted replicate of this fit, or ``None`` when it is not exact.
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+    ) -> bool:
+        """Whether the bootstrap replicates may take the frequency-weighted fast path.
 
-        The fast path covers an unclustered, unweighted, in-sample iterated-mean ``LTMLE``
-        or ``SDR`` fit of one end-of-study horizon, with every treatment and censoring
-        factor declared known, categorical treatment nodes, no tilt or modified treatment
-        policy, and outcome and pseudo-outcome learners declared exact under frequency
-        weights (:func:`~cleverly.longitudinal.frequency.frequency_exact`) that accept
-        ``sample_weight``.  Every other fit takes the materialized refit.
+        :meth:`_frequency_replicate` and :meth:`_plan_bootstrap` read it.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+        folds : Folds
+            The realized outer split.
+        plans : sequence of Plan
+            The resolved plans.
+        model : object
+            The working model, ``None`` without one.
+        hazard : bool
+            Whether the fit is a hazard fit.
+        outcome_learner : Learner
+            The resolved outcome learner.
+        pseudo_learner : Learner
+            The resolved pseudo-outcome learner.
+
+        Returns
+        -------
+        bool
+            Whether every condition of the fast path holds.
         """
-        outcome_learner, pseudo_learner, treatment_learner, censoring_learner = learners
-        eligible = (
+        return bool(
             self._estimator in ("tmle", "sdr")
             and not hazard
             and not self.isotonic
@@ -7222,6 +8009,39 @@ class _SequentialEstimator:
                 frequency_exact(learner) and supports_sample_weight(learner)
                 for learner in (outcome_learner, pseudo_learner)
             )
+        )
+
+    def _frequency_replicate(
+        self,
+        prepared: LongitudinalData,
+        folds: Folds,
+        plans: Sequence[Plan],
+        *,
+        model: Any,
+        hazard: bool,
+        contributors: Mapping[str, tuple[RegimenFit, ...]],
+        learners: tuple[Learner, Learner, Learner, Learner],
+        g_bounds: tuple[float, float],
+        names: tuple[str, ...],
+    ) -> FrequencyReplicate | None:
+        """The frequency-weighted replicate of this fit, or ``None`` when it is not exact.
+
+        The fast path covers an unclustered, unweighted, in-sample iterated-mean ``LTMLE``
+        or ``SDR`` fit of one end-of-study horizon, with every treatment and censoring
+        factor declared known, categorical treatment nodes, no tilt or modified treatment
+        policy, and outcome and pseudo-outcome learners declared exact under frequency
+        weights (:func:`~cleverly.longitudinal.frequency.frequency_exact`) that accept
+        ``sample_weight``.  Every other fit takes the materialized refit.
+        """
+        outcome_learner, pseudo_learner, treatment_learner, censoring_learner = learners
+        eligible = self._frequency_eligible(
+            prepared,
+            folds,
+            plans,
+            model=model,
+            hazard=hazard,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
         )
         if not eligible:
             return None
@@ -7330,6 +8150,37 @@ class _SequentialEstimator:
         LongitudinalResult
             The result of the whole fit on ``data``.
         """
+        estimator = self._refit_estimator(
+            random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator.fit(data)
+
+    def _planned_refit(
+        self,
+        data: LongitudinalData,
+        *,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.  It refuses what :meth:`refit`
+        refuses and previews the fit of the same configured copy.
+        """
+        estimator = self._refit_estimator(
+            random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
+        )
+        return estimator._planned_fits(data)
+
+    def _refit_estimator(
+        self,
+        *,
+        random_state: int | None,
+        frozen_folds: Sequence[Folds] | None,
+        frozen_seeds: Sequence[int | None] | None,
+    ) -> _SequentialEstimator:
+        """The configured copy :meth:`refit` fits, after the learned-regimen refusal."""
         refuse_learned_regimen_result(self, "a refit")
         estimator = self._refit_template()
         if random_state is not None:
@@ -7338,7 +8189,7 @@ class _SequentialEstimator:
             estimator._frozen_folds = tuple(frozen_folds)
         if frozen_seeds is not None:
             estimator._frozen_seeds = tuple(frozen_seeds)  # type: ignore[arg-type]
-        return estimator.fit(data)
+        return estimator
 
     def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, tuple[float, float]]:
         """One bootstrap replicate: a full refit on the resample.
@@ -8407,6 +9258,16 @@ class LTMLE(_SequentialEstimator):
         :class:`~cleverly.exceptions.CapabilityError` before any learner. The fit costs one
         refit per cluster and builds no simultaneous band. The option is experimental until
         its validation study is registered.
+    max_memory_bytes : int or None
+        The traced-memory limit of a ``survival_model="hazard"`` fit with a treatment
+        decision at several nodes, no covariate after baseline and a regimen that draws from
+        a known policy, which holds the hazards of every treatment path for every unit.
+        Before any learner the fit predicts its traced peak from the units, nodes, paths,
+        causes and design columns (:func:`~cleverly.longitudinal.hazard.path_peak`) and raises
+        :class:`~cleverly.exceptions.CapabilityError` when the prediction exceeds the limit.
+        ``None`` keeps the fixed limit of 2 GiB
+        (:data:`~cleverly.longitudinal.hazard.PATH_PEAK_LIMIT`).  A positive integer
+        replaces it, higher or lower.  Every other fit ignores it.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -8461,8 +9322,10 @@ class LTMLE(_SequentialEstimator):
         node_bounds: Mapping[Any, Any] | None = None,
         variance: str = "influence_curve",
         cluster_variance: str = "influence_curve",
+        max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
+        self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
         self.node_bounds = node_bounds
         self.cluster_variance = cluster_variance
         self.alpha = alpha
@@ -9085,6 +9948,32 @@ class IPSI(_SequentialEstimator):
         if isinstance(data, CausalData):
             raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
         return super().fit(data, **kwargs)
+
+    def _planned_fits(self, data: Any, **kwargs: Any) -> PlannedFits:
+        """The learner fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            As :meth:`fit`.
+        **kwargs : Any
+            As :meth:`fit`.
+
+        Returns
+        -------
+        PlannedFits
+            The record.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``data`` is a point-treatment :class:`~cleverly.CausalData`.
+        """
+        from ..data.causal_data import CausalData
+
+        if isinstance(data, CausalData):
+            raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
+        return super()._planned_fits(data, **kwargs)
 
     def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
         """Refuse a plan node this estimator has no ratio for, before any learner.
@@ -10160,6 +11049,23 @@ class ParametricGFormula(_Baseline):
             folds=folds,
         )
 
+    def _plan_fits_mechanism(self, prepared: LongitudinalData, plans: Sequence[Plan]) -> bool:
+        """Whether the diagnostic mechanism is fitted: not beside a set dose.
+
+        Parameters
+        ----------
+        prepared : LongitudinalData
+            The prepared panel.
+        plans : sequence of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        bool
+            As :meth:`_fit_mechanism` decides.
+        """
+        return not has_set_dose(prepared, plans)
+
     def _parametric(
         self,
         outcome_learner: Learner,
@@ -10257,6 +11163,8 @@ class ParametricGFormula(_Baseline):
         """
         # A sequence of its own, so the seed shares nothing with the bootstrap's spawned children
         # or with any other consumer of ``random_state``.
+        if self.random_state is None:
+            note_fresh_entropy()
         entropy = np.random.SeedSequence(self.random_state).entropy
         assert isinstance(entropy, int)
         child = np.random.SeedSequence([entropy, _SIMULATION_SEED_TAG])
@@ -10519,13 +11427,29 @@ def _refit_bound(
         )
     return _BoundReplay(
         estimates={
-            name: replace(reported.estimates[name], support=result.estimates[name].support)
+            name: _with_support_of(reported.estimates[name], result.estimates[name])
             for name in result.estimates
         },
         fits=fits,
         msm_fits=msm_fits,
         contributors={name: reported.contributors[name] for name in result.estimates},
     )
+
+
+def _with_support_of(replayed: ParameterEstimate, fitted: ParameterEstimate) -> ParameterEstimate:
+    """``replayed`` under ``fitted``'s support record, and its components under theirs.
+
+    A replay is built outside the classified fit, so its estimates and the levels a contrast
+    records as :attr:`~ParameterEstimate.components` carry no classification until they take
+    the fitted estimate's.
+    """
+    components = replayed.components
+    if components is not None and fitted.components is not None:
+        components = (
+            replace(components[0], support=fitted.components[0].support),
+            replace(components[1], support=fitted.components[1].support),
+        )
+    return replace(replayed, support=fitted.support, components=components)
 
 
 def _exact_replay_equal(left: Any, right: Any) -> bool:
@@ -10578,11 +11502,17 @@ def _fitted_replay_matches(
 
     # A replay never reruns the bootstrap, so the summaries are stripped on both sides.
     # ``_exact_replay_equal`` recurses into every dataclass field and would otherwise
-    # refuse every bootstrapped fit.  The draw's own estimates of the reported names: on a
-    # one-draw fit they are the reported estimates.
+    # refuse every bootstrapped fit.  A contrast's ``components`` are its two levels, which
+    # are compared as reported estimates themselves, and the fit stamps their support after
+    # the recursion, so they are stripped too.  The draw's own estimates of the reported
+    # names: on a one-draw fit they are the reported estimates.
     reported = result.estimates if result.n_repeats == 1 else draw.estimates
-    fitted = {name: replace(reported[name], bootstrap=None) for name in result.estimates}
-    replayed = {name: replace(e, bootstrap=None) for name, e in replay.estimates.items()}
+    fitted = {
+        name: replace(reported[name], bootstrap=None, components=None) for name in result.estimates
+    }
+    replayed = {
+        name: replace(e, bootstrap=None, components=None) for name, e in replay.estimates.items()
+    }
     return (
         _exact_replay_equal(fitted, replayed)
         and _exact_replay_equal(draw.fits, replay.fits)

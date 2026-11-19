@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, overload, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    cast,
+    overload,
+    runtime_checkable,
+)
 
 import narwhals as nw
 import numpy as np
 
+from ._planned_fits import PlannedFits
 from ._summary import Detail, Summary
 from ._support import Support, combine_support
 from ._typing import Family, FloatArray
@@ -38,10 +49,11 @@ from .effect_modification import (
     EffectModification,
     EffectModificationSet,
     effect_modification_data_refusal,
+    effect_modification_ep_refusal,
 )
 from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
 from .estimators import iptw as iptw_estimator
-from .estimators._strata import check_stratified_targets
+from .estimators._strata import check_stratified_projection_rank, check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
 from .exceptions import (
     CapabilityError,
@@ -148,6 +160,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
     from .effect_curves import EffectCurveResult
     from .estimators.atmle_result import AdaptiveTMLEResult
+    from .estimators.ep import EPEstimator
 
 __all__ = [
     "ATC",
@@ -4425,6 +4438,28 @@ SCORE_SCHEME_REFUSAL = Refusal(
 )
 
 
+#: Why the assessment refuses a missing treatment, which the projection admits in sample.
+SCORE_MISSING_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its "
+    "composite form is not built.",
+    alternative=(
+        "Assess the score on the rows with a recorded treatment if it is missing completely at "
+        "random, or fit the projection with model= declared."
+    ),
+    roadmap="X98",
+)
+
+#: Why the assessment refuses baseline strata, which the projection admits.
+SCORE_STRATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The score assessment fits one pooled fluctuation over every row, and its form with one "
+    "block per baseline stratum is not built.",
+    alternative="Declare the study without strata= to assess the score on every row.",
+    roadmap="X98",
+)
+
+
 def _check_score_settings(estimator: Any) -> None:
     """Refuse the ATE fit's settings the score assessment cannot honour, before any learner."""
     spec = estimator.targeting_spec()
@@ -4462,7 +4497,8 @@ def _refuse_conditional_contrast(
 
     The compositions outside P1 (R7) and a modifier outside the adjustment set (R6).  A
     declared basis is then evaluated on the rows, which checks the domains, the levels,
-    the pair of arms and the rank of the Gram matrix without fitting anything.
+    the pair of arms and the rank of the Gram matrix, in every baseline stratum too
+    (R7-strata-rank), without fitting anything.
     """
     refusal = effect_modification_data_refusal(data)
     if refusal is not None:
@@ -4478,7 +4514,7 @@ def _refuse_conditional_contrast(
         )
     spec = _effect_modification_spec(estimand, data)
     if spec is not None:
-        EffectModificationSet.evaluate(spec, data)
+        check_stratified_projection_rank(EffectModificationSet.evaluate(spec, data), data)
 
 
 def _matches_registered_point_identification(
@@ -5342,6 +5378,33 @@ class CausalStudy:
         """
         return self.identify(estimand).estimate(method=method, **overrides)
 
+    def planned_fits(
+        self,
+        estimand: PointEstimand,
+        method: str | EstimationMethod | None = None,
+        **overrides: Any,
+    ) -> PlannedFits:
+        """Identify one causal quantity and count the model fits its estimate would make.
+
+        The shortcut for ``study.identify(estimand).planned_fits(method, **overrides)``,
+        beside :meth:`estimate`, so the same call previews a fit before it runs.
+
+        Parameters
+        ----------
+        estimand : Estimand
+            Typed causal quantity.
+        method : str, EstimationMethod or None
+            Named method or configured method object, as :meth:`estimate` takes it.
+        **overrides : Any
+            Method fields overridden for this fit.
+
+        Returns
+        -------
+        PlannedFits
+            One row per model and scope, with the fits and the candidate fits.
+        """
+        return self.identify(estimand).planned_fits(method=method, **overrides)
+
 
 #: Study fingerprint -> the in-sample predictions of every effect curve fitted on those rows
 #: in this process (R13 (i)).  Detection is best effort: the interval of an external score
@@ -5647,6 +5710,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 )
         data = self._study.data
         assert isinstance(data, CausalData)
+        if data.has_missing_treatment:
+            raise CapabilityError.from_refusal(SCORE_MISSING_TREATMENT_REFUSAL)
+        if data.has_strata:
+            raise CapabilityError.from_refusal(SCORE_STRATA_REFUSAL)
         chosen = estimand.scale if scale is None else scale
         if chosen not in ("difference", "log_ratio"):
             raise DataError(f"scale must be 'difference' or 'log_ratio'; got {chosen!r}")
@@ -6128,10 +6195,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
             elif record.name == "ep":
                 model = estimand.model
-                refused = isinstance(model, Sieve) and model.chosen_by_cv
-                out.append(
-                    MethodAvailability("ep", not refused, EP_CV_MODEL_REFUSAL if refused else None)
+                data = None if self._study is None else self._study.data
+                ep_refusal = (
+                    effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
                 )
+                if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
+                    ep_refusal = EP_CV_MODEL_REFUSAL
+                out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
             else:
                 out.append(
                     MethodAvailability(
@@ -6483,6 +6553,103 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         >>> sorted(result.estimates)
         ['ate']
         """
+        normalized = self._checked_method(method, overrides)
+        assert self._study is not None
+        if self.functional.axis == "trial":
+            return self._estimate_trial(normalized)
+        if isinstance(self._study.data, ContinuousSurvivalData):
+            return self._estimate_continuous(normalized)
+        if self.functional.longitudinal:
+            return self._estimate_longitudinal(normalized)
+        if isinstance(normalized, EPMethod):
+            return self._estimate_effect_curve(normalized)
+        return self._estimate_point(normalized)
+
+    def planned_fits(
+        self,
+        method: str | EstimationMethod | None = None,
+        **overrides: Any,
+    ) -> PlannedFits:
+        """Count the model fits :meth:`estimate` would make, without fitting any.
+
+        Takes the arguments of :meth:`estimate`, so the same call previews a fit before it
+        runs.  It refuses what :meth:`estimate` refuses before its first learner, draws the
+        cross-fitting folds as the fit draws them, and counts every fit of every nuisance
+        model, with the candidate fits inside a Super Learner.
+
+        Parameters
+        ----------
+        method : str, EstimationMethod or None
+            Named method or configured method object, as :meth:`estimate` takes it.
+        **overrides : Any
+            Method fields overridden for this fit.
+
+        Returns
+        -------
+        PlannedFits
+            One row per model and scope, with the fits and the candidate fits.  Counts that
+            depend on draws not made yet, such as bootstrap resamples, are upper bounds.
+
+        Raises
+        ------
+        CapabilityError
+            If the method is unavailable or the effect has no bound study.
+        MethodConfigurationError
+            If ``method`` does not satisfy the estimation-method contract.
+
+        See Also
+        --------
+        IdentifiedEffect.estimate : Run the fit that this counts.
+        PlannedFits : The record this returns.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=1)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(
+        ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ...     ),
+        ... )
+        >>> plan = study.identify(ATE()).planned_fits(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(),
+        ...     n_folds=5,
+        ...     repeats=2,
+        ...     random_state=0,
+        ...     q_bounds=(-20.0, 20.0),
+        ... )
+        >>> [(row.role, row.fits) for row in plan.rows]
+        [('treatment_learner', 10), ('outcome_learner', 10)]
+        """
+        normalized = self._checked_method(method, overrides)
+        if self.functional.axis == "trial":
+            from .estimators.atmle_result import plan_trial_effect
+
+            return plan_trial_effect(self, self._trial_method(normalized))
+        assert self._study is not None
+        if isinstance(self._study.data, ContinuousSurvivalData):
+            engine, settings = self._continuous_engine(normalized)
+            with self._spelled_memory_refusal(settings):
+                return engine._planned_fit_data(self._study.data)
+        if self.functional.longitudinal:
+            return cast(
+                "PlannedFits",
+                self._longitudinal_engine(normalized)._planned_fits(self._study.data),
+            )
+        if isinstance(normalized, EPMethod):
+            assert isinstance(self._study.data, CausalData)
+            return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
+        estimator = self._point_engine(normalized)
+        return cast("PlannedFits", estimator._planned_fits(self._study.data))
+
+    def _checked_method(
+        self, method: str | EstimationMethod | None, overrides: dict[str, Any]
+    ) -> EstimationMethod:
+        """The method :meth:`estimate` and :meth:`planned_fits` run, with its refusals."""
         if self._study is None:
             raise CapabilityError(
                 "this effect is not bound to analysis data; "
@@ -6495,18 +6662,29 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         refusal = self._unused_ratio_refusal(normalized)
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
-        if self.functional.axis == "trial":
-            return self._estimate_trial(normalized)
-        if isinstance(self._study.data, ContinuousSurvivalData):
-            return self._estimate_continuous(normalized)
-        if self.functional.longitudinal:
-            return self._estimate_longitudinal(normalized)
-        if isinstance(normalized, EPMethod):
-            return self._estimate_effect_curve(normalized)
-        return self._estimate_point(normalized)
+        return normalized
 
     def _estimate_effect_curve(self, method: EPMethod) -> EffectCurveResult:
-        """Fit the EP learner of a conditional contrast (P1 part (b)).
+        """Fit the EP learner of a conditional contrast (P1 part (b))."""
+        assert self._study is not None and isinstance(self._study.data, CausalData)
+        result = self._effect_curve_estimator(method).fit(self._study.data).effect_curve()
+        provenance = result.provenance
+        return replace(
+            result,
+            provenance=(
+                None
+                if provenance is None
+                else replace(
+                    provenance,
+                    protocol_fingerprint=(
+                        None if self.protocol is None else self.protocol.fingerprint
+                    ),
+                )
+            ),
+        )
+
+    def _effect_curve_estimator(self, method: EPMethod) -> EPEstimator:
+        """The EP learner :meth:`_estimate_effect_curve` fits and :meth:`planned_fits` counts.
 
         Every refusal here runs before any learner: two declarations of the basis, a final
         learner beside a declared model or on the log-ratio scale, and a sieve that reads an
@@ -6517,7 +6695,6 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, CausalData)
         estimand = self.estimand
         assert isinstance(estimand, ConditionalContrast)
-        data = self._study.data
         model = estimand.model
         if model is not None and method.sieve is not None:
             raise CapabilityError(
@@ -6548,7 +6725,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             treatment=estimand.treatment,
             reference=estimand.reference,
         )
-        estimator = EPEstimator(
+        return EPEstimator(
             method.estimator_kwargs(),
             spec,
             sieve.size,
@@ -6556,23 +6733,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             final_learner=method.final_learner,
             identified_effect=self,
         )
-        result = estimator.fit(data).effect_curve()
-        provenance = result.provenance
-        return replace(
-            result,
-            provenance=(
-                None
-                if provenance is None
-                else replace(
-                    provenance,
-                    protocol_fingerprint=(
-                        None if self.protocol is None else self.protocol.fingerprint
-                    ),
-                )
-            ),
-        )
 
     def _estimate_trial(self, method: EstimationMethod) -> AdaptiveTMLEResult:
+        from .estimators.atmle_result import fit_trial_effect
+
+        return fit_trial_effect(self, self._trial_method(method))
+
+    def _trial_method(self, method: EstimationMethod) -> AdaptiveTMLEMethod:
+        """The adaptive TMLE method a trial fit runs, refusing any other method."""
         assert self._study is not None and isinstance(self._study.data, CausalData)
         assert isinstance(self.estimand, TrialATE)
         if not isinstance(method, AdaptiveTMLEMethod):
@@ -6583,9 +6751,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Pass method='atmle' or an AdaptiveTMLEMethod.",
             )
-        from .estimators.atmle_result import fit_trial_effect
-
-        return fit_trial_effect(self, method)
+        return method
 
     def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
         """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.
@@ -6668,31 +6834,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_point(self, method: EstimationMethod) -> TMLEResult:
         assert self._study is not None and isinstance(self._study.data, CausalData)
         functional = self.functional
-        kwargs = method.estimator_kwargs()
-        kwargs.update({"estimands": (functional.target,), "reference": functional.reference})
-        if functional.axis == "regime":
-            kwargs["interventions"] = functional.interventions
-        elif functional.axis == "learned_rule":
-            (kwargs["learned_rule"],) = functional.interventions
-        elif functional.axis == "policy":
-            kwargs["policies"] = functional.interventions
-        elif functional.axis == "ipsi":
-            kwargs["incremental"] = functional.interventions
-        elif functional.axis == "msm":
-            kwargs["msm"] = functional.msm
-        elif functional.axis == "effect_modification":
-            # The pair rides on the declaration, so the engine's reference= stays unset.
-            kwargs["effect_modification"] = functional.effect_modification
-            kwargs["reference"] = None
-
-        if isinstance(method, CollaborativeTMLEMethod):
-            estimator: Any = CTMLE(**kwargs)
-        elif isinstance(method, DRTMLEMethod):
-            estimator = DRTMLE(**kwargs)
-        elif isinstance(method, AdaptiveIPTWMethod):
-            estimator = AdaptiveIPTW(**kwargs)
-        else:
-            estimator = TMLE(**kwargs)
+        estimator = self._point_engine(method)
         result_set = estimator.fit(self._study.data)
         raw = (
             result_set[functional.intermediate]
@@ -6716,6 +6858,37 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             method=method,
             parameter_keys=self._point_parameter_keys(raw),
         )
+
+    def _point_engine(self, method: EstimationMethod) -> Any:
+        """The point-treatment engine :meth:`_estimate_point` fits and :meth:`planned_fits` counts.
+
+        Constructing it runs the engine's constructor checks, so both refuse alike.
+        """
+        functional = self.functional
+        kwargs = method.estimator_kwargs()
+        kwargs.update({"estimands": (functional.target,), "reference": functional.reference})
+        if functional.axis == "regime":
+            kwargs["interventions"] = functional.interventions
+        elif functional.axis == "learned_rule":
+            (kwargs["learned_rule"],) = functional.interventions
+        elif functional.axis == "policy":
+            kwargs["policies"] = functional.interventions
+        elif functional.axis == "ipsi":
+            kwargs["incremental"] = functional.interventions
+        elif functional.axis == "msm":
+            kwargs["msm"] = functional.msm
+        elif functional.axis == "effect_modification":
+            # The pair rides on the declaration, so the engine's reference= stays unset.
+            kwargs["effect_modification"] = functional.effect_modification
+            kwargs["reference"] = None
+
+        if isinstance(method, CollaborativeTMLEMethod):
+            return CTMLE(**kwargs)
+        if isinstance(method, DRTMLEMethod):
+            return DRTMLE(**kwargs)
+        if isinstance(method, AdaptiveIPTWMethod):
+            return AdaptiveIPTW(**kwargs)
+        return TMLE(**kwargs)
 
     def _select_point_parameters(self, result: TMLEResult, method: EstimationMethod) -> TMLEResult:
         if (
@@ -6846,15 +7019,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
-        functional = self.functional
-        settings = {
-            "arms": functional.interventions,
-            "reference": functional.reference,
-            **continuous_kwargs(method),
-        }
-        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
-        try:
+        engine, settings = self._continuous_engine(method)
+        with self._spelled_memory_refusal(settings):
             return engine.fit_data(data)
+
+    @contextlib.contextmanager
+    def _spelled_memory_refusal(self, settings: dict[str, Any]) -> Iterator[None]:
+        """Spell the engine call of a continuous-time memory refusal in its alternative.
+
+        :meth:`_estimate_continuous` and :meth:`planned_fits` both run the engine's memory
+        check, so both raise the same record.
+        """
+        functional = self.functional
+        try:
+            yield
         except ContinuousSurvivalMemoryError as error:
             # The facade has no memory setting; spell the engine call that reproduces this fit,
             # so a user can set the budget there.
@@ -6881,8 +7059,23 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
             raise spelled_error from error
 
-    def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
-        assert self._study is not None and isinstance(self._study.data, LongitudinalData)
+    def _continuous_engine(
+        self, method: EstimationMethod
+    ) -> tuple[ContinuousSurvivalTMLE, dict[str, Any]]:
+        """The engine :meth:`_estimate_continuous` fits and :meth:`planned_fits` counts."""
+        functional = self.functional
+        settings = {
+            "arms": functional.interventions,
+            "reference": functional.reference,
+            **continuous_kwargs(method),
+        }
+        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
+        # Spelled in a memory refusal's call, where the variance decides the final pass's memory.
+        settings["variance"] = engine.variance
+        return engine, settings
+
+    def _longitudinal_engine(self, method: EstimationMethod) -> Any:
+        """The engine :meth:`_estimate_longitudinal` fits and :meth:`planned_fits` counts."""
         functional = self.functional
         engine: type[Any] = (
             SDR
@@ -6901,13 +7094,18 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
-        estimator = engine(
+        return engine(
             functional.interventions,
             reference=functional.reference,
             horizons=functional.horizons,
             msm=functional.msm,
             **method.estimator_kwargs(longitudinal=True),
         )
+
+    def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
+        assert self._study is not None and isinstance(self._study.data, LongitudinalData)
+        functional = self.functional
+        estimator = self._longitudinal_engine(method)
         raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),

@@ -92,6 +92,7 @@ learned-rule-intermediate
 learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
+projection-compositions
 ep-cate
 ep-crr
 ep-assessment
@@ -104,6 +105,7 @@ option-outcome-by-arm
 option-patience
 isotonic-binding
 small-sample-wald-intervals
+asymmetric-wald-intervals
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 dose-response
@@ -128,6 +130,8 @@ hazard-time-varying
 hazard-time-varying-multinode
 continuous-time-survival
 continuous-survival-functionals
+continuous-survival-variance
+continuous-survival-causes
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries

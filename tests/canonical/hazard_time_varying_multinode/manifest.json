@@ -5,10 +5,10 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.2.5",
-      "cleverly_commit": "10d19ab9d584974ddbd1a78a98ea54f4a05f0698",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "6fe1bac59025fe460078e82410bd2f0881b3d2da",
       "cleverly_worktree_clean": true,
-      "python": "3.13.14",
+      "python": "3.13.18",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.1.1",
@@ -97,7 +97,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_hazard_time_varying_multinode.py": "76817c19b8f1c61a4e32574ff8b0cf2a0f0ee425c50d204a245aec8ec321fdf1",
+    "tests/studies/canonical_hazard_time_varying_multinode.py": "7565d2819dc6e09282804f6e8f531dec846a54d3c56a7112d2675574c4a7bba3",
     "tests/studies/hazard_time_varying_multinode_properties.py": "ab8dae142b88a51a2e1ba3bc05fa1930248f321fb7adb396268be9a706619827",
     "tests/studies/hazard_time_varying_multinode_law.py": "081ce0385cbc5a9bb37d83cc8054ae8e39fe3a694b8285a99d062fd4dba5f088",
     "tests/studies/canonical_hazard_time_varying.py": "1689e891c2b5903ab31cf51af4e694d59abea7ef9c62c9bfd02a61af4646d272",
@@ -111,18 +111,18 @@
     "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
     "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "38c1817a29aef9d6e39b4a45649bc4a3bad226d9aa7182a5f91ef720b398906f"
+    "tests/studies/evidence/simultaneous.py": "f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "d2ecb8fe41d6f87f72c2116b142d7be1f2b4b8a8d895dab2775aa41de89fa1cd",
-    "summary.csv": "87ca4438127c7b56745d55cf424684f8f71e9dbb86c77feb41c085541c2187f1",
+    "replicates.parquet": "734a02f5d3ade098904b21247e75d4db57a1ef9f5d6c41b81dccba6b0332ebad",
+    "summary.csv": "41cd0b47e5b1681d59491593a73024a130463ad6cd38aa0362806f5b4a230cf8",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "aa2d711e64f60006ed0976695b803b93eee52a17c3255366d2af6b90b11e93bb",
-    "property-replicates.parquet": "b2d9417b85fe10ee702c6b4f9bb3bf60d836c87b275a7b5fb48a153d907a88e4",
-    "properties.csv": "50feebd472dcac4677dfb5189335e814e1f4bb7d4d399220c0ccdccd31cae934",
+    "performance-tests.csv": "ad45657d75c2314bd469032c7a96a61b5d76aa7df6ef257d0e97bf095677e8b2",
+    "property-replicates.parquet": "6bf6b2994ab0779a71310b0adfcf41323321baa13a27230d7d098c59ebca45c0",
+    "properties.csv": "c5a83848f0fb164e4300a2d26bb34069022f151759990c1b5c5f822ec26440a9",
     "property-failures.csv": "5005fb8d71628a825d25423a8edb7c7e80e4f60da790af74275e38c87a470bc9",
-    "property-failure-accounting.csv": "19f7c068aeb6571373f80797df6f4abe632f3c4771a17c1aea3c509c21ce8706",
+    "property-failure-accounting.csv": "4242c14d24b1a4dbec4b23ae029bd73c23654c3980f6ae4be146970c0e831bde",
     "property-failure-witnesses.parquet": "45d8533b08cab4895205bda351a414d0badf343219ce33d946cf634ebcb16428"
   }
 }

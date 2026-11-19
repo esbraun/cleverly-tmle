@@ -102,7 +102,14 @@ from scipy.stats import binom
 
 from tests.canonical.regenerate import ARTIFACT_NAMES as REGENERATION_ARTIFACTS
 from tests.canonical.regenerate import PROPERTY_FAILURE_FILES
-from tests.studies.evidence import failures, property_failures, replication, seeds, simultaneous
+from tests.studies.evidence import (
+    failures,
+    property_failures,
+    property_verdicts,
+    replication,
+    seeds,
+    simultaneous,
+)
 from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -163,8 +170,9 @@ POST_FLIP = {
         "X70 part (b1), first registered 2026-11-14 from a run at 5aeef06, after the flip",
     ),
     "hazard-time-varying-multinode": (
-        "10d19ab9d584974ddbd1a78a98ea54f4a05f0698",
-        "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip",
+        "6fe1bac59025fe460078e82410bd2f0881b3d2da",
+        "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip; "
+        "regenerated at 6fe1bac under the shipped intervals (Fix-3 PR 3)",
     ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.
@@ -352,7 +360,7 @@ def candidate_records() -> list[StudyRecord]:
         if record.slug in POST_FLIP:
             continue
         path = record.artifacts / "properties.csv"
-        if path.exists() and not band_cells(pd.read_csv(path)).empty:
+        if path.exists() and not band_cells(property_verdicts.read_property_table(record)).empty:
             out.append(record)
     return out
 

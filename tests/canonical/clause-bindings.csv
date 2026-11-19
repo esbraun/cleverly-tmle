@@ -9,6 +9,15 @@ adaptive-iptw,simultaneous_coverage,joint coverage in calibration band,se_low
 adaptive-iptw,targeting_necessity,bias discriminated,pair_collapse
 adaptive-iptw,targeting_necessity,bias equivalent,none
 adaptive-iptw,targeting_necessity,least displacement over labels,control_concentrated
+asymmetric-wald,heldout_coverage,"coverage lower leg, first 2,000",se_low
+asymmetric-wald,heldout_coverage,"coverage upper leg, first 2,000, shown only",se_high
+asymmetric-wald,heldout_coverage,"tail clause, above",se/0.8
+asymmetric-wald,heldout_coverage,"tail clause, below",se/0.8
+asymmetric-wald,owner_coverage,"coverage lower leg, first 2,000",coverage/0.94
+asymmetric-wald,owner_coverage,"coverage upper leg, first 2,000, shown only",coverage/0.96
+asymmetric-wald,owner_coverage,paired gain,se/1.05
+asymmetric-wald,owner_coverage,"tail clause, above",affine+affine+se/0.95
+asymmetric-wald,owner_coverage,"tail clause, below",se/0.8
 band-t-reference,simultaneous_coverage,joint coverage below nominal,se_low
 band-t-reference,simultaneous_coverage,joint coverage in calibration band,se_low
 band-t-reference-held-out,simultaneous_coverage,joint coverage below nominal,se_high
@@ -476,6 +485,13 @@ conditional-projection,interval_calibration,se ratio in calibration band,affine
 conditional-projection,power,rejection floor,affine
 conditional-projection,type_i_error,coverage floor,coverage/0.5
 conditional-projection,type_i_error,rejection ceiling,rejection/0.1
+continuous-survival-causes,double_robustness,bias discriminated,pair_collapse
+continuous-survival-causes,double_robustness,bias equivalent,bias
+continuous-survival-causes,double_robustness,se ratio in union band,se/0.05
+continuous-survival-causes,interval_calibration,coverage in calibration band,shift/0.7
+continuous-survival-causes,interval_calibration,noise se ratio below band,se_high
+continuous-survival-causes,interval_calibration,se ratio below band,se_high
+continuous-survival-causes,interval_calibration,se ratio in calibration band,se/0.05
 continuous-survival-functionals,interval_calibration,coverage in calibration band,shift/0.7
 continuous-survival-functionals,interval_calibration,noise se ratio below band,se_high
 continuous-survival-functionals,interval_calibration,se ratio below band,se_high
@@ -1468,6 +1484,15 @@ policy-point-mtp,targeting_necessity,bias equivalent,bias
 policy-point-mtp,targeting_necessity,least displacement over labels,positive_diffuse
 policy-point-mtp,type_i_error,coverage floor,coverage/0.5
 policy-point-mtp,type_i_error,rejection ceiling,rejection/0.1
+projection-compositions,bias,bias discriminated,control_diffuse
+projection-compositions,bias,bias equivalent,bias
+projection-compositions,interval_calibration,coverage in calibration band,affine
+projection-compositions,interval_calibration,independent splits se ratio below band,pair_collapse
+projection-compositions,interval_calibration,se ratio below band,se_high
+projection-compositions,interval_calibration,se ratio in calibration band,affine
+projection-compositions,power,rejection floor,rejection/0.01
+projection-compositions,type_i_error,coverage floor,coverage/0.5
+projection-compositions,type_i_error,rejection ceiling,rejection/0.1
 refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
 refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 repeated-crossfit-tmle,double_robustness,bias discriminated,pair_collapse
@@ -1698,6 +1723,8 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_power,detections at least 38 of 50,rejection/0.01
+tests.studies.refuter_calibration_continuous_survival_properties,refuter_size,rejections at most 17 of 200,none
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated
@@ -1746,12 +1773,12 @@ vector-mtp,preimage_necessity,least displacement over labels,control_concentrate
 weighted-ltmle,double_robustness,bias discriminated,bias
 weighted-ltmle,double_robustness,bias equivalent,bias
 weighted-ltmle,double_robustness,se ratio in union band,se/0.05
-weighted-ltmle,interval_calibration,coverage in calibration band,se/1.05
+weighted-ltmle,interval_calibration,coverage in calibration band,shift/0.7
 weighted-ltmle,interval_calibration,efficiency above band,pair_collapse
-weighted-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+weighted-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
 weighted-ltmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
 weighted-ltmle,interval_calibration,se ratio below band,se_high
-weighted-ltmle,interval_calibration,se ratio in calibration band,se/0.95
+weighted-ltmle,interval_calibration,se ratio in calibration band,none
 weighted-ltmle,learner_weight_necessity,alternative bias equivalent,bias
 weighted-ltmle,learner_weight_necessity,bias discriminated,control_diffuse
 weighted-ltmle,learner_weight_necessity,bias equivalent,bias
@@ -1764,8 +1791,8 @@ weighted-ltmle,root_n_rate,slope in root-n band,contract
 weighted-ltmle,targeting_necessity,bias discriminated,none
 weighted-ltmle,targeting_necessity,bias equivalent,bias
 weighted-ltmle,targeting_necessity,least displacement over labels,control_concentrated
-weighted-ltmle,type_i_error,coverage floor,rejection/0.01
-weighted-ltmle,type_i_error,rejection ceiling,coverage/0.94
+weighted-ltmle,type_i_error,coverage floor,coverage/0.5
+weighted-ltmle,type_i_error,rejection ceiling,rejection/0.1
 weighted-ltmle,weight_necessity,alternative bias equivalent,bias
 weighted-ltmle,weight_necessity,bias discriminated,control_diffuse
 weighted-ltmle,weight_necessity,bias equivalent,bias
