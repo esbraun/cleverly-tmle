@@ -673,8 +673,8 @@ def generate_property_rows(
 
 #: The cloud parts of the declared run's heavy streams: ``part -> (streams, replicates)``, where
 #: ``None`` runs each stream whole.  Each part is planned at :data:`PART_HOURS` or less at the
-#: smoke's per-fit times; the assembly run fits every other stream and reuses the parts'
-#: checkpoints.  Draws checkpoint one by one and each replicate has its own seed, so a split
+#: pilot's median per-fit seconds (the design test rebudgets each part from the pilot); the
+#: assembly run fits every other stream and reuses the parts' checkpoints.  Draws checkpoint one by one and each replicate has its own seed, so a split
 #: changes no draw.
 RUNNER_PARTS: dict[str, tuple[tuple[str, ...], range | None]] = {
     "P1": (("classifier_G",), None),
@@ -698,8 +698,8 @@ RUNNER_PARTS: dict[str, tuple[tuple[str, ...], range | None]] = {
         for index in range(4)
     },
 }
-#: The CPU-hours a cloud part is planned at, at most: 13.6 h on 4 cores at the smoke's times,
-#: which leaves room inside a 20 h runner for the smoke's timing to be low.
+#: The CPU-hours a cloud part is planned at, at most: 13.75 h on 4 cores; at the pilot's seconds
+#: the largest part is 51.9 CPU-h (13.0 h).
 PART_HOURS = 55.0
 
 

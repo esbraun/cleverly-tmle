@@ -358,7 +358,7 @@ class TestThePassProbabilities:
         two = tail_clause(1, pilot.TAIL_DRAWS) ** 2 * tail_clause(0, pilot.TAIL_DRAWS) ** 3
         assert calibration * two * clusters == pytest.approx(0.935, abs=1e-3)
         text = " ".join((study.STUDY.artifacts / "regenerate.py").read_text().split())
-        assert "**0.954** predictive" in text
+        assert "**0.926** predictive" in text
         assert "0.85 for the ``ic_gap`` family, and 0.90 for the whole study" in text
 
     #: The boosting tail table: ``law -> (k above 1.0 of M, pass, plug-in, pass of none above 3.0)``.

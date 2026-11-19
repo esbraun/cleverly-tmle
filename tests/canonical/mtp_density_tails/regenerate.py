@@ -13,28 +13,33 @@ them, applies the extension rule below to each gated calibration arm, and rebudg
 part from the pilot's per-fit seconds; then a declaration commit in which the design test skips
 nothing; then the declared run.
 
-The declared run's heavy streams run first as eleven cloud parts
-(``python -m tests.studies.mtp_density_tails_properties --parts DIR --part P<k>``), each at most
-55 CPU-h at the smoke's per-fit times: P1 to P3 the classifier calibration streams on G, T and
-S; P4 the classifier DR streams with ``control_density_G`` and ``control_classifier_G``; P5 and
-P6 ``longitudinal_LTMLE`` in two ranges; P7 ``control_LTMLE``; P8 to P11 ``longitudinal_SDR`` in
-four ranges (``RUNNER_PARTS``).  Each part checkpoints draw by draw under ``DIR``, and the
+The declared run's heavy streams run first as eleven cloud parts (``python -m
+tests.studies.mtp_density_tails_properties --parts DIR --part P<k>``), each at most 55 CPU-h at
+the pilot's median per-fit seconds (486.1 CPU-h in all; the largest, P5 and P6, 51.9 CPU-h or
+13.0 h on 4 cores): P1 to P3 the classifier calibration streams on G, T and S; P4 the
+classifier DR streams with ``control_density_G`` and ``control_classifier_G``; P5 and P6
+``longitudinal_LTMLE`` in two ranges; P7 ``control_LTMLE``; P8 to P11 ``longitudinal_SDR`` in
+four ranges (``RUNNER_PARTS``). Each part checkpoints draw by draw under ``DIR``, and the
 assembly run, this script, reuses those checkpoints once every part's ``DIR`` contents sit in
 its scratch ``checkpoints`` directory; it fits the density, DR, ``ic_gap`` and
-``cluster_warning`` cells itself, about 3 CPU-h.  A split changes no draw: each replicate has
-its own seed.
+``cluster_warning`` cells itself, about 3 CPU-h. A split changes no draw: each replicate has
+its own seed. Every part runs at the declaration commit, and the assembly run checks each
+part's reported commit against it before it copies that part's checkpoints.
 
-**The extension rule** (declared before any pilot reading).  A gated calibration arm's plug-in
-pass probability at R = 3,200 is read at its pooled pilot's SE ratio and coverage.  While it is
-below 0.90, the pilot is extended by 400 draws on its own stream and pooled.  It stops at the
+**The extension rule** (declared before any pilot reading). A gated calibration arm's plug-in
+pass probability at R = 3,200 is read at its pooled pilot's SE ratio and coverage. While it is
+below 0.90, the pilot is extended by 400 draws on its own stream and pooled. It stops at the
 first of three outcomes: clear, when the plug-in reaches 0.90; a confirmed departure, when the
 pooled 99% bootstrap interval of the SE ratio excludes 1 or the 99% coverage interval excludes
-0.95; or the cap, three extensions (1,600 draws in all).  A confirmed departure is a defect
-suspect, diagnosed before the declaration, and so is an arm at the cap.  If no defect is found
+0.95; or the cap, three extensions (1,600 draws in all). A confirmed departure is a defect
+suspect, diagnosed before the declaration, and so is an arm at the cap. If no defect is found
 the arm runs at 3,200 and its plug-in pass probability enters the family and whole-study
-figures.  For a calibrated arm the rule extends 0.91 times on average and ends clear with
-probability 0.897, at a departure with 0.026 and at the cap with 0.076.  The reserve is the cap
-on the classifier G and T, ``LTMLE`` and ``SDR`` pilots, 161.4 CPU-h.
+figures. For a calibrated arm the rule extends 0.91 times on average and ends clear with
+probability 0.897, at a departure with 0.026 and at the cap with 0.076. The reserve is the cap
+on the classifier G and T, ``LTMLE`` and ``SDR`` pilots, 161.4 CPU-h. The rule is read block by
+block: the first 400 draws, then each further block of 400, stopping at the first block that
+decides. Every draw beyond the stop is ignored, so blocks run ahead of the reading change
+nothing. Each replicate's seed depends only on its index.
 
 **The interval the coverage leg reads.**  Every positive calibration and density DR arm reads
 coverage at the interval the fit ships, because the study validates what ships: the
@@ -46,19 +51,38 @@ density and DR pilots are refitted for their shipped limits (``pilot-limits.csv.
 the classifier and longitudinal pilots a draw within 1% of a symmetric limit is counted as able
 to change side, each arm's stop holding at the worst case.
 
-**Pass probabilities and floors.**  Nine calibration-type arms are gated, each on one estimand:
-density calibration on G, T and C, density DR on G and T, classifier calibration on G and T, and
-the longitudinal default route on ``LTMLE`` and ``SDR``.  At R = 3,200 each SE-ratio clause
-passes with 0.9975 at target, so the family passes with 0.978.  The ``ic_gap`` 20,000 clause
+**Pass probabilities and floors.** Nine calibration-type arms are gated, each on one estimand:
+density calibration on G, T and C, density DR on G and T, classifier calibration on G and T,
+and the longitudinal default route on ``LTMLE`` and ``SDR``. At R = 3,200 each SE-ratio clause
+passes with 0.9975 at target, so the family passes with 0.978. The ``ic_gap`` 20,000 clause
 reads the largest of 30 gaps; its pass probability is the Jeffreys beta-binomial chance of no
 exceedance in 30 draws from the exceedances among 3,000 tail-pilot draws per gated law (0.995
-at none).  The cluster clauses read 3,000-draw dose pilots (0.99999 and 1.0 at the probe rates).
-The whole-study designed pass, the product of every gated clause, is **0.954** predictive at no
-tail exceedance (0.978 plug-in): 0.978 (calibration) x 0.975 (``ic_gap``) x 1.0 (falls and
-2,000 bounds) x 1.0 (clusters).  The design test computes it from the pilot.  The declared
-floors are 0.90 per gated ``ic_gap`` law and per calibration arm, 0.85 for the ``ic_gap``
-family, and 0.90 for the whole study.  A pilot that reads below a floor is diagnosed before the
-declaration: sizing may change, a threshold may not.
+at none). The cluster clauses read 3,000-draw dose pilots (0.99999 and 1.0 at the probe rates).
+At sizing, before any pilot, the whole-study designed pass was 0.954 predictive at no tail
+exceedance. The design test computes it from the committed pilot. Every gated arm stops at
+target: density G and C at 1,200 draws; density T, DR T, classifier G and ``LTMLE`` at 800; DR
+G, classifier T and ``SDR`` at 400; no departure. Each arm at target enters as its SE-ratio
+clause (0.9975) times its coverage clause at the pilot's shipped coverage, which is 0.990 on
+density C (coverage 0.963) and at least 0.997 elsewhere. The whole study passes with **0.926**
+predictive: 0.970 (calibration) x 0.955 (``ic_gap``) x 1.0 (clusters). The declared floors are
+0.90 per gated ``ic_gap`` law and per calibration arm, 0.85 for the ``ic_gap`` family, and 0.90
+for the whole study. A pilot that reads below a floor is diagnosed before the declaration:
+sizing may change, a threshold may not.
+
+C's 20,000 tail clause reads two counts. The grid fix (the thin-stretch count stops at the next
+wide run) was diagnosed on the tail pilot's own draws. Those draws read 1 exceedance in 3,000
+after the fix (8 before it), and 3,000 fresh draws also read 1 (6 before it). The clause uses
+the in-sample count, 0.985 at 1 of 3,000, and pooled with the fresh draws it reads 0.988 at 2
+of 6,000. The factor-3 stop was set after the pilot draws were seen, so a red C 20,000 row
+stays a defect suspect under the red route below.
+
+=================================================  ===================  ========  ===============
+C 20,000 tail                                      before the grid fix  after it  Jeffreys clause
+=================================================  ===================  ========  ===============
+pilot draws (in-sample for the fix), 3,000         8                    1         0.985
+fresh draws, 3,000                                 6                    1         0.985
+pooled, 6,000                                                           2         0.988
+=================================================  ===================  ========  ===============
 
 Red-cell readings (declared before any run).  The record is ``gated``, so any red verdict fails
 the run.  No cell is re-sized, re-drawn or downgraded after a verdict is seen.
