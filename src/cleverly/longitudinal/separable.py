@@ -80,6 +80,7 @@ from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError, RefusalReason
 from ..fluctuation._score import relative_score
 from ..fluctuation.iterative import TargetingFailure
+from ._fit_cache import frozen
 from .data import LongitudinalData
 from .hazard import SIGMA_FLOOR, HazardFit, event_indicators
 from .regimen import Plan, Regimen, Separable
@@ -1220,19 +1221,23 @@ def target_separable(
     levels_out, curves = influence(state, inputs, targets)
     by_label = {label: spec for label, _, spec in regimens}
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
+    factual = np.concatenate([np.ones_like(state.survival[:, :1]), state.survival[:, :-1]], axis=1)
+    # The clever weight reads only the level pair and the final state, so the targets of one
+    # pair (both roles, every horizon) share one read-only base and keep views of it.
+    bases: dict[tuple[int, int], FloatArray] = {}
     for m, target in enumerate(targets):
-        a_d, a_y = target.levels
-        _, before, _ = state.composed(target.levels)
-        factual = np.concatenate(
-            [np.ones_like(state.survival[:, :1]), state.survival[:, :-1]], axis=1
-        )
-        reads = (observed == a_d) | (observed == a_y)
-        weight = _per(
-            before * inputs.inverse[inputs.rows, :, observed],
-            factual[inputs.rows, :, observed],
-        )
-        clever = np.where(at_risk & reads[:, None] & (before > 0.0), weight, 0.0)
-        clever[:, target.horizon :] = 0.0
+        if target.levels not in bases:
+            a_d, a_y = target.levels
+            _, before, _ = state.composed(target.levels)
+            reads = (observed == a_d) | (observed == a_y)
+            weight = _per(
+                before * inputs.inverse[inputs.rows, :, observed],
+                factual[inputs.rows, :, observed],
+            )
+            bases[target.levels] = frozen(
+                np.where(at_risk & reads[:, None] & (before > 0.0), weight, 0.0)
+            )
+        clever = bases[target.levels][:, : target.horizon]
         spec = by_label[target.label]
         regimen = spec.regimen if isinstance(spec, Plan) else spec
         out[(target.label, target.cause, target.horizon)] = RegimenFit(

@@ -64,6 +64,7 @@ from ..inference.multiplier import (
 )
 from ..learners.crossfit import Folds
 from ..utils.bounds import bound
+from ._fit_cache import frozen
 from ._kernel import SmoothFit, smooth
 from .collaborative import all_censored_nodes, all_censored_refusal, eligible_censoring
 from .data import LongitudinalData
@@ -1470,6 +1471,8 @@ def run_drift(
         code = int(np.asarray(plan.values)[0, 0])
         view = paper_view(data, mechanism, initial, code, alpha=alpha, g_bounds=g_bounds)
         initial_survival = np.cumprod(1.0 - view.h, axis=1)
+        # One read-only clever weight per arm; each horizon keeps its view.
+        base = frozen(np.where(view.at_risk & (view.arm > 0.0)[:, None], 1.0 / bounded, 0.0))
         for t in horizons:
             fit = target_drift(
                 view,
@@ -1481,8 +1484,7 @@ def run_drift(
                 n_folds=n_folds,
             )
             records[(plan.label, int(t))] = fit.record
-            clever = np.where(view.at_risk & (view.arm > 0.0)[:, None], 1.0 / bounded, 0.0)
-            clever[:, int(t) :] = 0.0
+            clever = base[:, : int(t)]
             fits[_fit_key(plan.label, None, int(t), True)] = RegimenFit(
                 regimen=plan.regimen,
                 psi_scaled=fit.curve.risk,
