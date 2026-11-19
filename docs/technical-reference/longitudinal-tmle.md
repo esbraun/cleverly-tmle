@@ -3252,7 +3252,7 @@ parallel processes owns their sum.
 | --- | --- |
 | $n$ | units |
 | $T$ | nodes |
-| $R$ | the plans the recursion fits: the declared regimens and separable arms, the four branch plans of a learned regimen, and the regimens plus each policy on a path fit |
+| $R$ | the plans the recursion fits: the declared regimens and separable arms, and the four branch plans of a learned regimen. On a path fit a regimen that draws from a policy counts once, and its treatment paths are $U$ |
 | $H$, $S$ | the number of reported horizons, and their sum (the horizon-node pairs the recursion fits); $H = 1$ and $S = T$ at the end of the study |
 | $J$ | causes, 1 without competing events |
 | $F$ | outer folds |
@@ -3286,11 +3286,16 @@ $$
 $$
 
 and each term is 0 otherwise. Here panel is the bytes of the prepared panel's arrays, which a
-parallel replicate copies. The 240 MiB is the resident set of a started loky worker (213 to 238
-MiB measured after the light fits), and the 64 MiB covers loky's two helper processes (14 and 39
-MiB measured). loky starts all $j$ workers on the first parallel submit, however many tasks there
-are, so the term counts $j$ workers, not $\min(j, F)$. $w(F)$ is the share of a draw a fold worker
-holds and $m(F)$ the multiple of a draw the parent holds.
+parallel replicate copies. The 240 MiB is the resident set of a started loky worker (213 to 238 MiB
+measured after the light fits), and the 64 MiB covers loky's two helper processes (14 and 39 MiB
+measured). loky starts all $j$ workers on the first parallel submit, however many tasks there are,
+so the term counts $j$ workers, not $\min(j, F)$. $w(F)$ is the share of a draw a fold worker holds
+and $m(F)$ the multiple of a draw the parent holds.
+
+The `hazard_one_node` and `hazard_separable` constants were fitted on calls given an already
+prepared `LongitudinalData`. When those fits receive a frame, the panel the fit builds, about
+$8n(3T+2)$ bytes (about 20 MiB at 100,000 units and eight nodes), is not in their constants, and
+the margin absorbs it.
 
 Each family has its own constants. The family is `hazard_separable`
 for a hazard fit with a separable arm, `hazard_one_node`, `hazard_backward` or `hazard_paths` for
@@ -3320,14 +3325,14 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 | $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
 | $U p$ |  |  |  |  |  |  |  | 2.85 |  |
 
-`tests/diagnostics/x106_j2d_memory/generate.py` writes this table and the guard's literals from the
-calibration records copied beside it, and `tests/unit/test_longitudinal_memory_guard.py` checks
-that both match. The constants solve the linear program that minimizes the summed prediction over
-each family's fitted cells subject to covering every cell's `tracemalloc` peak, with every
-constant non-negative. The fitted cells ran with GLM, logistic and linear learners at 5,000,
-20,000 and 100,000 units, one draw, no bootstrap, no censoring and one worker. Cells the
-unpenalized GLM refused as singular were refitted with a least-squares outcome regression on the
-same counts.
+`tests/diagnostics/x106_j2d_memory/generate.py` writes this table, the two tables of [calibrated
+ranges](#calibrated-ranges) and the guard's literals from the calibration records copied beside it,
+and `tests/unit/test_longitudinal_memory_guard.py` checks that all of them match. The constants
+solve the linear program that minimizes the summed prediction over each family's fitted cells
+subject to covering every cell's `tracemalloc` peak, with every constant non-negative. The fitted
+cells ran with GLM, logistic and linear learners at 5,000, 20,000 and 100,000 units, one draw, no
+bootstrap, no censoring and one worker. Cells the unpenalized GLM refused as singular were refitted
+with a least-squares outcome regression on the same counts.
 
 The worker share and the parent multiple, measured in a fresh process per case on cold workers at
 20,000 units and on warm workers at 100,000, with the larger figure taken:
@@ -3350,20 +3355,25 @@ The $w$ and $m$ form, and the two process constants, were chosen after the worke
 
 ### Accuracy
 
-Over every fitted cell the margined draw reads 1.35 to 3.30 times the traced peak, and over every
-checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31 (a learned
-regimen, whose four branch plans are counted against one fitted rule). The margin of 1.35 covers
-the largest resident set over the traced peak that any calibration run measured, 1.32. At one
-worker the refusal therefore states that the prediction can exceed the true peak by up to 3.5
-times. With `n_jobs > 1` it can exceed it by more. Over the 68 parallel runs in a fresh process
-(5,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel bootstraps) the
-prediction reads 1.29 to 1.87 times the measured resident footprint of the parent and every worker.
-The lowest, 1.29 to 1.30, are `SDR` and `IPSI` at 5,000 units and 7 to 10 folds.
+The calibration's records are in `rows/X106/J2/evidence/2026-11-19-j2d/rev9/` in the plans
+repository. Over every fitted cell the margined draw reads 1.35 to 3.30 times the traced peak, and
+over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
+(a learned regimen, whose four branch plans are counted against one fitted rule), both in
+`fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
+calibration run measured, 1.32 (`packet10.out`).
+
+Because the largest reading is 3.31, the refusal states that at one worker the prediction can exceed
+the true peak by up to 3.5 times. With `n_jobs > 1` it can exceed it by more. Over the 68 parallel
+runs in a fresh process (5,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel
+bootstraps) the prediction reads 1.29 to 1.87 times the measured resident footprint of the parent
+and every worker. The lowest, 1.29 to 1.30, are `SDR` and `IPSI` at 5,000 units and 7 to 10 folds
+(`coldterm.out`).
 
 The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
 learners, and other learners' own memory is not counted. With the default learner library the
-prediction read 0.94 to 1.38 times the traced peak on eight small cells (5,000 units, two nodes and
-two regimens), so a fit with heavier learners can pass the check and still run out of memory.
+prediction read 0.94 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
+four for the one-node hazard fit, and two regimens; the `gap` rows of `fit.out`), so a fit with
+heavier learners can pass the check and still run out of memory.
 
 The worker constants assume workers that start cold. A second call with `n_jobs > 1` in the same
 session finds its workers already started and outside the memory available, so it is over-counted
@@ -3425,9 +3435,10 @@ note name the counts outside and say the prediction is an extrapolation. Joint c
 row were fitted where the grid crossed the counts (nodes, regimens, folds and horizons for the
 iterated-mean, `SDR` and `IPSI` estimators; width with nodes and regimens at three folds; ten folds
 at two regimens; two causes at up to two regimens; the continuous families and the hazard families
-over all their counts). Other corners rest on probed cells, which read 1.35 to 2.42. Below 5,000
-units the fixed term is a larger share, and the fast-suite fixtures at 2,000 units read 1.35 to
-2.12.
+over all their counts). Other corners rest on cells probed by the design reviews
+(`design-review-j2d-rev10.md` and `design-review-j2d-rev11.md` in the plans repository), which
+read 1.35 to 2.42. Below 5,000 units the fixed term is a larger share, and the fast-suite fixtures
+at 2,000 units read 1.35 to 2.12 (`witness11.jsonl`).
 
 ### The budget and the two guards
 

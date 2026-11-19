@@ -1229,7 +1229,7 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         f"({predicted:,} bytes) at its peak, {_whole_call(prediction)}; the budget is "
         f"{_size(budget)} ({budget:,} bytes), {source}. {LEARNERS} At one worker it can exceed "
         f"the true peak by up to {FACTOR:g} times, and by more with n_jobs > 1."
-        f"{_range_clause(counts)} Nothing was fitted."
+        f"{_range_clause(counts)} No learner was fitted."
     )
     remedies = [f"Pass {name}(max_memory_bytes=...) a value above {predicted:,}"]
     if prediction.parallel:

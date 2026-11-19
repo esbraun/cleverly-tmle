@@ -263,7 +263,8 @@ coarser decision times before you read it.
 
 Long panels, many regimens and parallel workers also need memory. Before it fits any model,
 `LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
-if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
+if that is more than the memory the machine has free. Where the system does not report its free
+memory, as on macOS, nothing is checked unless you pass `max_memory_bytes=`, which sets the limit
 yourself, higher or lower. The estimate counts the arrays the package holds with simple
 regression learners, so a fit that passes the check can still run out of memory with heavier
 learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
