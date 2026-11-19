@@ -141,7 +141,7 @@ TRACED: dict[str, tuple[dict[str, Any], str, tuple[str, ...]]] = {
         "ltmle_continuous",
         ("BB", "TB"),
     ),
-    # SDR shift policies T 2, R 2, 40 bins: 1.38, then 0.11.
+    # SDR shift policies T 2, R 2, 40 bins: 1.38, then 0.13.
     "sdr_mtp": (
         {"est": "sdr_mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 40},
         "sdr_continuous",
@@ -486,7 +486,7 @@ SDR_F5_B40_PEAK = 107_567_399
 
 def test_the_sdr_continuous_f5_b40_cell_is_covered_by_the_margin() -> None:
     # The rev 11b constants read 1.20 here; the rev 11c refit fitted this cell, so the margined
-    # draw covers 1.35 times its peak (the linear program binds on it).
+    # draw covers at least 1.35 times its peak (1.46 under the installed constants).
     counts = FitCounts(
         estimator="SDR",
         family="sdr_continuous",
@@ -506,6 +506,75 @@ def test_the_sdr_continuous_f5_b40_cell_is_covered_by_the_margin() -> None:
     )
     # One draw at one worker: the prediction is the margined draw, rounded up to whole bytes.
     assert _memory_guard.predicted_bytes(counts) >= 1.35 * SDR_F5_B40_PEAK
+
+
+def _continuous(
+    family: str,
+    n: int,
+    n_times: int,
+    plans: int,
+    folds: int,
+    *,
+    width: int,
+    bins: int,
+    panel_bytes: int,
+) -> FitCounts:
+    return FitCounts(
+        estimator="SDR" if family == "sdr_continuous" else "LTMLE",
+        family=family,
+        n=n,
+        n_times=n_times,
+        plans=plans,
+        horizons=(n_times,),
+        causes=1,
+        folds=folds,
+        msm=False,
+        repeats=1,
+        bootstrap=0,
+        jobs=1,
+        width=width,
+        bins=bins,
+        panel_bytes=panel_bytes,
+    )
+
+
+#: The held-out continuous cells (the rows of ``bins-check.jsonl``, checked and not fitted, in
+#: ``rows/X106/J2/evidence/2026-11-19-j2d/rev9/`` in the plans repository): each row's guard
+#: counts and its traced peak.
+HELD_OUT: dict[str, tuple[FitCounts, int]] = {
+    "mtp T 8, B 320": (
+        _continuous("ltmle_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
+        1_771_256_839,
+    ),
+    "mtp F 10, B 320": (
+        _continuous("ltmle_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
+        1_522_250_077,
+    ),
+    "mtp n 5,000, B 20": (
+        _continuous("ltmle_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
+        18_807_706,
+    ),
+    "sdr_mtp T 8, B 320": (
+        _continuous("sdr_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
+        1_771_244_018,
+    ),
+    "sdr_mtp F 10, B 320": (
+        _continuous("sdr_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
+        1_617_177_744,
+    ),
+    "sdr_mtp n 5,000, B 20": (
+        _continuous("sdr_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
+        26_388_174,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(HELD_OUT))
+def test_a_held_out_continuous_cell_in_range_reads_at_least_the_floor(name: str) -> None:
+    # The floor of 1.32 covers the resident set over the traced peak (``packet10.out``).
+    counts, peak = HELD_OUT[name]
+    assert _memory_guard.in_range(counts)
+    assert _memory_guard.predicted_bytes(counts) >= 1.32 * peak
 
 
 # ------------------------------------------------------------------ count sources

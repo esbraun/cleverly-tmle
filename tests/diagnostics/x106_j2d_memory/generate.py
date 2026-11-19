@@ -13,8 +13,9 @@ file                   what it holds
                        of the worker term, written by ``coldterm.py``; ``WORKER_SHARE``
 ``extbox.out``         the in-range predicate written by ``extbox.py``: each family's fitted
                        bounds and the box of each checked extension; ``FITTED`` and
-                       ``EXTENSIONS``.  One correction is applied: the time-to-event families'
-                       fitted cells were censored, which ``extbox.py`` did not record
+                       ``EXTENSIONS``, then the floor check's verdict.  One correction is
+                       applied: the time-to-event families' fitted cells were censored, which
+                       ``extbox.py`` did not record
 =====================  =========================================================================
 
 ``python -m tests.diagnostics.x106_j2d_memory.generate`` prints the literals to paste into the
@@ -130,7 +131,11 @@ def predicate() -> tuple[
             section = "fitted"
         elif line.startswith("== checked"):
             section = "checked"
-        elif not line.strip() or line.startswith("excluded"):
+        elif line.startswith("== floor check"):
+            # The floor check's verdict (``none`` when no checked cell inside the range reads
+            # below 1.32); ``extbox.py`` exits non-zero otherwise, so it adds no bound.
+            section = "floor"
+        elif not line.strip() or line.startswith("excluded") or section == "floor":
             continue
         elif section == "fitted":
             family, _, rest = line.partition(" ")

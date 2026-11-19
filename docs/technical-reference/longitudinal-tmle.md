@@ -3305,8 +3305,8 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 
 | count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| fixed, MiB | 0.329 | 0.047 | 1.02 | 0.14 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
-| $R S J$ | 2.05 | 21.6 | 18 | 20 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
+| fixed, MiB | 0.329 | 0.0522 | 1.02 | 0.0497 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
+| $R S J$ | 2.05 | 21.8 | 18 | 21.1 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
 | $R T$ | 3.79 |  |  |  |  |  |  | 13.6 |  |
 | $R T J$ |  |  |  |  |  | 5.8 | 9.53 | 25.3 |  |
 | $T$ |  |  |  |  |  | 28.8 |  |  | 73 |
@@ -3314,13 +3314,13 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 | $R H J$ | 16 |  | 0.0886 |  | 1.98 | 1.01 |  | 1.01 | 12.8 |
 | $p$ | 4.61 |  | 4.7 |  | 7.33 | 1.98 | 3.37 | 3.89 |  |
 | $R p$ | 0.76 |  | 0.502 |  |  | 0.728 | 0.181 | 1.06 |  |
-| $T p$ |  |  |  | 0.105 |  | 0.613 | 1.63 | 0.168 | 0.707 |
-| $1$ |  | 17 |  |  | 13.4 |  | 20.3 | 18.8 |  |
-| $F R T$ | 0.506 | 0.0944 | 2.67 | 6.11 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
-| $F T$ |  |  | 0.955 | 0.755 | 1.15 | 0.0043 |  |  |  |
-| $T B$ |  | 2.85 |  | 2.55 |  |  |  |  |  |
-| $F T B$ |  |  |  | 0.525 |  |  |  |  |  |
-| $B^2$ |  | 1.03 |  | 1.02 |  |  |  |  |  |
+| $T p$ |  |  |  | 0.0186 |  | 0.613 | 1.63 | 0.168 | 0.707 |
+| $1$ |  | 16.6 |  |  | 13.4 |  | 20.3 | 18.8 |  |
+| $F R T$ | 0.506 | 0.177 | 2.67 | 5.89 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
+| $F T$ |  |  | 0.955 | 0.376 | 1.15 | 0.0043 |  |  |  |
+| $T B$ |  | 2.84 |  | 2.18 |  |  |  |  |  |
+| $F T B$ |  |  |  | 0.88 |  |  |  |  |  |
+| $B^2$ |  | 1.03 |  | 1.03 |  |  |  |  |  |
 | $R S$ (working model) | 2.11 |  |  |  |  |  |  |  |  |
 | $T U$ |  |  |  |  |  |  |  | 8.04 |  |
 | $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
@@ -3328,15 +3328,19 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 
 `tests/diagnostics/x106_j2d_memory/generate.py` writes this table, the two tables of [calibrated
 ranges](#calibrated-ranges) and the guard's literals from the calibration records copied beside it,
-and `tests/unit/test_longitudinal_memory_guard.py` checks that all of them match. The constants
-solve a linear program over each family's fitted cells, subject to covering every cell's
-`tracemalloc` peak, with every constant non-negative. For the two continuous families it
-minimizes the summed ratio of prediction to peak, so each cell weighs by its ratio and not its
-bytes; for the others it minimizes the summed prediction. The fitted cells ran with GLM, logistic
-and linear learners at 5,000, 20,000 and 100,000 units, and the continuous families also at 2,000
-units with up to 320 density bins, all with one draw, no bootstrap, no censoring and one worker.
-Cells the unpenalized GLM refused as singular were refitted with a least-squares outcome
-regression on the same counts.
+and `tests/unit/test_longitudinal_memory_guard.py` checks that all of them match.
+
+The constants solve a linear program over each family's fitted cells, subject to covering every
+cell's `tracemalloc` peak, with every constant non-negative. It minimizes the summed prediction
+for seven families, and the summed ratio of prediction to peak for the two continuous families, so
+each of their cells weighs by its ratio and not its bytes. That objective was chosen after the
+summed prediction, on the first refit of these families, read above the 3.5 bound on a small cell
+(`fit11c-sum.out`). Either way the constraint and the margin make every fitted cell read at least
+1.35 times its traced peak; the objective moves only the cells left out of the fit. The fitted
+cells ran with GLM, logistic and linear learners at 5,000, 20,000 and 100,000 units, and the
+continuous families also at 2,000 units with 5 to 320 density bins, all with one draw, no
+bootstrap, no censoring and one worker. Cells the unpenalized GLM refused as singular were
+refitted with a least-squares outcome regression on the same counts.
 
 The worker share and the parent multiple, measured in a fresh process per case on cold workers at
 20,000 units and on warm workers at 100,000, with the larger figure taken:
@@ -3364,7 +3368,9 @@ repository. Over every fitted cell the margined draw reads 1.35 to 2.50 times th
 over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
 (a learned regimen, whose four branch plans are counted against one fitted rule), both in
 `fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
-calibration run measured, 1.32 (`packet10.out`).
+calibration run measured, 1.32 (`packet10.out`). That cover is shown on fitted cells only: in a
+refit that left out one shape at a time, the interior shapes left out read down to 1.19, and
+never below 1 (`design-review-j2d-rev11c.md` in the plans repository).
 
 Because the largest reading is 3.31, the refusal states that at one worker the prediction can exceed
 the true peak by up to 3.5 times. With `n_jobs > 1` it can exceed it by more. Over the 68 parallel

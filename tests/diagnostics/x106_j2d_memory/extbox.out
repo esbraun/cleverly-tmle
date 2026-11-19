@@ -35,3 +35,5 @@ sdr ('censored',) {'n': 20000, 'T': 4, 'plans': 2, 'causes': 2, 'folds': 3, 'wid
 sdr ('levels',) {'n': 20000, 'T': 4, 'plans': 2, 'causes': 1, 'folds': 3, 'width': 25, 'bins': 0, 'paths': 0, 'horizons': 1, 'repeats': 1, 'bootstrap': 0, 'levels': 6, 'censored': 0, 'msm': 0, 'cells': 2, 'min_ratio': 1.51}
 sdr ('plans',) {'n': 20000, 'T': 4, 'plans': 8, 'causes': 1, 'folds': 3, 'width': 9, 'bins': 0, 'paths': 0, 'horizons': 1, 'repeats': 1, 'bootstrap': 0, 'levels': 2, 'censored': 0, 'msm': 0, 'cells': 2, 'min_ratio': 1.41}
 sdr ('repeats',) {'n': 20000, 'T': 4, 'plans': 2, 'causes': 1, 'folds': 3, 'width': 9, 'bins': 0, 'paths': 0, 'horizons': 4, 'repeats': 2, 'bootstrap': 0, 'levels': 2, 'censored': 0, 'msm': 0, 'cells': 4, 'min_ratio': 1.73}
+
+== floor check (checked cells inside the range below 1.32): none
