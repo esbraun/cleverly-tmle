@@ -93,6 +93,7 @@ from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import ConvergenceWarning, Refusal, RefusalReason
 from ..fluctuation._score import relative_score
 from ..learners.crossfit import Folds
+from ._fit_cache import frozen
 from .data import LongitudinalData, RegimenMasks
 from .hazard import (
     HAZARD_BOUND_EXCLUDES_DATA,
@@ -1628,10 +1629,11 @@ def _regimen_fits(
     numerator = plan.cumulative_numerator(data)
     ratio = node_ratios(data, plan, mechanism)
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
+    # One read-only clever weight for the pass; each cause and horizon keeps its view.
+    base = frozen(np.where(at_risk, weight, 0.0))
     for j, cause in enumerate(causes):
         for h, t in enumerate(horizons):
-            clever = np.where(at_risk, weight, 0.0)
-            clever[:, t:] = 0.0
+            clever = base[:, :t]
             # Node k is flagged when any held cell of its panel up to t lies in a cell the
             # regimen reads, a continuation sub-node included.  That can flag a node whose own
             # hazard is not held, which only adds a conservative constant_node_plugin status.
