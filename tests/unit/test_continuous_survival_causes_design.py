@@ -17,12 +17,12 @@ from tests.studies import continuous_survival_causes_pilot as pilot
 from tests.studies import continuous_survival_causes_properties as properties
 from tests.studies import continuous_survival_law as base
 from tests.studies import repeated_sizing as sizing
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 TESTS = Path(__file__).resolve().parents[1]
 PILOT = pilot.read()
 PERFORMANCE = study.STUDY.artifacts / "performance-tests.csv"
-PROPERTIES = study.STUDY.artifacts / "properties.csv"
 
 
 def test_the_declaration_is_the_plans() -> None:
@@ -209,14 +209,11 @@ def test_the_at_target_count_and_the_shrunk_control() -> None:
     assert sizing.calibration_control_probability(study.MARGINS, count, 0.85) > 0.999
 
 
-def test_the_measured_causes_are_pending_until_the_run() -> None:
-    # A number of causes joins MEASURED_CAUSES only when every gated row of its cell and every
+def test_the_measured_causes_are_the_laws_that_passed() -> None:
+    # A number of causes is in MEASURED_CAUSES only when every gated row of its cell and every
     # property cell of its law pass in the committed record.
-    if not PERFORMANCE.exists():
-        assert frozenset({2}) == survival_result.MEASURED_CAUSES
-        return
     performance = pd.read_csv(PERFORMANCE)
-    cells = pd.read_csv(PROPERTIES)
+    cells = property_verdicts.read_property_table(study.STUDY)
     expected = {2}
     for cell, law in study.CELLS.items():
         rows = performance.loc[performance["scenario"] == cell]

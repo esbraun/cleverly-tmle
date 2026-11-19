@@ -127,12 +127,11 @@ FUNCTIONALS_LIMITS: Final[tuple[str, ...]] = (
 CAUSES_STUDY: Final[str] = "continuous-survival-causes"
 
 #: The numbers of causes at which a risk or risk difference can read supported.
-#: :data:`CONTINUOUS_SURVIVAL_STUDY` measures two; :data:`CAUSES_STUDY` is declared to measure one
-#: and three, and each joins this set only once every gated row and every property cell of its
-#: law pass in that study's committed record (``performance-tests.csv`` and ``properties.csv``),
-#: which the study's design test checks.  Until the declared run is committed, a fit with one or
-#: three causes reads experimental.
-MEASURED_CAUSES: Final[frozenset[int]] = frozenset({2})
+#: :data:`CONTINUOUS_SURVIVAL_STUDY` measures two and :data:`CAUSES_STUDY` one and three.  A
+#: number of causes is in this set only when every gated row and every property cell of its law
+#: pass in that study's committed record (``performance-tests.csv`` and ``properties.csv``),
+#: which the study's design test checks; the declared run at 820bdc39 passed both laws.
+MEASURED_CAUSES: Final[frozenset[int]] = frozenset({1, 2, 3})
 
 #: The most causes any study measures.
 CAUSES_CAP: Final[int] = 3
@@ -141,26 +140,34 @@ CAUSES_CAP: Final[int] = 3
 #: experimental, since :data:`MEASURED_N` was measured with two causes.
 CAUSES_N: Final[int] = 1_000
 
-#: The configuration :data:`CAUSES_STUDY` fits, after the verb of :func:`_causes_limits`.
-_CAUSES_CONFIGURATION: Final[str] = (
-    "on the registered law with its cause-2 hazard removed (one cause) or with a third constant "
-    "hazard added (three causes), at n = 1,000, target times at each law's event-time "
-    "quartiles, cross-fitted, the default libraries."
-)
+#: The law :data:`CAUSES_STUDY` draws for each number of causes it measures.
+_CAUSES_LAWS: Final[Mapping[int, str]] = {
+    1: "the registered law with its cause-2 hazard removed",
+    3: "the registered law with a third hazard, constant in time, added",
+}
+
+
+def _causes_measurement(causes: int) -> str:
+    """What :data:`CAUSES_STUDY` fits for ``causes`` (one or three), as a clause."""
+    return (
+        f"The {CAUSES_STUDY} study measures {_causes_noun(causes)} on {_CAUSES_LAWS[causes]}, "
+        f"at n = {CAUSES_N:,}, cross-fitted with the default libraries, gated at the median and "
+        "upper quartile of the law's event times"
+    )
 
 
 def _causes_limits(causes: int) -> tuple[str, ...]:
-    """The limit a fit with ``causes`` other than two states beside :data:`CONTINUOUS_LIMITS`.
-
-    It says the causes study measured the number of causes only when that number is in
-    :data:`MEASURED_CAUSES`; otherwise it says what the study is declared to measure.
-    """
+    """The limit a fit with ``causes`` other than two states beside :data:`CONTINUOUS_LIMITS`."""
+    if causes > CAUSES_CAP:
+        return (
+            f"No study measures {_causes_noun(causes)}: {CONTINUOUS_SURVIVAL_STUDY} measures two "
+            f"causes, and {CAUSES_STUDY} one and three.",
+        )
     if causes in MEASURED_CAUSES:
-        verb = "is" if causes == 1 else "are"
-        return (f"{_causes_noun(causes).capitalize()} {verb} measured {_CAUSES_CONFIGURATION}",)
+        return (f"{_causes_measurement(causes)}.",)
     return (
-        f"No study has measured {_causes_noun(causes)}. The {CAUSES_STUDY} study is declared to "
-        f"measure one cause and three causes {_CAUSES_CONFIGURATION}",
+        f"{_causes_measurement(causes)}, and its committed record does not show every gated row "
+        "and property cell of that law passing.",
     )
 
 
@@ -176,39 +183,47 @@ def _experimental(reason: str, limits: tuple[str, ...] = CONTINUOUS_LIMITS) -> S
     return Support("experimental", reason, ("X6",), limits=limits)
 
 
+#: Numbers of causes spelled out in the support texts.
+_NUMBER_WORDS: Final[tuple[str, ...]] = ("no", "one", "two", "three", "four", "five", "six")
+
+
+def _number(count: int) -> str:
+    return _NUMBER_WORDS[count] if count < len(_NUMBER_WORDS) else f"{count:,}"
+
+
 def _causes_noun(causes: int) -> str:
-    return "one cause" if causes == 1 else f"{causes} causes"
+    return f"{_number(causes)} cause{'' if causes == 1 else 's'}"
 
 
 def _causes_reasons(causes: int, functionals: bool, n: int) -> list[str]:
     """Why a fit's number of causes keeps its estimates experimental, if it does."""
     noun = _causes_noun(causes)
+    if causes == 2:
+        return []
     if causes > CAUSES_CAP:
         return [
-            f"The fit has {noun}, and no study is declared to measure more than {CAUSES_CAP}: "
-            f"{CONTINUOUS_SURVIVAL_STUDY} measures two, and {CAUSES_STUDY} is declared to "
-            "measure one and three. With more causes each has fewer events and the walk targets "
-            "more risks at once."
+            f"The fit has {noun}, and no study measures more than {_number(CAUSES_CAP)}: "
+            f"{CONTINUOUS_SURVIVAL_STUDY} measures two, and {CAUSES_STUDY} measures one and "
+            "three. With more causes each has fewer events and the walk targets more risks at "
+            "once."
         ]
     if causes not in MEASURED_CAUSES:
         return [
-            f"The fit has {noun}. The {CAUSES_STUDY} study is declared to measure one cause and "
-            "three causes, and its record does not show every gated row and property cell of "
-            "this number of causes passing; until it does, the estimates read experimental."
+            f"The fit has {noun}, and the committed record of the {CAUSES_STUDY} study does "
+            "not show every gated row and property cell of that law passing."
         ]
-    out = []
-    if functionals and causes != 2:
-        out.append(
+    if functionals:
+        return [
             f"The fit has {noun} and a restricted horizon; the registered {FUNCTIONALS_STUDY} "
             "study measures restricted horizons with two causes only."
-        )
-    elif causes != 2 and n < CAUSES_N:
-        out.append(
-            f"The fit has {n:,} units, and the registered {CAUSES_STUDY} study measures "
-            f"{noun} at n = {CAUSES_N:,} only; the size floor of {MEASURED_N:,} was measured "
-            "with two causes."
-        )
-    return out
+        ]
+    if n < CAUSES_N:
+        return [
+            f"The fit has {noun} and {n:,} units; the registered {CAUSES_STUDY} study measures "
+            f"{noun} at n = {CAUSES_N:,} only, and the floor of {MEASURED_N:,} units was "
+            "measured with two causes."
+        ]
+    return []
 
 
 def continuous_survival_support(
@@ -229,20 +244,22 @@ def continuous_survival_support(
 
     A risk or a risk difference of a fit without ``restricted_horizons=`` reads ``supported``
     when the registered ``continuous-time-survival`` study measures its configuration: two
-    causes (or a number of causes in :data:`MEASURED_CAUSES`, which the registered
-    ``continuous-survival-causes`` study measures with one and three, and which then names that
-    study), at a time by which between 40% and 85% of the observed events have happened
+    causes, at a time by which between 40% and 85% of the observed events have happened
     (:data:`MEASURED_EVENT_SHARE`), from a cross-fitted fit with the default libraries and the
     settings of :data:`MEASURED_DEFAULTS`, with at least :data:`MEASURED_N` units and its
     influence curve's relative SD at most :data:`MEASURED_REL_SD`, the two floors the registered
     ``continuous-survival-variance`` study measures, so its evidence names both studies.  A fit
-    with one restricted horizon, at or before its last target time, is measured by the
-    registered ``continuous-survival-functionals`` study under the same conditions but with at
-    least :data:`FUNCTIONALS_N` units: its risks, risk differences and risk ratios, and its
-    restricted means and their differences at a restriction time by which between 67% and 85%
-    of the observed events have happened (:data:`RESTRICTED_EVENT_SHARE`).  Its risks and
-    differences keep the relative-SD floor and name the variance study too.  Otherwise the
-    estimate reads ``experimental`` with every reason that applies.
+    with one cause or three (:data:`MEASURED_CAUSES`) reads ``supported`` under the same
+    conditions with at least :data:`CAUSES_N` units, the size the registered
+    ``continuous-survival-causes`` study measures, and names that study in place of
+    ``continuous-time-survival``; more than :data:`CAUSES_CAP` causes always reads experimental.
+    A fit with one restricted horizon, at or before its last target time, is measured by the
+    registered ``continuous-survival-functionals`` study under the same conditions but with two
+    causes and at least :data:`FUNCTIONALS_N` units: its risks, risk differences and risk
+    ratios, and its restricted means and their differences at a restriction time by which
+    between 67% and 85% of the observed events have happened (:data:`RESTRICTED_EVENT_SHARE`).
+    Its risks and differences keep the relative-SD floor and name the variance study too.
+    Otherwise the estimate reads ``experimental`` with every reason that applies.
 
     Parameters
     ----------
@@ -360,7 +377,9 @@ def continuous_survival_support(
             f"fit with a restricted horizon at n = {FUNCTIONALS_N:,} only; a smaller sample has "
             "fewer events of each arm and cause."
         )
-    elif not functionals and n < MEASURED_N:
+    elif not functionals and n < MEASURED_N and causes not in MEASURED_CAUSES - {2}:
+        # A measured fit with one cause or three states its own floor of CAUSES_N, which
+        # names this one, among the causes reasons.
         reasons.append(
             f"The fit has {n:,} units, and the registered {VARIANCE_STUDY} study measures "
             f"risks and risk differences down to n = {MEASURED_N:,}; a smaller sample has fewer "

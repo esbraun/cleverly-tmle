@@ -1,13 +1,15 @@
-"""The continuous-time TMLE with one cause and with three (X6 part (b), plan rev 5, 4.2).
+r"""The continuous-time TMLE with one cause and with three (X6 part (b), plan rev 5, 4.2).
 
 T-b1 and T-b2 on an exact law of :math:`J` causes, built here for any :math:`J`: a binary
 covariate :math:`W`, a binary arm, event nodes at times 1 and 2 whose cause hazards depend on
 :math:`(A, W)`, and censoring at time 1.5 that depends on :math:`(A, W)`.  Every probability is a
 multiple of 1/2048, so the sample of 2,048 rows realises the law exactly: the law's own hazards
 are the saturated fit, the g-formula is a quotient of cell masses, and the efficient influence
-function is the complex-step Gateaux derivative of that quotient.  The hazards are 1/8 to 3/8 per
-node, so the squared term of the multinomial variance and every cause's share of the clever
-covariate are far from zero.
+function is the complex-step Gateaux derivative of that quotient.  The hazards are 1/8 to 1/2 per
+node, so the squared term of the multinomial variance is far from zero.  With several causes the
+all-cause hazard varies with :math:`W`, so a fit that ignores :math:`W` has the wrong survival and
+the clever covariate's term shared by every cause, :math:`-\sum_j H_j / S`, does not vanish from
+its score.
 
 Each witness is exact; each mutation drops one cause-indexed term from the computation it feeds
 and fails where that term is nonzero (CLAUDE.md, "Scientific changes").  With one cause there is
@@ -59,8 +61,14 @@ def _pa(a: int, w: int) -> Fraction:
 
 
 def _hazard(J: int, l: int, node: int, a: int, w: int) -> Fraction:
-    """The cause-``l`` hazard at event node ``node``: 1/8 to 3/8, varying with A, W and l."""
-    return Fraction(1 + (l + node + a + 2 * w) % 3, 8)
+    """The cause-``l`` hazard at event node ``node``: 1/8 to 4/8, varying with A, W and l.
+
+    With three causes ``l`` runs over every residue mod 3, so without the cause-1 term at
+    ``w = 1`` the all-cause hazard would be 3/4 in every cell.  That term moves it with the
+    covariate.  One cause keeps the plain law, whose pooled-arm fit then misses every target.
+    """
+    bump = 1 if J > 1 and l == 0 and w == 1 else 0
+    return Fraction(1 + (l + node + a + 2 * w) % 3 + bump, 8)
 
 
 def _censoring(a: int, w: int) -> Fraction:
@@ -245,6 +253,82 @@ def test_targeting_wrong_hazards_reaches_the_truth(J: int) -> None:
     np.testing.assert_allclose(survival + incidence.sum(axis=1), 1.0, atol=1e-13)
 
 
+def test_the_three_cause_all_cause_hazard_varies_with_the_covariate() -> None:
+    # Nonzero witness for the shared term of the direction: the pooled-arm fit's survival is
+    # wrong only if the all-cause hazard moves with W.
+    totals = {
+        sum(_hazard(3, l, node, a, w) for l in range(3))
+        for node in (1, 2)
+        for a in (0, 1)
+        for w in (0, 1)
+    }
+    assert totals == {Fraction(3, 4), Fraction(7, 8)}
+
+
+def _path_derivative(J: int, direction: Any) -> tuple[float, float]:
+    r"""The log-likelihood's path derivative along ``direction`` and the score norm it equals.
+
+    The direction is that of the walk, :math:`\Sigma^{-1} P_n D / \lVert P_n D \rVert`, on the
+    pooled-arm fit; the multinomial likelihood of each cell's jumps is read at the received arm
+    (``tests/unit/test_continuous_survival.py``, check 4).
+    """
+    problem, dlam = _problem(J, wrong=True)
+    evaluation = evaluate(problem, dlam)
+    sigma = np.cov(evaluation.influence, rowvar=False, bias=True)
+    metric = _targeting._metric(sigma, "covariance")
+    x = evaluation.score
+    length = float(np.sqrt(x @ metric @ x))
+    path = direction(problem, evaluation, metric @ x / length, dlam)
+    factual = np.stack([(problem.arm == a) for a in (0, 1)])[:, None, :, None]
+
+    def loglik(step: float) -> float:
+        jumps = (_targeting.tilt_jumps(dlam, step * path) * factual).sum(axis=0)
+        none = 1.0 - jumps.sum(axis=0)
+        stay = problem.at_risk - problem.events.sum(axis=0)
+        return (
+            float(
+                np.sum(problem.events * np.log(np.where(problem.events > 0, jumps, 1.0)))
+                + np.sum(stay * np.log(none))
+            )
+            / problem.n
+        )
+
+    h = 1e-6
+    return (loglik(h) - loglik(-h)) / (2 * h), length
+
+
+@pytest.mark.parametrize("J", [1, 3])
+def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(J: int) -> None:
+    derivative, length = _path_derivative(J, _targeting._direction)
+    assert derivative == pytest.approx(length, rel=1e-6)
+
+
+def test_a_shared_term_without_the_third_cause_leaves_the_score_norm() -> None:
+    # Mutation: the term every cause shares, -sum_j H_j / S, summed over the first two causes.
+    # The direction is then not the score's, and the path derivative misses its norm.
+    def two_cause_shared(
+        problem: Problem, evaluation: Any, v: np.ndarray, dlam: np.ndarray
+    ) -> np.ndarray:
+        J, Q = problem.n_causes, problem.n_rows
+        assert problem.expand is None
+        out = np.zeros((2, J, *problem.at_risk.shape))
+        for a in (0, 1):
+            own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
+            own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]
+            shared = sum(
+                _targeting.conditional_risk(evaluation.survival[a], dlam[a, j], own[j][None, :])
+                for j in range(2)
+            )
+            for l in range(J):
+                out[a, l] = problem.weight[a] * (own[l][None, :] - shared)
+        return out
+
+    shipped, length = _path_derivative(3, _targeting._direction)
+    mutated, _ = _path_derivative(3, two_cause_shared)
+    assert shipped == pytest.approx(length, rel=1e-6)
+    assert abs(mutated - length) > 1e3 * MUTATION * length
+
+
 def test_freezing_the_third_cause_keeps_the_bias(monkeypatch: pytest.MonkeyPatch) -> None:
     # Mutation: drop cause 3 from the tilt.  Its hazards stay at the wrong fit, and the walk
     # cannot reach the truth (every cause's risk depends on cause 3 through the survival).
@@ -408,25 +492,47 @@ def test_a_fit_names_one_risk_per_arm_cause_and_time(J: int) -> None:
             result.curve(scale="survival")
 
 
+@pytest.mark.parametrize("J", [1, 3])
+def test_the_evalue_note_names_a_competing_cause_only_when_there_is_one(J: int) -> None:
+    from cleverly.sensitivity import evalue
+
+    result = _fit(J)
+    pair = (
+        ("risk_regimen[t @ t=1]", "risk_regimen[c @ t=1]")
+        if J == 1
+        else ("cif_regimen[t, c3 @ t=1]", "cif_regimen[c, c3 @ t=1]")
+    )
+    note = evalue(result, pair).note
+    assert ("competing cause can prevent" in note) is (J > 1)
+    assert ("one minus the event-free survival" in note) is (J == 1)
+
+
 @pytest.mark.parametrize("J", [1, 3, 4])
 def test_a_fit_with_other_than_two_causes_reads_the_causes_reason(J: int) -> None:
+    # The fit has 300 units: one cause and three state the causes study's own size floor, and
+    # four causes state that no study measures them.  The sentence names the number of causes,
+    # so it reaches the engine's count rather than a sentence every small fit prints.
     result = _fit(J)
+    noun = {1: "one cause", 3: "three causes", 4: "four causes"}[J]
     for estimate in result.estimates.values():
-        assert estimate.support.label == "experimental"
-        assert "causes" in estimate.support.reason or "cause." in estimate.support.reason
+        support = estimate.support
+        assert support.label == "experimental"
+        assert f"The fit has {noun}" in support.reason
+        if J == 4:
+            assert support.limits[-1].startswith("No study measures four causes")
+        else:
+            assert support.limits[-1].startswith("The continuous-survival-causes study measures")
 
 
 @pytest.mark.parametrize(
     ("causes", "measured", "label", "phrase"),
     [
-        (1, frozenset({2}), "experimental", "does not show every gated row"),
-        (3, frozenset({2}), "experimental", "does not show every gated row"),
         (1, frozenset({1, 2, 3}), "supported", "continuous-survival-causes study measures"),
         (3, frozenset({1, 2, 3}), "supported", "continuous-survival-causes study measures"),
         (3, frozenset({1, 2}), "experimental", "does not show every gated row"),
-        (4, frozenset({1, 2, 3}), "experimental", "no study is declared to measure more than 3"),
-        (4, frozenset({2}), "experimental", "is declared to measure one and three"),
-        (2, frozenset({2}), "supported", "continuous-time-survival study measures"),
+        (1, frozenset({2, 3}), "experimental", "does not show every gated row"),
+        (4, frozenset({1, 2, 3}), "experimental", "no study measures more than three"),
+        (2, frozenset({1, 2, 3}), "supported", "continuous-time-survival study measures"),
     ],
 )
 def test_the_causes_condition_of_the_support_rule(
@@ -451,27 +557,46 @@ def test_the_causes_condition_of_the_support_rule(
     assert phrase in support.reason
     if label == "experimental":
         assert support.evidence == ("X6",)
+    limit = support.limits[-1]
     if causes == 2:
         assert not any("continuous-survival-causes" in limit for limit in support.limits)
-    elif causes in measured:
-        # The measured text appears only once the number of causes is in MEASURED_CAUSES.
-        assert "measured on the registered law" in support.limits[-1]
-        assert "declared" not in support.limits[-1]
+    elif causes > 3:
+        assert limit.startswith("No study measures four causes")
     else:
-        assert "measured on the registered law" not in support.limits[-1]
-        assert support.limits[-1].startswith("No study has measured")
-        assert "is declared to measure one cause and three causes" in support.limits[-1]
+        # The limit names the study and the law of this number of causes only, and the gated
+        # times: the first quartile is published without a verdict.
+        law = "cause-2 hazard removed" if causes == 1 else "third hazard"
+        other = "third hazard" if causes == 1 else "cause-2 hazard removed"
+        assert limit.startswith("The continuous-survival-causes study measures")
+        assert law in limit and other not in limit
+        assert "gated at the median and upper quartile" in limit
+        assert ("does not show every gated row" in limit) is (causes not in measured)
     if label == "supported" and causes != 2:
         assert support.evidence == ("continuous-survival-causes", "continuous-survival-variance")
 
 
-def test_a_measured_number_of_causes_keeps_its_own_size_floor_and_no_restricted_horizon(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_shipped_measured_causes_are_one_to_three() -> None:
+    # The design test ties this set to the committed record; with it, a one- or three-cause fit
+    # at the study's size reads supported and four causes do not.
+    assert frozenset({1, 2, 3}) == result_module.MEASURED_CAUSES
+    common: dict[str, Any] = {
+        "scale": "level",
+        "event_share": 0.6,
+        "cross_fitted": True,
+        "default_nuisances": True,
+        "settings": MEASURED_DEFAULTS,
+        "variance_rel_sd": 0.05,
+    }
+    for causes in (1, 3):
+        assert continuous_survival_support(n=1_000, causes=causes, **common).label == "supported"
+        assert continuous_survival_support(n=999, causes=causes, **common).label == "experimental"
+    assert continuous_survival_support(n=10_000, causes=4, **common).label == "experimental"
+
+
+def test_a_measured_number_of_causes_keeps_its_own_size_floor_and_no_restricted_horizon() -> None:
     # Nonzero witnesses of the two conditions a measured one-cause fit still meets: the
     # causes study measures n = 1,000 (the 500 floor was measured with two causes), and the
     # functionals study measures restricted horizons with two causes only.
-    monkeypatch.setattr(result_module, "MEASURED_CAUSES", frozenset({1, 2, 3}))
     common: dict[str, Any] = {
         "event_share": 0.6,
         "cross_fitted": True,
@@ -481,6 +606,15 @@ def test_a_measured_number_of_causes_keeps_its_own_size_floor_and_no_restricted_
     }
     small = continuous_survival_support(scale="level", n=600, causes=1, **common)
     assert small.label == "experimental" and "n = 1,000 only" in small.reason
+    # Below 500 units the causes floor's sentence names the 500-unit floor too, so the variance
+    # study's size sentence is not printed beside it.
+    tiny = continuous_survival_support(scale="level", n=400, causes=3, **common)
+    assert tiny.label == "experimental" and "n = 1,000 only" in tiny.reason
+    assert "down to n = 500" not in tiny.reason
+    assert (
+        "down to n = 500"
+        in continuous_survival_support(scale="level", n=400, causes=2, **common).reason
+    )
     two = continuous_survival_support(scale="level", n=600, causes=2, **common)
     assert two.label == "supported"
     restricted = continuous_survival_support(
