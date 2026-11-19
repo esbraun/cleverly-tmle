@@ -29,7 +29,7 @@ import warnings
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -38,12 +38,13 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal, make_point_survival
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental
 from cleverly.longitudinal import (
     IPSI,
     LTMLE,
     SDR,
+    DynamicRegimen,
     LongitudinalData,
     SurvivalCTMLE,
     SurvivalDRTMLE,
@@ -52,6 +53,7 @@ from cleverly.longitudinal import (
 from cleverly.longitudinal import estimator as estimator_module
 from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal._memory_guard import FitCounts, LongitudinalMemoryError
+from cleverly.msm import MSM
 from cleverly.utils import memory as memory_module
 from tests.diagnostics.x106_j2d_memory import generate
 from tests.unit import _longitudinal_memory_guard_support as support
@@ -84,8 +86,11 @@ def test_the_installed_constants_are_the_calibration_records() -> None:
         assert min(constants.values()) >= 0.0
 
 
-def test_the_reference_carries_the_generated_constants_table() -> None:
-    assert generate.constants_table() in REFERENCE.read_text()
+def test_the_reference_carries_the_generated_tables() -> None:
+    text = REFERENCE.read_text()
+    assert generate.constants_table() in text
+    assert generate.ranges_table() in text
+    assert generate.extensions_table() in text
 
 
 def test_the_predicate_reads_extbox_out_with_one_documented_correction() -> None:
@@ -202,24 +207,25 @@ def test_the_two_cause_survival_bound() -> None:
 
 
 def test_the_repeats_factor_is_witnessed() -> None:
-    # Two draws kept: 1.91 times the peak; one draw counted would read 0.96.
+    # Two draws kept: 1.91 times the peak.  One draw counted would read 0.96, too close to
+    # the bound to be a control a library release cannot flip, so the exact-value witness
+    # ``test_two_draws_count_twice_at_one_worker_and_at_four`` is the control.
     peak, counts = support.traced(
         {"est": "ltmle_eos", "T": 4, "R": 2, "folds": 3, "H": 1, "repeats": 2}, N
     )
     assert counts.repeats == 2
     assert _bound_holds(peak, _memory_guard.predicted_bytes(counts))
-    assert not _bound_holds(peak, _memory_guard.predicted_bytes(replace(counts, repeats=1)))
 
 
 def test_the_bootstrap_term_is_witnessed() -> None:
-    # One replicate beside the kept result at one worker: 1.81 times the peak; without the
-    # replicate the prediction reads 0.90.
+    # One replicate beside the kept result at one worker: 1.81 times the peak.  Without the
+    # replicate the prediction reads 0.90, so the exact-value witness
+    # ``test_the_bootstrap_and_the_fold_fan_out_take_the_larger`` is the control.
     peak, counts = support.traced(
         {"est": "ltmle_eos", "T": 4, "R": 2, "folds": 1, "H": 1, "boot": 2}, N
     )
     assert counts.bootstrap == 2
     assert _bound_holds(peak, _memory_guard.predicted_bytes(counts))
-    assert not _bound_holds(peak, _memory_guard.predicted_bytes(replace(counts, bootstrap=0)))
 
 
 # ------------------------------------------------------------------ the worker term
@@ -288,6 +294,18 @@ def test_the_worker_term_follows_the_measured_shares(family: str, folds: int) ->
     assert _memory_guard.share(family, folds) == pytest.approx((w, m), abs=1e-12)
     counts = _fixed(family=family, folds=folds)
     assert _witness(counts, w, m)
+
+
+def test_two_draws_count_twice_at_one_worker_and_at_four() -> None:
+    for changes in ({"jobs": 1}, {"jobs": 4, "folds": 10}):
+        one = _fixed(**changes)
+        two = replace(one, repeats=2)
+        w, m = SHARES[("sdr", one.folds)] if one.jobs > 1 else (0.0, 0.0)
+        assert _witness(two, w, m)
+        draw = _memory_guard.draw_bytes(one)
+        assert _memory_guard.predicted_bytes(two) - _memory_guard.predicted_bytes(one) == (
+            pytest.approx(1.35 * draw, abs=2)
+        )
 
 
 def test_one_worker_or_one_fold_adds_no_worker_term() -> None:
@@ -527,6 +545,36 @@ def test_the_draw_is_the_written_out_sum_of_its_terms() -> None:
         + c["RS_msm"] * r * s
     )
     assert _memory_guard.draw_bytes(counts) == pytest.approx(expected, rel=1e-12)
+
+
+def test_a_three_level_node_counts_three_levels() -> None:
+    frame = _two_node()
+    observed = frame["A1"].notna()
+    frame.loc[observed, "A1"] = np.random.default_rng(1).integers(0, 3, int(observed.sum()))
+    ltmle = _previewed(LTMLE({"two": (2, 1), "never": 0}, **_learners()), frame, **ROLES)
+    assert ltmle.levels == 3
+    ipsi = _previewed(IPSI([Incremental({0.0: 2.0})], **_learners()), frame, **ROLES)
+    assert ipsi.levels == 3
+    assert "3 treatment levels" in str(_memory_guard.outside_range(ipsi))
+    assert _previewed(LTMLE({"always": 1}, **_learners()), _two_node(), **ROLES).levels == 2
+
+
+def _arm_design(label: Any, horizon: int, rows: Any) -> np.ndarray:
+    del horizon
+    return np.column_stack([np.ones(len(rows)), np.full(len(rows), float(label == "always"))])
+
+
+def test_a_working_model_adds_exactly_its_term() -> None:
+    frame = _two_node()
+    regimens = {"always": 1, "never": 0}
+    model = MSM(design=cast(Any, _arm_design), terms=("(intercept)", "always"), design_kind="known")
+    with_msm = _previewed(LTMLE(regimens, msm=model, **_learners()), frame, **ROLES)
+    without = _previewed(LTMLE(regimens, **_learners()), frame, **ROLES)
+    assert (with_msm.msm, without.msm) == (True, False)
+    term = 8 * with_msm.n * _memory_guard.CONSTANTS["ltmle"]["RS_msm"]
+    assert _memory_guard.draw_bytes(with_msm) - _memory_guard.draw_bytes(without) == (
+        pytest.approx(term * with_msm.plans * with_msm.steps, rel=1e-12)
+    )
 
 
 def test_a_separable_fit_is_its_own_family() -> None:
@@ -782,11 +830,44 @@ def test_a_budget_one_byte_short_refuses_before_any_learner(name: str) -> None:
     assert f"{predicted - 1:,} bytes" in text
     assert "which max_memory_bytes sets" in text
     assert f"{cls}(max_memory_bytes=...)" in str(error.refusal.alternative)
-    assert "Nothing was fitted" in text
+    assert "No learner was fitted" in text
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = make(**_learners(), max_memory_bytes=predicted).fit(data, **roles)
     assert result.estimates
+
+
+def test_the_path_cap_refuses_first_and_the_memory_guard_at_its_prediction() -> None:
+    # One budget feeds both guards.  One byte under the path cap's own prediction, the path
+    # cap (H17) refuses before the memory guard reads any count; at that prediction the path
+    # cap admits and the memory guard, which margins it, refuses.
+    n_times = 6
+    nodes = range(1, n_times + 1)
+    frame, _ = support.panel(N, n_times, survival=True)
+    data = LongitudinalData.from_frame(
+        frame,
+        outcome=[f"Y{t}" for t in nodes],
+        treatment=[f"A{t}" for t in nodes],
+        baseline=["W1", "W2"],
+        time_varying=[[] for _ in nodes],
+    )
+    coin = {"coin": DynamicRegimen("coin", tuple(support._coin(t, True) for t in nodes))}
+    peak = hazard_module.path_peak(N, n_times, 2**n_times, 1, hazard_module._hazard_columns(data))
+    budget = math.ceil(peak)
+
+    def fit(max_memory_bytes: int) -> None:
+        settings = _learners(survival_model="hazard", **_untouched())
+        settings.pop("pseudo_learner")
+        LTMLE(coin, max_memory_bytes=max_memory_bytes, **settings).fit(data)
+
+    with support.captured_counts() as seen, pytest.raises(CapabilityError, match="64 treatment"):
+        fit(budget - 1)
+    assert seen == []
+    with support.captured_counts() as seen, pytest.raises(LongitudinalMemoryError) as caught:
+        fit(budget)
+    assert seen[0].paths == 2**n_times
+    predicted = caught.value.predicted
+    assert predicted is not None and predicted >= 1.35 * peak
 
 
 def test_the_default_budget_is_the_memory_available_now(monkeypatch: pytest.MonkeyPatch) -> None:
