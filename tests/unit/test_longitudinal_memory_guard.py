@@ -109,7 +109,9 @@ def test_the_predicate_reads_extbox_out_with_one_documented_correction() -> None
 # ------------------------------------------------------------------ traced bounds and controls
 
 #: Per fixture: the calibration case, the family the guard must pick, and the term set the
-#: mutation control drops (with the expected margined ratio after it, ``witness11.jsonl``).
+#: mutation control drops (with the expected margined ratio after it, from the traced peaks of
+#: ``witness11.jsonl``; the two continuous fixtures' ratios are read against the rev 11c
+#: constants).
 TRACED: dict[str, tuple[dict[str, Any], str, tuple[str, ...]]] = {
     # LTMLE survival T 4, R 4, H 4: 1.97, then 0.63 without R S J and R H J.
     "iterated_mean": (
@@ -133,13 +135,13 @@ TRACED: dict[str, tuple[dict[str, Any], str, tuple[str, ...]]] = {
     "sdr": ({"est": "sdr_surv", "T": 4, "R": 4, "folds": 1, "H": 4}, "sdr", ("RSJ",)),
     # IPSI survival T 4, R 4, H 4: 1.37, then 0.30.
     "ipsi": ({"est": "ipsi_surv", "T": 4, "R": 4, "folds": 1, "H": 4}, "ipsi", ("RSJ",)),
-    # LTMLE shift policies T 2, R 2, 40 bins: 1.38, then 0.09.
+    # LTMLE shift policies T 2, R 2, 40 bins: 1.37, then 0.07.
     "mtp": (
         {"est": "mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 40},
         "ltmle_continuous",
         ("BB", "TB"),
     ),
-    # SDR shift policies T 2, R 2, 40 bins: 1.39, then 0.15.
+    # SDR shift policies T 2, R 2, 40 bins: 1.38, then 0.11.
     "sdr_mtp": (
         {"est": "sdr_mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 40},
         "sdr_continuous",
@@ -437,6 +439,73 @@ def test_no_clause_inside_the_range(counts: FitCounts) -> None:
     prediction = _memory_guard.predict(counts)
     assert "calibrated range" not in str(_memory_guard.refusal(prediction, 1, explicit=False))
     assert "calibrated range" not in _memory_guard.preview_note(prediction)
+
+
+def _registered(family: str, **changes: Any) -> FitCounts:
+    """The continuous fits of the registered ``longitudinal_mtp`` and ``longitudinal_sdr`` studies."""
+    base = FitCounts(
+        estimator="SDR" if family == "sdr_continuous" else "LTMLE",
+        family=family,
+        n=2_000,
+        n_times=2,
+        plans=4,
+        horizons=(2,),
+        causes=1,
+        folds=1,
+        width=4,
+        bins=320,
+        msm=False,
+        repeats=1,
+        bootstrap=0,
+        jobs=1,
+        panel_bytes=0,
+    )
+    return replace(base, **changes)
+
+
+@pytest.mark.parametrize("family", ["ltmle_continuous", "sdr_continuous"])
+def test_the_registered_continuous_studies_lie_in_the_fitted_range(family: str) -> None:
+    # Rev 11c fitted the continuous families at 2,000 units, width 4 and up to 320 bins.
+    assert _memory_guard.in_range(_registered(family))
+
+
+@pytest.mark.parametrize("family", ["ltmle_continuous", "sdr_continuous"])
+@pytest.mark.parametrize(
+    ("changes", "named"), [({"bins": 321}, "321 density bins"), ({"n": 1_999}, "1,999 units")]
+)
+def test_one_step_past_the_continuous_fitted_edge_is_out(
+    family: str, changes: dict[str, int], named: str
+) -> None:
+    assert _memory_guard.outside_range(_registered(family, **changes)) == named
+
+
+#: The traced peak of ``sdr_mtp`` at n 5,000, T 4, R 1, F 5 and B 40: the ``peak`` of that row
+#: of ``bins-5k.jsonl`` (``rows/X106/J2/evidence/2026-11-19-j2d/rev9/`` in the plans repository).
+SDR_F5_B40_PEAK = 107_567_399
+
+
+def test_the_sdr_continuous_f5_b40_cell_is_covered_by_the_margin() -> None:
+    # The rev 11b constants read 1.20 here; the rev 11c refit fitted this cell, so the margined
+    # draw covers 1.35 times its peak (the linear program binds on it).
+    counts = FitCounts(
+        estimator="SDR",
+        family="sdr_continuous",
+        n=5_000,
+        n_times=4,
+        plans=1,
+        horizons=(4,),
+        causes=1,
+        folds=5,
+        width=9,
+        bins=40,
+        msm=False,
+        repeats=1,
+        bootstrap=0,
+        jobs=1,
+        panel_bytes=460_000,
+    )
+    # One draw at one worker: the prediction is the margined draw, rounded up to whole bytes.
+    assert _memory_guard.predicted_bytes(counts) >= 1.35 * SDR_F5_B40_PEAK
 
 
 # ------------------------------------------------------------------ count sources

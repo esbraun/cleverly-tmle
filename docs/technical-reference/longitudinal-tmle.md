@@ -3305,21 +3305,22 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 
 | count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| fixed, MiB | 0.329 | 0.33 | 1.02 | 0.526 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
-| $R S J$ | 2.05 | 20 | 18 | 3.01 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
+| fixed, MiB | 0.329 | 0.047 | 1.02 | 0.14 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
+| $R S J$ | 2.05 | 21.6 | 18 | 20 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
 | $R T$ | 3.79 |  |  |  |  |  |  | 13.6 |  |
 | $R T J$ |  |  |  |  |  | 5.8 | 9.53 | 25.3 |  |
-| $T$ |  |  |  | 68.8 |  | 28.8 |  |  | 73 |
+| $T$ |  |  |  |  |  | 28.8 |  |  | 73 |
 | $T J$ |  |  |  |  |  | 27.1 | 22.6 |  |  |
 | $R H J$ | 16 |  | 0.0886 |  | 1.98 | 1.01 |  | 1.01 | 12.8 |
 | $p$ | 4.61 |  | 4.7 |  | 7.33 | 1.98 | 3.37 | 3.89 |  |
 | $R p$ | 0.76 |  | 0.502 |  |  | 0.728 | 0.181 | 1.06 |  |
-| $T p$ |  | 0.325 |  | 0.27 |  | 0.613 | 1.63 | 0.168 | 0.707 |
-| $1$ |  | 19.3 |  |  | 13.4 |  | 20.3 | 18.8 |  |
-| $F R T$ | 0.506 | 0.077 | 2.67 | 6.87 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
-| $F T$ |  |  | 0.955 |  | 1.15 | 0.0043 |  |  |  |
-| $T B$ |  | 2.79 |  | 1.81 |  |  |  |  |  |
-| $B^2$ |  | 1.03 |  | 1.03 |  |  |  |  |  |
+| $T p$ |  |  |  | 0.105 |  | 0.613 | 1.63 | 0.168 | 0.707 |
+| $1$ |  | 17 |  |  | 13.4 |  | 20.3 | 18.8 |  |
+| $F R T$ | 0.506 | 0.0944 | 2.67 | 6.11 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
+| $F T$ |  |  | 0.955 | 0.755 | 1.15 | 0.0043 |  |  |  |
+| $T B$ |  | 2.85 |  | 2.55 |  |  |  |  |  |
+| $F T B$ |  |  |  | 0.525 |  |  |  |  |  |
+| $B^2$ |  | 1.03 |  | 1.02 |  |  |  |  |  |
 | $R S$ (working model) | 2.11 |  |  |  |  |  |  |  |  |
 | $T U$ |  |  |  |  |  |  |  | 8.04 |  |
 | $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
@@ -3328,11 +3329,14 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 `tests/diagnostics/x106_j2d_memory/generate.py` writes this table, the two tables of [calibrated
 ranges](#calibrated-ranges) and the guard's literals from the calibration records copied beside it,
 and `tests/unit/test_longitudinal_memory_guard.py` checks that all of them match. The constants
-solve the linear program that minimizes the summed prediction over each family's fitted cells
-subject to covering every cell's `tracemalloc` peak, with every constant non-negative. The fitted
-cells ran with GLM, logistic and linear learners at 5,000, 20,000 and 100,000 units, one draw, no
-bootstrap, no censoring and one worker. Cells the unpenalized GLM refused as singular were refitted
-with a least-squares outcome regression on the same counts.
+solve a linear program over each family's fitted cells, subject to covering every cell's
+`tracemalloc` peak, with every constant non-negative. For the two continuous families it
+minimizes the summed ratio of prediction to peak, so each cell weighs by its ratio and not its
+bytes; for the others it minimizes the summed prediction. The fitted cells ran with GLM, logistic
+and linear learners at 5,000, 20,000 and 100,000 units, and the continuous families also at 2,000
+units with up to 320 density bins, all with one draw, no bootstrap, no censoring and one worker.
+Cells the unpenalized GLM refused as singular were refitted with a least-squares outcome
+regression on the same counts.
 
 The worker share and the parent multiple, measured in a fresh process per case on cold workers at
 20,000 units and on warm workers at 100,000, with the larger figure taken:
@@ -3356,7 +3360,7 @@ The $w$ and $m$ form, and the two process constants, were chosen after the worke
 ### Accuracy
 
 The calibration's records are in `rows/X106/J2/evidence/2026-11-19-j2d/rev9/` in the plans
-repository. Over every fitted cell the margined draw reads 1.35 to 3.30 times the traced peak, and
+repository. Over every fitted cell the margined draw reads 1.35 to 2.50 times the traced peak, and
 over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
 (a learned regimen, whose four branch plans are counted against one fitted rule), both in
 `fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
@@ -3391,9 +3395,9 @@ The `ltmle` cells include a regimen working model.
 | family | units | nodes | regimens | causes | folds | design columns | density bins | treatment paths | horizons |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ltmle` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
-| `ltmle_continuous` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 5 to 93 | 0 | 1 |
+| `ltmle_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
 | `sdr` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
-| `sdr_continuous` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 5 to 93 | 0 | 1 |
+| `sdr_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
 | `ipsi` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
 | `hazard_one_node` | 5,000 to 100,000 | 2 to 8 | 1 to 2 | 1 to 2 | 1 to 10 | 3 to 129 | 0 | 0 | 1 to 8 |
 | `hazard_backward` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 135 | 0 | 0 | 1 to 8 |
@@ -3437,8 +3441,9 @@ iterated-mean, `SDR` and `IPSI` estimators; width with nodes and regimens at thr
 at two regimens; two causes at up to two regimens; the continuous families and the hazard families
 over all their counts). Other corners rest on cells probed by the design reviews
 (`design-review-j2d-rev10.md` and `design-review-j2d-rev11.md` in the plans repository), which
-read 1.35 to 2.42. Below 5,000 units the fixed term is a larger share, and the fast-suite fixtures
-at 2,000 units read 1.35 to 2.12 (`witness11.jsonl`).
+read 1.35 to 2.42. Below 5,000 units, where only the continuous families were fitted, the fixed
+term is a larger share, and the other families' fast-suite fixtures at 2,000 units read 1.35 to
+2.12 (`witness11.jsonl`).
 
 ### The budget and the two guards
 
