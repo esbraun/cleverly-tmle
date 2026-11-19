@@ -1709,6 +1709,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: A constant node keeps the constant-node status: the mechanism is selected along the
     #: fit, and no study measures the boundary-node supplement with that selection.
     _boundary_kind: ClassVar[str | None] = "collaborative"
+    #: Not guarded: its memory is its own (X106 J1), outside the J2d calibration.
+    _retention_guard: ClassVar[bool] = False
 
     def __init__(
         self,

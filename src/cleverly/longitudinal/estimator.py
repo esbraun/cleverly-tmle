@@ -207,6 +207,7 @@ from ..inference.results import (
 from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
 from ..utils.memory import check_max_memory_bytes
+from . import _memory_guard
 from ..utils.random import note_fresh_entropy
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -5065,6 +5066,11 @@ class _SequentialEstimator:
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
+    #: Whether this class runs the memory guard (X106 J2d): ``LTMLE``, ``SDR`` and ``IPSI``.
+    _retention_guard: ClassVar[bool] = False
+    #: Whether this fit runs it.  A bootstrap replicate does not: the call that runs the
+    #: replicates counted them before its first learner.
+    _check_memory: bool = True
     #: One outer split per draw that a refit uses instead of drawing its own (:meth:`refit`).
     _frozen_folds: tuple[Folds, ...] | None = None
     #: One seed per draw that a refit uses instead of the seeds of ``random_state``.
@@ -6339,6 +6345,7 @@ class _SequentialEstimator:
             )
         )
         checked: tuple[Plan, ...] | None = None
+        policy_paths: int | None = None
         if plans is not None:
             if (
                 getattr(self, "survival_model", None) == "hazard"
@@ -6350,7 +6357,9 @@ class _SequentialEstimator:
                 # check are raised here (X70 part (a)).  With covariates after baseline the
                 # backward pass evaluates every node at the observed history and builds no path
                 # (part (b2)).
-                path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
+                slots = path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
+                if any(slots.draws):
+                    policy_paths = slots.n_slots
             checked = branch_plans(plans[0]) if learned is not None else plans
             # Every declared factor is checked against the bounds before any learner.
             preflight_known_mechanisms(
@@ -6398,6 +6407,24 @@ class _SequentialEstimator:
                 if len(draws) == 1:
                     raise
                 raise _named_draw(error, index, len(draws)) from error
+        if self._retention_guard and self._check_memory:
+            # Before any learner, and after every other preflight: the predicted peak of the
+            # whole call against the budget (X106 J2d).
+            _memory_guard.check_fit(
+                self,
+                prepared,
+                plans=(
+                    len(regimens)
+                    if checked is None
+                    else len(checked) + len(separable)
+                ),
+                horizons=horizons,
+                folds=draws[0][0].n_folds,
+                repeats=len(draws),
+                paths=policy_paths,
+                multinode=is_multinode(prepared),
+                later=bool(later_covariates(prepared)),
+            )
         return _Preflight(
             prepared=prepared,
             learned=learned,
@@ -7741,6 +7768,7 @@ class _SequentialEstimator:
         """
         replicate = copy.copy(self)
         replicate._record_support = False
+        replicate._check_memory = False
         replicate.n_bootstrap = 0
         replicate.simultaneous = False
         replicate.n_jobs = 1
@@ -8903,6 +8931,7 @@ class LTMLE(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "tmle"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -9190,6 +9219,7 @@ class SDR(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "sdr"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -9476,6 +9506,7 @@ class IPSI(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "ipsi"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,

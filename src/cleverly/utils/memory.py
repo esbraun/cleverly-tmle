@@ -235,7 +235,14 @@ def check_max_memory_bytes(value: Any, *, name: str = "max_memory_bytes") -> int
 
 
 def check_memory_budget(
-    predicted: int, *, max_memory_bytes: int | None, what: str, factor: float
+    predicted: int,
+    *,
+    max_memory_bytes: int | None,
+    what: str,
+    factor: float,
+    alternative: str | None = None,
+    error: type[Exception] | None = None,
+    held: bool = True,
 ) -> int | None:
     """Refuse an allocation predicted to exceed the memory budget, before it is made.
 
@@ -254,6 +261,14 @@ def check_memory_budget(
         The stage, as the refusal names it.
     factor : float
         How far the prediction may exceed the true peak, which the refusal states.
+    alternative : str or None
+        The remedy the refusal names, ``None`` for passing ``max_memory_bytes=``.
+    error : type or None
+        A subclass of :class:`~cleverly.exceptions.MethodConfigurationError` to raise, with
+        ``predicted`` and ``budget`` set on it; ``None`` for the base class.
+    held : bool
+        Whether the prediction counts only what the stage adds above the arrays already held,
+        which the refusal says; ``False`` for a prediction of the whole call.
 
     Returns
     -------
@@ -277,11 +292,20 @@ def check_memory_budget(
     source = (
         "is available now" if max_memory_bytes is None else "is the budget max_memory_bytes sets"
     )
-    raise MethodConfigurationError(
-        f"{what} would need about {size(predicted)} above the arrays already held, and "
+    cls = MethodConfigurationError if error is None else error
+    above = " above the arrays already held" if held else " at its peak"
+    refusal = cls(
+        f"{what} would need about {size(predicted)}{above}, and "
         f"{size(budget)} {source}. The prediction may exceed the true peak by up to "
         f"a factor of {factor:g}, and the available memory is read once, before the stage "
         "starts, so a request that would just fit can be refused.",
         reason=RefusalReason.INVALID_DECLARATION,
-        alternative="Pass max_memory_bytes= (in bytes) to set the budget yourself.",
+        alternative=(
+            "Pass max_memory_bytes= (in bytes) to set the budget yourself."
+            if alternative is None
+            else alternative
+        ),
     )
+    if error is not None:
+        refusal.predicted, refusal.budget = int(predicted), int(budget)  # type: ignore[attr-defined]
+    raise refusal
