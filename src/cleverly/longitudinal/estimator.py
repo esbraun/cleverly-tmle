@@ -75,6 +75,7 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
     CONSTANT_NODE_STATUS,
+    MEASURED_LONGITUDINAL_DESIGNS,
     PARAMETER_STATUSES,
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
@@ -4387,6 +4388,7 @@ def _estimates(
     classification: Classification | None = None,
     policy: _PolicyMatrix | None = None,
     boundary_reach: str | None = None,
+    measured: bool = False,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4420,6 +4422,10 @@ def _estimates(
         else the key of :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` under
         which it keeps the constant-node status.  Under ``policy`` it is
         ``"policy_weighted"``.
+    measured : bool, default False
+        Whether the fit has its floor family's measured design (:func:`measured_design`).
+        Only then does its always-versus-never contrast read the family's floor; otherwise
+        every estimate keeps the default longitudinal floor.
 
     Returns
     -------
@@ -4539,7 +4545,7 @@ def _estimates(
         # A contrast reads both levels and takes the status of either, an estimate on its
         # bound included, before its own range check. The measured contrast reads its levels
         # at the family's floor, which holds for it alone.
-        if not curve and measured_contrast(fit.regimen, base.regimen):
+        if measured and not curve and measured_contrast(fit.regimen, base.regimen):
             mean_bounds = parameter_bounds("mean", data.family)
             levels = tuple(
                 bounded_status(
@@ -4589,7 +4595,8 @@ def measured_contrast(first: RegimenSpec, second: RegimenSpec) -> bool:
     count, the difference between the static plan that treats at every node and the static plan
     that treats at none, on an outcome without horizons or causes. A floor family's floor
     (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) holds for that contrast alone,
-    in either order, since the interval of a negated difference is the negated interval.
+    in either order, since the interval of a negated difference is the negated interval, and
+    only on the design its study measured (:func:`measured_design`).
 
     Parameters
     ----------
@@ -4603,6 +4610,43 @@ def measured_contrast(first: RegimenSpec, second: RegimenSpec) -> bool:
     """
     arms = {_static_arm(first), _static_arm(second)}
     return arms == {0, 1}
+
+
+def measured_design(data: LongitudinalData, family: str | None) -> bool:
+    """Whether a fit's panel has the design its floor family's study measured.
+
+    The in-sample ``LTMLE`` cells fit one binary treatment node without censoring; the
+    cross-fitted cells fit two binary nodes with censoring
+    (:data:`~cleverly._inference_status.MEASURED_LONGITUDINAL_DESIGNS`). A fit of another
+    design keeps the default longitudinal floor for every estimate, its always-versus-never
+    contrast included.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The fit's prepared panel.
+    family : str or None
+        The fit's floor family (:func:`~cleverly._inference_status.longitudinal_floor_family`).
+
+    Returns
+    -------
+    bool
+        ``True`` when the family has a measured design and the panel matches its treatment
+        node count and censoring, with every treatment node categorical and coded 0 or 1.
+    """
+    design = MEASURED_LONGITUDINAL_DESIGNS.get(family) if family is not None else None
+    if design is None:
+        return False
+    nodes, censored = design
+    if data.n_times != nodes or data.treatment_held or data.has_censoring is not censored:
+        return False
+    for time in range(1, data.n_times + 1):
+        if data.node_kind(time) != "categorical":
+            return False
+        values = np.asarray(data.treatment[:, time - 1], dtype=float)
+        if not set(np.unique(values[np.isfinite(values)]).tolist()) <= {0.0, 1.0}:
+            return False
+    return True
 
 
 def _static_arm(regimen: RegimenSpec) -> int | None:
@@ -6954,6 +6998,14 @@ class _SequentialEstimator:
                 )
         parametric = self._simulated_parametric(parametric, fits)
         status = self._draw_status(prepared, folds, parametric, mechanism)
+        measured = measured_design(
+            prepared,
+            longitudinal_floor_family(
+                self._estimator,
+                cross_fitted=not folds.is_single,
+                repeated=getattr(self, "repeats", 1) != 1,
+            ),
+        )
         unprojected_fits = fits
         moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
         if self.isotonic:
@@ -6976,6 +7028,7 @@ class _SequentialEstimator:
                     classification=classification,
                     policy=policy,
                     boundary_reach=boundary_reach,
+                    measured=measured,
                 )
                 if model is None
                 else _msm_estimates(
@@ -6998,6 +7051,7 @@ class _SequentialEstimator:
                     inference=status,
                     classification=classification,
                     boundary_reach=boundary_reach,
+                    measured=measured,
                 ).estimates
                 if moves
                 else None
@@ -10434,6 +10488,14 @@ def _refit_bound(
             alpha_sig=result.config.alpha_sig,
             inference=status,
             boundary_reach=recipe.boundary_reach,
+            measured=measured_design(
+                result.data,
+                longitudinal_floor_family(
+                    recipe.estimator,
+                    cross_fitted=not draw.folds.is_single,
+                    repeated=result.config.repeats != 1,
+                ),
+            ),
             policy=(
                 _policy_matrix(
                     result.data,

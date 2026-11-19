@@ -28,6 +28,7 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -46,7 +47,7 @@ from cleverly.datasets import (
     make_longitudinal_competing,
     make_longitudinal_survival,
 )
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.inference.cluster import cluster_inference_status
 from cleverly.longitudinal import LTMLE, DynamicRegimen, Regimen
 from cleverly.longitudinal import estimator as longitudinal_estimator_module
@@ -154,13 +155,14 @@ def floor(n_folds: int) -> int:
 def control_count(design: tuple[str, int]) -> int:
     """The fewest clusters at which every estimate of a kind keeps the ordinary status.
 
-    The family floor holds for the always-versus-never contrast alone, so the end-of-study fit
-    keeps that contrast at its floor, and its means take the parameter status
-    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS` until the default floor. A
-    curve or a working model reports no such contrast, so its control sits at the default floor.
+    The family floor holds for the always-versus-never contrast of the measured design alone
+    (:func:`~cleverly.longitudinal.estimator.measured_design`). None of these fits has it: the
+    end-of-study panel has a three-level node, and a curve or a working model reports no such
+    contrast. So every control sits at the default floor, and below it every estimate takes
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`.
     """
-    kind, n_folds = design
-    return floor(n_folds) if kind == "end of study" else DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+    del design
+    return DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
 
 
 @pytest.fixture(scope="module", params=DESIGNS, ids=[f"{k}-{f} fold(s)" for k, f in DESIGNS])
@@ -357,13 +359,38 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
             assert estimate.psi == control_result[name].psi
 
     def test_all_positive_weights_keep_the_interval(self) -> None:
-        result = fit_end_of_study(IN_SAMPLE_FLOOR, weights=lambda cluster: np.ones(cluster.size))
+        result = fit_end_of_study(
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, weights=lambda cluster: np.ones(cluster.size)
+        )
         assert_keeps_inference(result)
         assert "positive weight mass in" not in result.summary()
 
 
 MEANS = ("ey_regimen[always]", "ey_regimen[never]")
 CONTRAST = "ate_regimen[always vs never]"
+
+
+def one_node_panel(n: int = N, *, seed: int = 11, levels: int = 2) -> pd.DataFrame:
+    """The design the in-sample floor rests on: one binary treatment node, no censoring.
+
+    ``levels=3`` draws a three-level node instead, a design no floor cell measured.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.standard_normal(n)
+    if levels == 2:
+        a = (rng.random(n) < 1.0 / (1.0 + np.exp(-0.4 * w1))).astype(float)
+    else:
+        a = rng.integers(0, levels, n).astype(float)
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(0.3 * w1 + 0.5 * (a > 0))))).astype(float)
+    return pd.DataFrame({"W1": w1, "A": a, "Y": y})
+
+
+def fit_one_node(k: int, *, levels: int = 2, **settings: Any) -> Any:
+    """In-sample ``LTMLE`` on :func:`one_node_panel` in ``k`` clusters."""
+    frame = one_node_panel(levels=levels).assign(cluster=lambda f: labels(len(f), k))
+    return LTMLE({"never": 0, "always": 1}, reference="never", **learners(**settings)).fit(
+        frame, outcome="Y", treatment=["A"], baseline=["W1"], id="cluster"
+    )
 
 
 def assert_floor_holds_for_the_contrast(result: Any) -> None:
@@ -391,7 +418,58 @@ class TestTheFloorHoldsForTheMeasuredContrast:
     """
 
     def test_at_the_floor_only_the_contrast_is_ordinary(self) -> None:
-        assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
+        assert_floor_holds_for_the_contrast(fit_one_node(IN_SAMPLE_FLOOR))
+
+    @pytest.mark.parametrize(
+        "fit",
+        [
+            pytest.param(lambda k: fit_one_node(k, levels=3), id="three-level node"),
+            pytest.param(fit_end_of_study, id="two nodes with censoring"),
+        ],
+    )
+    def test_an_unmeasured_design_keeps_the_default_floor(self, fit: Any) -> None:
+        """m1: the in-sample floor rests on one binary node without censoring. A fit of
+        another design reads every estimate, the contrast included, at the default floor."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit(IN_SAMPLE_FLOOR)
+        assert {e.inference for e in result.estimates.values()} == {FEW_CLUSTER_ESTIMAND_STATUS}
+
+    def test_a_design_read_as_measured_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The mutation that drops the design check certifies the three-level contrast."""
+        monkeypatch.setattr(
+            longitudinal_estimator_module, "measured_design", lambda data, family: True
+        )
+        result = fit_one_node(IN_SAMPLE_FLOOR, levels=3)
+        assert result[CONTRAST].inference == "influence_curve"
+
+    def test_a_shown_parameter_status_warns_nothing(self) -> None:
+        """m8: the means' shown parameter status labels their interval and is not a lost
+        interval, so neither the fit nor ``_warn_parameter_statuses`` warns about it. A
+        withheld parameter status (``constant_node_plugin``) still warns."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = fit_one_node(IN_SAMPLE_FLOOR)
+        assert not [w for w in caught if "reported parameter(s) take the" in str(w.message)]
+        warn = longitudinal_estimator_module._warn_parameter_statuses
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warn(result.estimates)
+        assert not caught
+        withheld = dict(result.estimates)
+        withheld[CONTRAST] = replace(withheld[CONTRAST], inference="constant_node_plugin")
+        with pytest.warns(DataWarning, match="'constant_node_plugin' status"):
+            warn(withheld)
+
+    def test_the_measured_designs(self) -> None:
+        design = longitudinal_estimator_module.measured_design
+        one = fit_one_node(IN_SAMPLE_FLOOR).data
+        assert design(one, "ltmle_in_sample")
+        assert not design(one, "ltmle_cross_fitted")
+        assert not design(one, None)
+        assert not design(fit_one_node(IN_SAMPLE_FLOOR, levels=3).data, "ltmle_in_sample")
+        two = fit_end_of_study(IN_SAMPLE_FLOOR).data
+        assert not design(two, "ltmle_in_sample")
 
     @pytest.mark.parametrize("kind", ["survival", "competing risks", "msm"])
     def test_a_curve_or_a_coefficient_keeps_the_default_floor(self, kind: str) -> None:
@@ -402,9 +480,9 @@ class TestTheFloorHoldsForTheMeasuredContrast:
         assert {e.support.label for e in result.estimates.values()} == {"experimental"}
 
     def test_the_default_floor_clears_the_label(self) -> None:
-        below = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+        below = fit_one_node(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
         assert {below[name].inference for name in MEANS} == {FEW_CLUSTER_ESTIMAND_STATUS}
-        at = fit_end_of_study(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
+        at = fit_one_node(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
         assert {e.inference for e in at.estimates.values()} == {"influence_curve"}
 
     def test_the_measured_contrast_is_always_against_never(self) -> None:
@@ -422,7 +500,7 @@ class TestTheFloorHoldsForTheMeasuredContrast:
             longitudinal_estimator_module, "measured_contrast", lambda *regimens: False
         )
         with pytest.raises(AssertionError):
-            assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
+            assert_floor_holds_for_the_contrast(fit_one_node(IN_SAMPLE_FLOOR))
 
     def test_means_read_at_the_contrast_floor_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -431,7 +509,7 @@ class TestTheFloorHoldsForTheMeasuredContrast:
             lambda status, *args, **kwargs: status,
         )
         with pytest.raises(AssertionError):
-            assert_floor_holds_for_the_contrast(fit_end_of_study(IN_SAMPLE_FLOOR))
+            assert_floor_holds_for_the_contrast(fit_one_node(IN_SAMPLE_FLOOR))
 
 
 class TestTheMutationsFailTheWitness:

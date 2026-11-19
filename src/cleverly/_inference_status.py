@@ -40,6 +40,7 @@ __all__ = [
     "HELD_OUT_SCALE",
     "JACKKNIFE_REFIT_STATUS",
     "MEASURED_CONTRASTS",
+    "MEASURED_LONGITUDINAL_DESIGNS",
     "MEASURED_POINT_ESTIMAND",
     "MINIMUM_FOLD_TRAINING_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
@@ -191,9 +192,23 @@ MEASURED_CONTRASTS: Final[Mapping[str, str]] = MappingProxyType(
         "tmle_stacked": "the ATE",
         "tmle_fold_evaluated": "the ATE",
         "drtmle_cross_fitted_known_mechanism": "the ATE",
-        "ltmle_in_sample": "the always-treat versus never-treat contrast",
-        "ltmle_cross_fitted": "the always-treat versus never-treat contrast",
+        "ltmle_in_sample": (
+            "the always-treat versus never-treat contrast of one binary node without censoring"
+        ),
+        "ltmle_cross_fitted": (
+            "the always-treat versus never-treat contrast of two binary nodes with censoring"
+        ),
     }
+)
+
+#: The panel design each ``LTMLE`` floor family's study measured, as ``(treatment nodes,
+#: censored)``, every node binary: ``few-cluster-floor-tmle`` fits in-sample ``LTMLE`` on one
+#: node without censoring, and ``few-cluster-floor-cross-fitted-ltmle`` fits cross-fitted
+#: ``LTMLE`` on two nodes with censoring. A fit of another design keeps
+#: :data:`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` for every estimate
+#: (:func:`~cleverly.longitudinal.estimator.measured_design`).
+MEASURED_LONGITUDINAL_DESIGNS: Final[Mapping[str, tuple[int, bool]]] = MappingProxyType(
+    {"ltmle_in_sample": (1, False), "ltmle_cross_fitted": (2, True)}
 )
 
 #: The point-treatment splitting schemes a floor family names, by the first entry of a support
