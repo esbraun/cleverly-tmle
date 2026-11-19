@@ -30,18 +30,22 @@ import numpy as np
 from .._refusal import NO_ALTERNATIVE, RefusalReason
 from .._support import Support
 from .._typing import FloatArray, IntArray
+from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError, MethodConfigurationError
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
-from ..utils.memory import check_max_memory_bytes
-from ..utils.parallel import available_cpus
+from ..utils.memory import available_memory, check_max_memory_bytes
+from ..utils.parallel import available_cpus, map_parallel
 from ..utils.random import note_fresh_entropy
 from . import _chunked
 from ._chunked import HazardSource, InitialHazards, blocks, chunk_size
 from ._memory import (
+    BOOTSTRAP_HELD,
+    bootstrap_held,
     check_memory,
     design_width,
+    estimate_count,
     overflow_rows,
     peak_bytes,
     resident_count,
@@ -65,6 +69,7 @@ from .result import (
     BAND_SUPPORT,
     MEASURED_DEFAULTS,
     ContinuousSurvivalResult,
+    attach_bootstrap,
     build_estimates,
     continuous_survival_support,
     risk_names,
@@ -389,7 +394,22 @@ class ContinuousSurvivalTMLE:
         The threads the targeting walk runs its blocks of units on.  ``-1`` takes the CPUs the
         process may use (its affinity, capped by a control group quota) and ``None`` one.  The
         result is bit for bit the same at any value; each thread holds one block's working
-        arrays, which the memory budget counts.
+        arrays, which the memory budget counts.  With ``n_bootstrap``, the bootstrap refits run
+        on this many worker processes, each walking on one thread.
+    n_bootstrap : int
+        Full-refit bootstrap replicates, ``0`` for none and otherwise at least 2.  Each replicate
+        resamples units with replacement and reruns the whole fit: the folds, every nuisance
+        selection and the walk.  Copies of a unit share every fold, the cross-fitting folds and
+        the selections' inner folds, so no copy is validated on its own twin.  Each estimate
+        then carries a :class:`~cleverly.inference.BootstrapSummary` beside its Wald interval,
+        and with ``simultaneous=True`` the result adds a studentized bootstrap band over every
+        risk and risk difference.  When more than 1% of the refits fail, every bootstrap
+        interval is withheld with a :class:`~cleverly.exceptions.ConvergenceWarning`, and the
+        Wald intervals stand.  No bootstrap interval of this engine reads supported.
+    bootstrap_interval : {"percentile", "bca"}
+        The bootstrap interval each estimate carries: the percentile interval of the replicate
+        estimates, or the bias-corrected and accelerated interval, with the acceleration read
+        from the estimate's own influence curve.
     """
 
     def __init__(
@@ -421,8 +441,26 @@ class ContinuousSurvivalTMLE:
         variance: Literal["switched", "influence_curve"] = "switched",
         max_memory_bytes: int | None = None,
         n_jobs: int | None = 1,
+        n_bootstrap: int = 0,
+        bootstrap_interval: Literal["percentile", "bca"] = "percentile",
     ) -> None:
         budget = check_max_memory_bytes(max_memory_bytes)
+        if (
+            isinstance(n_bootstrap, bool)
+            or not isinstance(n_bootstrap, (int, np.integer))
+            or n_bootstrap < 0
+            or n_bootstrap == 1
+        ):
+            raise ValueError(f"n_bootstrap is 0 or an integer of at least 2; got {n_bootstrap!r}")
+        if bootstrap_interval not in ("percentile", "bca"):
+            raise ValueError(
+                f"bootstrap_interval is 'percentile' or 'bca'; got {bootstrap_interval!r}"
+            )
+        if bootstrap_interval != "percentile" and not n_bootstrap:
+            raise ValueError(
+                f"bootstrap_interval={bootstrap_interval!r} names an interval of the bootstrap, "
+                "and n_bootstrap=0 runs none; set n_bootstrap"
+            )
         if n_jobs is None:
             n_jobs = 1
         if (
@@ -484,6 +522,8 @@ class ContinuousSurvivalTMLE:
         self.variance: Literal["switched", "influence_curve"] = variance
         self.max_memory_bytes = budget
         self.n_jobs = int(n_jobs)
+        self.n_bootstrap = int(n_bootstrap)
+        self.bootstrap_interval: Literal["percentile", "bca"] = bootstrap_interval
         #: The outer cross-fitting label of each row, recorded on the estimator a result
         #: stores; a subset refit reads them so its refits keep the fit's split.
         self._outer_folds: IntArray | None = None
@@ -804,7 +844,7 @@ class ContinuousSurvivalTMLE:
         stored._fold_override = None if folds is None else initial.folds.copy()
         stored._fold_plan = initial.plan
         stored._plan_override = plan
-        return ContinuousSurvivalResult(
+        result = ContinuousSurvivalResult(
             estimates=estimates,
             simultaneous=bands,
             record=record,
@@ -825,6 +865,98 @@ class ContinuousSurvivalTMLE:
                 treatment=np.array(data.treatment, copy=True),
                 baseline=np.array(data.baseline, copy=True),
             ),
+        )
+        if not self.n_bootstrap:
+            return result
+        return self._bootstrap(result, initial, seed)
+
+    def _without_bootstrap(self) -> ContinuousSurvivalTMLE:
+        """A copy that runs no bootstrap, for a refit that reads only the estimates.
+
+        A refutation or a simulated-confounding cell refits the stored estimator many times and
+        reads each refit's estimates alone; the bootstrap would multiply each refit's cost by
+        ``n_bootstrap + 1`` and change none of them.
+        """
+        estimator = self._copy(self.random_state)
+        estimator.n_bootstrap = 0
+        estimator.bootstrap_interval = "percentile"
+        return estimator
+
+    def _replica(self, causes: Mapping[int, str], budget: int | None) -> ContinuousSurvivalTMLE:
+        """The estimator each bootstrap replicate refits: this one, with no bootstrap or band.
+
+        Its causes are the fit's, so a resample that loses a cause is refused rather than
+        reporting fewer risks, and its walk runs on one thread, since the replicates run on
+        :attr:`n_jobs` workers.  ``budget`` is the memory each replicate may use.
+        """
+        replica = self._without_bootstrap()
+        replica.causes = dict(causes)
+        replica.simultaneous = False
+        replica.n_jobs = 1
+        replica.max_memory_bytes = budget
+        replica._outer_folds = replica._fold_override = None
+        replica._fold_plan = replica._plan_override = None
+        return replica
+
+    def _bootstrap_workers(self) -> int:
+        """The worker processes the bootstrap refits run on: ``n_jobs``, at most the replicates."""
+        return max(1, min(self._threads(), self.n_bootstrap))
+
+    def _replicate_budget(self, shape: Mapping[str, Any]) -> int | None:
+        """The memory budget of one replicate: the fit's budget less the result, per worker.
+
+        The budget is :attr:`max_memory_bytes`, or the memory available now; ``None`` where the
+        platform reports none.  The fit already refused, before any learner, a budget that does
+        not hold its result beside one replicate per worker at the replicate's predicted peak,
+        so a replicate never refuses its own.
+        """
+        budget = self.max_memory_bytes if self.max_memory_bytes is not None else available_memory()
+        if budget is None:
+            return None
+        held = bootstrap_held(**{key: shape[key] for key in BOOTSTRAP_HELD})
+        return max(1, int((budget - held) // self._bootstrap_workers()))
+
+    def _bootstrap(
+        self, result: ContinuousSurvivalResult, initial: _Initial, seed: int
+    ) -> ContinuousSurvivalResult:
+        """Run the full-refit bootstrap and attach its intervals and band to ``result``.
+
+        The row index of replicate ``b`` is the one
+        :func:`~cleverly.inference.bootstrap.run_index_bootstrap` draws for the fit's seed, and
+        the replicate refits at the seed spawned for it beside that index.  Every fold of a
+        replicate is drawn on its distinct units (:func:`replicate_plan`).  A replicate that
+        raises is counted with its reason; more than :data:`BOOTSTRAP_FAILURE_SHARE` of them
+        withholds every bootstrap interval (refusal C6).
+        """
+        from ..inference.bootstrap import _bootstrap_design, _bootstrap_draw
+
+        assert result.data is not None
+        data = result.data
+        n = initial.n
+        design = _bootstrap_design(
+            _Units(n), n_replicates=self.n_bootstrap, resampling="iid", random_state=seed
+        )
+        replica = self._replica(initial.causes, self._replicate_budget(initial.memory))
+        payloads = [
+            (
+                replica,
+                data,
+                _bootstrap_draw(n, None, np.random.default_rng(draw.sequence))[0],
+                draw.seed,
+            )
+            for draw in design.draws
+        ]
+        with _suppressed():
+            # A resample routinely trips convergence and positivity warnings; one per replicate
+            # would bury the fit's own, and none of them belongs to the fit.
+            outcomes = map_parallel(_replicate, payloads, n_jobs=self._bootstrap_workers())
+        return attach_bootstrap(
+            result,
+            outcomes,
+            interval=self.bootstrap_interval,
+            simultaneous=self.simultaneous,
+            alpha=self.alpha,
+            cross_fitted=self.cross_fit,
         )
 
     def _memory_shape(
@@ -859,6 +991,9 @@ class ContinuousSurvivalTMLE:
             "restricted": not _point_rows(weights),
             "switched": self.variance == "switched",
             "n_jobs": self._threads(),
+            "n_bootstrap": self.n_bootstrap,
+            "bootstrap_workers": self._bootstrap_workers() if self.n_bootstrap else 1,
+            "estimates": estimate_count(causes, len(self.horizons), len(self.restricted_horizons)),
         }
 
     def _planned_fit_data(
@@ -945,6 +1080,12 @@ class ContinuousSurvivalTMLE:
                 "treatment model selection over the default logistic models, per fold",
                 "default logistic selection",
                 count,
+            )
+        if self.n_bootstrap:
+            builder.note(
+                f"The bootstrap refits every model above on each of {self.n_bootstrap} "
+                "resamples, with folds drawn on that resample's distinct units; those refits are "
+                "not counted, since their folds depend on the draw."
             )
         if len(hazard_library) > 1 or len(censoring_library) > 1:
             builder.note(
@@ -1998,3 +2139,127 @@ def _carried(total: FloatArray | None, rows: FloatArray) -> FloatArray:
     if total is None:
         return rows.sum(axis=0)
     return np.concatenate([total[None, :], rows]).sum(axis=0)
+
+
+@dataclass(frozen=True)
+class _Units:
+    """The row count the bootstrap draws from; a continuous-time fit has no clusters."""
+
+    n: int
+    cluster: None = None
+
+    def subset(self, index: Any) -> Any:  # pragma: no cover - the draws never subset it
+        raise NotImplementedError
+
+
+def replicate_plan(
+    index: IntArray,
+    event: IntArray,
+    *,
+    cross_fit: bool,
+    n_folds: int,
+    learner_folds: int,
+    seed: int,
+) -> FoldPlan:
+    """The fold plan of a bootstrap replicate: every fold drawn on its distinct units.
+
+    The units of ``index`` are drawn into the outer folds stratified by their event code, as a
+    fit draws its rows (:func:`_stratified_folds`), and within each outer fold's training units
+    into the selections' inner folds, so every copy of a unit has its unit's outer and inner
+    labels.  Drawn on rows instead, a copy could train a selection that validates its twin,
+    and the cross-validated loss would favour the larger models on bootstrap samples (Cai and
+    van der Laan 2020, Section 4).
+
+    Parameters
+    ----------
+    index : ndarray
+        ``(n,)`` the original row of each resampled row, repeats kept.
+    event : ndarray
+        ``(n,)`` the event code of each resampled row.
+    cross_fit : bool
+        Whether the replicate is cross-fitted; otherwise every row takes outer label ``0``.
+    n_folds : int
+        The outer folds of a cross-fitted replicate.
+    learner_folds : int
+        The selections' inner folds.
+    seed : int
+        The replicate's seed, from which the draws start.
+
+    Returns
+    -------
+    FoldPlan
+        The outer label of each resampled row, each outer fold's inner labels of its training
+        rows, and the generator state after the draws.
+    """
+    units, inverse = np.unique(np.asarray(index), return_inverse=True)
+    unit_event = np.empty(units.size, dtype=int)
+    unit_event[inverse] = np.asarray(event, dtype=int)
+    rng = np.random.default_rng(seed)
+    if cross_fit:
+        unit_outer = _stratified_folds(unit_event, n_folds, rng)
+    else:
+        unit_outer = np.zeros(units.size, dtype=int)
+    outer = unit_outer[inverse]
+    inner = []
+    for fold in np.unique(outer):
+        training = unit_outer != fold if cross_fit else np.ones(units.size, dtype=bool)
+        unit_inner = np.full(units.size, -1, dtype=int)
+        unit_inner[training] = _stratified_folds(unit_event[training], learner_folds, rng)
+        rows = outer != fold if cross_fit else np.ones(outer.size, dtype=bool)
+        inner.append(unit_inner[inverse][rows])
+    return FoldPlan(
+        outer=outer, inner=tuple(inner), rng_state=copy.deepcopy(rng.bit_generator.state)
+    )
+
+
+def resample(data: Any, index: IntArray) -> Any:
+    """The container of the rows ``index`` of ``data``, repeats kept, in that order.
+
+    Parameters
+    ----------
+    data : ContinuousSurvivalData
+        The fit's rows.
+    index : ndarray
+        The rows to take.
+
+    Returns
+    -------
+    ContinuousSurvivalData
+        The resampled container.
+    """
+    return replace(
+        data,
+        time=np.asarray(data.time)[index],
+        event=np.asarray(data.event)[index],
+        treatment=np.asarray(data.treatment)[index],
+        baseline=np.asarray(data.baseline)[index],
+    )
+
+
+def _replicate(
+    estimator: ContinuousSurvivalTMLE, data: Any, index: IntArray, seed: int
+) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
+    """One bootstrap replicate: each estimate and standard error, or why the refit failed.
+
+    Every exception is caught and named, so the fit can count the failures and give their
+    reasons (refusal C6); none is redrawn.
+    """
+    try:
+        sample = resample(data, index)
+        plan = replicate_plan(
+            index,
+            sample.event,
+            cross_fit=estimator.cross_fit,
+            n_folds=estimator.n_folds,
+            learner_folds=estimator.learner_folds,
+            seed=seed,
+        )
+        fit = estimator._copy(seed)._fit_data(sample, plan=plan)
+    except Exception as error:  # every failure is counted and named, never redrawn
+        message = str(error).split(". ")[0].strip()
+        return None, f"{type(error).__name__}: {message}" if message else type(error).__name__
+    values = {
+        name: (float(estimate.psi), float(estimate.std_error))
+        for name, estimate in fit.estimates.items()
+    }
+    return values, None
