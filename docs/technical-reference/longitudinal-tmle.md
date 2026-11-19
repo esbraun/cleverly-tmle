@@ -3227,6 +3227,228 @@ so the correction terms cancel. Each contrast with the natural course is therefo
 value minus that mean. Source: `test_the_fitted_natural_course_is_the_sample_mean` in
 `tests/unit/test_longitudinal_incremental_design.py`.
 
+## Memory
+
+`LTMLE`, `SDR` and `IPSI` predict the peak memory of the whole call before any learner, and
+refuse a call whose prediction exceeds its budget with `LongitudinalMemoryError`, a
+`MethodConfigurationError` with code `invalid_declaration`. The check reads counts that are known
+once the plans, the horizons and the outer splits are resolved. It allocates nothing the fit uses
+and changes no value, so an admitted fit runs as it did before the guard. The guard runs at the end
+of the preflight, so `planned_fits` refuses the same call with the same message, and an admitted
+preview carries a note with the predicted bytes. A bootstrap replicate does not run it again,
+because its call counted the replicates.
+
+`CausalStudy` guards at the default budget. Its refusal spells the direct engine call, with
+`max_memory_bytes=...`, that reproduces the study's fit. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
+the hazard fit with one treatment node, with a backward pass, with path fits and with separable
+arms), `SDR`, `IPSI`, and every route that builds them. It does not cover `SurvivalCTMLE` and
+`SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md)
+or `StructuralNestedMean`. The guard predicts one call. A caller that runs guarded refits in
+parallel processes owns their sum.
+
+### What the prediction counts
+
+| count | meaning |
+| --- | --- |
+| $n$ | units |
+| $T$ | nodes |
+| $R$ | the plans the recursion fits: the declared regimens and separable arms, the four branch plans of a learned regimen, and the regimens plus each policy on a path fit |
+| $H$, $S$ | the number of reported horizons, and their sum (the horizon-node pairs the recursion fits); $H = 1$ and $S = T$ at the end of the study |
+| $J$ | causes, 1 without competing events |
+| $F$ | outer folds |
+| $p$ | the columns of the widest history design over the nodes. Under `markov_order=` an early node can be the widest |
+| $B$ | density bins at a continuous node: `density_bins=`, or the default the fit would use, 0 without a continuous node |
+| $U$ | the treatment paths of a path fit whose regimen draws from a known policy, 0 otherwise |
+
+One draw is predicted as
+
+$$
+\text{draw} = c_0 + 8 n \sum_k c_k x_k ,
+$$
+
+where $x_k$ runs over the products of the counts in the table below and the constants $c_k$ are
+bytes per unit per count. A path fit with a policy regimen takes the larger of this and the
+`path_peak` prediction of the path guard (H17). The whole call is
+
+$$
+\text{predicted} = 1.35 \left( r \cdot \text{draw} + \max(\text{workers}, \text{bootstrap}) \right),
+$$
+
+with $r$ the `repeats` draws, all kept by the result. With $j$ the worker count `n_jobs` resolves
+to (`joblib.effective_n_jobs`) and $b$ = `n_bootstrap`,
+
+$$
+\begin{aligned}
+\text{workers} &= (m(F) - 1)\,\text{draw} + \min(j, F)\, w(F)\, \text{draw} + j \cdot 240\ \text{MiB} + 64\ \text{MiB} && (j > 1,\ F > 1), \\
+\text{bootstrap} &= \text{draw} && (j = 1,\ b > 0), \\
+\text{bootstrap} &= \min(j, b)\,(\text{draw} + \text{panel}) + j \cdot 240\ \text{MiB} + 64\ \text{MiB} && (j > 1,\ b > 0),
+\end{aligned}
+$$
+
+and each term is 0 otherwise. Here panel is the bytes of the prepared panel's arrays, which a
+parallel replicate copies. The 240 MiB is the resident set of a started loky worker (213 to 238
+MiB measured after the light fits), and the 64 MiB covers loky's two helper processes (14 and 39
+MiB measured). loky starts all $j$ workers on the first parallel submit, however many tasks there
+are, so the term counts $j$ workers, not $\min(j, F)$. $w(F)$ is the share of a draw a fold worker
+holds and $m(F)$ the multiple of a draw the parent holds.
+
+Each family has its own constants. The family is `hazard_separable`
+for a hazard fit with a separable arm, `hazard_one_node`, `hazard_backward` or `hazard_paths` for
+any other hazard fit (one treatment node; several nodes with covariates after baseline; several
+nodes without them), `ipsi` for `IPSI`, and `ltmle` or `sdr`, with `_continuous` when a node is
+continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per unit per count:
+
+| count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| fixed, MiB | 0.329 | 0.33 | 1.02 | 0.526 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
+| $R S J$ | 2.05 | 20 | 18 | 3.01 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
+| $R T$ | 3.79 |  |  |  |  |  |  | 13.6 |  |
+| $R T J$ |  |  |  |  |  | 5.8 | 9.53 | 25.3 |  |
+| $T$ |  |  |  | 68.8 |  | 28.8 |  |  | 73 |
+| $T J$ |  |  |  |  |  | 27.1 | 22.6 |  |  |
+| $R H J$ | 16 |  | 0.0886 |  | 1.98 | 1.01 |  | 1.01 | 12.8 |
+| $p$ | 4.61 |  | 4.7 |  | 7.33 | 1.98 | 3.37 | 3.89 |  |
+| $R p$ | 0.76 |  | 0.502 |  |  | 0.728 | 0.181 | 1.06 |  |
+| $T p$ |  | 0.325 |  | 0.27 |  | 0.613 | 1.63 | 0.168 | 0.707 |
+| $1$ |  | 19.3 |  |  | 13.4 |  | 20.3 | 18.8 |  |
+| $F R T$ | 0.506 | 0.077 | 2.67 | 6.87 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
+| $F T$ |  |  | 0.955 |  | 1.15 | 0.0043 |  |  |  |
+| $T B$ |  | 2.79 |  | 1.81 |  |  |  |  |  |
+| $B^2$ |  | 1.03 |  | 1.03 |  |  |  |  |  |
+| $R S$ (working model) | 2.11 |  |  |  |  |  |  |  |  |
+| $T U$ |  |  |  |  |  |  |  | 8.04 |  |
+| $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
+| $U p$ |  |  |  |  |  |  |  | 2.85 |  |
+
+`tests/diagnostics/x106_j2d_memory/generate.py` writes this table and the guard's literals from the
+calibration records copied beside it, and `tests/unit/test_longitudinal_memory_guard.py` checks
+that both match. The constants solve the linear program that minimizes the summed prediction over
+each family's fitted cells subject to covering every cell's `tracemalloc` peak, with every
+constant non-negative. The fitted cells ran with GLM, logistic and linear learners at 5,000,
+20,000 and 100,000 units, one draw, no bootstrap, no censoring and one worker. Cells the
+unpenalized GLM refused as singular were refitted with a least-squares outcome regression on the
+same counts.
+
+The worker share and the parent multiple, measured in a fresh process per case on cold workers at
+20,000 units and on warm workers at 100,000, with the larger figure taken:
+
+| family | $(F, w, m)$ |
+| --- | --- |
+| `sdr` | (3, 0.68, 2.10), (5, 0.85, 1.71), (10, 1.52, 2.22), (20, 1.81, 2.67) |
+| `ipsi` | (3, 0.81, 1.92), (5, 0.85, 1.47), (10, 1.39, 1.96), (20, 0.94, 2.46) |
+| `ltmle` | 0.39, 1.54 at every $F$ |
+| `ltmle_continuous` | 0.80, 1.00 at every $F$ |
+| `sdr_continuous` | 0.68, 1.61 at every $F$ (measured at 10) |
+| `hazard_one_node` | 0.06, 1.07 at every $F$ |
+| `hazard_backward` | 0.12, 1.20 at every $F$ |
+| `hazard_paths` | 0.09, 1.20 at every $F$ |
+| `hazard_separable` | 0.02, 1.09 at every $F$ (measured at 10) |
+
+Between measured fold counts $w$ and $m$ are linear, and below the first they are flat. Above 20
+folds `sdr` and `ipsi` follow their last segment's slope, never below the largest measured value.
+The $w$ and $m$ form, and the two process constants, were chosen after the worker runs were seen.
+
+### Accuracy
+
+Over every fitted cell the margined draw reads 1.35 to 3.30 times the traced peak, and over every
+checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31 (a learned
+regimen, whose four branch plans are counted against one fitted rule). The margin of 1.35 covers
+the largest resident set over the traced peak that any calibration run measured, 1.32. At one
+worker the refusal therefore states that the prediction can exceed the true peak by up to 3.5
+times. With `n_jobs > 1` it can exceed it by more. Over the 68 parallel runs in a fresh process
+(5,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel bootstraps) the
+prediction reads 1.29 to 1.87 times the measured resident footprint of the parent and every worker.
+The lowest, 1.29 to 1.30, are `SDR` and `IPSI` at 5,000 units and 7 to 10 folds.
+
+The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
+learners, and other learners' own memory is not counted. With the default learner library the
+prediction read 0.94 to 1.38 times the traced peak on eight small cells (5,000 units, two nodes and
+two regimens), so a fit with heavier learners can pass the check and still run out of memory.
+
+The worker constants assume workers that start cold. A second call with `n_jobs > 1` in the same
+session finds its workers already started and outside the memory available, so it is over-counted
+by about $1.35\,(240 j + 64)$ MiB, about $j \times 324$ MiB: 1.4 GiB at four workers. Near the
+budget this errs toward a needless refusal, and `max_memory_bytes=` overrides it.
+
+### Calibrated ranges
+
+A fit is in the calibrated range when it has no Markov order, at most four workers, binary
+treatment nodes, and every count within its family's fitted bounds below, or when it lies in a
+checked extension further down. Every fitted cell had one draw, no bootstrap and no censoring,
+except the time-to-event panels of `hazard_one_node` and `hazard_separable`, which are censored.
+The `ltmle` cells include a regimen working model.
+
+| family | units | nodes | regimens | causes | folds | design columns | density bins | treatment paths | horizons |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ltmle` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
+| `ltmle_continuous` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 5 to 93 | 0 | 1 |
+| `sdr` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
+| `sdr_continuous` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 5 to 93 | 0 | 1 |
+| `ipsi` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
+| `hazard_one_node` | 5,000 to 100,000 | 2 to 8 | 1 to 2 | 1 to 2 | 1 to 10 | 3 to 129 | 0 | 0 | 1 to 8 |
+| `hazard_backward` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 135 | 0 | 0 | 1 to 8 |
+| `hazard_paths` | 5,000 to 100,000 | 2 to 12 | 1 to 4 | 1 to 2 | 1 to 10 | 4 to 132 | 0 | 0 to 18 | 1 to 12 |
+| `hazard_separable` | 5,000 to 100,000 | 2 to 8 | 2 to 4 | 2 | 1 to 3 | 3 to 33 | 0 | 0 | 1 to 8 |
+
+A fit outside the fitted bounds is still in range when it lies in one checked extension: each
+count up to the largest value over that extension's checked cells. The checked cells read at
+least 1.33 times their traced peak. Path fits at eight regimens read 1.22 and are excluded.
+
+| family | reaches | only with |
+| --- | --- | --- |
+| `ltmle` | nodes 12 | units at most 20,000, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, horizons at most 1, no working model |
+| `ltmle` | nodes 12, horizons 12 | units at most 20,000, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, no working model |
+| `ltmle` | bootstrap replicates 3 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4, no working model |
+| `ltmle` | causes 3 | units at most 20,000, design columns at most 17, no working model |
+| `ltmle` | censoring | units at most 20,000, nodes at most 4, regimens at most 2, folds at most 3, design columns at most 9, horizons at most 4, no working model |
+| `ltmle` | treatment levels 6 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, horizons at most 4, no working model |
+| `ltmle` | regimens 8 | units at most 20,000, nodes at most 4, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4, no working model |
+| `ltmle` | repeats 2 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4, no working model |
+| `sdr` | nodes 12 | units at most 20,000, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, horizons at most 1 |
+| `sdr` | nodes 12, horizons 12 | units at most 20,000, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25 |
+| `sdr` | bootstrap replicates 3 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4 |
+| `sdr` | causes 3 | units at most 20,000, nodes at most 4, regimens at most 2, folds at most 3, design columns at most 9, horizons at most 4 |
+| `sdr` | censoring | units at most 20,000, nodes at most 4, regimens at most 2, folds at most 3, design columns at most 9, horizons at most 4 |
+| `sdr` | treatment levels 6 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, horizons at most 1 |
+| `sdr` | regimens 8 | units at most 20,000, nodes at most 4, causes at most 1, folds at most 3, design columns at most 9, horizons at most 1 |
+| `sdr` | repeats 2 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4 |
+| `ipsi` | nodes 12 | units at most 20,000, regimens at most 2, causes at most 1, folds at most 3, design columns at most 25, horizons at most 1 |
+| `ipsi` | nodes 12, horizons 12 | units at most 20,000, causes at most 1, design columns at most 25 |
+| `ipsi` | bootstrap replicates 3 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4 |
+| `ipsi` | causes 3 | units at most 20,000, nodes at most 4, regimens at most 2, folds at most 3, design columns at most 9, horizons at most 4 |
+| `ipsi` | censoring | units at most 20,000, nodes at most 4, regimens at most 2, folds at most 3, design columns at most 9, horizons at most 4 |
+| `ipsi` | repeats 2 | units at most 20,000, nodes at most 4, regimens at most 2, causes at most 1, folds at most 3, design columns at most 9, horizons at most 4 |
+| `hazard_backward` | regimens 8 | units at most 20,000, causes at most 1, folds at most 3, design columns at most 17 |
+
+Outside the range the guard still checks with the same formula, and the refusal and the preview
+note name the counts outside and say the prediction is an extrapolation. Joint corners inside a
+row were fitted where the grid crossed the counts (nodes, regimens, folds and horizons for the
+iterated-mean, `SDR` and `IPSI` estimators; width with nodes and regimens at three folds; ten folds
+at two regimens; two causes at up to two regimens; the continuous families and the hazard families
+over all their counts). Other corners rest on probed cells, which read 1.35 to 2.42. Below 5,000
+units the fixed term is a larger share, and the fast-suite fixtures at 2,000 units read 1.35 to
+2.12.
+
+### The budget and the two guards
+
+`max_memory_bytes=` on `LTMLE`, `SDR` and `IPSI` is read once, in the preflight, and the estimator
+keeps it, so a refit for a refutation reads it too.
+
+| guard | applies to | `None` | a positive integer |
+| --- | --- | --- | --- |
+| path cap (H17) | hazard path fits with a regimen that draws from a known policy | the fixed 2 GiB limit | that limit |
+| memory guard | every guarded fit | the memory available when the fit starts (`cleverly.utils.memory.available_memory`), and no check where the platform does not report it, as on macOS | that budget, higher or lower |
+
+A policy path fit meets the path cap first, then the memory guard. One budget feeds both, and
+the memory guard's prediction of a policy path fit is at least 1.35 times the path cap's, so a
+budget set at the path cap's prediction is refused by the memory guard. The binned density's own
+refusal during the fit reads the available memory only, and `max_memory_bytes=` does not override
+it. Because the memory guard counts the bins before any learner, it now refuses some fits that the
+binned density used to refuse part way through. The refusal names the counts, the prediction, the
+budget and its source, offers `n_jobs=1` when the worker term is not zero and fewer
+`density_bins=` when bins are counted.
+[Scope and refusals](scope-and-refusals.md#the-longitudinal-memory-guard) quotes it.
+
 ## Validation issues special to this method
 
 **The reported standard error is the plug-in influence-curve variance.** It does not implement R

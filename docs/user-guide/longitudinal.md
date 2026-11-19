@@ -261,6 +261,13 @@ as [Weight trimming, shorter histories, and node bounds](#weight-trimming-shorte
 describes. `times=` cannot coarsen a grid. To model fewer decisions, aggregate the frame to the
 coarser decision times before you read it.
 
+Long panels, many regimens and parallel workers also need memory. Before it fits any model,
+`LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
+if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
+yourself, higher or lower. The estimate counts the arrays the package holds with simple
+regression learners, so a fit that passes the check can still run out of memory with heavier
+learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
+
 ## Declare a dynamic rule
 
 Write each plan that holds a rule as a `DynamicRegimen`, and declare `rule_kind="known"`. The
