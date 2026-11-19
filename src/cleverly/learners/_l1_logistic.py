@@ -32,7 +32,8 @@ maximum, and the solver raises :class:`L1ConvergenceError`.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -47,6 +48,7 @@ __all__ = [
     "L1ConvergenceError",
     "L1Fit",
     "L1Logistic",
+    "L1Work",
     "cv_penalty",
     "default_penalty_grid",
     "kkt_residual",
@@ -75,6 +77,33 @@ _MAX_POLISH = 100
 _MAX_ROUNDS = 50
 #: A relative objective rise that rounding alone explains: 64 ulps of 1.
 _ROUNDING = 64 * float(np.finfo(float).eps)
+
+
+#: The solvers :func:`penalty_path` accepts: the built-in one, and the optional glmstar
+#: accelerator (``pip install "cleverly[glmstar]"``), whose solutions are polished to the
+#: same tolerance.
+L1_SOLVERS = ("builtin", "glmstar")
+
+
+@dataclass
+class L1Work:
+    """What the glmstar accelerator did on the paths it was given, for the fit's record.
+
+    Parameters
+    ----------
+    polished : int
+        Penalties whose glmstar solution the built-in solver re-solved because its
+        Karush-Kuhn-Tucker residual was above :data:`KKT_TOLERANCE`.
+    fallbacks : int
+        Paths solved by the built-in solver after a declared glmstar failure.
+    reasons : list of str
+        The reason of each fallback, in order: ``"nonconvergence"``, ``"short_path"``,
+        ``"nonfinite"`` or ``"polish"``.
+    """
+
+    polished: int = 0
+    fallbacks: int = 0
+    reasons: list[str] = field(default_factory=list)
 
 
 class L1ConvergenceError(CapabilityError):
@@ -637,6 +666,8 @@ def penalty_path(
     classes: Sequence[Any] | None = None,
     *,
     layer: str = "the fit",
+    solver: str = "builtin",
+    work: L1Work | None = None,
 ) -> list[L1Fit]:
     """Solve the objective at each penalty of a grid, warm-started along it.
 
@@ -656,6 +687,14 @@ def penalty_path(
         class must appear.
     layer : str
         The layer named in a non-convergence error, for example ``"selection fold 2"``.
+    solver : {"builtin", "glmstar"}
+        ``"glmstar"`` starts each positive penalty below the null gradient from glmstar's
+        solution and re-solves it with the built-in solver when its residual is above
+        :data:`KKT_TOLERANCE`. The null fits and penalty 0 are the built-in solver's. A
+        declared glmstar failure, or a penalty the re-solve does not bring to the
+        tolerance, solves the whole path with the built-in solver and warns.
+    work : L1Work or None
+        Where ``solver="glmstar"`` adds its polish and fallback counts.
 
     Returns
     -------
@@ -678,6 +717,20 @@ def penalty_path(
     problem = _Problem(matrix, codes, w, order.size)
     intercept, coef = problem.null_start()
     null_gradient = problem.null_gradient() if problem.p else 0.0
+    if solver not in L1_SOLVERS:
+        raise ValueError(f"solver must be one of {L1_SOLVERS}, got {solver!r}")
+    accelerated: dict[float, tuple[FloatArray, FloatArray]] = {}
+    if solver == "glmstar" and problem.p:
+        from . import _glmstar
+
+        positive = np.array([v for v in grid if 0.0 < v < null_gradient], dtype=float)
+        if positive.size:
+            try:
+                accelerated = dict(
+                    zip(positive.tolist(), _glmstar.starts(problem, positive), strict=True)
+                )
+            except _glmstar.GlmstarFallback as failure:
+                return _fall_back(x, y, weights, grid, classes, layer, work, failure.reason)
     fits: list[L1Fit] = []
     for penalty in grid:
         penalty = float(penalty)
@@ -699,6 +752,15 @@ def penalty_path(
             residual = problem.kkt(intercept, coef, 0.0)
             if not converged or residual > KKT_TOLERANCE:
                 residual = np.inf
+        elif penalty in accelerated:
+            intercept, coef = accelerated[penalty]
+            residual = problem.kkt(intercept, coef, penalty)
+            if residual > KKT_TOLERANCE:
+                if work is not None:
+                    work.polished += 1
+                intercept, coef, residual = _solve(problem, intercept, coef, penalty)
+                if not residual <= KKT_TOLERANCE:
+                    return _fall_back(x, y, weights, grid, classes, layer, work, "polish")
         else:
             intercept, coef, residual = _solve(problem, intercept, coef, penalty)
         if not residual <= KKT_TOLERANCE:
@@ -724,6 +786,29 @@ def penalty_path(
     return fits
 
 
+def _fall_back(
+    x: FloatArray,
+    y: Sequence[Any] | FloatArray,
+    weights: FloatArray | None,
+    grid: FloatArray,
+    classes: Sequence[Any] | None,
+    layer: str,
+    work: L1Work | None,
+    reason: str,
+) -> list[L1Fit]:
+    """Solve a path with the built-in solver after a declared glmstar failure, and warn."""
+    if work is not None:
+        work.fallbacks += 1
+        work.reasons.append(reason)
+    warnings.warn(
+        f"glmstar did not solve the L1 path in {layer} ({reason}); the built-in solver "
+        "solved it instead, so this path ran at the built-in speed.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return penalty_path(x, y, weights, grid, classes, layer=layer)
+
+
 def cv_penalty(
     x: FloatArray,
     y: Sequence[Any] | FloatArray,
@@ -733,6 +818,8 @@ def cv_penalty(
     classes: Sequence[Any] | None = None,
     *,
     layer: str = "the fit",
+    solver: str = "builtin",
+    work: L1Work | None = None,
 ) -> tuple[int, FloatArray]:
     """Choose a penalty of a grid by the cross-validated weighted deviance.
 
@@ -759,6 +846,10 @@ def cv_penalty(
     layer : str
         The layer named in a non-convergence error. Each fold adds
         ``penalty cross-validation fold {v}``.
+    solver : {"builtin", "glmstar"}
+        The solver of each fold's path, as in :func:`penalty_path`.
+    work : L1Work or None
+        Where ``solver="glmstar"`` adds its polish and fallback counts.
 
     Returns
     -------
@@ -787,6 +878,8 @@ def cv_penalty(
             grid,
             classes=list(order),
             layer=f"{layer}, penalty cross-validation fold {int(fold)}",
+            solver=solver,
+            work=work,
         )
         rows = np.flatnonzero(held)
         for k, fit in enumerate(fits):

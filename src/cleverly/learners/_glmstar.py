@@ -1,0 +1,167 @@
+"""The optional glmstar accelerator of the L1-penalized logistic path.
+
+``CTMLE(l1_solver="glmstar")`` starts each positive penalty of a path below the null gradient
+from glmstar's solution of the same objective (R ``glmnet``'s compiled core, through the
+``glmstar`` package), and :mod:`._l1_logistic` checks and polishes it to the built-in
+Karush-Kuhn-Tucker tolerance. This module loads glmstar, maps the standardized problem onto
+it, and returns the starting points. It never accepts a solution itself.
+
+glmstar installs the top-level module ``glmnet``, which the unrelated ``python-glmnet``
+package also uses, so the loader checks that the imported module belongs to the ``glmstar``
+distribution. glmstar is GPL-2.0-only and is installed with ``pip install
+"cleverly[glmstar]"``; it is imported only when a fit asks for it.
+"""
+
+from __future__ import annotations
+
+import importlib
+import importlib.metadata
+import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+from .._typing import FloatArray
+
+if TYPE_CHECKING:
+    from ._l1_logistic import _Problem
+
+#: The oldest glmstar release the adapter was checked against.
+MINIMUM_VERSION = (0, 7, 1)
+
+_INSTALL = 'pip install "cleverly[glmstar]"'
+
+
+class GlmstarFallback(Exception):
+    """A declared numerical outcome after which the path is solved by the built-in solver.
+
+    Parameters
+    ----------
+    reason : str
+        ``"nonconvergence"``, ``"short_path"``, ``"nonfinite"`` or ``"polish"``.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in text.split(".")[:3]:
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def load() -> tuple[Any, Any, Any]:
+    """Import glmstar and return its binary path, multinomial path and control classes.
+
+    Returns
+    -------
+    tuple
+        ``(LogNet, MultiClassNet, FastNetControl)``.
+
+    Raises
+    ------
+    ImportError
+        When glmstar is not installed, is older than :data:`MINIMUM_VERSION`, or the
+        importable ``glmnet`` module belongs to another distribution.
+    """
+    try:
+        version = importlib.metadata.version("glmstar")
+    except importlib.metadata.PackageNotFoundError:
+        raise ImportError(
+            "l1_solver='glmstar' needs the glmstar package, which is not installed. "
+            f"Install it with {_INSTALL}, or use l1_solver='builtin'."
+        ) from None
+    if _version_tuple(version) < MINIMUM_VERSION:
+        floor = ".".join(str(v) for v in MINIMUM_VERSION)
+        raise ImportError(
+            f"l1_solver='glmstar' needs glmstar {floor} or later; {version} is installed. "
+            f"Upgrade it with {_INSTALL}, or use l1_solver='builtin'."
+        )
+    module = importlib.import_module("glmnet")
+    distribution = importlib.metadata.distribution("glmstar")
+    owned = {
+        Path(str(distribution.locate_file(entry))).resolve()
+        for entry in distribution.files or ()
+        if str(entry).replace("\\", "/") == "glmnet/__init__.py"
+    }
+    if Path(str(module.__file__)).resolve() not in owned:
+        raise ImportError(
+            f"l1_solver='glmstar' found a 'glmnet' module at {module.__file__} that is not "
+            "glmstar's. Another package, such as python-glmnet, installs the same name. "
+            f"Uninstall it and reinstall with {_INSTALL}."
+        )
+    paths = importlib.import_module("glmnet.paths.fastnet")
+    return module.LogNet, module.MultiClassNet, paths.FastNetControl
+
+
+def starts(problem: _Problem, penalties: FloatArray) -> list[tuple[FloatArray, FloatArray]]:
+    """glmstar's solution at each penalty, in the built-in solver's parameterization.
+
+    Parameters
+    ----------
+    problem : _Problem
+        The standardized training problem.
+    penalties : ndarray of float
+        Positive penalties below the problem's null gradient, strictly decreasing.
+
+    Returns
+    -------
+    list of tuple of (ndarray, ndarray)
+        ``(intercept, coef)`` per penalty: ``(K,)`` and ``(p, K)``; for two classes the
+        intercept is ``(0, b0)`` and the coefficients sit in column 1, as the built-in
+        solver keeps them.
+
+    Raises
+    ------
+    GlmstarFallback
+        On glmstar's non-convergence warning with a shortened path, a path shorter than
+        the grid, or non-finite output.
+    ValueError
+        When glmstar returns arrays of an unexpected shape.
+    """
+    log_net, multi_class_net, control_class = load()
+    control = control_class(thresh=1e-14, maxit=10**8, fdev=0.0, devmax=1.0)
+    p, n_classes = problem.p, problem.n_classes
+    settings: dict[str, Any] = {
+        "lambda_values": np.asarray(penalties, dtype=float),
+        "standardize": False,
+        "fit_intercept": True,
+        "pmax": max(p, 1),
+        "control": control,
+    }
+    estimator = (
+        log_net(**settings) if problem.binary else multi_class_net(grouped=False, **settings)
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        estimator.fit(np.asarray(problem.z), problem.codes, sample_weight=problem.w)
+    coefs = np.asarray(estimator.coefs_, dtype=float)
+    intercepts = np.asarray(estimator.intercepts_, dtype=float)
+    m = penalties.size
+    if coefs.shape[0] < m:
+        raise GlmstarFallback("nonconvergence" if caught else "short_path")
+    expected = (m, p) if problem.binary else (m, p, n_classes)
+    if coefs.shape != expected or intercepts.shape != expected[:1] + expected[2:]:
+        raise ValueError(
+            f"glmstar returned coefficients of shape {coefs.shape} and intercepts of shape "
+            f"{intercepts.shape}; the adapter expects {expected}. glmstar "
+            f"{importlib.metadata.version('glmstar')} may have changed its output layout."
+        )
+    if not (np.all(np.isfinite(coefs)) and np.all(np.isfinite(intercepts))):
+        raise GlmstarFallback("nonfinite")
+    out: list[tuple[FloatArray, FloatArray]] = []
+    for k in range(m):
+        coef = np.zeros((p, n_classes))
+        if problem.binary:
+            intercept = np.array([0.0, float(intercepts[k])])
+            coef[:, 1] = coefs[k]
+        else:
+            intercept = intercepts[k].copy()
+            coef[:, :] = coefs[k]
+        out.append((intercept, coef))
+    return out

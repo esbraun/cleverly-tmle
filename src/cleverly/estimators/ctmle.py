@@ -369,6 +369,8 @@ from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners._l1_logistic import (
+    L1_SOLVERS,
+    L1Work,
     check_penalty_grid,
     cv_penalty,
     default_penalty_grid,
@@ -1724,6 +1726,18 @@ class CTMLEDerivativeFit:
         it, otherwise the weighted negative log likelihood of the mechanism's predictions.
     arm_labels : tuple of str, default=()
         The treatment level of each arm, in the order of the scores; empty when unknown.
+    l1_solver : str, default="builtin"
+        The solver of the L1 paths: ``"builtin"`` or the optional ``"glmstar"``.
+    l1_polished : tuple of int, default=()
+        Under ``l1_solver="glmstar"``, one entry per training set, aligned with
+        :attr:`penalties`: the penalties whose glmstar solution the built-in solver re-solved
+        to the Karush-Kuhn-Tucker tolerance, over that set's cross-validation paths and its
+        pair path. Zeros under the built-in solver; empty off the lasso source.
+    l1_fallbacks : tuple of int, default=()
+        Aligned with :attr:`l1_polished`: the paths the built-in solver solved after a
+        declared glmstar failure.
+    l1_fallback_reasons : tuple of str, default=()
+        The reason of each fallback, in order.
     """
 
     strategy: CTMLEStrategy
@@ -1736,6 +1750,10 @@ class CTMLEDerivativeFit:
     derivative_score_after: FloatArray
     treatment_risk: float
     arm_labels: tuple[str, ...] = ()
+    l1_solver: str = "builtin"
+    l1_polished: tuple[int, ...] = ()
+    l1_fallbacks: tuple[int, ...] = ()
+    l1_fallback_reasons: tuple[str, ...] = ()
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -2391,6 +2409,7 @@ default="greedy"
         treatment_candidates: Sequence[Any] | None = None,
         selection_split: Sequence[int] | None = None,
         patience: int | None = None,
+        l1_solver: str = "builtin",
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
@@ -2428,6 +2447,7 @@ default="greedy"
         self.treatment_candidates = treatment_candidates
         self.selection_split = selection_split
         self.patience = patience
+        self.l1_solver = l1_solver
         self._validate_ctmle_settings()
         if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
@@ -2472,6 +2492,23 @@ default="greedy"
         if self.strategy != "discrete" and self.candidates is not None:
             raise ValueError(
                 f"candidates= only applies to strategy='discrete', not {self.strategy!r}"
+            )
+        if self.l1_solver not in L1_SOLVERS:
+            raise ValueError(f"l1_solver must be one of {L1_SOLVERS}, got {self.l1_solver!r}")
+        if self.l1_solver != "builtin" and (
+            self.strategy not in ("lasso", "derivative")
+            or (self.strategy == "derivative" and self.treatment_candidates is not None)
+        ):
+            raise ValueError(
+                f"l1_solver={self.l1_solver!r} only applies to strategy='lasso', or to "
+                "strategy='derivative' without treatment_candidates=, which fit the L1 path; "
+                f"this fit uses strategy={self.strategy!r}"
+                + (
+                    " with treatment_candidates="
+                    if self.strategy == "derivative"
+                    else ""
+                )
+                + "."
             )
         if self.strategy not in ("lasso", "derivative") and self.lambdas is not None:
             raise ValueError(
@@ -3500,6 +3537,7 @@ default="greedy"
         penalties: list[tuple[float, float]] = []
         cv_risks: list[FloatArray] = []
         chosen_risks: list[float] = []
+        l1_work: list[L1Work] = []
         entries = self.treatment_candidates
         if entries is None:
             source: Literal["lasso", "learners", "arrays"] = "lasso"
@@ -3512,6 +3550,7 @@ default="greedy"
             )
             for train, test, layer in sets:
                 x, a, w = design[train], data.treatment[train], data.weights[train]
+                set_work = L1Work()
                 if grid is None:
                     pair = _check_penalty_pair(self.lambdas)
                 else:
@@ -3522,16 +3561,34 @@ default="greedy"
                         random_state=seed_value,
                     )
                     index, risk = cv_penalty(
-                        x, a, w, grid, inner.assignment, classes=arms, layer=layer
+                        x,
+                        a,
+                        w,
+                        grid,
+                        inner.assignment,
+                        classes=arms,
+                        layer=layer,
+                        solver=self.l1_solver,
+                        work=set_work,
                     )
                     pair = (float(grid[index]), float(grid[nearest_neighbour(grid, index)]))
                     cv_risks.append(risk)
                     chosen_risks.append(float(risk[index]))
-                fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
+                fits = penalty_path(
+                    x,
+                    a,
+                    w,
+                    sorted(pair, reverse=True),
+                    classes=arms,
+                    layer=layer,
+                    solver=self.l1_solver,
+                    work=set_work,
+                )
                 by_penalty = {fit.penalty: fit for fit in fits}
                 mechanism[test] = by_penalty[pair[0]].predict_proba(design[test])
                 partner[test] = by_penalty[pair[1]].predict_proba(design[test])
                 penalties.append(pair)
+                l1_work.append(set_work)
             values = [mechanism, partner]
         else:
             values = []
@@ -3599,6 +3656,10 @@ default="greedy"
             derivative_score_after=update.score_after,
             treatment_risk=treatment_risk,
             arm_labels=tuple(str(level) for level in data.treatment_levels),
+            l1_solver=self.l1_solver,
+            l1_polished=tuple(item.polished for item in l1_work),
+            l1_fallbacks=tuple(item.fallbacks for item in l1_work),
+            l1_fallback_reasons=tuple(r for item in l1_work for r in item.reasons),
         )
         # The fit record needs this solve.  ``targeting_outcome`` stays empty: the retarget
         # rebuilds the update at its own bounds, so a stored ``Q*`` would never be read.
