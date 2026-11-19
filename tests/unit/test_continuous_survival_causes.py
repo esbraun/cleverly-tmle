@@ -424,7 +424,8 @@ def test_a_fit_with_other_than_two_causes_reads_the_causes_reason(J: int) -> Non
         (1, frozenset({1, 2, 3}), "supported", "continuous-survival-causes study measures"),
         (3, frozenset({1, 2, 3}), "supported", "continuous-survival-causes study measures"),
         (3, frozenset({1, 2}), "experimental", "does not show every gated row"),
-        (4, frozenset({1, 2, 3}), "experimental", "no study measures more than 3"),
+        (4, frozenset({1, 2, 3}), "experimental", "no study is declared to measure more than 3"),
+        (4, frozenset({2}), "experimental", "is declared to measure one and three"),
         (2, frozenset({2}), "supported", "continuous-time-survival study measures"),
     ],
 )
@@ -448,9 +449,20 @@ def test_the_causes_condition_of_the_support_rule(
     )
     assert support.label == label
     assert phrase in support.reason
+    if label == "experimental":
+        assert support.evidence == ("X6",)
+    if causes == 2:
+        assert not any("continuous-survival-causes" in limit for limit in support.limits)
+    elif causes in measured:
+        # The measured text appears only once the number of causes is in MEASURED_CAUSES.
+        assert "measured on the registered law" in support.limits[-1]
+        assert "declared" not in support.limits[-1]
+    else:
+        assert "measured on the registered law" not in support.limits[-1]
+        assert support.limits[-1].startswith("No study has measured")
+        assert "is declared to measure one cause and three causes" in support.limits[-1]
     if label == "supported" and causes != 2:
         assert support.evidence == ("continuous-survival-causes", "continuous-survival-variance")
-        assert support.limits[-1] == result_module.CAUSES_LIMITS[0]
 
 
 def test_a_measured_number_of_causes_keeps_its_own_size_floor_and_no_restricted_horizon(
