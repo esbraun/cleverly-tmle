@@ -179,8 +179,9 @@ positive weight, and this page's 40 keep the normal reference.
 
 From 3 to 39 households the interval uses a Student t reference. Below a floor, 10 households
 for this page's cross-fitted fit, the fit still reports the interval, labelled experimental, and
-`result.inference_status` is `"few_cluster_plugin"`. A few fits have a lower floor for their main effect only, and
-[few clusters](technical-reference/inference.md#few-clusters) lists them. Below 3 households it
+`result.inference_status` is `"few_cluster_plugin"`. A few fits have a lower floor for the average
+treatment effect only (for longitudinal TMLE, the difference between always treating and never
+treating), and [few clusters](technical-reference/inference.md#few-clusters) lists them. Below 3 households it
 withholds the interval: report the point estimate and the reason the status gives in its place
 ([few clusters](technical-reference/inference.md#few-clusters)).
 

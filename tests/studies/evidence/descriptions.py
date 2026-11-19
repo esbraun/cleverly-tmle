@@ -11647,3 +11647,17 @@ for _floor_fit, _floor_fit_words in _FLOOR_FITS.items():
             "law and count from the candidate's admissibility count",
             "the 99% lower end of the pooled paired coverage gain at least -0.01",
         )
+
+#: The one-node in-sample ``LTMLE`` primaries of ``clustered-few-cluster-tmle`` and
+#: ``few-cluster-floor-tmle`` assign one treatment, so their plans read as one decision, not
+#: as "both times" and "neither time" of the two-node panels (X54 implementation review m3).
+for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
+    STUDY_ESTIMANDS.update(
+        {
+            (_one_node_slug, "ey_regimen[always]"): "mean outcome under the plan treat",
+            (_one_node_slug, "ey_regimen[never]"): "mean outcome under the plan do not treat",
+            (_one_node_slug, "ate_regimen[always vs never]"): (
+                'difference in mean outcome between the plans "treat" against "do not treat"'
+            ),
+        }
+    )

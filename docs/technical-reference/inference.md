@@ -520,16 +520,25 @@ other estimate of the fit keeps the default of its kind, `DEFAULT_POINT_INTERVAL
 | stacked cross-fitted `TMLE` | ATE, 10 (held while the family is redeclared) | 10 |
 | fold-evaluated `TMLE` (`cv_evaluation=True`) | ATE, 8 | 10 |
 | cross-fitted foldwise `DRTMLE` with a declared treatment mechanism | ATE, 8 | 10 |
-| in-sample `LTMLE` | always against never, 6 | 20 |
-| cross-fitted `LTMLE` | always against never, 4 | 20 |
+| in-sample `LTMLE`, one binary treatment node, no censoring | always against never, 6 | 20 |
+| cross-fitted `LTMLE`, two binary treatment nodes, censoring | always against never, 4 | 20 |
 
 For `LTMLE` the measured contrast is the difference between the static plan that treats at every
 node and the static plan that treats at none, on an outcome without horizons or causes and
-without `variance="policy_weighted"`. A mean, an ATT, an ATC, a ratio, a curve, a working-model
-coefficient or any other contrast is an estimate the studies did not measure. On a fit at or
+without `variance="policy_weighted"`. It holds only on the design its study measured
+(`MEASURED_LONGITUDINAL_DESIGNS`): the in-sample cells fit one binary node without censoring and
+the cross-fitted cells two binary nodes with censoring. On any other design, such as more nodes,
+a node with three levels or a censoring pattern the cells did not have, the contrast keeps the
+default floor of 20 too. A mean, an ATT, an ATC, a ratio, a curve, a working-model coefficient or
+any other contrast is an estimate the studies did not measure. On a fit at or
 above its family's floor but below the default of its kind, such an estimate takes the parameter
 status `"few_cluster_estimand_plugin"`. Its interval is shown on $t_{J-2}$ under the experimental
 label, and the fit's measured contrast keeps the ordinary status.
+
+A contrast built after the fit with `result.contrast(...)` takes the most restrictive status of
+the estimates it reads. So a difference of the two arm means, which is numerically the fit's own
+measured contrast, carries `"few_cluster_estimand_plugin"` while the reported contrast does not.
+The label errs on the conservative side; read the reported contrast for the measured interval.
 
 The one arm-mean measurement below a default floor fails. On `few-cluster-floor-tmle`'s primary,
 in-sample `LTMLE` at 10 clusters, the arm mean `ey_regimen[never]` covers 0.914 [0.889, 0.935]

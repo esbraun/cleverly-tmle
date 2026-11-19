@@ -47,9 +47,9 @@ The arms, laws, ladders and seeds are in `tests/studies/few_cluster_floor_tmle.p
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` | 0.0072 to 0.0371 | 0.9310 | 0.9083 | pass |
-| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` | 0.0068 to 0.0265 | 0.9310 | 0.9208 | pass |
-| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` | -0.0140 to 0.0030 | 0.9140 | 0.8874 | **fail** |
+| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat" against "do not treat" | `cleverly` | 0.0072 to 0.0371 | 0.9310 | 0.9083 | pass |
+| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ey_regimen[always]` | mean outcome under the plan treat | `cleverly` | 0.0068 to 0.0265 | 0.9310 | 0.9208 | pass |
+| 10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on one node with parametric learners, the shipped report | `ey_regimen[never]` | mean outcome under the plan do not treat | `cleverly` | -0.0140 to 0.0030 | 0.9140 | 0.8874 | **fail** |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
@@ -1586,7 +1586,7 @@ each construction is calibrated, and adopts (B) only if it wins every compared f
 | --- | --- | --- | --- | --- |
 | in-sample `TMLE` | 4, 9, - | (B) | not admissible: the paired coverage gain at `equal10`, 6 clusters, has lower end -0.07 against -0.03 | refused, roadmap F28 |
 | stacked `TMLE` | 5, 2, 5 | (A) | admissible from 10 | refused while the family is redeclared (a declared departure) |
-| in-sample `LTMLE` | 9, 17, 17 | (B) | admissible from 6 | an option under the experimental label |
+| in-sample `LTMLE` | 9, 17, 17 | (B) | admissible from 6 | an option under the experimental label at every count, below 6 too, with no support row (a declared departure) |
 
 (B) loses stacked `TMLE`, so the package keeps (A) for every family.
 [`few-cluster-floor-cross-fitted-ltmle`](few-cluster-floor-cross-fitted-ltmle.md) reads the
@@ -1600,6 +1600,12 @@ The stacked jackknife is withheld anyway, as a declared departure: its admissibi
 against the stacked (A) on the same configurations, the five-covariate one included, and that (A)
 is under redeclaration. The departure withholds a construction and widens no claim, and the
 redeclaration decides the stacked jackknife.
+
+The `LTMLE` jackknife departs from the declaration too. The declared rule would have listed an
+admissible (C) in a support row from its admissible count to 39 clusters. No support row lists
+it, so every jackknife interval carries the experimental label. It is offered at every count the
+fit accepts, below the admissible count of 6 too, where no cell found it non-inferior to (A). The
+departure withholds a label and widens no claim.
 
 ## Reported readings
 
@@ -1686,6 +1692,7 @@ from the committed results and checked at the precision printed.
   Wang et al. (2024), Remark 3, caution against flexible learners at about 20 clusters.
 - **Two size laws and binary outcomes.** `equal10` and `unequal_informative` only, a binary
   treatment, no weights, strata or missing outcomes; the fold-evaluated fit on equal sizes only.
-- **One-node in-sample `LTMLE`.** The in-sample `LTMLE` cells fit one treatment node.
+- **One-node in-sample `LTMLE`.** The in-sample `LTMLE` cells fit one binary treatment node
+  without censoring, so the floor of 6 holds on that design alone and any other keeps 20.
 - **Stacked floor under redeclaration.** The stacked floor and its jackknife wait for X54 part (j).
 - **No comparator.** No other implementation computes these intervals at these counts.

@@ -201,10 +201,12 @@ and a fit that selects nothing, such as `"discrete"` whose one candidate is the 
 A `DRTMLE` fit with a `guard` and varying weights declared estimated
 (`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
 below 3 clusters with positive weight mass, and reports them under the experimental label from 3
-clusters up to the fit's floor. The floor is 10 clusters for most fits and 20 for longitudinal TMLE,
-and a few fits have a lower floor for their main effect only
+clusters up to the fit's floor. The floor is 10 clusters for most fits and 20 for longitudinal TMLE.
+A few fits have a lower floor for the average treatment effect only (for longitudinal TMLE, the
+difference between always treating and never treating)
 ([clusters](../technical-reference/inference.md#clusters)). The property
-`result.inference_status` gives the status of the fit, and `point.supplies_inference` gives it for one estimate.
+`result.inference_status` gives the status of the fit, and `point.supplies_inference` gives it for
+one estimate.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.

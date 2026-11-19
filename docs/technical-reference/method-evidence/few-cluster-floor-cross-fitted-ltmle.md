@@ -11,9 +11,10 @@ delete-one-cluster jackknife (C).
 implementation computes this interval at these counts, so the study has no comparator. The
 publication policy is `reporting`. Every count passes, so the family's floor is 4.
 
-Every property cell reads one contrast, `ate_regimen[always vs never]`, and `CLUSTER_INTERVAL_FLOORS` ships the
-floor of 4 for that contrast alone. Every other estimate, the second contrast included, keeps 20.
-No row is red, so the study holds no row in the [red-cell ledger](red-cells.md).
+Every property cell reads one contrast, `ate_regimen[always vs never]`, on two binary treatment
+nodes with censoring. `CLUSTER_INTERVAL_FLOORS` ships the floor of 4 for that contrast on that
+design alone. Every other estimate, the second contrast included, keeps 20, and so does the
+contrast on any other design. No row is red, so the study holds no row in the [red-cell ledger](red-cells.md).
 
 | part | what it is | status |
 | --- | --- | --- |
@@ -405,12 +406,17 @@ replication count or verdict.
 
 | calibrated cells (A, B, C) | winner | jackknife (C) | as shipped |
 | --- | --- | --- | --- |
-| 10, 16, 12 | (B) | admissible from 10 clusters | an option under the experimental label |
+| 10, 16, 12 | (B) | admissible from 10 clusters | an option under the experimental label at every count, below 10 too, with no support row (a declared departure) |
 
 (B) wins this family, but it loses stacked `TMLE` in
 [`few-cluster-floor-tmle`](few-cluster-floor-tmle.md), and the declared rule adopts it only when it
-wins every compared family. The package keeps (A). No support row lists the jackknife, so its
-intervals stay experimental.
+wins every compared family. The package keeps (A).
+
+The jackknife ships as a declared departure. The declared rule would have listed an admissible
+(C) in a support row from its admissible count to 39 clusters. No support row lists it, so every
+jackknife interval carries the experimental label. It is offered at every count the fit accepts,
+below the admissible count of 10 too, where no cell found it non-inferior to (A). The departure
+withholds a label and widens no claim.
 
 ## Reported readings
 
