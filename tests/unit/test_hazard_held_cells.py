@@ -32,8 +32,10 @@ def _dense(
 
 
 def _inputs(rng: np.random.Generator, node_keys: bool) -> tuple[np.ndarray, ...]:
-    n, n_times, causes, n_cells = (int(v) for v in (rng.integers(1, 80), rng.integers(1, 6),
-                                                    rng.integers(1, 3), rng.integers(1, 9)))
+    n, n_times, causes, n_cells = (
+        int(v)
+        for v in (rng.integers(1, 80), rng.integers(1, 6), rng.integers(1, 3), rng.integers(1, 9))
+    )
     at_risk = rng.random((n, n_times)) < 0.7
     events = (rng.random((n, n_times, causes)) < rng.random()) * rng.random((n, n_times, causes))
     weights = np.where(rng.random(n) < 0.2, 0.0, rng.random(n))

@@ -39,6 +39,7 @@ from .influence import (
     with_components,
     with_precedent_status,
 )
+from .switched import SWITCHED_REFUSAL
 
 __all__ = [
     "RepeatSpread",
@@ -104,9 +105,14 @@ def covariance_rule(
     """The one covariance rule every selected estimate declares.
 
     A selection that mixes rules is refused. No derivation here supplies the
-    cross-covariance between a centred curve and a raw second moment.
+    cross-covariance between a centred curve and a raw second moment. A selection of
+    ``"switched"`` estimates is refused too: their variance is not the variance of their
+    curves, so a contrast of the curves would report the influence-curve variance beside
+    inputs that report the predictable variation.
     """
     rules = {estimates[name].covariance_rule for name in names}
+    if "switched" in rules:
+        raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
     if len(rules) != 1:
         raise ValueError(
             f"the selected estimates {list(names)} declare different covariance rules "
@@ -532,9 +538,11 @@ def transform_estimate(
 
     The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
     by the transform's slope at the value, and the variance is read off that curve under the
-    estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
-    ``smooth_contrast(..., transform=T)`` bit for bit, support record included: a change of
-    inference scale does not change where the estimate came from.
+    estimate's covariance rule; a switched estimate's predictable variation is multiplied by
+    the slope squared, and the switch is read on the mapped curve.  So
+    ``transform_estimate(smooth_contrast(...), T)`` equals ``smooth_contrast(..., transform=T)``
+    bit for bit, support record included: a change of inference scale does not change where
+    the estimate came from.
 
     Parameters
     ----------
@@ -582,6 +590,10 @@ def transform_estimate(
         support=estimate.support,
         outcome_family=estimate.outcome_family,
         rule_widened=estimate.rule_widened,
+        # The delta method carries the predictable variation by the same slope as the curve.
+        predictable_variance=None
+        if estimate.switched is None
+        else slope**2 * estimate.switched.predictable_variance,
     )
     return replace(mapped, transform=transform)
 

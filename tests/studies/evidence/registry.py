@@ -213,9 +213,18 @@ class StudyRecord:
     #: Scenarios declared as reported stress rows: a law on which the method's guarantee is
     #: pointwise and the study measures how far the estimate sits from the target, with no
     #: verdict on it.  Their truth rows publish bias, coverage and the SE ratio, and pass by
-    #: declaration on those three legs.  The failure bound still gates them, so a lost
-    #: replicate is not hidden.  Their paired rows run no calibration leg.
+    #: declaration on those three legs.  Their failure bound legs are published in the failure
+    #: accounting, red when the bound is exceeded, so a lost replicate is not hidden, and they
+    #: still gate the record unless it opts out with :attr:`reported_bounds_gate`.  Their paired
+    #: rows run no calibration leg.
     reported_scenarios: frozenset[str] = frozenset()
+    #: Whether a reported scenario's failure bound gates the record.  ``True`` (the default): a
+    #: reported scenario over its bound fails the gate like any other cell.  ``False``: a
+    #: reported scenario's failure bound is published red but gates nothing
+    #: (``failures.BOUND_REPORTED``), for a record that declared after its pilot that a reported
+    #: cell's failures are evidence for an owner row rather than a defect of the gated cells.
+    #: Every other scenario's bound gates either way.
+    reported_bounds_gate: bool = True
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
     #: Import paths for the study-specific sampling/fitting and property adapters.
@@ -753,6 +762,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.continuous_survival_functionals import (
         STUDY as CONTINUOUS_SURVIVAL_FUNCTIONALS,
     )
+    from tests.studies.continuous_survival_variance import STUDY as CONTINUOUS_SURVIVAL_VARIANCE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
     from tests.studies.dose_response import STUDY as DOSE_RESPONSE
     from tests.studies.dose_response_npcausal import STUDY as DOSE_RESPONSE_NPCAUSAL
@@ -881,6 +891,7 @@ def registered() -> tuple[StudyRecord, ...]:
         HAZARD_TIME_VARYING_MULTINODE,
         CONTINUOUS_SURVIVAL,
         CONTINUOUS_SURVIVAL_FUNCTIONALS,
+        CONTINUOUS_SURVIVAL_VARIANCE,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,

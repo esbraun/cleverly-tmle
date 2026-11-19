@@ -208,19 +208,23 @@ about ten seconds at 1,000 people.
 
 The fit works through the people in small groups, so its memory grows with the number of people
 and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
-people and two horizons, it needs about 0.3 GB. Before fitting anything, it checks that the
-machine has that much free and stops with an error when it does not; on macOS, which does not
-report free memory, it checks only a limit you set. Between passes it keeps as many groups as the
-free memory holds and recomputes the rest, so a larger limit makes a large fit faster and never
-changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
+people and two horizons, it needs about 0.7 GB. About 0.4 GB of that is working space for the
+default standard errors (`variance="switched"` on `ContinuousSurvivalTMLE`), which does not grow
+with the number of people; `variance="influence_curve"` skips that step and needs about 0.3 GB.
+Before fitting anything, the fit checks that the machine has the memory it needs free and stops
+with an error when it does not; on macOS, which does not report free memory, it checks only a
+limit you set. Between passes it keeps as many groups as the free memory holds and recomputes the
+rest, so a larger limit makes a large fit faster and never changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
 whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
-competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
+competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
-time by which a quarter had happened the intervals were too narrow, and some covered only 88% of
-the time. So an estimate reads `supported` only at a time by which 40% to 85% of the events of
-any cause have happened, not counting people who left follow-up. By time 0.5 about a fifth had,
+time by which a quarter had happened its intervals covered 93% to 96%, but in a
+[second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
+other data-generating setups some intervals at that early time were still too narrow. So an
+estimate reads `supported` only at a time by which 40% to 85% of the events of any cause have
+happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
 
@@ -293,7 +297,7 @@ is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci
 
 The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
 with one cut-off at the last target time found the restricted means unbiased and their 95%
-intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+intervals covering 94% to 95% of the time. It measured a cut-off by which three quarters of the
 events had happened, and a mean up to an earlier cut-off leans more on the early times, where
 intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
 of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The

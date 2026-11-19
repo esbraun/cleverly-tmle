@@ -10,6 +10,7 @@ time ``k - 1``, so censoring ties with the events of node ``k - 1``.
 from __future__ import annotations
 
 import warnings
+from fractions import Fraction
 from functools import cache
 from typing import Any
 
@@ -227,8 +228,8 @@ def test_freezing_the_other_cause_keeps_the_bias(
     problem, dlam = wrong_hazard
     original = _targeting._direction
 
-    def frozen(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
-        out = original(problem, evaluation, v)
+    def frozen(problem: Problem, evaluation: Any, v: np.ndarray, dlam: np.ndarray) -> np.ndarray:
+        out = original(problem, evaluation, v, dlam)
         out[:, 1] = 0.0
         return out
 
@@ -265,6 +266,120 @@ def test_a_held_pair_that_still_reads_below_the_floor_halves_the_step(
     assert result.halvings > 0
 
 
+# ------------------------------------------- the clever covariate where survival is tiny
+
+
+def _steep_paths() -> tuple[np.ndarray, np.ndarray]:
+    """``(J, M)`` hazard jumps whose survival falls to about 1e-20 at grid position 34 of 40.
+
+    An extrapolating Cox fit gives such a path to a unit with extreme covariates; the old
+    clever covariate differenced two incidences near one there and lost every digit.
+    """
+    M = 40
+    dlam = np.zeros((2, M))
+    dlam[0] = np.linspace(0.01, 0.03, M)
+    dlam[1] = 0.01
+    dlam[0, 20:35] = 0.9
+    dlam[1, 20:35] = 0.05
+    return dlam, np.cumprod(1.0 - dlam.sum(axis=0))
+
+
+def _steep_weights() -> np.ndarray:
+    """``(Q, M)`` risks at positions 30 and 39 and a restricted mean scaled by ``1 / tau``."""
+    grid = np.linspace(0.1, 4.0, 40)
+    return np.vstack(
+        [point_weights(np.array([30, 39]), 40), _targeting.restricted_weights(grid, 3.75) / 3.75]
+    )
+
+
+def _exact_quotient(dlam: np.ndarray, omega: np.ndarray, j: int) -> list[Fraction]:
+    """:math:`\\sum_{m \\ge k} \\omega_m \\{F_j(u_m) - F_j(u_k)\\} / S(u_k)` in exact rationals."""
+    M = dlam.shape[1]
+    d = [[Fraction(float(x)) for x in row] for row in dlam]
+    w = [Fraction(float(x)) for x in omega]
+    survival, incidence, s, f = [], [], Fraction(1), Fraction(0)
+    for k in range(M):
+        f += s * d[j][k]
+        s *= 1 - sum(d[l][k] for l in range(len(d)))
+        survival.append(s)
+        incidence.append(f)
+    return [
+        sum((w[m] * (incidence[m] - incidence[k]) for m in range(k, M)), Fraction(0)) / survival[k]
+        for k in range(M)
+    ]
+
+
+def test_the_conditional_risk_holds_every_digit_where_the_survival_is_tiny() -> None:
+    dlam, survival = _steep_paths()
+    assert 1e-21 < survival[34] < 1e-19
+    worst = np.zeros(2)
+    for omega in _steep_weights():
+        tail = np.cumsum(omega[::-1])[::-1]
+        for j in (0, 1):
+            exact = np.array([float(x) for x in _exact_quotient(dlam, omega, j)])
+            stable = _targeting.conditional_risk(survival, dlam[j], tail)
+            np.testing.assert_allclose(stable, exact, rtol=1e-12, atol=1e-300)
+            assert np.all(stable >= 0.0) and np.all(stable <= omega.sum() * (1 + 1e-12))
+            # The cancelling form the engine used before, a difference of cumulative
+            # incidences near one over the survival, agrees where the survival is ordinary.
+            incidence = np.cumsum(_targeting._before(survival) * dlam[j])
+            cancelling = (np.cumsum((omega * incidence)[::-1])[::-1] - tail * incidence) / survival
+            ordinary = survival > 1e-3
+            np.testing.assert_allclose(cancelling[ordinary], exact[ordinary], rtol=1e-9, atol=1e-12)
+            tiny = survival < 1e-15
+            worst[j] = max(worst[j], float(np.max(np.abs(cancelling - exact)[tiny])))
+    # Mutation: where the survival is tiny that form is wrong by a tenth or more for both
+    # causes, on a quotient that lies in [0, 1] for every row here.
+    assert np.all(worst > 0.1)
+
+
+def test_the_score_and_direction_hold_where_the_survival_is_tiny() -> None:
+    # Unit 0 received arm 1, follows the steep path and is at risk while its survival is
+    # ~1e-20 (its cause-2 event is at position 33), so its residuals there carry the quotient
+    # into the score: a nonzero witness for evaluate and _direction past the old floor.
+    paths, _ = _steep_paths()
+    J, n, M = 2, 3, 40
+    dlam = np.zeros((2, J, n, M))
+    dlam[...] = np.array([0.02, 0.01])[None, :, None, None]
+    dlam[1, :, 0] = paths
+    arm = np.array([1, 0, 1])
+    last = np.array([33, 20, 38])
+    cause = np.array([1, 0, 1])
+    at_risk = np.arange(M)[None, :] <= last[:, None]
+    events = np.zeros((J, n, M), dtype=bool)
+    for i in range(n):
+        events[cause[i], i, last[i]] = True
+    weight = np.broadcast_to(np.array([1.3, 1.1, 1.7])[None, :, None], (2, n, M)).copy()
+    rows = _steep_weights()
+    problem = Problem(arm, at_risk, events, weight, rows)
+    evaluation = evaluate(problem, dlam)
+    Q = rows.shape[0]
+    v = np.random.default_rng(3).normal(size=problem.n_targets)
+    direction = _targeting._direction(problem, evaluation, v, dlam)
+    expected = np.zeros((2, J, n, M))
+    for a in (0, 1):
+        for i in range(n):
+            # c_l = 1{l = j} W - H_j, summed over targets with v; the score part is
+            # 1{A = a} sum_k sum_l c_l w (dN_l - Y dLam_l).
+            residual = weight[a, i] * (events[:, i] - at_risk[i] * dlam[a, :, i])
+            for j in range(J):
+                for q in range(Q):
+                    p = (a * J + j) * Q + q
+                    tail = np.cumsum(rows[q][::-1])[::-1]
+                    quotient = np.array(
+                        [float(x) for x in _exact_quotient(dlam[a, :, i], rows[q], j)]
+                    )
+                    clever = -np.tile(quotient, (J, 1))
+                    clever[j] += tail
+                    part = float(np.sum(clever * residual)) if arm[i] == a else 0.0
+                    plugin = evaluation.incidence[a, j, i] @ rows[q]
+                    got = evaluation.influence[i, p] - plugin + evaluation.psi[p]
+                    np.testing.assert_allclose(got, part, rtol=1e-10, atol=1e-12)
+                    expected[a, :, i] += v[p] * weight[a, i] * clever
+    assert np.all(np.isfinite(direction))
+    np.testing.assert_allclose(direction, expected, rtol=1e-10, atol=1e-12)
+
+
 def test_the_true_hazards_take_no_step_under_any_censoring_model() -> None:
     problem, dlam = _problem(tie_rule=False)
     assert walk(problem, dlam, cutoff=1e-12).steps == 0
@@ -283,7 +398,7 @@ def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(
     metric = _targeting._metric(sigma, norm)  # type: ignore[arg-type]
     x = evaluation.score
     length = float(np.sqrt(x @ metric @ x))
-    direction = _targeting._direction(problem, evaluation, metric @ x / length)
+    direction = _targeting._direction(problem, evaluation, metric @ x / length, dlam)
     factual = np.stack([(problem.arm == a) for a in (0, 1)])[:, None, :, None]
 
     def loglik(step: float) -> float:
@@ -692,7 +807,7 @@ def test_a_flexible_treatment_learner_needs_cross_fitting() -> None:
 def test_a_target_before_any_event_of_a_cause_in_an_arm_is_refused() -> None:
     frame = _sample()
     early = float(frame["time"][frame["event"] > 0].min()) / 2
-    with pytest.raises(CapabilityError, match="no event of cause"):
+    with pytest.raises(DataError, match="no event of cause"):
         ContinuousSurvivalTMLE([early], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
@@ -799,14 +914,14 @@ def test_a_target_past_one_arms_follow_up_is_refused() -> None:
     frame = pd.DataFrame(
         {"time": np.minimum(T, C), "event": (T <= C).astype(int), "Z": Z, "X3": X3}
     )
-    with pytest.raises(CapabilityError, match="followed only to"):
+    with pytest.raises(DataError, match="followed only to"):
         ContinuousSurvivalTMLE([2.0, 6.0], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
 
 
 @pytest.mark.parametrize(
-    ("jump", "match"), [(0.5, "combined jump of one or more"), (0.45, "survival reaches zero")]
+    ("jump", "match"), [(0.5, "combined jump of one or more"), (0.45, "survival falls below")]
 )
 def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
     jump: float, match: str, monkeypatch: pytest.MonkeyPatch
@@ -895,7 +1010,9 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
         gated = not name.startswith("rr_regimen") and f"t={early:g}]" not in name
         assert label == ("supported" if gated else "experimental"), name
     early_name = next(name for name in fit if f"t={early:g}]" in name)
-    assert "coverage fell to 0.88" in fit[early_name].support.reason
+    assert "8 of the 30 rows of the continuous-survival-variance study" in (
+        fit[early_name].support.reason
+    )
     assert fit.simultaneous is not None
     assert fit.simultaneous.support.label == "experimental"
     in_sample = ContinuousSurvivalTMLE([middle], cross_fit=False, random_state=0)
@@ -916,4 +1033,5 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
             frame.iloc[:600], time="time", event="event", treatment="Z", baseline=["X3"]
         )
     assert all("n_folds" in estimate.support.reason for estimate in half.values())
-    assert all("600 units" in estimate.support.reason for estimate in half.values())
+    # 600 units clear the size floor of 500 the variance study measured: only n_folds binds.
+    assert not any("600 units" in estimate.support.reason for estimate in half.values())

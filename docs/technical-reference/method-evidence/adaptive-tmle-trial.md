@@ -110,7 +110,7 @@ uniformly valid interval can be much shorter than the robust one at a zero diffe
 Le Cam super-efficiency; Leeb and Pötscher on post-selection inference; Armstrong and Kolesar
 (2018) on adaptive intervals), so the row measures the cost of the narrower interval and gates
 neither the coverage of $\Psi$, the bias nor the standard error. It is a stress row, and a defect
-would show elsewhere in the table. The failure bound still gates it, and no replicate was lost.
+would show elsewhere in the table. Its failure bound is published and gates nothing, and no replicate was lost.
 
 ## The bias ladder
 

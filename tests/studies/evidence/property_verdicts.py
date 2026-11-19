@@ -1822,6 +1822,41 @@ FOLD_POLICY_FAMILY = "fold_policy"
 FOLD_POLICY_REFERENCE_CELL = "unstratified"
 DIAGNOSTIC_ROLE = "diagnostic"
 
+#: The verdict columns every reader takes from ``properties.csv``, in published order.
+PROPERTY_TABLE_COLUMNS = ("property", "cell", "role", "passed", "property_passed")
+
+
+def empty_property_table() -> pd.DataFrame:
+    """The ``properties.csv`` of a record that declares no property cell: no row, every column."""
+    return pd.DataFrame(
+        {
+            name: pd.Series(dtype=bool if name.endswith("passed") else str)
+            for name in PROPERTY_TABLE_COLUMNS
+        }
+    )
+
+
+def read_property_table(record: StudyRecord) -> pd.DataFrame:
+    """Read a record's committed ``properties.csv``.
+
+    A record that declares no property cell publishes no property row, so its table is
+    :func:`empty_property_table` and its file is not read: what a reader sees then follows from
+    the declaration, not from the bytes one run wrote.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose table is read.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The committed table, or :func:`empty_property_table` for a record without property cells.
+    """
+    if not record.property_cells:
+        return empty_property_table()
+    return pd.read_csv(record.artifact("properties.csv"))
+
 
 def fold_policy_seed(record: StudyRecord) -> int:
     """Return the sample seed shared by every arm of a fold-policy diagnostic.

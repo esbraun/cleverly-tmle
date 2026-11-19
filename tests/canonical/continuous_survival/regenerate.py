@@ -9,6 +9,13 @@ properties module, fixed before any run from the committed pilot
 ``tests/unit/test_continuous_survival_design.py``: 7,600 primary replicates of ``both_cf_1k``,
 3,200 calibration replicates and 4,800 per robustness cell, all at n = 1,000.
 
+Regeneration (X6 plan 5.2, 2026-11-18).  The record regenerates once under the switched default
+interval (``variance="switched"``, shipped by ``continuous-survival-variance``) and the stable
+conditional risk of the clever covariate (which fits the draws the old survival-floor refusal
+lost).  Law, cells, seeds and sizes are unchanged; the share floor stayed at 0.40, so the first
+time stays in ``early-time.csv``.  The n = 4,000 cells predict about 3.1 GB per fit under the
+memory guard, so a run declares at most 8 jobs on a 34 GB machine and 3 on a 13 GiB one.
+
 Scope (Eric's decisions, 2026-11-12).  The record gates the default fit, cross-fitted, at
 n = 1,000, on the twelve targets at the two later times.  At n = 4,000 the shared rules asked for
 about 800 core-hours, so the full-sample fit and both n = 4,000 fits are reported cells.  The

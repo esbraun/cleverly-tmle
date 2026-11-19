@@ -2501,9 +2501,9 @@ def _held_cells(
         ],
         axis=-1,
     )
-    without_event = np.bincount(
-        index, weights=~happened.any(axis=-1), minlength=size
-    ).reshape(n_times, n_cells)
+    without_event = np.bincount(index, weights=~happened.any(axis=-1), minlength=size).reshape(
+        n_times, n_cells
+    )
     empty = present[:, :, None] & (with_event == 0)
     full = present & (without_event == 0)
     excluded = None

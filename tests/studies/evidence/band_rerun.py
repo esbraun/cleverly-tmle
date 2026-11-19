@@ -102,7 +102,14 @@ from scipy.stats import binom
 
 from tests.canonical.regenerate import ARTIFACT_NAMES as REGENERATION_ARTIFACTS
 from tests.canonical.regenerate import PROPERTY_FAILURE_FILES
-from tests.studies.evidence import failures, property_failures, replication, seeds, simultaneous
+from tests.studies.evidence import (
+    failures,
+    property_failures,
+    property_verdicts,
+    replication,
+    seeds,
+    simultaneous,
+)
 from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -353,7 +360,7 @@ def candidate_records() -> list[StudyRecord]:
         if record.slug in POST_FLIP:
             continue
         path = record.artifacts / "properties.csv"
-        if path.exists() and not band_cells(pd.read_csv(path)).empty:
+        if path.exists() and not band_cells(property_verdicts.read_property_table(record)).empty:
             out.append(record)
     return out
 

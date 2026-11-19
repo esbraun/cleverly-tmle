@@ -48,12 +48,16 @@ from ._memory import (
     train_size,
 )
 from ._targeting import (
+    _EMPTY,
+    Evaluation,
     Norm,
+    PredictableVariation,
     Problem,
-    _filled,
+    curves,
     default_cutoff,
     evaluate_rows,
     point_weights,
+    predictable_rows,
     restricted_weights,
 )
 from .cox import HazardSelection, StratifiedNelsonAalen, default_library, select_hazard
@@ -81,8 +85,10 @@ def _gap(text: str) -> CapabilityError:
 
 
 ROADMAP: Final = "roadmap X6"
-#: An initial survival at or below this before the last time a target reads is refused.
-SURVIVAL_FLOOR: Final = 1e-12
+#: An initial survival below this before the last time a target reads is refused: the clever
+#: covariate's quotient is a conditional risk computed on the survival's own scale, which
+#: double precision holds only above its smallest normal numbers.
+SURVIVAL_UNDERFLOW: Final = 1e-250
 #: Off-grid times drawn for the diagnostic of item 10 Table 4.
 OFF_GRID_TIMES: Final = 100
 
@@ -357,6 +363,17 @@ class ContinuousSurvivalTMLE:
         The multiplier distribution, as :func:`~cleverly.inference.simultaneous_bands` takes.
     band_scale : {"logit", "identity"}
         The scale of the band of a bounded estimate.
+    variance : {"switched", "influence_curve"}
+        The variance every estimate reports.  ``"switched"`` reads the influence-curve
+        variance, raised to the predictable variation of the influence curve's martingale part
+        where the curve is sparse: where the relative standard deviation of the
+        influence-curve variance exceeds
+        :data:`~cleverly.inference.sparse.SPARSE_INFLUENCE_THRESHOLD` (0.125), the variance is
+        the larger of the two (:mod:`cleverly.inference.switched`).  It is never below the
+        influence-curve variance and equals it with probability tending to one.
+        ``"influence_curve"`` reads the influence-curve variance alone.  A band takes its
+        critical value from the influence curves and its half-widths from the reported
+        standard errors.
     max_memory_bytes : int or None
         The memory budget of a fit, in bytes.  The walk works through blocks of units; before
         fitting any nuisance, the fit predicts the largest number of bytes it holds at once with
@@ -401,6 +418,7 @@ class ContinuousSurvivalTMLE:
         n_multiplier: int = DEFAULT_N_REPLICATES,
         multiplier_kind: str = DEFAULT_KIND,
         band_scale: str = DEFAULT_BAND_SCALE,
+        variance: Literal["switched", "influence_curve"] = "switched",
         max_memory_bytes: int | None = None,
         n_jobs: int | None = 1,
     ) -> None:
@@ -425,6 +443,8 @@ class ContinuousSurvivalTMLE:
             raise ValueError("restricted_horizons are strictly increasing")
         if norm not in ("covariance", "variance", "euclidean"):
             raise ValueError("norm is 'covariance', 'variance' or 'euclidean'")
+        if variance not in ("switched", "influence_curve"):
+            raise ValueError("variance is 'switched' or 'influence_curve'")
         if treatment_learner is not None and not cross_fit:
             raise _gap(
                 "A user treatment learner needs cross_fit=True: without cross-fitting every "
@@ -461,6 +481,7 @@ class ContinuousSurvivalTMLE:
         self.n_multiplier = int(n_multiplier)
         self.multiplier_kind = multiplier_kind
         self.band_scale = band_scale
+        self.variance: Literal["switched", "influence_curve"] = variance
         self.max_memory_bytes = budget
         self.n_jobs = int(n_jobs)
         #: The outer cross-fitting label of each row, recorded on the estimator a result
@@ -759,7 +780,9 @@ class ContinuousSurvivalTMLE:
         seed = self._resolved_seed()
         initial = self._initial(data, seed, folds=folds, plan=plan)
         settings = {key: getattr(self, key) for key in MEASURED_DEFAULTS}
-        estimates, record = self._target(initial, self._floor(initial.n), settings=settings)
+        estimates, record, covariance = self._target(
+            initial, self._floor(initial.n), settings=settings
+        )
         bands = None
         if self.simultaneous:
             from ..inference.multiplier import simultaneous_bands
@@ -791,6 +814,7 @@ class ContinuousSurvivalTMLE:
             n=initial.n,
             backend=data.backend,
             restricted_horizons=self.restricted_horizons,
+            predictable=covariance,
             estimator=stored,
             # Copy the arrays: the caller's frame or container may be edited after the fit,
             # and a refutation must refit the rows this fit read.
@@ -833,6 +857,7 @@ class ContinuousSurvivalTMLE:
                 for member in (*self.hazard_library, *self.censoring_library)
             ),
             "restricted": not _point_rows(weights),
+            "switched": self.variance == "switched",
             "n_jobs": self._threads(),
         }
 
@@ -981,12 +1006,15 @@ class ContinuousSurvivalTMLE:
         ends = [(self.horizons[-1], "target time", "risk")]
         if restricted:
             ends.append((restricted[-1], "restricted horizon", "restricted mean"))
+        # Both checks below read this draw's events and follow-up, not the configuration, so a
+        # draw that trips one is a data failure (a study records it as a lost replicate), not an
+        # unsupported composition.
         for a in (0, 1):
             for code, label in causes.items():
                 first_event = T[(a == A) & (code == D)]
                 if first_event.size == 0 or first_event.min() > first:
                     what = "risk" if first_kind == "target time" else "restricted mean"
-                    raise _gap(
+                    raise DataError(
                         f"Arm {arm_labels[a]!r} has no event of cause {label!r} at or before "
                         f"the first {first_kind} {_time_text(first)}, so that {what}'s "
                         "influence curve is zero and its interval undefined. Choose a later "
@@ -996,7 +1024,7 @@ class ContinuousSurvivalTMLE:
             followed = float(T[a == A].max())
             for end, kind, what in ends:
                 if followed < end:
-                    raise _gap(
+                    raise DataError(
                         f"Arm {arm_labels[a]!r} is followed only to {_time_text(followed)}, "
                         f"before the last {kind} {_time_text(end)}, so its {what} there would "
                         "be an extrapolation of the hazard model with no data behind it. "
@@ -1183,7 +1211,7 @@ class ContinuousSurvivalTMLE:
             # data failure (recorded by a study), not an unsupported composition.
             combined = combined or bool(np.any(total >= 1.0))
             survival = np.cumprod(1.0 - total, axis=-1)
-            low_survival = low_survival or bool(np.any(survival[..., -1] <= SURVIVAL_FLOOR))
+            low_survival = low_survival or bool(np.any(survival[..., -1] < SURVIVAL_UNDERFLOW))
             # A NaN jump is not zero, so its time stays on the walk's grid.
             jumping |= (dlam != 0).any(axis=(0, 1, 2))
             del dlam, total, survival
@@ -1209,10 +1237,11 @@ class ContinuousSurvivalTMLE:
             )
         if low_survival:
             raise DataError(
-                "The initial survival reaches zero before the last time a target reads (the "
-                "last target time or restricted horizon) for some unit and arm, so the clever "
-                "covariate divides by zero. The estimator needs the survival bounded away from "
-                "zero there; choose an earlier last target time or restricted horizon."
+                f"The initial survival falls below {SURVIVAL_UNDERFLOW:.0e} before the last time "
+                "a target reads (the last target time or restricted horizon) for some unit and "
+                "arm, beyond the range in which double precision holds the clever covariate's "
+                "conditional risks. Choose an earlier last target time or restricted horizon, "
+                "or a hazard library that does not extrapolate so far."
             )
         observed = T[D > 0]
         kept = walk_grid(grid, jumping, observed, target_index)
@@ -1263,7 +1292,7 @@ class ContinuousSurvivalTMLE:
         floor: float,
         *,
         settings: Mapping[str, Any],
-    ) -> tuple[dict[str, ParameterEstimate], ContinuousSurvivalRecord]:
+    ) -> tuple[dict[str, ParameterEstimate], ContinuousSurvivalRecord, Any]:
         """Run the walk from ``initial`` with the weights bounded below by ``floor``.
 
         ``settings`` holds the values of the keys of :data:`MEASURED_DEFAULTS` the support of
@@ -1277,6 +1306,24 @@ class ContinuousSurvivalTMLE:
         rng = np.random.default_rng()
         rng.bit_generator.state = initial.rng_state
         off_grid = _OffGrid(plan, rng)
+        # The switched variance's predictable variation reads the targeted jumps on the full
+        # grid, a buffer of units at a time, in the final pass.
+        variation = _Predictable(plan) if self.variance == "switched" else None
+        readers = [off_grid.add] if off_grid.active else []
+        if variation is not None:
+            readers.append(variation.take)
+
+        def final(k: int, lo: int, hi: int, state: Any) -> Callable[[], None]:
+            # Runs on a walk thread; what each reader returns is called in block order on the
+            # calling thread, so the sums never depend on n_jobs.
+            thens = [reader(k, lo, hi, state) for reader in readers]
+
+            def commit() -> None:
+                for then in thens:
+                    then()
+
+            return commit
+
         run = _chunked.run_walk(
             plan,
             cutoff=cutoff,
@@ -1285,10 +1332,17 @@ class ContinuousSurvivalTMLE:
             max_steps=self.max_iter,
             tilt=self.tilt,
             resident=resident_blocks(plan, self.max_memory_bytes),
-            final=off_grid.add if off_grid.active else None,
+            final=final if readers else None,
             n_jobs=plan.shape["n_jobs"],
         )
         result = run.result
+        # Only the means and influence curves are read from here on; a walk that kept its one
+        # block returns its curves on the walk's grid.
+        result.dlam = _EMPTY
+        result.evaluation = replace(result.evaluation, survival=_EMPTY, incidence=_EMPTY)
+        off_grid_share = off_grid.share(cutoff)
+        predictable = None if variation is None else variation.matrix()
+        del variation
         if not result.converged:
             worst = np.argsort(-result.standardized_score)[:3]
             _warn(
@@ -1311,7 +1365,7 @@ class ContinuousSurvivalTMLE:
             bounded_share=plan.bounded_share,
             last_time_floor_share=plan.last_time_floor_share,
             frozen_share=result.frozen_share,
-            off_grid_share=off_grid.share(cutoff),
+            off_grid_share=off_grid_share,
             cross_fitted=self.cross_fit,
             n_folds=initial.n_folds,
             grid_size=int(grid.size),
@@ -1324,7 +1378,7 @@ class ContinuousSurvivalTMLE:
         J = len(initial.causes)
         restricted = self.restricted_horizons
 
-        def support(scale: str, q: int) -> Support:
+        def support(scale: str, q: int, relative_sd: float) -> Support:
             return continuous_survival_support(
                 scale=scale,
                 event_share=initial.shares[q],
@@ -1335,10 +1389,11 @@ class ContinuousSurvivalTMLE:
                 settings=settings,
                 restricted=q >= len(self.horizons),
                 restricted_horizons=len(restricted),
+                variance_rel_sd=relative_sd,
                 past_last_time=bool(restricted) and max(restricted) > max(self.horizons),
             )
 
-        estimates = build_estimates(
+        estimates, covariance = build_estimates(
             result,
             initial.arm_labels,
             initial.causes,
@@ -1347,8 +1402,9 @@ class ContinuousSurvivalTMLE:
             alpha=self.alpha,
             support=support,
             restricted=restricted,
+            predictable=predictable,
         )
-        return estimates, record
+        return estimates, record, covariance
 
 
 @dataclass(frozen=True)
@@ -1628,7 +1684,9 @@ class _FitPlan:
             padded = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival], axis=-1)
             survival = np.take(padded, expand + 1, axis=-1)
             del padded
-            incidence = _filled(state.incidence[:, :, chosen], expand)
+            # The jumps on the full grid: zero at every dropped time, as the dense walk's are.
+            jumps = np.zeros((*state.jumps.shape[:2], chosen.size, initial.grid.size))
+            jumps[..., initial.kept] = state.jumps[:, :, chosen]
             first, last = int(chosen.min()), int(chosen.max())
             span = (lo + first, lo + last + 1)
             weight = self._inverse(*span, self._product(*span))[:, chosen - first]
@@ -1636,13 +1694,142 @@ class _FitPlan:
             at_risk = initial.T[at, None] >= initial.grid[None, :]
             events = np.zeros((len(initial.causes), *at_risk.shape), dtype=bool)
             full = Problem(initial.A[at], at_risk, events, weight, weights)
-            direction = _chunked.T._direction(full, _chunked._light(survival, incidence), v)
-            del survival, incidence, weight, at_risk, events, full
+            light = _chunked._light(survival, _chunked.T._EMPTY)
+            direction = _chunked.T._direction(full, light, v, jumps)
+            del survival, jumps, light, weight, at_risk, events, full
             with np.errstate(over="ignore"):
                 grows = np.isinf(np.exp(direction[..., self.dropped] * step))
             out[:, np.flatnonzero(inside)] = grows.any(axis=(1, 3))
             del direction, grows
         return out
+
+
+class _Predictable:
+    r"""The switched variance's predictable variation, accumulated in the final pass.
+
+    The final pass hands over each block of the walk's targeted jumps on the walk's grid
+    (:meth:`take`, on the block's thread), and :meth:`add` takes them in row order on the
+    calling thread, so the result is the same bits for any ``n_jobs``.  They are copied onto
+    the full grid (zero at the dropped times, which no step moves) into a buffer of
+    :func:`~cleverly.survival._targeting.predictable_rows` units, cut where
+    :func:`~cleverly.survival._targeting.predictable_covariance` cuts its blocks.  When the
+    buffer is full its units' curves, bounded weight and floored ratio
+    :math:`\min(1, \hat\pi \hat S_c / g_{\min})` are built and added to a
+    :class:`~cleverly.survival._targeting.PredictableVariation`, so the pass holds one buffer
+    and every unit's plug-ins, whatever the walk's blocks, and its martingale term is the
+    dense matrix's bit for bit.
+    """
+
+    def __init__(self, plan: _FitPlan) -> None:
+        initial = plan.fit
+        self.plan = plan
+        self.J = len(initial.causes)
+        self.M = initial.grid.size
+        Q = initial.target_weights.shape[0]
+        self.size = predictable_rows(self.J, Q, self.M)
+        self.variation = PredictableVariation(initial.n, self.J, Q)
+        self.start = 0
+        self.buffer: FloatArray | None = None
+
+    def take(self, k: int, lo: int, hi: int, state: Any) -> Callable[[], None]:
+        """Hold block ``k``'s targeted jumps for :meth:`add`, which the walk calls in block order.
+
+        Called on a walk thread; nothing is written here, so the buffer and the variation are
+        only ever touched on the calling thread, in row order, whatever ``n_jobs``.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+        lo : int
+            Its first unit.
+        hi : int
+            One past its last unit.
+        state : _State
+            Its targeted hazards.
+
+        Returns
+        -------
+        callable
+            Adds the block's jumps (:meth:`add`).
+        """
+        jumps = state.jumps
+
+        def carry() -> None:
+            self.add(k, lo, hi, jumps)
+
+        return carry
+
+    def add(self, k: int, lo: int, hi: int, jumps: FloatArray) -> None:
+        """Copy block ``k``'s targeted jumps into the buffer, adding each buffer as it fills.
+
+        Parameters
+        ----------
+        k : int
+            The block.
+        lo : int
+            Its first unit.
+        hi : int
+            One past its last unit.
+        jumps : ndarray
+            ``(2, J, hi - lo, G)`` its targeted jumps on the walk's grid.
+        """
+        initial = self.plan.fit
+        at = lo
+        while at < hi:
+            stop = min(self.start + self.size, initial.n)
+            if self.buffer is None:
+                self.buffer = np.zeros((2, self.J, stop - self.start, self.M))
+            end = min(hi, stop)
+            rows = slice(at - self.start, end - self.start)
+            source = jumps[:, :, at - lo : end - lo]
+            if self.plan.reduced:
+                self.buffer[:, :, rows][..., initial.kept] = source
+            else:
+                self.buffer[:, :, rows] = source
+            at = end
+            if end == stop:
+                self._flush(stop)
+
+    def _flush(self, stop: int) -> None:
+        """Add the buffer's units ``self.start:stop`` and release it."""
+        plan, initial = self.plan, self.plan.fit
+        start, dlam = self.start, self.buffer
+        assert dlam is not None
+        self.buffer = None
+        b = stop - start
+        product = plan._product(start, stop)
+        weight = plan._inverse(start, stop, product)
+        # pi S_c w^2 = w min(1, pi S_c / floor): the predictable variation reads the floored
+        # weight squared, as P_n D^2 does.
+        floored = product / plan.floor
+        np.minimum(floored, 1.0, out=floored)
+        del product
+        # PredictableVariation reads the indicators' shapes only.
+        problem = Problem(
+            initial.A[start:stop],
+            np.broadcast_to(np.zeros(1, dtype=bool), (b, self.M)),
+            np.broadcast_to(np.zeros(1, dtype=bool), (self.J, b, self.M)),
+            weight,
+            initial.target_weights,
+        )
+        # The curves are passed without a name here, so the incidences are released once the
+        # plug-ins are read.
+        self.variation.add(
+            problem, Evaluation(_EMPTY, _EMPTY, _EMPTY, *curves(dlam)), dlam, floored
+        )
+        self.start = stop
+
+    def matrix(self) -> FloatArray:
+        """``(P, P)`` the second moments, once every unit has been added.
+
+        Returns
+        -------
+        ndarray
+            The matrix of :func:`~cleverly.survival._targeting.predictable_covariance` at the
+            targeted jumps on the full grid.
+        """
+        return self.variation.matrix()
 
 
 def walk_grid(

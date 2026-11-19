@@ -42,8 +42,8 @@ An event and a censoring at one time are ordered event first, so the censoring h
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
 initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival that reaches zero before the grid's end, the last target
-time or restricted horizon.
+of one or more, and an initial survival below $10^{-250}$ before the grid's end, the last target
+time or restricted horizon, where double precision no longer holds the clever covariate.
 
 ## The one-step walk
 
@@ -57,8 +57,17 @@ D_{a,j,t} = \frac{1\{A = a\}}{\pi(a \mid L)} \sum_{l=1}^J \int_0^t
 c_l(u) = 1\{l = j\} - \frac{F_j(t \mid a, L) - F_j(u \mid a, L)}{S(u \mid a, L)},
 $$
 
-with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The walk moves every
-cause hazard of both arms, for every unit, along the multinomial logistic path
+with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The quotient in $c_l$
+is the conditional risk of a cause-$j$ event in $(u, t]$ given survival past $u$,
+$\sum_{u < s \le t} S(s^- \mid a, L)\, \Lambda_j(ds \mid a, L) / S(u \mid a, L)$. The engine
+computes it in that form: it sums the incidence increments after $u$, each no larger than
+$S(u)$, and divides by $S(u)$. The difference of two incidences near one loses every digit where
+an extrapolating hazard fit takes the survival to $10^{-20}$; the sum keeps them, which
+`test_the_conditional_risk_holds_every_digit_where_the_survival_is_tiny` in
+`tests/unit/test_continuous_survival.py` checks against exact rational arithmetic.
+
+The walk moves every cause hazard of both arms, for every unit, along the multinomial logistic
+path
 
 $$
 \Lambda_l^{\varepsilon}(du) = \frac{\Lambda_l(du)\, e^{\varepsilon x_l(u)}}
@@ -79,19 +88,99 @@ accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, w
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
 arm is the target's arm, which a mutation test shows is not doubly robust. And a step that would
-take some unit's survival at the grid's end below $10^{-8}$ holds that (unit, arm) pair
+take some unit's survival at the grid's end below $10^{-8}$, or below the initial fit's smallest
+survival there when that is lower, holds that (unit, arm) pair
 still for that step and tries the step again; the pair moves on the next step. The record's
 `frozen_share` counts the pairs ever held.
 
 ## Inference
 
-Each interval is a Wald interval with the empirical variance of the influence curve. A risk is
-a mean bounded by 0 and 1, so its interval is formed on the logit scale and mapped back, as for
-every unclustered bounded mean ([small-sample scale](inference.md#small-sample-scale)). A risk
-difference uses the difference of the two curves on its own scale, and a risk ratio is built on
-the log scale. The study's committed rows were written under the identity interval of a risk. On
-the same estimates and standard errors the logit interval moves no group's coverage by more than
-0.008 and changes no verdict (`tests/canonical/interval-audit-screen.csv`).
+Each interval is a Wald interval. A risk is a mean bounded by 0 and 1, so its interval is formed
+on the logit scale and mapped back, as for every unclustered bounded mean ([small-sample
+scale](inference.md#small-sample-scale)). A risk difference uses the difference of the two curves
+on its own scale, and a risk ratio is built on the log scale. The study's committed rows were
+written under the identity interval of a risk. On the same estimates and standard errors the logit
+interval moves no group's coverage by more than 0.008 and changes no verdict
+(`tests/canonical/interval-audit-screen.csv`).
+
+### The switched variance
+
+The default, `variance="switched"`, reports the influence-curve variance $\hat\sigma^2_{IC}$
+unless the curve is sparse, and then the larger of it and the predictable variation
+$\hat\sigma^2_{pv}$ of the curve's martingale part:
+
+$$
+\hat\sigma^2 =
+\begin{cases}
+  \max(\hat\sigma^2_{IC},\, g^\top \hat\Sigma_{pv}\, g) & \text{if } r > 0.125,\\
+  \hat\sigma^2_{IC} & \text{otherwise,}
+\end{cases}
+$$
+
+where $r = \sqrt{(\hat\kappa - 1)/n}$ is the relative standard deviation of the estimate's own
+influence-curve variance (`variance_rel_sd` of `cleverly.inference.sparse.influence_row`) and $g$
+is the estimate's gradient over the targeted levels. The influence-curve variance squares the
+realized martingale increments $\int c(u)\,dM(u)$. The predictable variation integrates their
+conditional variance under the fitted law instead:
+
+$$
+\hat\Sigma_{pv} = \widehat{\mathrm{Cov}}_n(\hat F) + P_n \sum_a \sum_{u_m}
+  S(u_m^-)\, \pi_a S_c(u_m^-)\, w_a(u_m)^2\, V_a(u_m),
+\qquad
+V_{pq} = \sum_l c_{lp} c_{lq}\, d\Lambda_l - \Big(\sum_l c_{lp}\, d\Lambda_l\Big)\Big(\sum_l c_{lq}\, d\Lambda_l\Big),
+$$
+
+with $c_{lp}$ the clever covariate of target $p$ for cause $l$, $w_a = 1/\max(\pi_a S_c, \text{floor})$
+and $V$ the covariance of one multinomial jump of the causes. The martingale block is zero
+across arms. `predictable_covariance` in `cleverly.survival._targeting` computes the whole matrix
+in one pass, and the result stores it as `result.predictable` on the scale of the influence-curve
+variance (divided by $n - 1$). At the true nuisances $\hat\Sigma_{pv}$ and the influence curve's
+covariance have the same expectation; `tests/unit/test_continuous_survival_variance.py` checks
+the identity on an exact law to $10^{-10}$, with a mutation control for the multinomial square,
+the left limit $S(u^-)$, one arm's martingale block, the floored weight and the off-diagonal
+entries. A fit with $\tau = 1.5$ and a binding positivity floor checks that each stored variance
+reads the walk's matrix in time units, over $n - 1$, with the floored weight.
+
+Three properties follow. The switched variance is never below the influence-curve variance, so
+its interval at the same centre contains the influence-curve interval and keeps its double
+robustness. Because $r$ falls like $1/\sqrt n$, it equals the influence-curve variance with
+probability tending to one. The threshold 0.125, close to a Kish count of 64, was chosen after
+the X39 truth pilots were read (`cleverly.inference.sparse`); here it selects an estimator, and it
+was not tuned on these laws. `variance="influence_curve"` reports the influence-curve variance
+alone. Each estimate keeps both variances in `estimate.switched` and names the one it reports in
+`estimate.variance_source`.
+
+`contrast()`, `ratio()`, `rmtl()` and `rmst()` take the switched variance of a derived estimate
+from the stored matrix, with the switch read on that estimate's own influence curve. A generic
+`cleverly.inference.smooth_contrast` or `ratio_contrast` of switched estimates refuses, because it
+holds no matrix; the refusal names `ContinuousSurvivalResult.contrast` and
+`variance="influence_curve"`. The sup-t band takes its critical value from the curves
+standardized by their influence-curve standard errors and its half-widths from the reported ones.
+
+### Why the early-time interval under-covered
+
+In the registered study's record written under the influence-curve variance, at the first
+quartile ($t = 0.46$, n = 1,000, 7,586 fits), the estimates had the efficient spread, but treated
+cause 2, with about 16 expected events, covered 0.881 with a mean standard error 8% below its
+spread. Two mechanisms are at work. In a
+sparse cell a few squared increments carry the influence-curve variance: its standard error varied
+by 30% between draws and moved with the estimate, so the misses were one-sided. A smaller excess
+spread appears at control cause 1, whose weights are heaviest.
+
+The predictable variation repairs
+the first: it varies less between draws and does not hinge on whether the few events occurred. Its
+level is biased low by the fitted hazards in sparse cells (11% for treated cause 2 at the median in
+1,040 exploratory fits), and for that reason the switched variance raises the influence-curve
+variance and never replaces it with a smaller one. On exploratory fits its gain over the influence
+curve came mostly from a wider interval in the rows where the curve is sparse, not from per-draw
+information at matched width. The study
+[continuous-time survival switched variance](method-evidence/continuous-survival-variance.md)
+decided on five fresh laws that the switched variance stays the default; the floors it set are
+stated under [evidence](#evidence). The registered study's record regenerated under the switched
+default reads, at the first quartile, an SE ratio of 0.997 and coverage 0.932 for treated cause 2,
+and SE ratios 0.990 to 1.038 and coverage 0.932 to 0.961 over the six targets (`early-time.csv`).
+The first quartile still reads experimental, because 8 of the 30 first-quartile rows of the
+switched-variance study fail its calibration rule.
 
 With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final
@@ -266,6 +355,27 @@ rebuilds most blocks on every pass. A block rebuilt in the pass after accepted s
 $s$ steps, so a walk of $S$ accepted steps replays about $S (S + 1) / 2$ steps per block not kept,
 and a larger `max_iter` lengthens a long walk quadratically.
 
+The switched variance (`variance="switched"`, the default) adds its predictable variation in the
+final pass. Each block's targeted jumps are copied onto the full grid into a buffer of
+$b = \max(1, \lfloor 6 \times 10^6 / (J^2 Q M) \rfloor)$ units, the blocks over which
+`cleverly.survival._targeting.predictable_covariance` sums. When the buffer fills, its units'
+survival, incidences, bounded weight and floored ratio $\min(1, \hat\pi \hat S_c / g_{\min})$
+are built and its martingale term is added, and every unit's plug-ins, $(n, P)$, are kept for
+the centred plug-in covariance. The pass holds $16 J b M$ bytes for the buffer and about
+$8 b M (J^2 Q + 3 J Q + 8)$ more while a buffer's term is formed: at most about 0.4 GB with one
+cause and two targets, whatever $n$. So the default's peak grows with $n P$ too, plus that bounded
+term: about 0.7 GB at $n = 100{,}000$ with one cause, two target times and $M = 59{,}980$.
+`variance="influence_curve"` skips the pass and needs the 0.3 GB above. A refusal whose peak is
+this pass's names the final pass and `variance="influence_curve"` with its own prediction.
+
+The buffer is cut where the sum's blocks are, so the
+pass adds the same blocks whatever the walk's block size or the blocks kept, and the martingale
+term equals the one-pass computation's bit for bit. The plug-ins' matrix products run over a
+buffer's rows rather than all $n$, so for a restricted mean the plug-in covariance can differ in
+the last bit. Over 61 study fits refitted both ways, every standard error, both variances and
+every choice between them matched a pass over all units at once bit for bit, and one matrix entry
+pair of one restricted-mean fit differed by $1.5 \times 10^{-16}$ relative.
+
 Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
 `MethodConfigurationError` when that prediction exceeds the budget. The budget is the memory
@@ -313,11 +423,12 @@ The prediction counts NumPy arrays the engine and the shipped hazard learners al
 not count a user learner's own allocations, which can only make the check miss a refusal.
 `tests/unit/test_continuous_survival_memory.py` checks that each phase's `tracemalloc` peak stays at
 or below its prediction in fits that keep every block, none or half, with one to three causes, a
-restricted mean, cross-fitting and the factual tilt. The walk's and the final pass's predictions
-stay within 10% of their peaks, and the nuisance phase's within 25% for an interaction Cox model on
-eight covariates. Dropping one term from a phase's prediction falls below its peak, and doubling
-$n$ with no block kept at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
-but changes the analysis, so the engine never does it.
+restricted mean or two, cross-fitting, the factual tilt and both variances. The walk's and the final
+pass's predictions stay within 10% of their peaks, and the nuisance phase's within 25% for an
+interaction Cox model on eight covariates. Dropping one term from a phase's prediction falls below
+its peak, and doubling $n$ with no block kept, under the default with a predictable-variation
+buffer smaller than a block, at most multiplies the peak by 2.5. Coarsening the time grid would
+lower $M$ but changes the analysis, so the engine never does it.
 
 ## What is refused
 
@@ -337,27 +448,34 @@ but changes the analysis, so the engine never does it.
 | a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
 | a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
 
+The rows on an arm's first event of a cause and on an arm's follow-up read the drawn data, not the
+request, so they raise `DataError`, and a repeated-sampling study records such a draw as a lost
+replicate. The other rows raise `CapabilityError`.
+
 ## Evidence
 
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
-causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
-cause have happened
-(`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
-ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
-early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has.
+that configuration: cross-fitted, the default libraries and settings, two causes, a risk or a
+risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
+(`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
+study below. Its record was regenerated under the switched default: all 12 primary rows pass, with
+coverage 0.942 to 0.952 and SE ratio 0.991 to 1.032 over 7,600 fits, and the six property cells
+pass. At the lower quartile it covered 0.932 to 0.961, but an estimate at a time that early reads
+experimental because the switched-variance study's first-quartile rows do not all pass. The time
+condition is calibrated on this one law and does not read how many events each arm and cause has.
 
 The registered study [continuous-time survival restricted means and risk
 ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
 `restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
 differences of that fit, whose extra targets move them, the log risk ratios at the median and
 upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
-at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
-calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
-its last target time reads `supported` under the conditions above, and its restricted means read
+at $\tau$. Its record was regenerated under the switched default interval. All 25 rows pass,
+with coverage 0.939 to 0.954, and the RMST difference meets the calibration bands (coverage 0.945,
+SE ratio 0.996). A fit with one restricted horizon at or before
+its last target time reads `supported` under the conditions above with at least 1,000 units
+(`FUNCTIONALS_N`), the one size that study ran, and its restricted means read
 `supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
 (`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
 earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
@@ -370,6 +488,19 @@ survival view, a smooth contrast and the band read experimental. A risk-only wal
 study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
 this law, so the claim that a restricted mean must be targeted rests on the score test below.
 
+The registered study [continuous-time survival switched
+variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
+default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
+four gated cells passes at 6,000 replicates.
+
+The switched-variance study sets three floors. A risk or risk difference whose `variance_rel_sd`
+lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at 0.40, because
+not every first-quartile row passed. The study's gated 500-unit cell, which fits no restricted
+horizon, passed every row, so a risk or risk difference of a fit without restricted horizons
+needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit with restricted
+horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
+the study that measured its configuration.
+
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
 control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
@@ -377,3 +508,6 @@ checks the restricted mean's curve against the Gateaux derivative of the same la
 direction against a sum over grid points, with the term $W(u) F_j(u)$ dropped as a mutation. It
 also checks that the walk removes the bias of a restricted mean under a wrong hazard, and that a
 restricted mean left out of the direction stays unsolved and biased.
+`tests/unit/test_continuous_survival_variance.py` checks the predictable-variation covariance
+against the influence curve's on an exact law, the switch on both sides of its threshold, and the
+derived estimates against the stored ones.
