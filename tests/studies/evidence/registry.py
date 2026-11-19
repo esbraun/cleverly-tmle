@@ -759,6 +759,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.conditional_projection import STUDY as CONDITIONAL_PROJECTION
     from tests.studies.continuous_survival import STUDY as CONTINUOUS_SURVIVAL
+    from tests.studies.continuous_survival_causes import STUDY as CONTINUOUS_SURVIVAL_CAUSES
     from tests.studies.continuous_survival_functionals import (
         STUDY as CONTINUOUS_SURVIVAL_FUNCTIONALS,
     )
@@ -892,6 +893,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CONTINUOUS_SURVIVAL,
         CONTINUOUS_SURVIVAL_FUNCTIONALS,
         CONTINUOUS_SURVIVAL_VARIANCE,
+        CONTINUOUS_SURVIVAL_CAUSES,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
         OPTION_STOPPING_POINT,

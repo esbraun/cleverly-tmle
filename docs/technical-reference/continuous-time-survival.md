@@ -457,7 +457,8 @@ replicate. The other rows raise `CapabilityError`.
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, two causes, a risk or a
+that configuration: cross-fitted, the default libraries and settings, two causes (see below for
+one and three), a risk or a
 risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
 (`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
 study below. Its record was regenerated under the switched default: all 12 primary rows pass, with
@@ -501,6 +502,23 @@ needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit w
 horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
 the study that measured its configuration.
 
+The registered study [continuous-time survival with one and three
+causes](method-evidence/continuous-survival-causes.md) fits the default cross-fitted
+configuration at n = 1,000 on two laws built from the registered one: one cause, its cause-2
+hazard removed, and three causes, with a third hazard
+$h_3 = \exp(-2.5 + 0.5 X_1 + 0.5 X_3 + 0.5 Z)$, constant in time, added. It gates every risk and
+risk difference at each law's median and upper quartile. All 24 rows pass over 7,200 fits per
+law, with coverage 0.950 to 0.955 for one cause and 0.930 to 0.958 for three. Its 15 property
+cells pass: a calibration cell per law with the shrunk-SE and noise controls, and per law, on
+1,600 draws, the doubly robust cell with wrong hazards and the right propensity beside two
+controls on the same draws, the initial plug-in and the factual tilt, each of which stays biased.
+
+A fit with one cause or with three (`MEASURED_CAUSES`) therefore reads `supported` under the
+conditions above with at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured
+with two causes, and names that study in place of the two-cause one. A fit with one or three
+causes and a restricted horizon reads experimental, because the functionals study measures two
+causes only. No study measures four or more causes, so such a fit always reads experimental.
+
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
 control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
@@ -511,3 +529,15 @@ restricted mean left out of the direction stays unsolved and biased.
 `tests/unit/test_continuous_survival_variance.py` checks the predictable-variation covariance
 against the influence curve's on an exact law, the switch on both sides of its threshold, and the
 derived estimates against the stored ones.
+`tests/unit/test_continuous_survival_causes.py` builds an exact law with any number of causes and
+checks, with one cause and with three, the influence curve against the Gateaux derivative, the
+predictable-variation covariance against the influence curve's, and that the walk from hazards
+that ignore the covariate reaches the truth with the incidences and the survival adding to one.
+It also checks that the log-likelihood's path derivative along the walk's direction equals the
+score norm. With three causes the exact law's all-cause hazard varies with the covariate, so the
+fit that ignores the covariate has the wrong survival and the term of the direction that every
+cause shares does not vanish from the score. Its mutations freeze the third cause's tilt,
+drop the third cause from the survival, from the multinomial cross term or from the term of the
+direction that every cause shares, drop the one-cause square $d\Lambda^2$, and tilt only the
+received arm; each breaks its identity or keeps the bias. Reading the targets in cause-major
+order moves the curve off the Gateaux derivative.
