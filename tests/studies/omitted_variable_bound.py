@@ -2,8 +2,9 @@
 
 The subject is not an estimator of a causal parameter but the one-sided limits of the
 bias-adjusted bounds of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), Theorem 4.
-Each bound is read as an estimate of a known population value, and its standard error is read
-back off the reported limit, so the shared schema and the shared verdicts apply unchanged.
+Each bound is read as an estimate of a known population value, with the standard error of its
+own influence curve, checked against the reported limit, so the shared schema and the shared
+verdicts apply unchanged.
 
 The law is :func:`cleverly.datasets.make_linear_ate`: four standard normal covariates, a
 treatment mechanism ``expit(0.3 W1 - 0.2 W2 + 0.1 W3)``, a standard normal outcome noise and a
@@ -29,6 +30,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE
+from cleverly.inference import interval_reference
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from tests.parallel import STUDY_JOBS
@@ -57,10 +59,8 @@ BOUNDS = tuple(f"{name}_{end}" for name in FITTED for end in ENDS)
 
 SCENARIOS = {"linear": BOUNDS}
 
-#: The two-sided 95% multiplier of each row's interval, and the one-sided multiplier the bound
-#: reports its limit with.
+#: The two-sided 95% multiplier of each row's interval.
 TWO_SIDED = float(stats.norm.ppf(0.975))
-ONE_SIDED = float(stats.norm.ppf(0.95))
 
 #: The variance of the linear index of the treatment mechanism, ``0.3^2 + 0.2^2 + 0.1^2``.
 INDEX_VARIANCE = 0.14
@@ -109,9 +109,9 @@ CONFIGURATION = {
     "LogisticRegression treatment, simultaneous=False, estimands ate, att and atc",
     "nu2_estimator": "auto, which resolves to doubly_robust",
     "strength": {"cf_y": CF_Y, "cf_d": CF_D, "rho": RHO},
-    "primary_row": "estimate = the bound; std_error = (lower - ci_lower) / z_0.95 for a lower "
-    "bound and (ci_upper - upper) / z_0.95 for an upper bound; interval = estimate +/- "
-    "1.959964 std_error",
+    "primary_row": "estimate = the bound; std_error = the influence standard error of the "
+    "bound's own curve, which reproduces the reported one-sided limit under the estimate's "
+    "interval rule; interval = estimate +/- 1.959964 std_error",
     "control": "the same fits, with the standard error from the curve of nu^2 without the "
     "conditioning-share term, which is the curve before RM22",
     "truth": "closed form: nu2 = 4 exp(0.07) for att and atc, 2 + 2 exp(0.07) for ate, "
@@ -170,8 +170,10 @@ def fit(frame: pd.DataFrame) -> Any:
     )
 
 
-#: How closely the rebuilt curve must reproduce the package's own curve and standard error.
+#: How closely the rebuilt curve must reproduce the package's own curve.
 REBUILD_TOLERANCE = 1e-10
+#: How closely the limit read at the rebuilt standard error must reproduce the reported one.
+LIMIT_TOLERANCE = 1e-12
 
 
 def _bias_curve(elements: Any, psi_nu2: Any) -> Any:
@@ -184,17 +186,19 @@ def _bias_curve(elements: Any, psi_nu2: Any) -> Any:
 def bound_standard_errors(result: Any, name: str) -> dict[str, tuple[float, float]]:
     """The bound and its standard error at each end, with and without the share term.
 
-    ``"reported"`` reads the package's limit back: ``(lower - ci_lower) / z_0.95``.
-    ``"without_share_term"`` rebuilds the same curve after removing
+    ``"reported"`` is the influence standard error of each end's own curve, the package's
+    curve plus the signed strength times its curve of the maximal bias.  The limit reads the
+    estimate's interval rule about the end at that standard error
+    (:func:`~cleverly.inference.interval_reference`), the skew-widened t on this continuous
+    outcome, so the read must reproduce the reported one-sided limit.  ``"without_share_term"``
+    rebuilds the same curve after removing
     :func:`~cleverly.sensitivity.omitted_variable._conditioning_share_influence`, which is the
     curve the package reported before RM22.  For an unconditional parameter the two agree.
     """
     ov = omitted_variable_module
     bounds = ov.omitted_variable_bounds(result, name, cf_y=CF_Y, cf_d=CF_D, rho=RHO)
-    reported = {
-        "lower": (bounds.lower, (bounds.lower - bounds.ci_lower) / ONE_SIDED),
-        "upper": (bounds.upper, (bounds.ci_upper - bounds.upper) / ONE_SIDED),
-    }
+    if len(result.repeats) != 1:
+        raise RuntimeError(f"the bound of {name!r} reads {len(result.repeats)} draws, not one")
     elements = ov.sensitivity_elements(result, name)
     assert elements.psi_nu2 is not None
     psi_nu2 = np.asarray(elements.psi_nu2, dtype=float)
@@ -221,10 +225,26 @@ def bound_standard_errors(result: Any, name: str) -> dict[str, tuple[float, floa
         raise RuntimeError(f"the rebuilt bias curve of {name!r} is not the package's")
     if conditioning is None and not np.array_equal(psi_bias, elements.psi_max_bias):
         raise RuntimeError(f"the control curve of {name!r} is not the package's curve")
-    for end, sign in (("lower", -1.0), ("upper", 1.0)):
-        rebuilt_se = float(np.sqrt(influence_variance(curve + sign * strength * rebuilt, cluster)))
-        if abs(rebuilt_se - reported[end][1]) > REBUILD_TOLERANCE * max(1.0, rebuilt_se):
+    estimate = result[name]
+    reported: dict[str, tuple[float, float]] = {}
+    for end, sign, point, limit in (
+        ("lower", -1.0, bounds.lower, bounds.ci_lower),
+        ("upper", 1.0, bounds.upper, bounds.ci_upper),
+    ):
+        end_curve = curve + sign * strength * np.asarray(elements.psi_max_bias, dtype=float)
+        rebuilt_se = float(np.sqrt(influence_variance(end_curve, cluster)))
+        read = interval_reference(
+            estimate,
+            level=bounds.level,
+            sided="one",
+            psi=point,
+            std_error=rebuilt_se,
+            influence_curve=end_curve,
+        )
+        got = read.lower if sign < 0 else read.upper
+        if abs(got - limit) > LIMIT_TOLERANCE * max(1.0, abs(limit)):
             raise RuntimeError(f"the rebuilt {end} standard error of {name!r} is not reported")
+        reported[end] = (point, rebuilt_se)
     without = {
         "lower": (
             bounds.lower,

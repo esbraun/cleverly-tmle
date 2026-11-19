@@ -56,7 +56,8 @@ UNPRINTED_DECIMALS = {
     "0.98": f"OAT C-TMLE mean SE over SD (0.9759), 2,000 draws: {_PROBE}",
     "0.0134": f"median |OAT - TMLE| (0.0134), 2,000 draws: {_PROBE}",
     "0.038": f"95th percentile of |OAT - TMLE| (0.0381), 2,000 draws: {_PROBE}",
-    "1.3": "the printed tipping weight-side strength over readiness's printed cf_d, 0.0576 / 0.0451",
+    "0.013": "the size of the printed noise-column shift, -0.0132 standard errors (refutation cell)",
+    "1.3": "the printed tipping weight-side strength over readiness's printed cf_d, 0.0570 / 0.0451",
     "0.0016": f"twice the Monte Carlo SE of the mean error (2 x 0.0358 / sqrt(2000)): {_PROBE}",
     "10.14": f"population nu2 of the full set (10.136): {_TRUTH}",
     "9.14": f"population nu2 of the full set, g clipped at the page bounds (9.142): {_TRUTH}",
@@ -376,16 +377,16 @@ def _check_bound(namespace: dict[str, Any]) -> None:
     assert need.cf_d == 0.0 and sensitivity.omitted_confounding(benchmark=need).bias == 0.0
     assert staffing.cf_d > 0.9 and staffing.cf_y < 0.01
     assert sensitivity.omitted_confounding(benchmark=staffing).ci_lower < 0.0
-    # "A weight-side strength of 0.058, about 1.3 times readiness's 0.045, pulls it to zero".
+    # "A weight-side strength of 0.057, about 1.3 times readiness's 0.045, pulls it to zero".
     tipping_cf_d, tipping_cf_y = namespace["tipping_cf_d"], namespace["tipping_cf_y"]
     assert round(tipping_cf_d / readiness.cf_d, 1) == 1.3
     # The benchmark's weight-side value is a gain; staffing's share of the weights' mean square is
-    # gain / (1 + gain), about one half ("At its actual share, 0.48, the limit is 0.028").
+    # gain / (1 + gain), about one half ("At its actual share, 0.48, the limit is 0.027").
     share = namespace["staffing_share"]
     assert share == pytest.approx(staffing.cf_d / (1 + staffing.cf_d)) and round(share, 2) == 0.48
     at_share = namespace["at_share"]
-    assert at_share.ci_lower > 0.0 and round(at_share.ci_lower, 3) == 0.028
-    # "would need a success-side strength of only 0.0074 to reach zero".
+    assert at_share.ci_lower > 0.0 and round(at_share.ci_lower, 3) == 0.027
+    # "would need a success-side strength of only 0.0073 to reach zero".
     assert staffing.cf_y < tipping_cf_y < 0.01
     for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, share)):
         assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6

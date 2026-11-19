@@ -136,7 +136,7 @@ def risks_targeted_only(risk_rows: int) -> Iterator[None]:
         rows: dict[str, list[Any]] = {"initial": [], "targeted": []}
         final = options.pop("final", None)
 
-        def evaluate_all(k: int, lo: int, hi: int, state: Any) -> None:
+        def evaluate_all(k: int, lo: int, hi: int, state: Any) -> Any:
             problem = plan.problem(k)
             rows["targeted"].append(
                 _targeting.evaluate_rows(problem, state.jumps, state.survival, state.incidence)
@@ -145,8 +145,8 @@ def risks_targeted_only(risk_rows: int) -> Iterator[None]:
             rows["initial"].append(
                 _targeting.evaluate_rows(problem, jumps, *_targeting.curves(jumps))
             )
-            if final is not None:
-                final(k, lo, hi, state)
+            # The engine's final may return a carry its commit runs (the off-grid sums).
+            return None if final is None else final(k, lo, hi, state)
 
         run = original(_Risks(plan), final=evaluate_all, **options)
 

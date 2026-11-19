@@ -3,6 +3,7 @@ adaptive-iptw,neutral,92,69,0.1475,,bias/ate__composite_l1;bias/ate__insample_co
 adaptive-iptw-pairing,neutral,53,42,0.006,,,0,
 adaptive-tmle-selective,neutral,0,0,0.0,,,0,
 adaptive-tmle-trial,neutral,0,0,0.0,,,0,
+asymmetric-wald,neutral,4,2,0.02625,,,0,
 band-t-reference,neutral,2,2,0.003,,,11,
 band-t-reference-held-out,neutral,2,2,0.003,,,1,
 boundary-node-ltmle,neutral,18,2,0.0055,,boundary_node/clustered_j40__never__supplemented,0,
@@ -21,8 +22,8 @@ canonical-ltmle-crossfit,neutral,5,5,0.01125,,,0,
 canonical-ltmle-survival,neutral,6,6,0.003125,,,2,
 canonical-ltmle-survival-crossfit,neutral,6,6,0.016667,,survival_recursion_necessity/always_t2__survival,0,
 canonical-multi-arm-ctmle-oat,neutral,11,11,0.025,,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_500,0,
-canonical-multi-arm-ctmle-selector,declared,17,15,0.025,root_n_and_efficiency/n_500,power/alternative;root_n_and_efficiency/n_500,0,"the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
-canonical-multi-arm-drtmle,declared,16,15,0.025,root_n_and_efficiency/n_500,root_n_and_efficiency/n_500,0,"root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is unchanged"
+canonical-multi-arm-ctmle-selector,declared,17,15,0.025,root_n_and_efficiency/n_500,power/alternative;root_n_and_efficiency/n_500,0,"the flagged cells read ate[medium vs high], a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
+canonical-multi-arm-drtmle,declared,16,15,0.025,root_n_and_efficiency/n_500,root_n_and_efficiency/n_500,0,"root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
 canonical-multi-arm-tmle,neutral,11,10,0.0125,,double_robustness/outcome_correct;power/alternative;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_500;root_n_and_efficiency/n_8000,1,
 canonical-stratified-drtmle,neutral,8,7,0.04875,,,0,
 canonical-stratified-incremental-msm,declared,31,31,0.0265,interval_calibration/logit_v0_w__correctly_specified,interval_calibration/logit_v0_w__correctly_specified,1,"logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
@@ -30,7 +31,7 @@ canonical-stratified-msm-identity,neutral,12,11,0.004,,,0,
 canonical-stratified-tmle,audited,28,28,0.033,stratified_binary/ey[1][V=2];interval_calibration/v2_ey1__correctly_specified,interval_calibration/v2_ey1__correctly_specified,2,interval-audit.parquet
 canonical-tmle,neutral,7,5,0.01,,power/alternative,0,
 categorical-incremental,neutral,3,3,0.004167,,,0,
-cde-tmle,neutral,12,12,0.015,,cde_robustness/z1__all_correct;cde_robustness/z1__mechanisms_correct;cde_robustness/z1__outcome_correct;root_n_and_efficiency/z1__n_2000,0,
+cde-tmle,neutral,12,8,0.015,,cde_robustness/z1__all_correct;cde_robustness/z1__outcome_correct,0,
 clustered-cross-fitted-ltmle,neutral,6,6,0.009375,,,1,
 clustered-few-cluster-tmle,neutral,2,2,0.008,,,0,
 clustered-tmle,neutral,2,2,0.00375,,,0,
@@ -41,12 +42,12 @@ continuous-survival-functionals,neutral,8,0,0.0,,,0,
 continuous-survival-variance,neutral,40,0,0.0,,,0,
 continuous-time-survival,neutral,10,10,0.007948,,,0,
 cross-fitted-longitudinal-msm,neutral,9,9,0.068,,double_robustness/(intercept)__both_correct;root_n_and_efficiency/(intercept)__n_2000;root_n_and_efficiency/(intercept)__n_8000,1,
-ctmle-derivative,neutral,13,13,0.016667,,double_robustness/outcome_correct,0,
+ctmle-derivative,neutral,13,13,0.0175,,double_robustness/outcome_correct,0,
 ctmle-oat-per-arm,neutral,15,14,0.095,,generated_design/binary_active__estimated;interval_calibration/binary_active__correctly_specified;interval_calibration/binary_weighted__correctly_specified;power/alternative,1,
 ctmle-oat-per-arm-parametric,neutral,27,27,0.008478,,,0,
 ctmle-oat-per-arm-parametric-crossfit,neutral,16,16,0.009,,,0,
 ctmle-oat-per-arm-parametric-extensions,neutral,25,23,0.009837,,,2,
-ctmle-oat-per-arm-strata-missing,declared,39,35,0.02125,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,robustness_contract/ate__strata_missing;robustness_contract/ate__weighted_strata_missing;robustness_contract/ey_obs__missing_outcome_crossfit;robustness_contract/paf__strata_missing;robustness_contract/paf_s0__strata_missing;robustness_contract/par__strata_missing;robustness_contract/par_s0__strata_missing;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,0,"root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, whose interval is unchanged"
+ctmle-oat-per-arm-strata-missing,declared,39,35,0.02125,root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,robustness_contract/ate__strata_missing;robustness_contract/ate__weighted_strata_missing;robustness_contract/ey_obs__missing_outcome_crossfit;robustness_contract/paf__strata_missing;robustness_contract/paf_s0__strata_missing;robustness_contract/par__strata_missing;robustness_contract/par_s0__strata_missing;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_4000,0,"root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
 default-simultaneous-bands,neutral,2,2,0.002,,,25,
 deterministic-regimes,neutral,13,11,0.004167,,,0,
 dose-response,neutral,2,1,0.000625,,,1,
@@ -158,6 +159,6 @@ survival-dr-tmle,neutral,15,15,0.002833,,,0,
 survival-node-bounds,neutral,12,12,0.006528,,,0,
 targeting-curves,declared,28,28,0.959333,simultaneous_coverage/H_band__correctly_specified;type_i_error/N_band__null;type_i_error/U_band__null,simultaneous_coverage/H_band__correctly_specified;type_i_error/N_band__null;type_i_error/U_band__null,0,"the flagged cells are band and type I rows of a targeting curve with truth 0, not package intervals of a mean"
 vector-mtp,neutral,23,20,0.011,,,0,
-weighted-ltmle,neutral,6,6,0.014167,,root_n_and_efficiency/static__n_8000;weight_necessity/static__weighted,0,
+weighted-ltmle,neutral,6,1,0.01,,root_n_and_efficiency/static__n_8000,0,
 weighted-ltmle-crossfit,neutral,7,7,0.014167,,power/static__alternative;weight_necessity/static__weighted,0,
 weighted-tmle,neutral,12,11,0.01125,,root_n_and_efficiency/n_2000,0,

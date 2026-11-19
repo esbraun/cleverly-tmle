@@ -117,6 +117,20 @@ def fit_binary() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
 
 
+def fit_constant_arm_cell() -> Any:
+    """A binary fit whose treated arm shows one outcome value, so its estimates withhold.
+
+    Every treated row of ``make_binary_outcome(400, 17)`` takes ``Y = 1``. Each estimate that
+    reads the treated arm carries ``"constant_arm_cell_plugin"``, which reports no interval
+    and no p-value, and ``ey0`` keeps its range-logit interval.
+    """
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    frame.loc[frame["A"] == 1, "Y"] = 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A").single()
+
+
 def fit_missing() -> Any:
     """A binary-treatment fit with missing outcomes, which both tilt rows admit."""
     return (
@@ -2239,6 +2253,9 @@ KINDS: dict[str, Kind] = {
     "iptw_missing_treatment_crossfit": _kind(fit_iptw_missing_treatment_crossfit, *_READ),
     "iptw_regime_missing": _kind(fit_iptw_regime_missing, *_READ),
     "binary": _kind(fit_binary, "marginal_bounds", *_ARM),
+    # A withheld interval (Fix-3 PR 3): the E-value, which needs an interval, refuses by the
+    # status; the plug-in bound rows and the benchmark answer.
+    "constant_arm_cell": _kind(fit_constant_arm_cell, *_LIVE, *_PLUGIN_BOUND, "benchmark"),
     # A declared mechanism leaves no omitted confounder of the treatment, so benchmark
     # refuses it, as on every declared-mechanism fit. The bound rows answer the ATE; their
     # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).

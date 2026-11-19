@@ -19,20 +19,31 @@ A pass with some block not kept evaluates a short ladder of step sizes, the step
 so one rebuild serves the rejections a walk usually meets; :func:`ladder_decision` consumes the
 ladder exactly as the dense loop would take its trials one at a time.
 
+With ``n_jobs`` above one a pass hands its blocks to a pool of threads (:func:`for_blocks`).
+Each block writes only its own rows and its own kept slot; what a block adds to a sum over
+blocks, and any warning it raises, is committed in row order, so a result never depends on
+``n_jobs``.  A user learner is called under a lock, and the threads leave the BLAS thread
+settings alone.
+
 X106 part C2 (bounded-memory continuous-time survival).
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Final, Literal, Protocol
 
 import numpy as np
 
 from .._typing import FloatArray, IntArray
+from .._warnings import merge, recording
+from ..utils.parallel import map_parallel
 from . import _targeting as T
 
 _LOG = logging.getLogger(__name__)
@@ -49,6 +60,75 @@ RESIDENT_SHARE: Final = 0.75
 OVERFLOW_BOUND: Final = 700.0
 #: Whether the walk runs on the event-support grid (a private switch for the benchmark).
 REDUCE_GRID: Final = True
+#: Held while a hazard learner other than the shipped ones predicts, so that no learner is
+#: entered by two threads at once; reentrant, so a learner that itself fits on one thread
+#: does not wait on itself.
+_LEARNER_LOCK: Final = threading.RLock()
+
+
+def for_blocks(
+    count: int,
+    work: Callable[[int], Any],
+    commit: Callable[[int, Any], None],
+    n_jobs: int = 1,
+) -> None:
+    """Run ``work(k)`` for every block ``k`` and ``commit(k, result)`` in block order.
+
+    With ``n_jobs`` above one the work runs on that many threads through
+    :func:`cleverly.utils.parallel.map_parallel`, ``2 * n_jobs`` blocks at a time, each block in
+    a copy of the caller's context (so NumPy's error state reaches it) under a warning recorder
+    of its own; the batch's warnings and results are merged and committed in block order once
+    all of them have finished.  Commits always run on the calling
+    thread.  The error of the earliest failing block, in block order, is raised here once its
+    batch has finished.
+
+    Parameters
+    ----------
+    count : int
+        The blocks.
+    work : callable
+        Builds block ``k``'s result; it writes only that block's rows.
+    commit : callable
+        Takes each result in block order.
+    n_jobs : int
+        The threads.
+    """
+    if n_jobs <= 1 or count <= 1:
+        for k in range(count):
+            commit(k, work(k))
+        return
+    base = contextvars.copy_context()
+
+    def run(k: int) -> tuple[bool, Any, tuple[Any, ...]]:
+        # The block runs in the caller's context, so its package warnings would reach the
+        # caller's recorder from several threads at once; a recorder of its own keeps them,
+        # and they are merged in block order below.
+        def recorded() -> tuple[bool, Any, tuple[Any, ...]]:
+            with recording() as records:
+                try:
+                    value = work(k)
+                except Exception as error:  # raised in block order below
+                    return False, error, tuple(records)
+            return True, value, tuple(records)
+
+        return base.copy().run(recorded)
+
+    depth = 2 * n_jobs
+    for start in range(0, count, depth):
+        batch = map_parallel(
+            run,
+            list(range(start, min(start + depth, count))),
+            n_jobs=n_jobs,
+            # Threads always: the blocks write into the walk's shared arrays, so a process
+            # backend set around the fit (joblib.parallel_config) must not take them.
+            require="sharedmem",
+        )
+        for k, (ok, value, records) in enumerate(batch, start):
+            merge(records)
+            if not ok:
+                raise value
+            commit(k, value)
+        del batch, value, records
 
 
 def chunk_size(n: int, causes: int, times: int) -> int:
@@ -320,15 +400,32 @@ class _Walker:
         self.slots: list[_State | None] = [None] * len(self.bounds)
         self.accepted: list[Accepted] = []
         self.replayed = 0
+        self._count = threading.Lock()
 
     def fresh(self, k: int) -> _State:
         jumps = self.plan.initial(k)
         survival, incidence = T.curves(jumps)
         return _State(jumps, survival, incidence, 0, self.plan.problem(k))
 
-    def keep(self, k: int, state: _State) -> None:
-        if k < self.resident:
+    def keep(self, k: int, state: _State) -> _State:
+        """Keep block ``k``'s state when it is a kept block; return the state to work on."""
+        if k >= self.resident:
+            return state
+        slot = self.slots[k]
+        if slot is None or slot is state or len(self.bounds) == 1:
+            # The dense walk (one block) starts from the caller's own jumps, which must not be
+            # written.
             self.slots[k] = state
+            return state
+        # Each step is written into the kept arrays.  New arrays would come from the malloc
+        # arena of whichever thread replayed the block (glibc keeps an arena per thread), so
+        # with threads the freed kept arrays would pile up in other threads' arenas and the
+        # resident memory would creep pass after pass.
+        np.copyto(slot.jumps, state.jumps)
+        np.copyto(slot.survival, state.survival)
+        np.copyto(slot.incidence, state.incidence)
+        slot.applied = state.applied
+        return slot
 
     def state(self, k: int) -> _State:
         """Block ``k`` after every accepted step, kept or rebuilt."""
@@ -336,7 +433,8 @@ class _Walker:
         state = slot if slot is not None else self.fresh(k)
         target = len(self.accepted)
         if state.applied < target and slot is None:
-            self.replayed += target - state.applied
+            with self._count:
+                self.replayed += target - state.applied
         lo, hi = self.bounds[k]
         while state.applied < target:
             step = self.accepted[state.applied]
@@ -350,8 +448,7 @@ class _Walker:
             del direction
             survival, incidence = T.curves(jumps)
             state = _State(jumps, survival, incidence, state.applied + 1, state.problem)
-        self.keep(k, state)
-        return state
+        return self.keep(k, state)
 
     def local(self, flat: IntArray, lo: int, hi: int) -> np.ndarray:
         """The ``(2, hi - lo)`` mask of the flat ``(2, n)`` indices that fall in rows ``lo:hi``."""
@@ -382,11 +479,13 @@ class _Walker:
         floor: float,
         held: np.ndarray | None,
         reach: FloatArray | None,
-    ) -> tuple[FloatArray, FloatArray, np.ndarray]:
-        """One trial on block ``k``: its parts, plug-ins and low pairs.
+    ) -> tuple[FloatArray, FloatArray, np.ndarray, bool]:
+        """One trial on block ``k``: its parts, plug-ins, low pairs and whether it overflowed.
 
         ``reach`` bounds each pair's ``|direction|`` at the times the walk's grid drops
-        (:meth:`reach`), ``None`` when it drops none.
+        (:meth:`reach`), ``None`` when it drops none.  The last value says the dense walk's
+        ``exp`` overflowed at a dropped time, which :func:`overflow_probe` answers for when
+        the block is committed.
         """
         increment = direction if held is None else direction * ~held[:, None, :, None]
         increment = increment * step
@@ -399,6 +498,7 @@ class _Walker:
             parts, plugins = T.evaluate_rows(state.problem, candidate, survival, incidence)
         low = survival[..., -1] < floor
         del candidate, survival, incidence
+        overflowed = False
         if reach is not None:
             bound = step * reach
             if held is not None:
@@ -414,15 +514,11 @@ class _Walker:
                     # the pair's jumps, survival and parts turn NaN, so its survival is not low
                     # and the trial's score is not finite.
                     rows = np.flatnonzero(nan.any(axis=0))
-                    if rows.size:
-                        # The dense walk's exp overflowed and its product with the zero jump
-                        # was invalid; NumPy's error state answers here as it did there.
-                        probe = np.exp(np.full(1, 2.0 * OVERFLOW_BOUND))
-                        probe *= 0.0
+                    overflowed = bool(rows.size)
                     parts[rows] = np.nan
                     plugins[rows] = np.nan
                     low &= ~nan
-        return parts, plugins, low
+        return parts, plugins, low, overflowed
 
     def reach(self, k: int, state: _State, v: FloatArray) -> FloatArray | None:
         r"""``(2, c)`` a bound on each pair's direction at the dropped times, or ``None``.
@@ -505,6 +601,17 @@ class _Walker:
         return bound
 
 
+def overflow_probe() -> None:
+    """Raise the dense walk's floating-point signals for a trial that overflowed.
+
+    The dense walk's ``exp`` overflowed at a dropped time and its product with the zero jump
+    there was invalid; NumPy's error state answers here as it did there, on the thread that
+    commits the block, in block order.
+    """
+    probe = np.exp(np.full(1, 2.0 * OVERFLOW_BOUND))
+    probe *= 0.0
+
+
 def run_walk(
     plan: Plan,
     *,
@@ -516,7 +623,8 @@ def run_walk(
     tilt: Literal["all", "factual"] = "all",
     resident: int | None = None,
     ladder: int | None = None,
-    final: Callable[[int, int, int, Any], None] | None = None,
+    final: Callable[[int, int, int, Any], Callable[[], None] | None] | None = None,
+    n_jobs: int = 1,
 ) -> WalkRun:
     """Walk the universal least favourable submodel over the blocks of ``plan``.
 
@@ -547,7 +655,10 @@ def run_walk(
         :data:`LADDER`.  A pass with every block kept evaluates one.
     final : callable or None
         Called once per block after the walk as ``final(k, lo, hi, state)`` with the block's
-        targeted state.
+        targeted state.  It writes only the block's rows and may return a callable, which
+        is called in block order on the calling thread (to add the block to a sum).
+    n_jobs : int
+        The threads a pass runs its blocks on (:func:`for_blocks`); it never changes a result.
 
     Returns
     -------
@@ -568,20 +679,15 @@ def run_walk(
     started = time.perf_counter()
     parts = np.empty((n, P))
     plugins = np.empty((n, P))
-    lowest, undefined = np.inf, False
-    for k, (lo, hi) in enumerate(bounds):
-        state = walker.fresh(k)
-        parts[lo:hi], plugins[lo:hi] = T.evaluate_rows(
-            state.problem, state.jumps, state.survival, state.incidence
-        )
-        last = state.survival[..., -1]
-        if np.isnan(last).any():
-            undefined = True
-        elif last.size:
-            lowest = min(lowest, float(np.min(last)))
-        walker.keep(k, state)
-        # ``last`` is a view: deleted, so it keeps no block's survival through the walk.
-        del state, last
+    lasts: list[tuple[bool, float]] = []
+    for_blocks(
+        len(bounds),
+        partial(_initial_rows, walker, parts, plugins),
+        partial(_collect, lasts),
+        n_jobs,
+    )
+    undefined = any(nan for nan, _ in lasts)
+    lowest = min((smallest for _, smallest in lasts), default=np.inf)
     passes += 1
     _log_pass("initial", 0, started, walker, passes)
     initial = T.summarize(parts, plugins)
@@ -618,21 +724,12 @@ def run_walk(
         retried = [(np.empty((n, P)), np.empty((n, P))) for _ in sizes]
         lows = [np.zeros((2, n), dtype=bool) for _ in sizes]
         still = [False for _ in sizes]
-        for k, (lo, hi) in enumerate(bounds):
-            state = walker.state(k)
-            direction = walker.direction(k, state, v)
-            reach = walker.reach(k, state, v)
-            for e, size in enumerate(sizes):
-                p, q, low = walker.trial(k, state, direction, size, v, survival_floor, None, reach)
-                tried[e][0][lo:hi], tried[e][1][lo:hi] = p, q
-                if low.any():
-                    lows[e][:, lo:hi] = low
-                    p, q, again = walker.trial(
-                        k, state, direction, size, v, survival_floor, low, reach
-                    )
-                    still[e] = still[e] or bool(again.any())
-                retried[e][0][lo:hi], retried[e][1][lo:hi] = p, q
-            del state, direction, reach
+        for_blocks(
+            len(bounds),
+            partial(_trial_rows, walker, v, sizes, survival_floor, tried, retried, lows),
+            partial(_trial_commit, still),
+            n_jobs,
+        )
         passes += 1
         outcomes = []
         for e in range(len(sizes)):
@@ -671,13 +768,16 @@ def run_walk(
     survival = incidence = None
     if final is not None or all_kept:
         started = time.perf_counter()
-        for k, (lo, hi) in enumerate(bounds):
-            state = walker.state(k)
-            if final is not None:
-                final(k, lo, hi, state)
-            if len(bounds) == 1 and all_kept:
-                dlam, survival, incidence = state.jumps, state.survival, state.incidence
-            del state
+        whole: list[_State] = []
+        for_blocks(
+            len(bounds),
+            partial(_final_rows, walker, final, len(bounds) == 1 and all_kept),
+            partial(_final_commit, whole),
+            n_jobs,
+        )
+        if whole:
+            dlam, survival, incidence = whole[0].jumps, whole[0].survival, whole[0].incidence
+        del whole
         passes += 1
         _log_pass("final", steps, started, walker, passes)
     targeted = T.Evaluation(
@@ -700,6 +800,97 @@ def run_walk(
         history,
     )
     return WalkRun(result, walker.accepted, passes, walker.replayed)
+
+
+def _collect(into: list[Any], k: int, found: Any) -> None:
+    """Keep block ``k``'s result."""
+    into.append(found)
+
+
+def _initial_rows(
+    walker: _Walker, parts: FloatArray, plugins: FloatArray, k: int
+) -> tuple[bool, float]:
+    """Pass 0 on block ``k``: its rows of the initial fit, and whether and how low its
+    survival at the grid's end is (NaN, and the smallest value otherwise)."""
+    lo, hi = walker.bounds[k]
+    state = walker.fresh(k)
+    parts[lo:hi], plugins[lo:hi] = T.evaluate_rows(
+        state.problem, state.jumps, state.survival, state.incidence
+    )
+    last = state.survival[..., -1]
+    nan = bool(np.isnan(last).any())
+    smallest = float(np.min(last)) if last.size and not nan else np.inf
+    walker.keep(k, state)
+    # ``last`` is a view: deleted, so it keeps no block's survival through the walk.
+    del state, last
+    return nan, smallest
+
+
+def _trial_rows(
+    walker: _Walker,
+    v: FloatArray,
+    sizes: list[float],
+    floor: float,
+    tried: list[tuple[FloatArray, FloatArray]],
+    retried: list[tuple[FloatArray, FloatArray]],
+    lows: list[np.ndarray],
+    k: int,
+) -> tuple[list[bool], int]:
+    """A step pass on block ``k``: every trial size's rows, with the retry holding low pairs.
+
+    Returns whether each size's retry still had low pairs, and how many trials overflowed.
+    """
+    lo, hi = walker.bounds[k]
+    state = walker.state(k)
+    direction = walker.direction(k, state, v)
+    reach = walker.reach(k, state, v)
+    again_any = [False for _ in sizes]
+    probes = 0
+    for e, size in enumerate(sizes):
+        p, q, low, over = walker.trial(k, state, direction, size, v, floor, None, reach)
+        probes += over
+        tried[e][0][lo:hi], tried[e][1][lo:hi] = p, q
+        if low.any():
+            lows[e][:, lo:hi] = low
+            p, q, again, over = walker.trial(k, state, direction, size, v, floor, low, reach)
+            probes += over
+            again_any[e] = bool(again.any())
+        retried[e][0][lo:hi], retried[e][1][lo:hi] = p, q
+    del state, direction, reach
+    return again_any, probes
+
+
+def _trial_commit(still: list[bool], k: int, found: tuple[list[bool], int]) -> None:
+    """Take block ``k``'s step pass: its overflow signals, then its still-low flags."""
+    for _ in range(found[1]):
+        overflow_probe()
+    for e, again in enumerate(found[0]):
+        still[e] = still[e] or again
+
+
+def _final_rows(
+    walker: _Walker,
+    final: Callable[[int, int, int, Any], Callable[[], None] | None] | None,
+    whole: bool,
+    k: int,
+) -> tuple[_State | None, Callable[[], None] | None]:
+    """The final pass on block ``k``: the caller's rows, and the state when it is the walk's
+    only block."""
+    lo, hi = walker.bounds[k]
+    state = walker.state(k)
+    then = None if final is None else final(k, lo, hi, state)
+    return (state if whole else None), then
+
+
+def _final_commit(
+    whole: list[_State], k: int, found: tuple[_State | None, Callable[[], None] | None]
+) -> None:
+    """Take block ``k``'s final pass in block order."""
+    state, then = found
+    if then is not None:
+        then()
+    if state is not None:
+        whole.append(state)
 
 
 def _length(parts: FloatArray, metric: FloatArray) -> float:
@@ -909,7 +1100,8 @@ class HazardSource:
             else:
                 Xa = self._X[lo:hi][sel].copy()
                 Xa[:, 0] = a
-                out[sel] = entry.model.cumulative_hazard(Xa, self._grid)
+                with _LEARNER_LOCK:
+                    out[sel] = entry.model.cumulative_hazard(Xa, self._grid)
         return out
 
     def jumps(self, a: int, lo: int, hi: int) -> FloatArray:

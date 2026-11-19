@@ -1,0 +1,53 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 100,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 300,
+    "seconds_capture": 1.13,
+    "seconds_fit": 96.84,
+    "stage": "refits",
+    "study": "canonical-stratified-tmle"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 8,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 43,
+    "seconds_capture": 1.12,
+    "seconds_fit": 6.23,
+    "stage": "scope",
+    "study": "canonical-stratified-tmle"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/v2_ate_crossfit__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 2400,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 9600,
+    "seconds_capture": 1.06,
+    "seconds_fit": 3454.12,
+    "stage": "settle",
+    "study": "canonical-stratified-tmle"
+  }
+}

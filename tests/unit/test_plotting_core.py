@@ -365,6 +365,75 @@ def test_withheld_inference_control_fails_when_the_interval_is_drawn(
         _assert_no_interval_with_reason(forest(withheld), WITHHELD)
 
 
+@pytest.fixture(scope="module")
+def continuous_fit() -> Any:
+    rng = np.random.default_rng(2)
+    w = rng.normal(size=300)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    y = w + a + rng.lognormal(0.0, 1.2, size=300)
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    return (
+        TMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=False,
+            random_state=0,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W"])
+        .single()
+    )
+
+
+def _assert_asymmetric_bar(estimate: Any) -> None:
+    """The bar is the shipped interval, and its two arms differ in length."""
+    ax = forest(estimate).axes[0]
+    (segment,) = _interval_segments(ax)
+    low, high = sorted(segment[:, 0])
+    assert (low, high) == pytest.approx(estimate.ci, rel=1e-12)
+    below, above = estimate.psi - low, high - estimate.psi
+    assert below > 0.0 and above > 0.0
+    assert abs(above - below) > 0.02 * (above + below)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "name", "rule"),
+    [
+        ("binary_fit", "ey1", "range_logit"),
+        ("binary_fit", "ate", "mover"),
+        ("continuous_fit", "ate", "skew_t"),
+    ],
+)
+def test_an_asymmetric_interval_draws_an_asymmetric_bar(
+    fixture: str, name: str, rule: str, request: pytest.FixtureRequest
+) -> None:
+    estimate = request.getfixturevalue(fixture)[name]
+    assert estimate.interval_scale == rule
+    _assert_asymmetric_bar(estimate)
+
+
+def test_a_symmetric_bar_fails_the_asymmetry_witness(
+    continuous_fit: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation control: a bar rebuilt as ``psi +/- z * se`` is rejected."""
+    real = _core.estimate_interval
+
+    def rebuilt(estimate: Any, name: str | None = None) -> Any:
+        found = real(estimate, name)
+        half = 1.959963984540054 * estimate.std_error
+        return dataclasses.replace(found, lower=estimate.psi - half, upper=estimate.psi + half)
+
+    monkeypatch.setattr(_core, "estimate_interval", rebuilt)
+    with pytest.raises(AssertionError):
+        _assert_asymmetric_bar(continuous_fit["ate"])
+
+
+@pytest.mark.parametrize("status", ["constant_arm_cell_plugin", "out_of_range_plugin"])
+def test_a_withheld_interval_status_draws_no_bar(binary_fit: Any, status: str) -> None:
+    withheld = dataclasses.replace(binary_fit["ey1"], inference=status)
+    assert all(np.isnan(withheld.plugin_interval))
+    _assert_no_interval_with_reason(forest(withheld), status)
+
+
 def test_an_experimental_estimate_says_so(binary_fit: Any) -> None:
     support = Support("experimental", "No registered study covers this configuration.")
     experimental = dataclasses.replace(binary_fit["ate"], support=support)

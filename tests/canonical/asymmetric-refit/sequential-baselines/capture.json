@@ -1,0 +1,93 @@
+{
+  "refits": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 240,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/calibration_d2",
+      "properties/calibration_g",
+      "properties/calibration_d2s",
+      "properties/calibration_d2c",
+      "properties/calibration_gm",
+      "properties/misspecification_x",
+      "properties/ladder_d2_n_2000",
+      "properties/ladder_d2_n_4000",
+      "properties/ladder_d2_n_8000",
+      "properties/ladder_g_n_2000",
+      "properties/ladder_g_n_4000",
+      "properties/ladder_g_n_8000",
+      "properties/adaptive_x_n_1000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 1060,
+    "seconds_capture": 15.68,
+    "seconds_fit": 426.35,
+    "stage": "refits",
+    "study": "sequential-baselines"
+  },
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 16,
+    "keys_fitted": 19,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/calibration_d2",
+      "properties/calibration_g",
+      "properties/calibration_d2s",
+      "properties/calibration_d2c",
+      "properties/calibration_gm",
+      "properties/misspecification_x",
+      "properties/ladder_d2_n_2000",
+      "properties/ladder_d2_n_4000",
+      "properties/ladder_d2_n_8000",
+      "properties/ladder_g_n_2000",
+      "properties/ladder_g_n_4000",
+      "properties/ladder_g_n_8000",
+      "properties/adaptive_x_n_1000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 88,
+    "seconds_capture": 15.51,
+    "seconds_fit": 90.91,
+    "stage": "scope",
+    "study": "sequential-baselines"
+  },
+  "settle": {
+    "failed_keys": 0,
+    "groups": [
+      "interval_calibration/hajek_g_rule__correctly_specified",
+      "interval_calibration/hajek_g_treat_none__correctly_specified",
+      "interval_calibration/ht_g_contrast__correctly_specified",
+      "interval_calibration/ht_g_rule__correctly_specified",
+      "interval_calibration/ht_g_treat_none__correctly_specified"
+    ],
+    "jobs": 16,
+    "keys_fitted": 8800,
+    "primary_captured": true,
+    "property_calls": [
+      "properties/calibration_d2",
+      "properties/calibration_g",
+      "properties/calibration_d2s",
+      "properties/calibration_d2c",
+      "properties/calibration_gm",
+      "properties/misspecification_x",
+      "properties/ladder_d2_n_2000",
+      "properties/ladder_d2_n_4000",
+      "properties/ladder_d2_n_8000",
+      "properties/ladder_g_n_2000",
+      "properties/ladder_g_n_4000",
+      "properties/ladder_g_n_8000",
+      "properties/adaptive_x_n_1000"
+    ],
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 105600,
+    "seconds_capture": 16.17,
+    "seconds_fit": 9879.74,
+    "stage": "settle",
+    "study": "sequential-baselines"
+  }
+}

@@ -28,6 +28,7 @@ from cleverly.inference import (
     make_estimate,
     reference_quantile,
     satterthwaite_df,
+    skew_widened_ci,
     wald_ci,
     wald_statistic,
 )
@@ -343,13 +344,16 @@ def test_the_df_is_none_where_it_has_no_meaning() -> None:
     assert flat.effective_df is None
 
 
-def test_the_df_never_sets_a_status_and_the_ci_does_not_read_it() -> None:
+def test_the_df_never_sets_a_status_and_the_ci_reads_it_through_the_skew_widened_t() -> None:
     heavy = 1e-3 * np.random.default_rng(4).normal(size=200)
     heavy[0] = 1.0
     estimate = make_estimate("x", 0.5, heavy, n=200, rule_widened=False, outcome_family="gaussian")
     assert estimate.small_sample_df < 2.1
     assert estimate.inference == "influence_curve"
-    assert estimate.ci == wald_ci(0.5, estimate.std_error)
+    assert estimate.interval_scale == "skew_t"
+    assert estimate.ci == skew_widened_ci(
+        0.5, estimate.std_error, df=estimate.effective_df, acceleration=estimate.acceleration
+    )
 
 
 def test_the_second_moment_rule_reads_uncentred_terms() -> None:

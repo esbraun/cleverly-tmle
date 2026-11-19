@@ -11,7 +11,9 @@ horizon on its own, and ``targeting="one_step"`` walks one set of hazards over t
 from __future__ import annotations
 
 import functools
+import gc
 import os
+import weakref
 from typing import Any
 
 import numpy as np
@@ -270,6 +272,35 @@ def test_e5_a_per_horizon_state_reproduces_its_own_horizon_only(name: str) -> No
                         diff = abs(levels[r, j, other - 1] - reported[(label, cause, other)])
                         elsewhere = max(elsewhere, diff)
         assert elsewhere > 1e-6
+
+
+def test_e5_each_horizon_state_is_released_before_the_next_horizon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """X106 J2c: the per-horizon targeting keeps each horizon's levels and influence curves,
+    not its state, so no earlier horizon's state is alive when the next horizon is solved,
+    and no reported influence curve views an array that spans every horizon."""
+    law = LAWS["one cause"]
+    original = hazard_module.solve_per_horizon
+    states: list[weakref.ref[Any]] = []
+    alive: list[int] = []
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        gc.collect()
+        alive.append(sum(ref() is not None for ref in states))
+        state, record = original(*args, **kwargs)
+        states.append(weakref.ref(state))
+        return state, record
+
+    monkeypatch.setattr(hazard_module, "solve_per_horizon", counted)
+    result = _fit(law, "iterative", learner=ArmOnly())
+    assert len(alive) == len(_horizons(law)) > 2
+    assert alive == [0] * len(alive)
+    for fit in result.fits.values():
+        curve = np.asarray(fit.influence_curve_scaled)
+        # At most one horizon's curves of every regimen and cause: a copied slice, not a
+        # view of the ``(R, J, H, n)`` array of a whole state.
+        assert curve.base is None or curve.base.size <= curve.size * len(REGIMENS)
 
 
 # ------------------------------------------------------------------------------ E6

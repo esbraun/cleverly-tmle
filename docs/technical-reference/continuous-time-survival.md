@@ -388,6 +388,14 @@ fit's `max_memory_bytes`, and a truncation curve holds no more than its fit.
 `ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the budget
 can be set.
 
+With `n_jobs=` above one on `ContinuousSurvivalTMLE` (or `Runtime(n_jobs=...)` on the study
+route), each pass runs its blocks on that many threads. Each block writes only its own rows, and
+the off-grid sums and any floating-point signal are taken in row order, at most $2 \times$
+`n_jobs` blocks ahead, so every result is bit for bit the same at any `n_jobs`. A user learner is
+called by one thread at a time, and the threads leave the BLAS thread settings alone. Each thread
+holds one block's working arrays, which the prediction and the budget count. `-1` takes the CPUs
+the process may use, capped by a control group's quota.
+
 Rebuilding a block calls the hazard learner again, so a learner's `cumulative_hazard` must return
 the same values for the same rows on every call, each row predicted from that row alone. The fit
 predicts the first block's cause and censoring hazards twice and refuses a user learner whose

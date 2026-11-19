@@ -66,12 +66,84 @@ standard error and curve stay in time units
 ([continuous-time survival](continuous-time-survival.md)). Every other estimate with bounds
 other than $(0, 1)$ keeps the identity interval.
 
-Every other estimate keeps its interval: a difference of two such means (identity scale, normal
-reference), a working-model coefficient of a binary outcome, a ratio or a transformed contrast
-(normal reference on its own scale), every estimate of a continuous outcome, and every clustered
-estimate, whose reference is [Few clusters](#few-clusters). The point-treatment TMLE family (`TMLE`, `DRTMLE`,
-`CTMLE` and the composite missing-data fit) and the longitudinal estimators attach `bounds` to
-their means; `IPTW` and `ATMLE` attach none, so their intervals stay on the identity scale.
+A bounded difference of two such means of one fit, $\hat d = \hat\psi_1 - \hat\psi_0$ with
+`bounds` $(-1, 1)$, unclustered, forms its interval by correlated MOVER from the two means' logit
+intervals $(l_j, u_j)$. With $r$ the correlation of the two estimates,
+$r = (\widehat{se}_1^2 + \widehat{se}_0^2 - \widehat{se}_d^2) / (2\,\widehat{se}_1\widehat{se}_0)$,
+
+$$
+\hat d - \sqrt{(\hat\psi_1 - l_1)^2 + (u_0 - \hat\psi_0)^2 - 2r(\hat\psi_1 - l_1)(u_0 - \hat\psi_0)},
+\quad
+\hat d + \sqrt{(u_1 - \hat\psi_1)^2 + (\hat\psi_0 - l_0)^2 - 2r(u_1 - \hat\psi_1)(\hat\psi_0 - l_0)}.
+$$
+
+With $r = 0$ it is the MOVER interval of Tang (2021, display 1) for independent groups, and with
+symmetric arm intervals it is the difference's own Wald interval for every $r$
+([references](../references.md#asymmetric-intervals)). The correlation is exact where the
+difference's influence curve is the difference of the two means' curves, so the fit records the
+two means as `components` only after it checks that identity in the estimate and in the curve
+(`cleverly.inference.with_components`). The point-treatment TMLE family records them for an
+arm-mean difference such as `ate` and a stratum effect, the longitudinal estimators for a
+contrast of two bounded levels, and `result.contrast()` for a difference of two bounded level
+means of one result. `interval_scale` is `"mover"`. A
+difference without recorded components keeps the identity normal interval and says so with
+`interval_scale == "identity"`: an `att` or `atc`, a contrast that reads more than two arms, a
+difference formed as the median over repeated cross-fitting splits, which does not carry the
+splits' arms, and a risk difference of a survival fit (`ate_regimen` of `cleverly.survival`),
+whose builder records no components.
+
+An unclustered estimate of a continuous outcome (`outcome_family == "gaussian"`) takes the
+skew-widened t. With $\nu$ the moment degrees of freedom of its influence curve (Fay and
+Graubard's Appendix A, `small_sample_df`), $t = t_{1-\alpha/2,\,\max(\nu, 5)}$, $a$ the curve's
+acceleration (DiCiccio and Efron's display 6.6, `curve_acceleration()`) and $K = 2z^2 + 1$,
+
+$$
+\left[\hat\psi - \widehat{se}\,\max(t,\ t - aK),\;\; \hat\psi + \widehat{se}\,\max(t,\ t + aK)\right].
+$$
+
+It contains the t interval on every sample and widens only the side the curve's skewness points
+to, by $|a| K\,\widehat{se}$; on a curve whose sample skewness is zero it is the t interval. On a
+symmetric law the sample skewness is not zero, so the interval still widens a little (2.7% and
+2.2% on law C3, below). `effective_df` reports
+$\max(\nu, 5)$ (`to_frame()` and `to_dict()` carry it as `effective_df`), `interval_scale` is
+`"skew_t"`, and `summary()` adds a df column when an estimate's df is below 250, printing `250+`
+above that. A working-model coefficient, the working model's level means and an effect-curve row
+of a continuous outcome take it too, from the curve of each.
+
+What the evidence covers differs by target. The containment of the t interval holds for every one of them, on every sample. The tail
+clause below was measured on stratified TMLE level means and stratum effects, with one
+identity-MSM coefficient reported, and $K$ is the polynomial of a studentized mean; for a
+Z-estimator coefficient the standard-error term of the expansion differs. IPTW, ATMLE, the
+g-formula, structural nested mean model coefficients and effect-curve rows carry the containment
+only.
+
+On both asymmetric intervals the test inverts the interval. The p-value is the largest
+$\alpha$ at which the null still lies inside the level-$(1 - \alpha)$ interval, found on a grid of
+$\alpha$ and refined by bisection to $10^{-12}$, with a floor of $10^{-15}$; the statistic is
+$\Phi^{-1}(1 - p/2)$ with the sign of $\hat\psi - h$. The floor caps the statistic at about 8.03:
+an estimate hundreds of standard errors from the null reports 8.03, so read the p-value, not the
+statistic, far from the null. Where the limits widen as $\alpha$ falls,
+the p-value is at most $\alpha$ exactly when the null lies outside the level-$(1 - \alpha)$
+interval. MOVER's limits can fail to widen monotonically when the two arms are strongly
+correlated ($r$ above about 0.87) and of unequal spread; there a p-value below $\alpha$ still
+means the null is outside the interval, but a null outside it can have a p-value above $\alpha$.
+The arms of a TMLE difference are nearly uncorrelated on the registered laws ($r$ about 0.005), and
+$r$ can be large when the covariates strongly predict the outcome.
+
+A sensitivity bound forms its limits about its own end point with its own standard error, under
+the rule of the estimate it bounds. `cleverly.inference.interval_reference` reads that rule at a
+given point, standard error, influence curve and level, and returns the two limits, their
+half-widths and the reference (normal, or t with its degrees of freedom). The omitted-variable
+limits and the marginal sensitivity limits read it, so at no confounding the omitted-variable
+limits are the estimate's `ci`. The helper gives no limits for a withheld interval. A bound of
+such an estimate keeps identity-scale plug-in limits as a diagnostic, which its accessors refuse.
+
+Every other estimate keeps its interval: a working-model coefficient of a binary outcome, a ratio
+or a transformed contrast (normal reference on its own scale), an estimate whose outcome family is
+not recorded, and every clustered estimate, whose reference is [Few clusters](#few-clusters). The
+point-treatment TMLE family (`TMLE`, `DRTMLE`, `CTMLE` and the composite missing-data fit) and the
+longitudinal estimators attach `bounds` to their means; `IPTW` and `ATMLE` attach none, so for a
+binary outcome their intervals stay on the identity scale.
 
 Two cases report no interval, no p-value and no standard error
 ([Inference status](#inference-status)):
@@ -126,6 +198,25 @@ The plug-in interval covered the truth in none of those 191 samples. The withhol
 data, so it is itself random; the coverage claim is conditional on an interval being shown.
 F41 in the [roadmap](../roadmap.md#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound)
 holds the route to an interval in both withheld cases.
+
+The registered study [asymmetric-wald](method-evidence/asymmetric-wald-intervals.md) measures the
+two asymmetric intervals on held-out laws declared before any fit on them (D1 and D2, sparse arms
+near a bound; C1 to C3, skewed and symmetric continuous errors) and on the cells that refuted
+the earlier rule. Each gated cell passes a coverage clause and a tail clause: no one-sided miss
+rate shown above 0.040, by its 99% lower bound, on 4,000 fits. That is what the study tests; no
+per-tail rate is claimed, because the skew-widened t removes the skewness term of the
+studentized statistic's expansion and leaves its median-bias term. The lognormal law of
+skewness 2.3 keeps a heavy-side residue of 175 misses in 4,000 against a nominal 100.
+
+MOVER over-corrects: on D1 it misses 50 times below and 135 above, where the identity interval
+missed 258 times below and 56 above. The side the identity interval missed on becomes the
+conservative one, and the other side carries more than its nominal 100 misses, inside the tail
+clause. The lognormal law of skewness 11.2 covers 0.922, a stated limit of the measured range: a
+very heavy right tail makes the curve's sample skewness noisy at this stratum size.
+
+D1 and D2 are new laws in mechanism classes already known to the study, a sparse arm near a bound,
+not new mechanisms. On the symmetric law C3 the skew-widened interval is 2.7% and 2.2% wider than
+the t interval, the price of the widening where no skew is present.
 
 ## Covariance rules
 
@@ -839,17 +930,27 @@ no band covers such an estimate, and a band over the remaining members would des
 the data chose. The builder of a bounded mean sets both statuses
 ([Small-sample scale](#small-sample-scale)).
 
-The pointwise interval of a band member is the Wald interval $\hat\psi \pm 1.96\,\widehat{se}$ on
-the identity scale (the log scale for a ratio). The band and the pointwise interval share the
-centre and the standard error, so their nesting reduces to the critical values on one scale:
+The pointwise interval of a band member is its own `ci`, and the band is symmetric on its scale
+with half-width $\hat c\,\widehat{se}$. The two share the centre and the standard error, so the band
+contains the pointwise interval exactly when $\hat c$ reaches the member's pointwise critical value
+on each side. That value is 1.96 for a member on the identity scale (the log scale for a ratio).
+A continuous-outcome member (`interval_scale == "skew_t"`) reaches $t + |\hat a| K$ standard
+errors on its heavy side and $t$ on the other, where $t$ is its capped $t$ quantile and
+$K = 2z^2 + 1$. A MOVER
+difference (`"mover"`) has two half-widths that differ:
 
 | target | default band | $t$ band |
 | --- | --- | --- |
-| identity or log scale: an unbounded target, a ratio, or any target under `band_scale="identity"` | contains the pointwise interval when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$, since $c_j \ge \hat c$ |
+| an `"identity"` or `"log"` member: a ratio, or an unbounded target that takes neither the skew-widened $t$ nor MOVER, under either band scale | contains the pointwise interval when $\hat c \ge 1.96$ | contains it when $\hat c \ge 1.96$, since $c_j \ge \hat c$ |
+| a `"skew_t"` member (its band is on the identity scale) | contains it only when $\hat c \ge t + \lvert\hat a\rvert K$; otherwise not nested | the same, with $c_j$ |
+| a `"mover"` difference under `band_scale="identity"` | contains it only when $\hat c\,\widehat{se}$ reaches both MOVER half-widths; otherwise not nested | the same, with $c_j$ |
 | bounded binary-outcome mean or difference under `band_scale="logit"` | not nested: the band sits on the range-logit scale | not nested |
 
 $\hat c \ge 1.96$ is not guaranteed for a multiplier quantile. The smallest $\hat c$ on the
-committed red-cell fits is 2.25.
+committed red-cell fits is 2.25. An effect curve reports both objects:
+`EffectCurveResult.interval` is the skew-widened $t$ at each row of a continuous-outcome curve and
+`EffectCurveResult.band` is symmetric, so the band holds a row's pointwise interval only under the
+`"skew_t"` condition above.
 
 ### Evidence for the default band
 

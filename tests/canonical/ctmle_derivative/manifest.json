@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-ctmle-derivative",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "74562faee72eab0b647decca94f2291091b8baf4",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "553f01077b2941381b0b56988f554a5930b50782",
       "cleverly_worktree_clean": true,
-      "python": "3.13.16",
-      "numpy": "2.4.6",
-      "scipy": "1.18.0",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.0"
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "r-ctmle",
@@ -58,6 +60,7 @@
     "declared_pair": "tests/canonical/ctmle_derivative/penalties.csv: the lower median lambda_cv of 50 design draws of the primary law at n = 2,000 (seeds 20263100 onward), and that draw's grid neighbour",
     "pipeline_differences": "the cross-validation folds; the partner (R: 1.05 lambda.min; package: the nearest grid neighbour, the next smaller penalty); the package appends the penalty 0 to its grid",
     "paired_tmle": "every primary and calibration-family fit also reports the ordinary TMLE on the same initial fit, mechanism and g_bounds, with only the derivative columns removed",
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -89,13 +92,13 @@
     "tests/studies/ctmle_derivative_properties.py": "e313ecf439c2e5a00e715d7acef99c18e6a1d401a07748d03714144a930f9d4e",
     "tests/studies/ctmle_derivative_laws.py": "924595d6915223e87c2511e5983ea2eebcaed75bc1c7194e0025c95d2058e144",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
-    "tests/conftest.py": "8adf5363471ccc6aa16e94a141b521552bc7098983bfa59d7a80878590db6ba5",
-    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
+    "tests/conftest.py": "43322ef18a997dc912d7bfdaa6eced9079a1f85f7a30fdcdd718674e548e0e98",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
     "tests/canonical/ctmle_derivative/run_ctmle_derivative.R": "6e19ace0d59aeb3b73bcff3e2e280ee56271a628a5f9419de1e218c30dbe1c6c",
@@ -109,13 +112,13 @@
     "tests/canonical/ctmle_derivative/penalties.csv": "59c59e8dcdbeaa18cb6f7023a648aab163abcdd6026214f20f5b499a9e57be6c"
   },
   "sha256": {
-    "replicates.parquet": "fe8480ace9d0bcb427c8d92c1b0de22e2ba5ddf80160c156e59d765eca70c433",
-    "summary.csv": "99678519349bb25df83ec18496551f9ff3e41aae7cb8892ab66d459f34f875ad",
-    "equivalence.csv": "1d007a0271068650c04ce10ec930d0b3db2c6efb5095d95ce57b1a06c797fdff",
-    "performance-tests.csv": "f1d411e9e4419a00bd9d98af0aee3014f60d625a8eeb46e87d22962d6a95b050",
-    "property-replicates.parquet": "10c169b87f56d39b6a74ac4549cf2be67a6cf7e09ded085bd9c28c082b37279f",
-    "properties.csv": "0a9da22d046ae0e94b84b3b93967786b0b9934b9f01f1e3b80e7260126becc07",
-    "paired-tmle.csv": "1ea15a4b72899a79cd2c29ab6d06da0dbe78d61f154a6f536ef6570120a156c1",
-    "chosen-penalties.csv": "2080a0f8b5e7a6236b84f853828f776d6acf8bc7eedcb40deed6ed68e3614178"
+    "replicates.parquet": "bee19aa19ff92769a11b7590cc7f61371a452cb6552120058e9ab54ce97b407c",
+    "summary.csv": "e55da01892fd34ce557ed03b0d1ba2a3c38b0f49540c5f2c50c1dad0fb9d972d",
+    "equivalence.csv": "b2cdcb7c40454cb7c42811f146e721e764b1cb66800bef524384a7834ddbc284",
+    "performance-tests.csv": "01df14907c1056309341d52ce84b1672dcbad21eff88a5eeba711080e1f6ab64",
+    "property-replicates.parquet": "90162f7e4bb3f93099291ef5774e4a469198f77a20463434e8ea9b82b2dcab58",
+    "properties.csv": "3728d98899fc05f0f0ae0975ada370656acba8ae71cf159e7d8a51e9352448f2",
+    "paired-tmle.csv": "86102a50b36aa47f105d1209cf18f621e91d1ad04048b1cf7395c177fb6d214a",
+    "chosen-penalties.csv": "35ca58d6e2bb4b3544a5469cc51e37bff776a103d16ea1ed040fd402a0913784"
   }
 }

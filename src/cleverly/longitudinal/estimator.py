@@ -165,6 +165,7 @@ from ..inference.influence import (
     median_estimates,
     parameter_bounds,
     spread_name,
+    with_components,
     with_precedent_status,
 )
 from ..inference.multiplier import (
@@ -205,6 +206,7 @@ from ..inference.results import (
 )
 from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
+from ..utils.memory import check_max_memory_bytes
 from ..utils.random import note_fresh_entropy
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -251,6 +253,7 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
+from ._fit_cache import in_fit_cache
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -4591,6 +4594,9 @@ def _estimates(
             outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
+        # A bounded contrast is the difference of the two levels in its estimate and its
+        # curve, so its interval reads them (correlated MOVER on their logit intervals).
+        estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
@@ -4725,6 +4731,9 @@ def _policy_estimates(
             outcome_family=family_of(data),
             rule_widened=_rule_widened(fit) or _rule_widened(base),
         )
+        # As in _estimates: the contrast's interval reads its two levels by MOVER, on their
+        # influence-curve spreads, joined with the normal interval at its policy-weighted SE.
+        estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
@@ -5044,6 +5053,9 @@ class _SequentialEstimator:
     isotonic: bool = False
     #: The declared node bounds.  Only :class:`LTMLE` takes them.
     node_bounds: Mapping[Any, Any] | None = None
+    #: The traced-memory limit of a multi-node hazard fit, ``None`` for the fixed limit.  Only
+    #: :class:`LTMLE` takes it.
+    max_memory_bytes: int | None = None
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
@@ -6338,7 +6350,7 @@ class _SequentialEstimator:
                 # check are raised here (X70 part (a)).  With covariates after baseline the
                 # backward pass evaluates every node at the observed history and builds no path
                 # (part (b2)).
-                path_slots(prepared, plans)
+                path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
             checked = branch_plans(plans[0]) if learned is not None else plans
             # Every declared factor is checked against the bounds before any learner.
             preflight_known_mechanisms(
@@ -6699,7 +6711,7 @@ class _SequentialEstimator:
             and not later_covariates(prepared)
             and state.plans is not None
         ):
-            levels = path_slots(prepared, state.plans).plans
+            levels = path_slots(prepared, state.plans, max_memory_bytes=self.max_memory_bytes).plans
         elif hazard and prepared.node_kind(1) == "categorical" and not is_multinode(prepared):
             levels = level_plans(prepared)
         if hazard:
@@ -7177,6 +7189,7 @@ class _SequentialEstimator:
             mechanism,
         )
 
+    @in_fit_cache
     def _fit_draw(
         self,
         prepared: LongitudinalData,
@@ -7219,6 +7232,7 @@ class _SequentialEstimator:
         # A learned regimen learns each fold's rule pair before the mechanism is fitted, because
         # the mechanism is evaluated at each row's own learned rule (X11 (b)).
         rules: LearnedRules | None = None
+        learned_record: LearnedRegimenRecord | None = None
         if any(isinstance(plan.regimen, LearnedRegimen) for plan in plans):
             (plan,) = plans
             rules = learn_fold_rules(
@@ -7232,6 +7246,11 @@ class _SequentialEstimator:
                 bounds=None if node_bounds is None else node_bounds.get(None),
             )
             plans = (plan.with_assignment(rules.stitched()),)
+            # The record reads only the panel, the plan's label and masks, and the rules, none of
+            # which the rest of the fit changes, so it is built here; the recursion then carries
+            # only the codes and the split, not every fold's blips.
+            learned_record = learned_regimen_record(prepared, plans[0], rules, seed=seed)
+            rules = rules.codes_only()
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
@@ -7258,7 +7277,7 @@ class _SequentialEstimator:
             # A design with a treatment at several nodes: one internal static plan per
             # treatment path of every regimen (X70 part (a)), at which the mechanism and the
             # hazards are evaluated.
-            levels = path_slots(prepared, plans).plans
+            levels = path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes).plans
         elif hazard and prepared.node_kind(1) == "categorical" and not is_multinode(prepared):
             levels = level_plans(prepared)
         # A multi-node design with covariates after baseline keeps no level plan: its backward
@@ -7469,11 +7488,7 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             isotonic_moves=moves,
             initial_hazards=initial,
-            learned_regimen=(
-                None
-                if rules is None
-                else learned_regimen_record(prepared, plans[0], rules, seed=seed)
-            ),
+            learned_regimen=learned_record,
         )
         return _DrawOutcome(
             draw,
@@ -8872,6 +8887,16 @@ class LTMLE(_SequentialEstimator):
         needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
         The registered study ``mtp-policy-variance`` measures it, and an estimate reads
         ``supported`` only where a support row licenses the option.
+    max_memory_bytes : int or None
+        The traced-memory limit of a ``survival_model="hazard"`` fit with a treatment
+        decision at several nodes, no covariate after baseline and a regimen that draws from
+        a known policy, which holds the hazards of every treatment path for every unit.
+        Before any learner the fit predicts its traced peak from the units, nodes, paths,
+        causes and design columns (:func:`~cleverly.longitudinal.hazard.path_peak`) and raises
+        :class:`~cleverly.exceptions.CapabilityError` when the prediction exceeds the limit.
+        ``None`` keeps the fixed limit of 2 GiB
+        (:data:`~cleverly.longitudinal.hazard.PATH_PEAK_LIMIT`).  A positive integer
+        replaces it, higher or lower.  Every other fit ignores it.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -8925,8 +8950,10 @@ class LTMLE(_SequentialEstimator):
         hazard_pooling: str = "node",
         node_bounds: Mapping[Any, Any] | None = None,
         variance: str = "influence_curve",
+        max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
+        self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
         self.node_bounds = node_bounds
         self.alpha = alpha
         self.max_iter = max_iter
@@ -11015,13 +11042,29 @@ def _refit_bound(
         )
     return _BoundReplay(
         estimates={
-            name: replace(reported.estimates[name], support=result.estimates[name].support)
+            name: _with_support_of(reported.estimates[name], result.estimates[name])
             for name in result.estimates
         },
         fits=fits,
         msm_fits=msm_fits,
         contributors={name: reported.contributors[name] for name in result.estimates},
     )
+
+
+def _with_support_of(replayed: ParameterEstimate, fitted: ParameterEstimate) -> ParameterEstimate:
+    """``replayed`` under ``fitted``'s support record, and its components under theirs.
+
+    A replay is built outside the classified fit, so its estimates and the levels a contrast
+    records as :attr:`~ParameterEstimate.components` carry no classification until they take
+    the fitted estimate's.
+    """
+    components = replayed.components
+    if components is not None and fitted.components is not None:
+        components = (
+            replace(components[0], support=fitted.components[0].support),
+            replace(components[1], support=fitted.components[1].support),
+        )
+    return replace(replayed, support=fitted.support, components=components)
 
 
 def _exact_replay_equal(left: Any, right: Any) -> bool:
@@ -11074,11 +11117,17 @@ def _fitted_replay_matches(
 
     # A replay never reruns the bootstrap, so the summaries are stripped on both sides.
     # ``_exact_replay_equal`` recurses into every dataclass field and would otherwise
-    # refuse every bootstrapped fit.  The draw's own estimates of the reported names: on a
-    # one-draw fit they are the reported estimates.
+    # refuse every bootstrapped fit.  A contrast's ``components`` are its two levels, which
+    # are compared as reported estimates themselves, and the fit stamps their support after
+    # the recursion, so they are stripped too.  The draw's own estimates of the reported
+    # names: on a one-draw fit they are the reported estimates.
     reported = result.estimates if result.n_repeats == 1 else draw.estimates
-    fitted = {name: replace(reported[name], bootstrap=None) for name in result.estimates}
-    replayed = {name: replace(e, bootstrap=None) for name, e in replay.estimates.items()}
+    fitted = {
+        name: replace(reported[name], bootstrap=None, components=None) for name in result.estimates
+    }
+    replayed = {
+        name: replace(e, bootstrap=None, components=None) for name, e in replay.estimates.items()
+    }
     return (
         _exact_replay_equal(fitted, replayed)
         and _exact_replay_equal(draw.fits, replay.fits)

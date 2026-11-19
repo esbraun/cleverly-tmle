@@ -1,0 +1,26 @@
+=== asymmetric-wald declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/asymmetric_wald/regenerate.py --output /tmp/fix3-aw-out-1 --jobs 4
+commit: cd4ac53c225ae8208efd9b8b1bb63a2f5d4a67d4; upstream cd4ac53c225ae8208efd9b8b1bb63a2f5d4a67d4
+clean tree: True
+cleverly 0.2.4 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 38747293f66db5bd1fda6fc2a3bf743b1d29180f4d2e3f6a3995be6713d3a918
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-13T20:58:46+00:00
+finished: 2026-11-13T21:05:47+00:00
+wall seconds: 421.8
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 falsifiers.csv: 990e492c8d1eb2979f48841defce50227aed69b7d109c146b768f872d4229f65
+sha256 manifest.json: 12e8b5c3f7860939b57bc752e7201c44b437cea7b6a6188993dbc4c063d04def
+sha256 performance-tests.csv: a0dec4563b9f0ac3868ca6415400736049693b51c288a4fbb7aa2293136fb705
+sha256 primary-shipped.csv: 2398a12918e26e5a03968198d96f81cdbc3159383c45c4c914bce9241c42a1a1
+sha256 properties.csv: 440ed36abcf0d9a5c3e5642d4635f2cf005117f5f92d6b4c8bbf7b5be4a57bca
+sha256 property-failure-accounting.csv: 9d2db79f9fc9ad99887c3ec8b95a290fd894850b0fb1463bc61f027d596a9033
+sha256 property-failure-witnesses.parquet: c0fbb9fb5278d8ff4ef398b7b1b5ea356f24672b5aeb6e1b5845e2f261d1539e
+sha256 property-failures.csv: 212b8a80631be8af7b154f65f83acce2d8d42b773c326264107db475d1d72d25
+sha256 property-replicates.parquet: 4df468a6f18618f3f135c5da3c082a0c4989e6c97f3a2aa91d8576534b1fa4cb
+sha256 replicates.parquet: e4ef57efa172614709f9861f65de078de964f7ea6be49de6adc589262db0db93
+sha256 summary.csv: 2c2ff6c32bf748234a3ad6c9c05ebfaf9abe95dbe9b18f5efa21dd3ba1c5063d
+

@@ -11,7 +11,10 @@ Every fixture asserts the branch it exists to reach.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
+import threading
+import time
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -379,6 +382,47 @@ def test_the_switched_variance_equals_the_dense_one_bit_for_bit(
         assert estimate.switched == other.switched, key
 
 
+@pytest.mark.parametrize("jobs", [2, 3])
+def test_threads_change_no_bit_of_the_switched_variance(
+    jobs: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The predictable variation is added in block order on the calling thread.
+
+    Several buffers that walk blocks straddle and a binding floor: the predictable matrix, every
+    switched record and standard error, and the off-grid vectors are the one-thread fit's bit
+    for bit, and no buffer is flushed off the calling thread.
+    """
+    monkeypatch.setattr(T, "_PV_BLOCK_CELLS", BUFFER_CELLS)
+    caller = threading.get_ident()
+    flushed: list[tuple[int, int]] = []
+    flush = engine._Predictable._flush
+
+    def counted(self: Any, stop: int) -> None:
+        flushed.append((stop - self.start, threading.get_ident()))
+        flush(self, stop)
+
+    monkeypatch.setattr(engine._Predictable, "_flush", counted)
+    one = _fit("two causes", rows=ROWS, resident=0.0, g_bounds=0.3)
+    sizes = [size for size, _ in flushed]
+    assert len(sizes) > 1 and sizes[0] % ROWS and ROWS % sizes[0]
+    assert len(engine.blocks(one.initial.n, one.initial.block)) >= 4
+    assert one.result.record.bounded_share > 0
+    flushed.clear()
+    threaded = _fit("two causes", rows=ROWS, resident=0.0, g_bounds=0.3, n_jobs=jobs)
+    assert [size for size, _ in flushed] == sizes
+    assert {ident for _, ident in flushed} == {caller}
+    assert one.predictable is not None and threaded.predictable is not None
+    assert np.array_equal(threaded.predictable, one.predictable)
+    assert _bitwise(_record_fields(threaded), _record_fields(one)) == []
+    for key, estimate in threaded.result.estimates.items():
+        assert (
+            estimate.switched is not None
+            and estimate.switched == one.result.estimates[key].switched
+        )
+    for a, b in zip(one.vectors, threaded.vectors, strict=True):
+        assert np.array_equal(a, b, equal_nan=True)
+
+
 def test_the_off_grid_sums_carry_block_totals_in_row_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -570,6 +614,204 @@ def test_the_block_size_keeps_a_restricted_mean_within_the_tolerance(rows: int) 
     blocked = _fit("small, restricted mean", rows=rows, resident=0.0)
     assert whole.result.record.steps >= 2
     assert _close(_record_fields(blocked), _record_fields(whole)) == []
+
+
+# ------------------------------------------------------------------- threads (C2c)
+
+
+class Exclusive(Wrapped):
+    """A user learner that records whether two threads were ever inside it at once."""
+
+    overlapped = False
+    _inside = 0
+    _guard = threading.Lock()
+
+    def cumulative_hazard(self, X: Any, times: Any) -> np.ndarray:
+        cls = type(self)
+        with cls._guard:
+            cls._inside += 1
+            if cls._inside > 1:
+                cls.overlapped = True
+        try:
+            # Long enough that a second thread arrives while the first is inside.
+            time.sleep(0.002)
+            return super().cumulative_hazard(X, times)
+        finally:
+            with cls._guard:
+                cls._inside -= 1
+
+
+@pytest.mark.parametrize("name", ["two causes", "three causes", "restricted mean", "accepted hold"])
+@pytest.mark.parametrize("resident", [0.0, 0.5, 1.0])
+def test_threads_change_no_bit(name: str, resident: float) -> None:
+    """DR7, R2: n_jobs 1 and 2 (and 4) give the same record, estimates and off-grid vectors."""
+    one = _fit(name, rows=37, resident=resident)
+    assert len(engine.blocks(one.initial.n, one.initial.block)) >= 8
+    for jobs in (2, 4):
+        threaded = _fit(name, rows=37, resident=resident, n_jobs=jobs)
+        assert _bitwise(_record_fields(threaded), _record_fields(one)) == []
+        assert one.vectors is not None and threaded.vectors is not None
+        for a, b in zip(one.vectors, threaded.vectors, strict=True):
+            assert np.array_equal(a, b, equal_nan=True)
+        assert threaded.run.replayed == one.run.replayed
+
+
+def test_a_process_backend_around_the_fit_keeps_the_walk_on_threads() -> None:
+    """The blocks write shared arrays: a loky backend set by the caller must not take them."""
+    import joblib
+
+    one = _fit("two causes", rows=37, resident=0.0, n_jobs=1)
+    with joblib.parallel_config(backend="loky"):
+        threaded = _fit("two causes", rows=37, resident=0.0, n_jobs=2)
+    assert _bitwise(_record_fields(threaded), _record_fields(one)) == []
+
+
+def test_threads_change_no_bit_with_two_blas_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DR15: the walk leaves BLAS settings alone, so threads match at any one setting."""
+    threadpoolctl = pytest.importorskip("threadpoolctl")
+    for_blocks = _chunked.for_blocks
+    seen: list[Any] = []
+
+    def blas() -> list[tuple[str, int]]:
+        return sorted(
+            (info["filepath"], info["num_threads"])
+            for info in threadpoolctl.threadpool_info()
+            if info["user_api"] == "blas"
+        )
+
+    def watched(count: int, work: Any, commit: Any, n_jobs: int = 1) -> None:
+        def observed(k: int) -> Any:
+            out = work(k)
+            # Read after the block's work: a worker that changed the settings shows it here.
+            seen.append(blas())
+            return out
+
+        for_blocks(count, observed, commit, n_jobs)
+
+    monkeypatch.setattr(_chunked, "for_blocks", watched)
+    with threadpoolctl.threadpool_limits(2, user_api="blas"):
+        caller = blas()
+        one = _fit("restricted mean", rows=37, resident=0.0)
+        two = _fit("restricted mean", rows=37, resident=0.0, n_jobs=2)
+    assert seen and all(settings == caller for settings in seen)
+    assert _bitwise(_record_fields(two), _record_fields(one)) == []
+
+
+@pytest.mark.parametrize("locked", [True, False])
+def test_a_user_learner_is_never_entered_by_two_threads(
+    locked: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user learner is called under a lock; without it (mutation control) threads overlap."""
+    if not locked:
+        monkeypatch.setattr(_chunked, "_LEARNER_LOCK", contextlib.nullcontext())
+    extra = {"hazard_library": [Exclusive()], "censoring_library": [Exclusive()]}
+    one = _fit("two causes", rows=37, resident=0.0, **extra)
+    Exclusive.overlapped = False
+    two = _fit("two causes", rows=37, resident=0.0, n_jobs=2, **extra)
+    assert Exclusive.overlapped is not locked
+    if locked:
+        assert _bitwise(_record_fields(two), _record_fields(one)) == []
+
+
+def test_an_overflow_under_threads_signals_as_the_dense_walk_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-2.2f with threads: the overflow's signals are raised in block order on the caller."""
+    plain = _fit("two causes")
+    _overflowing(monkeypatch, plain)
+    one = _fit("two causes", rows=37, resident=0.0)
+    assert one.overflowed > 0
+    two = _fit("two causes", rows=37, resident=0.0, n_jobs=2)
+    assert _bitwise(_record_fields(two), _record_fields(one)) == []
+    data = law(*ALL["two causes"][:2])
+    for jobs in (1, 2):
+        with (
+            walk_floor(ALL["two causes"][3]),
+            _patched(rows=37, resident=0.0),
+            warnings.catch_warnings(),
+            np.errstate(over="raise"),
+            pytest.raises(FloatingPointError),
+        ):
+            warnings.simplefilter("ignore")
+            estimator("two causes", n_jobs=jobs).fit_data(data)
+
+
+def test_a_block_error_under_threads_reaches_the_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The first error a block raises is raised by the fit, after the running blocks finish."""
+    trial = _chunked._Walker.trial
+
+    def failing(self: Any, k: int, *args: Any) -> Any:
+        if k == 3:
+            raise RuntimeError("block three")
+        return trial(self, k, *args)
+
+    monkeypatch.setattr(_chunked._Walker, "trial", failing)
+    with pytest.raises(RuntimeError, match="block three"):
+        _fit("two causes", rows=37, resident=0.0, n_jobs=2)
+
+
+def test_for_blocks_commits_in_block_order_with_a_bounded_lead() -> None:
+    """R2: commits run in block order on the caller, at most 2 n_jobs blocks ahead."""
+    started: list[int] = []
+    committed: list[int] = []
+    lead: list[int] = []
+    caller = threading.get_ident()
+    lock = threading.Lock()
+
+    def work(k: int) -> int:
+        with lock:
+            started.append(k)
+            lead.append(k - len(committed))
+        time.sleep(0.001 * ((7 * k) % 5))
+        return k * k
+
+    def commit(k: int, value: int) -> None:
+        assert threading.get_ident() == caller
+        assert value == k * k
+        committed.append(k)
+
+    _chunked.for_blocks(40, work, commit, n_jobs=3)
+    assert committed == list(range(40))
+    assert sorted(started) == list(range(40))
+    assert max(lead) < 2 * 3
+
+
+@pytest.mark.parametrize("n_jobs", [1, 3])
+def test_each_block_s_warnings_reach_the_caller_in_block_order(n_jobs: int) -> None:
+    """Threads finish out of order; their package warnings are merged in block order."""
+    from cleverly._warnings import recording
+    from cleverly._warnings import warn as package_warn
+
+    def work(k: int) -> int:
+        time.sleep(0.002 * (11 - k))  # later blocks finish first
+        package_warn(f"block {k}", UserWarning)
+        return k
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with recording() as records:
+            _chunked.for_blocks(12, work, lambda k, value: None, n_jobs=n_jobs)
+    assert [record.message for record in records] == [f"block {k}" for k in range(12)]
+
+
+@pytest.mark.parametrize("value", [0, -2, 1.5, True, "2"])
+def test_n_jobs_is_a_positive_integer_or_minus_one(value: Any) -> None:
+    with pytest.raises(ValueError, match="n_jobs"):
+        engine.ContinuousSurvivalTMLE([1.0], n_jobs=value)
+
+
+def test_n_jobs_minus_one_reads_the_available_cpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine, "available_cpus", lambda: 3)
+    assert engine.ContinuousSurvivalTMLE([1.0], n_jobs=-1)._threads() == 3
+    assert engine.ContinuousSurvivalTMLE([1.0], n_jobs=None)._threads() == 1
+
+
+def test_the_facade_passes_runtime_n_jobs() -> None:
+    from cleverly import Runtime, TMLEMethod
+    from cleverly.survival.data import continuous_kwargs
+
+    assert continuous_kwargs(TMLEMethod(runtime=Runtime(n_jobs=3)))["n_jobs"] == 3
+    assert continuous_kwargs(TMLEMethod())["n_jobs"] == 1
 
 
 # ------------------------------------------------------------------- the ladder
@@ -1098,3 +1340,28 @@ def test_a_truncation_curve_replays_the_fit_with_no_block_kept() -> None:
 
 def test_every_kind_of_time_is_named() -> None:
     assert set(itertools.chain(FIXTURES, TOLERANT)) == set(GOLDEN)
+
+
+def test_a_kept_block_takes_each_step_in_its_own_arrays(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Accepted steps are written into a kept block's arrays, so threads never move them.
+
+    New arrays would come from the malloc arena of whichever thread replayed the block, and
+    the freed kept arrays would pile up in other threads' arenas (R7, 16k: four-thread peaks
+    crept from 1.04 to 1.16 times the prediction over the passes).
+    """
+    keep = _chunked._Walker.keep
+    seen: dict[int, list[tuple[int, int]]] = {}
+
+    def watched(self: Any, k: int, state: Any) -> Any:
+        kept = keep(self, k, state)
+        if k < self.resident:
+            seen.setdefault(k, []).append((kept.applied, kept.jumps.ctypes.data))
+        return kept
+
+    monkeypatch.setattr(_chunked._Walker, "keep", watched)
+    fit = _fit("two causes", rows=37, resident=0.5, n_jobs=2)
+    assert fit.run.result.steps >= 1
+    stepped = [calls for calls in seen.values() if max(applied for applied, _ in calls) >= 1]
+    assert stepped
+    for calls in seen.values():
+        assert len({address for _, address in calls}) == 1, calls

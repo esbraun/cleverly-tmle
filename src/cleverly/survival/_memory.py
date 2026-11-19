@@ -27,7 +27,9 @@ units of a block, ``P = 2 J Q`` targets and ``E`` the trial steps a pass evaluat
   buffer of targeted jumps on the full grid, ``(2, J, b, M)`` for the ``b`` units of
   :func:`~cleverly.survival._targeting.predictable_rows`, with that buffer's weights, curves
   and moment temporaries, which hold about ``_PV_BLOCK_CELLS`` cells.  It grows with ``n``
-  only through the plug-ins.
+  only through the plug-ins.  With ``n_jobs`` threads each holds one block's working arrays,
+  and finished blocks' off-grid rows and targeted jumps wait for their turn; the buffer is
+  added on the calling thread once a batch of blocks has finished.
 * ``band``: the multiplier buffer of :func:`~cleverly.inference.simultaneous_bands`.
 
 The prediction does not cover a user learner's own allocations.
@@ -279,6 +281,7 @@ def peak_bytes(
     block: int | None = None,
     folds: int = 1,
     switched: bool,
+    n_jobs: int = 1,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -328,7 +331,12 @@ def peak_bytes(
     switched : bool
         Whether the fit reports the switched variance (``variance="switched"``), whose final
         pass adds the targeted jumps on the full grid to the predictable variation, one buffer
-        of units at a time.
+        of units at a time, in block order on the calling thread.
+    n_jobs : int
+        The walk's threads.  Each holds one block's working arrays at once in the walk and the
+        final pass (the initial phase's check runs on one thread), and the off-grid
+        rows (and under ``switched`` the targeted jumps) of up to ``2 n_jobs - 1`` finished
+        blocks wait to be added in row order.
 
     Returns
     -------
@@ -341,6 +349,8 @@ def peak_bytes(
     G = M if kept is None else int(kept)
     c = chunk_size(n, J, M) if block is None else int(block)
     K = -(-n // c)
+    # Threads beyond the blocks have nothing to work on; one block runs on the calling thread.
+    W = max(1, min(int(n_jobs), K)) if K > 1 else 1
     R = int(resident_blocks)
     all_kept = R >= K
     E = (1 if all_kept else LADDER) if rungs is None else int(rungs)
@@ -389,39 +399,51 @@ def peak_bytes(
     # The (n, P) arrays: the initial and current influence curves, each trial's parts and
     # plug-ins and its retry's, a summary being formed, and the low masks.
     held = influence * (4 + 4 * E) + 2 * n * (E + 1)
-
-    def final_phase(rows: int, kept: int) -> int:
-        """The final pass, whose largest working arrays beside a block's state are ``rows``."""
-        if all_kept:
-            # Every block's state is in ``resident``; the pass works on each in place.
-            out = resident - slot + max(replay, rows)
-        else:
-            out = resident + max(rebuild, replay, rows)
-        return out + 2 * influence + F8 * n * width + kept
-
     if all_kept:
-        # Every block's state is in ``resident``: the first pass builds the last block beside
-        # the others, and a later pass works on a kept block in place.
+        # Every block's state is in ``resident``: the first pass builds the last blocks beside
+        # the others, and a later pass works on kept blocks in place.
         last = slot_bytes(n - (K - 1) * c, J, G)
-        walk = held + max(resident - last + rebuild, resident - slot + max(trial, replay))
+        walk = held + max(resident - last + W * rebuild, resident + W * (max(trial, replay) - slot))
     else:
-        walk = held + resident + max(rebuild, replay, trial)
+        walk = held + resident + W * max(rebuild, replay, trial)
     final_rows = slot + _final(c, J, G, width)
     # Under "switched" the final pass also adds each buffer of targeted jumps on the full grid
-    # to the predictable variation, beside the block's state.
+    # to the predictable variation, in block order on the calling thread.
     variation, adding = _variation(n, J, M, Q) if switched else (0, 0)
+
+    def final_phase(switched: bool) -> int:
+        """The final pass, with or without the predictable variation."""
+        if all_kept:
+            # Every block's state is in ``resident``; the pass works on each in place.
+            out = resident + W * (max(replay, final_rows) - slot)
+        else:
+            out = resident + W * max(rebuild, replay, final_rows)
+        # What a finished block hands to its commit: its off-grid parts and plug-ins and,
+        # under "switched", its targeted jumps on the walk's grid, which stay alive until
+        # then (a kept block's are its own, already in ``resident``).
+        carried = 2 * F8 * c * width + (16 * J * c * G if switched and not all_kept else 0)
+        # Up to ``2 W - 1`` finished blocks wait behind a block still running
+        # (:func:`~._chunked.for_blocks`).
+        waiting = (2 * W - 1) if W > 1 else 0
+        out += waiting * carried
+        if switched:
+            # A commit adds a buffer to the variation on the calling thread once the batch's
+            # blocks have finished, its ``2 W`` blocks' hand-overs (one on one thread) beside it.
+            out = max(out, resident + (2 * W if W > 1 else 1) * carried + adding)
+        return out + 2 * influence + F8 * n * width + (variation if switched else 0)
+
     band = (BAND_BUFFER + F8 * int(n_multiplier) * P * 3) if simultaneous else 0
     phases = {
         "nuisance": nuisance,
         "initial": initial,
         "walk": walk,
-        "off_grid": final_phase(max(final_rows, slot + adding), variation),
+        "off_grid": final_phase(switched),
         "band": 5 * influence + band,
     }
     influence_curve = None
     if switched:
         # The same fit without the predictable variation: only the final pass differs.
-        plain = {**phases, "off_grid": final_phase(final_rows, 0)}
+        plain = {**phases, "off_grid": final_phase(False)}
         influence_curve = max(plain.values()) + fixed
     return PeakEstimate(
         {name: value + fixed for name, value in phases.items()}, n, J, M, Q, influence_curve
