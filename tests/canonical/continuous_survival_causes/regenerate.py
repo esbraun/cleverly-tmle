@@ -21,17 +21,21 @@ declared run until that file is committed and agrees with the declaration (:func
   declaration and goes back to the plan; the run is never truncated to the cap;
 * each calibration cell's plug-in pass probability at the declared count is at least 0.90, or the
   cell is named in a committed ``pilot-diagnosis.md`` beside this script;
-* each double-robustness control the pilot reads as uninformative (pass probability at 1,000 draws
-  below 0.80) is named in ``UNINFORMATIVE_CONTROLS`` and so published as such, and no other is;
-* no cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys prior on
-  its failure rate), that the declared run loses more fits than the failure bound of 0.01 allows.
+* each double-robustness control the pilot reads as uninformative (pass probability at the
+  declared 1,600 draws below 0.80) is named in ``UNINFORMATIVE_CONTROLS`` and so published as
+  such, and no other is;
+* no declared cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys
+  prior on its failure rate), that the declared run loses more fits than the failure bound of
+  0.01 allows: the primary and calibration cells read the primary pilot, the double-robustness
+  cells their law's control pilot, each at its declared count.
 
 Cells.  ``l1_cf_1k`` (one cause) and ``l3_cf_1k`` (three causes), the default cross-fitted fit at
 n = 1,000, each gated on every risk and risk difference at its median and upper quartile (6 and
 18 rows).  The first quartile is not gated: part (a) kept the share floor at 0.40.
 
 PILOT READINGS (the committed pilot: 2,000 primary draws per cell, 400 control draws per law,
-no fit raised).
+no fit raised; every block ran on the library of 8950d563 with 9608930e's label changes, which
+move no estimate).
 
 * Primary count 7,200, read on each cell's first 800 draws and set by L3's control cause-1 risk
   at its median (coverage 0.926).  On all 2,000 draws the gated rows read coverage 0.9465 to
@@ -43,17 +47,28 @@ no fit raised).
   0.997, so no cell needs a diagnosis.  On the declared 800 draws the ratios read 0.970 and 0.969
   and the rule found no count up to 50,000; the extension was ``guide/studies.md``'s branch for
   that case, and its readings did not depart.  Shrunk-SE power at 3,200: 1.000 in both cells.
-* Double robustness (400 draws per law; standardized bias, then pass probability at 1,000):
-  ``mechanism_correct`` +0.053 (0.981) for L1 cause 1, -0.005 (1.000) for L3 cause 1, +0.065
-  (0.954) for L3 cause 3; ``plug_in_control`` 3.42, 2.42 and 1.54, and ``factual_tilt_control``
-  2.24, 1.65 and 1.08, each with power 1.000.  No control is uninformative.
-* Failures: none in 4,800 pilot fits; the predicted chance of exceeding the 0.01 bound at 7,200
-  is below 1e-8 per cell.
+* Double robustness at 1,600 draws per law (the design review's S2; plan 5.3 said 1,000),
+  read on 400 control draws per law (standardized bias, then pass probability at 1,600):
+  ``mechanism_correct`` +0.053 (1.000) for L1 cause 1, -0.005 (1.000) for L3 cause 1, +0.065
+  (0.998) for L3 cause 3, together 0.997 (0.936 at 1,000); ``plug_in_control`` 3.42, 2.42 and
+  1.54, and ``factual_tilt_control`` 2.24, 1.65 and 1.08, each with power 1.000.  No control is
+  uninformative.  The shared predictive reading of the three positive cells, which carries the
+  control pilot's noise, is 0.75 at 1,600: a red ``mechanism_correct`` cell is first read
+  against that.
+* Failures: none in 4,800 primary and 800 control pilot fits; the predicted chance of exceeding
+  the 0.01 bound is below 1e-8 per cell at every declared count.
+* Designed chance of a red verdict, on the plug-in readings: the primary family passes with at
+  least 0.984 (each of its two clauses at ``PRIMARY_CLAUSE_SHARE``, 0.992), the calibration pair
+  with 0.993, the double-robustness positives with 0.997, and every control and derived control
+  with more than 0.9999, so the study reads a red verdict by design with probability at most
+  about 0.026.
 * Seconds per fit (median, one thread each, four jobs): L1 2.48, L3 5.37; the wrong-hazard and
   factual-tilt control fits 1.98 and 1.97 (L1), 4.29 and 4.30 (L3).
 * Budget: primary 7,200 x 7.86 s = 15.7 CPU-h; calibration 3,200 x 7.86 s = 7.0 CPU-h;
-  double robustness 1,000 draws per law, two fits each, 3.5 CPU-h.  About 26 CPU-h, 39 with a
-  1.5 margin: 7 to 10 hours on 4 cores.  Cloud.
+  double robustness 1,600 draws per law, two fits each, 1,600 x 12.54 s = 5.6 CPU-h.  About
+  28.3 CPU-h, 42 with a 1.5 margin: 28.3 / N to 42 / N hours on N cores (7 to 11 hours on 4).
+  Cloud, as ``python -m tests.canonical.continuous_survival_causes.regenerate --output <empty
+  scratch directory> --jobs $(nproc --all)`` with every BLAS thread variable set to 1.
 
 Red-cell readings (declared before any run).  The record is ``gated``: every primary row, every
 calibration cell, every double-robustness cell and every derived control is a merge gate of PR B's

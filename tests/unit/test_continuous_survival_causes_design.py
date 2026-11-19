@@ -31,7 +31,7 @@ def test_the_declaration_is_the_plans() -> None:
     assert study.PILOT_REPLICATES == 800
     assert study.MINIMUM_REPLICATES == 1_000
     assert study.PRIMARY_N == properties.ROBUSTNESS_N == properties.CALIBRATION_N == 1_000
-    assert properties.ROBUSTNESS_REPLICATES == 1_000
+    assert properties.ROBUSTNESS_REPLICATES == 1_600  # design review b, S2
     assert properties.SHRUNKEN_SE_FACTOR == 0.85
     assert study.MARGINS.standardized_bias == 0.2
     assert study.STUDY.reference is None
@@ -68,28 +68,38 @@ def test_the_seeds_are_used_nowhere_else_in_tests() -> None:
         assert not mine & numbers, path
 
 
-def test_the_streams_are_disjoint() -> None:
-    # Pilot, primary, calibration and robustness draws never share a seed.
-    streams: dict[str, set[int]] = {}
+def _declared_streams() -> dict[str, list[int]]:
+    """Every seed a declared stream reads, at its declared count."""
+    streams: dict[str, list[int]] = {}
     for cell in study.CELLS:
-        streams[f"primary/{cell}"] = {replicate_seed(study.STUDY, cell, r) for r in range(800)}
-        streams[f"pilot/{cell}"] = {pilot.pilot_seed(cell, r) for r in range(800)}
+        streams[f"primary/{cell}"] = [
+            replicate_seed(study.STUDY, cell, r) for r in range(study.PRIMARY_REPLICATES)
+        ]
+        streams[f"pilot/{cell}"] = [pilot.pilot_seed(cell, r) for r in range(pilot.EXTENSION_DRAWS)]
     for law in laws.LAWS:
-        streams[f"pilot/{law}"] = {pilot.pilot_seed(f"{law}_controls", r) for r in range(400)}
-        streams[f"robust/{law}"] = {
+        streams[f"pilot/{law}_controls"] = [
+            pilot.pilot_seed(f"{law}_controls", r) for r in range(pilot.CONTROL_DRAWS)
+        ]
+        streams[f"robust/{law}"] = [
             stream_seed(study.STUDY, "property_sample", properties.ROBUSTNESS, law, r)
-            for r in range(800)
-        }
+            for r in range(properties.ROBUSTNESS_REPLICATES)
+        ]
     for label in properties.CALIBRATION_LABELS:
-        streams[f"calibration/{label}"] = {
+        streams[f"calibration/{label}"] = [
             stream_seed(study.STUDY, "property_sample", properties.CALIBRATION, label, r)
-            for r in range(800)
-        }
+            for r in range(properties.CALIBRATION_REPLICATES)
+        ]
+    return streams
+
+
+def test_the_streams_are_disjoint() -> None:
+    # At the declared counts, the primary draws (SEED), the pilots, the robustness and the
+    # calibration draws (RESAMPLING_SEED) never share a seed, within a stream or across them.
     seen: set[int] = set()
-    for name, seeds in streams.items():
-        assert len(seeds) == (400 if name.startswith("pilot/") and "_cf_" not in name else 800)
-        assert not seeds & seen, name
-        seen |= seeds
+    for name, seeds in _declared_streams().items():
+        assert len(set(seeds)) == len(seeds), name
+        assert not set(seeds) & seen, name
+        seen |= set(seeds)
 
 
 def test_the_laws_are_the_base_laws_with_the_causes_changed() -> None:
@@ -166,6 +176,28 @@ def test_the_counts_are_the_rules_on_the_committed_pilot() -> None:
     # The shrunk-SE control leaves the band with certainty at the declared count.
     for power in pilot.shrunken_power(PILOT, calibration).values():
         assert power > 0.999
+
+
+def test_the_robustness_count_passes_the_positive_cells() -> None:
+    # Plan 5.3's 1,000 draws leave the three positive cells passing together with about 0.94; the
+    # declared count lifts the plug-in family pass above 0.95, and every control keeps its power.
+    assert pilot.robustness_pass(PILOT, 1_000) < sizing.FAMILY_WISE_PASS
+    assert pilot.robustness_pass(PILOT, properties.ROBUSTNESS_REPLICATES) >= 0.99
+    readings = pilot.control_readings(PILOT)
+    assert (readings.loc[readings["role"] == "control", "pass_probability"] > 0.999).all()
+
+
+def test_the_pilot_checks_the_failures_of_every_declared_cell() -> None:
+    families = pilot._failure_families(study.PRIMARY_REPLICATES)
+    assert len(families) == len(study.CELLS) + len(properties.CALIBRATION_LABELS) + len(laws.LAWS)
+    assert pilot.failure_refusals(PILOT, study.PRIMARY_REPLICATES) == []
+    # Nonzero witness: 20 of 400 control fits failed predicts a breach of the robustness bound.
+    rows = PILOT.assign(refusal=PILOT["refusal"].astype(object))
+    failed = (rows["label"] == "three_causes_controls") & (rows["replicate"] < 20)
+    rows.loc[failed, "refusal"] = "DataError"
+    refusals = pilot.failure_refusals(rows, study.PRIMARY_REPLICATES)
+    assert len(refusals) == 1
+    assert refusals[0].startswith("double_robustness/three_causes lost 20 of 400")
 
 
 def test_the_at_target_count_and_the_shrunk_control() -> None:

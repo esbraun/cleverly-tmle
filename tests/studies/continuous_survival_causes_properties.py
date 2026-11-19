@@ -38,9 +38,20 @@ cell                               role      estimate
                                              so its bias must lie beyond 0.2 SD
 =================================  ========  =================================================
 
-The plug-in has no standard error of its own; its row carries the targeted fit's, which the
-union-model scale screen (``property_verdicts.UNION_MODEL_SE_BAND``, 0.1 to 10) reads and the
-bias verdict does not.  A control whose pilot pass probability at 1,000 draws is below 0.80 is
+The plug-in has no standard error of its own; its row carries the targeted fit's, so the
+union-model scale screen (``property_verdicts.UNION_MODEL_SE_BAND``, 0.1 to 10) is vacuous for it
+(pilot SE ratio 1.08 to 1.12), and the ``covered`` and ``rejected`` columns of its rows describe a
+borrowed interval: they are no coverage claim.  Its verdict reads the bias only.
+
+:data:`ROBUSTNESS_REPLICATES` is 1,600, the design review's count (``rows/X6/design-review-b.md``,
+S2; plan 5.3's 1,000 left the three positive cells passing together with only 0.936).  At 1,600
+the plug-in reading (:func:`tests.studies.continuous_survival_causes_pilot.robustness_pass`, each
+cell at its pilot standardized bias of +0.053, -0.005 and +0.065) is 0.997, above the 0.95 the
+design test requires.  The shared predictive reading, which carries the 400-draw control pilot's
+noise and the spread between cells at its 80% bound
+(``repeated_sizing.property_bias_pass_probability``), is 0.75 at 1,600 (0.61 at 1,000); it is
+limited by the control pilot, not by the count.  A control whose pilot pass probability at
+:data:`ROBUSTNESS_REPLICATES` draws is below 0.80 is
 declared uninformative at that law before the run (``regenerate.py``), and then the three-cause
 tilt rests on the exact-law tests of ``tests/unit/test_continuous_survival_causes.py``.
 
@@ -78,8 +89,9 @@ ROBUSTNESS = "double_robustness"
 CALIBRATION = "interval_calibration"
 
 ROBUSTNESS_N = study.PRIMARY_N
-#: The plan's control draws per law (5.3).
-ROBUSTNESS_REPLICATES = 1_000
+#: The draws per law: the design review's 1,600 (plan 5.3 said 1,000); the design test requires
+#: the positive cells' plug-in family pass (``pilot.robustness_pass``) of at least 0.95.
+ROBUSTNESS_REPLICATES = 1_600
 CALIBRATION_N = study.PRIMARY_N
 #: The arm-pooled predictive rule's count on the committed pilot (``pilot.calibration_count``).
 CALIBRATION_REPLICATES = 3_200

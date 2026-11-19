@@ -71,7 +71,7 @@ PILOT_REPLICATES = 800
 PRIMARY_N = 1_000
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
-SEED = 2026611561
+SEED = 2026611563
 RESAMPLING_SEED = 2026611562
 N_FOLDS = registered.N_FOLDS
 LEARNER_FOLDS = registered.LEARNER_FOLDS

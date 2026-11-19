@@ -41,7 +41,9 @@ checks before a declared run (``regenerate.pilot_refusals``):
 * **the failure share and the predicted failure bound** (:func:`failure_refusals`): the posterior
   predictive probability, under a Jeffreys prior on a cell's failure rate, that the declared run
   loses more fits than the failure accounting allows; above :data:`FAILURE_EXCEEDANCE` the
-  declaration is refused;
+  declaration is refused.  It reads every declared cell: the primary cells and the calibration
+  cells (the same configuration) on the primary pilot, and each law's double-robustness cells on
+  its control pilot, each at its declared count;
 * **the shrunk-SE control's power** (:func:`shrunken_power`), at the declared calibration count;
 * **seconds per fit** (:func:`seconds`), for the budget.
 
@@ -69,7 +71,6 @@ from tests.studies import continuous_survival_causes as study
 from tests.studies import continuous_survival_causes_law as laws
 from tests.studies import continuous_survival_causes_properties as properties
 from tests.studies import repeated_sizing as sizing
-from tests.studies.evidence.failures import allowed
 from tests.studies.evidence.property_verdicts import MINIMUM_POWER
 from tests.studies.evidence.seeds import stream_seed
 
@@ -371,7 +372,7 @@ def shrunken_power(rows: pd.DataFrame, replicates: int) -> dict[str, float]:
 
 
 def control_readings(rows: pd.DataFrame) -> pd.DataFrame:
-    """Each double-robustness cell's pilot standardized bias and pass probability at 1,000.
+    """Each double-robustness cell's pilot standardized bias and pass probability at the count.
 
     The positive cell reads the targeted estimate, the plug-in control the initial estimate of
     the same fit, and the factual-tilt control the ``tilt="factual"`` fit of the same draw; each
@@ -422,25 +423,58 @@ def predicted_exceedance(failed: int, pilot_draws: int, replicates: int, allowan
     return float(law.sf(allowance))
 
 
+def _failure_families(replicates: int) -> list[tuple[str, str, int, float]]:
+    """Each declared cell's pilot label, its declared count and its failure bound.
+
+    The primary cells read their own pilot.  A calibration cell fits its law's primary
+    configuration at the same n, so it reads that cell's pilot at the calibration count.  A law's
+    double-robustness cells read its control pilot (the wrong-hazard fits) at the robustness
+    count.
+    """
+    out = [(cell, cell, replicates, study.FAILURE_BOUND) for cell in study.CELLS]
+    for label, (cell, _) in properties.CALIBRATION_TARGETS.items():
+        out.append(
+            (
+                f"{properties.CALIBRATION}/{label}",
+                cell,
+                properties.CALIBRATION_REPLICATES,
+                properties.FAILURE_BOUND,
+            )
+        )
+    for law in laws.LAWS:
+        out.append(
+            (
+                f"{properties.ROBUSTNESS}/{law}",
+                f"{law}_controls",
+                properties.ROBUSTNESS_REPLICATES,
+                properties.FAILURE_BOUND,
+            )
+        )
+    return out
+
+
 def failure_refusals(rows: pd.DataFrame, replicates: int) -> list[str]:
-    """One refusal per cell whose predicted failure bound exceeds :data:`FAILURE_EXCEEDANCE`."""
-    record = study.STUDY
+    """One refusal per declared cell whose predicted failure bound exceeds the threshold.
+
+    ``replicates`` is the primary count; the property cells read their declared counts
+    (:func:`_failure_families`), each against :data:`FAILURE_EXCEEDANCE`.
+    """
     out = []
-    for cell in study.CELLS:
-        held = draws(rows, cell)
+    for name, label, count, bound in _failure_families(replicates):
+        held = draws(rows, label)
         if not held:
-            out.append(f"the pilot holds no draws of {cell}; run its pilot")
+            out.append(f"the pilot holds no draws of {label}; run its pilot")
             continue
-        allowance = int(np.floor(study.FAILURE_BOUND * replicates))
-        probability = predicted_exceedance(failed_draws(rows, cell), held, replicates, allowance)
+        allowance = int(np.floor(bound * count))
+        failed = failed_draws(rows, label)
+        probability = predicted_exceedance(failed, held, count, allowance)
         if probability > FAILURE_EXCEEDANCE:
             out.append(
-                f"{cell} lost {failed_draws(rows, cell)} of {held:,} pilot fits, and the declared "
-                f"run of {replicates:,} loses more than the {allowance} its failure bound allows "
-                f"with predictive probability {probability:.3f}, above {FAILURE_EXCEEDANCE:.2f}; "
+                f"{name} lost {failed} of {held:,} pilot fits, and the declared run of "
+                f"{count:,} loses more than the {allowance} its failure bound allows with "
+                f"predictive probability {probability:.3f}, above {FAILURE_EXCEEDANCE:.2f}; "
                 "diagnose and fix the refusal and rerun the cell's pilot"
             )
-    del record
     return out
 
 
@@ -450,10 +484,18 @@ def failure_exceedance(rows: pd.DataFrame, cell: str, replicates: int) -> float:
     return predicted_exceedance(failed_draws(rows, cell), draws(rows, cell), replicates, allowance)
 
 
-def accounting_allowance(cell: str) -> int:
-    """The failure accounting's own allowance for ``cell`` at the record's count."""
-    record = study.STUDY
-    return int(allowed(record, record.implementation, cell))
+def robustness_pass(rows: pd.DataFrame, replicates: int) -> float:
+    """The designed chance that every ``mechanism_correct`` cell passes at ``replicates``.
+
+    The product over the three positive cells of the plug-in pass probability of the bias
+    equivalence rule, each at its pilot standardized bias (the cells read different laws or the
+    same fits, so the product is a reading, not an exact joint law).
+    """
+    readings = control_readings(rows)
+    product = 1.0
+    for bias in readings.loc[readings["role"] == "positive", "standardized_bias"]:
+        product *= float(sizing.bias_equivalent_probability(study.MARGINS, bias, replicates))
+    return product
 
 
 def seconds(rows: pd.DataFrame) -> dict[str, float]:
