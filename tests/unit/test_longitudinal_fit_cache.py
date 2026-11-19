@@ -22,6 +22,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.interventions import Incremental
 from cleverly.learners import GLM
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, _fit_cache
+from cleverly.longitudinal import data as data_module
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
 
@@ -349,3 +350,71 @@ def test_a_learner_that_writes_into_its_design_is_refused_by_numpy() -> None:
     with pytest.raises(ValueError, match="read-only"), warnings.catch_warnings():
         warnings.simplefilter("ignore")
         LTMLE({"always": 1, "never": 0}, n_folds=1, **options).fit(frame, **columns)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        (np.array([1.0, np.nan, np.inf, 2.0], dtype=object), [True, False, False, True]),
+        (np.array([np.float32(1.0), np.float16(np.nan)], dtype=object), [True, False]),
+        pytest.param(
+            np.array([np.longdouble("1e400"), 1.0], dtype=object),
+            [True, True],
+            marks=pytest.mark.skipif(
+                np.finfo(np.longdouble).max <= np.finfo(np.float64).max,
+                reason="long double is float64 here, so 1e400 is not a finite long double",
+            ),
+        ),
+        (np.array([2**1100, 1], dtype=object), [True, True]),
+        (np.array(["a", None, "b"], dtype=object), [True, False, True]),
+        (np.array(["a", pd.NA, 1.0], dtype=object), [True, False, True]),
+        (np.array(["a", "b"], dtype=object), [True, True]),
+    ],
+)
+def test_the_presence_check_is_the_per_cell_reading(
+    values: np.ndarray, expected: list[bool]
+) -> None:
+    """The fast paths answer what the per-cell reading answers, including a long double above
+    the ``float64`` range and a Python integer too large for a float."""
+    per_cell = [data_module._categorical_value_is_present(value) for value in values]
+    assert per_cell == expected
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert data_module._present_objects(values).tolist() == expected
+
+
+def test_a_float_subclass_holding_nan_is_read_one_cell_at_a_time() -> None:
+    class Odd(float):
+        pass
+
+    values = np.array([Odd("nan"), 1.0], dtype=object)
+    assert data_module._present_objects(values).tolist() == [False, True]
+
+
+def test_an_object_column_of_floats_is_not_read_one_cell_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(value: Any) -> bool:
+        raise AssertionError("per-cell reading")
+
+    monkeypatch.setattr(data_module, "_categorical_value_is_present", refuse)
+    values = np.array([1.0, np.nan, 0.0] * 100, dtype=object)
+    assert data_module._present_objects(values).sum() == 200
+
+
+def test_from_frame_reads_an_object_column_of_floats_without_a_per_cell_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard through the public reader: a numeric column handed over as objects builds the
+    same panel, without reading one cell at a time."""
+    frame, columns = _panel(300, 3, survival=False)
+    plain = LongitudinalData.from_frame(frame, **columns)
+    objects = frame.astype({"L2": object, "L3": object})
+
+    def refuse(value: Any) -> bool:
+        raise AssertionError("per-cell reading")
+
+    monkeypatch.setattr(data_module, "_categorical_value_is_present", refuse)
+    built = LongitudinalData.from_frame(objects, **columns)
+    for left, right in zip(built.time_varying, plain.time_varying, strict=True):
+        assert np.array_equal(left, right, equal_nan=True)
