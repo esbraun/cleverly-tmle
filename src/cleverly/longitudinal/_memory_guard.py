@@ -233,6 +233,7 @@ def fit_counts(
     paths: int | None,
     multinode: bool,
     later: bool,
+    separable: int = 0,
 ) -> FitCounts:
     """The counts of one guarded call (see :class:`FitCounts`).
 
@@ -256,6 +257,8 @@ def fit_counts(
         Whether the design has a treatment at several nodes.
     later : bool
         Whether it has covariates after baseline.
+    separable : int
+        The separable plans; a hazard fit with any is the ``hazard_separable`` family.
 
     Returns
     -------
@@ -265,13 +268,13 @@ def fit_counts(
     from ..learners.density import default_density_bins
 
     n, n_times = int(data.n), int(data.n_times)
-    continuous = any(
-        data.is_continuous_node(t) or data.node_kind(t) == "mixed" for t in range(1, n_times + 1)
-    )
+    continuous = any(data.node_kind(t) in ("continuous", "mixed") for t in range(1, n_times + 1))
     kind = estimator._estimator
     if kind == "tmle" and getattr(estimator, "survival_model", "iterated_mean") == "hazard":
         family = (
-            "hazard_one_node"
+            "hazard_separable"
+            if separable
+            else "hazard_one_node"
             if not multinode
             else "hazard_backward"
             if later
@@ -284,7 +287,7 @@ def fit_counts(
     bins = 0
     if continuous:
         bins = int(estimator.density_bins or default_density_bins(n))
-    width = int(data.history_design(n_times, include_current=True).shape[1])
+    width = data.history_width(n_times, include_current=True)
     return FitCounts(
         estimator=type(estimator).__name__,
         family=family,

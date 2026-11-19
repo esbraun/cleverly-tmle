@@ -6424,6 +6424,7 @@ class _SequentialEstimator:
                 paths=policy_paths,
                 multinode=is_multinode(prepared),
                 later=bool(later_covariates(prepared)),
+                separable=len(separable) if separable else 0,
             )
         return _Preflight(
             prepared=prepared,
