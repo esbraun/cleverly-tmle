@@ -27,12 +27,14 @@ CONTINUOUS_SURVIVAL_STUDY: Final[str] = "continuous-time-survival"
 
 #: The share of the observed events (any cause) at or before a target time that the study's
 #: gated times reach.  Its gated times sit at the median and the upper quartile of the observed
-#: event times (shares 0.5 and 0.75); at the lower quartile (0.25) the influence-curve standard
-#: error read up to 8% below the sampling spread and coverage fell to 0.88, so that time was
-#: published without a verdict.  The band leaves at least five sampling standard deviations at
-#: n = 1,000 between each gated time and its edge, and so reaches past the measured shares (about
-#: 0.44 to 0.80 over the study's draws).  It is calibrated on one law: it reads neither the events
-#: of each arm and cause nor n, which :data:`MEASURED_N` bounds.
+#: event times (shares 0.5 and 0.75).  Its lower quartile (0.25), where the influence-curve
+#: standard error read up to 8% below the sampling spread and coverage fell to 0.88, is published
+#: without a verdict; under the switched default it covers 0.932 to 0.961 on this law, but the
+#: share floor stays at :data:`SHARE_FLOOR_DEFAULT` because 8 of the 30 first-quartile rows of
+#: :data:`VARIANCE_STUDY` fail its calibration rule.  The band leaves at least five sampling
+#: standard deviations at n = 1,000 between each gated time and its edge, and so reaches past the
+#: measured shares (about 0.44 to 0.80 over the study's draws).  It is calibrated on one law: it
+#: reads neither the events of each arm and cause nor n, which :data:`MEASURED_N` bounds.
 MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
 
 #: The smallest sample size at which a risk or risk difference of a fit without
@@ -76,9 +78,9 @@ CONTINUOUS_LIMITS: Final[tuple[str, ...]] = (
     "and a normal covariate, a binary treatment, two causes with constant hazards and "
     "independent censoring, n = 1,000, the default libraries, cross-fitted. The double "
     "robustness cells add covariate-dependent censoring. At n = 4,000 the same fit covered "
-    "0.918 to 0.960 over 400 draws (reported, not gated).",
+    "0.918 to 0.963 over 400 draws (reported, not gated).",
     "Under near-violations of positivity (treatment probabilities near 0 or 1) the intervals "
-    "under-cover badly: a reported cell at n = 4,000 covered 0.37 to 0.97.",
+    "under-cover badly: a reported cell at n = 4,000 covered 0.36 to 0.96.",
     "The time condition reads the share of observed events, of any cause, by the target time. "
     "It is calibrated on one law, extends past the measured shares (about 0.44 to 0.80), and "
     "does not read how many events each arm and cause has. The study targeted three times "
@@ -250,8 +252,9 @@ def continuous_survival_support(
     elif event_share < low:
         reasons.append(
             f"Only {event_share:.0%} of the observed events happen by this time. The "
-            f"registered study gates times by which {low:.0%} to {high:.0%} have happened; at "
-            "its earliest time (25%) the standard error ran low and coverage fell to 0.88."
+            f"registered study gates times by which {low:.0%} to {high:.0%} have happened, and "
+            f"8 of the 30 rows of the {VARIANCE_STUDY} study at its earliest time (25%) fail its "
+            "calibration rule, most with a standard error that runs low."
         )
     elif event_share > high:
         reasons.append(
@@ -292,8 +295,10 @@ def continuous_survival_support(
         )
     if not cross_fitted:
         reasons.append(
-            "The fit is in-sample. The registered study gates cross-fitted fits; the in-sample "
-            "fit covered 0.855 to 0.950 at n = 1,000 (reported, not gated)."
+            "The fit is in-sample. The registered study gates cross-fitted fits; its in-sample "
+            "fit at n = 1,000 covered 0.919 to 0.962 (reported, not gated), and the "
+            f"{VARIANCE_STUDY} study's in-sample cell at n = 1,000 passed at 0.937 to 0.951, "
+            "but neither sets this label."
         )
     if not default_nuisances:
         reasons.append(

@@ -1010,7 +1010,9 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
         gated = not name.startswith("rr_regimen") and f"t={early:g}]" not in name
         assert label == ("supported" if gated else "experimental"), name
     early_name = next(name for name in fit if f"t={early:g}]" in name)
-    assert "coverage fell to 0.88" in fit[early_name].support.reason
+    assert "8 of the 30 rows of the continuous-survival-variance study" in (
+        fit[early_name].support.reason
+    )
     assert fit.simultaneous is not None
     assert fit.simultaneous.support.label == "experimental"
     in_sample = ContinuousSurvivalTMLE([middle], cross_fit=False, random_state=0)
