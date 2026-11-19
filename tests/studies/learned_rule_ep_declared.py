@@ -206,10 +206,16 @@ STUDY = StudyRecord(
     truth_varies_by_replicate=True,
 )
 
+#: The pilot streams.  ``pilot_2`` is the second, independent pilot that the sizing rule pools
+#: with the first when the first alone gives no budget (the precedent of the per-arm C-TMLE
+#: study's pooled pilot steps).
+PILOT_STREAMS = ("pilot", "pilot_2")
+
 #: The sample and fold labels of each stream.  ``property`` is the declared run.
 STREAMS: dict[str, tuple[str, str]] = {
     "property": ("property_sample", "fold_partition"),
     "pilot": ("pilot_sample", "pilot_fold_partition"),
+    "pilot_2": ("pilot_2_sample", "pilot_2_fold_partition"),
     "smoke": ("smoke_sample", "smoke_fold_partition"),
 }
 
@@ -226,7 +232,7 @@ def fold_seed(cell: str, replicate: int, stream: str = "property") -> int:
 
 def verified(replicate: int, stream: str) -> bool:
     """Whether the harness refits and compares this replicate's fold rules (B4)."""
-    return stream == "pilot" or replicate % VERIFY_EVERY == 0
+    return stream in PILOT_STREAMS or replicate % VERIFY_EVERY == 0
 
 
 # ------------------------------------------------------------------------- the harness

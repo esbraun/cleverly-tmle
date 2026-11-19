@@ -351,3 +351,17 @@ def test_a_withheld_interval_stops_the_replicate() -> None:
     )
     with pytest.raises(RuntimeError, match="withheld interval"):
         study.require_interval(withheld)
+
+
+def test_the_second_pilot_pools_only_distinct_pilot_streams() -> None:
+    """The sizing rule pools the independent ``pilot`` and ``pilot_2`` streams, each once."""
+    first = synthetic_rows(replicates=50).assign(stream="pilot")
+    second = synthetic_rows(replicates=50).assign(stream="pilot_2")
+    assert len(pilot.pooled([first, second])) == len(first) + len(second)
+    with pytest.raises(ValueError, match="distinct pilot streams"):
+        pilot.pooled([first, first])
+    with pytest.raises(ValueError, match="distinct pilot streams"):
+        pilot.pooled([first, second.assign(stream="property")])
+    with pytest.raises(ValueError, match="not a pilot stream"):
+        pilot.pilot_rows(stream="property")
+    assert study.verified(study.VERIFY_EVERY + 1, "pilot_2")
