@@ -157,11 +157,12 @@ holds no matrix; the refusal names `ContinuousSurvivalResult.contrast` and
 `variance="influence_curve"`. The sup-t band takes its critical value from the curves
 standardized by their influence-curve standard errors and its half-widths from the reported ones.
 
-### Why the early-time interval under-covers
+### Why the early-time interval under-covered
 
-In the registered study at the first quartile ($t = 0.46$, n = 1,000, 7,586 fits) the estimates
-had the efficient spread, but treated cause 2, with about 16 expected events, covered 0.881 with a
-mean standard error 8% below its spread (`early-time.csv`). Two mechanisms are at work. In a
+In the registered study's record written under the influence-curve variance, at the first
+quartile ($t = 0.46$, n = 1,000, 7,586 fits), the estimates had the efficient spread, but treated
+cause 2, with about 16 expected events, covered 0.881 with a mean standard error 8% below its
+spread. Two mechanisms are at work. In a
 sparse cell a few squared increments carry the influence-curve variance: its standard error varied
 by 30% between draws and moved with the estimate, so the misses were one-sided. A smaller excess
 spread appears at control cause 1, whose weights are heaviest.
@@ -175,7 +176,11 @@ curve came mostly from a wider interval in the rows where the curve is sparse, n
 information at matched width. The study
 [continuous-time survival switched variance](method-evidence/continuous-survival-variance.md)
 decided on five fresh laws that the switched variance stays the default; the floors it set are
-stated under [evidence](#evidence).
+stated under [evidence](#evidence). The registered study's record regenerated under the switched
+default reads, at the first quartile, an SE ratio of 0.997 and coverage 0.932 for treated cause 2,
+and SE ratios 0.990 to 1.038 and coverage 0.932 to 0.961 over the six targets (`early-time.csv`).
+The first quartile still reads experimental, because 8 of the 30 first-quartile rows of the
+switched-variance study fail its calibration rule.
 
 With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final
@@ -455,10 +460,11 @@ upper quartile of the observed event times. An estimate reads `supported` when i
 that configuration: cross-fitted, the default libraries and settings, two causes, a risk or a
 risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
 (`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
-study below. At the lower quartile the standard error
-ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
-early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has.
+study below. Its record was regenerated under the switched default: all 12 primary rows pass, with
+coverage 0.942 to 0.952 and SE ratio 0.991 to 1.032 over 7,600 fits, and the six property cells
+pass. At the lower quartile it covered 0.932 to 0.961, but an estimate at a time that early reads
+experimental because the switched-variance study's first-quartile rows do not all pass. The time
+condition is calibrated on this one law and does not read how many events each arm and cause has.
 
 The registered study [continuous-time survival restricted means and risk
 ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
@@ -485,8 +491,7 @@ this law, so the claim that a restricted mean must be targeted rests on the scor
 The registered study [continuous-time survival switched
 variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
 default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
-four gated cells passes at 6,000 replicates. The continuous-time survival TMLE study was written
-under the influence-curve variance and regenerates under the switched default.
+four gated cells passes at 6,000 replicates.
 
 The switched-variance study sets three floors. A risk or risk difference whose `variance_rel_sd`
 lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at 0.40, because

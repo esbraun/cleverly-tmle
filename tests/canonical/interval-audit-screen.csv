@@ -40,7 +40,7 @@ composite-missing-drtmle,audited,21,20,0.017917,,corrected_mar_inference/composi
 conditional-projection,neutral,12,12,0.014,,,0,
 continuous-survival-functionals,neutral,8,0,0.0,,,0,
 continuous-survival-variance,neutral,40,0,0.0,,,0,
-continuous-time-survival,neutral,10,10,0.007948,,,0,
+continuous-time-survival,neutral,10,0,0.0,,,0,
 cross-fitted-longitudinal-msm,neutral,9,9,0.068,,double_robustness/(intercept)__both_correct;root_n_and_efficiency/(intercept)__n_2000;root_n_and_efficiency/(intercept)__n_8000,1,
 ctmle-derivative,neutral,13,13,0.0175,,double_robustness/outcome_correct,0,
 ctmle-oat-per-arm,neutral,15,14,0.095,,generated_design/binary_active__estimated;interval_calibration/binary_active__correctly_specified;interval_calibration/binary_weighted__correctly_specified;power/alternative,1,

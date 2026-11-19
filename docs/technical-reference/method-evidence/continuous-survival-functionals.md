@@ -79,10 +79,11 @@ failure, an initial hazard fit with a combined jump of one or more, inside the d
 Coverage is 0.939 to 0.954 and the SE ratio 0.988 to 1.018. The lowest rows are the sparse
 treated arm's risk of cause 2 at $t = 1.12$ (coverage 0.939, SE ratio 1.00), its RMTL at $\tau$
 (0.940) and cause 2's risk ratio at $t = 1.12$ (0.941). The largest standardized bias is 0.046,
-on that risk ratio. The coverage of each risk and risk difference is at or above the registered
-study's row, which reads independent draws of the same law fitted without the restricted horizon
-and still under the influence-curve variance; the largest gap is 0.016, on the treated arm's risk
-of cause 2 at $t = 1.12$ (0.939 against 0.923).
+on that risk ratio. The coverage of each risk and risk difference is within 0.008 of the
+registered study's row, which reads independent draws of the same law fitted without the
+restricted horizon, also under the switched default. It runs from 0.006 below, on the treated
+arm's risk of cause 2 at $t = 2.32$ (0.945 against 0.950), to 0.007 above, on the control arm's
+risk of cause 1 at $t = 2.32$ (0.951 against 0.944).
 
 ## Theory properties
 

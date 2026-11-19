@@ -10821,8 +10821,8 @@ CELLS.update(
 _CONTINUOUS_SLUG = "continuous-time-survival"
 IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
     "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
-    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
-    "2024)"
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024)"
 )
 STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
     "a three-level factor and a normal covariate, a binary treatment, two competing causes with "

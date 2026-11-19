@@ -218,11 +218,13 @@ rest, so a larger limit makes a large fit faster and never changes its result. T
 whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
-competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
+competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
-time by which a quarter had happened the intervals were too narrow, and some covered only 88% of
-the time. So an estimate reads `supported` only at a time by which 40% to 85% of the events of
-any cause have happened, not counting people who left follow-up. By time 0.5 about a fifth had,
+time by which a quarter had happened its intervals covered 93% to 96%, but in a
+[second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
+other data-generating setups some intervals at that early time were still too narrow. So an
+estimate reads `supported` only at a time by which 40% to 85% of the events of any cause have
+happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
 
