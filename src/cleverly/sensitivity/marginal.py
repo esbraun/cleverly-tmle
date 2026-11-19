@@ -98,7 +98,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._continuous_survival_family import refuse_continuous_survival
-from .._inference_status import status_record, supplies_inference
+from .._inference_status import FEW_CLUSTER_ESTIMAND_STATUS, status_record, supplies_inference
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
 from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
@@ -512,19 +512,25 @@ def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
     if withheld is None:
         return None
     record = status_record(withheld)
+    # A shown parameter status (few_cluster_estimand_plugin) labels the estimate's interval
+    # rather than withholding it; the bound refuses it as the fit-level few_cluster_plugin is.
+    reads = "labels" if record.interval == "shown" else "withholds"
     return Refusal(
         RefusalReason.INFERENCE_GAP,
         f"the bound's interval is built from the influence curve of {target.name}, and that "
-        f"estimate withholds its interval ({withheld}): {record.reason}",
+        f"estimate {reads} its interval ({withheld}): {record.reason}",
         alternative=record.alternative or NO_ALTERNATIVE,
         roadmap=record.reopened_by,
     )
 
 
 def _withheld_status(result: Any, target: _Target) -> str | None:
-    """The status of ``target``'s estimate when it withholds the interval, else ``None``.
+    """The status of ``target``'s estimate when the bound refuses it, else ``None``.
 
-    A reported estimate answers through its own status.  An unreported one withholds when
+    A reported estimate answers through its own status: one that withholds the interval, or
+    ``"few_cluster_estimand_plugin"``, which shows it below the default cluster floor of an
+    estimate no floor study measured, as the fit-level ``"few_cluster_plugin"`` that
+    :func:`marginal_bound_refusal` refuses does.  An unreported one withholds when
     an arm it reads holds one observed outcome value in its rows, the cause the fit's
     ``constant_arm_cell_plugin`` status names, because the bound's influence curve leaves out
     that arm's outcome variance as the estimate's would.
@@ -534,6 +540,8 @@ def _withheld_status(result: Any, target: _Target) -> str | None:
     estimate = result.estimates.get(target.name)
     if estimate is not None:
         status = estimate.inference
+        if status == FEW_CLUSTER_ESTIMAND_STATUS:
+            return str(status)
         # A selecting C-TMLE withholds for its selected mechanism, which the bounds refit.
         if supplies_inference(status) or (
             status in _SELECTION_STATUSES and _refits_mechanism(result)

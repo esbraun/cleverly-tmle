@@ -58,6 +58,8 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
+from cleverly.sensitivity import marginal as marginal_module
+from cleverly.sensitivity import marginal_sensitivity_bounds
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -648,6 +650,32 @@ class TestTheFloorHoldsForTheMeasuredAte:
         monkeypatch.setattr(tmle_module, "MEASURED_POINT_ESTIMAND", "no estimand")
         with pytest.raises(AssertionError):
             assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+
+class TestTheMarginalBoundsReadTheEstimandStatus:
+    """B1 of the X54 implementation review: the marginal bounds refuse an estimate under
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`, by its record's reason,
+    as they refuse a fit under ``few_cluster_plugin``. The measured ATE of the same fit keeps
+    its bounds."""
+
+    def test_the_arm_mean_refuses_and_the_ate_answers(self, in_sample_floor_frame: Any) -> None:
+        result = fit(in_sample_floor_frame, **IN_SAMPLE)
+        with pytest.raises(CapabilityError) as raised:
+            marginal_sensitivity_bounds(result, estimand="ey0")
+        record = STATUS_RECORDS[FEW_CLUSTER_ESTIMAND_STATUS]
+        assert record.reason in str(raised.value)
+        assert raised.value.refusal is not None
+        assert raised.value.refusal.roadmap == record.reopened_by == "X54"
+        bounds = marginal_sensitivity_bounds(result, estimand="ate")
+        assert len(bounds.to_frame()) > 0
+
+    def test_a_check_blind_to_the_estimand_status_serves_a_bound(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation: without the estimand check the arm mean gets a bound."""
+        monkeypatch.setattr(marginal_module, "FEW_CLUSTER_ESTIMAND_STATUS", "not a status")
+        result = fit(in_sample_floor_frame, **IN_SAMPLE)
+        assert len(marginal_sensitivity_bounds(result, estimand="ey0").to_frame()) > 0
 
 
 class TestTheWorkflowPageRunsOnUnequalClusters:

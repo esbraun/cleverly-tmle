@@ -104,3 +104,21 @@ class TestEachMutationRestoresAMismatch:
             assert signed, (mutation.describe, found)
         else:
             assert found == [], mutation.describe
+
+
+def test_a_floor_fit_bounds_the_ate_and_refuses_an_arm_mean() -> None:
+    """X54 B1: at the in-sample TMLE floor the marginal row answers the measured ATE and reads
+    ``unavailable`` for an arm mean under ``few_cluster_estimand_plugin``, as its call does."""
+    result = KINDS["floor_mixed_tmle"].build()
+    assert result["ey1"].inference == "few_cluster_estimand_plugin"
+    for estimand, runs in (("ate", True), ("ey1", False)):
+        arguments = sweep_arguments(result)
+        arguments["marginal_bounds"] = {"estimand": estimand}
+        assert problems(result, arguments) == []
+        assert ("marginal_bounds" in ran(result, arguments)) is runs
+        row = result.sensitivity._capability_for_arguments(
+            "marginal_bounds", {"estimand": estimand}
+        )
+        assert row.available is runs
+        if not runs:
+            assert row.refusal is not None and row.refusal.roadmap == "X54"

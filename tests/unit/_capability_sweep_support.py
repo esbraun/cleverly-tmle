@@ -1123,6 +1123,41 @@ def fit_few_clusters() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
+def fit_floor_mixed_tmle() -> Any:
+    """In-sample TMLE at its family's floor, 6 clusters: mixed estimate statuses (X54 B1).
+
+    The ATE reads the family floor and keeps ``"influence_curve"``; the arm means keep the
+    default floor of 10 and take ``"few_cluster_estimand_plugin"``.
+    """
+    frame, _ = make_clustered(n=6 * 30, cluster_size=30, seed=7)
+    return (
+        TMLE(**linear_in_sample(estimands=("ate", "ey1", "ey0")))
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
+        .single()
+    )
+
+
+def fit_floor_mixed_ltmle() -> Any:
+    """In-sample LTMLE at its family's floor on its measured design: one binary node, no
+    censoring, 6 clusters. The always-versus-never contrast keeps ``"influence_curve"``; the
+    two means take ``"few_cluster_estimand_plugin"`` (X54 B1)."""
+    rng = np.random.default_rng(11)
+    n = 240
+    w1 = rng.standard_normal(n)
+    a = (rng.random(n) < 1.0 / (1.0 + np.exp(-0.4 * w1))).astype(float)
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(0.3 * w1 + 0.5 * a)))).astype(float)
+    frame = pd.DataFrame({"W1": w1, "A": a, "Y": y, "site": np.arange(n) * 6 // n})
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+    )
+    return estimator.fit(frame, outcome="Y", treatment=["A"], baseline=["W1"], id="site")
+
+
 def _fit_ltmle_jackknife(n_folds: int) -> Any:
     """The two-node regime fit of ``make_longitudinal(400, 12)`` in 20 clusters of 20 units."""
     frame, _ = make_longitudinal(n=400, seed=12)
@@ -2366,6 +2401,12 @@ KINDS: dict[str, Kind] = {
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
+    # X54 B1: a fit at its family's floor with mixed estimate statuses. The ATE reads the
+    # family floor and the arm means take few_cluster_estimand_plugin; the sweep's default
+    # marginal request reads the ATE, and a request for an arm mean refuses
+    # (test_capability_row_sweep.py::test_a_floor_fit_bounds_the_ate_and_refuses_an_arm_mean).
+    "floor_mixed_tmle": _kind(fit_floor_mixed_tmle, "marginal_bounds", *_ARM),
+    "floor_mixed_ltmle": _kind(fit_floor_mixed_ltmle, *_LIVE),
     # The fold-evaluated report averages over folds, so the E-value reads no ratio interval.
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
@@ -2721,6 +2762,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "ltmle_jackknife",
                 "ltmle_jackknife_cross_fitted",
                 "ltmle_jackknife_refit_withheld",
+                "floor_mixed_ltmle",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
                 "sdr_mtp_censored",

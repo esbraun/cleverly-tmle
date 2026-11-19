@@ -401,6 +401,11 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # A leave-one-cluster-out refit raises, so the jackknife reports no interval: the
     # interval plots read the withheld status, and influence() refuses.
     "ltmle_jackknife_withheld": sweep.fit_ltmle_jackknife_refit_withheld,
+    # X54 B1: fits at their family's floor with mixed estimate statuses. The measured contrast
+    # keeps the ordinary status and every other estimate shows its interval under
+    # few_cluster_estimand_plugin; each plot draws or refuses as on an ordinary fit.
+    "point_tmle_floor_mixed": sweep.fit_floor_mixed_tmle,
+    "ltmle_floor_mixed": sweep.fit_floor_mixed_ltmle,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -419,6 +424,30 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "point_tmle_floor_mixed": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_floor_mixed": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "ltmle_jackknife": {
         "forest": "draws",
         "curve": "CapabilityError: this fit has one end-of-study",
