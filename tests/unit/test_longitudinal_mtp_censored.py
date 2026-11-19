@@ -208,7 +208,7 @@ def test_mb_a_retention_design_without_the_current_dose_is_caught(
         "columns.append(self.dose_block(t, codes))",
         "columns.append(self.dose_block(t, codes) if t < time else np.zeros((self.n, 0)))",
     )
-    mutate(monkeypatch, data_module, LongitudinalData, "history_design", [edit])
+    mutate(monkeypatch, data_module, LongitudinalData, "_history_design", [edit])
     _caught(engine)
 
 

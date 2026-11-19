@@ -1,9 +1,9 @@
 """Arrays one longitudinal fit reads more than once, shared while some reader holds them.
 
 The backward recursion reads the same regimen masks, cumulative mechanism products, clever
-covariates at every horizon, cause and fold of one fit.  Built
-afresh at each read, they leave the fit's retained records holding one copy per horizon of
-arrays that are equal by construction.  Inside :func:`fit_cache` such an array is
+covariates and observed-history designs at every horizon, cause and fold of one fit.  Built
+afresh at each read they cost time, and the fit's retained records then hold one copy per
+horizon of arrays that are equal by construction.  Inside :func:`fit_cache` such an array is
 built once, marked read-only, and handed to every reader that asks for it while an earlier
 reader still holds it, so the records share one copy.
 
@@ -11,10 +11,13 @@ An entry holds its value weakly.  It lives exactly as long as some record or rea
 value, and is dropped when the last one lets go, so no cached value outlives its last reader.
 An entry is keyed by the identity of the objects the value is computed from (the panel, the
 plan, the mechanism, an earlier cached value) and holds those objects while its value lives, so
-an identity cannot be reused under a live entry.  What can live longer than without the cache
-is the sources of a value a record keeps (a regimen's masks behind the node masks its records
-hold), which is what lets later horizons share that value; the fit's retained memory and its
-peak rise by no more than those sources.
+an identity cannot be reused under a live entry.  Two things can therefore live longer than
+without the cache: the cleaned covariate blocks of each panel object the draw reads
+(:func:`held`), held until the draw returns at the size of that panel's own covariates, and
+the sources of a value a record keeps (a regimen's masks behind the node masks its records
+hold), which is what lets later horizons share that value.  The held blocks are dropped when
+the draw returns, so they never add to what a result retains; while the draw runs they can
+raise its peak by up to their size where nothing else is shared.
 
 The cache lives in a context variable for the duration of one draw's fit and is emptied when
 the fit returns.  Outside it every reader computes as before, so the cache can change when an
@@ -35,7 +38,7 @@ from typing import Any, ParamSpec, TypeVar
 
 import numpy as np
 
-__all__ = ["active", "cached", "fit_cache", "frozen", "in_fit_cache"]
+__all__ = ["active", "cached", "fit_cache", "frozen", "held", "in_fit_cache"]
 
 _T = TypeVar("_T")
 _P = ParamSpec("_P")
@@ -63,12 +66,13 @@ class _Entry:
 
 
 class _FitCache:
-    """The entries of one fit, by key."""
+    """The entries of one fit: weak entries by key, and the few values held strongly."""
 
-    __slots__ = ("__weakref__", "entries")
+    __slots__ = ("__weakref__", "entries", "strong")
 
     def __init__(self) -> None:
         self.entries: dict[Hashable, _Entry] = {}
+        self.strong: dict[Hashable, tuple[tuple[Any, ...], Any]] = {}
 
 
 _ACTIVE: ContextVar[_FitCache | None] = ContextVar("cleverly_longitudinal_fit_cache", default=None)
@@ -91,6 +95,7 @@ def fit_cache() -> Iterator[None]:
     finally:
         _ACTIVE.reset(token)
         cache.entries.clear()
+        cache.strong.clear()
 
 
 def in_fit_cache(method: Callable[_P, _T]) -> Callable[_P, _T]:
@@ -185,4 +190,39 @@ def cached(name: str, sources: tuple[Any, ...], extra: Hashable, compute: Callab
     except TypeError:
         return value  # a value that cannot be referenced weakly is not shared
     cache.entries[key] = _Entry(sources, refs, split)
+    return value
+
+
+def held(name: str, sources: tuple[Any, ...], extra: Hashable, compute: Callable[[], _T]) -> _T:
+    """``compute()``, built once per active fit and held until the fit returns.
+
+    Only for values whose size is bounded by the panel's own (its cleaned covariate blocks,
+    one copy per panel object read in the draw), since the cache keeps them alive whether or
+    not a reader holds them.
+
+    Parameters
+    ----------
+    name : str
+        What is cached.
+    sources : tuple
+        The objects the value is computed from, compared by identity and held by the cache.
+    extra : hashable
+        The plain arguments of the computation.
+    compute : callable
+        Builds the value.  Its arrays are marked read-only.
+
+    Returns
+    -------
+    object
+        The value.
+    """
+    cache = _ACTIVE.get()
+    if cache is None:
+        return compute()
+    key = _key(name, sources, extra)
+    hit = cache.strong.get(key)
+    if hit is not None:
+        return hit[1]
+    value = frozen(compute())
+    cache.strong[key] = (sources, value)
     return value

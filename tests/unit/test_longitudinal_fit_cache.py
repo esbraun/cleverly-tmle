@@ -21,7 +21,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.interventions import Incremental
 from cleverly.learners import GLM
-from cleverly.longitudinal import IPSI, LTMLE, SDR, _fit_cache
+from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, _fit_cache
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
 
@@ -192,7 +192,7 @@ def test_an_entry_lives_only_while_its_value_does() -> None:
         other = Source()
         rebuilt = _fit_cache.cached("probe", (other,), 1, lambda: np.arange(5.0))
         assert np.array_equal(rebuilt, np.arange(5.0))
-    assert not cache.entries
+    assert not cache.entries and not cache.strong
 
 
 def test_a_tuple_value_is_shared_while_every_part_lives() -> None:
@@ -272,3 +272,80 @@ def test_two_numerator_columns_give_two_clever_covariates() -> None:
         second_node = sequential_module._clever_covariate(at_risk, at_risk, halving, 2, None)
         third_node = sequential_module._clever_covariate(at_risk, at_risk, halving, 3, None)
         assert np.allclose(second_node[1], 4.0) and np.allclose(third_node[1], 8.0)
+
+
+def test_the_design_with_and_without_the_current_arm_differ() -> None:
+    """``include_current`` is part of the design key, so the two designs never share."""
+    frame, columns = _panel(300, 3, survival=False)
+    data = LongitudinalData.from_frame(frame, **columns)
+    with _fit_cache.fit_cache():
+        without = data.history_design(2, include_current=False)
+        with_arm = data.history_design(2, include_current=True)
+        assert with_arm.shape[1] > without.shape[1]
+        assert np.array_equal(data.covariate_history(2), data._covariate_history(2))
+
+
+def test_the_covariate_blocks_are_cleaned_once_per_panel() -> None:
+    """On a survival panel whose later covariates are missing after the event, so the fill
+    acts: one held entry, of the panel's own covariate size, and the shipped matrices."""
+    frame, columns = _panel(300, 4, survival=True)
+    data = LongitudinalData.from_frame(frame, **columns)
+    assert any(np.isnan(block).any() for block in data.time_varying)
+    with _fit_cache.fit_cache():
+        held = [data.covariate_history(t) for t in range(1, 5)]
+        cache = _fit_cache._ACTIVE.get()
+        assert cache is not None and len(cache.strong) == 1
+        ((_, blocks),) = cache.strong.values()
+        width = data.baseline.shape[1] + sum(block.shape[1] for block in data.time_varying)
+        assert sum(block.nbytes for block in blocks) == 8 * data.n * width
+        outside = [data._covariate_history(t) for t in range(1, 5)]
+    for t, (inside, plain) in enumerate(zip(held, outside, strict=True), start=1):
+        # The shipped construction: join the raw blocks, then fill.
+        blocks = [data.baseline, *data.time_varying[:t]]
+        shipped = np.nan_to_num(np.hstack([b for b in blocks if b.shape[1]]), nan=0.0)
+        for matrix in (inside, plain):
+            assert matrix.tobytes(order="A") == shipped.tobytes(order="A")
+            assert matrix.flags.c_contiguous == shipped.flags.c_contiguous
+
+
+def test_two_panels_read_in_one_fit_keep_their_own_blocks() -> None:
+    """Witness for the held store's key: two panel objects read inside one cache each get
+    their own cleaned blocks, so their histories are the ones each gives outside it."""
+    frame, columns = _panel(300, 3, survival=True)
+    shifted = frame.copy()
+    shifted[["W1", "L2", "L3"]] = shifted[["W1", "L2", "L3"]] + 1.0
+    first = LongitudinalData.from_frame(frame, **columns)
+    second = LongitudinalData.from_frame(shifted, **columns)
+    with _fit_cache.fit_cache():
+        inside = [panel.covariate_history(3) for panel in (first, second)]
+    for panel, matrix in zip((first, second), inside, strict=True):
+        assert np.array_equal(matrix, panel.covariate_history(3))
+    assert not np.array_equal(inside[0], inside[1])
+
+
+def test_each_window_is_its_own_node() -> None:
+    """Witness for the window key: under a Markov order the windows of several nodes, held
+    at once inside one cache, are each the window that node gives outside it."""
+    frame, columns = _panel(300, 5, survival=False)
+    data = LongitudinalData.from_frame(frame, **columns).with_markov_order(1)
+    with _fit_cache.fit_cache():
+        inside = [data.window_covariates(t) for t in range(2, 6)]
+    for t, matrix in zip(range(2, 6), inside, strict=True):
+        assert np.array_equal(matrix, data.window_covariates(t))
+    assert not np.array_equal(inside[1], inside[2])
+
+
+class _WritesIntoX(LogisticRegression):
+    def predict_proba(self, X: Any) -> Any:
+        X[0, 0] = 0.0
+        return super().predict_proba(X)
+
+
+def test_a_learner_that_writes_into_its_design_is_refused_by_numpy() -> None:
+    """The shared designs are read-only, so a learner that writes into ``X`` raises numpy's
+    error rather than changing the design another model reads."""
+    frame, columns = _panel(300, 2, survival=False)
+    options = {**_learners(), "treatment_learner": _WritesIntoX(max_iter=1000)}
+    with pytest.raises(ValueError, match="read-only"), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        LTMLE({"always": 1, "never": 0}, n_folds=1, **options).fit(frame, **columns)
