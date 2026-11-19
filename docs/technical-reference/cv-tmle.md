@@ -571,9 +571,12 @@ reads 0.94 to 2.2.
 
 `MINIMUM_FOLD_TRAINING_CLUSTERS` keys the floor by mechanism (4 estimated, 4 known), and a fit
 whose smallest training complement holds fewer positive-mass clusters takes
-`"few_cluster_plugin"`. The whole-fit floor still applies: a fit with fewer than 10 positive-mass
-clusters keeps `"few_cluster_plugin"` even when every complement holds 4 or more, so the passing
-cells below 10 clusters, such as $J = 8$ at 4 training clusters, stay labelled.
+`"few_cluster_plugin"`. The whole-fit floor still applies. For the ATE it is 8 positive-mass
+clusters, the count from which
+[`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes a fold-evaluated fit,
+and a fit below it keeps `"few_cluster_plugin"` even when every complement holds 4 or more. The arm
+means, the ATT and the ATC keep 10, so at 8 or 9 clusters they take
+`"few_cluster_estimand_plugin"`.
 
 Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
 what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
@@ -584,15 +587,20 @@ what each source recommends. $J$ is the cluster count, which Nugent et al. write
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 | Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
-The package follows Nugent et al. From 10 to 39 positive-mass clusters, in the fit or in the
-stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom, and a
-fold-evaluated estimate uses $J-V$ at every count. Below 10 such
-clusters the fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted, because no
-registered study measures an interval there. An in-sample `LTMLE` fit
-with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
-learners only. [Clusters](inference.md#clusters) gives the rules, and
-[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements at 4 to 9 clusters, and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) keeps fits below 4.
+The package follows Nugent et al. Below 40 positive-mass clusters, in the fit or in the stratum
+an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom, and a fold-evaluated
+estimate uses $J-V$ at every count. Below the fit's interval floor the fit takes the
+`"few_cluster_plugin"` status. For the ATE the floor is 6 in sample, 10 stacked and 8
+fold-evaluated, the counts from which
+[`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes each fit.
+
+Every other estimate keeps 10 and takes `"few_cluster_estimand_plugin"` below it, because the study
+cells read the ATE alone. The registered few-cluster evidence uses parametric nuisance learners
+only. [Clusters](inference.md#clusters) gives the rules,
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the measured limits
+and keeps fits below 4, and
+[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the
+stacked redeclaration and the arm-mean cells.
 
 ### Clusters of unequal mass
 

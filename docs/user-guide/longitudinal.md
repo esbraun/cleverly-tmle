@@ -386,8 +386,13 @@ percentile interval beside its influence-curve interval.
 [The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each replicate resamples and refits. The percentile interval carries the support
 label of the fit, so a fit no registered study covers says under its summary that the bootstrap
-interval is experimental. A fit with fewer than 20 clusters prints a `bootstrap SD (diagnostic)`
-column and a percentile range, both diagnostics.
+interval is experimental.
+
+An estimate with fewer clusters than its floor prints a
+`bootstrap SD (diagnostic)` column and a percentile range, both diagnostics. The floor is 20
+clusters for most longitudinal estimates. An `LTMLE` fit's always-treat versus never-treat
+contrast has a floor of 6, or 4 when the fit is cross-fitted
+([clusters](../technical-reference/inference.md#clusters)).
 
 
 Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).

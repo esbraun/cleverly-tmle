@@ -223,7 +223,8 @@ status. A shown status returns the plug-in interval and the estimate carries the
 | `"trimmed_ratio_plugin"` | an `LTMLE` or `SDR` fit with `ratio_trim=` whose trim moves a positive per-node density ratio of any regimen. A trim that moves no ratio keeps the fit status. [Ratio trimming](longitudinal-tmle.md#ratio-trimming) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) |
 | `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason. A `StructuralNestedMean` fit with `n_folds=1` and a learner other than `GLM` takes it too. [Structural dynamic effects](structural-dynamic-effects.md#status) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | none; fit `LTMLE` or `SDR` |
 | `"no_cluster_variance_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=` and fewer than 3 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 3. A Student t reference with $J - 2$ degrees of freedom has none left. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=`, or a longitudinal fit, with 3 clusters with positive weight mass, in the fit or one reported baseline stratum, up to one below the fit's interval floor. The floor is its fit family's, 10 for every other point-treatment fit and 20 for every other longitudinal fit. [Clusters](#clusters) gives the floors and the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std. error` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, `AdaptiveIPTW` or `CTMLE(strategy="derivative")` fit with `id=`, or a longitudinal fit, with 3 clusters with positive weight mass, in the fit or one reported baseline stratum, up to one below the fit's interval floor. A measured family's floor is the count from which its measured contrast passes. Every other fit takes 10 (point treatment) or 20 (longitudinal). [Clusters](#clusters) gives the floors and the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std. error` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"few_cluster_estimand_plugin"` | an estimate other than the measured contrast of a measured fit family, on a fit that reads at least the family's floor but fewer than 10 (point treatment) or 20 (longitudinal) positive-mass clusters. The measured contrast is the ATE, or always against never for `LTMLE`. A parameter status: the measured contrast of the same fit keeps the ordinary status. [Clusters](#clusters) gives the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std. error` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"low_dose_support_plugin"` | a `DoseResponseTMLE` pair whose clever covariate has a Kish effective size below the declaration's `support_floor` (default 50). The pair stays in the simultaneous band. [Support](dose-response.md#support) gives the reason | shown: return the influence-curve values under the experimental label | `std. error` | [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) |
 | `"constant_node_plugin"` | a longitudinal parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, on a fit outside the reach of the boundary-node supplement (SDR, IPSI, the IPW and g-formula baselines, repeated fold draws, `variance="policy_weighted"` and the other kinds [A node with no event](longitudinal-tmle.md#a-node-with-no-event) lists), and every contrast or restricted mean that reads it. An `LTMLE` iterated-mean or hazard fit inside the reach keeps its status and adds the node variance instead. The simultaneous band leaves it out. The other parameters of the fit keep their status | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) |
 | `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
@@ -298,7 +299,7 @@ is an inference claim, so a non-inferential status publishes that number as `boo
 `summary()` labels `bootstrap SD (diagnostic)`.
 `BootstrapSummary.diagnostic` is `True` when the bootstrap columns take the diagnostic names. A
 bootstrap is a diagnostic when its estimate supplies no inference, when the fit reads fewer
-clusters than the interval floor (10, or 20 for `LTMLE`), or when the summary says so. The cluster
+clusters than the fit's interval floor ([Clusters](#clusters)), or when the summary says so. The cluster
 count decides the second case, so a fit with estimated weights and few clusters is a diagnostic
 too. `BootstrapSummary.below_floor` records it. `bootstrap_is_diagnostic` in
 `inference/influence.py` applies the rule, and `bootstrap_column` names the column. A C-TMLE
@@ -451,7 +452,7 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 | --- | --- |
 | the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band. A clustered fold-evaluated fit carries a $t$ reference at every cluster count, so it has no simultaneous band at 40 clusters or more either; the stacked report keeps its band there |
 | `simultaneous_bands()` | `CapabilityError` |
-| the cluster bootstrap | printed as a percentile range from 3 to 9 clusters (3 to 19 for `LTMLE`), whatever the status. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
+| the cluster bootstrap | printed as a percentile range from 3 clusters up to the estimate's interval floor ([Clusters](#clusters)), whatever the status. An estimate under `few_cluster_estimand_plugin` reads the default floor of its kind, not its family's. From the floor it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
 
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
 state for cluster-randomized trials. A classical one-sample mean of independent normal cluster
@@ -486,9 +487,9 @@ A validation fold of 2 clusters passes when its complement is large, so the limi
 complement and not the validation fold. `MINIMUM_FOLD_TRAINING_CLUSTERS` holds the floor per
 treatment mechanism (4 estimated, 4 known), and a fold-evaluated `TMLE` whose smallest training
 complement holds fewer positive-mass clusters takes `"few_cluster_plugin"`. With the whole-fit
-floor of 10, that happens only when weights leave almost every positive-mass cluster in one
-validation fold. The whole-fit floor still labels a fit below 10 positive-mass clusters, so the
-passing cells below 10 clusters keep `"few_cluster_plugin"`.
+floor of 8 for the ATE, that happens only when weights leave almost every positive-mass cluster in
+one validation fold. The whole-fit floor still labels a fit below 8 positive-mass clusters, so the
+passing training cells below 8 clusters keep `"few_cluster_plugin"`.
 
 `cv_evaluation=True` refuses a clustered fit, before any learner, when the clusters differ in the
 denominator mass of a requested estimand: the total weight (the row count when unweighted) for
@@ -504,23 +505,49 @@ Wang et al. (2024), Remark 3, caution against complex nuisance learners at about
 registered few-cluster evidence uses parametric nuisance learners only.
 
 The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
-reported baseline stratum. Its upper bound is one below the fit's interval floor, the smallest
-count from which a registered few-cluster study measures that fit. `CLUSTER_INTERVAL_FLOORS`
-holds one floor per measured fit family: in-sample, stacked and fold-evaluated `TMLE`,
-cross-fitted foldwise `DRTMLE` with a declared treatment mechanism, and in-sample and
-cross-fitted `LTMLE`. Every other fit takes the default of its kind,
-`DEFAULT_POINT_INTERVAL_CLUSTERS` (10) or `DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` (20). Each
-family holds its kind's default until a registered floor study sets a lower count.
+reported baseline stratum. Its upper bound is one below the fit's interval floor.
+`CLUSTER_INTERVAL_FLOORS` holds one floor per measured fit family. Each is the smallest count from
+which every count of the family passes in
+[`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) or
+[`few-cluster-floor-cross-fitted-ltmle`](method-evidence/few-cluster-floor-cross-fitted-ltmle.md).
+Every cell of those studies reads one contrast, so a floor holds for that contrast alone. Every
+other estimate of the fit keeps the default of its kind, `DEFAULT_POINT_INTERVAL_CLUSTERS` (10) or
+`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` (20), and so does every fit outside the families.
 
-[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds
-the counts from 3 to each bound. With fewer than 3 clusters (`MINIMUM_T_REFERENCE_CLUSTERS`), a
-$t$ reference has no degree of freedom left. The fit takes `"no_cluster_variance_plugin"` and
-withholds its interval, and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) holds those counts.
+| fit family | measured contrast and its floor | every other estimate |
+| --- | --- | --- |
+| in-sample `TMLE` | ATE, 6 | 10 |
+| stacked cross-fitted `TMLE` | ATE, 10 (held while the family is redeclared) | 10 |
+| fold-evaluated `TMLE` (`cv_evaluation=True`) | ATE, 8 | 10 |
+| cross-fitted foldwise `DRTMLE` with a declared treatment mechanism | ATE, 8 | 10 |
+| in-sample `LTMLE` | always against never, 6 | 20 |
+| cross-fitted `LTMLE` | always against never, 4 | 20 |
+
+For `LTMLE` the measured contrast is the difference between the static plan that treats at every
+node and the static plan that treats at none, on an outcome without horizons or causes and
+without `variance="policy_weighted"`. A mean, an ATT, an ATC, a ratio, a curve, a working-model
+coefficient or any other contrast is an estimate the studies did not measure. On a fit at or
+above its family's floor but below the default of its kind, such an estimate takes the parameter
+status `"few_cluster_estimand_plugin"`. Its interval is shown on $t_{J-2}$ under the experimental
+label, and the fit's measured contrast keeps the ordinary status.
+
+The one arm-mean measurement below a default floor fails. On `few-cluster-floor-tmle`'s primary,
+in-sample `LTMLE` at 10 clusters, the arm mean `ey_regimen[never]` covers 0.914 [0.889, 0.935]
+with SE ratio 0.887, against 0.931 for the ATE on the same draws. A cluster effect partly cancels
+in a contrast and enters an arm mean in full.
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the measured limits
+below each floor.
+[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the
+redeclaration of the stacked floor and the cells that would measure the other estimates.
+
+With fewer than 3 clusters (`MINIMUM_T_REFERENCE_CLUSTERS`), a $t$ reference has no degree of freedom
+left. The fit takes `"no_cluster_variance_plugin"` and withholds its interval, and F28 holds those
+counts.
 
 The status is determined from prepared cluster labels, strata, and weights, and on a
 fold-evaluated fit from its folds, without reading a fitted quantity. A fit has one status, so the stratum with the fewest clusters sets it for every
-estimate. Each estimate keeps the degrees of freedom of the rows it reads. The rule applies to
+estimate. `"few_cluster_estimand_plugin"` is a parameter status beside it, read from the same
+count. Each estimate keeps the degrees of freedom of the rows it reads. The rule applies to
 the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no baseline strata.
 
 The rule counts contributing clusters, and it reads no row count. So 30 rows with `id=` and one
@@ -556,9 +583,9 @@ rule.
 
 ### Cluster jackknife
 
-`TMLE(cluster_variance="jackknife")` and `LTMLE(cluster_variance="jackknife")` replace the
-cluster influence-curve variance of every reported estimate with the delete-one-cluster
-jackknife. For each of the $J$ positive-mass clusters the fit refits every nuisance and redoes the
+`LTMLE(cluster_variance="jackknife")` replaces the cluster influence-curve variance of every
+reported estimate with the delete-one-cluster jackknife. `TMLE` takes the same argument and, after
+the floor studies, refuses it on every fit (the last table of this section). For each of the $J$ positive-mass clusters the fit refits every nuisance and redoes the
 targeting with that cluster removed, giving $\hat\theta^{-g}$ on each estimate's inference scale.
 The reported covariance is
 $\frac{J-1}{J}\sum_g(\hat\theta^{-g}-\bar\theta)(\hat\theta^{-g}-\bar\theta)^\top$, and the
@@ -599,12 +626,23 @@ omitted-variable confidence limits read the influence-curve variance at refitted
 nuisances, so each refuses a jackknife fit with its reason. `to_frame()` adds `variance_source`,
 `influence_curve_std_err`, `jackknife_std_err` and `jackknife_failed_refits`.
 
-A jackknife fit carries the experimental support label: no registered study measures it yet.
-`few-cluster-floor-tmle` and `few-cluster-floor-cross-fitted-ltmle` are declared to compare it
-with the shipped reference and with Wang et al.'s inflated variance $\frac{J}{J-p}\hat\sigma^2$
-on $t_{J-p}$ on the same draws. `tests/unit/test_cluster_jackknife.py` checks the formula, the
-leave-one-out values against independent refits, the fixed split, the nuisance term at 100
-clusters, each refusal, and a mutation for each.
+The two floor studies compare the jackknife (C) with the shipped reference (A) and with Wang et
+al.'s inflated variance (B), $\frac{J}{J-p}\hat\sigma^2$ on $t_{J-p}$, on the same draws:
+
+| fit family | jackknife | as shipped |
+| --- | --- | --- |
+| in-sample `TMLE` | not admissible: the paired coverage gain over (A) at `equal10`, 6 clusters, has lower end -0.07 against the margin -0.03 | refused before any learner, code `inference_gap`, roadmap F28 |
+| stacked cross-fitted `TMLE` | admissible from 10 clusters | refused before any learner, code `inference_gap`, roadmap X54, while the family's floor is redeclared |
+| in-sample `LTMLE` | admissible from 6 clusters | an option under the experimental label |
+| cross-fitted `LTMLE` | admissible from 10 clusters | an option under the experimental label |
+
+No support row lists the jackknife, so its intervals stay experimental. (B) is the most often
+calibrated construction for in-sample `TMLE` and both `LTMLE` fits, but (A) is for stacked
+`TMLE`, and the declared rule adopts (B) only when it wins every compared family. The package keeps
+(A). [`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) gives the counts.
+`tests/unit/test_cluster_jackknife.py` checks the formula, the leave-one-out values against
+independent refits, the fixed split, the nuisance term at 100 clusters, each refusal, and a
+mutation for each.
 
 ## Transformed parameters
 
