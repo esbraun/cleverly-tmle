@@ -708,7 +708,7 @@ _FOLD_CAP_TEXT: Final = (
 #: and ``n_folds`` is checked against the fold-count cap on the data.
 PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] = {
     "strategy": (lambda v: v == "oat", "strategy='oat'"),
-    "l1_solver": (lambda v: v == "builtin", "l1_solver='builtin'; strategy='oat' fits no L1 path"),
+    "l1_solver": (lambda v: v == "builtin", "l1_solver='builtin'"),
     "oat_design": (lambda v: v == "per_arm", "oat_design='per_arm'"),
     "outcome_learner": (
         lambda v: type(v) is ParametricOutcome,
@@ -2033,8 +2033,10 @@ default="greedy"
         positive penalty from the optional glmstar package, the compiled core of R
         ``glmnet`` (``pip install "cleverly[glmstar]"``, GPL-2.0-only), and keeps a
         solution only when its Karush-Kuhn-Tucker residual meets the built-in tolerance,
-        re-solving it otherwise. Estimates agree with ``"builtin"`` to that tolerance, not
-        bitwise. A declared glmstar failure solves the path with the built-in solver and
+        re-solving it otherwise. The paths therefore agree with ``"builtin"`` to that
+        tolerance, not bitwise, and so do the selection and the estimate, except where a
+        choice along the search is a near tie and the two solvers can pick different
+        candidates. A declared glmstar failure solves the path with the built-in solver and
         warns. Every other strategy refuses ``"glmstar"``.
     **kwargs : Any
         The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,

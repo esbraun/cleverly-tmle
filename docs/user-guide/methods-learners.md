@@ -210,9 +210,10 @@ optional `glmstar` package, which wraps the compiled solver of R's `glmnet`, and
 
 Install it with `pip install "cleverly[glmstar]"`. It is licensed GPL-2.0-only and adds about
 390 MB of dependencies, so `cleverly[all]` leaves it out. `cleverly` checks every glmstar
-solution against the same optimality tolerance as its own solver and re-solves any that miss it,
-so the estimate matches the default to that tolerance, though not to the last bit. If glmstar
-fails on a path, that path falls back to the built-in solver with a warning. The
+solution against the same optimality tolerance as its own solver and re-solves any that miss it.
+The estimate then matches the default to many digits, though not to the last bit. The exception
+is a near tie, where two candidates score almost the same and the two solvers can pick different
+ones. If glmstar fails on a path, that path falls back to the built-in solver with a warning. The
 [solver section](../technical-reference/collaborative-tmle.md#candidate-sequences) gives the
 contract.
 

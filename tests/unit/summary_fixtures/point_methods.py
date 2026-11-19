@@ -156,6 +156,20 @@ def derivative_record() -> Any:
     return _record(derivative(), "ctmle")
 
 
+@functools.cache
+def derivative_fallback() -> Any:
+    """The derivative record of a glmstar fit whose first training set's path fell back."""
+    record = derivative_record()
+    sets = len(record.penalties)
+    return dataclasses.replace(
+        record,
+        l1_solver="glmstar",
+        l1_polished=(0,) * sets,
+        l1_fallbacks=(1,) + (0,) * (sets - 1),
+        l1_fallback_reasons=("nonconvergence",),
+    )
+
+
 # ----------------------------------------------------------------- DR-TMLE and IPTW
 
 
@@ -427,6 +441,7 @@ FIXTURES: dict[str, Case] = {
     "outcome_adaptive": Case(outcome_adaptive, fidelity=read.read_oat),
     "stacked": Case(stacked_record, fidelity=read.read_oat),
     "derivative": Case(derivative_record, fidelity=read.read_derivative),
+    "derivative_fallback": Case(derivative_fallback, fidelity=read.read_derivative),
     "reduced": Case(reduced, fidelity=read.read_reduced),
     "reduced_bivariate": Case(reduced_bivariate, fidelity=read.read_reduced),
     "reduced_missing": Case(reduced_missing, fidelity=read.read_reduced),

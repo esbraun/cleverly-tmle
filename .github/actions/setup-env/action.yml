@@ -48,11 +48,12 @@ runs:
     # whichever interpreter `/usr` holds, *not* the one `uv python install` just placed, so
     # the version named and the version tested were only ever the same by accident. Doing
     # it here makes them the same by construction, which is what `ci.yml`'s matrix needs.
-    # Windows puts the interpreter under `Scripts`, every other runner under `bin`.
+    # Windows puts the interpreter under `Scripts`, every other runner under `bin`; `GITHUB_PATH`
+    # wants a Windows path there, which `cygpath -w` gives.
     - run: |
         uv venv --python "${PYTHON_VERSION}"
         if [ "${RUNNER_OS}" = "Windows" ]; then
-          echo "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
+          cygpath -w "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
         else
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
         fi

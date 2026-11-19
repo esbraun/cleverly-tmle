@@ -14,6 +14,7 @@ distribution. glmstar is GPL-2.0-only and is installed with ``pip install
 
 from __future__ import annotations
 
+import functools
 import importlib
 import importlib.metadata
 import re
@@ -40,8 +41,8 @@ class GlmstarFallback(Exception):
     Parameters
     ----------
     reason : str
-        ``"nonconvergence"``, ``"short_path"``, ``"nonfinite"``, ``"polish"`` or
-        ``"absent_class"``.
+        ``"nonconvergence"``, ``"fatal"``, ``"short_path"``, ``"nonfinite"``, ``"polish"``
+        or ``"absent_class"``.
     """
 
     def __init__(self, reason: str) -> None:
@@ -57,6 +58,25 @@ def _version_tuple(text: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _below_floor(text: str) -> bool:
+    """Whether a release is older than :data:`MINIMUM_VERSION`; a pre-release or development
+    build of the floor itself (``0.7.1rc1``, ``0.7.1.dev0``) precedes it."""
+    release = _version_tuple(text)
+    if release != MINIMUM_VERSION:
+        return release < MINIMUM_VERSION
+    return re.search(r"(a|b|rc|dev)\d*", text.lower()) is not None
+
+
+def _jerr(estimator: Any) -> int:
+    """glmstar's error code after a fit: negative non-fatal, positive fatal, 0 none."""
+    fit = getattr(estimator, "_fit", None)
+    try:
+        return int(fit["jerr"]) if fit is not None else 0
+    except (KeyError, TypeError, ValueError):
+        return 0
+
+
+@functools.cache
 def load() -> tuple[Any, Any, Any]:
     """Import glmstar and return its binary path, multinomial path and control classes.
 
@@ -78,7 +98,7 @@ def load() -> tuple[Any, Any, Any]:
             "l1_solver='glmstar' needs the glmstar package, which is not installed. "
             f"Install it with {_INSTALL}, or use l1_solver='builtin'."
         ) from None
-    if _version_tuple(version) < MINIMUM_VERSION:
+    if _below_floor(version):
         floor = ".".join(str(v) for v in MINIMUM_VERSION)
         raise ImportError(
             f"l1_solver='glmstar' needs glmstar {floor} or later; {version} is installed. "
@@ -91,7 +111,7 @@ def load() -> tuple[Any, Any, Any]:
         for entry in distribution.files or ()
         if str(entry).replace("\\", "/") == "glmnet/__init__.py"
     }
-    if Path(str(module.__file__)).resolve() not in owned:
+    if Path(str(module.__file__)).resolve() not in owned or not hasattr(module, "LogNet"):
         raise ImportError(
             f"l1_solver='glmstar' found a 'glmnet' module at {module.__file__} that is not "
             "glmstar's. Another package, such as python-glmnet, installs the same name. "
@@ -121,16 +141,17 @@ def starts(problem: _Problem, penalties: FloatArray) -> list[tuple[FloatArray, F
     Raises
     ------
     GlmstarFallback
-        On glmstar's non-convergence warning with a shortened path, a path shorter than
-        the grid, non-finite output, or a class with no training row.
+        On glmstar's non-convergence warning with a shortened path, a fatal glmstar error
+        code, a path shorter than the grid, non-finite output, or a class with no training
+        row.
     ValueError
         When glmstar returns arrays of an unexpected shape.
     """
-    log_net, multi_class_net, control_class = load()
     if np.unique(problem.codes).size < problem.n_classes:
         # glmstar sizes its multinomial by the labels it sees, so a class with no training
         # row cannot be mapped back; the built-in solver keeps that class.
         raise GlmstarFallback("absent_class")
+    log_net, multi_class_net, control_class = load()
     control = control_class(thresh=1e-18, maxit=10**8, fdev=0.0, devmax=1.0)
     p, n_classes = problem.p, problem.n_classes
     settings: dict[str, Any] = {
@@ -145,7 +166,22 @@ def starts(problem: _Problem, penalties: FloatArray) -> list[tuple[FloatArray, F
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        estimator.fit(np.asarray(problem.z), problem.codes, sample_weight=problem.w)
+        try:
+            estimator.fit(np.asarray(problem.z), problem.codes, sample_weight=problem.w)
+        except Exception as error:
+            # A fatal code (a class share below glmnet's floor, memory) is logged, not raised,
+            # and the extraction that follows can fail on the empty path.
+            if _jerr(estimator) > 0:
+                raise GlmstarFallback("fatal") from error
+            if isinstance(error, (TypeError, AttributeError)):
+                raise type(error)(
+                    f"glmstar {importlib.metadata.version('glmstar')} failed inside its fit "
+                    f"({error}). It may have changed its interface; reinstall with {_INSTALL}, "
+                    "or use l1_solver='builtin'."
+                ) from error
+            raise
+    if _jerr(estimator) > 0:
+        raise GlmstarFallback("fatal")
     coefs = np.asarray(estimator.coefs_, dtype=float)
     intercepts = np.asarray(estimator.intercepts_, dtype=float)
     m = penalties.size

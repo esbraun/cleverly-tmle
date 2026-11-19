@@ -340,13 +340,21 @@ on the same standardized columns and normalized weights, and the built-in solver
 Karush-Kuhn-Tucker residual. A solution at most `1e-10` is kept; a larger one is re-solved from
 there by the built-in solver. The intercept-only fits and penalty 0 stay with the built-in solver.
 
-A path that glmstar shortens with a non-convergence warning, returns non-finite values for, or that
-the re-solve cannot bring to `1e-10`, is solved again by the built-in solver with a `UserWarning`.
-So every kept penalty meets the same residual bound under either solver, and estimates agree to
-that tolerance, not bit for bit.
-The selection record counts the work per branch in
+The built-in solver solves the whole path again, with a `UserWarning`, when glmstar fails in a
+declared way. The reasons are a non-convergence warning with a shortened path (`nonconvergence`),
+a fatal error code (`fatal`), a path shorter than the grid (`short_path`), non-finite values
+(`nonfinite`), a re-solve that cannot reach `1e-10` (`polish`), and a class with no training row,
+which glmstar cannot size (`absent_class`). The selection record counts the work per branch in
 `l1_polished`, `l1_fallbacks` and `l1_fallback_reasons` (`CTMLEDerivativeFit` per training set).
-The option leaves the inference status and the support record of the fit unchanged.
+
+Every kept penalty meets the same residual bound under either solver, so the paths agree to that
+tolerance, not bit for bit. The selection and the estimate agree too, except where a choice along
+the search is a near tie: a CV argmin, a step of the path construction, the final step, the
+patience counter or the cross-validated penalty. There the two solvers can pick different
+candidates. The option is not part of the support key: a glmstar fit has the status and support
+record of the same fit with the built-in solver. That decision rests on a decision-equivalence
+replay of the lasso and derivative studies under both solvers, which reports every near tie it
+finds (X106 K2c-2).
 `tests/unit/test_l1_glmstar.py` holds the residual bounds, mutation controls on the mapping, the
 fallbacks and the agreement of public fits, and `tests/unit/test_ctmle_sequence_witness.py` runs
 its `glmnet` comparisons on both solvers.

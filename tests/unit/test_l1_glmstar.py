@@ -170,6 +170,15 @@ class TestTheKeyword:
         assert (selection.l1_polished, selection.l1_fallbacks) == ((), ())
 
 
+@pytest.fixture
+def fresh_loader() -> Any:
+    """``load`` is cached; a loader test sees a cold cache and leaves one behind."""
+    _glmstar.load.cache_clear()
+    yield
+    _glmstar.load.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_loader")
 class TestTheLoader:
     def test_missing_package(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def missing(name: str) -> str:
@@ -207,6 +216,22 @@ class TestTheLoader:
         assert _glmstar._version_tuple("1.0rc2") == (1, 0)
         assert _glmstar._version_tuple("0.7.1.post2") == (0, 7, 1)
         assert _glmstar._version_tuple("0.10.0.dev3") == (0, 10, 0)
+        assert _glmstar._below_floor("0.7.0") and _glmstar._below_floor("0.7.1rc1")
+        assert _glmstar._below_floor("0.7.1.dev0")
+        assert not _glmstar._below_floor("0.7.1") and not _glmstar._below_floor("0.7.2rc1")
+        assert not _glmstar._below_floor("0.7.1.post2")
+
+    def test_absent_class_is_declared_before_glmstar_loads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def unreachable() -> Any:
+            raise AssertionError("load ran before the absent-class check")
+
+        monkeypatch.setattr(_glmstar, "load", unreachable)
+        x, a, _ = _binary(200)
+        problem = l1._Problem(x, a.astype(np.int64), np.ones(a.size), 3)
+        with pytest.raises(_glmstar.GlmstarFallback, match="absent_class"):
+            _glmstar.starts(problem, np.array([0.01]))
 
 
 def _builtin_starts(perturb: float) -> Callable[[l1._Problem, Any], list[Any]]:
@@ -320,12 +345,13 @@ class TestInjectedOutcomes:
 
 # ------------------------------------------------------------------ with glmstar
 
-#: Positive bounds on the pre-polish residual and the polish share, set from the stage-1
-#: measurements (rows/X106/K2/evidence/k2c-stage1/RESULTS.md, before the threshold was
-#: tightened to 1e-18) with room for library rounding.
-BINARY_KKT = 1e-8
-MULTINOMIAL_KKT = 1e-7
-POLISH_SHARE = 0.25
+#: Positive bounds on the pre-polish residual and the polish share, from the measurement under
+#: ``thresh=1e-18`` on these fixtures (binary and weighted: max 6.5e-11, 0 of 99 penalties
+#: polished; three-class: max 1.6e-10), with room for library rounding. The polish share is the
+#: deterministic work guard: an adapter that stopped early would polish most penalties.
+BINARY_KKT = 1e-9
+MULTINOMIAL_KKT = 2e-9
+POLISH_SHARE = 0.05
 #: A wrong mapping pushes the pre-polish residual to at least this.
 MUTATION_KKT = 1e-6
 
@@ -374,13 +400,88 @@ class TestTheAdapter:
         starts = _glmstar.starts(wrong, given)
         assert _max_kkt(problem, penalties, starts) >= MUTATION_KKT
 
-    def test_swapped_multinomial_axes_are_caught(self) -> None:
+    @pytest.mark.parametrize(
+        ("change", "expected"),
+        [
+            ("warn_and_truncate", "nonconvergence"),
+            ("truncate", "short_path"),
+            ("nan", "nonfinite"),
+            ("fatal_code", "fatal"),
+        ],
+    )
+    def test_the_adapter_names_each_declared_failure(
+        self, monkeypatch: pytest.MonkeyPatch, change: str, expected: str
+    ) -> None:
+        """glmstar's own observables, injected after its fit, map to their declared reasons."""
+        log_net = _glmstar.load()[0]
+        fit = log_net.fit
+
+        def altered(self: Any, *args: Any, **kwargs: Any) -> Any:
+            out = fit(self, *args, **kwargs)
+            if change == "warn_and_truncate":
+                warnings.warn(
+                    "Error code -10001: convergence for 5th lambda value not reached", stacklevel=2
+                )
+            if change in ("warn_and_truncate", "truncate"):
+                self.coefs_, self.intercepts_ = self.coefs_[:4], self.intercepts_[:4]
+            elif change == "nan":
+                self.coefs_ = self.coefs_.copy()
+                self.coefs_[3, 0] = np.nan
+            else:
+                self._fit["jerr"] = 8001
+            return out
+
+        monkeypatch.setattr(log_net, "fit", altered)
+        x, a, w = _binary(800)
+        problem = _problem(x, a, w)
+        penalties = _positive(problem, l1.default_penalty_grid(x, a, w))
+        with pytest.raises(_glmstar.GlmstarFallback) as caught:
+            _glmstar.starts(problem, penalties)
+        assert caught.value.reason == expected
+
+    def test_swapped_multinomial_axes_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A layout change in glmstar's multinomial output is an error, never a start."""
+        multi_class_net = _glmstar.load()[1]
+        fit = multi_class_net.fit
+
+        def swapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+            out = fit(self, *args, **kwargs)
+            self.coefs_ = np.ascontiguousarray(np.swapaxes(self.coefs_, 1, 2))
+            return out
+
+        monkeypatch.setattr(multi_class_net, "fit", swapped)
         x, a, w = _three_class(p=5)
         problem = _problem(x, a, w)
         penalties = _positive(problem, l1.default_penalty_grid(x, a, w))
-        starts = _glmstar.starts(problem, penalties)
-        swapped = [(b0, np.ascontiguousarray(b.T).reshape(b.shape)) for b0, b in starts]
-        assert _max_kkt(problem, penalties, swapped) >= MUTATION_KKT
+        with pytest.raises(ValueError, match="may have changed its output layout"):
+            _glmstar.starts(problem, penalties)
+
+    def test_an_error_inside_glmstar_names_the_version(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log_net = _glmstar.load()[0]
+
+        def broken(self: Any, *args: Any, **kwargs: Any) -> Any:
+            raise TypeError("fit() got an unexpected keyword argument 'sample_weight'")
+
+        monkeypatch.setattr(log_net, "fit", broken)
+        x, a, w = _binary(200)
+        problem = _problem(x, a, w)
+        with pytest.raises(TypeError, match=r"glmstar \d.*cleverly\[glmstar\]"):
+            _glmstar.starts(problem, _positive(problem, l1.default_penalty_grid(x, a, w)))
+
+    def test_a_class_below_glmnets_floor_falls_back_or_agrees(self) -> None:
+        """A class with a weighted share below 1e-5 never crashes the glmstar arm."""
+        x, a, _ = _binary(3000)
+        w = np.ones(a.size)
+        w[a == 1] = 1e-7
+        grid = l1.default_penalty_grid(x, a, w)[::10]
+        work = l1.L1Work()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fast = _outcome(lambda: l1.penalty_path(x, a, w, grid, solver="glmstar", work=work))
+        slow = _outcome(lambda: l1.penalty_path(x, a, w, grid))
+        assert fast[0] == slow[0], (fast, slow)
 
     def test_runs_are_bitwise_equal(self) -> None:
         x, a, w = _binary(weighted=True)
@@ -452,6 +553,12 @@ def _edge_case(name: str) -> tuple[Any, ...]:
         x = rng.normal(size=(60, 80))
         a = rng.binomial(1, expit(x[:, 0]))
     grid = l1.default_penalty_grid(x, a, w)
+    if name in ("p_greater_than_n", "quasi_separated_positive"):
+        grid = grid[:-1]  # end at the default's smallest positive penalty (1e-2 at n < p)
+    if name == "quasi_separated_positive":
+        a = (x[:, 0] > 0).astype(int)
+        a[np.argsort(np.abs(x[:, 0]))[:6]] ^= 1
+        grid = l1.default_penalty_grid(x, a, w)[:-1]
     if name == "grid_ending_at_zero":
         grid = np.append(grid[::10], 0.0)
     return x, a, w, grid, classes
@@ -460,6 +567,7 @@ def _edge_case(name: str) -> tuple[Any, ...]:
 EDGE_CASES = [
     "near_collinear",
     "quasi_separated",
+    "quasi_separated_positive",
     "rare_arm",
     "constant_column",
     "zero_weights",
@@ -496,7 +604,68 @@ def test_edge_cases_match_the_builtin_solver(name: str) -> None:
         np.max(np.abs(f.predict_proba(x) - s.predict_proba(x)))
         for f, s in zip(fast[1], slow[1], strict=True)
     )
-    assert gap <= 1e-6, gap
+    assert gap <= 1e-8, gap
+    for f, s in zip(fast[1], slow[1], strict=True):
+        flipped = _membership_flips(f, s, x, a, w, classes)
+        assert all(margin <= DELTA_ACTIVE for margin in flipped), (s.penalty, flipped)
+
+
+#: The active-set near-tie threshold the replay uses (k2c-replay/pilot/tolerances.json,
+#: ``delta_active``), rounded up.
+DELTA_ACTIVE = 2e-9
+
+
+def _margins(slow: Any, x: Any, a: Any, w: Any, classes: Any) -> tuple[Any, Any]:
+    """The built-in active-set margin of every penalized coordinate, and the used columns.
+
+    The margin is ``lambda - |g_j|`` for a coordinate the built-in solution sets to 0, and
+    ``|b_j| c_j`` for a nonzero one, in gradient units (plan tolerances step 1).
+    """
+    matrix = np.asarray(x, dtype=float)
+    order = np.unique(a) if classes is None else np.asarray(classes)
+    codes = np.searchsorted(order, a)
+    weights = l1._normalized(np.ones(a.size) if w is None else np.asarray(w, dtype=float))
+    used = slow.scale > 0.0
+    z = (matrix[:, used] - slow.center[used]) / slow.scale[used]
+    prob = slow.predict_proba(matrix)
+    y = np.zeros_like(prob)
+    y[np.arange(codes.size), codes] = 1.0
+    gradient = z.T @ (weights[:, None] * (prob - y)) / codes.size
+    scale = (z**2).T @ (weights[:, None] * prob * (1.0 - prob)) / codes.size
+    bs = slow.coef[used]
+    if prob.shape[1] == 2:
+        gradient, scale, bs = gradient[:, 1:], scale[:, 1:], bs[:, 1:]
+    margin = np.where(bs == 0.0, slow.penalty - np.abs(gradient), np.abs(bs) * scale)
+    return margin, used
+
+
+def _membership_flips(fast: Any, slow: Any, x: Any, a: Any, w: Any, classes: Any) -> list[float]:
+    """The built-in margin of each coordinate whose zero/nonzero membership differs."""
+    if slow.constant is not None or slow.penalty <= 0.0:
+        return []
+    margin, used = _margins(slow, x, a, w, classes)
+    bs, bf = slow.coef[used], fast.coef[used]
+    if bs.shape[1] == 2:
+        bs, bf = bs[:, 1:], bf[:, 1:]
+    flipped = (bs == 0.0) != (bf == 0.0)
+    return [float(m) for m in margin[flipped]]
+
+
+@needs_glmstar
+def test_a_coordinate_at_the_boundary_is_a_counted_near_tie() -> None:
+    """Positive control: at a penalty a hair below the null gradient, the entering coordinate
+    sits at the active-set boundary. Its built-in margin is inside delta, so a membership flip
+    there is a near tie, and no coordinate above delta flips."""
+    x, a, w = _binary(2000)
+    problem = _problem(x, a, w)
+    boundary = problem.null_gradient() * (1.0 - 1e-12)
+    grid = np.array([problem.null_gradient() * 1.5, boundary, boundary * 0.5])
+    fast = l1.penalty_path(x, a, w, grid, solver="glmstar")
+    slow = l1.penalty_path(x, a, w, grid)
+    margins, _ = _margins(slow[1], x, a, w, None)
+    assert np.min(np.abs(margins)) <= DELTA_ACTIVE  # the fixture is a near tie
+    for f, sl in zip(fast, slow, strict=True):
+        assert all(m <= DELTA_ACTIVE for m in _membership_flips(f, sl, x, a, w, None))
 
 
 @needs_glmstar

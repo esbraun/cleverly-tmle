@@ -97,8 +97,8 @@ class L1Work:
     fallbacks : int
         Paths solved by the built-in solver after a declared glmstar failure.
     reasons : list of str
-        The reason of each fallback, in order: ``"nonconvergence"``, ``"short_path"``,
-        ``"nonfinite"``, ``"polish"`` or ``"absent_class"``.
+        The reason of each fallback, in order: ``"nonconvergence"``, ``"fatal"``,
+        ``"short_path"``, ``"nonfinite"``, ``"polish"`` or ``"absent_class"``.
     """
 
     polished: int = 0
@@ -755,7 +755,7 @@ def penalty_path(
         elif penalty in accelerated:
             intercept, coef = accelerated[penalty]
             residual = problem.kkt(intercept, coef, penalty)
-            if residual > KKT_TOLERANCE:
+            if not residual <= KKT_TOLERANCE:
                 if work is not None:
                     work.polished += 1
                 intercept, coef, residual = _solve(problem, intercept, coef, penalty)
