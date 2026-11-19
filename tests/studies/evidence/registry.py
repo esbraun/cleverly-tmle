@@ -764,6 +764,8 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
+    from tests.studies.few_cluster_floor_ltmle import STUDY as FEW_CLUSTER_FLOOR_LTMLE
+    from tests.studies.few_cluster_floor_tmle import STUDY as FEW_CLUSTER_FLOOR_TMLE
     from tests.studies.few_cluster_fold_variance import STUDY as FEW_CLUSTER_FOLD_VARIANCE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_evaluated_strata import STUDY as FOLD_EVALUATED_STRATA
@@ -928,6 +930,8 @@ def registered() -> tuple[StudyRecord, ...]:
         OPTION_MARKOV_ORDER,
         BOUNDARY_NODE_LTMLE,
         FEW_CLUSTER_FOLD_VARIANCE,
+        FEW_CLUSTER_FLOOR_TMLE,
+        FEW_CLUSTER_FLOOR_LTMLE,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

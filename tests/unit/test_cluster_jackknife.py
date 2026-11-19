@@ -50,6 +50,19 @@ SIZE = 30
 REGIMENS = {"never": 0, "always": 1}
 
 
+@pytest.fixture(autouse=True)
+def _point_machinery(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lift the measured point-TMLE refusals so the witnesses reach the jackknife machinery.
+
+    ``few-cluster-floor-tmle`` refuses the option for in-sample ``TMLE`` and defers it for
+    stacked ``TMLE`` (:data:`~cleverly.inference.cluster_jackknife.JACKKNIFE_FAMILY_REFUSALS`).
+    The construction itself is shared with ``LTMLE`` and stays pinned here. A test class with
+    ``shipped_refusals = True`` reads the shipped map.
+    """
+    if not getattr(request.cls, "shipped_refusals", False):
+        monkeypatch.setattr(cluster_jackknife, "JACKKNIFE_FAMILY_REFUSALS", {})
+
+
 class RaisingLearner(BaseEstimator, ClassifierMixin):
     """A learner the R5 rule admits, whose ``fit`` raises: a refusal that runs it fails."""
 
@@ -640,6 +653,43 @@ class TestBandsAndSupport:
         mixed = {"ey1": jack.estimates["ey1"], "ey0": plain.estimates["ey0"]}
         with pytest.raises(CapabilityError, match="mix a cluster jackknife variance"):
             cluster_jackknife_contrast(mixed)
+
+
+class TestTheMeasuredRefusal:
+    """X54 part (c): the registered measurement refuses the point-TMLE jackknife."""
+
+    shipped_refusals: ClassVar[bool] = True
+
+    def test_in_sample_tmle_refuses_with_the_measured_reason_before_any_learner(self) -> None:
+        settings = glm_learners(
+            outcome_learner=RaisingLearner(),
+            treatment_learner=RaisingLearner(),
+            cluster_variance="jackknife",
+        )
+        with pytest.raises(CapabilityError) as error:
+            fit_point(point_frame(12), **settings)
+        text = str(error.value)
+        assert error.value.refusal.reason == RefusalReason.INFERENCE_GAP
+        assert "few-cluster-floor-tmle" in text and "-0.07" in text and "-0.03" in text
+        assert error.value.refusal.roadmap == "F28"
+
+    def test_stacked_tmle_waits_for_the_redeclaration(self) -> None:
+        with pytest.raises(CapabilityError) as error:
+            TMLE(cross_fit=True, n_folds=5, cluster_variance="jackknife")
+        assert "redeclared" in str(error.value)
+        assert error.value.refusal.roadmap == "X54"
+
+    def test_ltmle_keeps_the_option(self) -> None:
+        assert cluster_jackknife.jackknife_family_refusal("ltmle_in_sample") is None
+        assert cluster_jackknife.jackknife_family_refusal("ltmle_cross_fitted") is None
+        assert cluster_jackknife.jackknife_family_refusal(None) is None
+
+    def test_mutation_an_empty_map_lets_the_in_sample_fit_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cluster_jackknife, "JACKKNIFE_FAMILY_REFUSALS", {})
+        result = fit_point(point_frame(12), **glm_learners(cluster_variance="jackknife"))
+        assert result.estimates["ate"].jackknife is not None
 
 
 def cluster_jackknife_contrast(estimates: Any) -> Any:

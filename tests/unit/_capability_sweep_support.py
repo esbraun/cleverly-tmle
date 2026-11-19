@@ -1123,52 +1123,6 @@ def fit_few_clusters() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
-def fit_tmle_jackknife() -> Any:
-    """The 20-cluster in-sample fit of ``few_clusters`` with the cluster jackknife variance."""
-    frame, _ = make_clustered(n=200, cluster_size=10, seed=7)
-    estimator = TMLE(**linear_in_sample(cluster_variance="jackknife"))
-    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
-
-
-def fit_tmle_jackknife_stacked() -> Any:
-    """The same frame, cross-fitted over 5 folds of 4 clusters, with the cluster jackknife."""
-    frame, _ = make_clustered(n=200, cluster_size=10, seed=7)
-    estimator = TMLE(
-        **linear_in_sample(
-            cross_fit=True, n_folds=5, q_bounds=(-25.0, 25.0), cluster_variance="jackknife"
-        )
-    )
-    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
-
-
-def fit_tmle_jackknife_refit_withheld() -> Any:
-    """Four clusters where only cluster 0 has a treated outcome of 1, with the jackknife.
-
-    The refit without cluster 0 sees a constant treated arm and withholds, so the estimates
-    that read it take ``"jackknife_refit_plugin"``: the point is kept, the interval withheld
-    (X54 (c), the reachable state of ``TestAWithheldRefit``).
-    """
-    rng = np.random.default_rng(5)
-    cluster = np.repeat(np.arange(4), 30)
-    effect = rng.normal(scale=0.5, size=4)[cluster]
-    w = rng.normal(size=cluster.size)
-    a = rng.binomial(1, 1.0 / (1.0 + np.exp(-0.6 * w)))
-    y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(-0.2 + 0.8 * a + 0.7 * w + effect))))
-    y = np.where(a == 1, (cluster == 0).astype(int), y)
-    frame = pd.DataFrame({"y": y, "a": a, "w": w, "g": cluster})
-    estimator = TMLE(
-        outcome_learner=LogisticRegression(C=1e10, max_iter=2000),
-        treatment_learner=LogisticRegression(C=1e10, max_iter=2000),
-        cross_fit=False,
-        simultaneous=False,
-        random_state=0,
-        cluster_variance="jackknife",
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return estimator.fit(frame, outcome="y", treatment="a", id="g").single()
-
-
 def _fit_ltmle_jackknife(n_folds: int) -> Any:
     """The two-node regime fit of ``make_longitudinal(400, 12)`` in 20 clusters of 20 units."""
     frame, _ = make_longitudinal(n=400, seed=12)
@@ -1202,6 +1156,38 @@ def fit_ltmle_jackknife() -> Any:
 def fit_ltmle_jackknife_cross_fitted() -> Any:
     """The clustered LTMLE fit cross-fitted over 5 folds, with the cluster jackknife."""
     return _fit_ltmle_jackknife(5)
+
+
+def fit_ltmle_jackknife_refit_withheld() -> Any:
+    """Twelve clusters where only cluster 0 treats at the first node, with the jackknife.
+
+    The refit without cluster 0 has no unit that follows ``always`` and raises, so every
+    estimate takes ``"jackknife_refit_plugin"``: the point is kept, the interval withheld
+    (X54 (c), the reachable state of ``TestAWithheldRefit``).
+    """
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame = frame.loc[frame["Y"].notna()].drop(columns=["C1", "C2"]).reset_index(drop=True)
+    frame = frame.iloc[:240].assign(site=np.arange(240) // 20)
+    frame.loc[frame["site"] != 0, "A1"] = 0.0
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            id="site",
+        )
 
 
 def fit_fold_targeted_repeated() -> Any:
@@ -2320,6 +2306,9 @@ KINDS: dict[str, Kind] = {
     # replay reads the influence-curve variance at each bound, so its row refuses by name.
     "ltmle_jackknife": _kind(fit_ltmle_jackknife, *_READ, "refute"),
     "ltmle_jackknife_cross_fitted": _kind(fit_ltmle_jackknife_cross_fitted, *_READ, "refute"),
+    # A refit that raises makes the jackknife undefined: every estimate withholds its interval.
+    # The point-TMLE jackknife is refused by the registered measurement (few-cluster-floor-tmle).
+    "ltmle_jackknife_refit_withheld": _kind(fit_ltmle_jackknife_refit_withheld, *_READ, "refute"),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -2377,18 +2366,6 @@ KINDS: dict[str, Kind] = {
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
-    # X54 (c): the delete-one-cluster jackknife variance, in sample and stacked. The rows that
-    # read an interval built from the influence curves refuse it by name: the truncation curve
-    # and the marginal bounds; the omitted-variable rows answer with point bounds only.
-    "tmle_jackknife": _kind(fit_tmle_jackknife, *_READ, "refute", *_BOUND, "benchmark"),
-    "tmle_jackknife_stacked": _kind(
-        fit_tmle_jackknife_stacked, *_READ, "refute", *_BOUND, "benchmark"
-    ),
-    # A refit that withholds makes the jackknife undefined: the interval rows answer as on a
-    # fit that reports no inference. Its one covariate leaves no subset to benchmark.
-    "tmle_jackknife_refit_withheld": _kind(
-        fit_tmle_jackknife_refit_withheld, *_READ, "refute", *_PLUGIN_BOUND
-    ),
     # The fold-evaluated report averages over folds, so the E-value reads no ratio interval.
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
@@ -2716,16 +2693,7 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        # A jackknife fit's curve would read the influence-curve variance (X54 (c)).
-        frozenset(
-            {
-                "incremental",
-                "incremental+missing",
-                "tmle_jackknife",
-                "tmle_jackknife_stacked",
-                "tmle_jackknife_refit_withheld",
-            }
-        ),
+        frozenset({"incremental", "incremental+missing"}),
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
         + r"the truncation curve re-targets the fitted nuisances)",
@@ -2752,6 +2720,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "ltmle",
                 "ltmle_jackknife",
                 "ltmle_jackknife_cross_fitted",
+                "ltmle_jackknife_refit_withheld",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
                 "sdr_mtp_censored",
@@ -2842,8 +2811,6 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
-                # One covariate: the benchmark has no proper subset to drop (X54 (c)).
-                "tmle_jackknife_refit_withheld",
             }
         ),
         "("

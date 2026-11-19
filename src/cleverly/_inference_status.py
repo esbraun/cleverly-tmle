@@ -128,9 +128,9 @@ MINIMUM_FOLD_TRAINING_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
 #: and reports its point estimate only.
 MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 
-#: The same floor for a longitudinal fit that no registered study measures below it. The
-#: registered few-cluster studies measure ``LTMLE`` from 20 clusters, in sample
-#: (``clustered-few-cluster-tmle``) and cross-fitted (``few-cluster-cross-fitted-ltmle``).
+#: The same floor for a longitudinal fit that no registered study measures below it: SDR,
+#: IPSI, the structural fits and repeated splits. ``LTMLE`` in sample and cross-fitted take their
+#: measured floors in :data:`CLUSTER_INTERVAL_FLOORS`.
 DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The fit families whose interval floor a registered few-cluster study sets on its own
@@ -153,16 +153,20 @@ FLOOR_FAMILY_NAMES: Final[Mapping[str, str]] = MappingProxyType(
 )
 
 #: The smallest positive-mass cluster count from which each measured fit family reports its
-#: interval without the few-cluster label. Until the registered result of X54 sets a lower
-#: count, each family keeps the default floor of its kind.
+#: interval without the few-cluster label: the smallest count from which every registered count
+#: of the family passes in ``few-cluster-floor-tmle`` or ``few-cluster-floor-cross-fitted-ltmle``,
+#: each passing count certifying an all-draw coverage whose exact 99% lower end is at least
+#: 0.90. Stacked TMLE keeps the default floor: its five-covariate configuration's IID control is
+#: red at 10 clusters with no committed cell to compare, so the family is redeclared before any
+#: lower floor ships.
 CLUSTER_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
     {
-        "tmle_in_sample": DEFAULT_POINT_INTERVAL_CLUSTERS,
+        "tmle_in_sample": 6,
         "tmle_stacked": DEFAULT_POINT_INTERVAL_CLUSTERS,
-        "tmle_fold_evaluated": DEFAULT_POINT_INTERVAL_CLUSTERS,
-        "drtmle_cross_fitted_known_mechanism": DEFAULT_POINT_INTERVAL_CLUSTERS,
-        "ltmle_in_sample": DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
-        "ltmle_cross_fitted": DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+        "tmle_fold_evaluated": 8,
+        "drtmle_cross_fitted_known_mechanism": 8,
+        "ltmle_in_sample": 6,
+        "ltmle_cross_fitted": 4,
     }
 )
 
@@ -713,7 +717,7 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             plain_reason=(
                 f"With {MINIMUM_T_REFERENCE_CLUSTERS} clusters up to one below the fit's "
                 f"interval floor ({floor_table()}) the interval uses a t distribution with "
-                "the degrees of freedom in the df column, and no validation study measures "
+                "the degrees of freedom in the df column, and no validation study supports "
                 "intervals at so few clusters for this fit, so cleverly marks it experimental. "
                 "A fold-evaluated fit takes the same mark when the clusters outside one "
                 "validation fold, which fit that fold's models, number fewer than "
@@ -725,11 +729,13 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "below its interval floor, in the fit or in one reported baseline stratum, "
                 "reports its interval and p-value on a Student t reference with J - 2 degrees "
                 "of freedom, as Nugent et al. (2024), Section 2.2, last paragraph, recommend. "
-                f"The floors by fit are: {floor_table()}. The registered few-cluster studies "
-                "measure each fit from its floor, and no registered study measures an interval "
-                "below those counts. The estimate carries the experimental label. X54 in "
-                "docs/roadmap.md holds the registered measurements that reopen counts from "
-                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor. A fold-evaluated "
+                f"The floors by fit are: {floor_table()}. Each measured fit's floor is the "
+                "smallest count from which every count the registered few-cluster-floor-tmle "
+                "or few-cluster-floor-cross-fitted-ltmle study measures passes; below it a "
+                "measured count fails or no study measures it. The estimate carries the "
+                "experimental label. F28 in docs/roadmap.md records the measured limits below "
+                "each floor, and X54 holds the redeclaration of the stacked TMLE floor. A "
+                "fold-evaluated "
                 "TMLE whose smallest training complement holds fewer positive-mass clusters "
                 "than MINIMUM_FOLD_TRAINING_CLUSTERS at its treatment mechanism ("
                 f"{MINIMUM_FOLD_TRAINING_CLUSTERS['estimated']} estimated, "
@@ -738,24 +744,24 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "cluster variance from those counts."
             ),
             assessment_note=(
-                "the reported interval is experimental: no registered study measures it for "
-                f"this fit below its interval floor ({floor_table()}), and X54 in the roadmap is "
-                "the condition that supports it"
+                "the reported interval is experimental: no registered study supports it for "
+                f"this fit below its interval floor ({floor_table()}), and F28 in the roadmap "
+                "records the measured limits"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
                 "with few clusters"
             ),
             diagnostic_noun="few-cluster plug-in interval",
-            reopened_by="X54",
+            reopened_by="F28",
             alternative=NO_ALTERNATIVE,
             interval="shown",
             shown_reason=(
                 "The interval uses a Student t reference with J - 2 degrees of freedom, and no "
-                "registered study measures a clustered interval of this fit below its floor "
+                "registered study supports a clustered interval of this fit below its floor "
                 f"({floor_table()}), or a fold-evaluated interval whose smallest training "
-                "complement holds fewer than MINIMUM_FOLD_TRAINING_CLUSTERS. X54 in "
-                "docs/roadmap.md holds the measurements."
+                "complement holds fewer than MINIMUM_FOLD_TRAINING_CLUSTERS. F28 in "
+                "docs/roadmap.md records the measured limits."
             ),
         ),
         "low_dose_support_plugin": StatusRecord(

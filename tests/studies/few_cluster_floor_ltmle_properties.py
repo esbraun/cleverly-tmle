@@ -18,6 +18,7 @@ the family's floor, route and red owners, and :func:`decision` the part (c) deci
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 from typing import Any, Final
 
@@ -67,6 +68,11 @@ PROPERTY_GROUPS: Final[dict[str, tuple[tuple[str, ...], ...]]] = {
 PROPERTY_RULES = (floor.candidate_rule(), property_verdicts.few_cluster_rule(shown_only=True))
 
 
+def _cell_truths(sizes: str, clusters: int) -> dict[str, float]:
+    """The law's exact truths, which a draw of the cell returns unchanged."""
+    return study.draw(sizes, clusters, study.draw_seed(sizes, clusters, 0))[1]
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every published replication cell, with its role, size and requested replicates."""
     published = [
@@ -82,7 +88,10 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         PropertyCell(
             property=family,
             cell=study.cell_name(sizes, clusters, arm),
-            dgp=(sizes, clusters),
+            dgp=floor.CellLaw(
+                f"{sizes} J{clusters}",
+                functools.partial(_cell_truths, sizes, clusters),
+            ),
             outcome_learner=lambda: None,
             treatment_learner=lambda: None,
             n=study.CLUSTER_SIZE * clusters,
@@ -333,7 +342,7 @@ def sizing(summary: pd.DataFrame) -> floor.FamilySizing:
 def synthetic_columns(cell: Any, rng: Any) -> dict[str, Any]:
     """The extra columns of a synthetic row: a shown interval, the package GLM ran."""
     del rng
-    _, clusters = cell.dgp
+    clusters = cell.n // study.CLUSTER_SIZE
     return {
         "withheld": 0,
         "trigger": "",

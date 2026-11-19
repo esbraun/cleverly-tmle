@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -62,6 +63,7 @@ from ..learners.crossfit import Folds
 
 __all__ = [
     "CLUSTER_VARIANCES",
+    "JACKKNIFE_FAMILY_REFUSALS",
     "JACKKNIFE_LEARNER_REFUSAL",
     "JACKKNIFE_TRUNCATION_REFUSAL",
     "ClusterVariance",
@@ -69,6 +71,7 @@ __all__ = [
     "JackknifeVariance",
     "jackknife_covariance",
     "jackknife_estimates",
+    "jackknife_family_refusal",
     "jackknife_fit",
     "jackknife_fold_refusal",
     "jackknife_learner",
@@ -109,6 +112,62 @@ JACKKNIFE_FOLD_REFUSAL: Final[str] = (
     "{held} positive-mass cluster(s), so a refit would lose that fold and change the estimator "
     "it is meant to resample."
 )
+
+
+#: The fit families on which the registered measurement refuses the jackknife, by floor family
+#: (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS` keys): the measured reason and the
+#: roadmap item that reopens it. ``few-cluster-floor-tmle`` compares the jackknife interval with
+#: the influence-curve interval on the same draws (X54 part (c)). For in-sample ``TMLE`` the
+#: jackknife is not non-inferior at the family's floor of 6 clusters, so the option is refused
+#: (plan rule 5). For stacked ``TMLE`` it is admissible from 10 clusters, but the family's floor
+#: and control reading are being redeclared, and the option waits for that redeclaration.
+JACKKNIFE_FAMILY_REFUSALS: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
+    {
+        "tmle_in_sample": (
+            "cluster_variance='jackknife' is refused for an in-sample TMLE. The registered "
+            "few-cluster-floor-tmle study finds it not non-inferior to the influence-curve "
+            "interval at the family's floor of 6 clusters: with clusters of 10 rows, a "
+            "leave-one-cluster-out refit withholds the interval on about one draw in ten, and "
+            "the 99% lower end of the paired all-draw coverage difference is -0.07, below the "
+            "declared margin of -0.03, with the treatment mechanism estimated and declared "
+            "known.",
+            "F28",
+        ),
+        "tmle_stacked": (
+            "cluster_variance='jackknife' is not yet offered for a stacked cross-fitted TMLE. "
+            "The registered few-cluster-floor-tmle study admits it from 10 clusters, but the "
+            "family's interval floor is being redeclared (its five-covariate IID control is "
+            "red at 10 clusters), and the option waits for that redeclaration.",
+            "X54",
+        ),
+    }
+)
+
+
+def jackknife_family_refusal(family: str | None) -> Refusal | None:
+    """The refusal the registered measurement gives the jackknife on ``family``, or ``None``.
+
+    Parameters
+    ----------
+    family : str or None
+        A floor family (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS` key), or
+        ``None`` for a configuration no floor study measures.
+
+    Returns
+    -------
+    Refusal or None
+        Code ``inference_gap`` with the measured reason, or ``None`` when the measurement does
+        not refuse the family.
+    """
+    if family is None or family not in JACKKNIFE_FAMILY_REFUSALS:
+        return None
+    reason, roadmap = JACKKNIFE_FAMILY_REFUSALS[family]
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        reason,
+        alternative="Use the default cluster variance (cluster_variance='influence_curve').",
+        roadmap=roadmap,
+    )
 
 
 #: Why no truncation curve runs on a ``cluster_variance="jackknife"`` fit.

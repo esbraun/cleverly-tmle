@@ -38,6 +38,7 @@ studies' into the declared outcome.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 from typing import Any, Final
 
@@ -111,7 +112,10 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 PropertyCell(
                     property=family,
                     cell=study.cell_name(fit, law, clusters, arm),
-                    dgp=(law, clusters),
+                    dgp=floor.CellLaw(
+                        f"{law} J{clusters}",
+                        functools.partial(_cell_truths, law, estimand),
+                    ),
                     outcome_learner=lambda: None,
                     treatment_learner=lambda: None,
                     n=10 * clusters,
@@ -122,6 +126,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 )
             )
     return tuple(out)
+
+
+def _cell_truths(law: str, estimand: str) -> dict[str, float]:
+    """Every cell of ``law`` publishes the law's exact ATE (``law_truth``) as its truth."""
+    return {estimand: study.law_truth(law)}
 
 
 def _split(fit: str) -> tuple[str, bool]:
@@ -431,7 +440,7 @@ def sizing(summary: pd.DataFrame) -> dict[str, floor.FamilySizing]:
 def synthetic_columns(cell: Any, rng: Any) -> dict[str, Any]:
     """The extra columns of a synthetic row: a shown interval, no package-GLM refit."""
     del rng
-    _, clusters = cell.dgp
+    clusters = cell.n // 10
     return {
         "withheld": 0,
         "trigger": "",

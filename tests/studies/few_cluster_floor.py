@@ -165,6 +165,26 @@ class ParametricKnownMechanism(KnownLongitudinalMechanism):
 # ---------------------------------------------------------------------------------- quantiles
 
 
+@dataclasses.dataclass(frozen=True)
+class CellLaw:
+    """The law of a published cell as a DGP the property tests read: a name and its truths.
+
+    Parameters
+    ----------
+    name : str
+        The law and count, as a finding names it.
+    truths : callable
+        Returns the law's exact truth of every reported name.
+    """
+
+    name: str
+    truths: Callable[[], Mapping[str, float]]
+
+    def truth(self) -> dict[str, float]:
+        """The law's exact truths by name."""
+        return {key: float(value) for key, value in self.truths().items()}
+
+
 def t_critical(df: float) -> float:
     """The two-sided t quantile with ``df`` degrees of freedom; ``inf`` is the normal."""
     if not math.isfinite(df):
@@ -488,7 +508,8 @@ def _family_readings(
             "requested_draws": float(wanted),
             "shown_draws": float(trials),
             "withheld_draws": float(len(group) - trials),
-            "withheld_by_trigger": ";".join(f"{k}={v}" for k, v in triggers.items()),
+            # No withheld draw reads as missing, as the committed CSV writes and reads it.
+            "withheld_by_trigger": ";".join(f"{k}={v}" for k, v in triggers.items()) or math.nan,
         }
         if trials:
             exact = clopper_pearson(hits, trials, confidence_level=level)
@@ -1552,14 +1573,82 @@ PACKAGE_FAMILIES: Final[dict[str, str]] = {
     "ltmle_cross_fitted": "ltmle_cross_fitted",
 }
 #: The (C) status the package ships for each compared floor family (``Outcome.jackknife``
-#: before any reason): the jackknife is an option on the four families part (c) compares, and
-#: the post-run test fails until a committed run that changes a status changes this map too.
+#: before any reason). The post-run test reads ``declared_outcome`` off the committed runs and
+#: compares: each family ships its declared status, except a family named in
+#: :data:`JACKKNIFE_DEPARTURES`, which ships the departure's status instead.
 SHIPPED_JACKKNIFE: Final[dict[str, str]] = {
-    "tmle_in_sample": "option",
-    "tmle_stacked": "option",
+    "tmle_in_sample": "refused",
+    "tmle_stacked": "deferred",
     "ltmle_in_sample": "option",
     "ltmle_cross_fitted": "option",
 }
+#: The declared departures from plan 5.8 in what ships, by family: the declared status, the
+#: shipped one, and why (post-run ruling P2). Stacked TMLE's (C) is admissible from 10 clusters
+#: and declared an option, but its admissibility was read against the family's (A) reading,
+#: d5 included, which is under redeclaration. The option waits for that redeclaration, which
+#: decides its status. It withholds a construction and widens no claim.
+JACKKNIFE_DEPARTURES: Final[dict[str, tuple[str, str, str]]] = {
+    "tmle_stacked": (
+        "option",
+        "deferred",
+        "the family's floor and control reading are under redeclaration (the d5 estimated "
+        "IID control is red at 10 clusters), and (C) was judged against that (A) reading",
+    ),
+}
+#: The owner of a red that sends its family to a redeclaration (post-run ruling P1), and its
+#: one reading. It never reads finite-sample or chance.
+REDECLARATION_OWNER: Final[str] = "X54-stacked-d5-redeclaration"
+REDECLARATION_READING: Final[str] = "redeclaration"
+#: The reds no declared reading holds that the redeclaration owner holds, by study slug: exactly
+#: the d5 estimated IID control at 10 clusters of ``few-cluster-floor-tmle``, whose positive's
+#: shown-only SE-ratio upper end (1.390) exceeds clause 2's 1.20. ``declared_route`` keeps
+#: returning no owner for it, and :data:`NO_DEFECT_DIAGNOSES` stays empty. Any other red with no
+#: owner fails :func:`red_owners`.
+REDECLARED_REDS: Final[dict[str, frozenset[str]]] = {
+    "few-cluster-floor-tmle": frozenset(
+        {f"{FAMILY}/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control"}
+    ),
+}
+
+
+def red_owners(
+    slug: str,
+    routes: Sequence[Route],
+    candidates: Mapping[str, tuple[str, str]],
+    *,
+    redeclared: Mapping[str, frozenset[str]] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Every red row of one study and its ``(owner, reading)`` (post-run ruling P1).
+
+    ``routes`` are the study's :func:`declared_route` results and ``candidates`` its
+    :func:`candidate_owners`. A red no route holds is held by :data:`REDECLARATION_OWNER` only
+    when ``redeclared`` (default :data:`REDECLARED_REDS`) names it for ``slug``.
+
+    Raises
+    ------
+    ValueError
+        When a red no route holds is not named in ``redeclared``, or a named red is not an
+        unowned red.
+    """
+    redeclared = REDECLARED_REDS if redeclared is None else redeclared
+    named = redeclared.get(slug, frozenset())
+    out: dict[str, tuple[str, str]] = dict(candidates)
+    unowned = set()
+    for route in routes:
+        for name, owner in route.owners.items():
+            if owner is None:
+                unowned.add(name)
+            else:
+                out[name] = owner
+    if unowned != set(named):
+        raise ValueError(
+            f"{slug}: unowned reds {sorted(unowned - set(named))}; named reds that are not "
+            f"unowned {sorted(set(named) - unowned)}"
+        )
+    out.update(dict.fromkeys(sorted(unowned), (REDECLARATION_OWNER, REDECLARATION_READING)))
+    return out
+
+
 #: The route of a family whose floor moved down from its anchor.
 LOWERED: Final[str] = "lowered"
 #: The route of a family with a red at or above its anchor that has no committed counterpart

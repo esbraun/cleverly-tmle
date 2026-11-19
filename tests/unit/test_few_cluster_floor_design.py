@@ -147,7 +147,8 @@ def test_study_families_map_to_the_package_floors():
     assert set(floor.PACKAGE_FAMILIES.values()) == set(FLOOR_FAMILY_NAMES)
     assert set(floor.PACKAGE_FAMILIES.values()) == set(CLUSTER_INTERVAL_FLOORS)
     for family, anchor in names.items():
-        assert CLUSTER_INTERVAL_FLOORS[floor.PACKAGE_FAMILIES[family]] == anchor
+        # A floor never rises above its anchor; the post-run test pins the shipped values.
+        assert CLUSTER_INTERVAL_FLOORS[floor.PACKAGE_FAMILIES[family]] <= anchor
     assert "tmle_stacked_d5" not in study_a.ANCHORS
     assert {study_a.FITS[fit] for fit in study_a.D5_FITS} == {"tmle_stacked"}
     assert not set(study_a.floor_fits("tmle_stacked")) & study_a.D5_FITS
@@ -1204,10 +1205,96 @@ def test_the_committed_runs_reproduce_the_shipped_floors():
         for study in (study_a, study_b)
     )
     outcomes = floor.declared_outcome(summary_a, rows_a, summary_b, rows_b)
-    for outcome in outcomes.values():
+    for family, outcome in outcomes.items():
         assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor
-        shipped = floor.SHIPPED_JACKKNIFE.get(outcome.family, "not compared")
-        assert outcome.jackknife.split(":")[0] == shipped
+        assert shipped_status(family, outcome.jackknife) == floor.SHIPPED_JACKKNIFE.get(
+            family, "not compared"
+        )
+    # P2: one named departure, the stacked deferral; P3: stacked's part (c) result stands.
+    assert set(floor.JACKKNIFE_DEPARTURES) == {"tmle_stacked"}
+    assert outcomes["tmle_stacked"].jackknife == "option"
+    assert outcomes["tmle_stacked"].route.startswith(floor.REDECLARATION)
+    assert not any(outcome.wang_adopted for outcome in outcomes.values())
+
+
+def shipped_status(family: str, declared: str) -> str:
+    """The (C) status the package ships: the declared one, or a named departure's."""
+    status = declared.split(":")[0]
+    departure = floor.JACKKNIFE_DEPARTURES.get(family)
+    if departure is not None and departure[0] == status:
+        return departure[1]
+    return status
+
+
+def test_a_departure_is_the_only_way_a_shipped_status_differs():
+    """P2 mutation: without the named departure the stacked deferral fails the comparison."""
+    assert shipped_status("tmle_stacked", "option") == "deferred"
+    assert shipped_status("ltmle_in_sample", "option") == "option"
+    assert shipped_status("tmle_in_sample", "refused: clause (i) fails") == "refused"
+    assert shipped_status("tmle_stacked", "refused: x") == "refused"
+
+
+def test_every_committed_red_has_an_owner_and_the_ledger_claims_it():
+    """P1: every red of the committed summaries is held, the one unowned red by the
+    redeclaration owner, and ``red_cells.CLAIMS`` lists exactly that map."""
+    summaries = {
+        study.STUDY.slug: pd.read_csv(
+            study.STUDY.artifacts / "properties.csv", keep_default_na=False, na_values=[""]
+        )
+        for study in (study_a, study_b)
+        if _committed(study, "properties.csv")
+    }
+    if not summaries:
+        return
+    owners = committed_owners(summaries)
+    claimed = {
+        (key.slug, key.key): owner
+        for owner, keys in red_cells.CLAIMS.items()
+        for key in keys
+        if key.slug in summaries
+    }
+    assert claimed == {
+        (slug, name): owner for slug, rows in owners.items() for name, (owner, _) in rows.items()
+    }
+    redeclared = [
+        name
+        for rows in owners.values()
+        for name, (owner, _) in rows.items()
+        if owner == floor.REDECLARATION_OWNER
+    ]
+    assert redeclared == sorted(floor.REDECLARED_REDS["few-cluster-floor-tmle"])
+    assert floor.REDECLARATION_OWNER in red_cells.owner_ids()
+    assert not floor.NO_DEFECT_DIAGNOSES
+
+
+def committed_owners(summaries):
+    """Each committed study's red rows and owners, through :func:`floor.red_owners`."""
+    out = {}
+    if study_a.STUDY.slug in summaries:
+        summary = summaries[study_a.STUDY.slug]
+        routes = [*properties_a.routes(summary).values(), properties_a.reported_route(summary)]
+        out[study_a.STUDY.slug] = floor.red_owners(
+            study_a.STUDY.slug, routes, floor.candidate_owners(summary)
+        )
+    if study_b.STUDY.slug in summaries:
+        summary = summaries[study_b.STUDY.slug]
+        out[study_b.STUDY.slug] = floor.red_owners(
+            study_b.STUDY.slug, [properties_b.route(summary)], floor.candidate_owners(summary)
+        )
+    return out
+
+
+def test_any_other_unowned_red_fails_the_owner_map():
+    """P1 mutation: an unowned red outside ``REDECLARED_REDS`` raises, and so does a named red
+    that a route holds."""
+    held = floor.Route("f", 6, floor.LOWERED, {"a": (floor.RED_OWNER, floor.CONTROL_READING)})
+    loose = floor.Route("g", 10, f"{floor.REDECLARATION}: 10", {"b": None})
+    with pytest.raises(ValueError, match="unowned reds"):
+        floor.red_owners("s", [held, loose], {}, redeclared={})
+    with pytest.raises(ValueError, match="not unowned"):
+        floor.red_owners("s", [held], {}, redeclared={"s": frozenset({"a"})})
+    owners = floor.red_owners("s", [held, loose], {}, redeclared={"s": frozenset({"b"})})
+    assert owners["b"] == (floor.REDECLARATION_OWNER, floor.REDECLARATION_READING)
 
 
 def test_a_d5_redeclaration_sends_the_stacked_family_to_a_redeclaration(monkeypatch):

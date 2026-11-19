@@ -44,7 +44,8 @@ from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 pytestmark = pytest.mark.xdist_group("cluster_interval_floors")
 
 FEW = "few_cluster_plugin"
-#: The lowered floor of the witnesses: a count every family keeps labelled on the shipped values.
+#: The lowered floor of the witnesses: a count every family keeps labelled on its kind's default
+#: floor, which the ``lowered`` fixture starts from.
 LOWERED = 6
 #: Rows per cluster of the point frames.
 SIZE = 30
@@ -137,12 +138,20 @@ def fit_family(family: str, clusters: int) -> Any:
 
 @pytest.fixture
 def lowered(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
-    """Lower named families' floors for one test, as a registered result would."""
+    """Lower named families' floors from their kinds' defaults for one test.
+
+    Every other family keeps its default floor (10 or 20), so it is labelled at
+    :data:`LOWERED` whatever the shipped floors are.
+    """
+    defaults = {
+        family: DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+        if family in LONGITUDINAL
+        else DEFAULT_POINT_INTERVAL_CLUSTERS
+        for family in CLUSTER_INTERVAL_FLOORS
+    }
 
     def apply(**floors: int) -> None:
-        monkeypatch.setattr(
-            _inference_status, "CLUSTER_INTERVAL_FLOORS", {**CLUSTER_INTERVAL_FLOORS, **floors}
-        )
+        monkeypatch.setattr(_inference_status, "CLUSTER_INTERVAL_FLOORS", {**defaults, **floors})
 
     yield apply
 

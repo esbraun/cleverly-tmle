@@ -35,7 +35,6 @@ from cleverly import (
 )
 from cleverly._inference_status import (
     CLUSTER_INTERVAL_FLOORS,
-    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     DEFAULT_POINT_INTERVAL_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
     NO_T_REFERENCE_BANDS,
@@ -613,12 +612,15 @@ class TestEveryTargetKind:
         kept = fit_law(crossed)
         assert kept.inference_status == "influence_curve"
         assert {e.reference_df for e in kept.estimates.values()} == {crossed - 2}
-        withheld = fit_law(crossed - 1)
+        with warnings.catch_warnings():
+            # At 3 clusters the study GLM separates and keeps its last iterate.
+            warnings.simplefilter("ignore")
+            withheld = fit_law(crossed - 1)
         assert withheld.inference_status == "few_cluster_plugin"
         assert_shows_interval(withheld, "few_cluster_plugin", crossed - 3)
         reason = STATUS_RECORDS["few_cluster_plugin"].reason
         assert f"cross-fitted LTMLE {crossed}" in reason
-        assert "X54" in reason
+        assert "F28" in reason
         in_sample = CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"]
         assert fit_law(in_sample - 1, n_folds=1).inference_status == "few_cluster_plugin"
         kept_in_sample = fit_law(in_sample, n_folds=1)
@@ -641,12 +643,14 @@ class TestEveryTargetKind:
             self.test_the_cross_fitted_floor_is_the_smallest_measured_count()
 
     def test_a_zero_mass_cluster_does_not_count_toward_the_cross_fitted_floor(self) -> None:
-        """20 labels, one with zero weight mass: 19 count, so the fit withholds its interval."""
+        """Labels at the floor, one with zero weight mass: one fewer count, so the fit labels its
+        interval."""
+        crossed = CLUSTER_INTERVAL_FLOORS["ltmle_cross_fitted"]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = _weighted(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
-        assert result.data.n_clusters == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
-        assert positive_mass_clusters(result) == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS - 1
+            result = _weighted(crossed)
+        assert result.data.n_clusters == crossed
+        assert positive_mass_clusters(result) == crossed - 1
         assert result.inference_status == "few_cluster_plugin"
 
     def test_a_status_that_counts_labels_fails_the_zero_mass_witness(

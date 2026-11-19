@@ -28,6 +28,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import (
+    CLUSTER_INTERVAL_FLOORS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     T_REFERENCE_STRATUM,
@@ -201,10 +202,11 @@ class TestTheBoundaries:
         assert result.inference_status == "influence_curve"
         assert set(reference_dfs(result).values()) == {8}
 
-    def test_nine_clusters_take_the_status(self) -> None:
-        result = fit_k(9)
-        assert set(reference_dfs(result).values()) == {7}
-        assert_shows_interval(result, "few_cluster_plugin", 7)
+    def test_one_below_the_in_sample_floor_takes_the_status(self) -> None:
+        below = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 1
+        result = fit_k(below)
+        assert set(reference_dfs(result).values()) == {below - 2}
+        assert_shows_interval(result, "few_cluster_plugin", below - 2)
 
     def test_an_at_or_below_threshold_fails_the_forty_cluster_control(
         self, monkeypatch: pytest.MonkeyPatch
@@ -749,9 +751,13 @@ class TestTheLongitudinalDerivedEstimates:
         assert result.ratio(risks[0], risks[1]).reference_df == 20
 
     @pytest.mark.parametrize(
-        ("clusters", "status"), [(19, "few_cluster_plugin"), (20, "influence_curve")]
+        ("clusters", "status"),
+        [
+            (CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"] - 1, "few_cluster_plugin"),
+            (CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"], "influence_curve"),
+        ],
     )
-    def test_the_longitudinal_floor_is_twenty(self, clusters: int, status: str) -> None:
+    def test_the_in_sample_longitudinal_floor(self, clusters: int, status: str) -> None:
         result = _ltmle_end_of_study(clusters)
         assert result.inference_status == status
         assert set(reference_dfs(result).values()) == {clusters - 2}

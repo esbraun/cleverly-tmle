@@ -329,7 +329,7 @@ class TestTheFewClusterThreshold:
         assert table.endswith(
             f"every other point-treatment fit {point}, every other longitudinal fit {longitudinal}"
         )
-        assert "no registered study measures an interval below those counts" in reason
+        assert "below it a measured count fails or no study measures it" in reason
         assert (
             f"fewer than {t_floor} clusters" in STATUS_RECORDS["no_cluster_variance_plugin"].reason
         )

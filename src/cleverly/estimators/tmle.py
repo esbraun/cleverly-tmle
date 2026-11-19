@@ -204,6 +204,7 @@ from ..inference.cluster_jackknife import (
     CLUSTER_VARIANCES,
     ClusterVariance,
     jackknife_estimates,
+    jackknife_family_refusal,
     jackknife_fold_refusal,
     jackknife_learner,
     jackknife_learner_refusal,
@@ -1541,6 +1542,11 @@ class TMLE:
             what = "an effect-modification projection"
         if what is not None:
             return jackknife_learner_refusal(what)
+        # The registered measurement refuses the in-sample family and defers the stacked one
+        # (few-cluster-floor-tmle, X54 part (c)).
+        measured = jackknife_family_refusal("tmle_stacked" if self.cross_fit else "tmle_in_sample")
+        if measured is not None:
+            return measured
         if self.n_bootstrap:
             return Refusal(
                 RefusalReason.INVALID_DECLARATION,

@@ -73,12 +73,14 @@ import time
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.inference import cluster_jackknife
 from cleverly.learners import GLM
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
@@ -600,8 +602,14 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any)
 
 
 def jackknife_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
-    """The same fit with ``cluster_variance="jackknife"``."""
-    return fit_estimate(fit, frame, clusters, cluster_variance="jackknife")
+    """The same fit with ``cluster_variance="jackknife"``.
+
+    The registered run measured the point-TMLE jackknife before its result refused the option
+    (:data:`~cleverly.inference.cluster_jackknife.JACKKNIFE_FAMILY_REFUSALS`), so the study lifts
+    that refusal to reproduce the construction it measured.
+    """
+    with mock.patch.object(cluster_jackknife, "JACKKNIFE_FAMILY_REFUSALS", {}):
+        return fit_estimate(fit, frame, clusters, cluster_variance="jackknife")
 
 
 def _package_glm_reading(frame: pd.DataFrame, truth: float, clusters: int) -> dict[str, Any]:
