@@ -90,6 +90,11 @@ EXEMPT = {
         "a fitted curve with a to_frame and no summary; tests/unit/test_dose_response.py checks "
         "its estimates, band and support report"
     ),
+    "PredictableCovariance": (
+        "a value object with a to_dict and no summary; "
+        "tests/unit/test_continuous_survival_variance.py checks its matrix, quadratic and to_dict "
+        "against a hand computation"
+    ),
     "WorkingModelMeans": (
         "a value object with a to_frame and no summary; TestWorkingModelMeans in "
         "tests/unit/test_plotting_curves.py checks its values against a hand computation"

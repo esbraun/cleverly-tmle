@@ -612,6 +612,14 @@ def test_the_stored_variances_read_the_walks_matrix_in_time_units_over_n_minus_o
     for name, weights in cases.items():
         record = fit[name].switched
         assert record.predictable_variance == pytest.approx(expected(weights), rel=1e-10), name
+    for name in cases:
+        gradient = fit.predictable.gradients[name]
+        assert fit.predictable.quadratic(gradient) == pytest.approx(
+            fit[name].switched.predictable_variance, rel=1e-12
+        ), name
+    saved = fit.predictable.to_dict()
+    assert saved["targets"] == targets
+    np.testing.assert_array_equal(np.asarray(saved["matrix"]), fit.predictable.matrix)
 
 
 def test_a_transformed_switched_estimate_carries_its_predictable_variation() -> None:
