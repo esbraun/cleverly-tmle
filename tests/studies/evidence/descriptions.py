@@ -1732,6 +1732,19 @@ ARMS.update(
     }
 )
 
+#: The property labels of ``continuous-survival-causes`` (X6 part (b)), mirrored from
+#: ``tests.studies.continuous_survival_causes_properties``; :data:`STUDY_ARMS` gives the study's
+#: own words.
+ARMS.update(
+    {
+        "l1_rd": "the one-cause law's risk difference at its median event time",
+        "l3_rd": "the three-cause law's cause-3 risk difference at its median event time",
+        "l1_c1": "the one-cause law's treated risk at its median event time",
+        "l3_c1": "the three-cause law's treated risk of cause 1 at its median event time",
+        "l3_c3": "the three-cause law's treated risk of cause 3 at its median event time",
+    }
+)
+
 
 #: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
 #: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
@@ -10987,6 +11000,102 @@ for _time in ("1.12", "2.32", "1.29", "2.69"):
             f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
             "treatment"
         )
+
+#: ``continuous-survival-causes`` (X6 part (b)): the continuous-time TMLE in its shipped default
+#: on the base law with one cause and with three.  The names are those of
+#: ``tests/studies/continuous_survival_causes.py``, its law module and its properties module.
+_CAUSES_SLUG = "continuous-survival-causes"
+IMPLEMENTATIONS["cleverly-continuous-survival-causes"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024), with one cause and with three"
+)
+_CAUSES_FIT = "the default Cox libraries and treatment learner, ten outer folds, n = 1,000"
+STUDY_SCENARIOS.update(
+    {
+        (_CAUSES_SLUG, "l1_cf_1k"): (
+            "the base continuous-time law with its cause-2 hazard removed, so every event is of "
+            f"one type; {_CAUSES_FIT}, target times 0.58, 1.48 and 3.24"
+        ),
+        (_CAUSES_SLUG, "l3_cf_1k"): (
+            "the base continuous-time competing-risks law with a third cause of hazard "
+            f"exp(-2.5 + 0.5 X1 + 0.5 X3 + 0.5 Z); {_CAUSES_FIT}, target times 0.37, 0.9 and "
+            "1.86"
+        ),
+    }
+)
+for _time in ("0.58", "1.48", "3.24"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        STUDY_ESTIMANDS[(_CAUSES_SLUG, f"risk_regimen[{_arm} @ t={_time}]")] = (
+            f"risk of the event by t = {_time} under {_words}, one cause"
+        )
+    STUDY_ESTIMANDS[(_CAUSES_SLUG, f"ate_regimen[treated vs control @ t={_time}]")] = (
+        f"difference in the risk of the event by t = {_time} between treatment and no "
+        "treatment, one cause"
+    )
+for _time in ("0.37", "0.9", "1.86"):
+    for _cause in (1, 2, 3):
+        for _arm, _words in _CONTINUOUS_ARMS.items():
+            STUDY_ESTIMANDS[(_CAUSES_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} of three by t = {_time} under {_words}"
+            )
+        STUDY_ESTIMANDS[
+            (_CAUSES_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} of three by t = {_time} between treatment "
+            "and no treatment"
+        )
+STUDY_ARMS.update(
+    {
+        (_CAUSES_SLUG, "l1_rd"): (
+            "the one-cause law, the difference in the risk of the event by t = 1.48 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_rd"): (
+            "the three-cause law, the difference in the risk of cause 3 by t = 0.9 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l1_c1"): (
+            "the one-cause law, the treated arm's risk of the event by t = 1.48, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c1"): (
+            "the three-cause law, the treated arm's risk of cause 1 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c3"): (
+            "the three-cause law, the treated arm's risk of cause 3 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+_CAUSES_WRONG = (
+    "the event hazards wrong (a Cox model on the treatment alone), with the default treatment "
+    "learner and censoring library, which hold the true models"
+)
+for _label in ("l1_c1", "l3_c1", "l3_c3"):
+    STUDY_ARM_CELLS.update(
+        {
+            (_CAUSES_SLUG, "double_robustness", _label, "mechanism_correct"): (
+                f"{_CAUSES_WRONG}; the targeted estimate",
+                "bias interval inside the equivalence margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "plug_in_control"): (
+                f"{_CAUSES_WRONG}; the initial plug-in of the same fit, before the walk",
+                "bias interval must fall entirely outside the margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "factual_tilt_control"): (
+                f"{_CAUSES_WRONG}; the same draw fitted with tilt='factual', which tilts only "
+                "each unit's received arm",
+                "bias interval must fall entirely outside the margin",
+            ),
+        }
+    )
+for _label in ("l1_rd", "l3_rd"):
+    STUDY_ARM_CELLS[(_CAUSES_SLUG, "interval_calibration", _label, "correctly_specified")] = (
+        "the default libraries, each of which holds the true model",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this

@@ -6967,6 +6967,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "cleverly.survival.result.continuous_survival_support, not a support row, records the "
         "configurations the study licenses."
     ),
+    "continuous-survival-causes": (
+        "It measures ContinuousSurvivalTMLE with one cause and with three, which no support key "
+        "reads: the continuous-time fit has no node structure to classify. "
+        "cleverly.survival.result.continuous_survival_support, not a support row, records the "
+        "numbers of causes the study licenses (MEASURED_CAUSES)."
+    ),
     "continuous-survival-variance": (
         "It measures the default switched variance of ContinuousSurvivalTMLE, which no support "
         "key reads: the continuous-time fit has no node structure to classify. "
