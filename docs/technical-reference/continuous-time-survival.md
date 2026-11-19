@@ -200,6 +200,55 @@ never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` 
 received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
 arrays.
 
+### The full-refit bootstrap
+
+`n_bootstrap=B` on `ContinuousSurvivalTMLE` (at least 2), or on the study route, refits the whole
+estimator on $B$ resamples of the units: initial fits, library selection, the walk and the
+variance. Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
+draws for the fit's `random_state` and refits at the seed spawned beside it. Every fold is drawn
+on the resample's distinct units and then copied to their rows (`replicate_plan` in
+`cleverly.survival.engine`): a unit drawn several times has all its copies in one cross-fitting
+fold and in one learner-selection fold, so no copy predicts or validates another. The outer folds
+are stratified on the event, as the fit's own are. A replicate keeps the fit's causes, so a
+resample that loses every event of a cause fails rather than reporting fewer risks.
+
+Each estimate then carries `estimate.bootstrap`, a percentile interval by default or, with
+`bootstrap_interval="bca"`, the BCa interval with its acceleration from the estimate's influence
+curve, both through `cleverly.inference.BootstrapResult.interval`. The percentile interval is
+read on the estimate's own scale; percentiles respect a monotone map, so it equals the interval
+read on the range-logit scale up to the quantiles' interpolation. With `simultaneous=True` the fit
+adds the studentized bootstrap band over every risk and risk difference
+(`result.bootstrap_band`, from `cleverly.inference.bootstrap.bootstrap_band` on each replicate's
+estimates and standard errors). The Wald intervals above are unchanged, and `to_frame()` and
+`to_dict()` add the bootstrap's.
+
+A replicate that raises is counted with its reason and never redrawn. When more than 1% of the
+$B$ refits fail (`BOOTSTRAP_FAILURE_SHARE`), the fit warns with `ConvergenceWarning`, names each
+reason with its count, withholds every bootstrap interval and the band, and keeps the Wald
+intervals; `result.bootstrap_status` reads `"bootstrap_unstable"` and `result.bootstrap_failures`
+lists the reasons. Kept replicates alone would condition on the resamples that fit.
+
+No bootstrap interval of this engine reads `supported`
+(`cleverly.survival.result.continuous_bootstrap_support`):
+
+| fit | label | reason |
+| --- | --- | --- |
+| in sample (`cross_fit=False`) | experimental | the bootstrap delta method for a Hadamard-differentiable map (van der Vaart and Wellner 1996, Theorems 3.9.11 and 3.9.13, relayed through Beutner and Zähle) would cover it, and its conditions are not yet read first-hand |
+| cross-fitted, the default | experimental | no theorem covers a bootstrap of a cross-fitted fit with a selected library. Cai and van der Laan (2020) warn that a cross-validation selector rerun on each resample makes the nonparametric bootstrap generally inconsistent and can make its intervals too narrow |
+| the studentized band | experimental | the reason of its fit, and no study measures the band |
+
+The declared study `continuous-survival-bootstrap` (`tests/studies/continuous_survival_bootstrap.py`)
+measures both fits on the registered law at n = 1,000 with $B = 500$. It gates the in-sample fit's
+percentile interval on all 18 risks and risk differences at the three quartiles, beside a
+calibration rule on the bootstrap standard error with a control that shrinks it by 0.85, and it
+reports the BCa interval, the Wald interval on the same fits and the cross-fitted fit. It is not
+yet run, and a pass would not set either label alone: the in-sample label also waits on the
+reading of the theorem's conditions, and the cross-fitted label on a theorem.
+`tests/unit/test_continuous_survival_bootstrap.py` checks the shared folds of a unit's copies
+against a witness of more than 1,000 shared training copies, that a replicate equals the fit
+refitted on its resample and plan, the 1% boundary and the refusal's text, and the percentile and
+BCa limits against the shared bootstrap's, with mutation controls on each.
+
 ## Restricted means, ratios and the curve
 
 The restricted mean time lost to cause $j$ up to $\tau$ and the restricted mean survival time are
@@ -401,6 +450,17 @@ called by one thread at a time, and the threads leave the BLAS thread settings a
 holds one block's working arrays, which the prediction and the budget count. `-1` takes the CPUs
 the process may use, capped by a control group's quota.
 
+With `n_bootstrap=` the replicates run on $W$ worker processes, the smaller of `n_jobs` and
+$B$, each walking on one thread, so the walk's threads do not multiply a replicate's arrays. The
+prediction adds a `bootstrap` phase: the fit's result, about $8 n (E + 2Q + p + 9) + 16 B E$ bytes
+for $E$ estimates (`bootstrap_held`), beside $W$ times one replicate's peak, predicted as a fit of
+$n$ training rows on the fit's grid with no band. A resample has at most $n$ distinct units and
+no more distinct times than the fit, so no replicate's peak exceeds it. At the study's design
+($n = 1{,}000$, two causes, three target times, $M = 719$) that reads about 0.18 GB with one worker
+and 0.72 GB with four, against 0.18 GB for the fit alone. Each replicate's budget is the fit's
+budget less the result, divided by $W$, so a fit that passes the check never refuses inside a
+replicate; a refusal whose peak is this phase says so and suggests a smaller `n_jobs`.
+
 Rebuilding a block calls the hazard learner again, so a learner's `cumulative_hazard` must return
 the same values for the same rows on every call, each row predicted from that row alone. The fit
 predicts the first block's cause and censoring hazards twice and refuses a user learner whose
@@ -447,10 +507,13 @@ lower $M$ but changes the analysis, so the engine never does it.
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
 | a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
 | a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
+| the bootstrap intervals and band of a fit where more than 1% of the `n_bootstrap=` refits fail | the kept replicates would condition on the resamples that fit; the fit warns, keeps its Wald intervals and sets `bootstrap_status="bootstrap_unstable"`; see [The full-refit bootstrap](#the-full-refit-bootstrap) |
+| `bootstrap_interval="bca"` without `n_bootstrap=` | there are no replicates to read |
 
 The rows on an arm's first event of a cause and on an arm's follow-up read the drawn data, not the
 request, so they raise `DataError`, and a repeated-sampling study records such a draw as a lost
-replicate. The other rows raise `CapabilityError`.
+replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or `bootstrap_interval=` set
+wrongly raises `ValueError` at construction. The other rows raise `CapabilityError`.
 
 ## Evidence
 
@@ -541,3 +604,6 @@ drop the third cause from the survival, from the multinomial cross term or from 
 direction that every cause shares, drop the one-cause square $d\Lambda^2$, and tilt only the
 received arm; each breaks its identity or keeps the bias. Reading the targets in cause-major
 order moves the curve off the Gateaux derivative.
+
+No study has run on the full-refit bootstrap. Its percentile, BCa and band read experimental for
+the reasons and the declared study given in [The full-refit bootstrap](#the-full-refit-bootstrap).
