@@ -435,6 +435,23 @@ class TestTheFloorHoldsForTheMeasuredContrast:
             result = fit(IN_SAMPLE_FLOOR)
         assert {e.inference for e in result.estimates.values()} == {FEW_CLUSTER_ESTIMAND_STATUS}
 
+    def test_an_unmeasured_design_claims_no_measured_effect(self) -> None:
+        """C1: a fit off the measured design has no measured effect, so the note must not say
+        it has one. In-sample LTMLE at 8 clusters on two nodes, one of three levels, with
+        censoring."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit_end_of_study(8)
+        assert result.data.n_times == 2
+        assert result.data.has_censoring
+        assert {e.inference for e in result.estimates.values()} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        text = " ".join(str(result.summary()).split())
+        assert "enough clusters for its measured effect" not in text
+        assert (
+            "measured this kind of fit at so few clusters for one effect on one design only, "
+            "and this estimate is not that effect on that design"
+        ) in text
+
     def test_a_design_read_as_measured_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The mutation that drops the design check certifies the three-level contrast."""
         monkeypatch.setattr(

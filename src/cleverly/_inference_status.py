@@ -824,10 +824,10 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "few_cluster_estimand_plugin": StatusRecord(
             plain_reason=(
-                "This fit has enough clusters for its measured effect, but this estimate is not "
-                "that effect, and no validation study supports its interval at so few clusters, "
-                "so cleverly marks it experimental. The interval uses a t distribution with the "
-                "degrees of freedom in the df column."
+                "A validation study measured this kind of fit at so few clusters for one effect "
+                "on one design only, and this estimate is not that effect on that design, so no "
+                "study supports its interval here and cleverly marks it experimental. The "
+                "interval uses a t distribution with the degrees of freedom in the df column."
             ),
             reason=(
                 "A clustered fit of a measured fit family that reads at least its family's "
@@ -836,11 +836,15 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), shows the "
                 "interval of every estimate other than its measured contrast under the "
                 "experimental label, on the same Student t reference with J - 2 degrees of "
-                "freedom. The registered few-cluster-floor-tmle and "
+                "freedom. An LTMLE fit whose panel is not its family's measured design "
+                "(MEASURED_LONGITUDINAL_DESIGNS) has no measured contrast, so every estimate, "
+                "the always-versus-never contrast included, takes this status. The registered "
+                "few-cluster-floor-tmle and "
                 "few-cluster-floor-cross-fitted-ltmle studies measure one contrast per family "
                 "at every count: the ATE for a point-treatment fit, and the difference between "
                 "always treating and never treating for an LTMLE fit. A family's floor "
-                f"({floor_table()}) certifies that contrast alone. The one arm-mean "
+                f"({floor_table()}) certifies that contrast alone, on that design. The one "
+                "arm-mean "
                 "measurement below a default floor, of an in-sample LTMLE fit, fails its "
                 "coverage floor. X54 in docs/roadmap.md holds the cells "
                 "that would measure the other estimates."
@@ -848,8 +852,8 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             assessment_note=(
                 "the reported interval is experimental: no registered study supports this "
                 "estimate of the fit below the default floor of its kind, since the fit's "
-                "family floor holds for its measured contrast alone, and X54 in the roadmap "
-                "holds the cells that would measure it"
+                "family floor holds only for its measured contrast on its measured design, and "
+                "X54 in the roadmap holds the cells that would measure it"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of this estimate at so "
@@ -861,8 +865,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             interval="shown",
             shown_reason=(
                 "The interval uses a Student t reference with J - 2 degrees of freedom. The "
-                "fit's family floor holds for its measured contrast alone, and no registered "
-                "study supports any other estimate of the fit below the default floor of its "
+                "fit's family floor holds only for its measured contrast on its measured design, "
+                "and no registered study supports another estimate, or a fit of another design, "
+                "below the default floor of its "
                 f"kind ({DEFAULT_POINT_INTERVAL_CLUSTERS} for a point-treatment fit, "
                 f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). X54 in "
                 "docs/roadmap.md holds the cells that would measure it."
