@@ -228,6 +228,12 @@ happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
 
+A [third study](../technical-reference/method-evidence/continuous-survival-causes.md) ran the same
+fit at 1,000 people with one kind of event and with three competing ones, and its intervals
+covered 93% to 96% of the time at the same two times. So those fits can read `supported` too, but
+only from 1,000 people. With four or more kinds of event every estimate reads `experimental`,
+because no study has checked such a fit.
+
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
 the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests

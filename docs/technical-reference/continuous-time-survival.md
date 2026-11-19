@@ -502,23 +502,22 @@ needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit w
 horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
 the study that measured its configuration.
 
-A fit with one cause or with three reads experimental until the study
-`continuous-survival-causes` passes for that number of causes; four or more causes always read
-experimental. That study is declared and its pilot is committed; its declared run has not yet
-been made. It fits the default cross-fitted configuration at n = 1,000 on two laws built from the
-registered one: one cause, its cause-2 hazard removed, and three causes, with a third constant
-hazard $h_3 = \exp(-2.5 + 0.5 X_1 + 0.5 X_3 + 0.5 Z)$ added. It gates every risk and risk
-difference at each law's median and upper quartile (6 rows and 18), a calibration cell per law
-with the shrunk-SE and noise controls, and per law, on 1,600 draws, the doubly robust cell with
-wrong hazards and the right propensity beside two controls on the same draws, the initial plug-in
-and the factual tilt, each of which must stay biased. The pilot sets 7,200 replicates per primary
-cell and 3,200 per calibration cell (`tests/canonical/continuous_survival_causes/regenerate.py`
-records its readings).
+The registered study [continuous-time survival with one and three
+causes](method-evidence/continuous-survival-causes.md) fits the default cross-fitted
+configuration at n = 1,000 on two laws built from the registered one: one cause, its cause-2
+hazard removed, and three causes, with a third hazard
+$h_3 = \exp(-2.5 + 0.5 X_1 + 0.5 X_3 + 0.5 Z)$, constant in time, added. It gates every risk and
+risk difference at each law's median and upper quartile. All 24 rows pass over 7,200 fits per
+law, with coverage 0.950 to 0.955 for one cause and 0.930 to 0.958 for three. Its 15 property
+cells pass: a calibration cell per law with the shrunk-SE and noise controls, and per law, on
+1,600 draws, the doubly robust cell with wrong hazards and the right propensity beside two
+controls on the same draws, the initial plug-in and the factual tilt, each of which stays biased.
 
-A number of causes joins `MEASURED_CAUSES` only when every gated row and property cell of its law
-passes, and then needs at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured
-with two causes. A fit with one or three causes and a restricted horizon keeps reading
-experimental, because the functionals study measures two causes only.
+A fit with one cause or with three (`MEASURED_CAUSES`) therefore reads `supported` under the
+conditions above with at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured
+with two causes, and names that study in place of the two-cause one. A fit with one or three
+causes and a restricted horizon reads experimental, because the functionals study measures two
+causes only. No study measures four or more causes, so such a fit always reads experimental.
 
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
@@ -534,6 +533,11 @@ derived estimates against the stored ones.
 checks, with one cause and with three, the influence curve against the Gateaux derivative, the
 predictable-variation covariance against the influence curve's, and that the walk from hazards
 that ignore the covariate reaches the truth with the incidences and the survival adding to one.
-Its mutations freeze the third cause's tilt, drop the third cause from the survival or from the
-multinomial cross term, drop the one-cause square $d\Lambda^2$, reorder the targets, and tilt only
-the received arm; each fails.
+It also checks that the log-likelihood's path derivative along the walk's direction equals the
+score norm. With three causes the exact law's all-cause hazard varies with the covariate, so the
+fit that ignores the covariate has the wrong survival and the term of the direction that every
+cause shares does not vanish from the score. Its mutations freeze the third cause's tilt,
+drop the third cause from the survival, from the multinomial cross term or from the term of the
+direction that every cause shares, drop the one-cause square $d\Lambda^2$, and tilt only the
+received arm; each breaks its identity or keeps the bias. Reading the targets in cause-major
+order moves the curve off the Gateaux derivative.
