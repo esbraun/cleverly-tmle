@@ -2480,16 +2480,30 @@ def _held_cells(
     no full cell is held (finding M3 of the bounded-hazard design).  Every other such cell
     is an ordinary cell that the bound excludes.
     """
-    # (n, T, K): the rows at risk of positive weight, by observed key.  A key that depends on
-    # the node, the prefix value of a design with several treatment nodes, is ``(n, T)``.
-    keys = observed[:, :, None] if observed.ndim == 2 else observed[:, None, None]
-    followers = (at_risk & (weights > 0.0)[:, None])[:, :, None] & (
-        keys == np.arange(n_cells)[None, None, :]
+    # The followers of cell (node, key) are the rows at risk of positive weight at the node
+    # whose observed key there is ``key``.  A key that depends on the node, the prefix value of
+    # a design with several treatment nodes, is ``(n, T)``.  The cells are counted by key with
+    # ``bincount`` over the ``(node, key)`` index of each follower, so nothing of size
+    # ``n * T * K`` is built: on a path fit K is the number of distinct observed prefixes, which
+    # grows with n and T (X106 J2g).  Counts of 0/1 values are exact, so the cells are the
+    # same as from the dense indicator.
+    n_times = at_risk.shape[1]
+    keys = observed if observed.ndim == 2 else np.broadcast_to(observed[:, None], at_risk.shape)
+    rows, nodes = np.nonzero(at_risk & (weights > 0.0)[:, None] & (keys >= 0) & (keys < n_cells))
+    index = nodes * n_cells + keys[rows, nodes]
+    size = n_times * n_cells
+    present = (np.bincount(index, minlength=size) > 0).reshape(n_times, n_cells)
+    happened = events[rows, nodes] > 0.0
+    with_event = np.stack(
+        [
+            np.bincount(index, weights=happened[:, j], minlength=size).reshape(n_times, n_cells)
+            for j in range(happened.shape[1])
+        ],
+        axis=-1,
     )
-    present = followers.any(axis=0)
-    happened = events > 0.0
-    with_event = np.einsum("nkl,nkj->klj", followers, happened)
-    without_event = np.einsum("nkl,nk->kl", followers, ~happened.any(axis=-1))
+    without_event = np.bincount(
+        index, weights=~happened.any(axis=-1), minlength=size
+    ).reshape(n_times, n_cells)
     empty = present[:, :, None] & (with_event == 0)
     full = present & (without_event == 0)
     excluded = None
