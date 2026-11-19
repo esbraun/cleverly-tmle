@@ -509,15 +509,16 @@ been made. It fits the default cross-fitted configuration at n = 1,000 on two la
 registered one: one cause, its cause-2 hazard removed, and three causes, with a third constant
 hazard $h_3 = \exp(-2.5 + 0.5 X_1 + 0.5 X_3 + 0.5 Z)$ added. It gates every risk and risk
 difference at each law's median and upper quartile (6 rows and 18), a calibration cell per law
-with the shrunk-SE and noise controls, and per law the doubly robust cell with wrong hazards and
-the right propensity beside two controls on the same draws, the initial plug-in and the factual
-tilt, each of which must stay biased. The pilot sets 7,200 replicates per primary cell and 3,200 per
-calibration cell (`tests/canonical/continuous_survival_causes/regenerate.py` records its readings).
+with the shrunk-SE and noise controls, and per law, on 1,600 draws, the doubly robust cell with
+wrong hazards and the right propensity beside two controls on the same draws, the initial plug-in
+and the factual tilt, each of which must stay biased. The pilot sets 7,200 replicates per primary
+cell and 3,200 per calibration cell (`tests/canonical/continuous_survival_causes/regenerate.py`
+records its readings).
 
-A number of causes joins `MEASURED_CAUSES` only when every gated row and cell of its law passes,
-and then needs at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured with two
-causes. A fit with one or three causes and a restricted
-horizon keeps reading experimental, because the functionals study measures two causes only.
+A number of causes joins `MEASURED_CAUSES` only when every gated row and property cell of its law
+passes, and then needs at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured
+with two causes. A fit with one or three causes and a restricted horizon keeps reading
+experimental, because the functionals study measures two causes only.
 
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
