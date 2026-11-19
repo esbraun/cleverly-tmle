@@ -5,6 +5,10 @@ Three families carry verdicts, each declared before any run.
 ``interval_calibration``
     One arm per route and law, each read on the shared calibration rule: the SE ratio's 99%
     bootstrap interval inside [0.93, 1.07] and the coverage interval inside [0.92, 0.98].
+    Coverage reads the interval the fit ships (``ci``), because the study validates what
+    ships: the skew-widened t interval of a point estimate of a continuous outcome, and the
+    MOVER interval of the longitudinal contrast.  The shrunken-SE and noise controls and the
+    pre-fix row form a symmetric interval at :data:`CRITICAL` themselves.
 
     - The density route with the oracle hazard and the correct outcome regression at n = 2,000,
       3,200 draws per law: gated on G, T and C (``<law>__correctly_specified``), reported on S,

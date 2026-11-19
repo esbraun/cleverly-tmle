@@ -691,7 +691,24 @@ class TestTheCells:
 def pilot_rows() -> pd.DataFrame:
     if not pilot.OUTPUT.exists():
         pytest.skip("the pilots have not run; the declaration commit runs them first")
-    return pilot.load()
+    rows = pilot.load()
+    limits = pilot.load_limits()[["label", "replicate", "ci_lower", "ci_upper"]]
+    return rows.merge(limits, on=["label", "replicate"], how="left", validate="many_to_one")
+
+
+#: A pilot draw of the classifier or longitudinal arms whose distance from the truth lies within
+#: this share of its symmetric half-width may change side under the shipped interval.  Their
+#: rows predate it and store no limits; on the probed draws the shipped half-width is within
+#: 0.6% of the symmetric one (skew-widened t at df near 1,000, MOVER on the contrast).
+NEAR_LIMIT = 0.01
+
+
+def coverage_clause(coverage: float, replicates: int) -> float:
+    """The coverage clause's pass probability at ``replicates`` draws and this coverage."""
+    c_low, c_high = MARGINS.calibration_coverage
+    c_sd = math.sqrt(coverage * (1 - coverage) / replicates)
+    cover = norm.cdf((c_high - coverage) / c_sd - Z99) - norm.cdf((c_low - coverage) / c_sd + Z99)
+    return float(max(cover, 0.0))
 
 
 def calibration_plug_in(se_ratio: float, coverage: float, replicates: int) -> float:
@@ -699,38 +716,70 @@ def calibration_plug_in(se_ratio: float, coverage: float, replicates: int) -> fl
     low, high = MARGINS.calibration_se_ratio
     sd = se_ratio / math.sqrt(2.0 * replicates)
     ratio = norm.cdf((high - se_ratio) / sd - Z99) - norm.cdf((low - se_ratio) / sd + Z99)
-    c_low, c_high = MARGINS.calibration_coverage
-    c_sd = math.sqrt(coverage * (1 - coverage) / replicates)
-    cover = norm.cdf((c_high - coverage) / c_sd - Z99) - norm.cdf((c_low - coverage) / c_sd + Z99)
-    return float(max(ratio, 0.0) * max(cover, 0.0))
+    return float(max(ratio, 0.0) * coverage_clause(coverage, replicates))
 
 
-def pooled_calibration(rows: pd.DataFrame, truth: float) -> tuple[float, float, int]:
-    """A pilot's pooled SE ratio, coverage and draw count; coverage at the symmetric interval.
+def covered_counts(rows: pd.DataFrame, truth: float) -> range:
+    """The counts of draws the shipped interval may cover.
 
-    Coverage is recomputed from each row's estimate and SE against the law module's truth, so
-    it does not depend on the truth a checkpoint was written with.
+    A row with stored shipped limits (``ci_lower``, ``ci_upper``) is read exactly.  A row without
+    them is read at the symmetric interval, and one within :data:`NEAR_LIMIT` of its limit is
+    counted as able to change side either way, so the range holds every count the shipped
+    interval can give.
+    """
+    estimate = rows["estimate"].to_numpy(dtype=float)
+    se = rows["std_error"].to_numpy(dtype=float)
+    stored = (
+        rows["ci_lower"].notna().to_numpy()
+        if "ci_lower" in rows
+        else np.zeros(len(rows), dtype=bool)
+    )
+    exact = 0
+    if stored.any():
+        low = rows["ci_lower"].to_numpy(dtype=float)[stored]
+        high = rows["ci_upper"].to_numpy(dtype=float)[stored]
+        exact = int(np.sum((low <= truth) & (truth <= high)))
+    z = np.abs(estimate[~stored] - truth) / (properties.CRITICAL * se[~stored])
+    inside = z <= 1.0
+    lose = int(np.sum(inside & (z >= 1.0 - NEAR_LIMIT)))
+    gain = int(np.sum(~inside & (z <= 1.0 + NEAR_LIMIT)))
+    covered = exact + int(inside.sum())
+    return range(covered - lose, covered + gain + 1)
+
+
+def pooled_calibration(rows: pd.DataFrame, truth: float) -> tuple[float, range, int]:
+    """A pilot's pooled SE ratio, its shipped coverage counts and its draw count.
+
+    Coverage is recomputed against the law module's truth, so it does not depend on the truth
+    a checkpoint was written with (:func:`covered_counts`).
     """
     estimate = rows["estimate"].to_numpy(dtype=float)
     se = rows["std_error"].to_numpy(dtype=float)
     ratio = float(se.mean() / estimate.std(ddof=1))
-    coverage = float(np.mean(np.abs(estimate - truth) <= properties.CRITICAL * se))
-    return ratio, coverage, len(rows)
+    return ratio, covered_counts(rows, truth), len(rows)
 
 
-def departure(rows: pd.DataFrame, truth: float, label: str) -> bool:
+def departure(rows: pd.DataFrame, label: str, covered: int) -> bool:
     """A confirmed departure: the pooled 99% bootstrap interval of the SE ratio excludes 1, or
-    the exact 99% interval of coverage excludes 0.95."""
+    the exact 99% interval of coverage, at ``covered`` of the rows, excludes 0.95."""
     estimate = rows["estimate"].to_numpy(dtype=float)
     se = rows["std_error"].to_numpy(dtype=float)
     rng = np.random.default_rng(stream_seed(study.STUDY, "design_departure", label))
     index = rng.integers(0, len(rows), (2_000, len(rows)))
     ratios = se[index].mean(axis=1) / estimate[index].std(axis=1, ddof=1)
     low, high = np.quantile(ratios, [0.005, 0.995])
-    covered = int(np.sum(np.abs(estimate - truth) <= properties.CRITICAL * se))
     c_low = beta.ppf(0.005, covered, len(rows) - covered + 1) if covered else 0.0
     c_high = beta.ppf(0.995, covered + 1, len(rows) - covered) if covered < len(rows) else 1.0
     return bool(low > 1.0 or high < 1.0 or c_low > 0.95 or c_high < 0.95)
+
+
+def _decided(label: str, draws: int, what: str, values: list[bool]) -> bool:
+    """One decision every count the shipped interval may give agrees on, or a failed assertion."""
+    assert len(set(values)) == 1, (
+        f"{label}: at {draws} draws the shipped interval may change the {what} decision; "
+        "refit those draws for their shipped limits"
+    )
+    return values[0]
 
 
 def _pilot_truth(label: str) -> float:
@@ -748,7 +797,7 @@ def _calibration_rows(pilot_rows: pd.DataFrame, label: str) -> pd.DataFrame:
 
 
 def calibration_stop(pilot_rows: pd.DataFrame, label: str) -> tuple[pd.DataFrame, float, str]:
-    """The extension rule read block by block: the rows it reads, their plug-in, and its stop.
+    """The extension rule read block by block: the rows it reads, their worst plug-in, its stop.
 
     The rule reads the first :data:`~pilot.CALIBRATION_DRAWS` replicates, then each further
     block of :data:`~pilot.EXTENSION_DRAWS`, and stops at the first block where it decides:
@@ -756,6 +805,10 @@ def calibration_stop(pilot_rows: pd.DataFrame, label: str) -> tuple[pd.DataFrame
     (below 0.90 after :data:`~pilot.MAX_EXTENSIONS` extensions), or ``"extend"`` (below 0.90 and
     the next block not yet complete).  Every draw beyond the stop is ignored, so blocks run ahead
     of the reading change nothing.
+
+    Coverage is the shipped interval's.  Where it rests on the :data:`NEAR_LIMIT` bound, every
+    count it allows must reach the same decision at every block, and the plug-in reported is
+    the smallest of them.
     """
     held = set(pilot_rows.loc[pilot_rows["label"] == label, "replicate"].astype(int))
     every = _calibration_rows(pilot_rows, label)
@@ -767,11 +820,14 @@ def calibration_stop(pilot_rows: pd.DataFrame, label: str) -> tuple[pd.DataFrame
             assert read is not None, f"{label}: the first {draws} replicates are incomplete"
             return read[0], read[1], "extend"
         rows = every.loc[every["replicate"] < draws]
-        ratio, coverage, _ = pooled_calibration(rows, truth)
-        plug = calibration_plug_in(ratio, coverage, properties.CALIBRATION_REPLICATES)
-        if plug >= FLOOR_ARM:
+        ratio, counts, total = pooled_calibration(rows, truth)
+        plugs = [
+            calibration_plug_in(ratio, k / total, properties.CALIBRATION_REPLICATES) for k in counts
+        ]
+        plug = min(plugs)
+        if _decided(label, draws, "target", [p >= FLOOR_ARM for p in plugs]):
             return rows, plug, "target"
-        if departure(rows, truth, label):
+        if _decided(label, draws, "departure", [departure(rows, label, k) for k in counts]):
             return rows, plug, "departure"
         read = (rows, plug, "cap")
     assert read is not None
@@ -781,13 +837,17 @@ def calibration_stop(pilot_rows: pd.DataFrame, label: str) -> tuple[pd.DataFrame
 def arm_reading(pilot_rows: pd.DataFrame, label: str) -> float:
     """The arm's pass probability under the extension rule, or a failed assertion.
 
-    An arm whose plug-in reaches 0.90 enters at target; an arm at the cap enters at its plug-in
-    once :data:`DIAGNOSED_AT_CAP` records a diagnosis with no defect.  A confirmed departure, or
-    an arm below 0.90 with an extension left, stops the declaration (:func:`calibration_stop`).
+    An arm whose plug-in reaches 0.90 enters at target: the SE-ratio clause at target times its
+    coverage clause at the pilot's shipped coverage, the worst count where that rests on the
+    :data:`NEAR_LIMIT` bound.  An arm at the cap enters at its plug-in once
+    :data:`DIAGNOSED_AT_CAP` records a diagnosis with no defect.  A confirmed departure, or an
+    arm below 0.90 with an extension left, stops the declaration (:func:`calibration_stop`).
     """
-    _, plug, stop = calibration_stop(pilot_rows, label)
+    rows, plug, stop = calibration_stop(pilot_rows, label)
     if stop == "target":
-        return arm_pass(properties.CALIBRATION_REPLICATES)
+        _, counts, total = pooled_calibration(rows, _pilot_truth(label))
+        cover = min(coverage_clause(k / total, properties.CALIBRATION_REPLICATES) for k in counts)
+        return arm_pass(properties.CALIBRATION_REPLICATES) * cover
     assert stop != "departure", f"{label}: a confirmed departure; diagnose it"
     assert stop == "cap", f"{label}: plug-in {plug:.3f}; extend by 400"
     assert label in DIAGNOSED_AT_CAP, f"{label}: at the cap; diagnose it before the declaration"
@@ -852,6 +912,10 @@ def cluster_pass(pilot_rows: pd.DataFrame) -> float:
 #: The pilot readings the declaration rests on, frozen from the committed pilot (sets A to D):
 #: each gated arm's stop under the extension rule, read block by block, with its draws; each
 #: gated law's 20,000 tail exceedances among 3,000 draws; the whole-study predictive pass.
+#: Coverage is the shipped interval's: exact on the density and DR arms from their refitted
+#: limits, and on the classifier and longitudinal arms the worst count the 1% bound allows,
+#: which moves no stop.  C's coverage clause (0.990 at 0.963) is what moves the whole study
+#: from the symmetric interval's 0.934.
 FROZEN_PILOT: dict[str, Any] = {
     "calibration_stop": {
         "calibration_density_G": (1_200, "target"),
@@ -865,7 +929,7 @@ FROZEN_PILOT: dict[str, Any] = {
         "calibration_SDR": (400, "target"),
     },
     "tail_exceedances": {"G": 1, "T": 0, "C": 1, "B": 0, "U": 0},
-    "whole_study": 0.9338,
+    "whole_study": 0.9261,
 }
 
 
@@ -940,6 +1004,38 @@ class TestThePilot:
         gap = math.prod(gap_pass(pilot_rows, name) for name in study.GAP_GATED)
         whole = calibration * gap * cluster_pass(pilot_rows)
         assert whole == pytest.approx(FROZEN_PILOT["whole_study"], abs=5e-5)
+        # The stored limits carry the reading: read at the symmetric interval, C's coverage
+        # falls from 0.963 to 0.959 and the whole study rises by its coverage clause.
+        half = properties.CRITICAL * pilot_rows["std_error"]
+        stored = pilot_rows["ci_lower"].notna()
+        symmetric = pilot_rows.assign(
+            ci_lower=(pilot_rows["estimate"] - half).where(stored),
+            ci_upper=(pilot_rows["estimate"] + half).where(stored),
+        )
+        c_rows = calibration_stop(symmetric, "calibration_density_C")[0]
+        c_counts = pooled_calibration(c_rows, _pilot_truth("calibration_density_C"))[1]
+        assert c_counts == range(1_151, 1_152)
+        moved = math.prod(arm_reading(symmetric, label) for label in GATED_CALIBRATION)
+        assert moved > calibration + 0.005
+
+    def test_the_stored_limits_are_the_pilot_draws_refitted(self, pilot_rows: pd.DataFrame) -> None:
+        """Every density and DR pilot draw has its shipped limits, from a refit whose estimate
+        and SE are the committed row's; one draw of each label is refitted here."""
+        limits = pilot.load_limits()
+        for label in pilot.limit_labels():
+            rows = pilot_rows.loc[pilot_rows["label"] == label].sort_values("replicate")
+            stored = limits.loc[limits["label"] == label].sort_values("replicate")
+            assert stored["replicate"].tolist() == rows["replicate"].tolist(), label
+            for column in ("estimate", "std_error"):
+                np.testing.assert_allclose(
+                    stored[column].to_numpy(), rows[column].to_numpy(), rtol=1e-12, err_msg=label
+                )
+            assert (stored["ci_lower"] < stored["estimate"]).all(), label
+            assert (stored["estimate"] < stored["ci_upper"]).all(), label
+            first = stored.iloc[0]
+            refit = pilot._limits(label, int(first["replicate"]))
+            for column in ("ci_lower", "ci_upper"):
+                assert refit[column] == pytest.approx(first[column], rel=1e-12), (label, column)
 
     def test_the_booster_counts_against_the_frozen_ceilings(self, pilot_rows: pd.DataFrame) -> None:
         """The ceilings are read, not recomputed: a count above one reopens that law's grid."""
@@ -1017,9 +1113,9 @@ def test_draws_past_the_extension_stop_change_nothing(
 ) -> None:
     """The rule reads 0:400, then 0:800 and so on, and ignores every block after its stop."""
     module = sys.modules[__name__]
-    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), 0.0, 0))
+    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), range(1), 1))
     monkeypatch.setattr(module, "calibration_plug_in", lambda draws, coverage, r: schedule[draws])
-    monkeypatch.setattr(module, "departure", lambda rows, truth, label: len(rows) == departs_at)
+    monkeypatch.setattr(module, "departure", lambda rows, label, k: len(rows) == departs_at)
     readings = []
     for draws in range(read, 2_400, 200):
         rows, plug, found = calibration_stop(
@@ -1031,14 +1127,43 @@ def test_draws_past_the_extension_stop_change_nothing(
 
 def test_an_incomplete_block_asks_for_the_extension(monkeypatch: pytest.MonkeyPatch) -> None:
     module = sys.modules[__name__]
-    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), 0.0, 0))
+    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), range(1), 1))
     monkeypatch.setattr(module, "calibration_plug_in", lambda draws, coverage, r: 0.5)
-    monkeypatch.setattr(module, "departure", lambda rows, truth, label: False)
+    monkeypatch.setattr(module, "departure", lambda rows, label, k: False)
     for draws in (400, 600, 799):
         rows, _, found = calibration_stop(
             _calibration_block_rows(draws), "calibration_classifier_G"
         )
         assert (len(rows), found) == (400, "extend")
+
+
+def test_a_count_the_bound_leaves_open_on_either_side_of_target_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where one count the shipped interval allows reaches 0.90 and another does not, the stop
+    is not read from the bound: those draws are refitted for their limits."""
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "pooled_calibration", lambda rows, truth: (len(rows), range(2), 2))
+    monkeypatch.setattr(module, "calibration_plug_in", lambda ratio, coverage, r: 0.85 + coverage)
+    with pytest.raises(AssertionError, match="refit those draws"):
+        calibration_stop(_calibration_block_rows(400), "calibration_classifier_G")
+
+
+def test_the_near_limit_band_brackets_every_draw_it_may_flip() -> None:
+    """Exact limits are read as stored; a symmetric draw within 1% of its limit counts both ways."""
+    critical = properties.CRITICAL
+    rows = pd.DataFrame(
+        {
+            "estimate": [0.0, 0.995 * critical, 1.005 * critical, 2.0 * critical, 0.5, 3.0],
+            "std_error": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            "ci_lower": [np.nan, np.nan, np.nan, np.nan, 0.4, 2.9],
+            "ci_upper": [np.nan, np.nan, np.nan, np.nan, 0.6, 3.1],
+        }
+    )
+    # Row 0 is covered, row 1 may lose it, row 2 may gain it, row 3 is not covered; of the two
+    # stored rows only the first covers 0.5.
+    assert covered_counts(rows, 0.0) == range(1, 4)
+    assert covered_counts(rows.iloc[4:], 0.5) == range(1, 2)
 
 
 def _pilot_sets(

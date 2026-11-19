@@ -89,6 +89,9 @@ CHECKPOINTS = ARTIFACTS / "pilot-checkpoints"
 #: (:func:`load`).  Set C re-pilots the labels that the thin-stretch count's bound and the
 #: one-sided observed bound of the classifier steps move.
 PILOT_SETS: tuple[str, ...] = ("pilot-checkpoints", "pilot-checkpoints-c")
+#: The shipped interval limits of the fast calibration pilots, refitted on the merged code: the
+#: pilot rows predate the shipped skew-widened interval, and the gates' coverage leg reads it.
+LIMITS = ARTIFACTS / "pilot-limits.csv.gz"
 CALIBRATION_DRAWS = 400
 #: An extension adds this many draws to a calibration pilot, at most this many times.
 EXTENSION_DRAWS = 400
@@ -362,6 +365,46 @@ def _guarded(label: str, replicate: int) -> list[dict[str, Any]]:
     except Exception as error:  # a refusal is a pilot finding, recorded with its class
         _, case, n, _ = PILOTS[label]
         return [_row(label, replicate, case, n, "", refusal=type(error).__name__)]
+
+
+def _limits(label: str, replicate: int) -> dict[str, Any]:
+    """One fast calibration draw refitted: its estimate, SE and shipped interval limits."""
+    kind, case, n, _ = PILOTS[label]
+    frame = law.draw(fits.law_of(case), n, seed(label, replicate))
+    fitted = fits.fit_density(case, frame, outcome={"density": "correct", "dr": "wrong"}[kind])
+    low, high = fitted.ci
+    return {
+        "label": label,
+        "replicate": replicate,
+        "estimate": float(fitted.estimate),
+        "std_error": float(fitted.std_error),
+        "ci_lower": float(low),
+        "ci_upper": float(high),
+    }
+
+
+def limit_labels() -> tuple[str, ...]:
+    """The calibration pilots whose shipped limits are stored: the density and DR arms."""
+    return tuple(label for label, spec in PILOTS.items() if spec[0] in ("density", "dr"))
+
+
+def write_limits(n_jobs: int, pilot_rows: pd.DataFrame, output: Path = LIMITS) -> pd.DataFrame:
+    """Refit every current replicate of :func:`limit_labels` and write its shipped limits."""
+    jobs = [
+        (label, int(r))
+        for label in limit_labels()
+        for r in sorted(set(pilot_rows.loc[pilot_rows["label"] == label, "replicate"]))
+    ]
+    with ProcessPoolExecutor(max_workers=max(1, n_jobs)) as pool:
+        rows = list(pool.map(_limits, *zip(*jobs, strict=True), chunksize=20))
+    frame = pd.DataFrame(rows).sort_values(["label", "replicate"], ignore_index=True)
+    frame.to_csv(output, index=False, float_format="%.17g")
+    return frame
+
+
+def load_limits(path: Path = LIMITS) -> pd.DataFrame:
+    """The stored shipped limits, read back exactly."""
+    return pd.read_csv(path, float_precision="round_trip")
 
 
 def done(path: Path) -> set[int]:
@@ -740,7 +783,12 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=CHECKPOINTS)
     parser.add_argument("--collect", action="store_true")
     parser.add_argument("--readings", action="store_true", help="write readings.json")
+    parser.add_argument(
+        "--limits", action="store_true", help="refit the fast calibration pilots' limits"
+    )
     arguments = parser.parse_args()
+    if arguments.limits:
+        write_limits(arguments.jobs, load())
     if arguments.labels:
         run(
             arguments.jobs,

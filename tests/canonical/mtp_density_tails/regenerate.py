@@ -36,6 +36,16 @@ figures.  For a calibrated arm the rule extends 0.91 times on average and ends c
 probability 0.897, at a departure with 0.026 and at the cap with 0.076.  The reserve is the cap
 on the classifier G and T, ``LTMLE`` and ``SDR`` pilots, 161.4 CPU-h.
 
+**The interval the coverage leg reads.**  Every positive calibration and density DR arm reads
+coverage at the interval the fit ships, because the study validates what ships: the
+skew-widened t interval of a point estimate of a continuous outcome, and the MOVER interval of
+the longitudinal contrast ``ate_regimen[up vs natural]``.  The shrunken-SE and noise controls
+and the pre-fix row form a symmetric interval at the normal critical value themselves.  The
+pilot rows predate the shipped interval, so the design test reads pilot coverage at it: the
+density and DR pilots are refitted for their shipped limits (``pilot-limits.csv.gz``), and on
+the classifier and longitudinal pilots a draw within 1% of a symmetric limit is counted as able
+to change side, each arm's stop holding at the worst case.
+
 **Pass probabilities and floors.**  Nine calibration-type arms are gated, each on one estimand:
 density calibration on G, T and C, density DR on G and T, classifier calibration on G and T, and
 the longitudinal default route on ``LTMLE`` and ``SDR``.  At R = 3,200 each SE-ratio clause
