@@ -20,7 +20,6 @@ import pytest
 from scipy import stats
 
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
-from cleverly.survival.engine import SURVIVAL_FLOOR
 from cleverly.validation import _continuous_survival_refute as adapter
 from cleverly.validation import refute
 from tests.studies import continuous_survival_law as law
@@ -68,10 +67,12 @@ class TestLaw:
         assert min(abs(z) for z in _z(power=False).values()) < 1.0
 
     def test_raising_beta_alone_reaches_the_survival_floor_first(self) -> None:
-        """The deviation from the plan: beta alone needs 3.5, where the fit raises."""
+        """The deviation from the plan: beta alone needs 3.5, where the fit raised when set."""
         assert abs(_z(power=False, beta=3.25)["c2_t1.12"]) < study.POWER_EFFECT_SE
         assert abs(_z(power=False, beta=3.5)["c2_t1.12"]) >= study.POWER_EFFECT_SE
-        assert _worst_treated_survival(3.5) < SURVIVAL_FLOOR
+        # The survival floor the engine refused at when the design was set; the engine now
+        # refuses only below SURVIVAL_UNDERFLOW (study module docstring).
+        assert _worst_treated_survival(3.5) < 1e-12
         assert _worst_treated_survival(study.POWER_BETA, study.POWER_CAUSE2_ARM) > 1e-3
 
     def test_the_power_law_draws_its_coefficients(self) -> None:

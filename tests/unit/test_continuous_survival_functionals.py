@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 
 from cleverly._refusal import RefusalReason
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import make_estimate
 from cleverly.inference.results import _reported_curve
@@ -35,11 +35,14 @@ from cleverly.survival._targeting import (
 from cleverly.survival.result import (
     CONTINUOUS_SURVIVAL_STUDY,
     FUNCTIONALS_LIMITS,
+    FUNCTIONALS_N,
     FUNCTIONALS_STUDY,
     MEASURED_DEFAULTS,
+    MEASURED_N,
     OFF_GRID_SHARE,
     RATIO_REASON,
     RESTRICTED_EVENT_SHARE,
+    VARIANCE_STUDY,
     continuous_survival_support,
     risk_names,
 )
@@ -207,7 +210,7 @@ def test_the_weighted_direction_is_the_sum_over_grid_points() -> None:
     problem, dlam = _problem((3.0,), TAUS, hazard_by=(0,))
     evaluation = evaluate(problem, dlam)
     v = np.random.default_rng(0).normal(size=problem.n_targets)
-    direction = _targeting._direction(problem, evaluation, v)
+    direction = _targeting._direction(problem, evaluation, v, dlam)
     np.testing.assert_allclose(direction, _brute_direction(problem, evaluation, v), atol=1e-12)
     # Mutation: dropping W(u) F_j(u) from the reverse sum moves the direction far.
     mutated = _brute_direction(problem, evaluation, v, drop_own_f=True)
@@ -256,10 +259,10 @@ def test_a_restricted_mean_left_out_of_the_direction_stays_unsolved(
     original = _targeting._direction
     left_out = _rmtl_targets(problem)
 
-    def without(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
+    def without(problem: Problem, evaluation: Any, v: np.ndarray, dlam: np.ndarray) -> np.ndarray:
         kept = v.copy()
         kept[left_out] = 0.0
-        return original(problem, evaluation, kept)
+        return original(problem, evaluation, kept, dlam)
 
     monkeypatch.setattr(_targeting, "_direction", without)
     result = walk(problem, dlam, cutoff=1e-7, max_steps=2_000)
@@ -289,6 +292,27 @@ def _fit(restricted: tuple[float, ...] = (1.5,), causes: bool = True) -> Any:
             arms={"control": 0, "treated": 1},
             reference="control",
         ).fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
+
+
+#: Estimates and standard errors of ``_fit()`` before the clever covariate's quotient was
+#: computed without cancellation (parent of that change); every survival there stays far from
+#: zero, so the stable form must reproduce them up to library rounding.
+RECORDED = {
+    "cif_regimen[control, death @ t=1]": (0.09787623191311985, 0.020183014215883834),
+    "cif_regimen[treated, relapse @ t=0.5]": (0.07983061022969518, 0.020705287385061243),
+    "ate_regimen[treated vs control, death @ t=1]": (-0.046159024993418604, 0.027795305230947337),
+    "rmtl_regimen[control, relapse @ t=1.5]": (0.2335706969007289, 0.03774927003794807),
+    "rmtl_regimen[treated, death @ t=1.5]": (0.06196292929052488, 0.02112449184002268),
+    "rmtl_regimen[treated vs control, death @ t=1.5]": (-0.05955262315622592, 0.03172464850638993),
+}
+
+
+def test_the_stable_quotient_reproduces_the_fit_where_the_survival_is_ordinary() -> None:
+    fit = _fit()
+    for name, (psi, std_error) in RECORDED.items():
+        # The propensity fit's solver tolerance (1e-4) bounds what a library release can move.
+        assert fit[name].psi == pytest.approx(psi, rel=1e-4, abs=1e-6), name
+        assert fit[name].std_error == pytest.approx(std_error, rel=1e-3), name
 
 
 def test_the_fit_reports_and_targets_every_restricted_mean() -> None:
@@ -336,13 +360,16 @@ def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> 
         return continuous_survival_support(settings=measured, **{**common, **kwargs})
 
     plain = label(scale="level", event_share=0.6)
-    assert plain.label == "supported" and plain.evidence == (CONTINUOUS_SURVIVAL_STUDY,)
+    assert plain.label == "supported"
+    assert plain.evidence == (CONTINUOUS_SURVIVAL_STUDY, VARIANCE_STUDY)
     # A ratio is measured only in a fit with one restricted horizon.
     assert label(scale="ratio", event_share=0.6).reason == RATIO_REASON
     for scale in ("level", "difference", "ratio"):
         moved = label(scale=scale, event_share=0.6, restricted_horizons=1)
         assert moved.label == "supported", scale
-        assert moved.evidence == (FUNCTIONALS_STUDY,)
+        # The variance study's relative-SD floor gates the risks and differences, not ratios.
+        floored = scale != "ratio"
+        assert moved.evidence == (FUNCTIONALS_STUDY, *((VARIANCE_STUDY,) * floored))
         assert moved.limits[-1] == FUNCTIONALS_LIMITS[0]
     # m3: a restricted mean reads supported only inside the window around the measured share.
     low, high = RESTRICTED_EVENT_SHARE
@@ -372,8 +399,51 @@ def test_the_support_reads_one_restricted_horizon_by_the_functionals_study() -> 
     assert several.label == "experimental"
     assert "targets 2 restricted horizons" in several.reason
     # The other conditions still bind on a restricted fit.
-    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=500)
+    small = label(scale="level", event_share=0.75, restricted=True, restricted_horizons=1, n=400)
     assert small.label == "experimental"
+
+
+def test_a_fit_with_a_restricted_horizon_keeps_the_functionals_size_floor() -> None:
+    """B2: the variance study's 500-unit cell fits no restricted horizon, so it lowers no floor."""
+    assert MEASURED_N < FUNCTIONALS_N
+    measured = dict(MEASURED_DEFAULTS)
+    common = {"causes": 2, "cross_fitted": True, "default_nuisances": True}
+
+    def label(n: int, **kwargs: Any) -> Any:
+        return continuous_survival_support(settings=measured, n=n, **{**common, **kwargs})
+
+    rmtl = {"scale": "level", "event_share": 0.75, "restricted": True, "restricted_horizons": 1}
+    for kwargs in (
+        rmtl,
+        {**rmtl, "scale": "difference"},
+        {"scale": "level", "event_share": 0.6, "restricted_horizons": 1},
+        {"scale": "ratio", "event_share": 0.6, "restricted_horizons": 1},
+    ):
+        below = label(MEASURED_N, **kwargs)
+        assert below.label == "experimental", kwargs
+        assert f"{FUNCTIONALS_STUDY} study measures a fit with a restricted horizon" in below.reason
+        assert f"n = {FUNCTIONALS_N:,} only" in below.reason
+        assert label(FUNCTIONALS_N - 1, **kwargs).label == "experimental"
+        assert label(FUNCTIONALS_N, **kwargs).label == "supported", kwargs
+    assert label(FUNCTIONALS_N, **rmtl).evidence == (FUNCTIONALS_STUDY,)
+
+
+def test_a_risk_at_the_variance_studys_size_floor_cites_that_study() -> None:
+    """B2: a risk at n = 500 is supported by the variance study's 500-unit cell, and says so."""
+    measured = dict(MEASURED_DEFAULTS)
+    common = {"causes": 2, "cross_fitted": True, "default_nuisances": True, "event_share": 0.6}
+    for scale in ("level", "difference"):
+        at = continuous_survival_support(settings=measured, n=MEASURED_N, scale=scale, **common)
+        assert at.label == "supported", scale
+        assert at.evidence == (CONTINUOUS_SURVIVAL_STUDY, VARIANCE_STUDY)
+        assert f"{VARIANCE_STUDY} study" in at.reason
+        assert f"n = {MEASURED_N:,}" in at.reason
+        below = continuous_survival_support(
+            settings=measured, n=MEASURED_N - 1, scale=scale, **common
+        )
+        assert below.label == "experimental"
+        assert f"{VARIANCE_STUDY} study measures risks and risk differences down to" in below.reason
+        assert f"n = {MEASURED_N:,}" in below.reason
 
 
 # ----------------------------------------------------------------- T-c4: refusal C1
@@ -423,12 +493,12 @@ def test_the_engine_refuses_restricted_horizons_it_cannot_target() -> None:
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(2.0, 1.0))
     frame = _sample()
     followed = float(frame.loc[frame["Z"] == 0, "time"].max())
-    with pytest.raises(CapabilityError, match="before the last restricted horizon"):
+    with pytest.raises(DataError, match="before the last restricted horizon"):
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(followed + 1.0,), cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
     early = float(frame["time"][frame["event"] > 0].min()) / 2
-    with pytest.raises(CapabilityError, match="first restricted horizon"):
+    with pytest.raises(DataError, match="first restricted horizon"):
         ContinuousSurvivalTMLE([1.0], restricted_horizons=(early,), cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
@@ -549,9 +619,13 @@ def test_a_nonlinear_contrast_is_the_delta_method_by_finite_differences() -> Non
     curve = np.column_stack([_reported_curve(fit[name]) for name in names]) @ gradient
     std_err = float(np.sqrt(np.var(curve, ddof=1) / fit.n))
     assert derived.psi == pytest.approx(function(point), rel=1e-14)
-    assert derived.std_error == pytest.approx(std_err, rel=1e-6)
+    # Under the default switched variance the curve's own variance is the influence-curve one;
+    # the reported one is at least that (tests/unit/test_continuous_survival_variance.py).
+    assert derived.switched is not None
+    assert np.sqrt(derived.switched.influence_variance) == pytest.approx(std_err, rel=1e-6)
+    assert derived.std_error >= std_err * (1 - 1e-12)
     low, high = derived.ci
-    assert (high - low) / 2 == pytest.approx(1.959964 * std_err, rel=1e-5)
+    assert (high - low) / 2 == pytest.approx(1.959964 * derived.std_error, rel=1e-5)
     assert derived.support.label == "experimental"
     assert "smooth function" in derived.support.reason
 
@@ -660,7 +734,9 @@ def test_a_restricted_mean_takes_the_range_logit_interval_of_its_range() -> None
         # The standard error is the time-unit one, from the curve in time units (review R1).
         curve = np.asarray(estimate.influence_curve)
         natural = float(np.std(curve, ddof=1) / np.sqrt(curve.size))
-        assert estimate.std_error == pytest.approx(natural, rel=1e-3)
+        assert estimate.switched is not None
+        assert np.sqrt(estimate.switched.influence_variance) == pytest.approx(natural, rel=1e-3)
+        assert estimate.std_error == pytest.approx(np.sqrt(estimate.switched.variance))
         frame = fit.to_frame().set_index("estimand")
         assert frame.loc[name, "std_err"] == pytest.approx(estimate.std_error)
         # The interval is formed on the logit of the estimate's place in (0, tau).

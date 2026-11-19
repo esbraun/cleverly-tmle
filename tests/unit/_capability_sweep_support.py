@@ -2118,11 +2118,15 @@ def fit_separable() -> Any:
     return LTMLE(regimens, **settings).fit(frame, **law.fit_columns())
 
 
-def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
+def fit_continuous_survival(
+    restricted_horizons: tuple[float, ...] = (), variance: str = "switched"
+) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
     selects nothing by cross-validated partial likelihood and runs in well under a second.
+    ``variance`` is the fit's variance option, the default switched variance unless a kind
+    names another.
     """
     from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
 
@@ -2141,6 +2145,7 @@ def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
     return ContinuousSurvivalTMLE(
         [0.5, 1.0],
         restricted_horizons=restricted_horizons,
+        variance=variance,
         cross_fit=False,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
@@ -2155,6 +2160,16 @@ def fit_continuous_survival_restricted() -> Any:
     reports restricted means and their influence curves beside the risks.
     """
     return fit_continuous_survival(restricted_horizons=(1.0,))
+
+
+def fit_continuous_survival_influence_curve() -> Any:
+    """The continuous-time fit above under ``variance="influence_curve"``.
+
+    The other continuous-time kinds read the default switched variance, so this kind asks
+    every row of a fit whose estimates carry the influence-curve variance alone and no
+    predictable-variation covariance.
+    """
+    return fit_continuous_survival(variance="influence_curve")
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -2460,6 +2475,9 @@ KINDS: dict[str, Kind] = {
     ),
     "continuous_survival+restricted": _kind(
         fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
+    ),
+    "continuous_survival+influence_curve": _kind(
+        fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
     ),
 }
 
@@ -2814,6 +2832,7 @@ MUTATIONS: dict[str, Mutation] = {
                 # fixed null, so the placebo declines there (X101).
                 "continuous_survival",
                 "continuous_survival+restricted",
+                "continuous_survival+influence_curve",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A

@@ -460,7 +460,9 @@ class _Walker:
         return mask
 
     def direction(self, k: int, state: _State, v: FloatArray) -> FloatArray:
-        direction = T._direction(state.problem, _light(state.survival, state.incidence), v)
+        direction = T._direction(
+            state.problem, _light(state.survival, state.incidence), v, state.jumps
+        )
         if self.tilt == "factual":
             arm = state.problem.arm
             factual = np.stack([(arm == a).astype(float) for a in (0, 1)])[:, None, :, None]
@@ -519,17 +521,24 @@ class _Walker:
         return parts, plugins, low, overflowed
 
     def reach(self, k: int, state: _State, v: FloatArray) -> FloatArray | None:
-        """``(2, c)`` a bound on each pair's direction at the dropped times, or ``None``.
+        r"""``(2, c)`` a bound on each pair's direction at the dropped times, or ``None``.
 
-        At a dropped time the curves repeat the last kept time's (one and zero before the
-        first), so the dense direction there is the pair's weight times
-        :math:`d_l = W_l - \\sum_j \\{R_j - F_j W_j\\} / S`, with :math:`W` and :math:`R` the
-        reverse sums of the target weights and of the weighted incidences.  On a risk's grid
-        those sums are constant over each run of dropped times and equal their value at the
-        next kept time, so :math:`d` is read once per run; on a restricted mean's they run on
-        the full grid.  The bound is the pair's largest dropped weight times the largest
-        positive :math:`d`; only a positive increment can overflow.  A pair masked out of the
-        step (the factual tilt) reads zero, and an undefined :math:`d` reads infinity.
+        At a dropped time :math:`u` every hazard jump is zero, so the dense direction there is
+        the pair's weight times :math:`d_l(u) = W_l(u) - \sum_j H_j(u)`, with :math:`W` the
+        reverse sum of the target weights and :math:`H_j` the conditional risk of
+        :func:`~cleverly.survival._targeting.conditional_risk`.  :math:`H_j(u)` sums the
+        increments :math:`W(u_s) S(u_{s-1}) d\Lambda_j(u_s)` after :math:`u`, which are zero
+        at dropped times, and divides by :math:`S(u)`, which a dropped time repeats from the
+        last kept one.  So over a run of dropped times that ends before the kept time
+        :math:`g`, :math:`H_j` is one number: the reverse sum of the increments from :math:`g`
+        on, over :math:`S(u_g^-)`, computed here with the dense walk's operations in its
+        order (adding the dropped times' zeros changes no bit), and zero on a trailing run.
+        Only :math:`W_l` moves within a run, and only for a restricted mean; a risk's is its
+        value at :math:`g`.  The bound is the pair's largest dropped weight times the largest
+        positive :math:`\max_{l, u} W_l(u) - \sum_j H_j` over the runs; rounding is monotone,
+        so it bounds the dense increment's every term.  Only a positive increment can
+        overflow.  A pair masked out of the step (the factual tilt) reads zero, and an
+        undefined :math:`d` reads infinity.
         """
         dropped = self.plan.dropped_weight(k)
         if dropped is None:
@@ -538,52 +547,52 @@ class _Walker:
         J, Q = problem.n_causes, problem.n_rows
         c = problem.n
         expand, kept = problem.expand, problem.kept
-        gaps = self.plan.gap_ends()
         largest = np.zeros((2, c))
         with np.errstate(invalid="ignore", over="ignore", divide="ignore"):
             for a in (0, 1):
                 own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
                 revs = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W, (J, M)
+                trailing: float | None = None
                 if expand is None:
-                    if gaps.size == 0:
-                        continue
-                    W = revs[:, gaps]  # (J, g)
-                    before = gaps - 1
-                    first = before < 0
-                    shared = np.zeros((c, gaps.size))
-                    for j in range(J):
-                        weighted = state.incidence[a, j] * own[j][None, :]
-                        rev = np.cumsum(weighted[:, ::-1], axis=1)[:, ::-1][:, gaps]
-                        F = np.where(first[None, :], 0.0, state.incidence[a, j][:, before])
-                        shared += rev - F * W[j][None, :]
-                        del weighted, rev, F
-                    S = np.where(first[None, :], 1.0, state.survival[a][:, before])
-                    shared /= S
-                    del S
-                    np.subtract(W.max(axis=0)[None, :], shared, out=shared)
-                    factor = shared  # (c, g)
+                    # A risk's weights sit on kept times: W over a run is its value at the end.
+                    ends = self.plan.gap_ends()
+                    tops = revs[:, ends].max(axis=0) if ends.size else np.empty(0)
+                    tail = revs
                 else:
                     assert kept is not None
+                    G = kept.size
                     mask = np.ones(expand.size, dtype=bool)
                     mask[kept] = False
-                    shared = np.zeros((c, int(mask.sum())))
-                    for j in range(J):
-                        F = T._filled(state.incidence[a, j], expand)
-                        work = F * own[j][None, :]
-                        flipped = work[:, ::-1]
-                        np.cumsum(flipped, axis=1, out=flipped)
-                        work -= F * revs[j][None, :]
-                        del F
-                        shared += work[:, mask]
-                        del work, flipped
-                    padded = np.concatenate([np.ones((c, 1)), state.survival[a]], axis=-1)
-                    shared /= np.take(padded, expand[mask] + 1, axis=-1)
-                    del padded
-                    np.subtract(revs[:, mask].max(axis=0)[None, :], shared, out=shared)
-                    factor = shared
+                    # The kept time each dropped time precedes; G for the trailing run.
+                    run = expand[mask] + 1
+                    peaks = np.full(G + 1, -np.inf)
+                    np.maximum.at(peaks, run, revs[:, mask].max(axis=0))
+                    present = np.unique(run)
+                    ends = present[present < G]
+                    tops = peaks[ends]
+                    if present.size and present[-1] == G:
+                        trailing = float(peaks[G])
+                    tail = np.take(revs, kept, axis=-1)
+                if ends.size == 0 and trailing is None:
+                    continue
+                before = T._before(state.survival[a])
+                shared = np.zeros((c, ends.size))
+                for j in range(J):
+                    # conditional_risk's increments, as the dense direction forms them.
+                    x = tail[j][None, :] * before * state.jumps[a, j]
+                    total = np.cumsum(x[:, ::-1], axis=1)[:, ::-1]
+                    del x
+                    shared += total[:, ends] / before[:, ends]
+                    del total
+                del before
+                np.subtract(tops[None, :], shared, out=shared)
+                factor = shared  # (c, runs)
                 factor[np.isnan(factor)] = np.inf
-                if factor.shape[1]:
-                    largest[a] = np.maximum(factor.max(axis=1), 0.0)
+                best = factor.max(axis=1) if ends.size else np.full(c, -np.inf)
+                if trailing is not None:
+                    # Past the last kept time nothing follows, so H is zero there.
+                    best = np.maximum(best, trailing)
+                largest[a] = np.maximum(best, 0.0)
                 del shared, factor
             bound = dropped * largest
         bound = np.where(np.isnan(bound), np.inf, bound)

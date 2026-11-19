@@ -38,8 +38,12 @@ and the cause-2 arm coefficient :data:`POWER_CAUSE2_ARM`. The plan names the arm
 alone. Raising :math:`\beta` alone reaches 4 SE on the cause-2 difference at the median only at
 :math:`\beta = 3.5`, where the true treated survival at the last target time falls to
 :math:`5 \times 10^{-13}` for units with :math:`X_1 = 1` and :math:`X_3` just below 1, below
-the engine's floor of :math:`10^{-12}`, so almost every fit would raise. The design test checks
-both facts from the exact law.
+the survival floor of :math:`10^{-12}` the engine refused at when this design was set, so almost
+every fit would have raised. The engine now refuses only below
+:data:`~cleverly.survival.engine.SURVIVAL_UNDERFLOW` (:math:`10^{-250}`), since X6 part A
+computes the clever covariate without cancellation, so that reason no longer binds; the
+registered coefficients stand until the design is revisited. The design test checks both facts
+from the exact law.
 
 **Size cells** (``refuter_size``, 8 cells). 200 trials on the size law. Each trial draws one
 sample, fits it once, and runs one placebo test and one subset test of 20 refits each. All eight

@@ -7069,7 +7069,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             "reference": functional.reference,
             **continuous_kwargs(method),
         }
-        return ContinuousSurvivalTMLE(functional.horizons or (), **settings), settings
+        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
+        # Spelled in a memory refusal's call, where the variance decides the final pass's memory.
+        settings["variance"] = engine.variance
+        return engine, settings
 
     def _longitudinal_engine(self, method: EstimationMethod) -> Any:
         """The engine :meth:`_estimate_longitudinal` fits and :meth:`planned_fits` counts."""
