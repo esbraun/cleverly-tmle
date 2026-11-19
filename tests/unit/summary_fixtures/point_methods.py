@@ -12,6 +12,7 @@ reader from ``_point_readers`` that checks every printed number against the obje
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from collections.abc import Callable
 from typing import Any
@@ -87,6 +88,19 @@ def ordered_patience() -> Any:
 def lasso_selection() -> Any:
     """The lasso path, longer than the table shows."""
     return _record(_fit(CTMLE(**_learners(strategy="lasso", estimands=("ate",)))), "ctmle")
+
+
+@functools.cache
+def lasso_fallback() -> Any:
+    """The lasso record of a glmstar fit whose analysis-sample path fell back."""
+    record = lasso_selection()
+    return dataclasses.replace(
+        record,
+        l1_solver="glmstar",
+        l1_polished=(0,) * len(record.candidate_fits),
+        l1_fallbacks=(1,) + (0,) * (len(record.candidate_fits) - 1),
+        l1_fallback_reasons=("short_path",),
+    )
 
 
 @functools.cache
@@ -408,6 +422,7 @@ FIXTURES: dict[str, Case] = {
     "greedy_selection": Case(greedy_selection, names=COVARIATES, fidelity=read.read_selection),
     "ordered_patience": Case(ordered_patience, names=COVARIATES, fidelity=read.read_selection),
     "lasso_selection": Case(lasso_selection, names=COVARIATES, fidelity=read.read_selection),
+    "lasso_fallback": Case(lasso_fallback, names=COVARIATES, fidelity=read.read_selection),
     "learners_selection": Case(learners_selection, names=COVARIATES, fidelity=read.read_selection),
     "outcome_adaptive": Case(outcome_adaptive, fidelity=read.read_oat),
     "stacked": Case(stacked_record, fidelity=read.read_oat),

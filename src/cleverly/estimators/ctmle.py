@@ -335,7 +335,7 @@ import inspect
 import numbers
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
@@ -708,6 +708,7 @@ _FOLD_CAP_TEXT: Final = (
 #: and ``n_folds`` is checked against the fold-count cap on the data.
 PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] = {
     "strategy": (lambda v: v == "oat", "strategy='oat'"),
+    "l1_solver": (lambda v: v == "builtin", "l1_solver='builtin'; strategy='oat' fits no L1 path"),
     "oat_design": (lambda v: v == "per_arm", "oat_design='per_arm'"),
     "outcome_learner": (
         lambda v: type(v) is ParametricOutcome,
@@ -1320,6 +1321,17 @@ class CTMLESelection:
         The fluctuation solves of each branch, in the order of :attr:`candidate_fits`: one per
         candidate, plus one per covariate the ``"logistic"`` preorder scores. The
         estimator's final targeting of the reported candidate is not part of the search.
+    l1_solver : str, default="builtin"
+        The solver of a ``"lasso"`` path: ``"builtin"`` or the optional ``"glmstar"``.
+    l1_polished : tuple of int, default=()
+        Under ``"lasso"``, per branch in the order of :attr:`candidate_fits`: the penalties
+        whose glmstar solution the built-in solver re-solved to its Karush-Kuhn-Tucker
+        tolerance. Zeros under the built-in solver; empty off ``"lasso"``.
+    l1_fallbacks : tuple of int, default=()
+        Aligned with :attr:`l1_polished`: the paths the built-in solver solved after a
+        declared glmstar failure.
+    l1_fallback_reasons : tuple of str, default=()
+        The reason of each fallback, in branch order.
     """
 
     strategy: CTMLEStrategy
@@ -1346,6 +1358,10 @@ class CTMLESelection:
     candidate_fits: tuple[int, ...] = ()
     mechanism_fits: tuple[int, ...] = ()
     target_solves: tuple[int, ...] = ()
+    l1_solver: str = "builtin"
+    l1_polished: tuple[int, ...] = ()
+    l1_fallbacks: tuple[int, ...] = ()
+    l1_fallback_reasons: tuple[str, ...] = ()
 
     @property
     def reported(self) -> int:
@@ -1828,6 +1844,17 @@ class _SearchWork:
     candidate_fits: int = 0
     mechanism_fits: int = 0
     target_solves: int = 0
+    l1: L1Work = field(default_factory=L1Work)
+
+    @property
+    def l1_polished(self) -> int:
+        """Penalties whose glmstar start the built-in solver re-solved."""
+        return self.l1.polished
+
+    @property
+    def l1_fallbacks(self) -> int:
+        """L1 paths the built-in solver solved after a declared glmstar failure."""
+        return self.l1.fallbacks
 
 
 @dataclass(frozen=True)
@@ -2000,6 +2027,15 @@ default="greedy"
         past the stop. ``ctmle`` takes the last of tied smallest risks and scores the rest of
         its batch after the trigger. This class takes the first of ties and scores nothing
         after the trigger. ``"oat"`` and ``"derivative"`` score no path and refuse it.
+    l1_solver : {"builtin", "glmstar"}, default="builtin"
+        The solver of the L1-penalized logistic paths of ``"lasso"`` and of
+        ``"derivative"`` without ``treatment_candidates``. ``"glmstar"`` starts each
+        positive penalty from the optional glmstar package, the compiled core of R
+        ``glmnet`` (``pip install "cleverly[glmstar]"``, GPL-2.0-only), and keeps a
+        solution only when its Karush-Kuhn-Tucker residual meets the built-in tolerance,
+        re-solving it otherwise. Estimates agree with ``"builtin"`` to that tolerance, not
+        bitwise. A declared glmstar failure solves the path with the built-in solver and
+        warns. Every other strategy refuses ``"glmstar"``.
     **kwargs : Any
         The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,
         the bounds and the targeting controls.
@@ -2499,16 +2535,12 @@ default="greedy"
             self.strategy not in ("lasso", "derivative")
             or (self.strategy == "derivative" and self.treatment_candidates is not None)
         ):
+            used = f"{self.strategy!r}" + (
+                " with treatment_candidates=" if self.strategy == "derivative" else ""
+            )
             raise ValueError(
-                f"l1_solver={self.l1_solver!r} only applies to strategy='lasso', or to "
-                "strategy='derivative' without treatment_candidates=, which fit the L1 path; "
-                f"this fit uses strategy={self.strategy!r}"
-                + (
-                    " with treatment_candidates="
-                    if self.strategy == "derivative"
-                    else ""
-                )
-                + "."
+                "l1_solver= only applies to strategy='lasso', or to strategy='derivative' "
+                f"without treatment_candidates=, which fit an L1 path; not {used}"
             )
         if self.strategy not in ("lasso", "derivative") and self.lambdas is not None:
             raise ValueError(
@@ -2894,8 +2926,21 @@ default="greedy"
             candidate_fits=selector.counts("candidate_fits"),
             mechanism_fits=selector.counts("mechanism_fits"),
             target_solves=selector.counts("target_solves"),
+            **self._l1_record(selector),
         )
         return nuisance, {"ctmle": selection}
+
+    def _l1_record(self, selector: _Selector) -> dict[str, Any]:
+        """The L1 solver fields of a ``"lasso"`` selection record; empty on other strategies."""
+        if self.strategy != "lasso":
+            return {}
+        branches = (selector.work, *selector.fold_work)
+        return {
+            "l1_solver": self.l1_solver,
+            "l1_polished": selector.counts("l1_polished"),
+            "l1_fallbacks": selector.counts("l1_fallbacks"),
+            "l1_fallback_reasons": tuple(r for work in branches for r in work.l1.reasons),
+        }
 
     def _repeat_draws(
         self, data: CausalData, estimands: tuple[str, ...]
@@ -4809,6 +4854,8 @@ class _Selector:
                 self.lambdas,
                 classes=data.arm_codes,
                 layer=layer,
+                solver=self.est.l1_solver,
+                work=self.work.l1,
             )
             for k, fit in enumerate(fits):
                 values[k, predict_rows] = fit.predict_proba(design[predict_rows])

@@ -31,8 +31,8 @@ maximum, and the solver raises :class:`L1ConvergenceError`.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -98,7 +98,7 @@ class L1Work:
         Paths solved by the built-in solver after a declared glmstar failure.
     reasons : list of str
         The reason of each fallback, in order: ``"nonconvergence"``, ``"short_path"``,
-        ``"nonfinite"`` or ``"polish"``.
+        ``"nonfinite"``, ``"polish"`` or ``"absent_class"``.
     """
 
     polished: int = 0
@@ -801,7 +801,7 @@ def _fall_back(
         work.fallbacks += 1
         work.reasons.append(reason)
     warnings.warn(
-        f"glmstar did not solve the L1 path in {layer} ({reason}); the built-in solver "
+        f"glmstar did not solve the lasso path in {layer} ({reason}); the built-in solver "
         "solved it instead, so this path ran at the built-in speed.",
         UserWarning,
         stacklevel=3,

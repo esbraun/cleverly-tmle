@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import re
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -39,7 +40,8 @@ class GlmstarFallback(Exception):
     Parameters
     ----------
     reason : str
-        ``"nonconvergence"``, ``"short_path"``, ``"nonfinite"`` or ``"polish"``.
+        ``"nonconvergence"``, ``"short_path"``, ``"nonfinite"``, ``"polish"`` or
+        ``"absent_class"``.
     """
 
     def __init__(self, reason: str) -> None:
@@ -50,8 +52,8 @@ class GlmstarFallback(Exception):
 def _version_tuple(text: str) -> tuple[int, ...]:
     parts: list[int] = []
     for piece in text.split(".")[:3]:
-        digits = "".join(ch for ch in piece if ch.isdigit())
-        parts.append(int(digits) if digits else 0)
+        digits = re.match(r"\d*", piece)
+        parts.append(int(digits.group()) if digits and digits.group() else 0)
     return tuple(parts)
 
 
@@ -120,18 +122,22 @@ def starts(problem: _Problem, penalties: FloatArray) -> list[tuple[FloatArray, F
     ------
     GlmstarFallback
         On glmstar's non-convergence warning with a shortened path, a path shorter than
-        the grid, or non-finite output.
+        the grid, non-finite output, or a class with no training row.
     ValueError
         When glmstar returns arrays of an unexpected shape.
     """
     log_net, multi_class_net, control_class = load()
-    control = control_class(thresh=1e-14, maxit=10**8, fdev=0.0, devmax=1.0)
+    if np.unique(problem.codes).size < problem.n_classes:
+        # glmstar sizes its multinomial by the labels it sees, so a class with no training
+        # row cannot be mapped back; the built-in solver keeps that class.
+        raise GlmstarFallback("absent_class")
+    control = control_class(thresh=1e-18, maxit=10**8, fdev=0.0, devmax=1.0)
     p, n_classes = problem.p, problem.n_classes
     settings: dict[str, Any] = {
         "lambda_values": np.asarray(penalties, dtype=float),
         "standardize": False,
         "fit_intercept": True,
-        "pmax": max(p, 1),
+        "pmax": p + 1,
         "control": control,
     }
     estimator = (

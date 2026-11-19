@@ -331,6 +331,26 @@ Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residu
 fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
 is separation at penalty 0. A grid that ends above 0 avoids it.
 
+**`l1_solver="glmstar"` changes the speed, not the contract.** The option applies to
+`strategy="lasso"` and to `strategy="derivative"` without `treatment_candidates=`; every other
+strategy, and `SurvivalCTMLE`, refuses it. It needs the optional `glmstar` package
+(`pip install "cleverly[glmstar]"`, GPL-2.0-only), which wraps the compiled core of R `glmnet`.
+For each positive penalty below the training set's `lambda_max`, glmstar solves the same objective
+on the same standardized columns and normalized weights, and the built-in solver checks its
+Karush-Kuhn-Tucker residual. A solution at most `1e-10` is kept; a larger one is re-solved from
+there by the built-in solver. The intercept-only fits and penalty 0 stay with the built-in solver.
+
+A path that glmstar shortens with a non-convergence warning, returns non-finite values for, or that
+the re-solve cannot bring to `1e-10`, is solved again by the built-in solver with a `UserWarning`.
+So every kept penalty meets the same residual bound under either solver, and estimates agree to
+that tolerance, not bit for bit.
+The selection record counts the work per branch in
+`l1_polished`, `l1_fallbacks` and `l1_fallback_reasons` (`CTMLEDerivativeFit` per training set).
+The option leaves the inference status and the support record of the fit unchanged.
+`tests/unit/test_l1_glmstar.py` holds the residual bounds, mutation controls on the mapping, the
+fallbacks and the agreement of public fits, and `tests/unit/test_ctmle_sequence_witness.py` runs
+its `glmnet` comparisons on both solvers.
+
 **The ends of the default grid hold on the analysis sample.** There, the first
 default candidate is the intercept-only mechanism exactly, and the last is the unpenalized
 main-terms logistic fit. The grid is fixed on the analysis sample. The training rows of a

@@ -8,7 +8,9 @@ inputs:
     description: The interpreter to install and build the virtual environment against.
     required: true
   extra:
-    description: Which optional-dependency group to install; "dev" for anything running pytest.
+    description: >-
+      Which optional-dependency groups to install, space-separated; "dev" for anything running
+      pytest. `glmstar` is not in `dev` (it is GPL-2.0-only), so its job asks for "dev glmstar".
     required: false
     default: dev
   resolution:
@@ -46,15 +48,20 @@ runs:
     # whichever interpreter `/usr` holds, *not* the one `uv python install` just placed, so
     # the version named and the version tested were only ever the same by accident. Doing
     # it here makes them the same by construction, which is what `ci.yml`'s matrix needs.
+    # Windows puts the interpreter under `Scripts`, every other runner under `bin`.
     - run: |
         uv venv --python "${PYTHON_VERSION}"
-        echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+          echo "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
+        else
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+        fi
       shell: bash
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
 
     - if: ${{ inputs.resolution == 'locked' }}
-      run: uv sync --locked --extra "${EXTRA}"
+      run: uv sync --locked $(printf -- '--extra %s ' ${EXTRA})
       shell: bash
       env:
         EXTRA: ${{ inputs.extra }}
@@ -62,7 +69,7 @@ runs:
     # `--upgrade` re-resolves in the runner's checkout and leaves the committed lock alone.
     - if: ${{ inputs.resolution == 'latest' }}
       run: |
-        uv sync --upgrade --extra "${EXTRA}"
+        uv sync --upgrade $(printf -- '--extra %s ' ${EXTRA})
         uv pip list
       shell: bash
       env:
