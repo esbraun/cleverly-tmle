@@ -984,8 +984,14 @@ def candidates_at_no_loss(subject: str) -> tuple[int, int, list[tuple[Any, ...]]
                         continue
                     for label, candidate in clause.candidates(ctx, row):
                         read += 1
-                        same = candidate.passed == value.passed and math.isclose(
-                            candidate.slack, value.slack, rel_tol=1e-9, abs_tol=1e-12
+                        # A cell with no readable draw, such as a refused candidate, has no
+                        # slack on either side; the verdicts must still agree.
+                        both_nan = math.isnan(candidate.slack) and math.isnan(value.slack)
+                        same = candidate.passed == value.passed and (
+                            both_nan
+                            or math.isclose(
+                                candidate.slack, value.slack, rel_tol=1e-9, abs_tol=1e-12
+                            )
                         )
                         if not same:
                             name = (family, cell, clause.name, clause.statistic, label)
