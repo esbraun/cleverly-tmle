@@ -277,14 +277,18 @@ def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
 
 @_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
-    """Load immutable primary rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("replicates.parquet"))
+    """Load immutable primary rows once per study and worker.
+
+    The frame :func:`_artifacts` read: a second read held a second copy, which on a study of
+    millions of rows cost a CI worker gigabytes.
+    """
+    return _artifacts(slug)["replicates"]
 
 
 @_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
-    """Load immutable property rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("property-replicates.parquet"))
+    """Load immutable property rows once per study and worker, as :func:`_artifacts` read them."""
+    return _artifacts(slug)["property_replicates"]
 
 
 def _property_records(study: StudyRecord) -> pd.DataFrame | None:
