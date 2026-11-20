@@ -544,6 +544,11 @@ BACKEND_ROUTES: dict[str, str] = {
     "ScoreAssessment": "field",
     # The EP learner's debiasing-score report (P1 part b).
     "DebiasingScores": "field",
+    # X104: the dose-response assessment reports carry the fit's backend name, and a
+    # variable-importance run's per-candidate reports carry the run's.
+    "DoseResponseSupportReport": "field",
+    "DoseResponseScoreReport": "field",
+    "CandidateReports": "field",
 }
 
 
