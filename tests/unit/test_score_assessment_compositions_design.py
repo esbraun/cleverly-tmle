@@ -74,15 +74,13 @@ def test_the_groups_measure_each_listed_composition_once() -> None:
     assert set(codes) <= set(ec.SCORE_REASONS)
 
 
-def test_the_study_is_declared_and_not_registered() -> None:
-    assert study.SLUG not in {record.slug for record in registered()}
+def test_the_study_is_registered_once() -> None:
+    assert [record.slug for record in registered()].count(study.SLUG) == 1
 
 
 def test_the_seeds_are_unique_against_every_registered_study() -> None:
-    from tests.studies import projection_evidence
-
-    taken = {r.seed for r in registered()} | {r.resampling_seed for r in registered()}
-    taken |= {projection_evidence.SEED, projection_evidence.RESAMPLING_SEED}
+    others = [r for r in registered() if r.slug != study.SLUG]
+    taken = {r.seed for r in others} | {r.resampling_seed for r in others}
     assert study.SEED not in taken
     assert study.RESAMPLING_SEED not in taken
 
@@ -199,6 +197,9 @@ def test_each_group_reads_exactly_its_own_composition(
     """The fit is experimental for its code alone: listing that code lifts it, another does not."""
     group = study.GROUP_BY_LABEL[label]
     frame = _fitted(label)
+    # Registered: the shipped table lifts the group's own composition.
+    assert study.assess(group, frame, 0).status == "supported"
+    monkeypatch.setattr(ec, "SCORE_COMPOSITIONS_MEASURED", {})
     assert study.assess(group, frame, 0).status == "experimental"
     key = ("difference", "binary", "estimated")
     others = {code for g in study.GROUPS for code in (g.code,)} - {group.code}

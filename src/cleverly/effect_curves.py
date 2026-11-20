@@ -987,11 +987,28 @@ SCORE_PAIRED_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
 #: ``((scale, outcome, mechanism), code)`` with ``code`` a key of :data:`SCORE_REASONS`, in the
 #: value form of :data:`SCORE_ASSESSMENT_MEASURED`.  A listed code is dropped from the single-score
 #: and paired rows of that configuration; ``"clusters"`` only at
-#: :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more.  Empty until the
-#: study ``score-assessment-compositions`` registers its weighted, clustered, missing-outcome,
-#: three-arm and in-sample groups on ``("difference", "binary", "estimated")``; every other
-#: composition stays experimental.
-SCORE_COMPOSITIONS_MEASURED: Final[Mapping[tuple[tuple[str, str, str], str], str]] = {}
+#: :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more.  Each group
+#: measured one composition alone, so a fit with two listed codes keeps both.  The study
+#: ``score-assessment-compositions`` measured its weighted, clustered, missing-outcome,
+#: three-arm and in-sample groups on ``("difference", "binary", "estimated")``, every cell
+#: passing; every other composition stays experimental.
+SCORE_COMPOSITIONS_MEASURED: Final[Mapping[tuple[tuple[str, str, str], str], str]] = {
+    (("difference", "binary", "estimated"), "weights"): (
+        "score-assessment-compositions: assess_weighted_2k"
+    ),
+    (("difference", "binary", "estimated"), "clusters"): (
+        "score-assessment-compositions: assess_clustered_4k"
+    ),
+    (("difference", "binary", "estimated"), "missing"): (
+        "score-assessment-compositions: assess_missing_4k"
+    ),
+    (("difference", "binary", "estimated"), "multi_arm"): (
+        "score-assessment-compositions: assess_arms3_4k"
+    ),
+    (("difference", "binary", "estimated"), "not_cross_fitted"): (
+        "score-assessment-compositions: assess_insample_2k"
+    ),
+}
 
 #: The reasons an estimate of a score assessment reads experimental, in the order they are
 #: listed.
@@ -1001,15 +1018,24 @@ SCORE_REASONS: Final[Mapping[str, str]] = {
         "no validation study measures the paired risk difference of two scores in this "
         "configuration"
     ),
-    "weights": "observation weights, which no study of the score assessment measures",
-    "clusters": "clustered rows, which no study of the score assessment measures",
+    "weights": (
+        "observation weights, which no study of the score assessment measures in this configuration"
+    ),
+    "clusters": (
+        "clustered rows, which no study of the score assessment measures in this configuration"
+    ),
     "few_clusters": (
         f"fewer than {FEW_CLUSTER_THRESHOLD} clusters, where the interval takes a t(J-2) "
         "reference that no score-assessment study measures"
     ),
-    "missing": "missing outcomes: the fluctuation divides by the response mechanism, with no study",
-    "multi_arm": "a pair of arms of a multi-arm treatment, with no study",
-    "not_cross_fitted": "the ATE fit is not cross-fitted, which no study measures",
+    "missing": (
+        "missing outcomes: the fluctuation divides by the response mechanism, with no study "
+        "in this configuration"
+    ),
+    "multi_arm": "a pair of arms of a multi-arm treatment, with no study in this configuration",
+    "not_cross_fitted": (
+        "the ATE fit is not cross-fitted, which no study measures in this configuration"
+    ),
     "reduced_span": (
         "the log-ratio fluctuation settled only after dropping a collinear direction; no study "
         "measures coverage there"
@@ -1020,7 +1046,11 @@ SCORE_REASONS: Final[Mapping[str, str]] = {
 SCORE_LIMITS: Final[tuple[str, ...]] = (
     "The studies fit declared parametric or spline nuisances; the default learner library is "
     "not measured.",
-    "Sample size 2,000 for the intervals on the difference scale and 4,000 on the log-ratio scale.",
+    "Sample size 2,000 for the intervals on the difference scale (4,000 for the clustered, "
+    "missing-outcome and three-arm compositions) and 4,000 on the log-ratio scale.",
+    "The compositions were measured one at a time, on the difference scale with a binary "
+    "outcome and an estimated mechanism: one weight law, 800 clusters of 5 rows, one "
+    "missing-at-random response law, the pair (2, 0) of three arms, and an ATE fit in sample.",
     "The scores are fixed functions fitted on other rows; the interval covers one pair named "
     "before the fit, not the best of several.",
 )
@@ -1101,17 +1131,23 @@ def score_assessment_codes(
     key = (scale, outcome, "known" if known_mechanism else "estimated")
     single = [] if key in SCORE_ASSESSMENT_MEASURED else ["unmeasured"]
     few = clusters is not None and clusters < FEW_CLUSTER_THRESHOLD
-    for flag, code in (
-        (weighted, "weights"),
-        (clusters is not None and not few, "clusters"),
-        (few, "few_clusters"),
-        (missing, "missing"),
-        (arms > 2, "multi_arm"),
-        (not cross_fitted, "not_cross_fitted"),
-        (reduced_span, "reduced_span"),
-    ):
-        if flag and (key, code) not in SCORE_COMPOSITIONS_MEASURED:
-            single.append(code)
+    departures = [
+        code
+        for flag, code in (
+            (weighted, "weights"),
+            (clusters is not None and not few, "clusters"),
+            (few, "few_clusters"),
+            (missing, "missing"),
+            (arms > 2, "multi_arm"),
+            (not cross_fitted, "not_cross_fitted"),
+            (reduced_span, "reduced_span"),
+        )
+        if flag
+    ]
+    measured = [code for code in departures if (key, code) in SCORE_COMPOSITIONS_MEASURED]
+    # Each composition was measured alone, so two measured ones together stay experimental.
+    lifted = set(measured) if len(measured) == 1 else set()
+    single.extend(code for code in departures if code not in lifted)
     paired = list(single)
     if key in SCORE_ASSESSMENT_MEASURED and key not in SCORE_PAIRED_MEASURED:
         paired.insert(0, "unmeasured_pair")
@@ -1135,9 +1171,10 @@ def score_assessment_support(
     A single-score row reads ``supported`` when its configuration is one of
     :data:`SCORE_ASSESSMENT_MEASURED` and the fit has a binary treatment, iid unweighted rows,
     complete outcomes and cross-fitted nuisances, and its fluctuation settled on the full span.
-    A departure that :data:`SCORE_COMPOSITIONS_MEASURED` lists for the configuration does not
+    One departure that :data:`SCORE_COMPOSITIONS_MEASURED` lists for the configuration does not
     make it experimental, and its study joins the evidence; clustered rows need
-    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more for that.
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more for that.  Two
+    listed departures together keep their reasons, since each was measured alone.
     The paired row also needs its configuration in :data:`SCORE_PAIRED_MEASURED`.  Otherwise a
     row reads ``experimental``, with every reason of :data:`SCORE_REASONS` that applies.
     Whether ``compare=`` was passed does not enter: the single-score rows are the same TMLE

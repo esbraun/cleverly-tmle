@@ -20,9 +20,9 @@ The calibration ``R`` comes from the 3,200-draw pilot
 (:mod:`tests.studies.score_assessment_compositions_pilot`, run with its ``pilot_2`` extension).
 :data:`BUDGETED_R` is the floor at which every row at a ratio of 1 passes; :data:`DECLARED_R`
 is the pilot's ``R``.  The point-reading fallback of :mod:`tests.studies.point_reading`
-applies at :data:`POINT_READING_TARGET` (0.95, chosen on 2026-11-20).  The study is not
-registered: it joins :func:`tests.studies.evidence.registry.registered` with the artifacts of
-its declared run.
+applies at :data:`POINT_READING_TARGET` (0.95, chosen on 2026-11-20).  The study is
+registered (:func:`tests.studies.evidence.registry.registered`) from its declared run at
+``0635530b``.
 """
 
 from __future__ import annotations

@@ -68,13 +68,14 @@ def test_every_cell_is_declared_once_and_the_record_reads_them() -> None:
         assert f"{label}__{study.JOINT_CONTROL_KIND}" not in joint
 
 
-def test_the_study_is_declared_and_not_registered() -> None:
-    assert study.SLUG not in {record.slug for record in registered()}
+def test_the_study_is_registered_once() -> None:
+    assert [record.slug for record in registered()].count(study.SLUG) == 1
 
 
 def test_the_seeds_are_unique_against_every_registered_study() -> None:
     # The plan's 20261501 and 20261502 are held by ``calibration-slope-warning``.
-    taken = {r.seed for r in registered()} | {r.resampling_seed for r in registered()}
+    others = [r for r in registered() if r.slug != study.SLUG]
+    taken = {r.seed for r in others} | {r.resampling_seed for r in others}
     assert study.SEED not in taken
     assert study.RESAMPLING_SEED not in taken
     assert study.SEED != study.RESAMPLING_SEED

@@ -3008,6 +3008,38 @@ def _projection_composition_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _projection_evidence_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-evidence`` (P1 PR 2): the CDE and pooled ``T49``/``T50`` rows.
+
+    Each runs the study's own fit of one calibration group, on a draw of its law at the
+    group's size, up to the classifier: the engine fit of the CDE projection at both levels,
+    or the identified projection with one pooled outcome regression.
+    """
+    module, slug = "projection_evidence", "projection-evidence"
+
+    def case(row: str, label: str, where: str, fit: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:{where}",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: getattr(study, fit)(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.intermediate", "cde_4k", "568", "fit_cde"),
+        case("T50.intermediate", "cde_crr_4k", "568", "fit_cde"),
+        case("T49.pooled", "pooled_4k", "600", "fit_projection"),
+        case("T50.pooled", "pooled_crr_4k", "600", "fit_projection"),
+        case("T49", "band_obs_4k", "600", "fit_projection"),
+        case("T50", "band_crr_4k", "600", "fit_projection"),
+        case("T49.clustered", "band_clustered_4k", "600", "fit_projection"),
+        case("T49.repeats", "band_rep3_4k", "600", "fit_projection"),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -3609,6 +3641,7 @@ CASES: tuple[RowCase, ...] = (
     *_hazard_time_varying_multinode_cases(),
     *_projection_cases(),
     *_projection_composition_cases(),
+    *_projection_evidence_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

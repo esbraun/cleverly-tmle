@@ -33,13 +33,16 @@ curve.predict({"age": [40, 60]}, interval=True)  # the effect at new ages, with 
 A simulation study checked these intervals in repeated samples: they covered the true
 coefficients about 95% of the time, on both scales and with three treatment levels, weights,
 clusters and missing outcomes. The status line of `fit.summary()` reads `supported` for a fit
-like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A fit with
-one pooled outcome model and a combination the study did not run (weights together with clusters,
-for example) read `experimental`: they are computed the same way, and no study has checked them.
+like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A second
+study checked one pooled outcome model on plain rows, so that fit reads `supported` too. A
+combination no study ran (a pooled model with weights, or weights together with clusters, for
+example) reads `experimental`: it is computed the same way, and no study has checked it.
+
 The band over a grid has its own label, in the summary's note on the band, because a study can
-check the coefficients without checking the band. It reads `experimental` until a study checks
-the band in a fit like yours, with the same band settings: the kind of random multipliers and
-the number of draws.
+check the coefficients without checking the band. A study checked the default band (random signs
+as multipliers, 1,000 draws) on fits like the one above, on both scales, with clusters and with
+repeated cross-fitting, and it held at all grid points together about 95% of the time. Other band
+settings, and fits that study did not run, read `experimental`.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -355,8 +358,10 @@ direct_fit.summary()  # "effect of A on Y with Z held at 0 for every unit"
 The coefficients describe how the effect with `Z` held at 0 changes with age. The interval needs
 two more conditions than the plain conditional effect: no unmeasured variable that affects both
 `Z` and the outcome, given the treatment and the covariates, and some rows with `Z` at the held
-value in every treatment arm at every covariate value. The result is labelled `experimental`
-until its validation study has run. The score checks and the held-out curve checks refuse on it,
+value in every treatment arm at every covariate value. A simulation study checked this fit, with
+one outcome model per arm and the default cross-fitting, and its intervals covered the true
+coefficients about 95% of the time, so it reads `supported`. Other settings, such as weights or a
+fit without cross-fitting, read `experimental`. The score checks and the held-out curve checks refuse on it,
 because they would check the total effect instead.
 
 ## What is not supported yet

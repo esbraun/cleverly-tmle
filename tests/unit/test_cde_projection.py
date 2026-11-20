@@ -695,9 +695,8 @@ class TestTheCompositions:
             assert all(e.support.label == "experimental" for e in fit.estimates.values())
 
     @quiet
-    def test_the_cross_fitted_stacked_fit_runs_and_reads_experimental_until_registration(
-        self,
-    ) -> None:
+    def test_the_cross_fitted_stacked_per_arm_fit_reads_its_registered_row(self) -> None:
+        """``projection-evidence`` registered this composition as ``T50.intermediate``."""
         identified = effect(1, "log_ratio", missing=False)
         fit = identified.estimate(
             outcome_learner=LogisticRegression(max_iter=2000),
@@ -709,7 +708,9 @@ class TestTheCompositions:
             random_state=0,
         )
         assert np.all(np.isfinite(beta(fit)))
-        assert all(e.support.label == "experimental" for e in fit.estimates.values())
+        assert {(e.support.label, e.support.row) for e in fit.estimates.values()} == {
+            ("supported", "T50.intermediate")
+        }
 
 
 # ---------------------------------------------------------------- refusals

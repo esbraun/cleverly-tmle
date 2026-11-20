@@ -24,8 +24,8 @@ with its ``pilot_2`` extension where an arm needs it): :data:`BUDGETED_R` is the
 pooled pilot ratio and takes the smallest multiple of 400 at which the product of the rows' pass
 probabilities is at least :data:`POINT_READING_TARGET` (0.95, plan 5.0 rule 4, chosen on
 2026-11-20), under the two-sided precondition of :mod:`tests.studies.point_reading`.  The study is
-not registered: it joins :func:`tests.studies.evidence.registry.registered` with the artifacts of
-its declared run.
+registered (:func:`tests.studies.evidence.registry.registered`) from its declared run at
+``f60abdf7``.
 """
 
 from __future__ import annotations
@@ -817,7 +817,7 @@ SCENARIOS = {
 }
 
 STUDY = StudyRecord(
-    name="Projection evidence",
+    name="Projection evidence (CDE, pooled regression, band)",
     slug=SLUG,
     artifacts=ROOT / "tests" / "canonical" / "projection_evidence",
     document="docs/technical-reference/method-evidence/projection-evidence.md",

@@ -1659,10 +1659,13 @@ The projection of a controlled direct effect,
 `ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, has
 shipped on both scales, and so has a declared final learner on the EP curve's log-ratio scale. The
 projection band and the external-score check each read their label from their own measured
-configurations. Two declared studies, `projection-evidence` and `score-assessment-compositions`,
-measure the projection of a controlled direct effect, the pooled outcome regression, the band, and
-the score check under weights, clusters, missing outcomes, a pair of three arms and an ATE fit in
-sample. Until they run and register, every one of these reads experimental.
+configurations. The registered `projection-evidence` study measured the projection of a
+controlled direct effect (stacked, cross-fitted, one outcome regression per arm), the pooled
+outcome regression and the Rademacher band on four keys, and its rows label those fits supported.
+The registered `score-assessment-compositions` study measured the score check under weights,
+clusters, missing outcomes, a pair of three arms and an ATE fit in sample, one at a time on the
+difference scale, and `SCORE_COMPOSITIONS_MEASURED` labels each of them supported alone. Other
+compositions of each read experimental.
 
 What stays here is the compositions the shipped refusals name with this item: a continuous or
 vector treatment for `ConditionalContrast`; a conditional contrast from a method other than

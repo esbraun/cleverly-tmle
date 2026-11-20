@@ -26,6 +26,9 @@ from cleverly._support_rows import (
     DEFAULT_BAND_DRAWS,
     LONGITUDINAL_ROWS,
     POINT_ROWS,
+    PROJECTION_BAND_CELLS,
+    PROJECTION_BAND_DRAWS,
+    PROJECTION_BAND_OPTION,
     SHORTFALLS,
     T_BAND_CELLS,
     UNMAPPED_BAND_CELLS,
@@ -80,13 +83,16 @@ def positive_band_cells(directory: str, suffix: str = BAND_SUFFIX) -> dict[str, 
 def unmapped_rows(
     mapping: Mapping[str, tuple[str, ...]],
     t_mapping: Mapping[str, tuple[str, ...]] = T_BAND_CELLS,
+    projection_mapping: Mapping[str, tuple[str, ...]] = PROJECTION_BAND_CELLS,
 ) -> set[str]:
     """Band rows with no mapped cell, and mapped ids that are not band rows.
 
-    A row's ``band`` kind may rest on :data:`T_BAND_CELLS` alone (Fix-2 plan, test 9); the
-    ``t`` band checks below hold those entries to their own rule.
+    A row's ``band`` kind may rest on :data:`T_BAND_CELLS` alone (Fix-2 plan, test 9), or on
+    :data:`PROJECTION_BAND_CELLS` alone (P1 PR 2); the checks below hold those entries to
+    their own rules.
     """
-    mapped = {row_id for table in (mapping, t_mapping) for row_id, cells in table.items() if cells}
+    tables = (mapping, t_mapping, projection_mapping)
+    mapped = {row_id for table in tables for row_id, cells in table.items() if cells}
     return band_rows() ^ mapped
 
 
@@ -130,13 +136,21 @@ class TestTheMapping:
 
     def test_every_band_cell_of_a_cited_study_is_mapped_or_named_unmapped(self) -> None:
         cited = {directories()[slug] for row_id in band_rows() for slug in ROWS[row_id].evidence}
-        mapped = {cell for cells in BAND_CELLS.values() for cell in cells}
+        mapped = {
+            cell
+            for table in (BAND_CELLS, PROJECTION_BAND_CELLS)
+            for c in table.values()
+            for cell in c
+        }
         published = {cell for directory in cited for cell in positive_band_cells(directory)}
         assert published - mapped - set(UNMAPPED_BAND_CELLS) == set()
 
     def test_an_unmapped_cell_is_published_has_a_reason_and_licenses_nothing(self) -> None:
         mapped = {
-            cell for table in (BAND_CELLS, T_BAND_CELLS) for c in table.values() for cell in c
+            cell
+            for table in (BAND_CELLS, T_BAND_CELLS, PROJECTION_BAND_CELLS)
+            for c in table.values()
+            for cell in c
         }
         for cell, reason in UNMAPPED_BAND_CELLS.items():
             directory = cell.split(":", 1)[0]
@@ -468,3 +482,75 @@ class TestBandShortfallsReadTheDefaultBand:
         assert band_shortfall_problems(unmapped=unmapped) == [
             "T30: no unmapped default-band cell carries the shortfall"
         ]
+
+
+# ------------------------------------------------------- the projection band (P1 PR 2, plan 3.3)
+
+PROJECTION_STUDY = "projection_evidence"
+PROJECTION_SLUG = "projection-evidence"
+
+
+def projection_problems(
+    mapping: Mapping[str, tuple[str, ...]], rows: Mapping[str, SupportRow] = ROWS
+) -> list[str]:
+    """Every way ``mapping`` breaks the projection band's licence rule, as short sentences.
+
+    A row lists :data:`PROJECTION_BAND_OPTION` exactly when it has an entry, and then lists it
+    alone with :data:`PROJECTION_BAND_DRAWS` draws, licenses ``band`` and cites the study; each
+    cell is a positive band row of the study that passed, beside a pointwise control that passed.
+    """
+    passed = positive_band_cells(PROJECTION_STUDY)
+    controls = {
+        row["cell"]: row["passed"] == "True"
+        for row in property_rows(PROJECTION_STUDY)
+        if row["property"] == PHASE and row["role"] == "control"
+    }
+    listed = {row_id for row_id, row in rows.items() if PROJECTION_BAND_OPTION in row.band_options}
+    problems = [
+        f"{row_id}: lists the projection triple without cells, or cells without it"
+        for row_id in listed ^ {row_id for row_id, cells in mapping.items() if cells}
+    ]
+    for row_id, cells in mapping.items():
+        row = rows[row_id]
+        if "band" not in row.kinds or PROJECTION_SLUG not in row.evidence:
+            problems.append(f"{row_id}: maps projection cells but licenses no band from the study")
+        if row.band_options != (PROJECTION_BAND_OPTION,):
+            problems.append(f"{row_id}: lists {row.band_options}")
+        if row.band_option_draws != ((PROJECTION_BAND_OPTION, PROJECTION_BAND_DRAWS),):
+            problems.append(f"{row_id}: reads {row.band_option_draws} draws")
+        for cell in cells:
+            if not passed.get(cell, False):
+                problems.append(f"{row_id}: {cell} is not a passing positive band cell")
+            label = cell.split("/", 1)[1].removesuffix(BAND_SUFFIX)
+            if not controls.get(f"{label}__pointwise_joint_control", False):
+                problems.append(f"{row_id}: the pointwise control of {cell} did not pass")
+    return problems
+
+
+class TestTheProjectionBandMapping:
+    def test_the_committed_mapping_and_rows_agree(self) -> None:
+        assert projection_problems(PROJECTION_BAND_CELLS) == []
+
+    def test_the_mapping_is_the_study_s_gated_band_groups(self) -> None:
+        from tests.studies import projection_evidence as study
+
+        gated = {
+            f"{PROJECTION_STUDY}:{PHASE}/{group.label}{BAND_SUFFIX}"
+            for group in study.GROUPS
+            if group.band == "gated"
+        }
+        assert {cell for cells in PROJECTION_BAND_CELLS.values() for cell in cells} == gated
+        assert PROJECTION_BAND_DRAWS == study.BAND_DRAWS
+
+    def test_redirecting_an_entry_to_a_diagnostic_band_fails(self) -> None:
+        diagnostic = f"{PROJECTION_STUDY}:{PHASE}/cde_4k_z0{BAND_SUFFIX}"
+        mutated = {**PROJECTION_BAND_CELLS, "T49": (diagnostic,)}
+        # A diagnostic band carries no verdict and no gated pointwise control.
+        assert projection_problems(mutated) == [
+            f"T49: {diagnostic} is not a passing positive band cell",
+            f"T49: the pointwise control of {diagnostic} did not pass",
+        ]
+
+    def test_deleting_an_entry_fails_the_row_check(self) -> None:
+        mutated = {key: cells for key, cells in PROJECTION_BAND_CELLS.items() if key != "T50"}
+        assert unmapped_rows(BAND_CELLS, T_BAND_CELLS, mutated) == {"T50"}

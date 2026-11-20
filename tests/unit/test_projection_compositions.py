@@ -1145,10 +1145,10 @@ class TestTheBootstrap:
         for key in w1_names("difference"):
             reason = stacked.estimates[key].bootstrap.support.reason
             assert stacked.estimates[key].bootstrap.support.label == "experimental"
-            # The point estimate on this law reads experimental too, so its own reason
-            # comes first and the cross-fitted bootstrap's reason follows.
-            assert reason.endswith(tmle_module.CROSS_FITTED_BOOTSTRAP_REASON)
-            assert reason.startswith(stacked.estimates[key].support.reason)
+            # The pooled point estimate reads supported (row T49.pooled), so the cross-fitted
+            # bootstrap's reason is the whole reason.
+            assert stacked.estimates[key].support.label == "supported"
+            assert reason == tmle_module.CROSS_FITTED_BOOTSTRAP_REASON
             # No row measures the in-sample projection bootstrap until its study registers.
             assert in_sample.estimates[key].bootstrap.support.reason != reason
 

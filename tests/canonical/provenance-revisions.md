@@ -146,6 +146,7 @@ no longer imports. Remove the row when you regenerate the study.
 | `mtp-policy-variance` | `tests/studies/canonical_categorical_ltmle.py` | result-neutral: the study imports it only through `tests/studies/canonical_mtp_pricing.py` and `tests/studies/canonical_mtp_boundaries.py`, and no fit, draw, truth or verdict of the study reads it: those modules read its R `lmtp` pins, and this study runs no comparator.. The module list omitted it, so the manifest records no hash for it |
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a binary discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal_multivalue.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a categorical discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
+| `score-assessment-compositions` | `tests/studies/targeting_curves.py` | result-neutral: the study imports `tests/studies/score_assessment.py`, whose module scope imports `targeting_curves` for the `score-assessment` laws; the compositions law, scores, learners and fits read none of its names. The module is byte-identical between the run at `0635530b` and this registration, so the bytes that ran are the bytes here, and only the module list missed it |
 
 ## Descriptive manifest text
 
@@ -701,3 +702,25 @@ the first merge's output line for line.
 Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_compositions_properties.py`,
 a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
 table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.
+
+## Registration edits after the `projection-evidence` and `score-assessment-compositions` runs (P1)
+
+The declared runs ran at `f60abdf7` (`projection-evidence`, recorded at `0635530b`) and at
+`0635530b` (`score-assessment-compositions`, recorded at `30a15543`). Registration then edited
+modules their manifests record, and none of the edits reaches a seed, a fit or a verdict:
+
+- `tests/studies/projection_evidence_properties.py` and
+  `tests/studies/score_assessment_compositions_properties.py` gain `SHRUNKEN_SE_FACTOR`, a
+  constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the
+  measured-values table.
+- `tests/studies/projection_evidence.py` renames the study record's `name` from "Projection
+  evidence" to "Projection evidence (CDE, pooled regression, band)", which the validation grid
+  needs at 20 characters or more; the manifest's `study` field keeps the name the run wrote.
+  Both study modules' docstrings now name their declared runs.
+- `src/cleverly/_support_rows.py` adds the `T49.intermediate`, `T50.intermediate`, `T49.pooled`
+  and `T50.pooled` rows and the band table `PROJECTION_BAND_CELLS`, and
+  `src/cleverly/effect_curves.py` fills `SCORE_COMPOSITIONS_MEASURED`, keeps two measured
+  compositions together experimental, and extends `SCORE_LIMITS`. These set support labels,
+  which neither study's rows record.
+
+The seed-0 witness of the next section covers these edits too.

@@ -74,6 +74,9 @@ X76_POINT_DEFAULTS: dict[str, Any] = {
 X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     "T49": {"outcome_by_arm": True},
     "T50": {"outcome_by_arm": True},
+    # projection-evidence measured the pooled outcome regression on these keys.
+    "T49.pooled": {"outcome_by_arm": False},
+    "T50.pooled": {"outcome_by_arm": False},
     "T53": {"outcome_by_arm": True},
     "T54": {"treatment_adjustment": True},
     "T52.scaled_var": {"stopping": "scaled_var"},

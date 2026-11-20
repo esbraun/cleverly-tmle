@@ -31,6 +31,10 @@ from tests.studies.evidence.replication import fit_properties, splat_draw, splat
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
+
+#: The factor of the shrunken-SE control: the reported SE times it, so its SE ratio reads the
+#: positive's times this factor.
+SHRUNKEN_SE_FACTOR = study.SHRUNKEN_FACTOR
 PROPERTY_CELLS = study.PROPERTY_CELLS
 
 #: The share of a cell's requested replications that the accounting lets a run lose.

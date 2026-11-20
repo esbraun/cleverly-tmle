@@ -721,18 +721,26 @@ class TestBandSupport:
             DEFAULT_BAND_DRAWS,
             LONGITUDINAL_ROWS,
             POINT_ROWS,
+            PROJECTION_BAND_CELLS,
+            PROJECTION_BAND_DRAWS,
+            PROJECTION_BAND_OPTION,
             T_BAND_CELLS,
         )
 
         rows = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
         banded = {row_id: row for row_id, row in rows.items() if "band" in row.kinds}
-        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS)
+        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS) | set(PROJECTION_BAND_CELLS)
         assert dict(BAND_OPTION_DRAWS) == {"D09": 1_000}
         for row_id, row in banded.items():
             measured = BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS)
             listed = (
                 *(((DEFAULT_BAND_OPTION, measured),) if row_id in BAND_CELLS else ()),
                 *(((T_BAND_OPTION, DEFAULT_BAND_DRAWS),) if row_id in T_BAND_CELLS else ()),
+                *(
+                    ((PROJECTION_BAND_OPTION, PROJECTION_BAND_DRAWS),)
+                    if row_id in PROJECTION_BAND_CELLS
+                    else ()
+                ),
             )
             assert row.band_option_draws == listed, row_id
         row = rows["G23.cross_fitted"]

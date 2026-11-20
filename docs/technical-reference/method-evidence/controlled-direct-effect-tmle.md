@@ -195,7 +195,7 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
 - This is not evidence for natural direct or indirect effects, nor for a general longitudinal
   intervention with treatment-induced intermediate confounding.
 - This is not evidence for the projection of a controlled direct effect onto a basis of
-  baseline modifiers. That fit reads `experimental` until its own study registers
+  baseline modifiers. That fit has its own study, [`projection-evidence`](projection-evidence.md)
   ([Conditional effects](../conditional-effects.md#controlled-direct-effects)).
 
 ## Reproduction

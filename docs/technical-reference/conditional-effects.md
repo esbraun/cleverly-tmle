@@ -180,11 +180,13 @@ pair of a three-arm treatment, repeats and the full-refit bootstrap.
 The stacked cross-fitted fit, a declared treatment law, `randomized=True` and fold-wise targeting
 (`targeting_scheme="fold"`) each reproduce the projection exactly on the same law, also at a wrong
 outcome regression. The fold-wise check groups six whole copies of the law into three folds,
-because a fold's own fluctuation reads its cell imbalance on a random split. Every CDE projection
-reads `experimental`: no registered study measures one. The declared
-`projection-evidence` study (`tests/studies/projection_evidence.py`, not yet run) measures the
-cross-fitted fit at both levels on both scales, with controls for each vanishing term. The
-refusals it meets are in [Refusals](#refusals).
+because a fold's own fluctuation reads its cell imbalance on a random split. The registered
+[`projection-evidence`](method-evidence/projection-evidence.md) study measures the stacked
+cross-fitted fit with a per-arm outcome regression at both levels on both scales, with a control
+for each vanishing term, so that fit reads `supported` on rows `T49.intermediate` and
+`T50.intermediate`. Every other CDE composition reads `experimental`, among them a declared
+treatment law, `randomized=True` and fold-wise targeting. The refusals it meets are in
+[Refusals](#refusals).
 
 ## Curve, band and heterogeneity test
 
@@ -201,10 +203,11 @@ end, for the fit and for prediction alike.
 The band carries its own support label (`CurveBand.support`), classified from the fit's key with
 the band's multiplier kind and draw count, so it reads `supported` only where a registered study
 measured the joint coverage of that band on that key, and the coefficients' label says nothing
-about it. The summary's band note says which. No registered study measures a band yet: the
-declared `projection-evidence` study measures the Rademacher band with 1,000 draws on the `T49`,
-`T50`, `T49.clustered` and `T49.repeats` keys, each beside a pointwise control whose joint
-coverage must fall below 0.95.
+about it. The summary's band note says which. The registered
+[`projection-evidence`](method-evidence/projection-evidence.md) study measured the Rademacher band
+with 1,000 draws on the `T49`, `T50`, `T49.clustered` and `T49.repeats` keys, each beside a
+pointwise control whose joint coverage fell below 0.95. That band reads `supported` on those four
+keys, and any other multiplier kind, draw count or key reads `experimental`.
 
 `heterogeneity_test()` tests $\beta_j = 0$ for every term except the intercept, a Wald
 chi-square on as many degrees of freedom $q$. A clustered fit with $J < 40$ clusters, whose
@@ -591,7 +594,7 @@ $\operatorname{median}_r \sigma_{j,r}$, the rule with $d_r = 0$, published besid
 | `covariance(names)` | the matrix rule over projection names; other names keep the repeated point-fit refusal |
 | `heterogeneity_test()` | $\tilde\beta' \tilde\Sigma^{-1} \tilde\beta$ over the tested coefficients, with $\tilde\Sigma$ the matrix rule |
 | `effect_curve().predict(v, interval=True)` | the median over repeats of $\phi(v)'\beta_r$, with the median rule's variance |
-| the simultaneous band | the median over repeats of each repeat's critical value, around the median-rule curve and standard error (the construction of `median_bands`); it reads experimental |
+| the simultaneous band | the median over repeats of each repeat's critical value, around the median-rule curve and standard error (the construction of `median_bands`); the Rademacher band with 1,000 draws reads supported on row `T49.repeats`, where `projection-evidence` measured it at `repeats=3`, and experimental elsewhere |
 
 A repeat that withholds inference in one coefficient withholds it in the report: `covariance()`,
 `heterogeneity_test()`, the curve's standard error and its band refuse with that repeat's status,
@@ -693,10 +696,12 @@ pins the rows of the four compositions above.
 The registered [conditional-projection study](method-evidence/conditional-projection.md)
 passed every one of its 64 property cells and its three primary tests, and the registered
 [projection-compositions study](method-evidence/projection-compositions.md) passed every one of
-its 56 gated property cells and its two primary tests. Their support rows `T49` (the CATE
-projection, family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit `supported` when
-its key is one a study measured, with binary outcome and treatment, iid rows and one outcome
-regression per arm (`outcome_by_arm=True`):
+its 56 gated property cells and its two primary tests, and the registered
+[projection-evidence study](method-evidence/projection-evidence.md) passed every one of its 37
+gated property cells and its two primary tests. Their support rows `T49` (the CATE projection,
+family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit `supported` when its key is
+one a study measured, with binary outcome and treatment, and, except on the `.pooled` rows, one
+outcome regression per arm (`outcome_by_arm=True`):
 
 | row | composition | study |
 | --- | --- | --- |
@@ -711,16 +716,22 @@ regression per arm (`outcome_by_arm=True`):
 | `T49.in_sample.missing_both` | a missing treatment and missing outcomes, in sample | projection-compositions |
 | `T49.strata`, `T50.strata` | `strata=` with stacked cross-fitting | projection-compositions |
 | `T49.repeats`, `T50.repeats` | `repeats=3` with stacked cross-fitting | projection-compositions |
+| `T49.pooled`, `T50.pooled` | one pooled outcome regression, iid rows, complete outcomes, stacked cross-fitting | projection-evidence |
+| `T49.intermediate`, `T50.intermediate` | the controlled direct effect with Z held at 0 or 1, stacked cross-fitting | projection-evidence |
 
-A pooled outcome regression on this axis, a composition no group measured (weights with
-clusters, or strata with a missing treatment, for example), the bootstrap of a cross-fitted fit and
-the simultaneous band read `experimental`. The cross-fitted bootstrap's label names
+The simultaneous band has its own label: the Rademacher band with 1,000 draws reads `supported`
+on `T49`, `T50`, `T49.clustered` and `T49.repeats`, where `projection-evidence` measured its
+joint coverage (`PROJECTION_BAND_CELLS` in `cleverly/_support_rows.py`). A pooled outcome
+regression with any other composition, a composition no group measured (weights with clusters,
+or strata with a missing treatment, for example), the bootstrap of a cross-fitted fit and the
+band on any other key or with other settings read `experimental`. The cross-fitted bootstrap's label names
 [F2](../roadmap.md#f2-targeted-bootstrap-inference); the study published its readings on that fit,
 coverage 0.927 to 0.952, without a verdict. On this axis the
 outcome-regression option reads the other way round from the point estimands: the measured fit
 is the per-arm one, and the support key holds `outcome_by_arm`, so a pooled projection matches
-no row. The key keeps that label now that the point study `option-outcome-by-arm` is registered and the
-option's fit condition is deleted (`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
+only the `.pooled` rows. The key keeps the option now that the point study `option-outcome-by-arm`
+is registered and the option's fit condition is deleted
+(`tests/unit/test_option_outcome_by_arm_witness.py`). The external-score check
 has its own measured configurations, below.
 
 The in-sample composite fit and the in-sample log ratio read SE ratios up to 2.4% below 1 at
@@ -805,22 +816,24 @@ complete outcomes, cross-fitted nuisances and a fluctuation settled on the full 
 
 `cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED` and `SCORE_PAIRED_MEASURED` hold the table,
 and `tests/unit/test_score_assessment_tmle.py` checks that every group it names ran and passed.
+The difference-scale groups of `score-assessment` run at n = 2,000 and the log-ratio groups at
+4,000: at 2,000 rows the pilot's SE ratio of 1.047, the best-constant term plus an unexplained
+excess, predicted that no replication count up to 50,000 meets the calibration rule, and no
+interval was measured there. The study page gives that term's measured size, the reduced-span
+counts, and the limits of what the study can see.
+
 Weights, clusters, missing outcomes, a pair of arms of a multi-arm treatment, an ATE fit without
-cross-fitting, a reduced-span fit and every other configuration read `experimental`. A clustered
-fit with fewer than 40 clusters gives the reason that its interval takes a $t(J - 2)$ reference
-no score-assessment study measures, in place of the reason for clusters. The declared
-`score-assessment-compositions` study (`tests/studies/score_assessment_compositions.py`, not yet
-run) measures the first five of these, one at a time, on the difference-scale binary paired
-design with an estimated mechanism: sampling weights, 800 clusters of 5, outcomes missing at
-random, the pair $(2, 0)$ of three arms, and an ATE fit in sample.
-`cleverly.effect_curves.SCORE_COMPOSITIONS_MEASURED` lifts one composition of a measured
-configuration when a group of a registered study measured it, and it is empty until that study
-registers. The
-difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000: at 2,000 rows the
-pilot's SE ratio of 1.047, the best-constant term plus an unexplained excess, predicted that no
-replication count up to 50,000 meets the calibration rule, and no interval was measured there.
-The study page gives that term's measured size, the reduced-span counts, and the limits of what
-the study can see.
+cross-fitting, a reduced-span fit and every other configuration read `experimental`, except the
+single compositions measured next. A clustered fit with fewer than 40 clusters gives the reason
+that its interval takes a $t(J - 2)$ reference no score-assessment study measures, in place of
+the reason for clusters. The registered
+[`score-assessment-compositions`](method-evidence/score-assessment-compositions.md) study measured
+the first five of these, one at a time, on the difference-scale binary paired design with an
+estimated mechanism: sampling weights at n = 2,000, 800 clusters of 5, outcomes missing at random
+and the pair $(2, 0)$ of three arms at n = 4,000, and an ATE fit in sample at n = 2,000.
+`cleverly.effect_curves.SCORE_COMPOSITIONS_MEASURED` lists those five, and an assessment with
+exactly one of them on that configuration reads `supported`, naming both studies. Two of them
+together, or one on another scale, outcome or mechanism, stays `experimental`.
 
 The score assessment's fast-tier instruments (`tests/unit/test_score_assessment_tmle.py`) are:
 
