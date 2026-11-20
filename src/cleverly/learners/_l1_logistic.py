@@ -31,7 +31,6 @@ maximum, and the solver raises :class:`L1ConvergenceError`.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +40,7 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from .._typing import FloatArray, IntArray
+from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, RefusalReason
 
 __all__ = [
@@ -800,7 +800,7 @@ def _fall_back(
     if work is not None:
         work.fallbacks += 1
         work.reasons.append(reason)
-    warnings.warn(
+    _warn(
         f"glmstar did not solve the lasso path in {layer} ({reason}); the built-in solver "
         "solved it instead, so this path ran at the built-in speed.",
         UserWarning,
