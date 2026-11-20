@@ -190,8 +190,8 @@ In the
 intervals that under-cover: an unlabelled stratified pair with a mean Kish size of 69 covered
 0.908 at n = 4,000, and at the tail pair a larger Kish size came with a smaller reported SE and no
 smaller error. The registered run repeats both readings. The stratified pair at n = 8,000 (mean
-Kish size 141, all but 2 of 4,000 fits unlabelled) covered 0.921 with an SE ratio of 0.93. At the
-`tail` pair the unlabelled fits covered 0.929 and the labelled ones 0.944. The `tail` scenario
+Kish size 136, all but 3 of 4,000 fits unlabelled) covered 0.921 with an SE ratio of 0.96. At the
+`tail` pair the unlabelled fits covered 0.922 and the labelled ones 0.948. The `tail` scenario
 measures one pair near the floor, so its passing verdict does not validate the floor at other
 doses, bandwidths or laws.
 [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) records what would remove
@@ -251,7 +251,7 @@ one law family and sizes from 1,000 to 8,000, and each label's `limits` repeat t
 | a pair whose fluctuation does not solve its score raises `DataError`, which a repeated-sampling study records as one lost replicate | `::test_an_unsolved_fluctuation_is_a_data_error_a_study_records` |
 
 The [registered study](method-evidence/dose-response.md) passes every gate: 27 primary rows
-(lowest coverage 0.9215, worst standardized bias 0.031) and 7 property cells, including the band's
+(lowest coverage 0.9207, worst standardized bias 0.030) and 7 property cells, including the band's
 joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator.
 A [separate study](method-evidence/dose-response-npcausal.md) pairs `DoseResponseTMLE` with
 npcausal `ctseff` on a law where the curve is a line, so both smoothed curves equal it. That study

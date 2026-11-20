@@ -207,6 +207,9 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_mtp_density_tails",
     properties_module="tests.studies.mtp_density_tails_properties",
     property_cells=PROPERTY_CELLS,
+    # The efficiency bound sizes the noise controls and scales the influence-curve gap; no
+    # calibration cell publishes an efficiency ratio against it.
+    calibration_efficiency_ratio=False,
     publication_policy="gated",
 )
 

@@ -1392,10 +1392,17 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
-                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
+                elif suffix in (
+                    "wrong_gamma_control",
+                    "validation_rule_control",
+                    "both_wrong_control",
+                    "pre_fix_control",
+                ):
                     # X82 SH: a smaller Gamma's end read against the declared truth must miss.
                     # X11 PR C (``learned-rule-learners``): a rule learned on the validation
                     # rows that evaluate it is optimistic and must miss its own value.
+                    # ``mtp-density-tails``: the DR arms' both-wrong and pre-fix controls must
+                    # read coverage below the band.
                     expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
@@ -1634,6 +1641,48 @@ class TestPublishedVerdicts:
                     expected = row.paired_median_ci_upper < 0.95
                 else:
                     expected = rule
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
+        # ``mtp-density-tails``: restated from the declaration in ``regenerate.py``. A gated
+        # ``ic_gap`` row at 2,000 reads its median against the law's bound, and at 20,000 its
+        # largest gap against the law's bound and its median over the 2,000 median against the
+        # fall; each control fails its one named clause. The cluster rows read their warned
+        # draws against the floor on C and the ceiling on G and T.
+        gaps = published.loc[published["property"] == "ic_gap"]
+        if not gaps.empty:
+            module = study.properties()
+            for row in gaps.itertuples():
+                law_name = str(row.cell).split("__", 1)[0]
+                clauses = {
+                    "small": row.median_gap <= module.GAP_BOUND_SMALL.get(law_name, np.nan),
+                    "large": row.max_gap <= module.GAP_BOUND_LARGE.get(law_name, np.nan),
+                    "fall": row.gap_fall <= module.GAP_FALL,
+                }
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = not clauses[module.GAP_CONTROLS[str(row.cell)]]
+                elif str(row.cell).endswith("n_2000"):
+                    expected = clauses["small"]
+                else:
+                    expected = clauses["large"] and clauses["fall"]
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        clusters = published.loc[published["property"] == "cluster_warning"]
+        if not clusters.empty:
+            module = study.properties()
+            floor, ceiling = module.CLUSTER_C_FLOOR, module.CLUSTER_GT_CEILING
+            expectations = {
+                "C__n_20000": lambda warned: warned >= floor,
+                "GT__pooled": lambda warned: warned <= ceiling,
+                "C__gap_disabled_control": lambda warned: warned < floor,
+                "GT__eager_control": lambda warned: warned > ceiling,
+            }
+            for row in clusters.itertuples():
+                expected = expectations[str(row.cell)](row.warned_draws)
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
@@ -2025,6 +2074,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # and the variance-ratio lower end; a deflated control must fail that rule; the IID
         # control to its median ratio's upper end. Checked row by row below.
         "fold_variance_calibration",
+        # ``mtp-density-tails``: an ``ic_gap`` positive answers to its law's gap bounds and the
+        # fall, each control to its one named clause; a ``cluster_warning`` row to its warned
+        # draws against the C floor or the G and T ceiling. Checked row by row above.
+        "ic_gap",
+        "cluster_warning",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.

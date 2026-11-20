@@ -701,3 +701,11 @@ the first merge's output line for line.
 Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_compositions_properties.py`,
 a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
 table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.
+
+## Registration edit after the `mtp-density-tails` run (Fix-9)
+
+Registration set `calibration_efficiency_ratio=False` on the `StudyRecord` in
+`tests/studies/canonical_mtp_density_tails.py`. The study uses its efficiency bound only to scale
+the noise controls and the influence-curve gap, and no calibration cell publishes an efficiency
+ratio. The field is read by the documentation gate and the measured-values table, and by no
+verdict, seed or fit, so a regeneration would write the same rows.

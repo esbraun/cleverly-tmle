@@ -63,7 +63,7 @@ design test reads it from the committed pilot.
 | --- | --- | --- | --- |
 | `levels` | `levels` | the level probabilities | 1 |
 | `gaussian_density` | `truncated` | binned density, a fitted truncated-normal location model read at `oracle_bins(n)` bins (320 at n = 2,000) | 1 |
-| `gaussian_classifier` | `gaussian` | logistic classifier on `W1`, `W2` and the dose | 1 |
+| `gaussian_classifier` | `gaussian` | logistic classifier on `W1`, `W2` and the dose. The current code also passes it the policy's step column at the edge of the training doses; the committed rows ran at `7c81ba6`, before that column | 1 |
 | `gaussian_crossfit` | `gaussian` | the same classifier | 5 |
 | `vector` | `vector` | logistic classifier on `W1`, `W2`, the arm and the dose, and a logistic arm model | 1 |
 | `untruncated_density` (reported) | `gaussian` | binned density, a fitted Gaussian location model at `oracle_bins(n)` bins | 1 |

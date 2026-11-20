@@ -514,6 +514,13 @@ so even a small shift changes the ratio. The estimate is only as good as the tre
 behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
 the narrow outer intervals poorly.
 
+Gradient boosting can also misfit a few rows in a thin tail. In
+the [design study](../technical-reference/method-evidence/mtp-density-tails.md#reported-readings),
+at 2,000 rows the default booster's ratio was far off on up to 3 of 20 samples for four of six
+dose shapes, most often for a dose capped at the top of its range. In each such sample a handful
+of rows carried most of the error. When the tail matters to the policy, compare the estimate with
+a second treatment learner.
+
 ```python
 density_fit = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),

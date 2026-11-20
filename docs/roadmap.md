@@ -1755,8 +1755,8 @@ Kish size reported a smaller SE without a smaller error. The stratified pair at 
 $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its fits labelled
 (`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
 (`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
-0.929 and the labelled fits 0.944, and the stratified pair at n = 8,000 covered 0.921 at a mean
-Kish size of 141 with an SE ratio of 0.93. This item has two parts.
+0.922 and the labelled fits 0.948, and the stratified pair at n = 8,000 covered 0.921 at a mean
+Kish size of 136 with an SE ratio of 0.96. This item has two parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
