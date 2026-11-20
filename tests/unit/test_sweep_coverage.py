@@ -81,12 +81,18 @@ UNSWEPT: Mapping[str, Exemption] = {
         "a fit result class with no assessment facade: it declares no assessment_family, no "
         "diagnostics or sensitivity facade and no assess(), so it has no capability row to ask",
         "X104",
-        ("result:DoseResponseResult", "result:VariableImportanceResult"),
+        ("result:VariableImportanceResult",),
     ),
     **_exempt(
-        "the effect curve's assessment surface (CurveDiagnostics) has no sensitivity facade, no "
-        "combined report (assess) and no per-request row resolution, so the sweep's instrument "
-        "cannot ask it; tests/unit/test_curve_assessment.py checks its rows directly",
+        "the dose-response result has an assessment surface, but no kind of the sweep fits a "
+        "dose-response curve yet; tests/unit/test_dose_response_assessment.py checks its rows "
+        "directly",
+        "X104",
+        ("result:DoseResponseResult", "method:dose_response/tmle"),
+    ),
+    **_exempt(
+        "the effect curve has an assessment surface, but no kind of the sweep builds a curve "
+        "yet; tests/unit/test_curve_assessment.py checks its rows directly",
         "X104",
         (
             "result:EffectCurveResult",
@@ -95,9 +101,9 @@ UNSWEPT: Mapping[str, Exemption] = {
         ),
     ),
     **_exempt(
-        "the structural nested mean result has a sensitivity facade but no diagnostics facade "
-        "(its diagnostics field is the fit-time StructuralDiagnostics report) and no assess(), "
-        "so the sweep has no facade call to ask (the free refute() does run on it)",
+        "the structural nested mean result has an assessment surface, but no kind of the sweep "
+        "fits a structural nested mean model yet; tests/unit/test_structural_refutation.py "
+        "checks its rows directly",
         "X104",
         (
             "result:StructuralNestedMeanResult",

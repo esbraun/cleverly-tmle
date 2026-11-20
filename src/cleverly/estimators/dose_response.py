@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Final, Literal
+from typing import Any, ClassVar, Final, Literal
 
 import numpy as np
 
+from .._assessment_cache import AssessmentCache
 from .._inference_status import STATUS_RECORDS
 from .._support import Support, combine_support
 from .._typing import FloatArray
@@ -39,6 +40,7 @@ from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
 from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simultaneous_bands
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
+from ..utils.bounds import OutcomeScaler
 from ..utils.frames import frame_from_dict
 from ._nuisance import NuisanceEstimates, fit_nuisances
 
@@ -46,7 +48,10 @@ __all__ = [
     "DOSE_RESPONSE_BAND_MEASURED",
     "DOSE_RESPONSE_MEASURED",
     "DOSE_RESPONSE_STUDY",
+    "DoseNuisanceRecord",
     "DoseResponseResult",
+    "DoseResponseScoreReport",
+    "DoseResponseSupportReport",
     "DoseResponseTMLE",
     "dose_response_support",
 ]
@@ -102,6 +107,48 @@ class PairSupport:
 
 
 @dataclass(frozen=True)
+class DoseNuisanceRecord:
+    """The outcome regression at each row's observed dose, kept for the nuisance report.
+
+    One prediction per row, not one per quadrature node, so the result grows by O(n) floats
+    (:data:`NODE_MEMORY_BUDGET` bounds the node predictions, which the result does not keep).
+
+    Parameters
+    ----------
+    predictions : ndarray
+        The outcome regression at each row's observed dose, on the scaled outcome: out of
+        fold on a cross-fitted fit, in sample otherwise.
+    outcome : ndarray
+        The observed outcome, unscaled.
+    weights : ndarray
+        The observation weights.
+    folds : ndarray
+        Each row's validation fold.
+    cross_fitted : bool
+        Whether the predictions were made out of fold.
+    family : str
+        The outcome family: ``"binomial"`` for a binary outcome.
+    scaler : OutcomeScaler
+        The map of the outcome onto the scale the fit targeted on.
+    learner_diagnostics : Any
+        The outcome learner's Super Learner diagnostics, or ``None``.
+    constant_folds : tuple of int
+        The folds whose training outcomes held one value, so the regression there is a
+        constant.
+    """
+
+    predictions: FloatArray = field(compare=False)
+    outcome: FloatArray = field(compare=False)
+    weights: FloatArray = field(compare=False)
+    folds: Any = field(compare=False)
+    cross_fitted: bool
+    family: str
+    scaler: OutcomeScaler
+    learner_diagnostics: Any = field(default=None, compare=False)
+    constant_folds: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class DoseResponseResult:
     """A fitted kernel-smoothed dose-response curve.
 
@@ -125,6 +172,9 @@ class DoseResponseResult:
         The quadrature doses.
     alpha : float
         The significance level of the intervals and of the band.
+    nuisance_record : DoseNuisanceRecord
+        The outcome regression at the observed dose, which ``diagnostics.nuisance_models()``
+        reads.
     warnings : tuple of str
         The fit's notes: a quadrature-doubling shift above tolerance, an accepted
         composition no registered study measures (an in-sample fit, observation weights),
@@ -142,11 +192,98 @@ class DoseResponseResult:
     scores: dict[str, float]
     n_nodes: int
     alpha: float
+    nuisance_record: DoseNuisanceRecord = field(repr=False, compare=False)
     warnings: tuple[str, ...] = field(default=())
     backend: str | None = None
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
+    #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
+    #: another fit.
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False, compare=False
+    )
+
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.
+    assessment_family: ClassVar[str] = "dose_response"
+    #: The method identity of the result.
+    fitted_method: ClassVar[str] = "tmle"
 
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
+
+    # ------------------------------------------------------------- assessment
+
+    @property
+    def diagnostics(self) -> Any:
+        """The support, score, outcome-regression and influence diagnostics of the fit."""
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses on this fit."""
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored fit."""
+        from ..assessment import replayability
+
+        return replayability(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per validated check, read off the stored fit.
+        """
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        No refutation or sensitivity analysis is implemented for a dose-response curve, so
+        those rows report their refusals.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     def estimate(self, h: float, a0: float, stratum: str | None = None) -> ParameterEstimate:
         """The estimate at one declared pair.
@@ -264,6 +401,268 @@ class DoseResponseResult:
             f"DoseResponseResult(pairs={len(self.curve.pairs)}, "
             f"bandwidths={len(self.curve.bandwidths)}, doses={len(self.curve.doses)})"
         )
+
+
+@dataclass(frozen=True)
+class DoseResponseSupportReport:
+    """The support of every declared pair: the fit's stored records, restated.
+
+    No pair passes or fails: the Kish floor is provisional (roadmap X95), and a pair below it
+    already carries the experimental ``low_dose_support_plugin`` interval.
+
+    Parameters
+    ----------
+    pairs : tuple of PairSupport
+        One record per reported estimate, in report order.
+    support_floor : float
+        The declaration's Kish floor.
+    quadrature_shift : float
+        The largest change of an estimate, in standard errors, when the quadrature nodes are
+        doubled.
+    backend : str or None
+        The dataframe library :meth:`to_frame` returns by default.
+    """
+
+    pairs: tuple[PairSupport, ...]
+    support_floor: float
+    quadrature_shift: float
+    backend: str | None = None
+
+    @property
+    def below_floor(self) -> int:
+        """The number of pairs whose Kish size is below the floor."""
+        return sum(1 for pair in self.pairs if pair.below_floor)
+
+    @property
+    def min_kish(self) -> float:
+        """The smallest Kish effective size of any pair."""
+        return min(float(pair.kish) for pair in self.pairs)
+
+    def to_frame(self, backend: str | None = None) -> Any:
+        """One row per pair: its rows, Kish size, smallest density and largest covariate.
+
+        Parameters
+        ----------
+        backend : str or None
+            The dataframe library, or ``None`` for the fit's.
+
+        Returns
+        -------
+        DataFrame
+            Columns ``name``, ``bandwidth``, ``dose``, ``stratum``, ``rows``, ``kish``,
+            ``min_density``, ``max_covariate`` and ``below_floor``.
+        """
+        names = (
+            "name",
+            "bandwidth",
+            "dose",
+            "stratum",
+            "rows",
+            "kish",
+            "min_density",
+            "max_covariate",
+            "below_floor",
+        )
+        return frame_from_dict(
+            {name: [getattr(pair, name) for pair in self.pairs] for name in names},
+            backend=backend or self.backend,
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"DoseResponseSupportReport(pairs={len(self.pairs)}, "
+            f"min_kish={self.min_kish:.3g}, below_floor={self.below_floor})"
+        )
+
+
+@dataclass(frozen=True)
+class DoseResponseScoreReport:
+    """Each pair's fluctuation score against the package's score threshold.
+
+    The score is the mean weighted score of the pair's fluctuation at its solution, on the
+    scaled outcome.  The threshold is
+    :func:`~cleverly.validation.score.score_threshold` at the largest finite scaled standard
+    error of the pairs.  The fit refuses a pair whose fluctuation did not solve its score at
+    a far tighter tolerance, so a stored fit passes: the report restates convergence.
+
+    Parameters
+    ----------
+    names : tuple of str
+        The pairs, in report order.
+    scores : ndarray
+        Each pair's score on the scaled outcome.
+    std_errors : ndarray
+        Each pair's plug-in standard error, divided by the outcome scaler's range.
+    threshold : float
+        The magnitude a score may reach and pass.
+    tolerance : float
+        The relative tolerance of the threshold.
+    backend : str or None
+        The dataframe library :meth:`to_frame` returns by default.
+    """
+
+    names: tuple[str, ...]
+    scores: FloatArray = field(compare=False)
+    std_errors: FloatArray = field(compare=False)
+    threshold: float
+    tolerance: float
+    backend: str | None = None
+
+    @property
+    def ratios(self) -> FloatArray:
+        """Each pair's ``abs(score) / threshold``."""
+        return np.asarray(np.abs(self.scores) / self.threshold, dtype=float)
+
+    @property
+    def passed(self) -> bool:
+        """Whether every pair's score is within the threshold."""
+        return bool(np.all(self.ratios <= 1.0))
+
+    def to_frame(self, backend: str | None = None) -> Any:
+        """One row per pair: its score, scaled standard error, ratio and verdict.
+
+        Parameters
+        ----------
+        backend : str or None
+            The dataframe library, or ``None`` for the fit's.
+
+        Returns
+        -------
+        DataFrame
+            Columns ``name``, ``score``, ``scaled_std_error``, ``ratio``, ``threshold`` and
+            ``passed``.
+        """
+        ratios = self.ratios
+        return frame_from_dict(
+            {
+                "name": list(self.names),
+                "score": np.asarray(self.scores, dtype=float),
+                "scaled_std_error": np.asarray(self.std_errors, dtype=float),
+                "ratio": ratios,
+                "threshold": np.full(len(self.names), self.threshold),
+                "passed": ratios <= 1.0,
+            },
+            backend=backend or self.backend,
+        )
+
+    def __repr__(self) -> str:
+        worst = float(np.max(self.ratios)) if len(self.names) else float("nan")
+        return (
+            f"DoseResponseScoreReport(pairs={len(self.names)}, worst_ratio={worst:.3g}, "
+            f"passed={self.passed})"
+        )
+
+
+def dose_support_report(result: DoseResponseResult) -> DoseResponseSupportReport:
+    """The support report of a dose-response fit, read off its stored pair records.
+
+    Parameters
+    ----------
+    result : DoseResponseResult
+        The fit.
+
+    Returns
+    -------
+    DoseResponseSupportReport
+        The pairs' records, the floor and the quadrature shift.
+    """
+    return DoseResponseSupportReport(
+        pairs=result.pair_support,
+        support_floor=float(result.curve.support_floor),
+        quadrature_shift=float(result.quadrature_shift),
+        backend=result.backend,
+    )
+
+
+def dose_score_report(result: DoseResponseResult, *, tolerance: float) -> DoseResponseScoreReport:
+    """The score report of a dose-response fit, on the scaled outcome.
+
+    Parameters
+    ----------
+    result : DoseResponseResult
+        The fit.
+    tolerance : float
+        The relative tolerance of :func:`~cleverly.validation.score.score_threshold`.
+
+    Returns
+    -------
+    DoseResponseScoreReport
+        Each pair's stored score against the threshold.
+    """
+    from ..validation.score import score_threshold
+
+    names = tuple(result.scores)
+    scale = float(result.nuisance_record.scaler.range)
+    # ``plugin_std_error`` is readable on a pair below the floor too, whose ``std_error``
+    # refuses; the score lives on the scaled outcome, so its standard error does as well.
+    std_errors = np.array([result.estimates[name].plugin_std_error / scale for name in names])
+    n = int(np.asarray(result.nuisance_record.predictions).size)
+    return DoseResponseScoreReport(
+        names=names,
+        scores=np.array([float(result.scores[name]) for name in names]),
+        std_errors=std_errors,
+        threshold=score_threshold(std_errors, n, tolerance=tolerance),
+        tolerance=float(tolerance),
+        backend=result.backend,
+    )
+
+
+def dose_nuisance_report(result: DoseResponseResult) -> Any:
+    """The fit of the outcome regression at the observed dose.
+
+    Read through the point report's own helpers, with the evaluation basis set from the
+    folds: out of fold on a cross-fitted fit, in sample otherwise.  No report of the dose
+    density is built; the point report of a continuous treatment builds none either.
+
+    Parameters
+    ----------
+    result : DoseResponseResult
+        The fit.
+
+    Returns
+    -------
+    NuisanceDiagnostics
+        One ``outcome`` model report.
+    """
+    from ..validation.nuisance import (
+        TMLE_CONSTANT_TARGET_IN_FOLD,
+        EvaluationBasis,
+        NuisanceDiagnostics,
+        _binary_report,
+        _continuous_report,
+    )
+
+    record = result.nuisance_record
+    if record.family == "binomial":
+        report = _binary_report(
+            "outcome",
+            record.predictions,
+            record.outcome,
+            record.weights,
+            record.learner_diagnostics,
+            folds=record.folds,
+            cluster=None,
+        )
+        if record.constant_folds:
+            report = replace(
+                report,
+                fold_omission=TMLE_CONSTANT_TARGET_IN_FOLD,
+                omitted_folds=record.constant_folds,
+            )
+    else:
+        report = _continuous_report(
+            "outcome",
+            record.predictions,
+            record.scaler.scale(record.outcome),
+            record.weights,
+            record.learner_diagnostics,
+        )
+    evaluation: EvaluationBasis = "out_of_fold" if record.cross_fitted else "in_sample"
+    return NuisanceDiagnostics(
+        models=(replace(report, evaluation=evaluation),),
+        evaluation=evaluation,
+        backend=result.backend,
+    )
 
 
 #: A dose with fewer distinct values than this is refused as discrete.
@@ -726,6 +1125,17 @@ class DoseResponseTMLE:
             scores=scores,
             n_nodes=rule.n_nodes,
             alpha=self.alpha,
+            nuisance_record=DoseNuisanceRecord(
+                predictions=np.asarray(nuisance.outcome.observed, dtype=float),
+                outcome=np.asarray(data.outcome, dtype=float),
+                weights=np.asarray(data.weights, dtype=float),
+                folds=np.asarray(nuisance.folds.assignment, dtype=np.int64),
+                cross_fitted=not nuisance.folds.is_single,
+                family=str(data.family),
+                scaler=nuisance.scaler,
+                learner_diagnostics=nuisance.diagnostics.get("outcome"),
+                constant_folds=tuple(nuisance.outcome_constant_folds),
+            ),
             warnings=tuple(notes),
             backend=data.backend,
         )
