@@ -572,7 +572,11 @@ def test_t10_the_configuration_reads_the_fit() -> None:
     assert continuous_survival_configuration(result, LEVEL).estimand_kind == "continuous:risk"
     assert fit.outcome_family == "competing_risks" and fit.causes == 2
     assert fit.treatment_kind == "discrete" and fit.arms == 2 and fit.nodes is None
-    assert fit.learners == ("CoxHazard('main')", "CoxHazard('main')", "default")
+    assert fit.learners == (
+        "hazard=[CoxHazard('main')]",
+        "censoring=[CoxHazard('main')]",
+        "treatment=default",
+    )
     assert fit.cross_fitting == "off" and not fit.known_mechanism and fit.n == result.n
     assert fit.event_share == float(np.mean(observed <= 2.0))
     in_arm = [

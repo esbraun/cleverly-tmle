@@ -38,7 +38,7 @@ from tests.studies import refuter_calibration_continuous_survival as study
 OUTPUT = Path(__file__).with_name("refuter_calibration_continuous_survival_pilot.csv.gz")
 
 #: Trials per pilot group.
-PILOTS: dict[str, int] = {"size": 60, "power": 12, "dependent_censoring": 4, "imbalanced": 4}
+PILOTS: dict[str, int] = {"size": 200, "power": 12, "dependent_censoring": 4, "imbalanced": 4}
 
 
 def _one(group: str, trial: int) -> list[dict[str, Any]]:

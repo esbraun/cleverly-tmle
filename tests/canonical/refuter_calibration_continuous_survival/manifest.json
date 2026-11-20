@@ -1,0 +1,124 @@
+{
+  "schema_version": 2,
+  "study": "continuous-time survival refutation verdict rules",
+  "slug": "refuter-calibration-continuous-survival",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-refute-continuous-survival",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "927379cf53c3c649743e080ea84007b5e21cb091",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 200,
+    "n": 1000,
+    "seed": 2026111401,
+    "resampling_seed": 2026111402,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-refute-continuous-survival": 0.01
+    },
+    "scenarios": {
+      "size": [
+        "ate_regimen[treated vs control, cause1 @ t=1.12]",
+        "ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "ate_regimen[treated vs control, cause2 @ t=2.32]"
+      ]
+    },
+    "folds": 10,
+    "learner_folds": 5,
+    "learners": "cox.default_library() for each hazard; logistic + lasso C in (1, 0.1, 0.03)",
+    "times": [
+      0.46,
+      1.12,
+      2.32
+    ],
+    "estimands": {
+      "c1_t1.12": "ate_regimen[treated vs control, cause1 @ t=1.12]",
+      "c1_t2.32": "ate_regimen[treated vs control, cause1 @ t=2.32]",
+      "c2_t1.12": "ate_regimen[treated vs control, cause2 @ t=1.12]",
+      "c2_t2.32": "ate_regimen[treated vs control, cause2 @ t=2.32]"
+    },
+    "refits": 20,
+    "subset_fraction": 0.7,
+    "placebo_draw": "permute",
+    "size_trials": 600,
+    "power_trials": 50,
+    "reporting_trials": 100,
+    "size_pass": "rejections <= 68 of 600",
+    "power_pass": "detections >= 38 of 50",
+    "size_law": "tests/studies/continuous_survival_law.py, base law",
+    "power_law": "base law with beta = 2.0 and cause-2 arm coefficient -1.0",
+    "stale_share": 0.35,
+    "reporting_cells": {
+      "dependent_censoring": "censoring rate 0.15 exp(0.5 X3 + 0.5 Z)",
+      "imbalanced": "treatment logit shifted so that 0.25 are treated"
+    },
+    "streams": {
+      "size": "x101-refuter",
+      "power": "x101-refuter-power",
+      "reporting": "x101-refuter-reporting",
+      "pilot": "x101-refuter-pilot"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/refuter_calibration_continuous_survival.py": "d8a9f5017302a89417de365b21a5b598cf7a108b1466c0014eaf97b687016fc1",
+    "tests/studies/refuter_calibration_continuous_survival_properties.py": "dc77be18c4e2920dddb21ee465da94a042e47cb21911d764eb8069c1e1235390",
+    "tests/studies/continuous_survival_law.py": "7d62d21e1e9dad2106e87ea08889df501d922ed65e1a2885b2973cadb71f4418",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "60b2a28b37b0271f1b6afa27eb2c82c0d76972c3788c9c3ca22265d51bf6001d",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "97c2ce274038e5be4874b2b763314b5dde6c19b40b3b5ade5365e58d8e5b1e46",
+    "summary.csv": "9a9edd35baea2f55ae913e049b832c6d1234d3a5073ce8d5d92de5da3571e8a6",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "98552c2a88c1347d75c024868b7adb6a17eb6d97fed92ca2447a55164a4a170b",
+    "property-replicates.parquet": "a66d40286813943b3893f98b3a3489063257e5411ef4736ef4d37ae69a955860",
+    "properties.csv": "dff1a7360428389f31706757dce24caa911126ace5f47b5e89596d55e8867490",
+    "cells.csv": "0e486a521f0939007958a7d2e68cde8276a4bf808ae86f6a6b5a8e75ad36ab16",
+    "reporting-cells.csv": "db2ab7a72ee0ef2653c799dba0b2e6594b9b2e5dcc48e49d810624a0fd903a8b",
+    "reporting-replicates.csv": "9aa0fb5cbb6d4dab4edabb94b2f560f53908e9c79ffdf30e36e1d4a7740c8de9",
+    "property-failures.csv": "53bc30afb3cd3091d5cbb9854c9ee0e3c907731bc595aaf37d5af89a59f96e69",
+    "property-failure-accounting.csv": "514f30a068994af1eb54995b61b722f5ec76b8bc52c31cc4821668b6b0c25e99",
+    "property-failure-witnesses.parquet": "637748e0eb48a9a820df21bd521e8830734c6feefff0fa53fe7bcbe0d24989e2"
+  }
+}

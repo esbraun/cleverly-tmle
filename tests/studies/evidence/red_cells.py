@@ -732,6 +732,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "cleverly-refute-band/point/ate",
         ),
     ),
+    # The sanity phase of the continuous-time survival refutation study (X101): 200
+    # replications of the default fit on the size law. Two rows cannot resolve the coverage
+    # floor or the SE-ratio screen at that size; the cause-2 rows read a small bias.
+    "X101-short-study-sanity": _keys(
+        "refuter-calibration-continuous-survival",
+        "truth",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=2.32]",
+    ),
     # X92 part 5. The paired TOC(0.1) difference of two correlated scores, the one declared
     # reporting row of ``targeting-curves``: the oracle computation read its bootstrap SE ratio
     # at 1.063 before the run, so it is conservative and keeps a one-sided gate

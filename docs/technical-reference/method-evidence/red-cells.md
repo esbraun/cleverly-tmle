@@ -155,12 +155,13 @@ The test fails on four states.
 | [`adaptive-iptw-finite-sample`](../../roadmap.md#red-cell-owners) | 16 | adaptive-propensity IPTW |
 | [`adaptive-iptw-composite-l3`](../../roadmap.md#red-cell-owners) | 1 | adaptive-propensity IPTW |
 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) | 5 | longitudinal refutation verdict rules, point-treatment refutation verdict rules, band-rank placebo verdict rule |
+| [`X101-short-study-sanity`](../../roadmap.md#red-cell-owners) | 3 | continuous-time survival refutation verdict rules |
 | [`X92-paired-conservative`](../../roadmap.md#red-cell-owners) | 1 | Targeting curves (TOC, cumulative gain, AUTOC, Qini) |
 | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
-| total | 289 | 46 studies |
+| total | 292 | 47 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -455,6 +456,9 @@ same text as the "measured" column of its study page.
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/binomial/ate` | cleverly-refute-point | its truth gate | bias -0.0018 to 0.0031, coverage 0.9650, SE ratio 1.0462 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [point-treatment refutation verdict rules](refuter-calibration-point.md) | truth | `cleverly-refute-point/gaussian/ate` | cleverly-refute-point | its truth gate | bias -0.0035 to 0.0140, coverage 0.9400, SE ratio 1.0087 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [band-rank placebo verdict rule](refuter-calibration-band.md) | truth | `cleverly-refute-band/point/ate` | cleverly-refute-band | its truth gate | bias -0.0024 to 0.0078, coverage 0.9550, SE ratio 1.0145 | [`X82-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [continuous-time survival refutation verdict rules](refuter-calibration-continuous-survival.md) | truth | `cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause1 @ t=2.32]` | cleverly-refute-continuous-survival | its truth gate | bias -0.0068 to 0.0051, coverage 0.9500, SE ratio 1.0506 | [`X101-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [continuous-time survival refutation verdict rules](refuter-calibration-continuous-survival.md) | truth | `cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=1.12]` | cleverly-refute-continuous-survival | its truth gate | bias -0.0018 to 0.0083, coverage 0.9400, SE ratio 1.0131 | [`X101-short-study-sanity`](../../roadmap.md#red-cell-owners) |
+| [continuous-time survival refutation verdict rules](refuter-calibration-continuous-survival.md) | truth | `cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=2.32]` | cleverly-refute-continuous-survival | its truth gate | bias 0.0014 to 0.0129, coverage 0.9600, SE ratio 1.0350 | [`X101-short-study-sanity`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9191 to 0.9458 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9119 to 0.9397 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [full-refit bootstrap and derived contrasts](full-refit-bootstrap-and-derived-contrasts.md) | property | `interval_calibration/boot_ate_clustered__correctly_specified` | positive | its own rule | coverage 0.9123 to 0.9342, SE ratio 0.9496 to 1.0065 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) |

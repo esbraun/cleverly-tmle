@@ -193,6 +193,7 @@ calibration-slope-warning
 refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
+refuter-calibration-continuous-survival
 default-simultaneous-bands
 band-t-reference
 band-t-reference-held-out

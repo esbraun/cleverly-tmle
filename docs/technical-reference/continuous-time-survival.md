@@ -272,7 +272,7 @@ refutation, the truncation curve and the simulated common cause refit that copy.
 | `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
 | `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
-| `diagnostics.refute()` | runs, descriptive (`passed=None`) | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
+| `diagnostics.refute()` | runs; a verdict on a risk difference inside the calibrated scope, descriptive (`passed=None`) elsewhere | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
 | `diagnostics.truncation_curve()` | runs, descriptive | the walk rerun at each floor on $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ from refitted initial hazards, after an exact replay of the fit at its own floor; [truncation stability](validation-methods.md#truncation-stability) states the grid and columns |
 | `sensitivity.simulated_confounding(estimand=..., grid=...)` | runs, descriptive; deferred without a grid and an estimand | refits the stored estimator once per cell on event and censoring times redrawn from the replay's own Cox fits, with each cause-specific log-hazard shifted by $\gamma U$ and censoring redrawn where the flip changed the treatment; the fit's fold plan is reused under its own seed. A cell that drives the initial survival to zero is a recorded failure. [Continuous-time survival replay](validation-methods.md#simulated-common-cause-stress-surface) states the law and its checks |
 | `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
@@ -294,8 +294,16 @@ A refute with the default tests and replicates costs 60 refits of the fit (40 on
 of the nuisances plus one walk per floor. A simulated common-cause surface costs one refit per cell
 other than the anchor, so a 3 by 3 grid costs 8 refits. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
-jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
-fit, so each prints its numbers without a verdict.
+jumps and the weight product, about 600 MB, while it runs.
+
+The [continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)
+calibrates the placebo `t` and the subset `rho` on a risk difference, so each prints a verdict on a
+fit inside its scope: two causes, n of at least 1,000, the default hazard libraries and treatment
+learner, the switched variance, ten-fold cross-fitting, 20 refits, at least 17 events in every arm
+and cause by the target time, and a target time holding 43% to 79% of the observed events. The
+study's size rule tolerates more than the X82 rule does (no more than 68 rejections in 600
+trials), and the subset rule's measured false-alarm rate is 0.080 to 0.095, against a nominal 0.05.
+Every other reading, and every reading on another fit, prints its numbers without a verdict.
 
 The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
 support row, and a censoring model that depends on the arm. Under that model each arm's stored

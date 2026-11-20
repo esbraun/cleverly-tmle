@@ -811,6 +811,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
+    from tests.studies.refuter_calibration_continuous_survival import (
+        STUDY as REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
+    )
     from tests.studies.refuter_calibration_longitudinal import (
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
@@ -987,6 +990,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_LONGITUDINAL,
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
+        REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
         DEFAULT_SIMULTANEOUS_BANDS,
         BAND_T_REFERENCE,
         BAND_T_REFERENCE_HELD_OUT,
