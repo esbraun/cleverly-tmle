@@ -518,7 +518,13 @@ class CurveDiagnostics(DiagnosticsFacade):
     def _folds_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        """Resolve ``n_folds`` from the predicate the fold split raises from."""
+        """Resolve ``n_folds`` from the predicate the fold split raises from.
+
+        A curve that keeps no producing fit has no units to count; its replay gate refuses
+        the row, and the call raises that record.
+        """
+        if self.curve.fit is None:
+            return capability
         n_units = _units(self.curve.fit.data)
         default = self._argument_default(capability.operation, "n_folds")
         return _argument_resolved(
@@ -533,6 +539,8 @@ class CurveDiagnostics(DiagnosticsFacade):
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
         """Resolve ``split`` and ``compare`` from the predicates the call raises from."""
+        if self.curve.fit is None:
+            return capability
         n_units = _units(self.curve.fit.data)
         resolved = _argument_resolved(
             capability,
@@ -554,13 +562,21 @@ class CurveDiagnostics(DiagnosticsFacade):
     # ------------------------------------------------------------ the producing fit
 
     def _fit(self, slot: str = "refit_nuisances") -> Any:
-        """The producing fit, or the replay gate's refusal when this curve cannot do ``slot``."""
+        """The producing fit, or the replay gate's refusal when this curve cannot do ``slot``.
+
+        The call reads the fit and its estimator itself, as well as the replay record, so a
+        row that reads available on a curve without them still meets the refusal here.
+        """
         from .assessment import replay_refusal, replayability
 
         replay = replayability(self.curve)
-        if not getattr(replay, slot):
+        fit = self.curve.fit
+        kept = fit is not None and (
+            slot == "summarize_existing_artifacts" or getattr(fit, "estimator", None) is not None
+        )
+        if not kept or not getattr(replay, slot):
             raise CapabilityError(refusal=replay_refusal(slot, replay))
-        return self.curve.fit
+        return fit
 
     def support(self) -> Any:
         """The overlap of the producing fit's mechanism, as the point support report reads it.

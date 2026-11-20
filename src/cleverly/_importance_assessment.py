@@ -194,6 +194,10 @@ class _CandidateFacade(_CapabilityFacade):
         args: tuple[Any, ...] = (),
         resolve: bool = True,
     ) -> inspect.BoundArguments:
+        if not self._facades:
+            return super()._bind_arguments(
+                operation, kwargs, partial=partial, args=args, resolve=resolve
+            )
         return self._template()._bind_arguments(
             operation, kwargs, partial=partial, args=args, resolve=resolve
         )
@@ -206,6 +210,9 @@ class _CandidateFacade(_CapabilityFacade):
         *,
         args: tuple[Any, ...] = (),
     ) -> dict[str, Any]:
+        if not self._facades:
+            # A run without fits has no signature to bind against; its rows refuse first.
+            return dict(kwargs)
         first = next(iter(self._facades))
         own = report[first] if isinstance(report, CandidateReports) else None
         effective: dict[str, Any] = self._template()._effective_arguments(
@@ -431,6 +438,8 @@ class CandidateSensitivity(_CandidateFacade, SensitivityFacade):
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        if not self._facades:
+            return args, kwargs
         substituted: tuple[tuple[Any, ...], dict[str, Any]] = (
             self._template()._with_default_parameter(operation, args, kwargs)
         )

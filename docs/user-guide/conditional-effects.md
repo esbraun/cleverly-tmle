@@ -124,6 +124,15 @@ per-row estimate of each unit's effect built from the outcome and treatment mode
 
 These are single numbers with no intervals. They describe this fit and do not test it.
 
+`curve.assess(include_refits=True)` runs every check in one report: the overlap, model and
+targeting checks of the fit the curve came from, the four checks above and the targeting curve.
+The sensitivity analyses of a single effect, such as the E-value or the confounding bounds, are
+not worked out for a curve, so the report lists each one as not run, with the reason. Run them
+on `ATE()` or `RiskRatio()` from the same study. A check that cannot run on this curve, such as
+`modifier_stability()` on a basis of one modifier, is listed with its reason too. Every check
+needs the fit the curve came from, which `effect_curve()` and a saved curve keep. A curve built
+without that fit refuses each check and asks you to fit it again.
+
 ## Fit the effect without choosing a basis
 
 When you have no shape in mind for the effect, leave `model=` out and fit `method="ep"`:

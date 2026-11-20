@@ -175,7 +175,7 @@ def test_each_candidate_report_is_that_fits_own_call(clean: Any) -> None:
     for name, fit in clean.fits.items():
         _frames_equal(support[name].to_frame(), fit.diagnostics.support().to_frame())
     stacked = support.to_frame()
-    assert list(stacked.columns)[0] == "candidate"
+    assert next(iter(stacked.columns)) == "candidate"
     assert stacked["candidate"].tolist().count("X1") == len(
         clean.fits["X1"].diagnostics.support().to_frame()
     )

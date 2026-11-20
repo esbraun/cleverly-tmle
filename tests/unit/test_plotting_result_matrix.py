@@ -1102,6 +1102,27 @@ def test_no_plot_crashes_on_a_capability_sweep_kind(kind: str) -> None:
         outcome(plot, result)
 
 
+@pytest.mark.parametrize("kind", ["variable_importance", "variable_importance_no_fits"])
+@pytest.mark.parametrize("plot", ["calibration", "learners"])
+def test_a_variable_importance_run_redirects_its_nuisance_plots(kind: str, plot: str) -> None:
+    """X104: ``result.diagnostics`` now exists on a run, and these plots would read it.
+
+    Each candidate is a point fit, so the plot refuses the run with a redirect to one
+    candidate's fit rather than drawing a report of several fits.
+    """
+    from cleverly.exceptions import RefusalReason
+
+    result = sweep.KINDS[kind].build()
+    with pytest.raises(CapabilityError) as caught:
+        getattr(plotting, plot)(result)
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert "result.fits[candidate]" in caught.value.refusal.alternative
+    if kind == "variable_importance":
+        with pytest.raises(CapabilityError) as caught:
+            getattr(plotting, plot)(result.diagnostics.nuisance_models())
+        assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
 def test_the_module_table_lists_every_plot() -> None:
     listed = set(re.findall(r"^:func:`(\w+)`", plotting.__doc__ or "", flags=re.M))
     assert listed == set(PLOTS) | {"sensitivity", "confounding", "targeting", "zipper"}

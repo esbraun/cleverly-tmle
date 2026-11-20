@@ -361,11 +361,14 @@ regimen all run. A fit that no `G42` row covers reads `experimental`, and the
 
 ## Assessment and refutation
 
-The result declares the `structural` assessment family. `cleverly.assessment.assessment_capabilities`
-returns one row per diagnostic operation, and `result.sensitivity` returns one row per sensitivity
-operation. Each row runs, or refuses with its reason code. Each `implementation_gap` refusal names
-its roadmap item. The attribute `result.diagnostics` stays the fit's own positivity and learner
-record, so the support and nuisance rows redirect there.
+The result declares the `structural` assessment family. `result.diagnostics` returns one row per
+diagnostic operation, and `result.sensitivity` one row per sensitivity operation. Each row runs,
+or refuses with its reason code. Each `implementation_gap` refusal names its roadmap item. The
+fit's own positivity and learner record is `result.structural_diagnostics`, so the support and
+nuisance rows redirect there, to its `smallest_eigenvalue`, `extreme_share`,
+`learner_diagnostics` and `n_constant_fits`. `result.validate()` reports those three validation
+rows with their refusals, and `result.assess()` adds every diagnostic and sensitivity row. With
+`include_refits=True` it runs `refute`, the one operation that runs on this fit.
 
 `cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
 `bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control

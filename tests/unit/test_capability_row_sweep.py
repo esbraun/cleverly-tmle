@@ -39,7 +39,7 @@ def test_every_row_a_request_resolves_available_answers_it(
     kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     result = KINDS[kind].build()
-    arguments = sweep_arguments(result)
+    arguments = sweep_arguments(result, KINDS[kind].arguments)
     # The assessment cache's budget rules, checked on every kind at no extra fit cost
     # (tests/unit/test_assessment_cache_budget.py): with no budget nothing is sized, and no
     # answer the eviction rule allows made a nondeterminism mark in its own computation.
@@ -82,6 +82,28 @@ def test_each_build_is_a_fresh_copy_of_one_fit() -> None:
     assert "diagnostics" not in vars(second)
 
 
+@pytest.mark.parametrize(
+    ("kind", "inner"),
+    [
+        ("curve_projection", lambda result: [result.fit]),
+        ("variable_importance", lambda result: list(result.kept_fits.values())),
+    ],
+)
+def test_each_build_copies_the_fits_a_facade_reads(kind: str, inner: Any) -> None:
+    """A curve's producing fit and a run's candidate fits hold the caches their facades fill.
+
+    Each build copies them, so a report one test filled on an inner fit cannot answer for
+    another build: the copies start with empty caches and no memoized facade.
+    """
+    first, second = KINDS[kind].build(), KINDS[kind].build()
+    first.diagnostics.support()
+    assert all(fit.assessment_cache for fit in inner(first))
+    for old, new in zip(inner(first), inner(second), strict=True):
+        assert old is not new and old.data is new.data
+        assert new.assessment_cache == {}
+        assert "diagnostics" not in vars(new)
+
+
 class _Recorder:
     """A stand-in for ``pytest.MonkeyPatch`` that records each target and patches nothing."""
 
@@ -122,7 +144,7 @@ class TestEachMutationRestoresAMismatch:
         # can hide it.
         result = KINDS[kind].build()
         mutation.apply(monkeypatch)
-        found = sweep(result)
+        found = sweep(result, KINDS[kind].arguments)
         if kind in mutation.fails_on:
             # The failure is the mutated component's, and not a stale seam's.
             signed = [problem for problem in found if re.search(mutation.signature, problem)]

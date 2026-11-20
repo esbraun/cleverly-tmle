@@ -231,6 +231,39 @@ band over such a pair reads `experimental` too. The label does not read the lear
 size, the number or spacing of the pairs, or the law. The study measured declared sieve learners,
 one law family and sizes from 1,000 to 8,000, and each label's `limits` repeat that.
 
+## Assessing the curve
+
+`result.diagnostics` declares the `dose_response` assessment family, and `result.validate()` and
+`result.assess()` read its rows. Every supported row restates numbers the fit stores. No row
+refits, so a saved fit answers them too.
+
+- `support()` returns a `DoseResponseSupportReport`: the `pair_support` records, the floor, the
+  number of pairs below it and the quadrature shift. Its row reads `completed`, or `warning`
+  when some pair is below the floor, naming the pairs that carry the experimental
+  `low_dose_support_plugin` interval. It never reads `passed`, because the floor is provisional
+  ([X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor)).
+- `score_equations()` returns a `DoseResponseScoreReport`: each pair's mean fluctuation score at
+  its solution, on the scaled outcome, against the package's score threshold, read with each
+  pair's plug-in standard error divided by the outcome scaler's range. The fit already refuses a
+  pair whose fluctuation does not solve its score at a far tighter tolerance, so this row
+  restates convergence.
+- `nuisance_models()` reports the outcome regression at the observed dose, from a record of
+  $n$ floats the fit keeps. It is out of fold on a cross-fitted fit and in sample with
+  `cross_fit=False`, and its evaluation label says which.
+- `influence()` reports each pair's influence curve, as on a point fit.
+
+`corrections` and `truncation_curve` do not apply: each pair is targeted by its own
+one-dimensional fluctuation, and no bound enters the clever covariate, which divides by the
+fitted density without a floor. `refute` and the omitted-variable and marginal bounds are
+`implementation_gap` refusals that name
+[X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part K, and the
+simulated common cause names
+[X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (l). The E-value does not
+apply, because a pair is a mean at one dose and not a contrast. The missingness tilt and its
+tipping point do not apply, because the fit takes no missing outcome. `replayability` reads
+summaries only: the result keeps no estimator or data. `tests/unit/test_dose_response_assessment.py`
+checks each row, the score scale and the out-of-fold source of the outcome record.
+
 ## Validation
 
 | check | test |

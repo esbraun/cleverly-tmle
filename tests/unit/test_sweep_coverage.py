@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +30,7 @@ import cleverly
 from cleverly import _support
 from cleverly._support import REGIMEN_KINDS, SupportKey, registered_rows
 from cleverly._support_rows import FAMILY_THEORY
-from cleverly.assessment import ASSESSMENT_CAPABILITIES
+from cleverly.assessment import _FAMILY_METHODS, ASSESSMENT_CAPABILITIES
 from cleverly.targets import TARGETS
 from tests.unit._capability_sweep_support import KINDS, Kind
 
@@ -71,48 +71,8 @@ ASSESSMENT_OUTPUTS = frozenset(
 )
 
 
-def _exempt(reason: str, owner: str, names: Iterable[str]) -> dict[str, Exemption]:
-    return {name: Exemption(reason, owner) for name in names}
-
-
 #: Each element no kind fits, by its tagged name (see :func:`covered`).
-UNSWEPT: Mapping[str, Exemption] = {
-    **_exempt(
-        "a fit result class with no assessment facade: it declares no assessment_family, no "
-        "diagnostics or sensitivity facade and no assess(), so it has no capability row to ask",
-        "X104",
-        ("result:VariableImportanceResult",),
-    ),
-    **_exempt(
-        "the dose-response result has an assessment surface, but no kind of the sweep fits a "
-        "dose-response curve yet; tests/unit/test_dose_response_assessment.py checks its rows "
-        "directly",
-        "X104",
-        ("result:DoseResponseResult", "method:dose_response/tmle"),
-    ),
-    **_exempt(
-        "the effect curve has an assessment surface, but no kind of the sweep builds a curve "
-        "yet; tests/unit/test_curve_assessment.py checks its rows directly",
-        "X104",
-        (
-            "result:EffectCurveResult",
-            "method:effect_modification/ep",
-            "method:effect_modification/tmle",
-        ),
-    ),
-    **_exempt(
-        "the structural nested mean result has an assessment surface, but no kind of the sweep "
-        "fits a structural nested mean model yet; tests/unit/test_structural_refutation.py "
-        "checks its rows directly",
-        "X104",
-        (
-            "result:StructuralNestedMeanResult",
-            "method:structural/snmm",
-            "engine:snmm",
-            "family:blips",
-        ),
-    ),
-}
+UNSWEPT: Mapping[str, Exemption] = {}
 
 
 def _engine(engine: tuple[Any, ...]) -> str:
@@ -160,7 +120,9 @@ def universe() -> frozenset[str]:
     -------
     frozenset of str
         Tagged names: ``result:<class>`` for each public fit result class,
-        ``method:<assessment family>/<fitted method>`` from the capability rows,
+        ``method:<assessment family>/<fitted method>`` from the capability rows and, for
+        variable importance, whose facades compose its candidates' rows and declare none of
+        their own, from the family's declared methods,
         ``engine:<engine>`` and ``<axis>:<value>`` from the registered support rows,
         ``family:<id>`` from the target family maps, the theory anchors, the regimen kinds and
         the support rows, and ``estimand:<name>`` from the registered point targets.
@@ -182,6 +144,7 @@ def universe() -> frozenset[str]:
                 for row in ASSESSMENT_CAPABILITIES
                 for method in row.methods
             ),
+            *(f"method:variable_importance/{m}" for m in _FAMILY_METHODS["variable_importance"]),
             *(f"family:{family}" for family in families),
             *(value for row in rows for value in _key_values(row.key)),
             *(f"estimand:{name}" for name in TARGETS),

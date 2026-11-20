@@ -1009,9 +1009,9 @@ def _selectors_unused(regimen: str | None, horizon: int | None, cause: str | Non
 def _refuse_unread(source: Any, plot: str) -> None:
     """Refuse the fits and reports whose nuisance models this plot cannot or does not draw."""
     from .._refusal import RefusalReason
+    from ..assessment import CandidateReports
     from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
     from ..exceptions import CapabilityError
-    from ..assessment import CandidateReports
     from ..survival.result import ContinuousSurvivalResult
     from ..variable_importance import VariableImportanceResult
 
