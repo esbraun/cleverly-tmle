@@ -1,7 +1,7 @@
 """The refit preview of a refutation (X106 part G2, comparison plan "Witnesses").
 
-- W1 counting: for each adapter and test, the fits ``refute()`` makes equal ``learner_fits`` on
-  an exact row and lie in ``[min_fits, learner_fits]`` on an upper row.
+- W1 counting: for each adapter and test, the fits ``refute()`` makes equal ``candidate_fits`` on
+  an exact row and lie in ``[min_fits, candidate_fits]`` on an upper row.
 - W2 fits nothing: the preview records no fit and leaves the result as it was.
 - W3 refusal parity: a request ``refute()`` refuses before its first refit raises the same
   record through ``planned_refits``.
@@ -199,24 +199,49 @@ def _realized(call: Callable[[], Any]) -> int:
     return sum(support.CLASS_WIDE.values())
 
 
-def _preview(result: Any, **kwargs: Any) -> PlannedRefits:
-    """The preview, checked to fit nothing (W2)."""
+def _preview(result: Any, *, checks: int = 0, **kwargs: Any) -> PlannedRefits:
+    """The preview, checked to fit nothing (W2) beyond ``checks`` least-squares fits of a
+    control's residual check, which refute's own preflight makes."""
     support.reset()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with support.class_wide():
             plan = planned_refits(result, **kwargs)
-    assert sum(support.CLASS_WIDE.values()) == 0, dict(support.CLASS_WIDE)
+    assert sum(support.CLASS_WIDE.values()) == checks, dict(support.CLASS_WIDE)
+    assert sum(test.preparation for test in plan.tests if test.name != "plasmode") == checks
     return plan
 
 
 def _within(plan: PlannedRefits, realized: int) -> None:
+    """``realized`` counts base-estimator fits, so it is read against ``candidate_fits``; a
+    top-level fit makes at least one, so ``min_fits`` stays a floor."""
     (test,) = plan.tests
     if test.bound == "exact":
-        assert realized == test.learner_fits, (test, realized)
+        assert realized == test.candidate_fits, (test, realized)
     else:
-        assert test.min_fits <= realized <= test.learner_fits, (test, realized)
+        assert test.min_fits <= realized <= test.candidate_fits, (test, realized)
 
+
+@functools.cache
+def _learned_rule() -> Any:
+    """A rule learned from a blip pseudo-outcome, whose drawn-data refits learn it again."""
+    from sklearn.linear_model import LinearRegression
+
+    from cleverly.interventions import LearnedRule
+    from tests.unit import _learned_rule_support as rules
+
+    return _quiet(
+        lambda: rules.fit(learned_rule=LearnedRule(loss="blip", learner=LinearRegression()))
+    )
+
+
+#: A test name with a suffix runs that test with the variant's own arguments.
+VARIANTS: dict[str, tuple[str, Callable[[Any], dict[str, Any]]]] = {
+    "negative_control_outcome+pre_treatment": (
+        "negative_control_outcome",
+        lambda result: {"negative_control_kind": "pre_treatment"},
+    ),
+}
 
 ADAPTERS: dict[str, tuple[Callable[[], Any], tuple[str, ...], dict[str, Any]]] = {
     "point": (
@@ -226,17 +251,30 @@ ADAPTERS: dict[str, tuple[Callable[[], Any], tuple[str, ...], dict[str, Any]]] =
             "random_common_cause",
             "subset",
             "negative_control_outcome",
+            "negative_control_outcome+pre_treatment",
             "bootstrap_stability",
+            "bootstrap_measurement_error",
         ),
         {},
     ),
     "point in sample": (_in_sample, ("dummy_outcome", "simulated_outcome", "plasmode"), {}),
+    "learned rule": (_learned_rule, ("placebo", "random_common_cause", "subset"), {}),
     "longitudinal": (
         _longitudinal,
-        ("placebo", "random_common_cause", "subset", "negative_control_outcome"),
+        (
+            "placebo",
+            "random_common_cause",
+            "subset",
+            "negative_control_outcome",
+            "future_treatment",
+        ),
         {},
     ),
-    "longitudinal plasmode": (_gaussian_panel, ("plasmode",), {}),
+    "longitudinal generated": (
+        _gaussian_panel,
+        ("dummy_outcome", "simulated_outcome", "plasmode"),
+        {},
+    ),
     "structural": (
         _structural,
         ("placebo", "random_common_cause", "subset", "negative_control_outcome"),
@@ -252,13 +290,30 @@ def _contrast(result: Any) -> str:
     return next((name for name in names if name.startswith("ate")), names[0])
 
 
-def _arguments(result: Any, name: str, base: dict[str, Any]) -> dict[str, Any]:
+def _arguments(result: Any, case: str, base: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """The keywords of one case, and the residual-check fits its preflight makes."""
+    from cleverly.validation import BootstrapMeasurementError, EmpiricalInclusionRule
+
+    name, variant = VARIANTS.get(case, (case, lambda result: {}))
     draws = 10 if name in ("dummy_outcome", "simulated_outcome", "plasmode") else R
     arguments = {"estimand": _contrast(result), **base, "tests": [name], "n_replicates": draws}
+    n = int(result.data.n)
+    rng = np.random.default_rng(5)
     if name == "negative_control_outcome":
-        rng = np.random.default_rng(5)
-        arguments["negative_control_outcome"] = rng.integers(0, 2, int(result.data.n)).astype(float)
-    return arguments
+        binary = str(result.data.family) == "binomial"
+        arguments["negative_control_outcome"] = (
+            rng.integers(0, 2, n).astype(float) if binary else rng.normal(size=n)
+        )
+    elif name == "future_treatment":
+        arguments["future_treatment_control"] = rng.normal(size=n)
+    elif name == "bootstrap_measurement_error":
+        arguments["bootstrap_measurement_error"] = BootstrapMeasurementError(("W1",))
+        arguments["measurement_error_rule"] = EmpiricalInclusionRule(
+            alpha=2.0 / draws, minimum_draws=draws
+        )
+    arguments.update(variant(result))
+    checks = 2 if case.endswith("pre_treatment") or name == "future_treatment" else 0
+    return arguments, checks
 
 
 CASES = [(adapter, name) for adapter, (_, names, _) in ADAPTERS.items() for name in names]
@@ -274,9 +329,9 @@ SPREAD = [(adapter, name) for adapter, name in CASES if name == "random_common_c
 def test_w1_the_realized_fits_lie_in_the_preview(adapter: str, name: str, spread: bool) -> None:
     build, _, base = ADAPTERS[adapter]
     result = build()
-    arguments = _arguments(result, name, base)
+    arguments, checks = _arguments(result, name, base)
     arguments["seed_spread"] = spread
-    plan = _preview(result, **arguments)
+    plan = _preview(result, checks=checks, **arguments)
     _within(plan, _realized(lambda: refute(result, **arguments)))
 
 
@@ -294,7 +349,7 @@ def test_w1_a_constant_fold_makes_the_nominal_rows_upper() -> None:
     realized = _realized(lambda: refute(result, **arguments))
     _within(plan, realized)
     assert plan.tests[0].bound == "upper"
-    assert realized < plan.tests[0].learner_fits
+    assert realized < plan.tests[0].candidate_fits
 
 
 def test_w1_a_survival_unit_drops_the_bootstrap() -> None:
@@ -308,7 +363,7 @@ def test_w1_a_survival_unit_drops_the_bootstrap() -> None:
     }
     plan = _preview(result, **arguments)
     assert plan.tests[0].bound == "exact"
-    assert _realized(lambda: refute(result, **arguments)) == plan.tests[0].learner_fits
+    assert _realized(lambda: refute(result, **arguments)) == plan.tests[0].candidate_fits
 
 
 def test_w2_the_preview_leaves_the_result_as_it_was() -> None:
@@ -513,22 +568,18 @@ def test_w9_the_longitudinal_plasmode_preview_builds_no_law(
     plan = _preview(result, estimand=_contrast(result), tests=["plasmode"], n_replicates=10)
     assert sum(seen.values()) == 0, dict(seen)
     (test,) = plan.tests
-    _quiet(lambda: plasmode.LongitudinalPlasmodeLaw.fit(result))
+    # The law's models fit scikit-learn estimators, except a constant column, which fits none.
+    fitted = _realized(lambda: plasmode.LongitudinalPlasmodeLaw.fit(result))
     assert seen["LongitudinalPlasmodeLaw.fit"] == 1
-    assert test.preparation == seen["_Logistic.fit"] + seen["_Linear.fit"] > 0
+    assert test.preparation == fitted > 0
 
 
 def test_w9_a_held_rule_is_priced_on_its_replay_copy(monkeypatch: pytest.MonkeyPatch) -> None:
     """The noise refits of a learned rule replay the held rule, which fits no rule learner;
     pricing ``result.estimator`` itself counts the rule's learners and misses the row."""
-    from sklearn.linear_model import LinearRegression
+    from cleverly.interventions import learned
 
-    from cleverly.interventions import LearnedRule, learned
-    from tests.unit import _learned_rule_support as rules
-
-    result = _quiet(
-        lambda: rules.fit(learned_rule=LearnedRule(loss="blip", learner=LinearRegression()))
-    )
+    result = _learned_rule()
     arguments: dict[str, Any] = {
         "estimand": _contrast(result),
         "tests": ["random_common_cause"],
@@ -539,7 +590,50 @@ def test_w9_a_held_rule_is_priced_on_its_replay_copy(monkeypatch: pytest.MonkeyP
     (test,) = plan.tests
     assert test.bound == "exact"
     realized = _realized(lambda: refute(result, **arguments))
-    assert realized == test.learner_fits
+    assert realized == test.candidate_fits
     monkeypatch.setattr(learned, "frozen_rule_replay", lambda estimator, *args: estimator)
     (mutated,) = _preview(result, **arguments).tests
-    assert mutated.learner_fits != realized
+    assert mutated.candidate_fits != realized
+
+
+def test_w3_a_banded_draw_that_refuses_raises_through_the_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A band-rank placebo draw after the first that fails its check refuses ``refute`` before
+    any refit; the preview replays the draws and raises the same record. Mutation: without
+    the replay the preview accepts the request."""
+    from cleverly.estimators import TMLE as PointTMLE
+    from cleverly.exceptions import DataError
+    from cleverly.interventions import Support
+    from tests.unit.test_refuter_draw_replay import NATURAL, UNCAPPED, _low_doses, law
+
+    estimator = PointTMLE(policies=[NATURAL, UNCAPPED], ratio="density", **law.point_learners())
+    result = _quiet(
+        lambda: estimator.fit(
+            _low_doses(n=12),
+            outcome="Y",
+            treatment="A",
+            covariates=["W"],
+            treatment_support=Support(0.0, law.upper),
+        ).single()
+    )
+    monkeypatch.setattr(refute_module, "_band_extremes_check", lambda result, bands: None)
+    arguments: dict[str, Any] = {
+        "estimand": "ate_policy[uncapped vs natural course]",
+        "tests": ["placebo"],
+        "n_replicates": 6,
+    }
+    found = None
+    for seed in range(200):
+        # The banded check runs in refute's body, after the shared preflight, so the call
+        # runs whole; a draw that passes refits at this size in well under a second.
+        refused = _raised(lambda seed=seed: refute(result, random_state=seed, **arguments))
+        if refused is not None and "on placebo draw 1 " not in str(refused[2]):
+            found = (seed, refused)
+            break
+    assert found is not None
+    seed, expected = found
+    assert expected[0] is DataError
+    assert _raised(lambda: planned_refits(result, random_state=seed, **arguments)) == expected
+    monkeypatch.setattr(refute_module, "_band_placebo_states", lambda *args, **kwargs: [])
+    assert _raised(lambda: planned_refits(result, random_state=seed, **arguments)) is None

@@ -2295,9 +2295,20 @@ class TMLE:
             )
 
     def _plan_rule(
-        self, data: CausalData, folds: Folds, seed: int, builder: PlanBuilder, state: str
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int,
+        builder: PlanBuilder,
+        state: str,
+        *,
+        nominal: bool = False,
     ) -> None:
-        """The fits of a rule learner's :func:`rule_learner_treat` in one draw."""
+        """The fits of a rule learner's :func:`rule_learner_treat` in one draw.
+
+        ``nominal`` counts a refit of drawn rows, whose inner support this data cannot
+        check, so the inner-support refusal is left to the refit (X106 part G2).
+        """
         from .._planned_fits import Count, count_learner, count_nominal, needs_target
         from ..interventions._rule_learners import (
             INNER_FOLDS,
@@ -2319,7 +2330,11 @@ class TMLE:
             inner_folds = random_partition(
                 inner.n, INNER_FOLDS, cluster=inner.cluster, seed=fold_seed
             )
-            refusal = inner_support_refusal(inner, inner_folds, loss=rule.loss, fold=fold)
+            refusal = (
+                None
+                if nominal
+                else inner_support_refusal(inner, inner_folds, loss=rule.loss, fold=fold)
+            )
             if refusal is not None:
                 raise DataError(refusal)
             learners = self._plan_learners(inner, fold_seed)
@@ -2768,6 +2783,11 @@ class TMLE:
             label="drawn-data refit",
             per_draw=1,
         )
+        rule = engine.learned_rule
+        if rule is not None and not isinstance(rule, FrozenLearnedRule) and rule.loss != "plug_in":
+            # A refit that does not hold the rule learns it again on the drawn rows.
+            for folds, seed in draws:
+                engine._plan_rule(data, folds, seed, builder, "one draw", nominal=True)
         if engine.n_bootstrap:
             engine._plan_bootstrap(
                 data, draws, flags, builder, config=config, level=intermediate_value

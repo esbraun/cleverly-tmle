@@ -1939,7 +1939,7 @@ class StructuralNestedMean:
         )
         why = (
             "drawn-data refits are counted at their nominal folds, with no fold of a binary "
-            "target fitted as a constant"
+            "target fitted as a constant and no node's split compacted"
             if nominal
             else None
         )
@@ -1967,7 +1967,8 @@ class StructuralNestedMean:
                 learner_name(spec if spec is not None else learner),
                 count,
                 upper=why,
-                min_fits=None if not nominal or not classification else 0,
+                # A drawn split can hold fewer folds at a node than the nominal count.
+                min_fits=0 if nominal else None,
             )
 
         y = np.asarray(prepared.outcome, dtype=float)

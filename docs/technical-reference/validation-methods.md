@@ -3099,8 +3099,8 @@ preview, the one `refit_plan` uses
 
 | test | refits | count |
 | --- | --- | --- |
-| `random_common_cause` | `R`, plus `R` at child seeds with `seed_spread=True` | exact where the fit's seed is known; the noise column changes no fold |
-| `negative_control_outcome`, `future_treatment` | 1 | exact where the seed is known |
+| `random_common_cause` | `R`, plus `R` at child seeds with `seed_spread=True` | as exact as the estimator's own refit preview (`refit_plan`) where the fit's seed is known; the noise column changes no fold |
+| `negative_control_outcome`, `future_treatment` | 1 | as above, plus the two least-squares fits of the control's residual check where it runs |
 | `placebo`, `subset`, `bootstrap_stability`, `bootstrap_measurement_error` | `R` | upper bound: each draw is counted at the learners' nominal folds, with no fold of a binary target fitted as a constant |
 | `dummy_outcome`, `simulated_outcome`, `plasmode` | `R` | upper bound, as above; a plasmode adds the models of its frozen law |
 
@@ -3110,7 +3110,9 @@ bootstrap. A draw that a check refuses part way through, such as a subset that l
 band-rank placebo draw on a fit whose seed is drawn at the call, can still stop `refute()` after a
 preview that accepted the request. The check that a pre-treatment control is not nearly a function
 of the adjustment set fits two least-squares regressions in the shared preflight, so the preview
-makes those two fits too and counts neither. `tests/unit/test_planned_refits.py` runs each test
+makes those two fits too and counts them as the test's preparation. A seeded fit of an engine
+whose own preview is an upper bound, such as a DR-TMLE or an LTMLE fit, gives upper rows
+throughout. `tests/unit/test_planned_refits.py` runs each test
 on each adapter and checks the realized fits against the record.
 
 #### Generated point outcomes

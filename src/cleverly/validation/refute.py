@@ -4593,6 +4593,17 @@ def _subset_record(
     )
 
 
+#: The folds of the cross-fitted residual check, one least-squares fit each.
+_RESIDUAL_FOLDS = 2
+
+
+def _residual_check_fits(values: np.ndarray, features: np.ndarray) -> int:
+    """The least-squares fits :func:`_control_residual_reason` makes on these arrays."""
+    if float(np.var(values)) <= 0.0 or not features.shape[1] or values.size < 4:
+        return 0
+    return _RESIDUAL_FOLDS
+
+
 def _control_residual_reason(
     values: np.ndarray,
     features: np.ndarray,
@@ -4615,10 +4626,11 @@ def _control_residual_reason(
     total = float(np.var(values))
     if total <= 0.0:
         return f"{noun} is constant on the analysis rows, so its estimate is 0 by construction"
-    if not features.shape[1] or values.size < 4:
+    if not _residual_check_fits(values, features):
         return None
     residual = np.empty_like(values)
-    for train, test in KFold(n_splits=2, shuffle=True, random_state=0).split(features):
+    folds = KFold(n_splits=_RESIDUAL_FOLDS, shuffle=True, random_state=0)
+    for train, test in folds.split(features):
         model = LinearRegression().fit(features[train], values[train])
         residual[test] = values[test] - model.predict(features[test])
     share = float(np.mean(residual**2)) / total

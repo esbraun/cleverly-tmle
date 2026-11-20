@@ -665,7 +665,7 @@ contrasts for binary point treatments.
 To see what a refutation will cost before you run it, call
 `ate_result.diagnostics.planned_refits(...)` with the same arguments you would pass to
 `refute()`. It fits nothing. It returns one row per test with the number of refits and the model
-fits they make, and it raises the same error `refute()` would raise for a request it rejects. Tests
+fits they make, and it raises the same error `refute()` would raise before its first refit. Tests
 that refit drawn data, such as `placebo`, `subset` and the generated outcomes, show an upper
 bound, because a drawn fold where a binary target has one class needs no model.
 [The technical reference](../technical-reference/validation-methods.md#refutation-operations)

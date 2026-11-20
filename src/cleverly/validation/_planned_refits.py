@@ -40,9 +40,9 @@ _BUILD_NOTE = (
     "a regimen or density that fails on simulated histories stops the call there."
 )
 _CONTROL_CHECK_NOTE = (
-    "The check that a pre-treatment control is not nearly a function of the adjustment set "
-    "fits two least-squares regressions before any refit; the preview runs that check too, "
-    "and neither counts those fits."
+    "The check that the control is not nearly a function of the adjustment set fits two "
+    "least-squares regressions before any refit. The preview runs that check too, so it "
+    "makes those two fits itself; they are counted under preparation."
 )
 _SEED_NOTE = (
     "Neither random_state nor the fit records a seed, so refute() draws one; tests whose "
@@ -71,7 +71,7 @@ class PlannedRefitTest:
         Top-level learner fits over every refit, plus :attr:`preparation`. For an upper test,
         the most the test can make.
     candidate_fits : int
-        Fits of base estimators inside those fits.
+        Fits of base estimators inside those fits, plus :attr:`preparation`.
     min_fits : int
         The fewest top-level fits the test makes when no draw fails.
     preparation : int
@@ -246,7 +246,8 @@ class _Test:
             unit=self.parts[0][0] if self.parts else None,
             learner_fits=sum(plan.total_fits * times for plan, times in self.parts)
             + self.preparation,
-            candidate_fits=sum(plan.total_candidate_fits * times for plan, times in self.parts),
+            candidate_fits=sum(plan.total_candidate_fits * times for plan, times in self.parts)
+            + self.preparation,
             min_fits=sum(plan.min_fits * times for plan, times in self.parts) + self.preparation,
             preparation=self.preparation,
             bound="exact" if exact else "upper",
@@ -516,8 +517,10 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
                 fit_seed = repeat_seeds[0] if repeat_seeds else fit_seed
             if repeat_seeds is not None:
                 options["frozen_seeds"] = repeat_seeds
-            fixed = fit_seed is not None and (
-                repeat_seeds is None or all(item is not None for item in repeat_seeds)
+            # ``refit(random_state=None)`` keeps the estimator's own seed, as refute's does.
+            own = getattr(estimator, "random_state", None) is not None
+            fixed = (fit_seed is not None or own) and (
+                repeat_seeds is None or own or all(item is not None for item in repeat_seeds)
             )
             noisy = module._noise_data(data, np.random.default_rng(0), 0, request.noise_nodes)
             fitter = held_fitter()
@@ -525,7 +528,7 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
                 _preview(
                     fitter,
                     noisy,
-                    random_state=root if fit_seed is None else fit_seed,
+                    random_state=fit_seed,
                     nominal=not fixed,
                     **options,
                 ),
@@ -555,6 +558,9 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
         elif name == "negative_control_outcome":
             test = _Test(name, 1)
             if a["negative_control_kind"] == "pre_treatment":
+                matrix, _, kept = module._adjustment_set(data, longitudinal)
+                values = np.asarray(a["negative_control_outcome"], dtype=float).reshape(-1)
+                test.preparation = module._residual_check_fits(values[kept], matrix[kept])
                 test.notes.append(_CONTROL_CHECK_NOTE)
             replacement = data.with_outcome(
                 a["negative_control_outcome"], name="negative_control_outcome"
@@ -590,6 +596,12 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
                 seed=root,
             )
             test.add(_preview(fitter, point, random_state=root, nominal=not known))
+            node = int(a["future_treatment_node"]) + 1
+            present = data.node_present(node)
+            history, _ = module._future_history(data, node)
+            control = np.asarray(a["future_treatment_control"], dtype=float).reshape(-1)
+            test.preparation = module._residual_check_fits(control[present], history[present])
+            test.notes.append(_CONTROL_CHECK_NOTE)
         elif name in module._GENERATED_TESTS:
             test = _Test(name, draws)
             test.upper = True
