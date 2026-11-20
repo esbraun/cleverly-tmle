@@ -1,0 +1,2 @@
+implementation,scenario,estimand,n,replicates,truth,mean_estimate,bias,bias_se,root_n_bias,rmse,empirical_se,mean_std_error,se_ratio,coverage,coverage_se,inference_bias,standardized_bias
+cleverly-score-assessment,assess_weighted_2k,risk_difference[S - SB],2000,2400,-0.013664429676788405,-0.01358370747078868,8.072220599972778e-05,0.00011554580287493406,0.003610006798182654,0.005659961430152236,0.005660565179275961,0.00570465135339308,1.0077882989985743,0.94875,0.004501084938656458,8.072220599972604e-05,0.014260449874380065
