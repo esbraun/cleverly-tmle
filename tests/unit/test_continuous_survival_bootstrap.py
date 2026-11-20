@@ -250,8 +250,12 @@ def test_a_replicate_is_the_fit_of_its_resampled_frame() -> None:
 def test_an_assessment_refit_runs_no_bootstrap(in_sample: Any) -> None:
     stored = in_sample.estimator
     assert stored.n_bootstrap == 24
-    plain = stored._without_bootstrap()
+    plain = stored._for_estimate_refits()
+    assert plain is not stored
     assert plain.n_bootstrap == 0 and plain.random_state == stored.random_state
+    # Without a bootstrap the estimator itself is refitted, so callers that key their refits
+    # on the estimator (the refuter-calibration study's shared refits) see one estimator.
+    assert plain._for_estimate_refits() is plain
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         refit = plain.refit(in_sample.data, random_state=stored.random_state)

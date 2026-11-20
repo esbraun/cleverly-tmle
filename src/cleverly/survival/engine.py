@@ -876,13 +876,18 @@ class ContinuousSurvivalTMLE:
             return result
         return self._bootstrap(result, initial, seed)
 
-    def _without_bootstrap(self) -> ContinuousSurvivalTMLE:
-        """A copy that runs no bootstrap, for a refit that reads only the estimates.
+    def _for_estimate_refits(self) -> ContinuousSurvivalTMLE:
+        """This estimator, or a copy without the bootstrap, for refits that read only estimates.
 
         A refutation or a simulated-confounding cell refits the stored estimator many times and
         reads each refit's estimates alone; the bootstrap would multiply each refit's cost by
-        ``n_bootstrap + 1`` and change none of them.
+        ``n_bootstrap + 1`` and change none of them.  An estimator with no bootstrap is returned
+        itself, so a caller that keys its refits on the estimator sees one estimator.
         """
+        return self._without_bootstrap() if self.n_bootstrap else self
+
+    def _without_bootstrap(self) -> ContinuousSurvivalTMLE:
+        """A copy of this estimator that runs no bootstrap."""
         estimator = self._copy(self.random_state)
         estimator.n_bootstrap = 0
         estimator.bootstrap_interval = "percentile"
