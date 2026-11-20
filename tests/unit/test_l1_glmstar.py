@@ -242,9 +242,14 @@ def _builtin_starts(perturb: float) -> Callable[[l1._Problem, Any], list[Any]]:
     def starts(problem: l1._Problem, penalties: Any) -> list[Any]:
         out = []
         intercept, coef = problem.null_start()
+        # The built-in path solves each penalty warm from the one before (the strong rule reads
+        # it), starting after the null gradient, the default grid's first value. The same
+        # chain of solves gives the same bits.
+        previous = float(problem.null_gradient())
         for penalty in penalties:
-            intercept, coef, _ = solve(problem, intercept, coef, float(penalty))
+            intercept, coef, _ = solve(problem, intercept, coef, float(penalty), previous)
             out.append((intercept.copy(), coef + perturb * (coef != 0.0)))
+            previous = float(penalty)
         return out
 
     return starts
