@@ -1011,8 +1011,17 @@ def _refuse_unread(source: Any, plot: str) -> None:
     from .._refusal import RefusalReason
     from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
     from ..exceptions import CapabilityError
+    from ..assessment import CandidateReports
     from ..survival.result import ContinuousSurvivalResult
+    from ..variable_importance import VariableImportanceResult
 
+    if isinstance(source, (VariableImportanceResult, CandidateReports)):
+        raise CapabilityError(
+            f"{plot}() draws the nuisance models of one fit, and a variable-importance run "
+            "holds one fit per candidate.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=f"Call cleverly.plotting.{plot}(result.fits[candidate]) for one candidate.",
+        )
     if isinstance(source, ContinuousSurvivalResult) and plot == "calibration":
         raise CapabilityError(
             "calibration() draws a nuisance report's calibration table; a continuous-time "

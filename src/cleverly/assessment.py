@@ -347,6 +347,9 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "effect_modification": ("tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
     "dose_response": ("tmle",),
+    # Every candidate of a variable-importance run is a point fit by one shared estimator,
+    # and the run admits the point methods that supply inference.
+    "variable_importance": ("tmle", "collaborative_tmle", "drtmle"),
 }
 
 
@@ -1353,8 +1356,11 @@ class AssessmentItem:
         if self._report is _AbsentReport.TOKEN:
             return None
         payload = _unpack_cached(self._report)
-        # The row keeps the frame, which the cache packs; the caller gets the curve.
-        return TruncationCurve(payload) if self.name == "truncation_curve" else payload
+        # The row keeps the frame, which the cache packs; the caller gets the curve. A
+        # variable-importance row keeps each candidate's curve as it was returned.
+        if self.name == "truncation_curve" and not isinstance(payload, CandidateReports):
+            return TruncationCurve(payload)
+        return payload
 
     def __repr__(self) -> str:
         from ._assessment_summary import item_repr
@@ -2019,6 +2025,8 @@ def replayability(result: Any) -> Replayability:
         # outcome regression at the observed dose. It keeps no estimator, data or node
         # predictions, so nothing refits, retargets or reruns.
         return Replayability(True, False, False, False, False, ("estimator configuration",))
+    if _family(result) == "variable_importance":
+        return _importance_replayability(result)
     if _family(result) == "structural":
         # A structural fit keeps its settings and its split. It reruns on a changed panel;
         # it stores no targeting state or representer to retarget or evaluate.
@@ -2107,6 +2115,28 @@ def _curve_replayability(curve: Any) -> Replayability:
             rerun_configuration=refit,
         )
     return Replayability(True, False, False, True, False, rerun_configuration=True)
+
+
+def _importance_replayability(result: Any) -> Replayability:
+    """What a variable-importance run can redo: what every candidate's fit can redo.
+
+    A ``keep_fits=False`` run keeps no fit, so it redoes nothing.  The composed facades do
+    not gate on this record: each candidate's own facade applies its own replay gate.
+    """
+    if not result.keep_fits:
+        return Replayability(False, False, False, False, False, ("candidate fits",))
+    slots = [replayability(fit) for fit in result.kept_fits.values()]
+    flags = (
+        "summarize_existing_artifacts",
+        "retarget_cached_nuisances",
+        "evaluate_stored_representer",
+        "refit_nuisances",
+        "evaluate_new_data",
+        "rerun_configuration",
+    )
+    held = {flag: all(getattr(slot, flag) for slot in slots) for flag in flags}
+    missing = tuple(dict.fromkeys(code for slot in slots for code in slot.unreconstructible))
+    return Replayability(unreconstructible=missing, **held)
 
 
 #: What each :class:`Replayability` slot lets an operation do, in the words a refusal uses.
@@ -2674,6 +2704,17 @@ class _CapabilityFacade:
             )
         return item
 
+    def _require_call(
+        self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    ) -> None:
+        """Raise the refusal a direct call of ``operation`` with these arguments meets first.
+
+        A diagnostic call refuses by the row its request resolves to.  The sensitivity
+        facade lets an explicit estimand past the rows that cannot read it, and overrides
+        this method with that rule, which its own calls apply.
+        """
+        self._require(operation, kwargs)
+
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """Reported parameters this operation is left to choose between, or ``()``.
 
@@ -2924,8 +2965,8 @@ class _CapabilityFacade:
                     effective = self._effective_arguments(
                         capability.operation, operation_arguments, report
                     )
-                    interpreted = INTERPRETERS[capability.operation](
-                        report, self._result, operation_arguments
+                    interpreted = _interpreted(
+                        capability.operation, report, self._result, operation_arguments
                     )
                     items.append(
                         replace(
@@ -5017,6 +5058,139 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
 }
 
 
+@dataclass(frozen=True)
+class CandidateReports(Mapping[str, Any]):
+    """One operation's report for each candidate of a variable-importance run.
+
+    A read-only mapping from candidate to that candidate's own report, in candidate order.
+    Each report is what ``result.fits[candidate]`` returns for the same call, with that
+    fit's own estimate and unadjusted interval, not the Benjamini-Hochberg adjusted test.
+
+    Parameters
+    ----------
+    operation : str
+        The operation that produced the reports.
+    reports : mapping of str to Any
+        Each candidate's report.
+    backend : str or None
+        The dataframe library :meth:`to_frame` returns.
+    """
+
+    operation: str
+    reports: Mapping[str, Any]
+    backend: str | None = None
+
+    def __getitem__(self, candidate: str) -> Any:
+        return self.reports[candidate]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.reports)
+
+    def __len__(self) -> int:
+        return len(self.reports)
+
+    def to_frame(self) -> Any:
+        """Every candidate's table, stacked under a leading ``candidate`` column.
+
+        Returns
+        -------
+        dataframe
+            Each candidate's rows in candidate order. A column one candidate's table lacks
+            reads missing on its rows.
+
+        Raises
+        ------
+        TypeError
+            If some candidate's report has no table, such as the number ``tipping_gamma``
+            returns; read it from the mapping instead.
+        """
+        tables = {}
+        for candidate, report in self.reports.items():
+            if not callable(getattr(report, "to_frame", None)):
+                raise TypeError(
+                    f"candidate {candidate!r}'s {self.operation} report has no table; "
+                    f"read it as reports[{candidate!r}]"
+                )
+            tables[candidate] = _frame_payload(report.to_frame())
+        columns = list(dict.fromkeys(name for table in tables.values() for name in table))
+        payload: dict[str, list[Any]] = {"candidate": []}
+        payload.update({name: [] for name in columns if name != "candidate"})
+        for candidate, table in tables.items():
+            rows = len(next(iter(table.values()), ()))
+            payload["candidate"].extend([candidate] * rows)
+            for name in payload:
+                if name != "candidate":
+                    payload[name].extend(table.get(name, [None] * rows))
+        return emit_frame(payload, backend=self.backend)
+
+    def __repr__(self) -> str:
+        from ._summary import short_repr
+
+        return short_repr(
+            "CandidateReports", [("operation", self.operation), ("candidates", len(self))]
+        )
+
+
+#: How a composed variable-importance row reads its candidates' statuses: the first status of
+#: this order that any candidate reached.  A failure outranks a warning, a verdict outranks
+#: a descriptive reading, and any reading outranks an omission.
+_CANDIDATE_STATUS_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.FAILED,
+    AssessmentStatus.WARNING,
+    AssessmentStatus.PASSED,
+    AssessmentStatus.COMPLETED,
+    *_SUMMARY_OMISSION_ORDER,
+)
+
+
+def _combined_candidate_item(operation: str, items: Mapping[str, AssessmentItem]) -> AssessmentItem:
+    """One row for an operation read on every candidate, named after the candidates.
+
+    The status is the first of :data:`_CANDIDATE_STATUS_ORDER` that any candidate reached.
+    The detail names each candidate whose row asks for attention, or every candidate when
+    none does, and the next steps are the candidates' own, each once.
+    """
+    status = next(
+        status
+        for status in _CANDIDATE_STATUS_ORDER
+        if any(item.status is status for item in items.values())
+    )
+    flagged = {name: item for name, item in items.items() if item.status in _ATTENTION}
+    shown = flagged or items
+    detail = "; ".join(f"{name}: {item.detail}" for name, item in shown.items())
+    return AssessmentItem(
+        operation,
+        status,
+        detail,
+        _distinct_steps(list(items.values())),
+    )
+
+
+def _interpreted(
+    operation: str, report: Any, result: Any, arguments: Mapping[str, Any]
+) -> AssessmentItem:
+    """The combined-report row of one operation's report.
+
+    A variable-importance report holds one report per candidate.  Each is read by the
+    operation's interpreter against its own candidate's fit, and the rows are combined.
+    """
+    interpret = INTERPRETERS[operation]
+    if not isinstance(report, CandidateReports):
+        return interpret(report, result, arguments)
+    return _combined_candidate_item(
+        operation,
+        {
+            # A curve is read as its frame, as the combined report of one fit reads it.
+            candidate: interpret(
+                each.to_frame() if isinstance(each, TruncationCurve) else each,
+                result.kept_fits[candidate],
+                arguments,
+            )
+            for candidate, each in report.items()
+        },
+    )
+
+
 #: What the combined row says when the point support report is not in its ``adequate``
 #: tier.  The tier itself is decided by
 #: :attr:`~cleverly.sensitivity.positivity.PositivityReport.severity`; these are only its
@@ -5100,7 +5274,7 @@ def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -
             report = getattr(facade, name)()
             items.append(
                 replace(
-                    INTERPRETERS[name](report, result, _NO_ARGUMENTS),
+                    _interpreted(name, report, result, _NO_ARGUMENTS),
                     _report=_pack_cached(report, _result_backend(result)),
                 )
             )
@@ -6399,6 +6573,13 @@ class SensitivityFacade(_CapabilityFacade):
     def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
+        self._require_call(operation, args, kwargs)
+        return self._invoke(operation, args, kwargs)
+
+    def _require_call(
+        self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    ) -> None:
+        """Refuse a call by its row, unless an explicit estimand is the call's to answer."""
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         # The marginal bounds refuse a withheld default estimand by row; a named one is the
         # call's to answer, and the call asks the fit-level refusal itself.
@@ -6418,7 +6599,6 @@ class SensitivityFacade(_CapabilityFacade):
             self._require(
                 operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
             )
-        return self._invoke(operation, args, kwargs)
 
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
