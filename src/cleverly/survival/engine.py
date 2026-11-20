@@ -1349,7 +1349,11 @@ class ContinuousSurvivalTMLE:
                 )
             total = dlam.sum(axis=1)
             # Both checks read the fitted hazards on these data, so a draw that trips one is a
-            # data failure (recorded by a study), not an unsupported composition.
+            # data failure (recorded by a study), not an unsupported composition.  A Cox jump is
+            # s_i d / sum of the risk set's scores; with one event at a time it is below one for
+            # any unit in the risk set at its received arm, so the combined-jump check trips
+            # only on an extrapolated cell (a counterfactual arm, or a time after the unit left
+            # follow-up), or on tied events, as a bootstrap resample's copies make.
             combined = combined or bool(np.any(total >= 1.0))
             survival = np.cumprod(1.0 - total, axis=-1)
             low_survival = low_survival or bool(np.any(survival[..., -1] < SURVIVAL_UNDERFLOW))
@@ -1372,9 +1376,14 @@ class ContinuousSurvivalTMLE:
         if combined:
             raise DataError(
                 "An initial hazard fit puts a combined jump of one or more at some time, so the "
-                "product-limit survival is not a probability there. A Breslow jump can exceed "
-                "one where few units are at risk; choose earlier target times or restricted "
-                "horizons, or a smaller library."
+                "product-limit survival is not a probability there. A unit's jump is its risk "
+                "score times the baseline jump, so it reaches one only where the hazard model "
+                "extrapolates: usually at the unit's counterfactual arm, for covariates outside "
+                "the range that arm's units cover, where the unit's score exceeds the summed "
+                "scores of everyone at risk. Tied event times, as in a bootstrap resample, "
+                "multiply the baseline jump. Check the arms' overlap (the fitted treatment "
+                "probabilities), or choose earlier target times or restricted horizons, or a "
+                "smaller hazard library."
             )
         if low_survival:
             raise DataError(

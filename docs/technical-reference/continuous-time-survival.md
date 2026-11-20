@@ -45,6 +45,17 @@ initial fits and raise a `DataError`, which a study records as a failed fit: a c
 of one or more, and an initial survival below $10^{-250}$ before the grid's end, the last target
 time or restricted horizon, where double precision no longer holds the clever covariate.
 
+A Cox jump is $s_i\, d / \sum_{R} s$, unit $i$'s risk score times the tied events over the risk set's
+summed scores. With one event at a time it stays below one for a unit at risk at its received
+arm, so a combined jump of one or more comes from extrapolation: a unit read at its counterfactual
+arm, with covariates outside that arm's range, whose score exceeds the risk set's sum, or a time
+after the unit left follow-up. Tied events, as in a bootstrap resample, multiply the atom. In
+refitted failures of the switched-variance study and of the bootstrap pilot, the offending unit
+had one of the sample's most extreme covariate values and was read at the arm that does not cover
+it, at times with 140
+to 350 units at risk, so the check is mainly a positivity signal
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+
 ## The one-step walk
 
 The efficient influence curve of $\psi_{a,j,t}$ (Rytgaard and van der Laan 2024, Section 3.1) is
@@ -507,13 +518,15 @@ lower $M$ but changes the analysis, so the engine never does it.
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
 | a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
 | a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
+| an initial hazard fit whose cause jumps at some unit, arm and time sum to one or more | the product-limit survival is not a probability there; the hazard model extrapolates to a unit's counterfactual arm outside that arm's covariate range, and ties can amplify it |
 | the bootstrap intervals and band of a fit where more than 1% of the `n_bootstrap=` refits fail | the kept replicates would condition on the resamples that fit; the fit warns, keeps its Wald intervals and sets `bootstrap_status="bootstrap_unstable"`; see [The full-refit bootstrap](#the-full-refit-bootstrap) |
 | `bootstrap_interval="bca"` without `n_bootstrap=` | there are no replicates to read |
 
-The rows on an arm's first event of a cause and on an arm's follow-up read the drawn data, not the
-request, so they raise `DataError`, and a repeated-sampling study records such a draw as a lost
-replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or `bootstrap_interval=` set
-wrongly raises `ValueError` at construction. The other rows raise `CapabilityError`.
+The rows on an arm's first event of a cause, on an arm's follow-up and on a combined jump read the
+drawn data, not the request, so they raise `DataError`, and a repeated-sampling study records such
+a draw as a lost replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or
+`bootstrap_interval=` set wrongly raises `ValueError` at construction. The other rows raise
+`CapabilityError`.
 
 ## Evidence
 

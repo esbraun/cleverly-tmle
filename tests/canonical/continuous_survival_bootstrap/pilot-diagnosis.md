@@ -66,8 +66,9 @@ target time; their largest jump was not read. The registered records agree:
 - `continuous-survival-variance` lost 8 of 6,000 `v3_half_n` fits (n = 500, cross-fitted) to this
   refusal, 0.13% (`failures.csv`).
 - `continuous-survival-functionals` lost 1 of 14,800.
-- `continuous-time-survival` (7,600 of 7,600) and `continuous-survival-causes` (7,200 of 7,200 per
-  cell) lost none.
+- `continuous-time-survival` lost none of its 7,600 gated fits, but its reported positivity cell
+  `positivity_4k` lost replicate 292 to this refusal (see the correction below).
+  `continuous-survival-causes` (7,200 of 7,200 per cell) lost none.
 
 So at n = 1,000 the refusal is rare on original data, and the bootstrap's ties raise the largest
 jump by a factor of about 2.5 to 3.5 (a 99th percentile of 0.38 to 0.51 in the draws without
@@ -89,17 +90,61 @@ The existing last-time handling does not cover it:
 | option | theory and effect on the estimand | registered results it changes | fast witness |
 | --- | --- | --- | --- |
 | A. Efron ties instead of Breslow | For k tied copies of one unit, Efron's baseline jump is $\sum_{l<k} 1/(\Sigma_R - l s)$, which is at least $k/\Sigma_R$. It raises the jump, so it cannot help. | none (original times are continuous, so there are no ties) | none; rejected |
-| B. Bound the combined jump (recommended) | Where a unit's cause jumps at one arm and time sum to at least $1 - \delta$, with $\delta$ the walk's floor $10^{-8}$, scale them to sum to $1 - \delta$, keeping each cause's share. This projects the step onto a discrete hazard (survival factor in $[\delta, 1]$), so the initial survival stays a probability. The continuous-time hazard has no atoms, and the bound acts only where the Breslow atom of an extrapolated score passes 1, an event whose probability tends to 0 at a fixed law. So the initial fit's consistency, the walk's score equation and the estimand are unchanged. In finite samples the affected pair's survival falls to $\delta$, the model's own claim that the event is certain, and the walk then holds the pair as it does now. Applied in every fit, since a replicate must be the estimator. | `continuous-survival-variance` gains 8 `v3_half_n` fits and `continuous-survival-functionals` 1; `continuous-time-survival` and `continuous-survival-causes` lost no fit, so they stay bit for bit (unless some kept fit had a combined jump within $10^{-8}$ of 1) | a user hazard learner whose counterfactual-arm jump exceeds 1 at one time: raises now, fits after, with that pair's survival $\delta$ after the time and the cause split kept. An anchored dense-walk fit stays bit for bit. Mutations: a threshold of 0.5 breaks the anchor, and dropping the share breaks the split. Pilot draws 38 and 45 refit with no failure. |
+| B. Bound the combined jump (recommended) | Where a unit's cause jumps at one arm and time sum to at least $1 - \delta$, with $\delta$ the walk's floor $10^{-8}$, scale them to sum to $1 - \delta$, keeping each cause's share. This projects the step onto a discrete hazard (survival factor in $[\delta, 1]$), so the initial survival stays a probability. The continuous-time hazard has no atoms, and the bound acts only where the Breslow atom of an extrapolated score passes 1, an event whose probability tends to 0 at a fixed law. So the initial fit's consistency, the walk's score equation and the estimand are unchanged. In finite samples the affected pair's survival falls to $\delta$, the model's own claim that the event is certain, and the walk's survival floor is affected (see the correction below). Applied in every fit, since a replicate must be the estimator. | `continuous-survival-variance` gains 8 `v3_half_n` fits, `continuous-survival-functionals` 1 and `continuous-time-survival` 1 (`positivity_4k` replicate 292); `continuous-survival-causes` lost no fit. That nothing else moves needs an A/B replay at `rtol 0`, not the failure files alone | a user hazard learner whose counterfactual-arm jump exceeds 1 at one time: raises now, fits after, with that pair's survival $\delta$ after the time and the cause split kept. An anchored dense-walk fit stays bit for bit. Mutations: a threshold of 0.5 breaks the anchor, and dropping the share breaks the split. Pilot draws 38 and 45 refit with no failure. |
 | C. Break the bootstrap's ties (jitter copies by a vanishing amount) | A smoothed bootstrap. It removes the factor k but not the extrapolation. Its validity needs its own reading of the smoothed bootstrap delta method, and the in-sample label reason would change. | none (bootstrap only) | copies of a unit get distinct times; a replicate equals the refit on the jittered resample |
 | D. Count these refits differently in C6 and the failure bound | A bootstrap over the resamples that fit conditions on fitting. C6 exists to refuse that, and the decided design keeps it. A per-refit bound pooled over the study hides draws such as 38, where 3.5% of refits fail. | none | boundary tests of the new count |
 | E. Exponential product $S = \prod e^{-d\Lambda}$ everywhere | Asymptotically equivalent (the Breslow survival rather than the product limit), and never fails, but every fit moves. | all four | every exact-law test of the walk |
 | F. Clip counterfactual scores to the observed range | Changes the initial estimator wherever it extrapolates, not only where it fails. | all four | clipped scores |
 
-**Recommendation: B.** It treats the estimator's refusal itself, which also costs the registered
+**Recommendation at first writing: B.** It reverses the recorded decision that this refusal is a
+recordable `DataError`, so it waits for the owner's call, and the review below lists what it must
+carry. It treats the estimator's refusal itself, which also costs the registered
 studies fits at small n (1.8% in sample and 6.8% cross-fitted at n = 200), rather than a symptom
 the bootstrap amplifies. It moves no fit that runs today. Its asymptotic theory is unchanged
 because the bound is inactive with probability tending to one. Its cost is regenerating
-`continuous-survival-variance` and `continuous-survival-functionals`, whose verdicts 9 added fits
-cannot plausibly move. That claim needs the regenerations, not this note. Until B lands, the declared
+`continuous-survival-variance`, `continuous-survival-functionals` and `continuous-time-survival`,
+whose gated verdicts 10 added fits cannot plausibly move (`positivity_4k` is reported, not gated). That claim needs the regenerations, not this note. Until B lands, the declared
 run stays refused on the failure line, and the extension to 400 draws should wait for it, since
 its fits would be redrawn under the new guard.
+
+## Correction after an independent review
+
+The review reproduced draw 45's three failures exactly and read the offending units in their
+original samples. Its readings correct this note in three places.
+
+**Positivity is the main cause, not the ties.** The two offending units are extreme in X3, and the
+treated arm does not cover them:
+
+| draw, unit | X3 | rank in n = 1,000 | true $\pi(1 \mid x)$ | lowest treated X3 | original-fit treated-arm score, interaction / main | largest own-arm score, interaction / main |
+| --- | --- | --- | --- | --- | --- | --- |
+| 45, 961 | -3.28 | lowest | 0.014 | -2.12 | 21.7 / 8.8 | 18.2 / 19.1 |
+| 38, 833 | -3.46 | lowest | 0.012 | -2.48 | 38.9 / 16.0 | 25.2 / 26.9 |
+
+Their true treatment probability is about 0.013. On the original data the interaction member
+already scores them past every factual score. The bootstrap adds noise to that member's
+interaction coefficients, raising the score to 159 to 428, and the ties multiply the baseline atom.
+Their $\hat\pi \hat S_c$ at the last time most likely lies under the `auto` positivity floor
+$5/(\sqrt n \log n) = 0.023$, so `last_time_floor_share` most likely already counts them; the review
+read the true $\pi$, not $\hat\pi$. The three refitted `v3_half_n` failures of the
+switched-variance study read the same way on original samples, with no ties: a unit whose X3 is
+among the sample's three most extreme, read at the arm whose range does not cover it, score 22 to 39
+times the largest in a risk set of 141 to 148 units.
+
+**`continuous-time-survival` has a fit of this kind.** Its reported cell `positivity_4k` (the
+positivity-violation law, n = 4,000) lost replicates 283 and 292 to `DataError`
+(`reported-replicates.csv`). Replicate 292 trips this guard, with a combined jump of 6.83 (cause 1,
+unit 843 at the control arm). Replicate 283 trips the survival-underflow guard instead, with a
+largest jump of 0.977. So option B moves `continuous-time-survival` too. The guard is mainly a
+positivity signal.
+
+**Option B's walk claim is wrong.** The walk's floor is `min(WALK_SURVIVAL_FLOOR, lowest)` over
+every unit's initial survival at the grid's end. A bounded pair's survival there is below
+$10^{-8}$, so in every bounded fit it would lower the floor for all pairs rather than be held. B
+also needs a record field, a warning and an experimental label for a fit in which it acts, and a
+witness with two nonzero causes at the bounded cell. All 10 failures here have a cause-1 jump of
+0, so a witness of that shape cannot see the cause split. The review in the plans repository
+lists these accompaniments.
+
+The refusal's message no longer blames a late time with few units at risk. It names the
+extrapolation to a counterfactual arm outside that arm's covariate range, which ties can amplify.
+The behaviour is unchanged.
