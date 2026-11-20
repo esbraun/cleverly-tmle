@@ -5101,16 +5101,17 @@ class CandidateReports(Mapping[str, Any]):
 
         Raises
         ------
-        TypeError
+        CapabilityError
             If some candidate's report has no table, such as the number ``tipping_gamma``
             returns; read it from the mapping instead.
         """
         tables = {}
         for candidate, report in self.reports.items():
             if not callable(getattr(report, "to_frame", None)):
-                raise TypeError(
-                    f"candidate {candidate!r}'s {self.operation} report has no table; "
-                    f"read it as reports[{candidate!r}]"
+                raise CapabilityError(
+                    f"candidate {candidate!r}'s {self.operation} report has no table.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative=f"Read it as reports[{candidate!r}].",
                 )
             tables[candidate] = _frame_payload(report.to_frame())
         columns = list(dict.fromkeys(name for table in tables.values() for name in table))
