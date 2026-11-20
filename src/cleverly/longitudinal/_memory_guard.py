@@ -51,6 +51,7 @@ __all__ = [
     "LongitudinalMemoryError",
     "Prediction",
     "check_fit",
+    "density_route",
     "draw_bytes",
     "in_range",
     "outside_range",
@@ -113,7 +114,7 @@ class FitCounts:
     width : int
         Columns of the widest history design.
     bins : int
-        Density bins at continuous nodes, 0 without.
+        Density bins at continuous nodes, 0 without them or on the classifier route.
     msm : bool
         Whether the fit projects on a regimen working model.
     repeats : int
@@ -289,6 +290,25 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "c0": 54760.44444444538,
         "one": 16.554266885964946,
     },
+    "ltmle_continuous_classifier": {
+        "FRT": 0.16648877314814775,
+        "FT": 0.2437820601851862,
+        "RHJ": 1.638529166666678,
+        "RSJ": 22.862253935185183,
+        "T": 0.896987991898149,
+        "Tp": 0.2237153645833334,
+        "c0": 130301.0,
+        "one": 32.14179166666665,
+    },
+    "ltmle_continuous_index": {
+        "BB": 0.005982036524261605,
+        "FRT": 0.0810425925925927,
+        "FTB": 0.01875441550925926,
+        "RSJ": 9.685106378926394,
+        "TB": 3.0662097640134203,
+        "c0": 90297.66666666667,
+        "one": 169.5478579113924,
+    },
     "sdr": {
         "FRT": 2.6710343784101345,
         "FT": 0.9547574290095755,
@@ -308,6 +328,24 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "Tp": 0.01863825458807292,
         "c0": 52098.22222222275,
     },
+    "sdr_continuous_classifier": {
+        "FRT": 3.117472470238094,
+        "FT": 1.4134444940476203,
+        "RSJ": 29.516525297619054,
+        "T": 0.31445870535714654,
+        "Tp": 0.029258854166666085,
+        "c0": 190461.33333333334,
+        "one": 18.26745833333332,
+    },
+    "sdr_continuous_index": {
+        "BB": 0.00638890353970742,
+        "FRT": 2.664582872732425,
+        "FTB": 1.1129619968820863,
+        "RSJ": 21.95116125641087,
+        "TB": 1.8867153326622568,
+        "c0": 79724.99999999689,
+        "one": 152.8956108672938,
+    },
 }
 WORKER_BYTES = 251658240
 HELPER_BYTES = 67108864
@@ -319,8 +357,12 @@ WORKER_SHARE: dict[str, tuple[tuple[int, float, float], ...]] = {
     "ipsi": ((3, 0.81, 1.92), (5, 0.85, 1.47), (10, 1.39, 1.96), (20, 0.94, 2.46)),
     "ltmle": ((10, 0.39, 1.54),),
     "ltmle_continuous": ((10, 0.8, 1.0),),
+    "ltmle_continuous_classifier": ((10, 0.01, 1.15),),
+    "ltmle_continuous_index": ((10, 0.49, 1.0),),
     "sdr": ((3, 0.68, 2.1), (5, 0.85, 1.71), (10, 1.52, 2.22), (20, 1.81, 2.67)),
     "sdr_continuous": ((10, 0.68, 1.61),),
+    "sdr_continuous_classifier": ((10, 0.75, 3.11),),
+    "sdr_continuous_index": ((10, 0.16, 1.15),),
 }
 FITTED: dict[str, dict[str, tuple[int, int]]] = {
     "hazard_backward": {
@@ -435,6 +477,38 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "censored": (0, 0),
         "msm": (0, 0),
     },
+    "ltmle_continuous_classifier": {
+        "n": (2000, 100000),
+        "T": (2, 8),
+        "plans": (1, 4),
+        "causes": (1, 1),
+        "folds": (1, 10),
+        "width": (5, 17),
+        "bins": (0, 0),
+        "paths": (0, 0),
+        "horizons": (1, 1),
+        "repeats": (1, 1),
+        "bootstrap": (0, 0),
+        "levels": (2, 2),
+        "censored": (0, 0),
+        "msm": (0, 0),
+    },
+    "ltmle_continuous_index": {
+        "n": (2000, 100000),
+        "T": (2, 8),
+        "plans": (1, 4),
+        "causes": (1, 1),
+        "folds": (1, 10),
+        "width": (5, 17),
+        "bins": (20, 320),
+        "paths": (0, 0),
+        "horizons": (1, 1),
+        "repeats": (1, 1),
+        "bootstrap": (0, 0),
+        "levels": (2, 2),
+        "censored": (0, 0),
+        "msm": (0, 0),
+    },
     "sdr": {
         "n": (5000, 100000),
         "T": (2, 8),
@@ -459,6 +533,38 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "folds": (1, 10),
         "width": (4, 17),
         "bins": (5, 320),
+        "paths": (0, 0),
+        "horizons": (1, 1),
+        "repeats": (1, 1),
+        "bootstrap": (0, 0),
+        "levels": (2, 2),
+        "censored": (0, 0),
+        "msm": (0, 0),
+    },
+    "sdr_continuous_classifier": {
+        "n": (2000, 100000),
+        "T": (2, 8),
+        "plans": (1, 4),
+        "causes": (1, 1),
+        "folds": (1, 10),
+        "width": (5, 17),
+        "bins": (0, 0),
+        "paths": (0, 0),
+        "horizons": (1, 1),
+        "repeats": (1, 1),
+        "bootstrap": (0, 0),
+        "levels": (2, 2),
+        "censored": (0, 0),
+        "msm": (0, 0),
+    },
+    "sdr_continuous_index": {
+        "n": (2000, 100000),
+        "T": (2, 8),
+        "plans": (1, 4),
+        "causes": (1, 1),
+        "folds": (1, 10),
+        "width": (5, 17),
+        "bins": (20, 320),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -1306,6 +1412,41 @@ def effective_jobs(n_jobs: int | None) -> int:
     return max(1, int(effective_n_jobs(1 if n_jobs is None else n_jobs)))
 
 
+def density_route(estimator: Any) -> str:
+    """The suffix of a continuous family that names the fit's density route.
+
+    ``ratio="classifier"`` builds no binned density (``"_classifier"``).  A treatment learner
+    that sets ``bin_design = "index"`` drops the bin-indicator block from the pooled hazard
+    design, so its memory is linear in the bins (``"_index"``).  Every other fit builds the
+    binned density with its indicator block (``""``).  The density step reads ``bin_design`` from
+    the treatment learner it is given, which is the template or its seeded clone, so the index
+    route is read only when both carry it; otherwise the binned family over-counts the fit.
+
+    Parameters
+    ----------
+    estimator : _SequentialEstimator
+        The estimator.
+
+    Returns
+    -------
+    str
+        ``"_classifier"``, ``"_index"`` or ``""``.
+    """
+    from ..learners._fitting import clone_learner
+    from ..learners.density import _index_only
+
+    if getattr(estimator, "ratio", "density") == "classifier":
+        return "_classifier"
+    learner = getattr(estimator, "treatment_learner", None)
+    if learner is None or not _index_only(learner):
+        return ""
+    try:
+        clone = clone_learner(learner)
+    except MethodConfigurationError:
+        return ""
+    return "_index" if _index_only(clone) else ""
+
+
 def fit_counts(
     estimator: Any,
     data: Any,
@@ -1326,7 +1467,8 @@ def fit_counts(
     Parameters
     ----------
     estimator : _SequentialEstimator
-        The estimator; its settings give the family, bins, bootstrap and workers.
+        The estimator; its settings give the family (with the density route of
+        :func:`density_route` at a continuous node), bins, bootstrap and workers.
     data : LongitudinalData
         The prepared panel.
     plans : int
@@ -1370,8 +1512,10 @@ def fit_counts(
         family = "ipsi"
     else:
         family = ("ltmle" if kind == "tmle" else "sdr") + ("_continuous" if continuous else "")
+        if continuous:
+            family += density_route(estimator)
     bins = 0
-    if continuous:
+    if continuous and not family.endswith("_classifier"):
         bins = int(estimator.density_bins or default_density_bins(n))
     # The widest design any node builds: without a Markov order that is the last node, but a
     # window can drop an early node's wide covariate block.

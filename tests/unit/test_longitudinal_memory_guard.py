@@ -89,6 +89,7 @@ def test_the_installed_constants_are_the_calibration_records() -> None:
 def test_the_reference_carries_the_generated_tables() -> None:
     text = REFERENCE.read_text()
     assert generate.constants_table() in text
+    assert generate.constants_table(generate.ROUTE_FAMILIES) in text
     assert generate.ranges_table() in text
     assert generate.extensions_table() in text
 
@@ -575,6 +576,114 @@ def test_a_held_out_continuous_cell_in_range_reads_at_least_the_floor(name: str)
     counts, peak = HELD_OUT[name]
     assert _memory_guard.in_range(counts)
     assert _memory_guard.predicted_bytes(counts) >= 1.32 * peak
+
+
+# ------------------------------------------------------------------ the density route
+
+
+class _IndexLogistic(LogisticRegression):
+    """A logistic hazard that reads only the bin index, as ``IndexLogistic`` in ``cases.py``."""
+
+    bin_design = "index"
+
+
+def _route_counts(est: str, n: int = 300, **case: Any) -> FitCounts:
+    """The counts of one continuous fit, which a one-byte budget refuses before any learner."""
+    overrides = case.pop("overrides", {})
+    spec = {"est": est, "T": 2, "R": 2, "folds": 1, "H": 1, "B": 12, **case}
+    _, call = support.build(spec, n, max_memory_bytes=1, **overrides)
+    with support.captured_counts() as seen, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(LongitudinalMemoryError):
+            call()
+    return seen[0]
+
+
+@pytest.mark.parametrize(("est", "prefix"), [("mtp", "ltmle"), ("sdr_mtp", "sdr")])
+@pytest.mark.parametrize(
+    ("overrides", "route", "bins"),
+    [
+        ({}, "", 12),
+        ({"treatment_learner": _IndexLogistic(max_iter=1000)}, "_index", 12),
+        ({"ratio": "classifier"}, "_classifier", 0),
+    ],
+)
+def test_each_density_route_is_its_own_family(
+    est: str, prefix: str, overrides: dict[str, Any], route: str, bins: int
+) -> None:
+    counts = _route_counts(est, overrides=overrides)
+    assert (counts.family, counts.bins) == (f"{prefix}_continuous{route}", bins)
+
+
+def test_a_bin_design_lost_on_cloning_keeps_the_binned_family() -> None:
+    # The density step may receive a clone of the learner, which drops an instance attribute;
+    # the guard then counts the binned route, which over-counts.
+    learner = LogisticRegression(max_iter=1000)
+    learner.bin_design = "index"
+    assert _memory_guard.density_route(LTMLE({"natural": 0}, treatment_learner=learner)) == ""
+    assert _memory_guard.density_route(LTMLE({"natural": 0}, ratio="classifier")) == "_classifier"
+
+
+def test_the_registered_mtp_primary_on_the_index_route_predicts_tens_of_mib() -> None:
+    # The ``longitudinal_mtp`` primary: n 2,000, T 2, four shift plans, 320 bins and an
+    # index-only hazard.  The binned family predicted 2.2 GiB for it.
+    counts = _route_counts(
+        "mtp", 2_000, R=4, B=320, overrides={"treatment_learner": _IndexLogistic(max_iter=1000)}
+    )
+    assert counts.family == "ltmle_continuous_index"
+    assert _memory_guard.in_range(counts)  # width 5 here
+    assert _memory_guard.predicted_bytes(counts) < 200 * MIB
+    # With the study's one baseline column the width is 4, below the fitted 5.
+    primary = replace(counts, width=4)
+    assert _memory_guard.outside_range(primary) == "4 design columns"
+    assert _memory_guard.predicted_bytes(primary) < 200 * MIB
+
+
+def test_mutation_ignoring_the_density_route_fails_the_route_witnesses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_memory_guard, "density_route", lambda estimator: "")
+    index = {"treatment_learner": _IndexLogistic(max_iter=1000)}
+    assert _route_counts("mtp", overrides=index).family == "ltmle_continuous"
+    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}).bins == 12
+    counts = _route_counts("mtp", 2_000, R=4, B=320, overrides=index)
+    assert _memory_guard.predicted_bytes(counts) > 2**30
+
+
+#: One fitted cell of each route family: ``dens.jsonl`` (``rows/X106/J2/evidence/
+#: 2026-11-19-j2d/rev9/`` in the plans repository), n 2,000, T 4, R 4, F 3, B 320 on the index
+#: route; each row's guard counts, with the route's family and bins, and its traced peak.
+ROUTE_CELLS: dict[str, tuple[int, int]] = {
+    "ltmle_continuous_index": (320, 61_997_343),
+    "sdr_continuous_index": (320, 122_706_013),
+    "ltmle_continuous_classifier": (0, 6_934_545),
+    "sdr_continuous_classifier": (0, 10_641_843),
+}
+
+
+@pytest.mark.parametrize("family", sorted(ROUTE_CELLS))
+def test_a_fitted_route_cell_lies_between_the_margin_and_the_stated_bound(family: str) -> None:
+    bins, peak = ROUTE_CELLS[family]
+    counts = FitCounts(
+        estimator="SDR" if family.startswith("sdr") else "LTMLE",
+        family=family,
+        n=2_000,
+        n_times=4,
+        plans=4,
+        horizons=(4,),
+        causes=1,
+        folds=3,
+        width=9,
+        bins=bins,
+        msm=False,
+        repeats=1,
+        bootstrap=0,
+        jobs=1,
+        panel_bytes=184_000,
+    )
+    assert _memory_guard.in_range(counts)
+    predicted = _memory_guard.predicted_bytes(counts)
+    assert 1.35 * peak <= predicted <= _memory_guard.FACTOR * peak
 
 
 # ------------------------------------------------------------------ count sources

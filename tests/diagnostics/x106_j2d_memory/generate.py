@@ -19,7 +19,7 @@ file                   what it holds
 =====================  =========================================================================
 
 ``python -m tests.diagnostics.x106_j2d_memory.generate`` prints the literals to paste into the
-module and the Markdown table of ``docs/technical-reference/longitudinal-tmle.md``.
+module and the Markdown tables of ``docs/technical-reference/longitudinal-tmle.md``.
 ``tests/unit/test_longitudinal_memory_guard.py`` checks that the module's literals and the
 reference's table equal what this script reads.
 """
@@ -81,12 +81,38 @@ TERM_COUNTS = {
     "Up": "$U p$",
 }
 
-#: The families in the order the reference lists them.
-FAMILIES = (
+#: The families of the reference's main constants table, in its order.
+MAIN_FAMILIES = (
     "ltmle",
     "ltmle_continuous",
     "sdr",
     "sdr_continuous",
+    "ipsi",
+    "hazard_one_node",
+    "hazard_backward",
+    "hazard_paths",
+    "hazard_separable",
+)
+
+#: The continuous families of the two density routes that build no indicator block (rev 11d),
+#: which the reference's second constants table lists.
+ROUTE_FAMILIES = (
+    "ltmle_continuous_index",
+    "sdr_continuous_index",
+    "ltmle_continuous_classifier",
+    "sdr_continuous_classifier",
+)
+
+#: Every family, in the order the reference's range tables list them.
+FAMILIES = (
+    "ltmle",
+    "ltmle_continuous",
+    "ltmle_continuous_index",
+    "ltmle_continuous_classifier",
+    "sdr",
+    "sdr_continuous",
+    "sdr_continuous_index",
+    "sdr_continuous_classifier",
     "ipsi",
     "hazard_one_node",
     "hazard_backward",
@@ -181,16 +207,28 @@ def _number(value: float) -> str:
     return f"{float(f'{value:.3g}'):g}"
 
 
-def constants_table() -> str:
-    """The reference's table of the draw constants: one row per count, one column per family."""
+def constants_table(families: tuple[str, ...] = MAIN_FAMILIES) -> str:
+    """The reference's table of the draw constants: one row per count, one column per family.
+
+    Parameters
+    ----------
+    families : tuple of str
+        The columns: :data:`MAIN_FAMILIES` for the main table, :data:`ROUTE_FAMILIES` for the
+        density routes' table.
+
+    Returns
+    -------
+    str
+        The Markdown table.
+    """
     table = constants()
-    used = [term for term in TERM_COUNTS if any(term in table[family] for family in FAMILIES)]
-    header = "| count | " + " | ".join(f"`{family}`" for family in FAMILIES) + " |"
-    rule = "| --- | " + " | ".join("---:" for _ in FAMILIES) + " |"
+    used = [term for term in TERM_COUNTS if any(term in table[family] for family in families)]
+    header = "| count | " + " | ".join(f"`{family}`" for family in families) + " |"
+    rule = "| --- | " + " | ".join("---:" for _ in families) + " |"
     rows = [header, rule]
     for term in used:
         cells = []
-        for family in FAMILIES:
+        for family in families:
             value = table[family].get(term)
             if value is None:
                 cells.append("")
@@ -269,6 +307,8 @@ def main() -> None:
     print(literal())
     print()
     print(constants_table())
+    print()
+    print(constants_table(ROUTE_FAMILIES))
     print()
     print(ranges_table())
     print()

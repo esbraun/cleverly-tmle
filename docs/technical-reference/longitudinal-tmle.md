@@ -3297,11 +3297,12 @@ prepared `LongitudinalData`. When those fits receive a frame, the panel the fit 
 $8n(3T+2)$ bytes (about 20 MiB at 100,000 units and eight nodes), is not in their constants, and
 the margin absorbs it.
 
-Each family has its own constants. The family is `hazard_separable`
-for a hazard fit with a separable arm, `hazard_one_node`, `hazard_backward` or `hazard_paths` for
-any other hazard fit (one treatment node; several nodes with covariates after baseline; several
-nodes without them), `ipsi` for `IPSI`, and `ltmle` or `sdr`, with `_continuous` when a node is
-continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per unit per count:
+Each family has its own constants. The family is `hazard_separable` for a hazard fit with a
+separable arm, `hazard_one_node`, `hazard_backward` or `hazard_paths` for any other hazard fit (one
+treatment node; several nodes with covariates after baseline; several nodes without them), `ipsi`
+for `IPSI`, and `ltmle` or `sdr`, with `_continuous` when a node is continuous or mixed, for the
+rest. A continuous family also names the route its density step takes, as [the density
+route](#the-density-route) describes. Fixed term in MiB, the others in bytes per unit per count:
 
 | count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -3326,20 +3327,21 @@ continuous or mixed, for the rest. Fixed term in MiB, the others in bytes per un
 | $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
 | $U p$ |  |  |  |  |  |  |  | 2.85 |  |
 
-`tests/diagnostics/x106_j2d_memory/generate.py` writes this table, the two tables of [calibrated
-ranges](#calibrated-ranges) and the guard's literals from the calibration records copied beside it,
-and `tests/unit/test_longitudinal_memory_guard.py` checks that all of them match.
+`tests/diagnostics/x106_j2d_memory/generate.py` writes this table, the route families' table below,
+the two tables of [calibrated ranges](#calibrated-ranges) and the guard's literals from the
+calibration records copied beside it, and `tests/unit/test_longitudinal_memory_guard.py` checks that
+all of them match.
 
 The constants solve a linear program over each family's fitted cells, subject to covering every
 cell's `tracemalloc` peak, with every constant non-negative. It minimizes the summed prediction
-for seven families, and the summed ratio of prediction to peak for the two continuous families, so
+for seven families, and the summed ratio of prediction to peak for the six continuous families, so
 each of their cells weighs by its ratio and not its bytes. That objective was chosen after the
-summed prediction, on the first refit of these families, read above the 3.5 bound on a small cell
-(`fit11c-sum.out`). Either way the constraint and the margin make every fitted cell read at least
-1.35 times its traced peak; the objective moves only the cells left out of the fit. The fitted
-cells ran with GLM, logistic and linear learners at 5,000, 20,000 and 100,000 units, and the
-continuous families also at 2,000 units with 5 to 320 density bins, all with one draw, no
-bootstrap, no censoring and one worker. Cells the unpenalized GLM refused as singular were
+summed prediction, on the first refit of the binned families, read above the 3.5 bound on a small
+cell (`fit11c-sum.out`); the four route families were declared with it. Either way the constraint
+and the margin make every fitted cell read at least 1.35 times its traced peak; the objective moves
+only the cells left out of the fit. The fitted cells ran with GLM, logistic and linear learners at
+5,000, 20,000 and 100,000 units, and the continuous families also at 2,000 units, all with one
+draw, no bootstrap, no censoring and one worker. Cells the unpenalized GLM refused as singular were
 refitted with a least-squares outcome regression on the same counts.
 
 The worker share and the parent multiple, measured in a fresh process per case on cold workers at
@@ -3352,6 +3354,10 @@ The worker share and the parent multiple, measured in a fresh process per case o
 | `ltmle` | 0.39, 1.54 at every $F$ |
 | `ltmle_continuous` | 0.80, 1.00 at every $F$ |
 | `sdr_continuous` | 0.68, 1.61 at every $F$ (measured at 10) |
+| `ltmle_continuous_index` | 0.49, 1.00 at every $F$ (measured at 10) |
+| `sdr_continuous_index` | 0.16, 1.15 at every $F$ (measured at 10) |
+| `ltmle_continuous_classifier` | 0.01, 1.15 at every $F$ (measured at 10) |
+| `sdr_continuous_classifier` | 0.75, 3.11 at every $F$ (measured at 10) |
 | `hazard_one_node` | 0.06, 1.07 at every $F$ |
 | `hazard_backward` | 0.12, 1.20 at every $F$ |
 | `hazard_paths` | 0.09, 1.20 at every $F$ |
@@ -3360,6 +3366,39 @@ The worker share and the parent multiple, measured in a fresh process per case o
 Between measured fold counts $w$ and $m$ are linear, and below the first they are flat. Above 20
 folds `sdr` and `ipsi` follow their last segment's slope, never below the largest measured value.
 The $w$ and $m$ form, and the two process constants, were chosen after the worker runs were seen.
+
+### The density route
+
+At a continuous node the density step takes one of three routes, and each has its own pair of
+families (rev 11d of `rows/X106/J2/comparison-plan.md` in the plans repository).
+
+| route | when | what the density step holds | families |
+| --- | --- | --- | --- |
+| binned | the default | the pooled hazard design with its bin-indicator block, about $8 n B^2$ bytes | `ltmle_continuous`, `sdr_continuous` |
+| index-only | the treatment learner sets `bin_design = "index"` | the pooled design without the indicator block, linear in $B$ | `ltmle_continuous_index`, `sdr_continuous_index` |
+| classifier | `ratio="classifier"` | a density-ratio classifier and no binned density, so $B$ counts as 0 | `ltmle_continuous_classifier`, `sdr_continuous_classifier` |
+
+`ratio="classifier"` decides first. The density step reads `bin_design` from the treatment learner
+it is given, which is `treatment_learner` or its seeded clone, so the guard reads the index route
+only when both carry it. A `bin_design` set on an instance and dropped by cloning counts as binned,
+which over-counts the fit. A `SuperLearner` carries no `bin_design`, so the density step builds the
+indicator block whatever its library holds, and the guard counts it as binned. At 2,000 units, two
+nodes, four regimens and 320 bins the three routes traced 1,600 MiB, 43 MiB and 3.5 to 3.9 MiB
+(`smoke11d.py`). The route families' constants, fitted on the `dens` grid with the same program:
+
+| count | `ltmle_continuous_index` | `sdr_continuous_index` | `ltmle_continuous_classifier` | `sdr_continuous_classifier` |
+| --- | ---: | ---: | ---: | ---: |
+| fixed, MiB | 0.0861 | 0.076 | 0.124 | 0.182 |
+| $R S J$ | 9.69 | 22 | 22.9 | 29.5 |
+| $T$ |  |  | 0.897 | 0.314 |
+| $R H J$ |  |  | 1.64 |  |
+| $T p$ |  |  | 0.224 | 0.0293 |
+| $1$ | 170 | 153 | 32.1 | 18.3 |
+| $F R T$ | 0.081 | 2.66 | 0.166 | 3.12 |
+| $F T$ |  |  | 0.244 | 1.41 |
+| $T B$ | 3.07 | 1.89 |  |  |
+| $F T B$ | 0.0188 | 1.11 |  |  |
+| $B^2$ | 0.00598 | 0.00639 |  |  |
 
 ### Accuracy
 
@@ -3373,9 +3412,9 @@ refit that left out one shape at a time, the interior shapes left out read down 
 never below 1 (`design-review-j2d-rev11c.md` in the plans repository).
 
 Because the largest reading is 3.31, the refusal states that at one worker the prediction can exceed
-the true peak by up to 3.5 times. With `n_jobs > 1` it can exceed it by more. Over the 68 parallel
-runs in a fresh process (5,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel
-bootstraps) the prediction reads 1.29 to 1.87 times the measured resident footprint of the parent
+the true peak by up to 3.5 times. With `n_jobs > 1` it can exceed it by more. Over the 92 parallel
+runs in a fresh process (2,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel
+bootstraps) the prediction reads 1.29 to 1.94 times the measured resident footprint of the parent
 and every worker. The lowest, 1.29 to 1.30, are `SDR` and `IPSI` at 5,000 units and 7 to 10 folds
 (`coldterm.out`).
 
@@ -3402,8 +3441,12 @@ The `ltmle` cells include a regimen working model.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ltmle` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
 | `ltmle_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
+| `ltmle_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 20 to 320 | 0 | 1 |
+| `ltmle_continuous_classifier` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 0 | 0 | 1 |
 | `sdr` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
 | `sdr_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
+| `sdr_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 20 to 320 | 0 | 1 |
+| `sdr_continuous_classifier` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 0 | 0 | 1 |
 | `ipsi` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
 | `hazard_one_node` | 5,000 to 100,000 | 2 to 8 | 1 to 2 | 1 to 2 | 1 to 10 | 3 to 129 | 0 | 0 | 1 to 8 |
 | `hazard_backward` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 135 | 0 | 0 | 1 to 8 |
