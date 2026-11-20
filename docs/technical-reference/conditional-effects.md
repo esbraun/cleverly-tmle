@@ -668,7 +668,7 @@ each reading against its formula.
 | `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
 | `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
 | `method="ep"` with both `model=` and `sieve=`, or `final_learner=` with `model=` | two bases for one fit; with a model the final stage is least squares on it | `invalid_declaration` |
-| a log-ratio `final_learner` without `predict_proba`, or whose `fit` takes no `sample_weight` | the final stage is a weighted log loss on two labels | `invalid_declaration` |
+| a log-ratio `final_learner` without `predict_proba`, or whose `fit` does not name `sample_weight` (a `fit(**kwargs)` might drop the weights, which carry the targeted means) | the final stage is a weighted log loss on two labels | `invalid_declaration` |
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 | `assess_score` with `compare=` naming the score column, or a column with the same value on every row | the paired risk is 0 with no spread | `DataError` |

@@ -309,7 +309,19 @@ def test_a_super_learner_keeps_each_pair_in_one_inner_fold() -> None:
         assert sum(ones for ones, _ in counts) > 0
 
 
-@pytest.mark.parametrize("learner", [LinearRegression(), Unweighted()])
+class KwargsOnly(ClassifierMixin, BaseEstimator):
+    """A classifier whose ``fit(**kwargs)`` would silently drop the weights (review S4)."""
+
+    def fit(self, X: Any, y: Any, **kwargs: Any) -> KwargsOnly:
+        NeverFit.calls += 1
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.full((len(X), 2), 0.5)
+
+
+@pytest.mark.parametrize("learner", [LinearRegression(), Unweighted(), KwargsOnly()])
 def test_a_learner_without_the_weighted_log_loss_refuses_before_any_learner(learner: Any) -> None:
     NeverFit.calls = 0
     contrast = ConditionalContrast(MODIFIERS, scale="log_ratio")
@@ -341,3 +353,40 @@ def test_the_planned_fits_count_the_log_ratio_final_learner() -> None:
     method = EPMethod(sieve=Sieve(Linear(["W"]), size=1), final_learner=tight_logistic())
     plan = effect.planned_fits(method.with_overrides(**settings()))
     assert any(row.role == "final_learner" and row.fits == 1 for row in plan.rows)
+
+
+def test_the_engine_route_refuses_the_same_learner_in_check() -> None:
+    """``EPEstimator.check`` refuses as the study route does (review N1)."""
+    from cleverly.effect_modification import EffectModification
+
+    estimator = ep.EPEstimator(
+        {},
+        EffectModification(Linear(["W"]), MODIFIERS, "log_ratio"),
+        1,
+        target="curve",
+        final_learner=KwargsOnly(),
+    )
+    with pytest.raises(CapabilityError) as caught:
+        estimator.check(law_study().data)
+    assert caught.value.refusal == ep.EP_RATIO_LEARNER_API_REFUSAL
+    difference = ep.EPEstimator(
+        {},
+        EffectModification(Linear(["W"]), MODIFIERS, "difference"),
+        1,
+        target="curve",
+        final_learner=LinearRegression(),
+    )
+    difference.check(law_study().data)
+
+
+def test_a_row_of_weight_zero_does_not_widen_the_hull() -> None:
+    """Review N6: the hull is taken over the rows that enter the loss."""
+    values = {"W": np.array([0.0, 1.0, 2.0, 2.0])}
+    q_t = np.array([0.3, 0.4, 0.5, 0.99])
+    q_r = np.array([0.3, 0.3, 0.3, 0.01])
+    weights = np.array([1.0, 1.0, 1.0, 0.0])
+    fitted = ep.fit_ratio_learner(tight_logistic(), values, q_t, q_r, weights)
+    share = q_t / (q_t + q_r)
+    assert fitted.low == pytest.approx(float(share[:3].min()))
+    assert fitted.high == pytest.approx(float(share[:3].max()))
+    assert fitted.high < 0.99

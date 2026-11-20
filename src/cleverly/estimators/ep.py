@@ -118,8 +118,9 @@ CLIP_TOLERANCE = 1e-8
 #: R-ep-learner-api: a log-ratio final learner must fit a weighted log loss on two labels.
 EP_RATIO_LEARNER_API_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
-    "A log-ratio final learner must be a classifier with predict_proba whose fit accepts "
-    "sample_weight: the final stage is a weighted log loss on two labels.",
+    "A log-ratio final learner must be a classifier with predict_proba whose fit names "
+    "sample_weight: the final stage is a weighted log loss on two labels, and the weights "
+    "carry the targeted means, so a fit(**kwargs) that may drop them would fit another curve.",
     alternative=(
         "Pass a classifier such as LogisticRegression or HistGradientBoostingClassifier, or "
         "leave final_learner=None."
@@ -327,7 +328,10 @@ class EPCurve:
         return np.asarray(self.basis.evaluate(frame, self.modifiers), dtype=float)
 
     def raw(self, frame: Any) -> FloatArray:
-        """The unclipped curve at the rows of ``frame``, on the outcome's own scale.
+        """The curve before the outcome-range clip, at the rows of ``frame``, on its own scale.
+
+        A log-ratio final learner's value is already clipped to the hull of its fractional
+        labels (:class:`RatioLearner`); only the difference scale's range clip is left out.
 
         Parameters
         ----------
@@ -517,7 +521,8 @@ def fit_ratio_learner(
     sample_weight = np.concatenate([w * q_t, w * q_r])
     groups = np.concatenate([np.arange(n), np.arange(n)])
     fitted = fit_learner(clone_learner(learner), doubled, labels, sample_weight, groups=groups)
-    share = q_t / (q_t + q_r)
+    # Rows of weight 0 do not enter the loss, so they do not widen the hull.
+    share = (q_t / (q_t + q_r))[w > 0]
     return RatioLearner(fitted, float(np.min(share)), float(np.max(share)))
 
 
@@ -533,11 +538,12 @@ def ratio_learner_refusal(learner: Any) -> Refusal | None:
     -------
     Refusal or None
         :data:`EP_RATIO_LEARNER_API_REFUSAL` when the learner has no ``predict_proba`` or its
-        ``fit`` does not accept ``sample_weight``.
+        ``fit`` does not name ``sample_weight``; a ``fit(**kwargs)`` is refused because the
+        weights carry the targeted means and nothing shows that it reads them.
     """
-    from ..learners._fitting import supports_sample_weight
+    from ..learners._fitting import names_sample_weight
 
-    if not hasattr(learner, "predict_proba") or not supports_sample_weight(learner):
+    if not hasattr(learner, "predict_proba") or not names_sample_weight(learner):
         return EP_RATIO_LEARNER_API_REFUSAL
     return None
 
@@ -1257,7 +1263,8 @@ def curve_from_pieces(
     clip : bool
         Whether the curve clips its predictions to ``[-(b - a), b - a]``.
     final_learner : Any
-        A declared final regressor, or ``None`` for least squares on the basis.
+        A declared final learner, or ``None`` for least squares on the basis: a regressor on
+        the difference scale, a classifier with ``predict_proba`` on the log-ratio scale.
     values : dict of str to ndarray or None
         The modifier columns a declared final learner reads.
 
@@ -1436,7 +1443,9 @@ class EPEstimator:
     target : {"curve", "projection"}
         ``"curve"`` for ``model=None``; ``"projection"`` when the estimand declared a model.
     final_learner : Any
-        A declared final regressor, or ``None``.
+        A declared final learner, or ``None``: a regressor on the difference scale, a
+        classifier with ``predict_proba`` whose ``fit`` names ``sample_weight`` on the
+        log-ratio scale.
     identified_effect : Any
         The identified effect the fit came from.
     """
@@ -1538,15 +1547,20 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If the data hold a missing treatment or baseline strata (R7-ep-mt,
-            R7-ep-strata), a fixed or scheduled size exceeds the family's largest member,
-            or a basis reads an undeclared domain or level (R3).
+            If the data hold a missing treatment, baseline strata or an intermediate
+            (R7-ep-mt, R7-ep-strata, R-ep-int), a log-ratio final learner lacks the weighted
+            log loss (R-ep-learner-api), a fixed or scheduled size exceeds the family's largest
+            member, or a basis reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
         data_refusal = effect_modification_ep_refusal(data)
         if data_refusal is not None:
             raise CapabilityError.from_refusal(data_refusal)
+        if self.effect_modification.scale == "log_ratio" and self.final_learner is not None:
+            learner_refusal = ratio_learner_refusal(self.final_learner)
+            if learner_refusal is not None:
+                raise CapabilityError.from_refusal(learner_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
         sizes = self.sizes(data.n)
         designs = self._designs(frame, shared=len(sizes) > 1)
