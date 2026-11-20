@@ -3308,8 +3308,12 @@ fold label of each row recorded, and its data as a `ContinuousSurvivalData`.
 `result.estimator.refit(result.data, random_state=result.estimator.random_state)` reproduces the fit
 bit for bit in one process. Every learner reads that seed: the folds, the lasso members, an unseeded
 user treatment learner or sklearn hazard member (through `seed_unset`), the off-grid draws and the
-band. `refute()` refits the stored estimator on a perturbed copy of the data. No study calibrates
-these readings yet, so every one is descriptive: `passed` is `None`.
+band. `refute()` refits the stored estimator on a perturbed copy of the data. The
+[continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)
+calibrates the placebo `t` and the subset `rho` on a risk difference, and a fit inside its scope
+gets a verdict. The subset rule's measured false-alarm rate there is 0.080 to 0.095, above the
+nominal 0.05, inside the study's declared tolerance of 68 rejections in 600 trials. Every other
+reading is descriptive: `passed` is `None`.
 
 | test | draw | reference |
 | --- | --- | --- |
@@ -3648,6 +3652,7 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `placebo` on a point fit | t | `L2` on the six configurations of the [point refutation study](method-evidence/refuter-calibration-point.md): `TMLE` with GLM nuisances on a Gaussian and a binary outcome, `TMLE` with a depth-2 booster, greedy `CTMLE`, and `DRTMLE` with a declared and an estimated mechanism. Each covers the ATE of two arms, five folds and $n \ge 2000$ |
 | `subset`, `negative_control_outcome` on a point fit | rho, z | `L2` on the T1, T2 and D1 configurations of the same study: `TMLE` with GLM nuisances on either outcome, and `DRTMLE` with a declared mechanism |
 | `placebo` with the band-rank draw | t | `L2` on the PJ1 and LJ1 configurations of the [band-rank placebo study](method-evidence/refuter-calibration-band.md): `TMLE` of the policy `up` on a covariate band, and `LTMLE` with three banded nodes. Each covers a classifier density ratio, five folds and $n \ge 2000$ |
+| `placebo`, `subset` on a continuous-time survival fit | t, rho | `L2` on a risk difference of the [continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)'s configuration: the default `ContinuousSurvivalTMLE` with two causes, its switched variance, ten folds, $n \ge 1000$, and a target time holding 43% to 79% of the observed events. Its size rule allows 68 rejections in 600 trials, a looser tolerance than the other rows, and the subset rule's measured false-alarm rate is 0.080 to 0.095 |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio

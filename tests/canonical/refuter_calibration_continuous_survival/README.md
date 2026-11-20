@@ -1,9 +1,9 @@
 # Continuous-time survival refutation verdict rules
 
-This directory will hold a repeated-sampling study of two decision rules that `cleverly.refute`
+This directory holds a repeated-sampling study of two decision rules that `cleverly.refute`
 prints beside its statistics on a continuous-time survival fit. The X101 plan (rev 2, section 5)
-declares the design, resized from the second pilot (see [Pilot](#pilot)). No declared run has
-happened yet.
+declares the design, resized from the second pilot (see [Pilot](#pilot)). The declared run is
+committed here; see [Results](#results).
 
 | rule | reading | rejects when |
 | --- | --- | --- |
@@ -56,6 +56,31 @@ At a rate of 0.10 a cell passes with probability 0.875, against 0.285 under the 
 at 0.15 with 0.006. The sibling X82 studies keep 17 of 200, so a calibrated row from this study
 tolerates a larger size than theirs. No count that keeps the X82 tolerance reaches the family
 gate on this pilot (0.61 at 55 of 600, 0.70 at 113 of 1,200).
+
+## Results
+
+The declared run ran at `927379cf` on 4 cores in 25,700 s (`run.log`). All 20 property cells pass
+(`properties.csv`). One of the 600 size trials was lost to a DataError on subset refit 8 of 20 (an
+initial hazard fit put a combined jump of one or more at one time), under the failure bound of
+0.01 (`property-failures.csv`), so each size cell reads 599 trials.
+
+| reading | c1 1.12 | c1 2.32 | c2 1.12 | c2 2.32 |
+| --- | --- | --- | --- | --- |
+| placebo rejections of 599 | 28 | 27 | 33 | 33 |
+| subset rejections of 599 | 57 | 48 | 55 | 52 |
+| stale-row detections of 50 | 50 | 50 | 50 | 50 |
+| halved-SE detections of 50 | 49 | 49 | 50 | 50 |
+| doubled-SE detections of 50 | 48 | 48 | 46 | 48 |
+
+The subset rule rejects at 0.080 to 0.095, and every subset cell's 99% interval lies above 0.05.
+It passes inside the amended limit of 68 rejections. The pilot read 0.05 to 0.07, so the run moved
+the subset reading up. The placebo rule rejects at 0.045 to 0.055. The reporting cells reject in 2
+to 9 of their 98 to 100 trials (`reporting-cells.csv`).
+
+Three primary truth rows (`performance-tests.csv`) are red at 200 replications: cause 1 at 2.32
+(coverage and SE-ratio screen under-resolved), cause 2 at 1.12 (coverage and bias margin
+under-resolved), and cause 2 at 2.32 (bias interval 0.0014 to 0.0129, excluding 0). The roadmap's
+`X101-short-study-sanity` row owns them. No rule row reads them.
 
 ## Runner brief
 

@@ -120,6 +120,30 @@ def _reference(reading: str) -> float:
     raise KeyError(reading)
 
 
+#: Every declared cell: its truth is the rule's reference value, not an integral of the law.
+REPLICATE_TRUTH_CELLS = frozenset(cell for cells in PROPERTY_CELLS.values() for cell in cells)
+
+
+def replicate_truth(cell: str, replicate: int) -> float:
+    """The truth every trial of a cell publishes: the rule's reference value.
+
+    Parameters
+    ----------
+    cell : str
+        A member of :data:`REPLICATE_TRUTH_CELLS`.
+    replicate : int
+        The trial. The value does not depend on it.
+
+    Returns
+    -------
+    float
+        ``0`` for a placebo reading and ``1`` for a subset reading.
+    """
+    if cell not in REPLICATE_TRUTH_CELLS:
+        raise KeyError(cell)
+    return _reference(cell.split("__", 1)[1])
+
+
 def _row(
     family: str,
     cell: str,
