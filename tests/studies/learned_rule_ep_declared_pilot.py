@@ -14,7 +14,7 @@ own samples, so the cells' errors are independent and the label correlations are
 :func:`declared_replicates` returns X32a's ``R`` of each arm
 (:func:`tests.studies.repeated_sizing.calibration_replicates`) at a family-wise pass of
 :data:`ARM_FAMILY_PASS` per arm, so the two arms together reach 0.95, which the declaration commit
-writes into :data:`tests.studies.learned_rule_ep_declared.BUDGETED_R` where it is larger.  The
+was to write into :data:`tests.studies.learned_rule_ep_declared.BUDGETED_R` where larger.  The
 pilot is written by::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
@@ -32,7 +32,7 @@ pooled with it, and the CSV then summarizes both::
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -120,6 +120,26 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
 def independent(labels: Sequence[str]) -> np.ndarray:
     """The label correlations: every cell draws its own samples."""
     return np.eye(len(labels))
+
+
+def point_reading_pass(summary: pd.DataFrame, replicates: Mapping[str, int]) -> dict[str, float]:
+    """Each arm's family pass at ``replicates`` with every cell at its pilot ratio (no spread).
+
+    The declaration's reading where X32a's rule gives no budget
+    (:data:`tests.studies.learned_rule_ep_declared.BUDGETED_R`).
+    """
+    out = {}
+    for arm, group in summary.groupby("arm"):
+        curve = str(arm).removeprefix("__")
+        groups = repeated_sizing.calibration_groups(
+            dict(zip(group["cell"], group["se_ratio"], strict=True)),
+            int(group["replicates"].min()),
+            independent,
+        )
+        out[curve] = repeated_sizing.calibration_family_pass_probability(
+            study.STUDY.margins, replicates[curve], groups, 0.0
+        )
+    return out
 
 
 def declared_replicates(summary: pd.DataFrame) -> dict[str, int]:

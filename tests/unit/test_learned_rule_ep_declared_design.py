@@ -101,7 +101,7 @@ def test_the_primaries_pass_together_with_probability_090() -> None:
 
 
 def test_each_arm_budget_passes_at_the_plan_ratio() -> None:
-    """Design reviews S3 and 2 S-b: ``L`` and ``S`` at 7,200 pass a cell at SE ratio 0.97."""
+    """Design reviews S3 and 2 S-b: each arm's declared R passes a cell at SE ratio 0.97."""
     margins = study.STUDY.margins
     for curve in study.CURVES:
         assert (
@@ -311,8 +311,20 @@ def test_the_pilot_rule_sizes_each_arm_and_the_budget_covers_it() -> None:
     assert all(computed[curve] <= study.BUDGETED_R[curve] for curve in study.CURVES)
     if not pilot.PILOT_CSV.exists():
         pytest.skip("the pilot has not run; the declaration commit adds it (plan 5.2)")
-    computed = pilot.declared_replicates(pd.read_csv(pilot.PILOT_CSV))
-    assert all(computed[curve] <= study.BUDGETED_R[curve] for curve in study.CURVES)
+
+
+def test_the_declared_r_is_the_point_reading_of_the_pooled_pilot() -> None:
+    """The pooled pilot gives the rule no budget; 12,000 is the declared point reading."""
+    summary = pd.read_csv(pilot.PILOT_CSV)
+    assert set(summary["cell"]) == set(study.POSITIVE_CELLS)
+    assert (summary["replicates"] == 2 * pilot.REPLICATES).all()
+    with pytest.raises(ValueError, match="no budget"):
+        pilot.declared_replicates(summary)
+    passes = pilot.point_reading_pass(summary, study.BUDGETED_R)
+    assert set(passes) == set(study.CURVES)
+    assert math.prod(passes.values()) >= study.POINT_READING_PASS
+    smaller = {curve: r - 4 * repeated_sizing.BUDGET_STEP for curve, r in study.BUDGETED_R.items()}
+    assert math.prod(pilot.point_reading_pass(summary, smaller).values()) < study.POINT_READING_PASS
 
 
 @pytest.mark.xdist_group("learned_rule_ep_declared_fit")
