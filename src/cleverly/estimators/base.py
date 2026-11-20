@@ -23,7 +23,15 @@ from .._inference_status import (
 )
 from .._refusal import Refusal
 from .._summary import Detail, Summary, check_detail
-from .._support import Classification, SupportKey, combine_support
+from .._support import (
+    Classification,
+    Support,
+    SupportKey,
+    band_shape,
+    band_support,
+    classify_point_fit,
+    combine_support,
+)
 from .._typing import FloatArray, ParameterAxis
 from .._warnings import FitWarning
 from ..data.causal_data import CausalData
@@ -1728,6 +1736,8 @@ class TMLEResult:
                 random_state=random_state,
             )
         )
+        if band is not None:
+            band = replace(band, support=self._projection_band_support(names, band, draws))
         lower, upper = self.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
         support = combine_support(self.estimates[name].support for name in names)
         stem = (
@@ -1768,6 +1778,36 @@ class TMLEResult:
         if register is not None:
             register(result.in_sample)
         return result
+
+    def _projection_band_support(
+        self, names: Sequence[str], band: Any, draws: Sequence[Any]
+    ) -> Support | None:
+        """The support of a projection band: the coefficients' row read for kind ``band``.
+
+        The fit is classified again from its estimator, which reads no learner, so the band
+        meets the row its coefficients were labelled under.  The triple is the multiplier, the
+        identity scale (a projection curve is not transformed) and the normal reference.
+        ``None`` when the result carries no estimator.
+        """
+        if self.estimator is None:
+            return None
+        classification = classify_point_fit(
+            self.estimator,
+            self.data,
+            self.config.estimands,
+            source="TMLEResult.effect_curve",
+            conditions=self.config.support_conditions,
+        )
+        return band_support(
+            classification,
+            str(self.inference_status),
+            (self.estimates[name].support for name in names),
+            options=(band.kind, "identity", "normal"),
+            draws=int(band.n_replicates),
+            shape=band_shape(
+                cluster=self.data.cluster, weighted=self.data.is_weighted, repeated=bool(draws)
+            ),
+        )
 
     def influence_frame(self) -> Any:
         """One column per estimand of per-observation influence-curve values.

@@ -4555,8 +4555,7 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "curve_band": (
             "The band holds jointly at {level} over the {points} declared grid points, with "
-            "critical value {critical}. No registered study measures its joint coverage, so "
-            "the status above covers the coefficients and not the band."
+            "critical value {critical}. {coverage}"
         ),
         "curve_experimental": (
             "{reason} Its intervals are computed as for a validated fit; read them with more "
@@ -4598,6 +4597,20 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
+
+#: The ``{coverage}`` sentence of the ``curve_band`` note when the band reads ``supported``: a
+#: registered study measured its joint coverage in this configuration.
+CURVE_BAND_MEASURED: Final = (
+    "A registered study measures its joint coverage in this kind of fit, with {kind} "
+    "multipliers and {draws} draws."
+)
+
+#: The ``{coverage}`` sentence when it does not, naming the band's configuration.
+CURVE_BAND_UNMEASURED: Final = (
+    "No registered study measures its joint coverage in this kind of fit with {kind} "
+    "multipliers and {draws} draws, so the status above covers the coefficients and not the "
+    "band."
+)
 
 # ------------------------------------------------------------ targeting curves (X92 PR-5)
 

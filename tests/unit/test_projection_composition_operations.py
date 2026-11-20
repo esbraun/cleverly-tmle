@@ -146,6 +146,11 @@ def test_the_effect_curve_draws_with_its_band(kind: str) -> None:
     result = KINDS[kind].build()
     curve = result.effect_curve(grid={"W1": [-1.0, 0.0, 1.0]}, random_state=0)
     assert curve.band is not None
+    # No registered row licenses the projection band yet (P1 PR 2 plan 3.3): it reads
+    # experimental in every composition, and the band's own support says why.
+    assert curve.band.support is not None
+    assert curve.band.support.label == "experimental"
+    assert curve.band.support.reason
     assert plotting.curve(curve).axes
     if kind in CDE_KINDS:
         # The calibration plot reads the held-out checks, which build the total effect's
