@@ -1,9 +1,9 @@
 # Continuous-time survival refutation verdict rules
 
 This study calibrates two rules that `cleverly.refute` prints on a risk difference of a
-`ContinuousSurvivalTMLE` fit. The
-[continuous-time survival refutation](../validation-methods.md#continuous-time-survival-refutation)
-paragraphs of the validation reference define the draws and their references.
+`ContinuousSurvivalTMLE` fit. The "Continuous-time survival refutation" paragraphs under
+[Refutation operations](../validation-methods.md#refutation-operations) in the validation
+reference define the draws and their references.
 
 | rule | reading | rejects when |
 | --- | --- | --- |
