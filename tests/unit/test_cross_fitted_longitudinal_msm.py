@@ -894,10 +894,14 @@ def test_twenty_one_clusters_take_the_t_reference_and_skip_the_band() -> None:
 
 
 def test_nineteen_clusters_show_a_labelled_t_interval_for_every_coefficient() -> None:
-    """Below the cross-fitted floor of 20 clusters, a working-model fit shows t(17), labelled."""
+    """Below the default longitudinal floor of 20 clusters, a working-model fit shows t(17).
+
+    The cross-fitted family floor holds only for the always-versus-never contrast, so each
+    coefficient takes the label of an estimate no floor study measured.
+    """
     result = _clustered(19)
     _assert_whole_clusters(result)
-    assert_shows_interval(result, "few_cluster_plugin", 17)
+    assert_shows_interval(result, "few_cluster_estimand_plugin", 17)
 
 
 def test_m8_a_row_level_split_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

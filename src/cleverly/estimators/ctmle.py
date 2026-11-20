@@ -746,6 +746,11 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
         "a positive integer repeats; each draw is a V-fold stack, and the fit reports their median",
     ),
+    "cluster_variance": (
+        lambda v: v == "influence_curve",
+        "cluster_variance='influence_curve'. The cluster jackknife of the stacked interval "
+        "is not implemented",
+    ),
     "stratify_folds": (
         _anything,
         "any value; the engine admits only 'none' with cross_fit=True, so the fold labels "

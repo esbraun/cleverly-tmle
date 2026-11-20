@@ -6991,7 +6991,58 @@ class _SequentialEstimator:
             )
         if self.n_bootstrap:
             self._plan_bootstrap(state, plans, unresolved, builder)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            self._plan_jackknife(state, plans, unresolved, builder)
         return builder.build(fold_state)
+
+    def _plan_jackknife(
+        self,
+        state: _Preflight,
+        plans: tuple[Any, ...],
+        unresolved: tuple[Any, ...],
+        builder: PlanBuilder,
+    ) -> None:
+        """The fits of :meth:`_jackknife`, one refit per positive-mass cluster, as an upper bound.
+
+        Each refit leaves one cluster out and refits the whole draw on the full fit's folds
+        restricted to the kept rows. It is counted at the full fit's outer folds, the
+        learners' nominal inner folds and no constant-fold skip, and its minimum is zero
+        because no refit runs when no estimate shows an interval.
+        """
+        prepared = state.prepared
+        assert prepared.cluster is not None
+        weights = prepared.weights if prepared.is_weighted else None
+        clusters = int(positive_mass_clusters(prepared.cluster, weights).size)
+        if clusters < 2:
+            return
+        builder.multiply("left-out clusters", clusters)
+        folds = state.draws[0][0]
+        learners = self._plan_learners(prepared, self.random_state)
+        nominal = FitCounter(
+            weights=prepared.weights, groups=prepared.cluster, seed_fixed=False, nominal=True
+        )
+        self._plan_draw(
+            state,
+            plans,
+            unresolved,
+            folds,
+            learners,
+            nominal,
+            builder,
+            replicates=clusters,
+            jackknife=True,
+        )
+        if state.tuned_folds is not None:
+            per = 0 if folds.is_single else folds.n_folds
+            count = plan_tuned_fits(state.regimens, prepared, folds, nominal_folds=per)
+            builder.add(
+                "tuner",
+                "tuned cap fitted on every row at risk and per fold, per left-out cluster",
+                _tuner_label(state.regimens),
+                count.scaled(clusters),
+                upper="cluster-jackknife refits are counted at their nominal folds",
+                min_fits=0,
+            )
 
     def _plan_draw(
         self,
@@ -7004,15 +7055,30 @@ class _SequentialEstimator:
         builder: PlanBuilder,
         *,
         replicates: int = 0,
+        jackknife: bool = False,
     ) -> None:
-        """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` bootstrap draws."""
+        """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` resampled draws.
+
+        The replicates are bootstrap replicates, or with ``jackknife=True`` the
+        leave-one-cluster-out refits of :meth:`_jackknife`.
+        """
         prepared = state.prepared
         roles = self._plan_roles()
-        suffix = "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
-        why = (
-            "bootstrap replicates are counted at their nominal folds, with no fold of a binary "
-            "target fitted as a constant and no replicate dropped"
-        )
+        if jackknife:
+            suffix = "per left-out cluster, fold and repeat"
+            why = (
+                "cluster-jackknife refits are counted at their nominal folds, with no fold of a "
+                "binary target fitted as a constant, and none runs when no estimate shows an "
+                "interval"
+            )
+        else:
+            suffix = (
+                "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
+            )
+            why = (
+                "bootstrap replicates are counted at their nominal folds, with no fold of a "
+                "binary target fitted as a constant and no replicate dropped"
+            )
 
         def add(
             key: str,

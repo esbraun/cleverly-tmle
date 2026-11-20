@@ -541,6 +541,9 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "after refuse_multinode_design: every node categorical (H22, H21)"
     ),
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
+    ("longitudinal/estimator.py", "measured_design"): (
+        "returns False on a non-categorical node before reading its column"
+    ),
     ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.natural_law"): "after GFORMULA_MIXED_NODE_REFUSAL",

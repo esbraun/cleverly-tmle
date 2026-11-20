@@ -64,6 +64,7 @@ from tests.unit._inference_status_support import (
     longitudinal_learners,
 )
 from tests.unit._inference_status_support import cluster_labels as labels
+from tests.unit.test_longitudinal_cluster_status import fit_one_node
 from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
@@ -763,7 +764,8 @@ class TestTheLongitudinalDerivedEstimates:
         ],
     )
     def test_the_in_sample_longitudinal_floor(self, clusters: int, status: str) -> None:
-        result = _ltmle_end_of_study(clusters)
+        # The family floor holds on its measured design alone (MEASURED_LONGITUDINAL_DESIGNS).
+        result = fit_one_node(clusters)
         assert result.inference_status == status
         assert set(reference_dfs(result).values()) == {clusters - 2}
 
