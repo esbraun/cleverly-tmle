@@ -127,7 +127,21 @@ def read_rows(path: Path | IO[bytes], columns: list[str] | None = None) -> pd.Da
     pandas.DataFrame
         The rows, with a default index.
     """
-    return pq.read_table(path, columns=columns).to_pandas()
+    table = pq.read_table(path, columns=columns)
+    for position, field in enumerate(table.schema):
+        column = table.column(position)
+        if column.num_chunks > 1 and (
+            pa.types.is_string(field.type) or pa.types.is_large_string(field.type)
+        ):
+            # pandas keeps a string column as Arrow chunks, and taking rows across dozens of
+            # chunks cost a tenth of a second per cell on a study of millions of rows.
+            table = table.set_column(position, field, pa.chunked_array([column.combine_chunks()]))
+    frame = table.to_pandas()
+    del table
+    # Arrow's allocator keeps the freed table for reuse, about the frame's size again on a
+    # study of millions of rows, and the evidence tests hold the frame for a whole study.
+    pa.default_memory_pool().release_unused()
+    return frame
 
 
 def csv_text(frame: pd.DataFrame) -> bytes:

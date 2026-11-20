@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -50,7 +51,13 @@ from tests.studies.evidence.document import (
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
-from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
+from tests.studies.evidence.manifest import (
+    COMPACT_BYTES,
+    comparator_findings,
+    csv_text,
+    read_rows,
+    write_rows,
+)
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS
@@ -455,16 +462,37 @@ class TestArtifacts:
         for name in names:
             path = study.artifact(name)
             assert path.read_bytes()[:4] == b"PAR1", f"{name} is not Parquet"
-            committed = pq.read_table(path)
-            assert committed.schema.metadata is None, f"{name} carries pandas schema metadata"
+            schema = pq.read_schema(path)
+            assert schema.metadata is None, f"{name} carries pandas schema metadata"
             groups = pq.read_metadata(path)
             codecs = {
                 groups.row_group(group).column(index).compression
                 for group in range(groups.num_row_groups)
-                for index in range(committed.num_columns)
+                for index in range(len(schema))
             }
             assert codecs <= {"ZSTD"}, f"{name} uses {codecs}"
             dtype = property_failures.WITNESS_DTYPE if witnesses.name == name else None
+            if path.stat().st_size > COMPACT_BYTES:
+                # A file this large holds millions of rows, and one rewrite holds the frame,
+                # its CSV text and the table at once, several gigabytes. The CSV reader infers
+                # each column alone, so the rewrite of one column at a time decodes to the same
+                # table column by column.
+                for field in schema:
+                    column = read_rows(path, columns=[field.name])
+                    kept = (
+                        None
+                        if dtype is None
+                        else {key: value for key, value in dtype.items() if key == field.name}
+                    )
+                    rows = pd.read_csv(
+                        io.BytesIO(csv_text(column)), float_precision="round_trip", dtype=kept
+                    )
+                    again = pa.Table.from_pandas(rows, preserve_index=False)
+                    assert again.schema.field(field.name).equals(field), (name, field.name)
+                    stored = pq.read_table(path, columns=[field.name]).column(0)
+                    assert again.column(0).equals(stored), (name, field.name)
+                continue
+            committed = pq.read_table(path)
             rewritten = tmp_path / name
             write_rows(read_rows(path), rewritten, dtype=dtype)
             assert pq.read_table(rewritten).equals(committed, check_metadata=True), name

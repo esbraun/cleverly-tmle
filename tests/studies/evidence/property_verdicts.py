@@ -2194,15 +2194,22 @@ def few_cluster_reference_verdicts(
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
+    shown_by_cell: dict[str, pd.DataFrame] = {}
 
     def cell_rows(cell: str) -> pd.DataFrame:
-        selected = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+        # Indexed once per frame: a boolean scan of every row per call cost minutes on a study
+        # of millions of rows.
+        found = pf.cell_frame(rows, FEW_CLUSTER_FAMILY, cell)
+        selected = rows.iloc[:0] if found is None else found
         if not shown_only:
             return selected
-        # The shown subset is no longer the accounted cell, so it pairs on replicate ids alone.
-        return selected.loc[
-            pf.shown_mask(selected), ["replicate", "estimate", "std_error", "truth"]
-        ]
+        if cell not in shown_by_cell:
+            # The shown subset is no longer the accounted cell, so it pairs on replicate ids
+            # alone.
+            shown_by_cell[cell] = selected.loc[
+                pf.shown_mask(selected), ["replicate", "estimate", "std_error", "truth"]
+            ]
+        return shown_by_cell[cell]
 
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])

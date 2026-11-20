@@ -26,6 +26,7 @@ import itertools
 import json
 import math
 import re
+import weakref
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -444,7 +445,8 @@ class Context:
     def cell(self, family: str, cell: str) -> pd.DataFrame:
         """The surviving rows of one cell, in the order the rows hold them."""
         rows = self.rows
-        return rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
+        frame = cell_frame(rows, family, cell)
+        return rows.iloc[:0] if frame is None else frame
 
     def k(self, row: pd.Series) -> int:
         """The replicates the summary row's verdict lost."""
@@ -2445,6 +2447,81 @@ def unaccountable_clause(
 # ---- the summary rows a verdict reads -------------------------------------------------------
 
 
+#: Each live row frame's :func:`cell_positions`, by ``id``, with a reference that drops the
+#: entry when the frame goes.
+_CELL_POSITIONS: dict[int, tuple[Any, int, dict[tuple[str, str], np.ndarray]]] = {}
+
+
+def cell_positions(rows: pd.DataFrame) -> dict[tuple[str, str], np.ndarray]:
+    """The row positions of every ``(property, cell)`` of ``rows``, computed once per frame.
+
+    Every summary row's accounting reads its cells, and a boolean scan of every row per read
+    cost most of the accounting of a study of millions of rows. The positions are ascending,
+    so ``rows.iloc[positions]`` holds a cell's rows in the order and with the index the scan
+    gave. A row frame is immutable once read, which the cache relies on.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+
+    Returns
+    -------
+    dict
+        The positions of each ``(property, cell)``, keyed in sorted order.
+    """
+    key = id(rows)
+    held = _CELL_POSITIONS.get(key)
+    if held is not None and held[0]() is rows and held[1] == len(rows):
+        return held[2]
+    grouped = rows.groupby(["property", "cell"], sort=True).indices
+    positions = {(str(family), str(cell)): grouped[family, cell] for family, cell in grouped}
+    reference = weakref.ref(rows, lambda _, key=key: _CELL_POSITIONS.pop(key, None))
+    _CELL_POSITIONS[key] = (reference, len(rows), positions)
+    return positions
+
+
+def present_cells(rows: pd.DataFrame, family: str) -> list[str]:
+    """The cells of ``family`` that ``rows`` holds, in sorted order.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+    family : str
+        The ``property``.
+
+    Returns
+    -------
+    list of str
+        The cells.
+    """
+    return [cell for kind, cell in cell_positions(rows) if kind == family]
+
+
+def cell_frame(rows: pd.DataFrame, family: str, cell: str) -> pd.DataFrame | None:
+    """One cell's rows by :func:`cell_positions`, or ``None`` when ``rows`` holds none.
+
+    A copy of the one cell, where a family's ``groupby`` held a copy of every cell at once.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+    family : str
+        The ``property``.
+    cell : str
+        The cell.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        The cell's rows, in the order and with the index ``rows`` gives them.
+    """
+    positions = cell_positions(rows).get((family, cell))
+    return None if positions is None else rows.iloc[positions]
+
+
 def sources(row: pd.Series, rows: pd.DataFrame) -> list[tuple[str, str]]:
     """The replication cells a summary row's verdict reads.
 
@@ -2467,13 +2544,13 @@ def sources(row: pd.Series, rows: pd.DataFrame) -> list[tuple[str, str]]:
     from tests.studies.evidence import property_verdicts
 
     family, cell = str(row["property"]), str(row["cell"])
-    present = rows.loc[rows["property"] == family, "cell"].astype(str)
-    if (present == cell).any():
+    present = present_cells(rows, family)
+    if cell in present:
         return [(family, cell)]
     if family == "root_n_rate":
         label = cell.rsplit("__", 1)[0] if "__" in cell else ""
         prefix = f"{label}__" if label else ""
-        ladder = rows.loc[rows["property"] == "root_n_and_efficiency", "cell"].astype(str)
+        ladder = present_cells(rows, "root_n_and_efficiency")
         return [
             ("root_n_and_efficiency", name)
             for name in sorted(set(ladder))
@@ -2974,9 +3051,9 @@ def property_accounting(
         raise ValueError(f"FAILURE_BOUND {bound} is outside [0, {MAXIMUM_BOUND}]")
     lost = counts(records)
     ctx = module_context(record, rows, summary, lost, module)
+    requested_column = rows["requested_replicates"].to_numpy()
     requested = {
-        (str(family), str(cell)): int(group["requested_replicates"].iloc[0])
-        for (family, cell), group in rows.groupby(["property", "cell"], sort=True)
+        key: int(requested_column[positions[0]]) for key, positions in cell_positions(rows).items()
     }
     scored = summary.loc[summary["role"] != property_verdicts.DIAGNOSTIC_ROLE]
     items: list[_Accounted] = []

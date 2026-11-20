@@ -64,6 +64,7 @@ from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
 from tests.studies.clustered_few_cluster_tmle import ExactLongitudinalPropensity
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
 from tests.studies.evidence.properties import bootstrap_draw_blocks
+from tests.studies.evidence.property_failures import cell_frame, present_cells
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 #: The family every positive and control row belongs to: the registered two-clause rule of
@@ -498,12 +499,12 @@ def floor_readings(summary: pd.DataFrame, rows: pd.DataFrame, record: Any) -> No
 def _family_readings(
     summary: pd.DataFrame, rows: pd.DataFrame, family_name: str, record: Any, level: float
 ) -> None:
-    family = rows.loc[rows["property"] == family_name]
-    groups = dict(tuple(family.groupby("cell", sort=False)))
     for index in summary.index[summary["property"] == family_name]:
         name = str(summary.loc[index, "cell"])
         _, _, clusters, arm = parse(name)
-        group = groups[name]
+        group = cell_frame(rows, family_name, name)
+        if group is None:
+            raise KeyError(name)
         shown = group.loc[group["withheld"] == 0]
         hits, trials = int(shown["covered"].sum()), len(shown)
         wanted = int(group["requested_replicates"].iloc[0])
@@ -539,7 +540,9 @@ def _family_readings(
         if arm == JACKKNIFE_ARM:
             refits = pd.to_numeric(group["failed_refits"], errors="coerce").fillna(0)
             values["failed_refit_share"] = float((refits > 0).sum() / wanted)
-            reference = groups.get(name.removesuffix(JACKKNIFE_ARM) + reference_for(JACKKNIFE_ARM))
+            reference = cell_frame(
+                rows, family_name, name.removesuffix(JACKKNIFE_ARM) + reference_for(JACKKNIFE_ARM)
+            )
             if reference is not None:
                 values.update(jackknife_package_split(group, reference))
         for column, value in values.items():
@@ -981,17 +984,19 @@ def candidate_verdicts(
     from tests.studies.evidence.properties import coverage_gain_interval
 
     margins = record.margins
-    family = rows.loc[rows["property"] == CANDIDATE_FAMILY]
-    by_cell = dict(tuple(family.groupby("cell", sort=False)))
     present = set(summary.loc[summary["property"] == CANDIDATE_FAMILY, "cell"].astype(str))
     for members in groups:
         if not set(members) <= present:
             continue
         positive = positive_of(members[0])
         control = next(name for name in members if name != positive)
+        positive_rows = cell_frame(rows, CANDIDATE_FAMILY, positive)
+        control_rows = cell_frame(rows, CANDIDATE_FAMILY, control)
+        if positive_rows is None or control_rows is None:
+            raise KeyError((positive, control))
         low, high = coverage_gain_interval(
-            by_cell[positive],
-            by_cell[control],
+            positive_rows,
+            control_rows,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
             seed=candidate_seed(record, positive),
@@ -1012,7 +1017,7 @@ def pooled_sources(row: Mapping[str, Any], rows: pd.DataFrame) -> list[tuple[str
     """The candidate cells a pooled row reads: its configuration's pairs at or above its start."""
     configuration, candidate = str(row["cell"]).split("__")
     start = float(row["pooled_start"])
-    present = rows.loc[rows["property"] == CANDIDATE_FAMILY, "cell"].astype(str).unique()
+    present = present_cells(rows, CANDIDATE_FAMILY)
     out = []
     for name in sorted(present):
         fit, _, count, arm = name.split("__")
@@ -1031,15 +1036,17 @@ def _pooled_differences(
     Complete case: the draws both arms kept. Aligned: every requested draw, a lost candidate
     draw uncovered and a lost (A) draw covered, as the S7 fill.
     """
-    family = rows.loc[rows["property"] == CANDIDATE_FAMILY]
+    empty = rows.iloc[:0]
     names = {name for _, name in cells}
     out: list[float] = []
     for name in sorted(names):
         if positive_of(name) != name:
             continue
         fit, law, count, arm = name.split("__")
-        positive = family.loc[family["cell"] == name]
-        control = family.loc[family["cell"] == "__".join((fit, law, count, reference_for(arm)))]
+        found = cell_frame(rows, CANDIDATE_FAMILY, name)
+        positive = empty if found is None else found
+        found = cell_frame(rows, CANDIDATE_FAMILY, "__".join((fit, law, count, reference_for(arm))))
+        control = empty if found is None else found
         left = dict(
             zip(positive["replicate"].astype(int), positive["covered"].astype(float), strict=True)
         )
@@ -1092,7 +1099,7 @@ def pooled_rows(
     only when its configuration has a candidate cell. It passes when the complete-case pooled
     gain's 99% lower end lies above :data:`POOLED_MARGIN`.
     """
-    present = set(rows.loc[rows["property"] == CANDIDATE_FAMILY, "cell"].astype(str))
+    present = set(present_cells(rows, CANDIDATE_FAMILY))
     configurations = {name.split("__")[0] for name in present}
     out = []
     for (configuration, candidate), start in sorted(starts.items()):
