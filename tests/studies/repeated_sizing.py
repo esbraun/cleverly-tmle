@@ -72,9 +72,9 @@ the verdict.  Reaching the cap is not a diagnosis.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import numpy as np
 from scipy.linalg import block_diag
@@ -141,7 +141,7 @@ def family_share(families: int) -> float:
     return 1.0 - SIZED_FAIL / families
 
 
-def checked(probability: float, rule: str) -> float:
+def checked(probability: float | np.ndarray, rule: str) -> float:
     """``probability``, or :class:`ValueError` when it is not finite.
 
     Every rule compares a pass probability with a target.  ``nan < target`` and
@@ -150,8 +150,8 @@ def checked(probability: float, rule: str) -> float:
 
     Parameters
     ----------
-    probability : float
-        The probability a rule is about to compare.
+    probability : float or numpy.ndarray
+        The probability a rule is about to compare, a scalar.
     rule : str
         The rule and size, for the message.
     """
@@ -579,7 +579,7 @@ def _normal_grid(scale: float, step: float) -> tuple[np.ndarray, np.ndarray]:
 def pooled_pass_probability(
     groups: Sequence[PilotGroup],
     tau: float,
-    cell_pass: Callable[[np.ndarray], np.ndarray] | Sequence[Callable[[np.ndarray], np.ndarray]],
+    cell_pass: Callable[[np.ndarray], np.ndarray] | Iterable[Callable[[np.ndarray], np.ndarray]],
 ) -> float:
     r"""The family-wise pass probability of the cells of ``groups`` under the pooled reading.
 
@@ -605,7 +605,7 @@ def pooled_pass_probability(
         The pilot groups.
     tau : float
         The spread between the true values of the cells of a group.
-    cell_pass : Callable or Sequence[Callable]
+    cell_pass : Callable or Iterable[Callable]
         The probability that one cell passes, given its true value, over an array of values.
         One callable serves every cell.  A sequence gives each cell of the pooled groups its
         own, in the order of the groups' cells.
@@ -614,7 +614,9 @@ def pooled_pass_probability(
     if not (np.isfinite(tau) and tau >= 0.0):
         raise ValueError(f"pooled_pass_probability: tau must be finite and >= 0, not {tau}")
     count = sum(len(group.values) for group in groups)
-    listed = None if callable(cell_pass) else list(cell_pass)
+    listed: list[Callable[[np.ndarray], np.ndarray]] | None = (
+        None if callable(cell_pass) else list(cell_pass)
+    )
     if listed is not None and len(listed) != count:
         raise ValueError(
             f"pooled_pass_probability: {len(listed)} cell probabilities for {count} cells"
@@ -623,7 +625,11 @@ def pooled_pass_probability(
     offset = 0
     for group in groups:
         size = len(group.values)
-        cells = [cell_pass] * size if listed is None else listed[offset : offset + size]
+        cells = (
+            [cast("Callable[[np.ndarray], np.ndarray]", cell_pass)] * size
+            if listed is None
+            else listed[offset : offset + size]
+        )
         offset += size
         sigma = float(np.sqrt(group.mean_variance))
         # The wider law sets the step.  The narrower one may then span a few grid points or

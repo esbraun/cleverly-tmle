@@ -1128,7 +1128,9 @@ def test_the_inner_expectation_matches_adaptive_quadrature() -> None:
     for tau, replicates in ((0.02, 20_000), (0.05, 8_000), (0.07, 8_000), (0.1, 8_000)):
         cell = sizing._calibration_cell(MARGINS, replicates)
 
-        def integrand(z: float, tau: float = tau, cell: object = cell) -> float:
+        def integrand(
+            z: float, tau: float = tau, cell: Callable[[np.ndarray], np.ndarray] = cell
+        ) -> float:
             return float(cell(np.array([1.0 + tau * z]))[0] * norm.pdf(z))
 
         edges = [(edge - 1.0) / tau for edge in MARGINS.calibration_se_ratio]
