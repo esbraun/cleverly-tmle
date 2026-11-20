@@ -792,7 +792,9 @@ resolves the deferral for each request, so a supplied `estimand` makes the row a
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
 declares, for each operation and each result family, the answer, the required artifacts, the cost,
-and the execution class. The two costly classes are disjoint and are named separately.
+and the execution class. The two costly classes are disjoint and are named separately. A
+variable-importance run declares no rows of its own: its facades compose each candidate's rows,
+as [variable importance](#variable-importance) states.
 
 A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
