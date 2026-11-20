@@ -261,3 +261,124 @@ def test_a_search_builds_each_draws_inputs_once(monkeypatch: pytest.MonkeyPatch)
         warnings.simplefilter("ignore")
         tipping_gamma(result, arm_gamma={levels[0]: 1.0, levels[1]: -0.5})
     assert built[0] == len(result.repeats)
+
+
+def test_the_shared_inputs_are_read_only() -> None:
+    # A write into a shared input by one tilt would reach every later tilt of the sweep. The
+    # arrays are read-only views, so such a write raises instead of moving the estimates.
+    result = _fit(estimands=("ate", "att"))
+    inputs = TiltInputs(result, result.repeats[0])
+    arrays = [
+        inputs.received,
+        inputs.observed,
+        inputs.scaled,
+        inputs.weights,
+        inputs.mechanism,
+        inputs.solve_weights,
+        inputs.regression("mean"),
+        inputs.propensity("mean"),
+        inputs.columns(("probe",), lambda: np.ones((3, 2, 1))),
+    ]
+    for array in arrays:
+        with pytest.raises(ValueError, match="read-only"):
+            array.flat[0] = array.flat[0]
+
+
+def test_a_clustered_fold_evaluated_sweep_is_unchanged() -> None:
+    frame, _ = make_missing_outcome_binary(n=600, seed=29)
+    # Fold evaluation refuses clusters of unequal total weight, so the clusters carry equal
+    # weight; the weighted fold-evaluated case is the contrasts case above.
+    frame = frame.assign(cl=np.arange(len(frame)) // 3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = (
+            TMLE(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                missingness_learner=LogisticRegression(max_iter=1000),
+                cross_fit=True,
+                cv_evaluation=True,
+                simultaneous=False,
+                random_state=0,
+                estimands=("ey1", "ey0", "ate"),
+            )
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=COVARIATES,
+                delta="Delta",
+                id="cl",
+            )
+            .single()
+        )
+    targets = list(_tilt_targets(result).values())
+    direction = dict.fromkeys(result.data.arm_codes, 1.0)
+    repeat = result.repeats[0]
+    shared = TiltInputs(result, repeat)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for gamma in _SWEEP:
+            fresh, _ = targeted_tilt_estimates(result, repeat, targets, gamma, direction)
+            reused, _ = targeted_tilt_estimates(result, repeat, targets, gamma, direction, shared)
+            assert _digest(fresh) == _digest(reused)
+
+
+def test_a_sweep_keeps_the_update_warning() -> None:
+    # The response-bound warning fires inside a shared-input solve exactly as in a fresh one.
+    result = _fit(estimands=("ey1", "ey0", "ate"), nuisance_bound=0.45)
+    targets = [_tilt_targets(result)["ate"]]
+    direction = dict.fromkeys(result.data.arm_codes, 1.0)
+    repeat = result.repeats[0]
+    shared = TiltInputs(result, repeat)
+
+    def seen(inputs: TiltInputs | None) -> list[tuple[type[Warning], str]]:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            targeted_tilt_estimates(result, repeat, targets, 2.0, direction, inputs)
+        return [(w.category, str(w.message)) for w in caught]
+
+    fresh = seen(None)
+    assert any("missingness_bound" in message for _, message in fresh)
+    assert seen(shared) == fresh
+
+
+def test_a_curve_builder_writing_its_input_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mutation control for the read-only views: a curve builder that writes into the
+    # propensity it is handed would contaminate every later tilt of a shared sweep. The view
+    # makes that write raise on the first tilt.
+    result = _fit(estimands=("ate",))
+    targets = [_tilt_targets(result)["ate"]]
+    direction = dict.fromkeys(result.data.arm_codes, 1.0)
+    original = tilt_module.arm_mean_curves
+
+    def writing(
+        solve: Any, scaled: Any, observed: Any, received: Any, weights: Any, g: Any, gamma: Any
+    ) -> Any:
+        g[0, 0] = 0.5
+        return original(solve, scaled, observed, received, weights, g, gamma)
+
+    monkeypatch.setattr(tilt_module, "arm_mean_curves", writing)
+    shared = TiltInputs(result, result.repeats[0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError, match="read-only"):
+            targeted_tilt_estimates(result, result.repeats[0], targets, 1.0, direction, shared)
+
+
+def test_a_tilt_grid_builds_each_draws_inputs_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cleverly.sensitivity.missingness import missingness_tilt
+
+    result = _fit(repeats=2)
+    built = [0]
+    original = TiltInputs.__init__
+
+    def counted(self: Any, *args: Any, **kwargs: Any) -> None:
+        built[0] += 1
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(TiltInputs, "__init__", counted)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        missingness_tilt(result)
+    assert built[0] == len(result.repeats)

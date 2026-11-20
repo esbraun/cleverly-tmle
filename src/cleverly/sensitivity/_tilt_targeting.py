@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -425,6 +425,16 @@ def tilt_interval_exclusion(result: Any) -> str | None:
     return None
 
 
+_A = TypeVar("_A", bound=np.ndarray)
+
+
+def _frozen(array: _A) -> _A:
+    """A read-only view, so a sweep's shared input cannot be written by one tilt."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
+
+
 class TiltInputs:
     """The gamma-invariant inputs of the targeted tilt of one cross-fitting draw.
 
@@ -459,16 +469,16 @@ class TiltInputs:
         position = np.minimum(position, lookup.size - 1)
         if not np.array_equal(lookup[order][position], treatment):
             raise KeyError("a treatment value is not one of the fitted arms")
-        self.received = np.asarray(order[position], dtype=int)
-        self.observed = np.asarray(data.observed, dtype=bool)
+        self.received = _frozen(np.asarray(order[position], dtype=int))
+        self.observed = _frozen(np.asarray(data.observed, dtype=bool))
         raw = np.asarray(data.outcome, dtype=float)
-        self.scaled = np.where(
-            self.observed, nuisance.scaler.scale(np.where(self.observed, raw, 0.0)), 0.0
+        self.scaled = _frozen(
+            np.where(self.observed, nuisance.scaler.scale(np.where(self.observed, raw, 0.0)), 0.0)
         )
-        self.weights = np.asarray(data.weights, dtype=float)
+        self.weights = _frozen(np.asarray(data.weights, dtype=float))
         mechanism = tilt_missingness(nuisance, config.missingness_bound)
         assert mechanism is not None
-        self.mechanism = mechanism
+        self.mechanism = _frozen(mechanism)
         self.folds = (
             [np.asarray(test, dtype=int) for _, test in nuisance.folds]
             if config.cv_evaluation and not nuisance.folds.is_single
@@ -477,8 +487,8 @@ class TiltInputs:
         # The fit's own update weights: under the fold-evaluated construction they normalise
         # the weight mass inside each validation fold, and solving with any other weights
         # would move the fluctuation at gamma = 0 away from the fit's.
-        self.solve_weights = np.asarray(
-            result.estimator._validation_weights(data, nuisance), dtype=float
+        self.solve_weights = _frozen(
+            np.asarray(result.estimator._validation_weights(data, nuisance), dtype=float)
         )
         self._regressions: dict[str, FloatArray] = {}
         self._propensities: dict[str, FloatArray] = {}
@@ -497,7 +507,7 @@ class TiltInputs:
                 out = np.column_stack(
                     [np.asarray(targeted.arms[arm], dtype=float) for arm in self.arms]
                 )
-            self._regressions[group] = out
+            self._regressions[group] = _frozen(out)
         return self._regressions[group]
 
     def propensity(self, group: str) -> FloatArray:
@@ -505,15 +515,15 @@ class TiltInputs:
         if group not in self._propensities:
             config = self.result.config
             bounds = g_bounds_for(group, config.g_bounds, config.g_bounds_conditional)
-            self._propensities[group] = np.asarray(
-                self.repeat.nuisance.bounded_propensity(bounds), dtype=float
+            self._propensities[group] = _frozen(
+                np.asarray(self.repeat.nuisance.bounded_propensity(bounds), dtype=float)
             )
         return self._propensities[group]
 
     def columns(self, key: Any, build: Any) -> FloatArray:
         """The arm weights stored under ``key``, built by ``build()`` on first use."""
         if key not in self._columns:
-            self._columns[key] = build()
+            self._columns[key] = _frozen(build())
         return self._columns[key]
 
 

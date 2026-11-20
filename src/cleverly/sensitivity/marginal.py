@@ -112,7 +112,7 @@ from ..inference.cluster import cluster_reference_df, influence_variance
 from ..inference.delta import reference_quantile
 from ..inference.influence import ParameterEstimate
 from ..utils.frames import emit_frame
-from ..utils.parallel import map_parallel
+from ..utils.parallel import map_parallel, resolve_n_jobs
 from ._limits import bound_limits
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -1090,17 +1090,65 @@ def _draw_sides(
                 )
             )
     # The continuous sides fit their quantile and tail learners independently of one another,
-    # with seeds fixed per side, so they run on the fit's ``n_jobs`` and come back in order:
-    # every side is the one the serial loop computes.  The binary sides are closed forms and
-    # stay serial.
-    n_jobs = 1 if binary else getattr(result.estimator, "n_jobs", 1)
-    values = map_parallel(_call_side, payloads, n_jobs=n_jobs)
-    return dict(zip(wanted, values, strict=True))
+    # with seeds fixed per side, so on a fit made with ``n_jobs > 1`` they run in workers and
+    # come back in order: every side is the one the serial loop computes.  A worker's
+    # warnings are captured there and raised again here in task order, so the caller sees
+    # what the serial loop shows.  ``n_jobs=1`` and the binary sides, which are closed forms,
+    # take the serial loop itself.
+    n_jobs = 1 if binary else resolve_n_jobs(getattr(result.estimator, "n_jobs", 1))
+    if n_jobs == 1 or len(payloads) <= 1:
+        return {
+            key: function(*arguments, **keywords)
+            for key, (function, arguments, keywords) in zip(wanted, payloads, strict=True)
+        }
+    outcomes = map_parallel(_captured_side, payloads, n_jobs=n_jobs)
+    sides: dict[tuple[float, bool], _Side] = {}
+    for key, (side, shown) in zip(wanted, outcomes, strict=True):
+        _replay(shown)
+        sides[key] = side
+    return sides
 
 
-def _call_side(function: Any, arguments: tuple[Any, ...], keywords: dict[str, Any]) -> _Side:
-    """One side, from a payload of :func:`_draw_sides`."""
-    return function(*arguments, **keywords)
+def _captured_side(
+    function: Callable[..., _Side], arguments: tuple[Any, ...], keywords: dict[str, Any]
+) -> tuple[_Side, list[tuple[Any, type[Warning], str, int]]]:
+    """One side in a worker, with every warning it raised, in order, for :func:`_replay`."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        side = function(*arguments, **keywords)
+    return side, [(w.message, w.category, w.filename, w.lineno) for w in caught]
+
+
+def _replay(shown: Sequence[tuple[Any, type[Warning], str, int]]) -> None:
+    """Raise a worker's warnings again in the caller, at their original source lines.
+
+    Each one passes through the caller's filters and the registry of the module that raised
+    it, so a warning the caller's filters show once per location is shown once, as in the
+    serial loop.
+    """
+    import sys
+    import warnings
+
+    for message, category, filename, lineno in shown:
+        module = next(
+            (
+                loaded
+                for loaded in list(sys.modules.values())
+                if getattr(loaded, "__file__", None) == filename
+            ),
+            None,
+        )
+        registry = None if module is None else module.__dict__.setdefault("__warningregistry__", {})
+        warnings.warn_explicit(
+            message,
+            category,
+            filename,
+            lineno,
+            module=None if module is None else module.__name__,
+            registry=registry,
+        )
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:
