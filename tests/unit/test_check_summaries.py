@@ -249,6 +249,9 @@ AXIS_WORDS = (
     ("covariates per row ", "covariates"),
     ("minimum event count ", "events"),
     ("cluster count ", "clusters"),
+    ("cause count ", "event types"),
+    ("variance rule ", "standard-error rule"),
+    ("event share ", "share of events"),
 )
 
 

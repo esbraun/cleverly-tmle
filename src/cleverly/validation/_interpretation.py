@@ -668,8 +668,6 @@ class CalibrationScope:
             ("replicate count", self.replicates, fit.replicates),
             ("node count", self.nodes, fit.nodes),
             ("placebo draw", self.placebo_draws, fit.placebo_draw),
-            ("cause count", self.causes, fit.causes),
-            ("variance rule", self.variances, fit.variance),
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
@@ -696,6 +694,11 @@ class CalibrationScope:
             self.clusters_min is None or fit.clusters < self.clusters_min
         ):
             found.append(f"cluster count {fit.clusters}")
+        # The order follows plain_mismatches, which names the same axes in plain words.
+        if self.causes is not None and fit.causes not in self.causes:
+            found.append(f"cause count {fit.causes!r}")
+        if self.variances is not None and fit.variance not in self.variances:
+            found.append(f"variance rule {fit.variance!r}")
         if self.event_share_range is not None and not _within(
             fit.event_share, self.event_share_range
         ):
