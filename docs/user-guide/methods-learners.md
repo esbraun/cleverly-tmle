@@ -201,12 +201,14 @@ lasso = effect.estimate(
 runs this recipe. It also checks that the search sets some coefficients to exactly 0, which an L2
 search never does.
 
-### A faster lasso path
+### The optional glmstar solver
 
-On large samples, solving the penalty path takes a large share of a lasso or derivative fit. Install the
-optional `glmstar` package, which wraps the compiled solver of R's `glmnet`, and add
-`l1_solver="glmstar"` to the method, for example
-`CollaborativeTMLEMethod(models=parametric, strategy="lasso", l1_solver="glmstar")`.
+`l1_solver="glmstar"` solves the lasso and derivative penalty paths with the optional `glmstar`
+package, which wraps the compiled solver of R's `glmnet`, for example
+`CollaborativeTMLEMethod(models=parametric, strategy="lasso", l1_solver="glmstar")`. Do not
+expect it to be faster than the default solver. On a binary-treatment lasso fit with 100,000 rows
+and four covariates, the only case timed against the current default, the default took 1.00 times
+as long as glmstar (95% interval 0.98 to 1.03, five paired runs).
 
 Install it with `pip install "cleverly[glmstar]"`. It is licensed GPL-2.0-only and adds about
 390 MB of dependencies, so `cleverly[all]` leaves it out. `cleverly` checks every glmstar
