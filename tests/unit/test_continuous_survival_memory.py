@@ -166,6 +166,7 @@ def _measure(
         resident: int | None,
         final: Any,
         n_jobs: int,
+        own_floor: Any,
     ) -> Any:
         kept = resident if forced is None else round(forced * len(plan.bounds))
         rows = sum(hi - lo for lo, hi in plan.bounds[:kept])
@@ -192,6 +193,7 @@ def _measure(
                 resident=kept,
                 final=traced_final if final is not None else None,
                 n_jobs=n_jobs,
+                own_floor=own_floor,
             )
         finally:
             switch("walk", None)

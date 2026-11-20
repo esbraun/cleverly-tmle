@@ -617,20 +617,27 @@ def test_the_preview_counts_every_bootstrap_replicate(monkeypatch: pytest.Monkey
     # the fit's own fits.
     own = sum(row.fits for row in plan.rows if row not in replicate)
     assert sum(row.fits for row in replicate) == 5 * own
-    # A replicate whose refit fails makes at most the counted fits.  With the interaction model
-    # two of five refits raise on a combined jump, which the engine checks after every initial
-    # fit, so here they make all of them.
-    failing = _engine(
+    # With the interaction model two of five refits put a combined hazard jump of one or more
+    # at a counterfactual arm.  The engine bounds it, so they fit and make every counted fit;
+    # the bootstrap counts them, warns of nothing, and names them in each interval's reason.
+    bounded = _engine(
         cross_fit=True,
         n_folds=3,
         hazard_library=[CoxHazard("main"), CoxHazard("interaction")],
         n_bootstrap=5,
         n_jobs=1,
     )
-    short = _planned_and_realized(failing, frame)
-    assert short.result.bootstrap.n_failed == 2
-    assert sum(short.class_wide.values()) <= short.plan.total_candidate_fits
+    short = _planned_and_realized(bounded, frame)
+    assert short.result.bootstrap.n_failed == 0
+    assert short.result.bootstrap_jump_bounded == 2
+    assert short.result.to_dict()["bootstrap"]["jump_bounded"] == 2
+    assert sum(short.class_wide.values()) == short.plan.total_candidate_fits
     assert any("at most the fits counted" in text for text in short.plan.notes)
+    assert not any("combined jump" in text for text in short.warnings)
+    for estimate in short.result.values():
+        assert estimate.bootstrap is not None
+        assert "In 2 of 5 refits the engine scaled" in estimate.bootstrap.support.reason
+    assert short.result.record.jump_bound_share == 0
     # Mutation control: a preview that drops the replicate rows misses the refits.
     monkeypatch.setattr(
         engine_module.ContinuousSurvivalTMLE, "_plan_bootstrap", lambda *args, **kwargs: None

@@ -739,8 +739,8 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
-        "learners": "TypeError: learners() takes SuperLearnerDiagnostics, a CTMLESelection,",
-        "calibration": "CapabilityError: no nuisance model here reports",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -751,8 +751,8 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
-        "learners": "TypeError: learners() cannot read the nuisance",
-        "calibration": "CapabilityError: no nuisance model here reports",
+        "learners": "CapabilityError: diagnostic 'nuisance_models' is unavailable: a",
+        "calibration": "CapabilityError: diagnostic 'nuisance_models' is unavailable: a",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -1180,6 +1180,32 @@ def test_no_plot_crashes_on_a_capability_sweep_kind(kind: str) -> None:
         result = sweep.KINDS[kind].build()
     for plot in PLOTS:
         outcome(plot, result)
+
+
+@pytest.mark.parametrize("kind", ["variable_importance", "variable_importance_no_fits"])
+@pytest.mark.parametrize("plot", ["calibration", "learners"])
+def test_a_variable_importance_run_redirects_its_nuisance_plots(kind: str, plot: str) -> None:
+    """X104: ``result.diagnostics`` now exists on a run, and these plots would read it.
+
+    Each candidate is a point fit, so the plot refuses the run with a redirect to one
+    candidate's fit rather than drawing a report of several fits. A run that kept no fits has
+    no candidate fit to plot, so it raises the keep-fits record instead.
+    """
+    from cleverly.exceptions import RefusalReason
+    from cleverly.variable_importance import KEEP_FITS_REFUSAL
+
+    result = sweep.KINDS[kind].build()
+    with pytest.raises(CapabilityError) as caught:
+        getattr(plotting, plot)(result)
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    if kind == "variable_importance_no_fits":
+        assert caught.value.refusal == KEEP_FITS_REFUSAL
+    else:
+        assert "result.fits[candidate]" in caught.value.refusal.alternative
+    if kind == "variable_importance":
+        with pytest.raises(CapabilityError) as caught:
+            getattr(plotting, plot)(result.diagnostics.nuisance_models())
+        assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 def test_the_module_table_lists_every_plot() -> None:

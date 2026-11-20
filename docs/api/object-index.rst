@@ -28,6 +28,8 @@ categorized API tables.
    cleverly.estimators.TMLEResult
    cleverly.estimators.DoseResponseResult
    cleverly.estimators.PairSupport
+   cleverly.estimators.dose_response.DoseResponseSupportReport
+   cleverly.estimators.dose_response.DoseResponseScoreReport
    cleverly.longitudinal.LongitudinalResult
    cleverly.AdaptiveTMLEResult
    cleverly.estimators.atmle_result.AdaptiveTMLESupport
@@ -133,6 +135,7 @@ categorized API tables.
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.ImportanceFacts
+   cleverly.assessment.CandidateReports
    cleverly.variable_importance
    cleverly.variable_importance_plan
    cleverly.load

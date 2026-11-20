@@ -1091,12 +1091,12 @@ def _extreme_law() -> laws.Law:
 def test_the_extreme_share_is_the_mass_of_the_cells_near_zero_or_one() -> None:
     """The share is 0.4 at the default margin, 0 at a margin below the cell, and nan for a dose."""
     law = _extreme_law()
-    flagged = _fit(law).diagnostics.extreme_share
+    flagged = _fit(law).structural_diagnostics.extreme_share
     assert flagged[0] == pytest.approx(0.4, abs=1e-9)
     assert flagged[1] == pytest.approx(0.0, abs=1e-9)
-    narrow = _fit(law, positivity_margin=0.001).diagnostics.extreme_share
+    narrow = _fit(law, positivity_margin=0.001).structural_diagnostics.extreme_share
     assert narrow[0] == pytest.approx(0.0, abs=1e-9)
-    assert np.isnan(_fit(laws.law_c()).diagnostics.extreme_share[0])
+    assert np.isnan(_fit(laws.law_c()).structural_diagnostics.extreme_share[0])
 
 
 def test_a_regression_learner_fits_a_dose_node_with_a_binary_outcome() -> None:

@@ -1614,7 +1614,7 @@ class StructuralNestedMean:
             folds=folds,
             provenance=self._provenance(prepared, folds),
             simultaneous=self._bands(estimates, kinds, prepared, status, classification),
-            diagnostics=diagnostics,
+            structural_diagnostics=diagnostics,
             static_regimens=regimens,
             estimator=self._template(),
             label=SNMM_LABEL,
@@ -2131,8 +2131,10 @@ class StructuralNestedMeanResult:
         The runtime and data record.
     simultaneous : SimultaneousBands or None
         Joint bands over the regimen parameters, or over the blips with no regimen.
-    diagnostics : StructuralDiagnostics
-        Positivity and nuisance diagnostics.
+    structural_diagnostics : StructuralDiagnostics
+        The positivity and learner record the fit measured: the smallest standardized
+        eigenvalue of each diagonal Jacobian block, the share of extreme class
+        probabilities, and the learner diagnostics.
     static_regimens : tuple
         The resolved static regimens.
     estimator : StructuralNestedMean
@@ -2163,7 +2165,7 @@ class StructuralNestedMeanResult:
     config: StructuralConfig
     folds: Folds
     provenance: Provenance
-    diagnostics: StructuralDiagnostics
+    structural_diagnostics: StructuralDiagnostics
     static_regimens: tuple[_StaticRegimen, ...]
     estimator: StructuralNestedMean
     label: str
@@ -2603,6 +2605,70 @@ class StructuralNestedMeanResult:
             return nonparametric_fit.fit(self.data)
 
     # ----------------------------------------------------------------- reports
+
+    @property
+    def diagnostics(self) -> Any:
+        """The diagnostics facade: ``refute`` runs, and every other row refuses or redirects.
+
+        The positivity and learner record the fit measured is
+        :attr:`structural_diagnostics`, to which the ``support`` and ``nuisance_models`` rows
+        redirect.
+        """
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            One item per validated check; on a structural fit each states its refusal or
+            redirect.
+        """
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        ``refute`` refits the structural estimator, so it runs only with
+        ``include_refits=True``; every sensitivity row refuses on a structural fit.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def sensitivity(self) -> Any:

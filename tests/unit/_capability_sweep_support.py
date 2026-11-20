@@ -19,8 +19,9 @@ from __future__ import annotations
 import dataclasses
 import functools
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -43,10 +44,14 @@ from cleverly import (
     RegimeMean,
     SplitPlan,
     TimeToEvent,
+    assessment,
 )
+from cleverly import _importance_assessment as importance_assessment
 from cleverly.assessment import (
+    CURVE_OPERATIONS,
     AssessmentStatus,
     DiagnosticsFacade,
+    Replayability,
     SensitivityFacade,
 )
 from cleverly.data import CausalData
@@ -1190,6 +1195,168 @@ def fit_log_crr_projection() -> Any:
     return _conditional_contrast("log_ratio").estimate(**_logistic_two_fold())
 
 
+def _curve(identified: Any, **settings: Any) -> Any:
+    """The effect curve of a two-fold logistic TMLE fit of ``identified``."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return identified.estimate(**_logistic_two_fold(), **settings).effect_curve()
+
+
+def fit_curve_projection() -> Any:
+    """The CATE curve of :func:`fit_cate_projection`: two modifiers, one split (P1 3.5)."""
+    return _curve(_conditional_contrast())
+
+
+def fit_curve_projection_crr() -> Any:
+    """The log conditional risk ratio curve of :func:`fit_log_crr_projection`."""
+    return _curve(_conditional_contrast("log_ratio"))
+
+
+def fit_curve_projection_one_modifier() -> Any:
+    """The CATE curve on ``Linear(["W1"])``: no modifier can be dropped from its basis."""
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Linear, Modifiers
+
+    study = CausalStudy(
+        _modifier_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+    )
+    return _curve(study.identify(ConditionalContrast(Modifiers(["W1"]), model=Linear(["W1"]))))
+
+
+def fit_curve_projection_repeated() -> Any:
+    """The CATE curve of a fit that repeats its split: no targeting curve is derived for it."""
+    return _curve(_conditional_contrast(), repeats=2)
+
+
+def fit_curve_ep() -> Any:
+    """The EP curve of ``W1`` on a declared cosine sieve of size 2 (P1 PR 1).
+
+    One modifier, so ``modifier_stability`` refuses, and the matched B-spline family holds
+    fewer terms than the sieve declares, so ``stability`` refuses too.
+    """
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Cosine, Modifiers, Sieve
+    from cleverly.methods import EPMethod
+
+    study = CausalStudy(
+        _modifier_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+    )
+    method = EPMethod(sieve=Sieve(Cosine(["W1"], size=3), size=2)).with_overrides(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        random_state=0,
+    )
+    contrast = ConditionalContrast(Modifiers(["W1"], domains={"W1": (-1, 1)}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(contrast).estimate(method)
+
+
+def fit_curve_without_fit() -> Any:
+    """:func:`fit_curve_projection` without its producing fit: the replay gate refuses all."""
+    return dataclasses.replace(_fitted(fit_curve_projection), fit=None)
+
+
+def fit_snmm() -> Any:
+    """A two-node structural nested mean model of ``make_longitudinal(300, 0)``, two folds."""
+    from cleverly.learners import GLM
+    from cleverly.longitudinal import StructuralNestedMean
+
+    frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return StructuralNestedMean(
+            {"always": 1, "never": 0},
+            outcome_learner=GLM(family="binomial"),
+            treatment_learner=GLM(family="binomial"),
+            n_folds=2,
+            random_state=0,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+        )
+
+
+def fit_dose_response() -> Any:
+    """A two-fold kernel-smoothed dose-response curve of a binary outcome, three doses."""
+    from cleverly.estimators.dose_response import DoseResponse, DoseResponseTMLE
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.normal(size=n)
+    dose = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1 + 0.5 * dose - 0.08 * dose * dose + 0.4 * w))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return DoseResponseTMLE(
+            DoseResponse.spanning((1.0, 4.0), 3, fractions=(0.25,)),
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            n_folds=2,
+        ).fit(
+            pd.DataFrame({"Y": y, "A": dose, "W": w}), outcome="Y", treatment="A", covariates=["W"]
+        )
+
+
+def _importance_frame() -> Any:
+    """Two binary candidate exposures and one covariate; the outcome is binary."""
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    x1 = rng.binomial(1, expit(w))
+    x2 = rng.binomial(1, 0.5, size=n)
+    y = rng.binomial(1, expit(-0.5 + x1 + 0.5 * w))
+    return pd.DataFrame({"Y": y, "X1": x1, "X2": x2, "W": w})
+
+
+def _importance(estimator: Any, **settings: Any) -> Any:
+    from cleverly import variable_importance
+
+    options: dict[str, Any] = {"covariates": ("W",), **settings}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return variable_importance(
+            _importance_frame(),
+            outcome="Y",
+            candidates=("X1", "X2"),
+            estimator=estimator,
+            **options,
+        )
+
+
+def fit_variable_importance() -> Any:
+    """Two candidates, each adjusting for ``W`` and the other candidate, by TMLE in sample."""
+    return _importance(TMLE(**linear_in_sample()))
+
+
+def fit_variable_importance_drtmle() -> Any:
+    """:func:`fit_variable_importance` by a three-fold DR-TMLE."""
+    return _importance(DRTMLE(**linear_drtmle(n_folds=3)))
+
+
+def fit_variable_importance_ctmle() -> Any:
+    """:func:`fit_variable_importance` by C-TMLE0, the derivative strategy, which has inference."""
+    return _importance(linear_ctmle("derivative", lambdas=(0.01, 0.03)))
+
+
+def fit_variable_importance_mixed() -> Any:
+    """``X2`` adjusts for ``W`` alone, so its benchmark refuses while ``X1``'s runs (M2)."""
+    return _importance(
+        TMLE(**linear_in_sample()), covariates=("W", "X2"), adjust_for_other_candidates=False
+    )
+
+
+def fit_variable_importance_no_fits() -> Any:
+    """:func:`fit_variable_importance` with ``keep_fits=False``: every row refuses (K7)."""
+    return _importance(TMLE(**linear_in_sample()), keep_fits=False)
+
+
 def fit_four_arm() -> Any:
     """An ATE fit at a randomized four-arm treatment, 600 rows (the ``arms4`` key)."""
     rng = np.random.default_rng(3)
@@ -2236,26 +2403,57 @@ class Kind:
     refits : bool
         Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
         true. Every fit in this version refits, and a reconfigured kind is one it refuses.
+    arguments : mapping of str to mapping
+        Per operation, the arguments the sweep passes on top of :func:`sweep_arguments`'
+        own: a curve's refits take two folds or two seeds, so they stay cheap.
     """
 
     fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
+    arguments: Mapping[str, Mapping[str, Any]] = dataclasses.field(default_factory=dict)
 
     def build(self) -> Any:
         """A fresh copy of this kind's result, which shares the fit and nothing it reported.
 
         :func:`dataclasses.replace` gives the copy an empty ``assessment_cache`` and no
         memoized facade, so no report or row computed on another copy can answer for it.
-        The estimator, the data and the nuisances are shared, and no call the tests make
+        A curve's producing fit (with an EP fit's nuisance fit) and a variable-importance
+        run's candidate fits are copied the same way, since their facades read and fill those fits' own caches. The
+        estimator, the data and the nuisances are shared, and no call the tests make
         writes to them. The fit runs on the first call, so a test that builds before it
         applies a mutation fits without the mutation.
         """
-        return dataclasses.replace(_fitted(self.fit))
+        result = dataclasses.replace(_fitted(self.fit))
+        if getattr(result, "fit", None) is not None and dataclasses.is_dataclass(result.fit):
+            fit = dataclasses.replace(result.fit)
+            if getattr(fit, "nuisance_fit", None) is not None:
+                # An EP fit's facade is its nuisance fit's, which holds the cache it fills.
+                fit = dataclasses.replace(fit, nuisance_fit=dataclasses.replace(fit.nuisance_fit))
+            result = dataclasses.replace(result, fit=fit)
+        if getattr(result, "kept_fits", None):
+            fits = {name: dataclasses.replace(fit) for name, fit in result.kept_fits.items()}
+            result = dataclasses.replace(result, kept_fits=fits)
+        return result
 
 
-def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
-    return Kind(fit, frozenset(must_run), refits)
+def _kind(
+    fit: Callable[[], Any],
+    *must_run: str,
+    refits: bool = True,
+    arguments: Mapping[str, Mapping[str, Any]] | None = None,
+) -> Kind:
+    return Kind(fit, frozenset(must_run), refits, dict(arguments or {}))
+
+
+#: The cheapest request of each curve refit: two folds, two seeds, or 20 half-samples.
+_CURVE_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "calibration": {"n_folds": 2},
+    "risk_comparison": {"n_folds": 2},
+    "stability": {"n_seeds": 2},
+    "modifier_stability": {"n_folds": 2},
+    "targeting_curve": {"n_half_samples": 20},
+}
 
 
 #: The rows that read a fit's own nuisances and scores.
@@ -2531,18 +2729,75 @@ KINDS: dict[str, Kind] = {
     "continuous_survival+bootstrap": _kind(
         fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
     ),
+    # X104: the effect curves. The summaries read the producing fit, and the five curve
+    # operations refit its estimator on two folds or seeds. Every refutation and sensitivity
+    # row refuses a curve (P1). Each witness kind loses the rows its fit-wide rule refuses.
+    "curve_projection": _kind(
+        fit_curve_projection, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+    ),
+    "curve_projection_crr": _kind(
+        fit_curve_projection_crr, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+    ),
+    # One modifier: none can be dropped from the basis.
+    "curve_projection_one_modifier": _kind(
+        fit_curve_projection_one_modifier,
+        *_READ,
+        *(name for name in CURVE_OPERATIONS if name != "modifier_stability"),
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # A repeated split: no targeting curve is derived for it.
+    "curve_projection_repeated": _kind(
+        fit_curve_projection_repeated,
+        *_READ,
+        *(name for name in CURVE_OPERATIONS if name != "targeting_curve"),
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # One modifier, and a sieve larger than the matched B-spline family holds.
+    "curve_ep": _kind(
+        fit_curve_ep,
+        *_READ,
+        "calibration",
+        "risk_comparison",
+        "targeting_curve",
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # No producing fit: the replay gate refuses every row.
+    "curve_without_fit": _kind(fit_curve_without_fit, arguments=_CURVE_ARGUMENTS),
+    # The structural rows redirect to the fit-time record; refute reruns the estimator.
+    "snmm": _kind(fit_snmm, "refute"),
+    # No refutation or sensitivity analysis is implemented for a dose-response curve.
+    "dose_response": _kind(fit_dose_response, *_READ),
+    # Variable importance: each row runs on every candidate's own fit, so a run answers the
+    # rows its candidates' point fits answer.
+    "variable_importance": _kind(fit_variable_importance, "marginal_bounds", *_ARM),
+    "variable_importance_drtmle": _kind(
+        fit_variable_importance_drtmle, "corrections", "evalue", "marginal_bounds", *_LIVE
+    ),
+    "variable_importance_ctmle": _kind(fit_variable_importance_ctmle, "marginal_bounds", *_ARM),
+    # X2 adjusts for one covariate, so its benchmark refuses and so does the run's row.
+    "variable_importance_mixed": _kind(
+        fit_variable_importance_mixed, "marginal_bounds", *_LIVE, *_BOUND
+    ),
+    # keep_fits=False keeps no fit, so every row refuses with KEEP_FITS_REFUSAL.
+    "variable_importance_no_fits": _kind(fit_variable_importance_no_fits),
 }
 
 
 # ------------------------------------------------------------------------- the sweep
+
+#: A kind with no arguments of its own.
+_NO_KIND_ARGUMENTS: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
 
 
 def _first_estimand(result: Any) -> Any:
     """The first estimate's name, or a continuous-time fit's first pair of the arms' risks.
 
     The E-value of a continuous-time fit reads the ratio of two arms' risks at one cause and
-    time, so it names the pair rather than one estimate.
+    time, so it names the pair rather than one estimate. A variable-importance run names
+    the alias its candidates share, which its first entry carries.
     """
+    if getattr(result, "assessment_family", None) == "variable_importance":
+        return result.entries[0].parameter
     if getattr(result, "assessment_family", None) == "continuous_survival":
         index = result._risk_index()
         first, (arm, *place) = next(iter(index.items()))
@@ -2553,11 +2808,24 @@ def _first_estimand(result: Any) -> Any:
     return next(iter(result.estimates))
 
 
+def _benchmark_covariate(result: Any) -> list[str]:
+    """One covariate to benchmark: on a variable-importance run, one every candidate adjusts for.
+
+    A curve, a dose-response fit and a structural fit declare no row that defers on
+    ``covariates``, so only the point and variable-importance fits reach this filler.
+    """
+    if getattr(result, "assessment_family", None) == "variable_importance":
+        sets = [set(entry.adjustment_set) for entry in result.entries]
+        first = result.entries[0].adjustment_set
+        return [next(name for name in first if all(name in other for other in sets))]
+    return list(omitted_variable._benchmark_covariates(result.data)[:1])
+
+
 def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
     """The value the sweep supplies for each argument a row can defer on."""
     return {
         "estimand": lambda: _first_estimand(result),
-        "covariates": lambda: list(omitted_variable._benchmark_covariates(result.data)[:1]),
+        "covariates": lambda: _benchmark_covariate(result),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
         "mechanism": lambda: True,
@@ -2615,17 +2883,23 @@ def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
     return filled
 
 
-def sweep_arguments(result: Any) -> dict[str, dict[str, Any]]:
+def sweep_arguments(
+    result: Any, kind_arguments: Mapping[str, Mapping[str, Any]] = _NO_KIND_ARGUMENTS
+) -> dict[str, dict[str, Any]]:
     """The arguments that leave no row of ``result`` waiting on the caller.
 
     One replicate per refutation keeps the refits cheap. So does one bound for a
-    point-treatment curve that refits at each bound, which a guarded DR-TMLE fit declares.
-    The bound grid decides no refusal: the rows and the calls resolve the axis alone.
+    point-treatment curve that refits at each bound, which a guarded DR-TMLE fit declares,
+    on a point fit or on a variable-importance run's candidates. The bound grid decides no
+    refusal: the rows and the calls resolve the axis alone. ``kind_arguments`` is the
+    kind's own (:attr:`Kind.arguments`), laid over these.
     """
     arguments: dict[str, dict[str, Any]] = {"refute": {"n_replicates": 1}}
     curve = result.diagnostics.capability("truncation_curve")
-    if curve.result_family == "point" and curve.execution == "refit":
+    if curve.result_family in ("point", "variable_importance") and curve.execution == "refit":
         arguments["truncation_curve"] = {"bounds": (0.05,)}
+    for operation, values in kind_arguments.items():
+        arguments[operation] = {**arguments.get(operation, {}), **values}
     while fill_deferred(result, arguments):
         pass
     return arguments
@@ -2676,14 +2950,16 @@ _OMITTED = frozenset(
 )
 
 
-def sweep(result: Any) -> list[str]:
+def sweep(
+    result: Any, kind_arguments: Mapping[str, Mapping[str, Any]] = _NO_KIND_ARGUMENTS
+) -> list[str]:
     """:func:`problems` under :func:`sweep_arguments`, for a result nobody has asked yet.
 
     Reading the rows to fill their arguments is part of the sweep, so an exception there
     is a problem too.
     """
     try:
-        arguments = sweep_arguments(result)
+        arguments = sweep_arguments(result, kind_arguments)
     except Exception as error:
         return [f"reading the rows raised {type(error).__name__}: {error}"]
     return problems(result, arguments)
@@ -2730,6 +3006,12 @@ SEAMS: tuple[tuple[Any, str], ...] = (
     (CTMLE, "_configured_for_refit"),
     (DRTMLE, "_configured_for_refit"),
     (TMLE, "_refit_configuration_refusal"),
+    # X104: the curve's replay record and the step that applies its fit-wide rules to the
+    # rows, and the variable-importance composition and its keep_fits=False rows.
+    (assessment, "_curve_replayability"),
+    (assessment, "_curve_fit_wide_rules"),
+    (importance_assessment, "compose_rows"),
+    (importance_assessment._CandidateFacade, "_without_fits"),
 )
 
 
@@ -2765,6 +3047,31 @@ def _without_bound_parameters(patch: pytest.MonkeyPatch) -> None:
 
 def _identity_gate(self: Any, capability: Any, arguments: Any) -> Any:
     return capability
+
+
+def _curve_fit_kept(curve: Any) -> Replayability:
+    """The replay record of a curve that keeps its producing fit and estimator."""
+    return Replayability(True, False, False, True, False, rerun_configuration=True)
+
+
+def _rules_unapplied(result: Any, rows: Any) -> Any:
+    """The curve rows as declared, with no fit-wide rule applied; the calls still refuse."""
+    return rows
+
+
+_COMPOSE_ROWS = importance_assessment.compose_rows
+
+
+def _first_candidate_row(operation: str, rows: Any) -> Any:
+    """The composition as a first-candidate shortcut: the other candidates' rows unread."""
+    return _COMPOSE_ROWS(operation, dict(list(rows.items())[:1]))
+
+
+def _fits_assumed_kept(self: Any, operation: str) -> Any:
+    """A keep_fits=False row that reads as if the fits were kept: available and cheap."""
+    return assessment._capability(
+        operation, "variable_importance", artifacts=(), interpretation=operation
+    )
 
 
 def _unconfigured(self: Any, data: Any) -> Any:
@@ -2953,11 +3260,14 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
+                # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
+                # available and its call refuses; the run's call refuses with it.
+                "variable_importance_mixed",
             }
         ),
         "("
         + _RAISED.format("benchmark")
-        + "benchmark cannot drop every covariate"
+        + "(candidate X2: )?benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
         + "|benchmark declined: .*would still divide by the declared mechanism"
         + "|benchmark declined: .*this fit's data declares the mechanism known)",
@@ -2980,5 +3290,34 @@ MUTATIONS: dict[str, Mutation] = {
             {"natural_course_study", "natural_course", "rr+missing", "par+missing", "rr", "or"}
         ),
         _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
+    ),
+    "M-curve-replay": Mutation(
+        "the curve replay record reads the producing fit as kept",
+        lambda patch: patch.setattr(assessment, "_curve_replayability", _curve_fit_kept),
+        frozenset({"curve_without_fit"}),
+        # The validation battery invokes the summary rows it reads as available, and their
+        # calls raise the replay record, so assess() raises it.
+        r"assess raised CapabilityError: summarizing the stored artifacts is unavailable",
+    ),
+    "M-curve-rules": Mutation(
+        "the curve rows skip the fit-wide rules, which the calls still apply",
+        lambda patch: patch.setattr(assessment, "_curve_fit_wide_rules", _rules_unapplied),
+        frozenset({"curve_ep", "curve_projection_one_modifier", "curve_projection_repeated"}),
+        r"(modifier_stability|stability|targeting_curve) declined: ",
+    ),
+    "M-vi-compose": Mutation(
+        "the variable-importance rows read only the first candidate's row",
+        lambda patch: patch.setattr(importance_assessment, "compose_rows", _first_candidate_row),
+        frozenset({"variable_importance_mixed"}),
+        r"benchmark declined: .*candidate X2: ",
+    ),
+    "M-vi-keep-fits": Mutation(
+        "the variable-importance rows ignore keep_fits=False",
+        lambda patch: patch.setattr(
+            importance_assessment._CandidateFacade, "_without_fits", _fits_assumed_kept
+        ),
+        frozenset({"variable_importance_no_fits"}),
+        # The validation battery invokes the rows it reads as available, so assess() raises.
+        r"assess raised CapabilityError: This variable-importance run used keep_fits=False",
     ),
 }

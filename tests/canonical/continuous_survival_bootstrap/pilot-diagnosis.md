@@ -12,7 +12,8 @@ Each fit stops after the engine's checks of the initial hazards, so no walk runs
 python -m tests.studies.continuous_survival_bootstrap_ties --jobs 4 --draws 400 --bootstrap 38 45 0 1
 ```
 
-This note diagnoses only. The engine is unchanged.
+This note was written as a diagnosis, with the engine unchanged. The owner adopted option B on
+2026-11-20; [the decision](#decision-option-b-adopted) at the end says what shipped.
 
 ## What trips the guard
 
@@ -145,6 +146,58 @@ witness with two nonzero causes at the bounded cell. All 10 failures here have a
 0, so a witness of that shape cannot see the cause split. The review in the plans repository
 lists these accompaniments.
 
-The refusal's message no longer blames a late time with few units at risk. It names the
+The refusal's message no longer blamed a late time with few units at risk. It named the
 extrapolation to a counterfactual arm outside that arm's covariate range, which ties can amplify.
-The behaviour is unchanged.
+
+## Decision: option B adopted
+
+The owner adopted option B, amended as the review asked, on 2026-11-20. The refusal is gone; an
+infinite combined jump is still refused, and a NaN jump is walked as before.
+
+- **Placement.** `cleverly.survival._chunked.bound_jumps` runs inside `InitialHazards.jumps`, the
+  one source of the engine's checks, its replay check and every walk block, in every fit and
+  bootstrap refit alike. It acts on cells whose sum is at least 1, exactly the cells the old
+  code refused, and scales them to $1 - \delta$, $\delta = 10^{-8}$ (`JUMP_BOUND`, a constant of
+  its own beside the walk's floor). It writes nothing when no cell reaches 1, so every fit that
+  ran before computes the same arrays. (The first version acted from $1 - \delta$; the
+  implementation review narrowed it to 1 so the bound moves provably nothing that ran.)
+- **The walk's floor.** Each bounded pair takes its own floor, the lower of the other pairs'
+  floor and its own initial survival at the grid's end; the other pairs' floor reads the other
+  pairs only (`run_walk(own_floor=...)`). A fit with no bounded pair runs the old code path.
+- **Record, warning and label.** `ContinuousSurvivalRecord.jump_bound_share` and
+  `jump_bound_at_risk_share`; one `PositivityWarning` per fit naming the arm, the causes and the
+  pairs; every estimate experimental with a reason that names the extrapolation;
+  `result.bootstrap_jump_bounded` counts the refits where the bound acted, and every bootstrap
+  interval's reason names it. The continuous studies' `targeting-readings.csv` gain
+  `mean_jump_bound_share` and `mean_jump_bound_at_risk_share`, and the bootstrap study's `mean_jump_bounded_refits`, at their next
+  regeneration.
+- **Witnesses.** `tests/unit/test_continuous_survival_jump_bound.py` (two nonzero causes at a
+  counterfactual cell, a cell at the received arm while at risk, the threshold) and
+  `tests/unit/test_continuous_survival_blocks.py` (the bounded walk against the dense walk, the
+  own floor, the underflow that a bounded survival can still reach).
+- **A/B replay.** `tests/studies/continuous_survival_jump_bound_replay.py` refits replicates of
+  the four registered continuous studies at the base commit and with the bound, and compares
+  them at `rtol 0`. Its readings are below.
+
+The replay ran 395 fits on each side: 40 replicates spread over each of the nine primary cells,
+six of each reported cell of `continuous-time-survival`, and every fit the committed records lost
+to the refusal, with `positivity_4k` replicate 283 (an underflow) as a control. It ran again after the
+bound was narrowed to sums of at least 1, with the same counts.
+
+| outcome | fits |
+| --- | --- |
+| identical estimates and standard errors at `rtol 0` | 384 (causes 80, functionals 40, variance 200, continuous-time 64) |
+| refused before, fit now | 7 (`v3_half_n` replicates 657, 1209, 2184, 3179, 4433, 4586, 5932) |
+| refused before, refused now on survival underflow | 3 (`v3_half_n` 4272, `functionals_cf_1k` 10023, `positivity_4k` 292) |
+| refused on underflow on both sides | 1 (`positivity_4k` 283) |
+| changed, or newly failing | 0 |
+
+In the three that still fail, one pair's jumps reach the bound at 32, 27 and 1,141 grid times,
+with raw sums up to 1.9, 1.3 and 6.8, so its survival is $\delta$ to that power and falls below
+$10^{-250}$. The refuter calibration's trial 465, outside the replay, fails the same way
+at subset refit 8. The bound keeps the refusal for a pair the model extrapolates at many times; it
+rescues a pair that crosses one at a few times, as every bootstrap refit of draws 38 and 45 did.
+Refitted whole, draw 38 lost 0 of 200 refits with the bound acting in 7, and draw 45 lost 0
+with the bound acting in 3
+(`python -m tests.studies.continuous_survival_bootstrap_ties --whole --bootstrap 38 45`).
+

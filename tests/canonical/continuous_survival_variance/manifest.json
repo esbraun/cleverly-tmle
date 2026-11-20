@@ -5,16 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-continuous-survival-switched",
-      "cleverly_version": "0.2.5",
-      "cleverly_commit": "0cb80a56bca80d98a6f9f083fe6bfb9c63800ec2",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "4a9504a7dd9156a9b466f3f2f1028a398a7b4e15",
       "cleverly_worktree_clean": true,
-      "python": "3.13.14",
-      "numpy": "2.5.4",
+      "python": "3.13.18",
+      "numpy": "2.5.3",
       "scipy": "1.18.1",
-      "pandas": "3.1.1",
+      "pandas": "3.0.5",
       "scikit_learn": "1.9.1",
       "joblib": "1.6.0",
-      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+      "dependency_lock_sha256": "dc4d209215f641284445c1b2642b7c95dfd71ab53a0b20da0301929970aac1fe"
     },
     "reference": null
   },
@@ -177,14 +177,14 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/continuous_survival_variance.py": "c56a4a887eb80faf63cbb4fc71dc6bd2c8e04a70daf23098155b5925dae90e37",
+    "tests/studies/continuous_survival_variance.py": "21fc45078742035f98a81dfb9a55a003e3d804d8260f3eb5d1ff27a878d81471",
     "tests/studies/continuous_survival_variance_law.py": "e64a78acd8e2a86deb12b5d4e33e6dd840e2f3547510e62b0a31fb139ea3002f",
-    "tests/studies/continuous_survival_variance_properties.py": "b8825db6552afca9b771838fbfdaf54d8ca59310a5dafcced78ed6a692fbde95",
+    "tests/studies/continuous_survival_variance_properties.py": "7fba1c6244746827e4cea1e56b022c4144dffa6cc754e7cb0f537bc7a423c04e",
     "tests/studies/continuous_survival_variance_readings.py": "7cc451ece81861dc54bf4462af8420146b98d2ba6d209298b51ec1ecbfeccfec",
-    "tests/studies/continuous_survival.py": "61202d8bee9c011630fd3511d65ca57051acad5ae29ca86350464af00c8ccd29",
-    "tests/studies/continuous_survival_law.py": "0b022895d8115269d5e5324d0ed1be969134d538c8df0f142778a32cff5f1b7b",
+    "tests/studies/continuous_survival.py": "39f6796abfa5eff11dc4604ffebe74c82b6b6f9770d6f8f677879fe2fe299a6e",
+    "tests/studies/continuous_survival_law.py": "7d62d21e1e9dad2106e87ea08889df501d922ed65e1a2885b2973cadb71f4418",
     "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
-    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/property_verdicts.py": "60b2a28b37b0271f1b6afa27eb2c82c0d76972c3788c9c3ca22265d51bf6001d",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
     "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
@@ -198,18 +198,18 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "3e87ba8d360b5dd792b61b5aadb24ecc7c080b16b9b8d35a4c4bb3185bb8377f",
-    "summary.csv": "ec6fee3ab4f31fe66216d1f4c9f5c47d4fdbdececf780134568797914e132b52",
+    "replicates.parquet": "5d124da4ea40f18212fac85c50c36a1c0e1a596fbc42d163b92c99645ad33b22",
+    "summary.csv": "8ca76b6393a313019878ca9213a184ded37cde8e7e955c6df4c36e1911b08a08",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "2353b915dcc9bf015f7e58b043bf799f058c3849eae150a5427ac6c14a9ba264",
+    "performance-tests.csv": "bed45978327e54f8d82c1945bdd7b9abdf82e81434b8f4aec14aecae7dccb15f",
     "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
-    "properties.csv": "12c8dbdd614a895ef7df2e5261a922df365630e2d8c7dffca24bc2c1564cfdb2",
-    "targeting-readings.csv": "9f4e43bfda7b1b6a169c69858612caa994f5742f0739104bdab98afafe60de31",
-    "variance-rows.csv.gz": "f3b9dc5e1b022503f8f8ed7dc8a70a57e29dd595226f71151e25a8faaa39941c",
-    "candidate-readings.csv": "3a456726bd5ba23420280bf99d95d8fddeb4ad4bfd4b7526fa0ff8ff73d91fe2",
-    "ship-rule.csv": "b81889a478ed629d625b8e5145e747ee6c7682551064ae43ff5805e2045aa622",
-    "floors.csv": "f240e629bb0efd30ede7d642cf78500ad7bffd9080138588acd3d76048d7563f",
-    "failures.csv": "79850ee464a94a773c6e7fd7cb10a3fdf3b73e43f1507ac16fa3bf580c03a49f",
-    "failure-accounting.csv": "0431568c606084728ac5e9de2e41a543189cf088bc3b7d8d5ee65fd7e7ee684f"
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "targeting-readings.csv": "934b81cff1c3a58283bf59a3f3d13126f0b1ddcf7d0dc21ce2f1ee989c793c31",
+    "variance-rows.csv.gz": "aaa639e271d57b4890614bd78203cf654c4f71e83fcbd6752d9dcfda1888b1e7",
+    "candidate-readings.csv": "675bd710718712d33eea00cad93293bf43667d4fe054bea3f370e69482e7e1f5",
+    "ship-rule.csv": "cd75a9b03696d6f93674e1f789ce162be35c0dcb010166c38a68ac8b00e79c95",
+    "floors.csv": "f3f92b337e1439efd4bc91bab6f995e1e8a5cd573537cf9464c9757ac7af219e",
+    "failures.csv": "364224ed42e262bc196d059fce33b23de973eb6d27c11270ef2ec181ed6f9af0",
+    "failure-accounting.csv": "739c1de89f8a26bff3541d32f6726cf24c1de9b66a6ead4435fe5fbadcb57ad8"
   }
 }

@@ -1206,7 +1206,8 @@ def refit_plan(result: Any) -> PlannedFits:
     CapabilityError
         If the refit refuses the result, with the record the refit raises, or if the result
         keeps no estimator to refit, with the reason code and wording of
-        :func:`~cleverly.validation.refute`.
+        :func:`~cleverly.validation.refute`, or if its estimator defines no refit preview,
+        as an ``implementation_gap`` that names X106.
     """
     from ._trial_family import AUGMENTED_TRIAL_FAMILY
     from .exceptions import CapabilityError, RefusalReason
@@ -1229,10 +1230,19 @@ def refit_plan(result: Any) -> PlannedFits:
             "refit_plan needs the fitted estimator that produced the result",
             reason=RefusalReason.INVALID_DECLARATION,
         )
-    # Every engine that keeps itself on its result defines a refit preview beside its refit
+    # Every engine the study dispatches to defines a refit preview beside its refit
     # (tests/unit/test_planned_fits_refit.py, test_every_engine_defines_a_preview_beside_its_fit).
+    # An estimator fitted directly may not have one yet, and that is a gap, not a crash.
     planned_refit = getattr(estimator, "_planned_refit", None)
-    assert planned_refit is not None, f"{type(estimator).__name__} has no refit preview"
+    if planned_refit is None:
+        raise CapabilityError(
+            f"{type(estimator).__name__} has no preview of its refit, so its fits cannot be "
+            "counted before they run",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Refit the result and count its fits, or fit an engine that "
+            "CausalStudy dispatches to.",
+            roadmap="X106",
+        )
     data = result.data
     if family == "continuous_survival":
         return cast("PlannedFits", planned_refit(data, random_state=estimator.random_state))
