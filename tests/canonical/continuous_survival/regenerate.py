@@ -72,9 +72,9 @@ experimental.  No cell is re-sized, re-drawn or downgraded after a verdict is se
 * The reported cells and ``early-time.csv`` carry no verdict and no prediction; their readings
   are published as measured.
 * A replication that raises is never redrawn.  A ``DataError`` (an initial hazard fit whose
-  survival reaches zero before the last target, or whose combined jump reaches one) is a
-  recordable fit failure, bounded by the failure bound: the pilot lost 0.5% of ``both_cf_1k``
-  fits and 0.19% of calibration fits to it.
+  survival reaches zero before the last target, or whose hazard jump is infinite; a combined
+  jump of one or more is bounded since 2026-11-20) is a recordable fit failure, bounded by the
+  failure bound: the pilot lost 0.5% of ``both_cf_1k`` fits and 0.19% of calibration fits to it.
 
 Departures from the design (X91-G-design.md section 15): the primary and property cells run at
 n = 1,000 rather than 4,000, the first target time is reported rather than gated, and the

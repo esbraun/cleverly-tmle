@@ -62,7 +62,9 @@ gate on this pilot (0.61 at 55 of 600, 0.70 at 113 of 1,200).
 The declared run ran at `927379cf` on 4 cores in 25,700 s (`run.log`). All 20 property cells pass
 (`properties.csv`). One of the 600 size trials was lost to a DataError on subset refit 8 of 20 (an
 initial hazard fit put a combined jump of one or more at one time), under the failure bound of
-0.01 (`property-failures.csv`), so each size cell reads 599 trials.
+0.01 (`property-failures.csv`), so each size cell reads 599 trials. Since 2026-11-20 the engine
+bounds such a jump instead of refusing it; refitted under the bound, the trial still fails at
+subset refit 8, on survival underflow after the bound acted, so the count stands.
 
 | reading | c1 1.12 | c1 2.32 | c2 1.12 | c2 2.32 |
 | --- | --- | --- | --- | --- |

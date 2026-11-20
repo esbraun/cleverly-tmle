@@ -113,6 +113,7 @@ def _bootstrap(kind: str, replicate: int) -> list[dict[str, Any]]:
             "truth": float(law.TRUTH[name]),
             **reading,
             "failed_refits": float(result.bootstrap.n_failed),
+            "jump_bounded_refits": float(result.bootstrap_jump_bounded),
             "refusal": "",
             "seconds": seconds,
         }

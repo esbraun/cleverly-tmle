@@ -52,8 +52,9 @@ seen.
   0.2 SD margin, the reading says this law does not separate the plug-in from the TMLE, and the
   claim rests on the score test of the fast tier.
 * A replication that raises is never redrawn.  A ``DataError`` (an initial hazard fit whose
-  survival reaches zero before tau, or whose combined jump reaches one) is a recordable fit
-  failure, bounded by the failure bound of 0.01.
+  survival reaches zero before tau, or whose hazard jump is infinite; a combined jump of one or
+  more is bounded since 2026-11-20) is a recordable fit failure, bounded by the failure bound
+  of 0.01.
 """
 
 import sys

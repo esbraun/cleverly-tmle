@@ -75,7 +75,9 @@ functionals in continuous time, so the study names no comparator.
 
 Every primary row passes over 14,799 fits; one of the 14,800 draws failed with a recordable data
 failure, an initial hazard fit with a combined jump of one or more, inside the declared bound of
-148.
+148. The engine now bounds such a jump instead of refusing it, and that draw still fails, on
+survival underflow after the bound acted at 27 grid times for one pair
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`), so the counts stand.
 Coverage is 0.939 to 0.954 and the SE ratio 0.988 to 1.018. The lowest rows are the sparse
 treated arm's risk of cause 2 at $t = 1.12$ (coverage 0.939, SE ratio 1.00), its RMTL at $\tau$
 (0.940) and cause 2's risk ratio at $t = 1.12$ (0.941). The largest standardized bias is 0.046,

@@ -58,6 +58,13 @@ RESIDENT_SHARE: Final = 0.75
 #: A bound on a step's increment at a time the reduced grid drops, above which the increment is
 #: computed exactly on the full grid: ``exp`` overflows above about 709.78.
 OVERFLOW_BOUND: Final = 700.0
+#: Where a unit's cause hazard jumps at one arm and time sum to one or more, the cells the
+#: engine used to refuse, :func:`bound_jumps` scales them to sum to ``1 - JUMP_BOUND``, each
+#: cause keeping its share, so the initial survival there falls to about ``JUMP_BOUND`` rather
+#: than to zero or below.
+#: The value is the walk's survival floor's, :data:`~._targeting.WALK_SURVIVAL_FLOOR`, but the
+#: constant is its own, so a test that moves the walk's floor leaves the bound alone.
+JUMP_BOUND: Final = 1e-8
 #: Whether the walk runs on the event-support grid (a private switch for the benchmark).
 REDUCE_GRID: Final = True
 #: Held while a hazard learner other than the shipped ones predicts, so that no learner is
@@ -476,7 +483,7 @@ class _Walker:
         direction: FloatArray,
         step: float,
         v: FloatArray,
-        floor: float,
+        floor: float | FloatArray,
         held: np.ndarray | None,
         reach: FloatArray | None,
     ) -> tuple[FloatArray, FloatArray, np.ndarray, bool]:
@@ -625,6 +632,7 @@ def run_walk(
     ladder: int | None = None,
     final: Callable[[int, int, int, Any], Callable[[], None] | None] | None = None,
     n_jobs: int = 1,
+    own_floor: np.ndarray | None = None,
 ) -> WalkRun:
     """Walk the universal least favourable submodel over the blocks of ``plan``.
 
@@ -659,6 +667,14 @@ def run_walk(
         is called in block order on the calling thread (to add the block to a sum).
     n_jobs : int
         The threads a pass runs its blocks on (:func:`for_blocks`); it never changes a result.
+    own_floor : ndarray or None
+        ``(2, n)`` the (unit, arm) pairs whose initial jumps the engine bounded
+        (:func:`bound_jumps`), or ``None`` when it bounded none.  A bounded pair's initial
+        survival at the grid's end is about :data:`JUMP_BOUND` or less.  If it entered the
+        walk's floor, the lower of ``WALK_SURVIVAL_FLOOR`` and the lowest initial survival, it
+        would lower the floor of every pair.  Each such pair instead takes its own floor, the
+        lower of the others' floor and its own initial survival there, and the others' floor
+        reads the other pairs only.  ``None`` runs the walk with one floor for every pair.
 
     Returns
     -------
@@ -679,15 +695,15 @@ def run_walk(
     started = time.perf_counter()
     parts = np.empty((n, P))
     plugins = np.empty((n, P))
-    lasts: list[tuple[bool, float]] = []
+    lasts: list[tuple[bool, float, FloatArray | None]] = []
     for_blocks(
         len(bounds),
-        partial(_initial_rows, walker, parts, plugins),
+        partial(_initial_rows, walker, parts, plugins, own_floor),
         partial(_collect, lasts),
         n_jobs,
     )
-    undefined = any(nan for nan, _ in lasts)
-    lowest = min((smallest for _, smallest in lasts), default=np.inf)
+    undefined = any(nan for nan, _, _ in lasts)
+    lowest = min((smallest for _, smallest, _ in lasts), default=np.inf)
     passes += 1
     _log_pass("initial", 0, started, walker, passes)
     initial = T.summarize(parts, plugins)
@@ -696,7 +712,14 @@ def run_walk(
     # A trial is rejected below the floor, or below the initial fit's own smallest survival
     # when that is lower, so an accepted initial fit is never rejected as a starting point.
     # np.min over every unit is NaN as soon as one survival is, and min() then keeps the floor.
-    survival_floor = min(T.WALK_SURVIVAL_FLOOR, np.nan if undefined else lowest)
+    survival_floor: float | FloatArray = min(T.WALK_SURVIVAL_FLOOR, np.nan if undefined else lowest)
+    if own_floor is not None:
+        # A pair the engine bounded keeps its own floor (``own_floor`` above), so the bound
+        # lowers no other pair's floor; its NaN survival reads the others' floor.
+        own_lasts = np.concatenate([last for _, _, last in lasts if last is not None], axis=1)
+        survival_floor = np.where(
+            own_floor, np.fmin(survival_floor, own_lasts), float(survival_floor)
+        )
     light = T.Evaluation(initial.psi, initial.score, initial.influence, T._EMPTY, T._EMPTY)
     evaluation = initial
     del initial
@@ -808,29 +831,38 @@ def _collect(into: list[Any], k: int, found: Any) -> None:
 
 
 def _initial_rows(
-    walker: _Walker, parts: FloatArray, plugins: FloatArray, k: int
-) -> tuple[bool, float]:
+    walker: _Walker,
+    parts: FloatArray,
+    plugins: FloatArray,
+    own_floor: np.ndarray | None,
+    k: int,
+) -> tuple[bool, float, FloatArray | None]:
     """Pass 0 on block ``k``: its rows of the initial fit, and whether and how low its
-    survival at the grid's end is (NaN, and the smallest value otherwise)."""
+    survival at the grid's end is (NaN, and the smallest value otherwise), over the pairs
+    without their own floor, with every pair's survival there when some pair has one."""
     lo, hi = walker.bounds[k]
     state = walker.fresh(k)
     parts[lo:hi], plugins[lo:hi] = T.evaluate_rows(
         state.problem, state.jumps, state.survival, state.incidence
     )
     last = state.survival[..., -1]
+    every: FloatArray | None = None
+    if own_floor is not None:
+        every = last.copy()
+        last = last[~own_floor[:, lo:hi]]
     nan = bool(np.isnan(last).any())
     smallest = float(np.min(last)) if last.size and not nan else np.inf
     walker.keep(k, state)
     # ``last`` is a view: deleted, so it keeps no block's survival through the walk.
     del state, last
-    return nan, smallest
+    return nan, smallest, every
 
 
 def _trial_rows(
     walker: _Walker,
     v: FloatArray,
     sizes: list[float],
-    floor: float,
+    floor: float | FloatArray,
     tried: list[tuple[FloatArray, FloatArray]],
     retried: list[tuple[FloatArray, FloatArray]],
     lows: list[np.ndarray],
@@ -841,6 +873,8 @@ def _trial_rows(
     Returns whether each size's retry still had low pairs, and how many trials overflowed.
     """
     lo, hi = walker.bounds[k]
+    if not isinstance(floor, float):
+        floor = floor[:, lo:hi]
     state = walker.state(k)
     direction = walker.direction(k, state, v)
     reach = walker.reach(k, state, v)
@@ -968,6 +1002,50 @@ class DensePlan:
 def _jumps(cumulative: FloatArray) -> FloatArray:
     """``(c, M)`` the jumps of cumulative hazards on the grid."""
     return np.diff(np.concatenate([np.zeros((cumulative.shape[0], 1)), cumulative], axis=1), axis=1)
+
+
+def bound_jumps(dlam: FloatArray) -> np.ndarray | None:
+    r"""Bound each cell's combined cause jump below one, in place, and say where it acted.
+
+    Where the cause jumps of a unit at one arm and time sum to :math:`s \ge 1`, with
+    :math:`\delta` = :data:`JUMP_BOUND`, each is multiplied by :math:`(1 - \delta) / s`, so
+    the cell sums to :math:`1 - \delta` and each cause keeps its share :math:`d\Lambda_j / s`.
+    The threshold is the old refusal's, so the bound acts exactly on the cells the engine used
+    to refuse, and every fit that ran before computes the same arrays.  At :math:`s = 1` the
+    survival factor steps from 0 to :math:`\delta`, below the walk's floor.
+    A Breslow jump is :math:`s_i d / \sum_{R} s_k`, below one for a unit in the risk set at
+    its received arm when one event falls at the time, so on data with distinct times the bound
+    acts only on extrapolated cells: a unit read at its counterfactual arm, or after it left
+    follow-up.  Tied events (a bootstrap resample's copies) multiply the baseline jump.  The
+    continuous-time hazard has no atoms, so at a fixed law the probability that the bound acts
+    tends to zero, and the estimand, the score equation and the influence curve are unchanged.
+
+    A cell whose sum is not finite is left as it is: the engine refuses an infinite sum, and a
+    NaN jump is walked as the dense walk walks it.  When no cell reaches the bound, ``dlam`` is
+    not written to.
+
+    Parameters
+    ----------
+    dlam : ndarray
+        ``(2, J, c, M)`` the cause hazard jumps of ``c`` units, written in place.
+
+    Returns
+    -------
+    ndarray or None
+        ``(2, c, M)`` the cells the bound scaled, or ``None`` when it scaled none.
+    """
+    bounded: np.ndarray | None = None
+    for a in range(dlam.shape[0]):
+        total = dlam[a].sum(axis=0)
+        with np.errstate(invalid="ignore"):
+            over = (total >= 1.0) & np.isfinite(total)
+        if not over.any():
+            continue
+        if bounded is None:
+            bounded = np.zeros((dlam.shape[0], *total.shape), dtype=bool)
+        bounded[a] = over
+        dlam[a][:, over] *= (1.0 - JUMP_BOUND) / total[over]
+    return bounded
 
 
 @dataclass
@@ -1140,7 +1218,11 @@ class InitialHazards:
     censoring: HazardSource
 
     def jumps(self, lo: int, hi: int) -> FloatArray:
-        """``(2, J, hi - lo, M)`` the cause hazard jumps of units ``lo:hi``.
+        """``(2, J, hi - lo, M)`` the cause hazard jumps of units ``lo:hi``, bounded.
+
+        Every reader of the initial hazards (the engine's checks, its replay check and the
+        walk's blocks) takes them from here, so all read the same bounded jumps
+        (:func:`bound_jumps`).
 
         Parameters
         ----------
@@ -1153,6 +1235,42 @@ class InitialHazards:
         -------
         ndarray
             The jumps on the full grid.
+        """
+        return self.bounded_jumps(lo, hi)[0]
+
+    def bounded_jumps(self, lo: int, hi: int) -> tuple[FloatArray, np.ndarray | None]:
+        """The bounded cause hazard jumps of units ``lo:hi`` and the cells the bound scaled.
+
+        Parameters
+        ----------
+        lo : int
+            The first unit.
+        hi : int
+            One past the last unit.
+
+        Returns
+        -------
+        tuple of ndarray
+            ``(2, J, hi - lo, M)`` the jumps on the full grid, as :meth:`jumps` returns them,
+            and ``(2, hi - lo, M)`` the scaled cells, or ``None`` when the bound scaled none.
+        """
+        out = self.raw_jumps(lo, hi)
+        return out, bound_jumps(out)
+
+    def raw_jumps(self, lo: int, hi: int) -> FloatArray:
+        """``(2, J, hi - lo, M)`` the cause hazard jumps of units ``lo:hi`` as the models give them.
+
+        Parameters
+        ----------
+        lo : int
+            The first unit.
+        hi : int
+            One past the last unit.
+
+        Returns
+        -------
+        ndarray
+            The jumps on the full grid, before :func:`bound_jumps`.
         """
         first = self.causes[0].jumps(0, lo, hi)
         out = np.empty((2, len(self.causes), *first.shape))

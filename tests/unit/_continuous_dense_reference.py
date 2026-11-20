@@ -316,6 +316,7 @@ def walk(
     max_steps: int = 500,
     max_halvings: int | None = None,
     tilt: Literal["all", "factual"] = "all",
+    own_floor: np.ndarray | None = None,
 ) -> WalkResult:
     """Walk the universal least favourable submodel until every score is small.
 
@@ -340,6 +341,9 @@ def walk(
         ``"all"`` tilts each arm's hazard for every unit.  ``"factual"`` tilts only units
         whose received arm is the target's arm, as ``concrete`` 1.0.5 does; it exists for the
         mutation control that shows that form is not doubly robust.
+    own_floor : ndarray or None
+        ``(2, n)`` the pairs whose initial jumps the engine bounded, each of which takes its own
+        floor; ``None`` gives every pair one floor.
 
     Returns
     -------
@@ -360,7 +364,14 @@ def walk(
     )
     # A trial is rejected below the floor, or below the initial fit's own smallest survival
     # when that is lower, so an accepted initial fit is never rejected as a starting point.
-    survival_floor = min(_targeting.WALK_SURVIVAL_FLOOR, float(np.min(initial.survival[..., -1])))
+    # A pair the engine bounded takes the lower of the others' floor and its own survival.
+    last = initial.survival[..., -1]
+    survival_floor: Any = min(
+        _targeting.WALK_SURVIVAL_FLOOR,
+        float(np.min(last if own_floor is None else last[~own_floor])),
+    )
+    if own_floor is not None:
+        survival_floor = np.where(own_floor, np.fmin(survival_floor, last), survival_floor)
     light = Evaluation(initial.psi, initial.score, initial.influence, _EMPTY, _EMPTY)
     evaluation = initial
     del initial
@@ -552,7 +563,14 @@ def dense_target(
     )
     problem = Problem(A, at_risk, events, weight, initial.target_weights)
     result = walk(
-        problem, dlam, cutoff=cutoff, norm=norm, step=step, max_steps=max_steps, tilt=tilt
+        problem,
+        dlam,
+        cutoff=cutoff,
+        norm=norm,
+        step=step,
+        max_steps=max_steps,
+        tilt=tilt,
+        own_floor=initial.jump_bounded,
     )
     rng = np.random.default_rng()
     rng.bit_generator.state = initial.rng_state

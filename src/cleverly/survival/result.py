@@ -226,6 +226,29 @@ def _causes_reasons(causes: int, functionals: bool, n: int) -> list[str]:
     return []
 
 
+def jump_bound_reason(pairs: int) -> str:
+    """Why a fit whose initial hazards the engine bounded reads experimental.
+
+    Parameters
+    ----------
+    pairs : int
+        The (unit, arm) pairs with a cell the bound scaled.
+
+    Returns
+    -------
+    str
+        The reason.
+    """
+    noun = "pair" if pairs == 1 else "pairs"
+    return (
+        f"The hazard fit put a combined jump of one or more at {pairs:,} (unit, arm) {noun}, "
+        "which the engine scaled below one. With distinct event times the hazard model "
+        "extrapolates there, usually at a unit's counterfactual arm for covariates outside "
+        "that arm's range, a positivity signal. No registered study gates a fit in which this "
+        "bound acted."
+    )
+
+
 def continuous_survival_support(
     *,
     scale: str,
@@ -239,6 +262,7 @@ def continuous_survival_support(
     restricted_horizons: int = 0,
     variance_rel_sd: float | None = None,
     past_last_time: bool = False,
+    jump_bound_pairs: int = 0,
 ) -> Support:
     """The support of one continuous-time estimate.
 
@@ -259,7 +283,9 @@ def continuous_survival_support(
     ratios, and its restricted means and their differences at a restriction time by which
     between 67% and 85% of the observed events have happened (:data:`RESTRICTED_EVENT_SHARE`).
     Its risks and differences keep the relative-SD floor and name the variance study too.
-    Otherwise the estimate reads ``experimental`` with every reason that applies.
+    A fit whose initial hazards the engine bounded (``jump_bound_pairs``) reads experimental:
+    no registered study gates a fit in which the bound acted.  Otherwise the estimate reads
+    ``experimental`` with every reason that applies.
 
     Parameters
     ----------
@@ -293,6 +319,10 @@ def continuous_survival_support(
     past_last_time : bool
         Whether a restriction time lies past the fit's last target time, which extends the
         walk's grid beyond it.  The functionals study restricts at the last target time.
+    jump_bound_pairs : int
+        The (unit, arm) pairs whose initial cause hazard jumps summed to one or more at some
+        time and that the engine scaled below one
+        (:attr:`~cleverly.survival.ContinuousSurvivalRecord.jump_bound_share`).
 
     Returns
     -------
@@ -386,6 +416,8 @@ def continuous_survival_support(
             "events of each arm and cause."
         )
     reasons.extend(_causes_reasons(causes, functionals, n))
+    if jump_bound_pairs:
+        reasons.append(jump_bound_reason(jump_bound_pairs))
     if not cross_fitted:
         reasons.append(
             "The fit is in-sample. The registered study gates cross-fitted fits; its in-sample "
@@ -470,7 +502,9 @@ BOOTSTRAP_BAND_REASON: Final[str] = (
 BootstrapKind = Literal["bootstrap", "bootstrap_bca", "bootstrap_band"]
 
 
-def continuous_bootstrap_support(*, kind: BootstrapKind, cross_fitted: bool) -> Support:
+def continuous_bootstrap_support(
+    *, kind: BootstrapKind, cross_fitted: bool, jump_bounded: int = 0, requested: int = 0
+) -> Support:
     """The support of a bootstrap interval or band of a continuous-time fit.
 
     No bootstrap interval of this engine reads ``supported``.  An in-sample fit's percentile
@@ -485,6 +519,11 @@ def continuous_bootstrap_support(*, kind: BootstrapKind, cross_fitted: bool) -> 
         The percentile interval, the BCa interval or the studentized band.
     cross_fitted : bool
         Whether the fit's nuisances are fitted out of fold.
+    jump_bounded : int
+        The refits in which the engine scaled a combined hazard jump of one or more below one;
+        when nonzero the reason says so.
+    requested : int
+        The refits asked for.
 
     Returns
     -------
@@ -503,6 +542,12 @@ def continuous_bootstrap_support(*, kind: BootstrapKind, cross_fitted: bool) -> 
     reason = CROSS_FITTED_BOOTSTRAP_REASON if cross_fitted else IN_SAMPLE_BOOTSTRAP_REASON
     if kind == "bootstrap_band":
         reason = f"{reason} {BOOTSTRAP_BAND_REASON}"
+    if jump_bounded:
+        reason = (
+            f"{reason} In {jump_bounded} of {requested} refits the engine scaled a combined "
+            "hazard jump of one or more below one, an extrapolation that no registered study "
+            "gates."
+        )
     return Support("experimental", reason, ("X6",))
 
 
@@ -550,6 +595,7 @@ def attach_bootstrap(
     simultaneous: bool,
     alpha: float,
     cross_fitted: bool,
+    jump_bounded: int = 0,
 ) -> ContinuousSurvivalResult:
     """``result`` with the bootstrap replicates' intervals and band, or with them withheld.
 
@@ -568,6 +614,10 @@ def attach_bootstrap(
         Significance level.
     cross_fitted : bool
         Whether the fit is cross-fitted, which picks the label of every bootstrap interval.
+    jump_bounded : int
+        The refits in which the engine's jump bound acted, kept as
+        :attr:`~ContinuousSurvivalResult.bootstrap_jump_bounded` and named in every bootstrap
+        interval's reason when nonzero.
 
     Returns
     -------
@@ -611,9 +661,11 @@ def attach_bootstrap(
             bootstrap=bootstrap,
             bootstrap_status="bootstrap_unstable",
             bootstrap_failures=failures,
+            bootstrap_jump_bounded=jump_bounded,
         )
     kind: BootstrapKind = "bootstrap_bca" if interval == "bca" else "bootstrap"
-    support = continuous_bootstrap_support(kind=kind, cross_fitted=cross_fitted)
+    counts = {"jump_bounded": jump_bounded, "requested": requested}
+    support = continuous_bootstrap_support(kind=kind, cross_fitted=cross_fitted, **counts)
     estimates = {}
     for name, estimate in result.estimates.items():
         if interval == "bca":
@@ -635,7 +687,9 @@ def attach_bootstrap(
             {name: result.estimates[name].psi for name in risks},
             {name: result.estimates[name].std_error for name in risks},
             alpha=alpha,
-            support=continuous_bootstrap_support(kind="bootstrap_band", cross_fitted=cross_fitted),
+            support=continuous_bootstrap_support(
+                kind="bootstrap_band", cross_fitted=cross_fitted, **counts
+            ),
         )
     return replace(
         result,
@@ -644,6 +698,7 @@ def attach_bootstrap(
         bootstrap_band=band,
         bootstrap_status="ran",
         bootstrap_failures=failures,
+        bootstrap_jump_bounded=jump_bounded,
     )
 
 
@@ -1094,6 +1149,12 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         (the failure rule), and ``None`` without a bootstrap.
     bootstrap_failures : tuple of str
         The class and first sentence of each failed refit's exception, in replicate order.
+    bootstrap_jump_bounded : int
+        The bootstrap refits that fitted with a nonzero
+        :attr:`~cleverly.survival.ContinuousSurvivalRecord.jump_bound_share`: the engine scaled
+        some combined hazard jump of one or more below one.  A refit warns of nothing; this
+        count, and the reason of every bootstrap interval when it is nonzero, say how often
+        the bound acted.
 
     Notes
     -----
@@ -1125,6 +1186,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     bootstrap_band: BootstrapBand | None = None
     bootstrap_status: Literal["ran", "bootstrap_unstable"] | None = None
     bootstrap_failures: tuple[str, ...] = ()
+    bootstrap_jump_bounded: int = 0
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
@@ -1833,6 +1895,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
                     "standardized_score": [float(v) for v in record.standardized_score],
                     "bounded_share": float(record.bounded_share),
                     "last_time_floor_share": float(record.last_time_floor_share),
+                    "jump_bound_share": float(record.jump_bound_share),
+                    "jump_bound_at_risk_share": float(record.jump_bound_at_risk_share),
                     "frozen_share": float(record.frozen_share),
                     "off_grid_share": float(record.off_grid_share),
                     "cross_fitted": bool(record.cross_fitted),
@@ -1868,6 +1932,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             if self.bootstrap is None
             else int(self.bootstrap.n_requested - self.bootstrap.n_failed),
             "failures": list(self.bootstrap_failures),
+            "jump_bounded": int(self.bootstrap_jump_bounded),
             "band": None
             if band is None
             else {

@@ -31,7 +31,6 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
-from tests.studies import continuous_survival as registered
 from tests.studies import continuous_survival_bootstrap as gated
 from tests.studies import continuous_survival_law as law
 from tests.studies.evidence import failures as evidence_failures
@@ -151,7 +150,7 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """The calibration readings and the targeting record, neither a verdict."""
     return {
         CALIBRATION_FILE: calibration(rows),
-        READINGS_FILE: registered.targeting_readings(rows),
+        READINGS_FILE: gated.targeting_readings(rows),
     }
 
 
