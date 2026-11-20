@@ -151,6 +151,25 @@ class TestContract:
         worst = max(abs(f.kkt - L.kkt_residual(x, y, weights, f)) for f in fits)
         assert worst > 1e-13
 
+    def test_a_residual_that_reports_success_is_caught_by_the_independent_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deliberate bug confined to ``_Point.residual``: the stored residual says solved,
+        and :func:`kkt_residual`, computed apart from the solver, disagrees."""
+        x, y, weights, grid = _fixture("weighted")
+        monkeypatch.setattr(L._Point, "residual", lambda self, penalty: 0.0)
+        fits = L.penalty_path(x, y, weights, grid[:20])
+        assert all(f.kkt == 0.0 for f in fits if f.constant is None)
+        assert max(L.kkt_residual(x, y, weights, f) for f in fits) > 1e-10
+
+    @pytest.mark.parametrize("bad", [-1.0, np.nan, np.inf])
+    def test_a_negative_or_non_finite_weight_is_refused(self, bad: float) -> None:
+        x, y, weights, grid = _fixture("weighted")
+        weights = weights.copy()
+        weights[3] = bad
+        with pytest.raises(ValueError, match="finite, nonnegative row weights"):
+            L.penalty_path(x, y, weights, grid[:5])
+
     @pytest.mark.parametrize("classes", [2, 3])
     def test_three_runs_are_bitwise_equal(self, classes: int) -> None:
         x, y, weights, grid = _fixture("plain" if classes == 2 else "three_class", seed=5)
@@ -311,8 +330,25 @@ class TestQuadraticModel:
         mutant = _unchecked(hessian, gradient, start, np.zeros(2), penalized, 0.5, 1e-12)
         assert L._model_residual(gradient + hessian @ mutant, start + mutant, penalized, 0.5) > 0.1
 
+    def test_a_zero_coordinate_that_violates_its_condition_is_rejected(self) -> None:
+        """The zero-coordinate check: on the support {0} the system solves and keeps its sign,
+        but coordinate 1, held at 0, has model gradient 0.65 above the penalty 0.5."""
+        hessian = np.array([[1.0, 0.9], [0.9, 1.0]])
+        gradient = np.array([-2.0, -2.0])
+        start, step = np.zeros(2), np.array([1.0, 0.0])
+        penalized = np.array([True, True])
+        assert L._sign_fixed(hessian, gradient, start, step, penalized, 0.5, 1e-12) is None
+        mutant = _unchecked(hessian, gradient, start, step, penalized, 0.5, 1e-12)
+        assert L._model_residual(gradient + hessian @ mutant, start + mutant, penalized, 0.5) > 0.1
+
 
 class TestLineSearch:
+    def test_the_rounding_allowance_is_64_units(self) -> None:
+        """Pinned: below a residual near 1e-8 the objective is flat to rounding, and this
+        allowance is what lets the solve reach its 1e-14 stop (with 0 a plain fixture refuses);
+        a much larger one would accept steps that raise the objective."""
+        assert 64 * float(np.finfo(float).eps) == L._ROUNDING
+
     def test_an_overshooting_step_is_halved(self) -> None:
         rng = np.random.default_rng(1)
         x = rng.normal(size=(2000, 8))

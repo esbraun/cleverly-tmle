@@ -24,9 +24,11 @@ The solver is a proximal Newton method on a working set, warm-started along the 
 step it forms the Hessian of the loss on the working coordinates, minimizes the penalized
 quadratic model there (coordinate descent on that small matrix, then the exact solve on the
 model's support and signs), and takes the longest halving of that step that does not raise the
-objective. The working set holds the nonzero coordinates and those the sequential strong rule
-keeps, and grows by every coordinate that violates its optimality condition, so the rule can
-never leave one out of a solution. A solution is accepted when its Karush-Kuhn-Tucker residual
+objective by more than 64 units of rounding relative (below a residual near ``1e-8`` the
+objective is flat to rounding, and that allowance carries the solve down to its stop). The
+working set holds the nonzero coordinates and those the sequential strong rule keeps, and grows
+by every coordinate that violates its optimality condition, so the rule can never leave one out
+of a solution. A solution is accepted when its Karush-Kuhn-Tucker residual
 (:func:`kkt_residual`) is at most ``1e-10``; the solver stops near ``1e-14``. At penalty 0 the
 binomial solution is the unpenalized maximum likelihood fit, and the multinomial solution
 is the reference-coded unpenalized maximum likelihood fit, which has the same predictions
@@ -177,6 +179,10 @@ class L1Fit:
 
 def _normalized(weights: FloatArray) -> FloatArray:
     w = np.asarray(weights, dtype=float)
+    if not np.all(np.isfinite(w)) or np.any(w < 0.0):
+        # The Hessian is built from square roots of the weighted curvatures, so a negative
+        # weight has no meaning here, as in the weighted likelihood itself.
+        raise ValueError("the L1-penalized propensity needs finite, nonnegative row weights")
     total = float(np.sum(w))
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError("the L1-penalized propensity needs positive total weight")
@@ -676,7 +682,9 @@ def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | 
     """Proximal Newton on a growing working set, from ``point`` (finished), at ``penalty``.
 
     Warm (``previous`` given): the working set is the active set plus the sequential strong
-    rule ``|g_j| >= 2 penalty - previous``. Cold: the active set plus every ``|g_j| >= penalty``.
+    rule ``|g_j| >= 2 penalty - previous``, also after a shortcut penalty, whose intercept-only
+    fit is the exact solution there. Cold (the first penalty of a grid that starts below the
+    null gradient): the active set plus every ``|g_j| >= penalty``.
     After each accepted step the set grows by every coordinate that is nonzero or violates its
     condition, so no rule can leave a violator out of the final solution. The loop stops at the
     residual :data:`_SOLVE_TARGET`, or when it stops falling once at most :data:`KKT_TOLERANCE`,
