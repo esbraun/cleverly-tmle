@@ -1787,12 +1787,14 @@ def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -
     """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
 
     The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
-    that check rather than copying it, and :func:`refute` calls it again to read the
-    contrast direction it returns.
+    that check rather than copying it, with ``build=False`` so it fits no longitudinal
+    plasmode law, and :func:`refute` calls it again to build the target it returns.
     """
     for name in request.generated:
         try:
-            _validate_generated_eligibility(result, request.estimand, request.process(name), name)
+            _validate_generated_eligibility(
+                result, request.estimand, request.process(name), name, build=False
+            )
         except CapabilityError as error:
             return error.refusal
     return None
@@ -2297,9 +2299,14 @@ class _LongitudinalPlasmode:
 
 
 def _longitudinal_plasmode_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalPlasmode:
-    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalPlasmode | None:
+    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth.
+
+    Every refusal comes before the law is fitted. With ``build=False`` the function stops
+    there and returns ``None``, so the request rules, the capability row and the refit preview
+    fit nothing, and :func:`refute` builds the law once (X106 part G2).
+    """
     from ..longitudinal.regimen import declares_tilt, declares_tuned
     from ._longitudinal_plasmode import (
         MAX_DRAWS,
@@ -2327,6 +2334,8 @@ def _longitudinal_plasmode_target(
         if present:
             _refuse_longitudinal_plasmode(name, structure)
     label, cause, horizon = _held_parameter(result, estimand, name)
+    if not build:
+        return None
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
@@ -2432,9 +2441,13 @@ def _held_shares(uncensored: Any) -> tuple[float, ...]:
 
 
 def _longitudinal_generated_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
-    """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
+    """Refuse a generated outcome a longitudinal fit cannot read, else build its target.
+
+    ``build=False`` returns ``None`` for a plasmode request after its refusals, before its
+    law is fitted.
+    """
     data = result.data
     if data.eliminated:
         raise CapabilityError(
@@ -2457,7 +2470,7 @@ def _longitudinal_generated_target(
     if data.is_survival:
         if name == "plasmode":
             _validate_hazard_process(data, process, name)
-            return _longitudinal_plasmode_target(result, estimand, process, name)
+            return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
@@ -2506,7 +2519,7 @@ def _longitudinal_generated_target(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if name == "plasmode":
-        return _longitudinal_plasmode_target(result, estimand, process, name)
+        return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
     if getattr(process, "history_effect", 0.0):
         raise CapabilityError(
             f"{name} keeps the held covariate history, whose law under a regimen is unknown, "
@@ -2698,8 +2711,8 @@ def _survival_generated_target(
 
 
 def _validate_generated_eligibility(
-    result: Any, estimand: str, process: Any, name: str
-) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
     """Refuse an ineligible generated-outcome request and resolve its target.
 
     Parameters
@@ -2712,10 +2725,13 @@ def _validate_generated_eligibility(
         Registered outcome-process declaration.
     name : str
         Refutation name, named in every refusal.
+    build : bool
+        Whether to fit a longitudinal plasmode law and its truth. ``False`` runs every
+        refusal and fits nothing; a longitudinal plasmode request then returns ``None``.
 
     Returns
     -------
-    PointTarget, _LongitudinalGenerated or _SurvivalGenerated
+    PointTarget, _LongitudinalGenerated, _SurvivalGenerated, _LongitudinalPlasmode or None
         The point target with its arm codes and population. A longitudinal fit returns its
         held-history target instead.
 
@@ -2725,7 +2741,7 @@ def _validate_generated_eligibility(
         If the fit, the estimand, or the process has no registered effect derivation.
     """
     if _is_longitudinal(result):
-        return _longitudinal_generated_target(result, estimand, process, name)
+        return _longitudinal_generated_target(result, estimand, process, name, build=build)
     _validate_generated_process(process, name)
     if name == "plasmode":
         _validate_plasmode_eligibility(result)
@@ -5297,12 +5313,13 @@ def refute(
     requested = request.tests
     estimator = result.estimator
     processes = {name: request.process(name) for name in _GENERATED_TESTS}
-    # The table admitted each generated test, so this reads the contrast direction and
-    # refuses nothing.
-    contrasts = {
-        name: _validate_generated_eligibility(result, estimand, processes[name], name)
-        for name in request.generated
-    }
+    # The table admitted each generated test, so this refuses nothing. It reads the contrast
+    # direction and builds a longitudinal plasmode's law and truth, once per call.
+    contrasts = {}
+    for name in request.generated:
+        target = _validate_generated_eligibility(result, estimand, processes[name], name)
+        assert target is not None
+        contrasts[name] = target
 
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)

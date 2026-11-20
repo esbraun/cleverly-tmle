@@ -2479,19 +2479,24 @@ class TMLE:
         *,
         config: TMLEConfig,
         level: float | None,
+        label: str = "bootstrap replicate",
+        per_draw: int | None = None,
     ) -> None:
         """The fits of :meth:`_bootstrap_point_estimates` over every replicate, as an upper bound.
 
         A replicate's resample and folds are not drawn ahead, so each is counted at the
         realized outer fold count, the learners' nominal inner folds, and no constant-fold
         skip.  Its minimum is one fit per fold for each role whose target is continuous.
+        ``label`` names what each counted fit is and ``per_draw`` how many there are per
+        repeat (``n_bootstrap`` by default); a refit of drawn data, whose rows a preview does
+        not draw ahead, is counted the same way (X106 part G2).
         """
-        replicates = int(self.n_bootstrap) * len(draws)
+        replicates = (int(self.n_bootstrap) if per_draw is None else per_draw) * len(draws)
         nominal = max(folds.n_folds for folds, _ in draws)
         single = all(folds.is_single for folds, _ in draws)
         fewest = nominal if (single or data.cluster is None) else 2
         why = (
-            "bootstrap replicates are counted at their nominal folds, with no fold of a "
+            f"{label}s are counted at their nominal folds, with no fold of a "
             "binary target fitted as a constant and no replicate dropped"
         )
         labels = self._plan_labels()
@@ -2503,7 +2508,7 @@ class TMLE:
             )
             builder.add(
                 "tuner",
-                "tuned cap fitted on every row and per fold, per bootstrap replicate and repeat",
+                f"tuned cap fitted on every row and per fold, per {label} and repeat",
                 self._plan_tuner_label(),
                 count,
                 upper=why,
@@ -2541,7 +2546,7 @@ class TMLE:
             low = count.fits * fewest // nominal if item.continuous else 0
             builder.add(
                 item.role,
-                f"{item.what}, per bootstrap replicate, fold and repeat",
+                f"{item.what}, per {label}, fold and repeat",
                 labels[item.role],
                 count,
                 upper=why,
@@ -2560,7 +2565,7 @@ class TMLE:
         ):
             builder.add(
                 extra.role,
-                f"{extra.what}, per bootstrap replicate and repeat",
+                f"{extra.what}, per {label} and repeat",
                 extra.learner,
                 extra.count.scaled(replicates),
                 upper=why,
@@ -2722,16 +2727,52 @@ class TMLE:
         random_state: int | None = None,
         frozen_folds: Sequence[Folds] | None = None,
         frozen_seeds: Sequence[int] | None = None,
+        nominal: bool = False,
     ) -> PlannedFits:
         """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
 
         :func:`cleverly._planned_fits.refit_plan` reads it.  It configures the same copy as
         :meth:`refit` and previews its :meth:`_fit_single`, so a refit refusal raises here.
+        With ``nominal``, every fit is counted at the learners' nominal counts with no
+        constant-fold skip, as a bootstrap replicate is, so the counts bound a refit of any
+        data drawn like ``data`` (:func:`cleverly.validation.planned_refits`).
         """
         estimator = self._refit_estimator(
             data, random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
         )
+        if nominal:
+            return estimator._planned_nominal_single(data, intermediate_value=intermediate_value)
         return estimator._planned_fit_single(data, intermediate_value=intermediate_value)
+
+    def _planned_nominal_single(
+        self, data: CausalData, *, intermediate_value: float | None = None
+    ) -> PlannedFits:
+        """:meth:`_planned_fit_single` at nominal counts, as an upper bound."""
+        engine = copy.copy(self)
+        engine._defers_learned_tuners = True
+        builder = PlanBuilder()
+        state = engine._plan_fold_state()
+        engine._plan_deferred(data, builder)
+        estimands = engine._single_preflight(data, intermediate_value).estimands
+        engine._plan_in_sample_tuners(data, builder)
+        _, draws, config = engine._draw_preflight(data, estimands)
+        engine._plan_multipliers(data, draws, builder)
+        flags = engine._plan_flags(data, config.estimands)
+        engine._plan_bootstrap(
+            data,
+            draws,
+            flags,
+            builder,
+            config=config,
+            level=intermediate_value,
+            label="drawn-data refit",
+            per_draw=1,
+        )
+        if engine.n_bootstrap:
+            engine._plan_bootstrap(
+                data, draws, flags, builder, config=config, level=intermediate_value
+            )
+        return builder.build(state)
 
     def _refit_estimator(
         self,
