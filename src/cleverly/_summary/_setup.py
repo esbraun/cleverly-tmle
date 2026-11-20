@@ -1493,6 +1493,11 @@ def planned_refits_summary(plan: PlannedRefits, detail: Detail) -> Summary:
             else str(plan.random_state),
         ),
     ]
+    stored = sum(test.stored for test in plan.tests)
+    if stored:
+        # A checkpoint's stored draws are loaded rather than refitted, so the counts exclude
+        # them (X106 G3).
+        header.append((vocabulary.PLANNED_REFITS_STORED, count_text(stored)))
     rows = []
     for test in plan.tests:
         exact = test.bound == "exact"

@@ -76,6 +76,9 @@ class PlannedRefitTest:
         The fewest top-level fits the test makes when no draw fails.
     preparation : int
         Fits made once before the draws, such as the frozen models of a plasmode law.
+    stored : int
+        Draws a ``checkpoint=`` directory already holds. A resume loads them, so
+        :attr:`refits` and the fit counts cover only the other ``draws - stored``.
     bound : {"exact", "upper"}
         ``"exact"`` when the counts are the ones the test makes, assuming no fit raises.
     notes : tuple of str
@@ -91,6 +94,7 @@ class PlannedRefitTest:
     candidate_fits: int
     min_fits: int
     preparation: int = 0
+    stored: int = 0
     bound: Bound = "exact"
     notes: tuple[str, ...] = ()
 
@@ -181,7 +185,7 @@ class PlannedRefits:
         -------
         dataframe
             Columns ``test``, ``draws``, ``refits_per_draw``, ``refits``, ``learner_fits``,
-            ``candidate_fits``, ``min_fits``, ``preparation`` and ``bound``.
+            ``candidate_fits``, ``min_fits``, ``preparation``, ``stored`` and ``bound``.
         """
         from ..utils.frames import frame_from_dict
 
@@ -195,6 +199,7 @@ class PlannedRefits:
                 "candidate_fits": [test.candidate_fits for test in self.tests],
                 "min_fits": [test.min_fits for test in self.tests],
                 "preparation": [test.preparation for test in self.tests],
+                "stored": [test.stored for test in self.tests],
                 "bound": [test.bound for test in self.tests],
             },
             backend=backend,
@@ -229,6 +234,7 @@ class _Test:
         self.per_draw = per_draw
         self.parts: list[tuple[PlannedFits, int]] = []
         self.preparation = 0
+        self.stored = 0
         self.upper = False
         self.notes: list[str] = []
 
@@ -250,6 +256,7 @@ class _Test:
             + self.preparation,
             min_fits=sum(plan.min_fits * times for plan, times in self.parts) + self.preparation,
             preparation=self.preparation,
+            stored=self.stored,
             bound="exact" if exact else "upper",
             notes=tuple(self.notes),
         )
@@ -351,6 +358,10 @@ def planned_refits(result: Any, **kwargs: Any) -> PlannedRefits:
 
     Notes
     -----
+    With ``checkpoint=``, the preview reads the directory without writing to it, refuses a
+    request ``refute`` would refuse there, and counts only the draws a resume would refit
+    (:attr:`PlannedRefitTest.stored` holds the rest). ``progress`` is ignored.
+
     The noise refits, the negative control and the future-treatment fit read data and seeds
     known before any draw, so they are counted exactly. Every other test refits drawn data and
     is counted at the learners' nominal counts, as an upper bound with a floor that holds when
@@ -368,6 +379,32 @@ def planned_refits(result: Any, **kwargs: Any) -> PlannedRefits:
     return _planned(result, arguments)
 
 
+def _read_checkpoint(
+    module: Any, result: Any, a: dict[str, Any], tests: Any, seed: int | None
+) -> Any:
+    """Open ``checkpoint=`` read-only, refusing what ``refute`` would refuse there."""
+    from ._refute_checkpoint import CHECKPOINTED_TESTS, seed_refusal, stored_root
+
+    checkpoint = a["checkpoint"]
+    if checkpoint is None or not any(name in CHECKPOINTED_TESTS for name in tests):
+        return None
+    if seed is None:
+        # ``refute`` draws a fresh seed, which cannot match a recorded one.
+        root = stored_root(checkpoint)
+        if root is not None:
+            raise seed_refusal(checkpoint, root, None)
+        return None
+    return module.checkpoint_session(
+        result,
+        estimand=a["estimand"],
+        seed=seed,
+        tests=tests,
+        checkpoint=checkpoint,
+        progress=None,
+        read_only=True,
+    )
+
+
 def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
     import importlib
 
@@ -380,6 +417,7 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
         structural_frozen_folds,
     )
 
+    module._validated_checkpoint(a["checkpoint"], a["progress"])
     request = module._refute_preflight(
         result,
         estimand=a["estimand"],
@@ -415,6 +453,7 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
     seed_spread = bool(a["seed_spread"])
     data = result.data
     tests: list[PlannedRefitTest] = []
+    session = _read_checkpoint(module, result, a, request.tests, seed)
 
     def count(name: str) -> int:
         if n_replicates is not None:
@@ -466,6 +505,23 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
         from ..interventions.learned import frozen_rule_replay
 
         return frozen_rule_replay(estimator, held, None)
+
+    def stored(name: str, draws: int, process: Any) -> int:
+        if session is None:
+            return 0
+        return int(
+            module.stored_draws(
+                session,
+                result,
+                name,
+                n_replicates=draws,
+                root_seed=root,
+                process=process,
+                bands=a["outcome_bands"],
+                declaration=a["bootstrap_measurement_error"],
+                rule=a["measurement_error_rule"],
+            )
+        )
 
     requested = request.tests
     if "placebo" in requested:
@@ -609,9 +665,10 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
             family = str(getattr(process, "family", data.family))
             target = data if panel else _family_data(data, family)
             seeds = module._generated_child_seeds(root, name, draws)
+            test.stored = stored(name, draws, process)
             test.add(
                 _preview(estimator, target, random_state=seeds[0], nominal=True, **intermediate),
-                draws,
+                draws - test.stored,
             )
             if name == "plasmode":
                 test.preparation = (
@@ -627,6 +684,7 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
             options = dict(intermediate)
             if structural:
                 options["frozen_seeds"] = structural_fit_seeds(result)
+            test.stored = stored(name, draws, None)
             test.add(
                 _preview(
                     held_fitter(),
@@ -636,7 +694,7 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
                     frozen_folds=module._sliced_folds(result, rows),
                     **options,
                 ),
-                draws,
+                draws - test.stored,
             )
         tests.append(test.build())
     if ("subset" in requested or "placebo" in requested) and _DRAW_NOTE not in notes:

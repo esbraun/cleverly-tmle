@@ -96,7 +96,7 @@ from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
-from ..utils.random import generator_state, replay, resolve_assessment_seed
+from ..utils.random import generator_state, note_learner_fit, replay, resolve_assessment_seed
 from . import _interpretation
 from ._band_placebo import (
     BAND_SENTENCE,
@@ -127,6 +127,13 @@ from ._readings import (
     paired_shift,
     placebo_reading,
     subset_reading,
+)
+from ._refute_checkpoint import (
+    CHECKPOINTED_TESTS,
+    CheckpointSession,
+    RefutationCheckpoint,
+    RefutationProgress,
+    request_parts,
 )
 from ._structural_refute import (
     is_structural,
@@ -3379,6 +3386,8 @@ def _run_empirical_refits(
     retain_preparation_failures: bool = False,
     refit_options: Callable[[int], dict[str, Any]] | None = None,
     refit_estimator: Callable[[int], Any] | None = None,
+    session: CheckpointSession | None = None,
+    test: str = "",
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
     """Run, validate, and retain empirical refits through one failure contract.
 
@@ -3408,78 +3417,148 @@ def _run_empirical_refits(
         Maps a replicate index to the estimator that refits it, for example the frozen
         rules of a learned-rule fit on the rows of a resample. ``None`` refits with
         ``result.estimator``.
+    session : CheckpointSession or None
+        The call's checkpoint and progress callback. A draw the checkpoint stores is loaded
+        and never refit; a missing one runs and is stored once it finishes.
+    test : str
+        The test's name, under which the session stores its draws.
 
     Returns
     -------
     tuple of tuple
         Successful records, then the retained failures.
     """
-    records: list[EmpiricalRefitRecord] = []
-    failures: list[ReplicationFailure] = []
+    outcomes: list[EmpiricalRefitRecord | ReplicationFailure] = []
+    resumed = 0
     for replicate, child_seed in draws:
-        try:
-            prepared = replacement(replicate, child_seed)
-        except Exception as error:
-            if not retain_preparation_failures:
-                raise
-            # A bootstrap sample this draw cannot build, or a perturbation the sample
-            # refuses, is one failed draw among many. Raising would discard every draw
-            # that already succeeded, so record it with the fields a refit failure carries.
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-            )
-            continue
-        try:
-            estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
-            refitted = estimator.refit(
-                prepared,
-                **_intermediate_option(result),
-                random_state=child_seed,
-                **({} if refit_options is None else refit_options(replicate)),
-            )
-        except Exception as error:  # an estimator failure belongs in the report
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-            )
-            continue
-        fitted_family = str(refitted.data.family)
-        if fitted_family != expected_family:
-            raise RuntimeError(
-                f"empirical refit reported authoritative family={fitted_family!r}; expected "
-                f"{expected_family!r}"
-            )
-        estimate = refitted[estimand]
-        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type="ValueError",
-                    message="refitted estimate or standard error is non-finite",
-                )
-            )
-            continue
-        records.append(
-            EmpiricalRefitRecord(
-                replicate=replicate,
-                seed=child_seed,
+        stored = None if session is None else session.load(test, replicate, child_seed)
+        if stored is not None:
+            # The stored draw replaces a refit, so the answer depends on a learner fit as
+            # much as a refitted one does, and the assessment cache must not pin it.
+            note_learner_fit()
+            outcome = stored
+            resumed += 1
+        else:
+            outcome = _empirical_draw(
+                result,
                 estimand=estimand,
-                estimate=float(estimate.psi),
-                std_error=float(estimate.plugin_std_error),
-                family=fitted_family,
+                replicate=replicate,
+                child_seed=child_seed,
+                replacement=replacement,
+                expected_family=expected_family,
+                retain_preparation_failures=retain_preparation_failures,
+                refit_options=refit_options,
+                refit_estimator=refit_estimator,
             )
+            if session is not None:
+                session.save(test, replicate, outcome)
+        outcomes.append(outcome)
+        if session is not None:
+            session.report(
+                RefutationProgress(
+                    test=test,
+                    completed=len(outcomes),
+                    requested=len(draws),
+                    failed=sum(isinstance(item, ReplicationFailure) for item in outcomes),
+                    resumed=resumed,
+                )
+            )
+    records = tuple(item for item in outcomes if isinstance(item, EmpiricalRefitRecord))
+    failures = tuple(item for item in outcomes if isinstance(item, ReplicationFailure))
+    return records, failures
+
+
+def _empirical_draw(
+    result: Any,
+    *,
+    estimand: str,
+    replicate: int,
+    child_seed: int,
+    replacement: Callable[[int, int], Any],
+    expected_family: str,
+    retain_preparation_failures: bool,
+    refit_options: Callable[[int], dict[str, Any]] | None,
+    refit_estimator: Callable[[int], Any] | None,
+) -> EmpiricalRefitRecord | ReplicationFailure:
+    """Run one draw of :func:`_run_empirical_refits`: its record, or its retained failure.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        Fitted result.
+    estimand : str
+        Structured result alias read off the refit.
+    replicate : int
+        The draw's index.
+    child_seed : int
+        The draw's seed.
+    replacement : callable
+        Builds the draw's data.
+    expected_family : str
+        Outcome family the refit must report.
+    retain_preparation_failures : bool
+        Whether a failure inside ``replacement`` is retained rather than raised.
+    refit_options : callable or None
+        Extra keyword arguments of the refit.
+    refit_estimator : callable or None
+        The estimator that refits the draw.
+
+    Returns
+    -------
+    EmpiricalRefitRecord or ReplicationFailure
+        What the draw returned.
+    """
+    try:
+        prepared = replacement(replicate, child_seed)
+    except Exception as error:
+        if not retain_preparation_failures:
+            raise
+        # A bootstrap sample this draw cannot build, or a perturbation the sample
+        # refuses, is one failed draw among many. Raising would discard every draw
+        # that already succeeded, so record it with the fields a refit failure carries.
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type=type(error).__name__,
+            message=str(error),
         )
-    return tuple(records), tuple(failures)
+    try:
+        estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
+        refitted = estimator.refit(
+            prepared,
+            **_intermediate_option(result),
+            random_state=child_seed,
+            **({} if refit_options is None else refit_options(replicate)),
+        )
+    except Exception as error:  # an estimator failure belongs in the report
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type=type(error).__name__,
+            message=str(error),
+        )
+    fitted_family = str(refitted.data.family)
+    if fitted_family != expected_family:
+        raise RuntimeError(
+            f"empirical refit reported authoritative family={fitted_family!r}; expected "
+            f"{expected_family!r}"
+        )
+    estimate = refitted[estimand]
+    if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type="ValueError",
+            message="refitted estimate or standard error is non-finite",
+        )
+    return EmpiricalRefitRecord(
+        replicate=replicate,
+        seed=child_seed,
+        estimand=estimand,
+        estimate=float(estimate.psi),
+        std_error=float(estimate.plugin_std_error),
+        family=fitted_family,
+    )
 
 
 def _measurement_encodings(data: Any) -> dict[str, Any]:
@@ -3797,6 +3876,7 @@ def _bootstrap_stability_test(
     n_replicates: int,
     root_seed: int,
     is_ratio: bool = False,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     """Refit on bootstrap resamples that keep each unit's fold, and describe the spread.
 
@@ -3822,10 +3902,16 @@ def _bootstrap_stability_test(
     from ..interventions.learned import frozen_rule_replay
 
     frozen = _frozen_rule(result)
+    if session is not None:
+        session.test(
+            "bootstrap_stability", _bootstrap_parts(n_replicates, design.resampling, None, None)
+        )
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        session=session,
+        test="bootstrap_stability",
         replacement=lambda replicate, seed: folds.sample(replicate),
         refit_options=folds.options,
         refit_estimator=(
@@ -3887,6 +3973,7 @@ def _bootstrap_measurement_error_test(
     rule: EmpiricalInclusionRule,
     n_replicates: int,
     root_seed: int,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     data = _validate_measurement_error_eligibility(result, declaration, n_replicates)
     design = _bootstrap_design(
@@ -3902,10 +3989,17 @@ def _bootstrap_measurement_error_test(
     # A learned-rule fit holds each source unit's realized rule, the rule at its true
     # covariates, so every refit targets the value of the fit's own rules (X82 part F4).
     frozen = _frozen_rule(result)
+    if session is not None:
+        session.test(
+            "bootstrap_measurement_error",
+            _bootstrap_parts(n_replicates, design.resampling, declaration, rule),
+        )
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        session=session,
+        test="bootstrap_measurement_error",
         replacement=lambda replicate, seed: _perturb_measurement_error(
             folds.sample(replicate), declaration, seed=seed
         ),
@@ -4042,6 +4136,7 @@ def _generated_outcome_test(
     root_seed: int,
     fit: FitConfiguration | None,
     target: PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
@@ -4110,12 +4205,16 @@ def _generated_outcome_test(
         declared_effect = target.truth(means, weights, mixture)
         covariate_part = target.covariate_part_vanishes(means, weights, mixture)
 
+    if session is not None:
+        session.test(name, _generated_parts(n_replicates, process, bands))
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple(enumerate(seeds)),
         replacement=replacement,
         expected_family=process.family,
+        session=session,
+        test=name,
     )
     if ratio:
         # A ratio reads on the log scale, where its standard error is reported. A refit with
@@ -5218,6 +5317,156 @@ def _refute_preflight(
     return request
 
 
+def _generated_parts(n_replicates: int, process: Any, bands: Any) -> dict[str, Any]:
+    """The parts of a generated test's request a checkpoint records."""
+    return {"draws": n_replicates, "process": process, "bands": bands}
+
+
+def _bootstrap_parts(
+    n_replicates: int, resampling: str, declaration: Any, rule: Any
+) -> dict[str, Any]:
+    """The parts of a bootstrap test's request a checkpoint records."""
+    parts: dict[str, Any] = {"draws": n_replicates, "resampling": resampling}
+    if declaration is not None:
+        parts.update(declaration=declaration, rule=rule)
+    return parts
+
+
+def stored_draws(
+    session: CheckpointSession,
+    result: Any,
+    name: str,
+    *,
+    n_replicates: int,
+    root_seed: int,
+    process: Any,
+    bands: Any,
+    declaration: Any,
+    rule: Any,
+) -> int:
+    """How many draws of a stored test a resume would load rather than refit.
+
+    It checks the test's request and each stored draw's seed the way the test does, so a
+    directory the test would refuse refuses here.
+
+    Parameters
+    ----------
+    session : CheckpointSession
+        The call's session.
+    result : TMLEResult
+        The fit.
+    name : str
+        The test.
+    n_replicates : int
+        Its draw count.
+    root_seed : int
+        The call's root seed.
+    process : Any
+        A generated test's process.
+    bands : Any
+        A generated test's bands.
+    declaration : Any
+        The measurement-error declaration.
+    rule : Any
+        The measurement-error rule.
+
+    Returns
+    -------
+    int
+        The stored draws.
+    """
+    if name in _GENERATED_TESTS:
+        parts = _generated_parts(n_replicates, process, bands)
+        draws = tuple(enumerate(_generated_child_seeds(root_seed, name, n_replicates)))
+    else:
+        measurement = name == "bootstrap_measurement_error"
+        data = (
+            _validate_measurement_error_eligibility(result, declaration, n_replicates)
+            if measurement
+            else _validate_stability_eligibility(result, n_replicates)
+        )
+        design = _bootstrap_design(
+            data,
+            n_replicates=n_replicates,
+            resampling=declaration.resampling if measurement else "auto",
+            random_state=root_seed,
+        )
+        parts = _bootstrap_parts(
+            n_replicates,
+            design.resampling,
+            declaration if measurement else None,
+            rule if measurement else None,
+        )
+        draws = tuple((draw.replicate, draw.seed) for draw in design.draws)
+    session.test(name, parts)
+    return sum(session.load(name, replicate, seed) is not None for replicate, seed in draws)
+
+
+def _validated_checkpoint(checkpoint: Any, progress: Any) -> None:
+    """Refuse a ``checkpoint`` or ``progress`` of the wrong kind, before any other check."""
+    if checkpoint is not None and not isinstance(checkpoint, RefutationCheckpoint):
+        raise TypeError(
+            "checkpoint must be a RefutationCheckpoint or None; got "
+            f"{type(checkpoint).__name__}. Pass RefutationCheckpoint(directory)."
+        )
+    if progress is not None and not callable(progress):
+        raise TypeError(f"progress must be callable or None; got {type(progress).__name__}")
+
+
+def _fit_repeat_seeds(result: Any) -> Any:
+    """The seeds a refit reuses: a structural fit's fit seeds, else the repeats' seeds."""
+    if is_structural(result):
+        return structural_fit_seeds(result)
+    repeats = getattr(result, "repeats", None)
+    return [item.seed for item in repeats] if repeats else None
+
+
+def checkpoint_session(
+    result: Any,
+    *,
+    estimand: str,
+    seed: int,
+    tests: Sequence[str],
+    checkpoint: RefutationCheckpoint | None,
+    progress: Callable[[RefutationProgress], Any] | None,
+    read_only: bool = False,
+) -> CheckpointSession | None:
+    """Open a call's checkpoint, checking its request, when it requests a stored test.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fit.
+    estimand : str
+        The estimand the call refits.
+    seed : int
+        The call's resolved root seed.
+    tests : sequence of str
+        The requested tests.
+    checkpoint : RefutationCheckpoint or None
+        The directory.
+    progress : callable or None
+        The progress callback.
+    read_only : bool
+        Whether the session only reads, as the preview does.
+
+    Returns
+    -------
+    CheckpointSession or None
+        ``None`` when there is neither a checkpoint nor a callback, or no stored test runs.
+    """
+    if checkpoint is None and progress is None:
+        return None
+    if not any(name in CHECKPOINTED_TESTS for name in tests):
+        return None
+    parts = (
+        request_parts(result, estimand=estimand, seed=seed, repeat_seeds=_fit_repeat_seeds(result))
+        if checkpoint is not None
+        else {}
+    )
+    return CheckpointSession(checkpoint, parts, progress, read_only=read_only)
+
+
 def refute(
     result: TMLEResult,
     *,
@@ -5243,6 +5492,8 @@ def refute(
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     random_state: int | None = None,
+    checkpoint: RefutationCheckpoint | None = None,
+    progress: Callable[[RefutationProgress], Any] | None = None,
 ) -> RefutationResult:
     """Run refutation tests against a fitted model.
 
@@ -5351,6 +5602,16 @@ def refute(
         ``random_state``, and passing that value back repeats the report.  On a fit with a
         band-rank placebo the placebo sets are drawn first, so the draws of the other tests
         depend on whether ``tests`` holds ``"placebo"``.
+    checkpoint : RefutationCheckpoint or None
+        Directory that keeps each finished draw of ``dummy_outcome``, ``simulated_outcome``,
+        ``plasmode``, ``bootstrap_stability`` and ``bootstrap_measurement_error``. Run the
+        same call again with it and the stored draws are loaded rather than refitted, so an
+        interrupted call resumes and returns the report an uninterrupted call returns. The
+        other tests are not stored. :class:`RefutationCheckpoint` says what the directory
+        records and when it refuses.
+    progress : callable or None
+        Called after every draw of those five tests with a :class:`RefutationProgress`. An
+        exception it raises stops the call; the draws already stored stay.
 
     Returns
     -------
@@ -5364,9 +5625,13 @@ def refute(
         If no test is named, a test name is unknown, ``n_replicates`` is not a positive
         integer, or the negative-control test has no outcome. These checks precede every
         refusal and refit.
+    TypeError
+        If ``checkpoint`` is not a :class:`RefutationCheckpoint` or ``progress`` is not
+        callable. This check precedes the others.
     CapabilityError
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
+    _validated_checkpoint(checkpoint, progress)
     request = _refute_preflight(
         result,
         estimand=estimand,
@@ -5434,6 +5699,14 @@ def refute(
     # nuisances, and an estimator with no ``random_state`` redraws its folds every time, so
     # seeding the draws alone would leave the report unrepeatable.
     seed = resolve_assessment_seed(result, random_state)
+    session = checkpoint_session(
+        result,
+        estimand=estimand,
+        seed=seed,
+        tests=requested,
+        checkpoint=checkpoint,
+        progress=progress,
+    )
     rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []
@@ -5869,6 +6142,7 @@ def refute(
                     root_seed=seed,
                     fit=fit,
                     target=contrasts[name],
+                    session=session,
                 )
             )
         elif name == "bootstrap_stability":
@@ -5880,6 +6154,7 @@ def refute(
                     n_replicates=replicate_count,
                     root_seed=seed,
                     is_ratio=is_ratio,
+                    session=session,
                 )
             )
         else:
@@ -5894,6 +6169,7 @@ def refute(
                     rule=measurement_error_rule,
                     n_replicates=replicate_count,
                     root_seed=seed,
+                    session=session,
                 )
             )
 

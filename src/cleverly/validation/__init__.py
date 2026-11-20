@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._planned_refits import PlannedRefits, PlannedRefitTest, planned_refits
+from ._refute_checkpoint import RefutationCheckpoint, RefutationProgress
 from .drtmle import (
     IDENTITY_TOLERANCE,
     MARGIN_ACTIVE,
@@ -77,6 +78,8 @@ __all__ = [
     "NuisanceModelReport",
     "PlannedRefitTest",
     "PlannedRefits",
+    "RefutationCheckpoint",
+    "RefutationProgress",
     "RefutationResult",
     "RefutationTest",
     "RelativeGaussianNoise",

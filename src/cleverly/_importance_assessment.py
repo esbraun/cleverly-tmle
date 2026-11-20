@@ -300,10 +300,32 @@ class _CandidateFacade(_CapabilityFacade):
         reports = {}
         for name, facade in self._facades.items():
             try:
-                reports[name] = getattr(facade, operation)(*args, **kwargs)
+                reports[name] = getattr(facade, operation)(
+                    *args, **_candidate_checkpoint(operation, name, kwargs, record=True)
+                )
             except CapabilityError as error:
                 raise self._candidate_error(operation, name, facade, error) from error
         return CandidateReports(operation, reports, self._result.backend)
+
+
+def _candidate_checkpoint(
+    operation: str, name: str, kwargs: Mapping[str, Any], *, record: bool
+) -> dict[str, Any]:
+    """``kwargs`` for one candidate: its own checkpoint subdirectory, its name on progress.
+
+    One directory records one request, so each candidate keeps its draws in a subdirectory of
+    the one passed (X106 G3), and each progress record names the candidate.
+    """
+    out = dict(kwargs)
+    if operation != "refute":
+        return out
+    checkpoint = out.get("checkpoint")
+    if checkpoint is not None:
+        out["checkpoint"] = checkpoint.child(name, record=record)
+    progress = out.get("progress")
+    if progress is not None:
+        out["progress"] = lambda record_: progress(replace(record_, candidate=name))
+    return out
 
 
 class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
@@ -432,7 +454,9 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
         reports = {}
         for name, facade in self._facades.items():
             try:
-                reports[name] = facade.planned_refits(**kwargs)
+                reports[name] = facade.planned_refits(
+                    **_candidate_checkpoint("refute", name, kwargs, record=False)
+                )
             except CapabilityError as error:
                 raise self._candidate_error("refute", name, facade, error) from error
         return CandidateReports("planned_refits", reports, self._result.backend)
