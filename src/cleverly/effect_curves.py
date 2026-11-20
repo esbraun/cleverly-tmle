@@ -1719,10 +1719,16 @@ def score_assessment(
 
     Raises
     ------
+    CapabilityError
+        On rows with an intermediate (a controlled direct effect fit), whose pseudo-outcomes
+        would need the intermediate's selection and density.
     DataError
         For a score without one finite value per row, two scores that are equal on every row,
         or a fluctuation that does not converge.
     """
+    from .effect_modification import refuse_cde_curve_tools
+
+    refuse_cde_curve_tools(data)
     names = list(scores)
     if not 1 <= len(names) <= 2:
         raise DataError(f"a score assessment takes one score or two; got {len(names)}")

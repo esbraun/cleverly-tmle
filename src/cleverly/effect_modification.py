@@ -42,6 +42,7 @@ from .exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from .msm import ProjectionFit, check_projection_rank
 
 __all__ = [
+    "CDE_CURVE_TOOLS_REFUSAL",
     "COMPOSITION_GAPS",
     "SCALES",
     "EffectModification",
@@ -52,6 +53,7 @@ __all__ = [
     "effect_modification_gap",
     "log_ratio_scale_refusal",
     "modifier_frame",
+    "refuse_cde_curve_tools",
 ]
 
 #: The two scales a conditional contrast is reported on.
@@ -167,6 +169,36 @@ def effect_modification_ep_refusal(data: CausalData) -> Refusal | None:
     if data.has_strata:
         return EP_STRATA_REFUSAL
     return None
+
+
+#: Why the pseudo-outcome tools refuse a controlled direct effect (P1).
+CDE_CURVE_TOOLS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The held-out curve checks, the score assessment and the targeting curve build "
+    "pseudo-outcomes without the intermediate's selection 1{Z = z} and density q_z, so on a "
+    "controlled direct effect they would check a different estimand.",
+    alternative=(
+        "Read the projection's coefficients and band; these tools run on a total-effect projection."
+    ),
+    roadmap="P1",
+)
+
+
+def refuse_cde_curve_tools(data: Any) -> None:
+    """Refuse a pseudo-outcome tool on rows with an intermediate, before any refit.
+
+    Parameters
+    ----------
+    data : CausalData
+        The rows, as the fit prepared them.
+
+    Raises
+    ------
+    CapabilityError
+        :data:`CDE_CURVE_TOOLS_REFUSAL` when the rows carry an intermediate.
+    """
+    if bool(getattr(data, "has_intermediate", False)):
+        raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
 
 
 def log_ratio_scale_refusal(

@@ -1134,3 +1134,110 @@ def test_cellmeans_learner_on_the_six_cell_law_is_the_oracle() -> None:
     np.testing.assert_allclose(
         values(assessment), six_truth(SIX_Q, "log_ratio", (S6, S6B)), atol=1e-10
     )
+
+
+# ------------------------------------------- a controlled direct effect fit (P1 PR 2)
+
+
+@functools.cache
+def _cde_fit() -> Any:
+    """A shipped CDE fit at ``Z = 0`` on :mod:`tests.discrete_law_cde`, with oracle nuisances."""
+    from cleverly import ControlledDirectEffect
+    from tests import discrete_law_cde as cde
+    from tests.conftest import OracleDirectOutcome, OracleIntermediate
+
+    dgp = cde.DiscreteLaw()
+    design = PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W",),
+        missingness="Delta",
+        intermediate="Z",
+    )
+    effect = CausalStudy(cde.frame(), design=design).identify(
+        ControlledDirectEffect(intermediate=0.0)
+    )
+    return effect.estimate(
+        outcome_learner=OracleDirectOutcome(dgp),
+        treatment_learner=OracleTreatment(dgp),
+        missingness_learner=OracleMissingness(dgp),
+        intermediate_learner=OracleIntermediate(dgp),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def _refuses_with_the_cde_tools_text(error: pytest.ExceptionInfo[CapabilityError]) -> None:
+    from cleverly.effect_modification import CDE_CURVE_TOOLS_REFUSAL
+
+    assert error.value.refusal == CDE_CURVE_TOOLS_REFUSAL
+    assert "without the intermediate's selection 1{Z = z} and density q_z" in str(error.value)
+
+
+@_quiet
+def test_t19_a_direct_assessment_of_a_cde_fit_refuses_before_any_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The call used to build the total-effect pseudo-outcome on a CDE fit; now it refuses.
+
+    The witness that the refusal is load-bearing: with the guard switched off, the same call
+    returns an assessment, which is the silent wrong-estimand path.
+    """
+    fit = _cde_fit()
+    assert fit.data.has_intermediate
+    score = {"S": np.asarray(fit.data.covariates, dtype=float)[:, 0]}
+
+    def never(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the assessment refitted before refusing")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(ec, "_target_scores", never)
+        for scale in ("difference", "log_ratio"):
+            with pytest.raises(CapabilityError) as error:
+                ec.score_assessment(fit, fit.data, score, scale=scale)
+            _refuses_with_the_cde_tools_text(error)
+    import cleverly.effect_modification as em
+
+    monkeypatch.setattr(em, "refuse_cde_curve_tools", lambda data: None)
+    assert len(ec.score_assessment(fit, fit.data, score).to_frame()) == 3
+
+
+@_quiet
+def test_t19_the_shared_targeting_engine_refuses_a_cde_fit() -> None:
+    fit = _cde_fit()
+    basis = np.ones((fit.data.n, 1))
+    with pytest.raises(CapabilityError) as error:
+        pt.solve_pooled(fit, fit.data, basis, -basis, (1.0, 0.0), what="the targeting curve")
+    _refuses_with_the_cde_tools_text(error)
+
+
+def test_t19_the_refusal_is_not_an_assertion_and_survives_python_optimize() -> None:
+    """Under ``python -O`` an ``assert`` is stripped; the refusal must still raise."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = (
+        "import warnings; warnings.simplefilter('ignore')\n"
+        "import numpy as np\n"
+        "from cleverly import effect_curves as ec\n"
+        "from cleverly.exceptions import CapabilityError\n"
+        "from tests.unit.test_score_assessment_tmle import _cde_fit\n"
+        "fit = _cde_fit()\n"
+        "score = {'S': np.asarray(fit.data.covariates, dtype=float)[:, 0]}\n"
+        "try:\n"
+        "    ec.score_assessment(fit, fit.data, score)\n"
+        "except CapabilityError as error:\n"
+        "    print('refused', error.refusal.roadmap)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    assert done.stdout.strip().splitlines()[-1] == "refused P1"
