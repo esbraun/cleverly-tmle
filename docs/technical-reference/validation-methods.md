@@ -3609,7 +3609,10 @@ A control fit is an auxiliary fit, so `refute()` sets its outcome bounds. A bina
 no bounds. A continuous control takes its observed range on a cross-fitted fit, or on a fit that
 declares `q_bounds`. This is the usual TMLE choice (Gruber and van der Laan 2010). The report
 prints the bounds. A continuous control on a fit with a classifier outcome learner uses the
-pseudo-outcome learner of the fit.
+pseudo-outcome learner of the fit. The detail of the negative-control and future-treatment tests
+names the control fit's outcome learner and family, and says when the pseudo-outcome learner
+stood in. Neither control fit builds a simultaneous band, which no refutation reads
+(`tests/unit/test_refuter_input_reuse.py`).
 
 `negative_control_kind="pre_treatment"` declares a control that precedes the first treatment. The
 form applies to point and longitudinal fits. `refute()` refuses the control in two cases.
