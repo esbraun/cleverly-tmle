@@ -239,18 +239,6 @@ def _shown_candidates(selection: CTMLESelection) -> list[int]:
     return sorted(keep)
 
 
-def _l1_fallback_text(reasons: tuple[str, ...]) -> str | None:
-    """The note of L1 paths the built-in solver solved after glmstar failed, or ``None``."""
-    if not reasons:
-        return None
-    count = len(reasons)
-    return vocabulary.NOTE_TEXTS["l1_fallback"].format(
-        paths="1 lasso path" if count == 1 else f"{count} lasso paths",
-        reasons=", ".join(sorted(set(reasons))),
-        them="it" if count == 1 else "them",
-    )
-
-
 def _search_work_text(selection: CTMLESelection) -> str:
     """The search's candidate fits, mechanism fits and solves over every branch, in words."""
     return (
@@ -342,7 +330,6 @@ def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
         ("left_out", _left_out_text(selection)),
         ("search_stopped", _patience_text(selection)),
         ("risk_order", _risk_order_text(selection)),
-        ("l1_fallback", _l1_fallback_text(selection.l1_fallback_reasons)),
     ):
         if text is not None:
             notes.append(note(code, text))
@@ -700,12 +687,10 @@ def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
                 ),
             )
         )
-    fallback = _l1_fallback_text(fit.l1_fallback_reasons)
     return Summary.build(
         title=vocabulary.DERIVATIVE_TITLE,
         header=header,
         tables=tables,
-        notes=[note("l1_fallback", fallback)] if fallback is not None else [],
         sections=sections,
     )
 
