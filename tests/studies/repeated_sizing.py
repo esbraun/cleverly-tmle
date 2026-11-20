@@ -591,7 +591,7 @@ def pooled_pass_probability(
     Cells that share a fit are positively dependent, which makes the product a lower bound.
 
     Both expectations are sums on one grid of values, with a step of at most
-    :data:`POOLED_STEP` and a twentieth of :math:`\tau` and :math:`\sigma`, out to
+    :data:`POOLED_STEP` and a twentieth of the larger of :math:`\tau` and :math:`\sigma`, out to
     :data:`POOLED_REACH` standard deviations.  The inner expectation is a convolution of the
     cell probability with the normal law of :math:`\tau z`.  A pass probability can change
     over a few thousandths of a ratio, so a fixed set of quadrature nodes spaced by a fraction
@@ -614,20 +614,22 @@ def pooled_pass_probability(
     if not (np.isfinite(tau) and tau >= 0.0):
         raise ValueError(f"pooled_pass_probability: tau must be finite and >= 0, not {tau}")
     count = sum(len(group.values) for group in groups)
-    if not callable(cell_pass) and len(list(cell_pass)) != count:
+    listed = None if callable(cell_pass) else list(cell_pass)
+    if listed is not None and len(listed) != count:
         raise ValueError(
-            f"pooled_pass_probability: {len(list(cell_pass))} cell probabilities for {count} cells"
+            f"pooled_pass_probability: {len(listed)} cell probabilities for {count} cells"
         )
     total = 1.0
     offset = 0
     for group in groups:
         size = len(group.values)
-        cells = (
-            [cell_pass] * size if callable(cell_pass) else list(cell_pass)[offset : offset + size]
-        )
+        cells = [cell_pass] * size if listed is None else listed[offset : offset + size]
         offset += size
         sigma = float(np.sqrt(group.mean_variance))
-        step = min([POOLED_STEP] + [scale / 20.0 for scale in (tau, sigma) if scale > 0.0])
+        # The wider law sets the step.  The narrower one may then span a few grid points or
+        # one, which a pass probability that changes over a few thousandths cannot tell from
+        # a point mass.
+        step = min(POOLED_STEP, max(tau, sigma) / 20.0) if max(tau, sigma) > 0.0 else POOLED_STEP
         centres, outer = _normal_grid(sigma, step)
         centres = centres + float(np.mean(group.values))
         spread, kernel = _normal_grid(tau, step)
@@ -637,13 +639,18 @@ def pooled_pass_probability(
         for cell in cells:
             if id(cell) not in inner:
                 passes = np.asarray(cell(values), dtype=float)
-                if not np.all(np.isfinite(passes)):
+                if not (np.all(np.isfinite(passes)) and np.all((passes >= 0) & (passes <= 1))):
                     raise ValueError(
                         f"pooled_pass_probability: a cell pass probability is not finite "
-                        f"(group mean {float(np.mean(group.values)):.6g}, tau {tau:.6g})"
+                        f"or not in [0, 1] (group mean {float(np.mean(group.values)):.6g}, "
+                        f"tau {tau:.6g})"
                     )
-                smoothed = fftconvolve(passes, kernel, mode="valid") if tau > 0.0 else passes
-                inner[id(cell)] = np.clip(smoothed, 0.0, 1.0)
+                inner[id(cell)] = (
+                    # The transform leaves round-off of order 1e-16 outside [0, 1].
+                    np.clip(fftconvolve(passes, kernel, mode="valid"), 0.0, 1.0)
+                    if tau > 0.0
+                    else passes
+                )
             product = product * inner[id(cell)]
         total *= float(outer @ product)
     return checked(total, "pooled_pass_probability")

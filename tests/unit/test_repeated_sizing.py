@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-from scipy.stats import beta, norm
+from scipy.stats import beta, binom, norm
 
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
@@ -996,17 +996,37 @@ def test_the_cell_probability_is_zero_at_a_ratio_at_or_below_zero() -> None:
     )
 
 
+def _two_sided_before_the_fix(replicates: int, ratio: np.ndarray) -> np.ndarray:
+    """The two-sided cell probability as main computed it before ratios at or below zero."""
+    low, high = MARGINS.calibration_se_ratio
+    z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+    spread = ratio / np.sqrt(2.0 * (replicates - 1))
+    half = z * spread
+    se_pass = np.maximum(
+        norm.cdf((high - half - ratio) / spread) - norm.cdf((low + half - ratio) / spread), 0.0
+    )
+    wald = 2.0 * norm.cdf(float(norm.ppf(1.0 - MARGINS.alpha / 2.0)) * ratio) - 1.0
+    accepted = sizing.accepted_counts(MARGINS, replicates)
+    assert accepted is not None
+    coverage = binom.cdf(accepted[1], replicates, wald) - binom.cdf(
+        accepted[0] - 1, replicates, wald
+    )
+    return se_pass * coverage
+
+
 def test_the_cell_probability_is_unchanged_at_positive_ratios() -> None:
-    """A positive ratio reads the same formula, whether or not other entries are negative."""
+    """At a positive ratio the cell reads the formula it read before, bit for bit."""
     positive = np.linspace(0.05, 2.0, 40)
+    for replicates in (400, 4_000, 50_000):
+        np.testing.assert_array_equal(
+            sizing.calibration_pass(MARGINS, replicates, positive),
+            _two_sided_before_the_fix(replicates, positive),
+        )
     mixed = np.concatenate([[-0.2, 0.0], positive])
     for one_sided in (False, True):
         alone = sizing.calibration_pass(MARGINS, 4_000, positive, one_sided=one_sided)
         together = sizing.calibration_pass(MARGINS, 4_000, mixed, one_sided=one_sided)
         np.testing.assert_array_equal(together[2:], alone)
-    # The reading at ratio one is the probed 4,000-replication value, so the formula moved
-    # nowhere a pilot sits.
-    assert float(sizing.calibration_pass(MARGINS, 4_000, np.array([1.0]))[0]) > 0.99
 
 
 def test_the_pooled_reading_refuses_a_non_finite_cell_probability() -> None:
@@ -1124,3 +1144,38 @@ def test_the_pooled_reading_refuses_a_bad_spread_or_cell_count() -> None:
             sizing.pooled_pass_probability(groups, tau, cell)
     with pytest.raises(ValueError, match="1 cell probabilities for 2 cells"):
         sizing.pooled_pass_probability(groups, 0.01, [cell])
+
+
+def test_a_vanishing_spread_is_a_point_mass_and_stays_cheap() -> None:
+    """A tiny tau or pilot variance sets no step: the wider law does.
+
+    Before the step followed the wider law, tau 1e-7 beside a pilot SD of 0.007 asked for
+    millions of grid points and a pilot SD of 1e-7 beside tau 0.05 ran out of memory.
+    """
+    groups = _wide_groups()
+    cell = sizing._calibration_cell(MARGINS, 8_000)
+    flat = sizing.pooled_pass_probability(groups, 0.0, cell)
+    assert sizing.pooled_pass_probability(groups, 1e-7, cell) == pytest.approx(flat, abs=1e-9)
+    narrow = sizing.PilotGroup(np.array([1.0, 1.0]), np.full((2, 2), 1e-14))
+    assert sizing.pooled_pass_probability([narrow], 0.05, cell) == pytest.approx(
+        sizing.pooled_pass_probability(
+            [sizing.PilotGroup(np.array([1.0, 1.0]), np.zeros((2, 2)))], 0.05, cell
+        ),
+        abs=1e-9,
+    )
+
+
+def test_the_pooled_reading_takes_a_one_pass_iterable_of_cells() -> None:
+    """A generator of cell probabilities reads the same as the list it yields."""
+    groups = _wide_groups()
+    cells = [sizing._calibration_cell(MARGINS, 8_000), sizing._calibration_cell(MARGINS, 12_000)]
+    assert sizing.pooled_pass_probability(groups, 0.01, iter(cells)) == (
+        sizing.pooled_pass_probability(groups, 0.01, cells)
+    )
+
+
+def test_the_pooled_reading_refuses_a_probability_outside_zero_and_one() -> None:
+    groups = _wide_groups()
+    for tau in (0.0, 0.01):
+        with pytest.raises(ValueError, match=r"not in \[0, 1\]"):
+            sizing.pooled_pass_probability(groups, tau, lambda values: np.full_like(values, 1.5))

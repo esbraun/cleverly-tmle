@@ -1011,7 +1011,9 @@ def test_the_property_replications_are_the_declared_rule_applied_to_the_pilot() 
         return properties.pooled_pass_probability(
             [groups[family]],
             spread,
-            np.vectorize(lambda bias: properties.bias_equivalent_probability(bias, count)),
+            lambda bias: np.asarray(
+                sizing.bias_equivalent_probability(properties.STUDY.margins, bias, count)
+            ),
         )
 
     for family, count in sizes.items():
