@@ -438,6 +438,215 @@ BAND_SUPPORT: Final[Support] = _experimental(
     "study measures pointwise intervals only."
 )
 
+#: The study that measures the full-refit bootstrap of the continuous-time TMLE (X6 part (d)).
+BOOTSTRAP_STUDY: Final[str] = "continuous-survival-bootstrap"
+
+#: The share of failed bootstrap refits above which every bootstrap interval of a fit is withheld
+#: (the failure rule): the interval would condition on the replicates that fit.
+BOOTSTRAP_FAILURE_SHARE: Final[float] = 0.01
+
+#: Why a bootstrap interval of an in-sample fit reads experimental (X6 plan 8.9): the theory its
+#: label would rest on has not been read first-hand, whatever the study reads.
+IN_SAMPLE_BOOTSTRAP_REASON: Final[str] = (
+    "The bootstrap delta-method conditions are not yet read first-hand. The in-sample bootstrap "
+    "of this fit rests on the bootstrap delta method for a Hadamard-differentiable map (van der "
+    "Vaart and Wellner 1996, Section 3.9, relayed through Beutner and Zähle), "
+    f"and until its conditions are read the {BOOTSTRAP_STUDY} study cannot set this label alone."
+)
+
+#: Why a bootstrap interval of a cross-fitted fit reads experimental: no theorem covers it, so no
+#: study can set its label.
+CROSS_FITTED_BOOTSTRAP_REASON: Final[str] = (
+    "No theorem covers a bootstrap of a cross-fitted fit with a selected library; Cai and van der "
+    "Laan (2020) warn against it: a cross-validation selector rerun on each bootstrap sample makes "
+    "the nonparametric bootstrap generally inconsistent, and can make its intervals too narrow."
+)
+
+#: The sentence a studentized bootstrap band adds to its kind's reason.
+BOOTSTRAP_BAND_REASON: Final[str] = (
+    "No study measures the studentized bootstrap band of the continuous-time TMLE."
+)
+
+BootstrapKind = Literal["bootstrap", "bootstrap_bca", "bootstrap_band"]
+
+
+def continuous_bootstrap_support(*, kind: BootstrapKind, cross_fitted: bool) -> Support:
+    """The support of a bootstrap interval or band of a continuous-time fit.
+
+    No bootstrap interval of this engine reads ``supported``.  An in-sample fit's percentile
+    and BCa intervals wait on a first-hand reading of the bootstrap delta method's conditions
+    (:data:`IN_SAMPLE_BOOTSTRAP_REASON`), and a cross-fitted fit's on a theorem that covers them
+    (:data:`CROSS_FITTED_BOOTSTRAP_REASON`); the ``continuous-survival-bootstrap`` study measures
+    both and sets neither label.  The studentized band adds that no study measures it.
+
+    Parameters
+    ----------
+    kind : {"bootstrap", "bootstrap_bca", "bootstrap_band"}
+        The percentile interval, the BCa interval or the studentized band.
+    cross_fitted : bool
+        Whether the fit's nuisances are fitted out of fold.
+
+    Returns
+    -------
+    Support
+        An experimental label with its reason, tagged with roadmap X6.
+
+    Examples
+    --------
+    >>> from cleverly.survival.result import continuous_bootstrap_support
+    >>> support = continuous_bootstrap_support(kind="bootstrap", cross_fitted=False)
+    >>> support.label, support.reason.split(".")[0]
+    ('experimental', 'The bootstrap delta-method conditions are not yet read first-hand')
+    """
+    if kind not in ("bootstrap", "bootstrap_bca", "bootstrap_band"):
+        raise ValueError(f"unknown bootstrap kind {kind!r}")
+    reason = CROSS_FITTED_BOOTSTRAP_REASON if cross_fitted else IN_SAMPLE_BOOTSTRAP_REASON
+    if kind == "bootstrap_band":
+        reason = f"{reason} {BOOTSTRAP_BAND_REASON}"
+    return Support("experimental", reason, ("X6",))
+
+
+def bootstrap_withheld_text(failed: int, requested: int, reasons: str, interval: str) -> str:
+    """The failure rule's text: too many failed refits, so every bootstrap interval is withheld.
+
+    Parameters
+    ----------
+    failed : int
+        The failed refits.
+    requested : int
+        The replicates asked for.
+    reasons : str
+        Each failure's class and first sentence, with its count.
+    interval : {"percentile", "bca"}
+        The interval the fit would have attached.
+
+    Returns
+    -------
+    str
+        The warning's text.
+    """
+    name = "percentile" if interval == "percentile" else "BCa"
+    return (
+        f"{failed} of {requested} bootstrap refits failed ({reasons}); the {name} interval "
+        "would condition on the replicates that fit, so it is withheld. The Wald interval "
+        "stands."
+    )
+
+
+def _failure_reasons(reasons: Sequence[str]) -> str:
+    """Each distinct failure reason with its count, most frequent first."""
+    counts: dict[str, int] = {}
+    for reason in reasons:
+        counts[reason] = counts.get(reason, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return "; ".join(f"{count} x {reason}" for reason, count in ordered)
+
+
+def attach_bootstrap(
+    result: ContinuousSurvivalResult,
+    outcomes: Sequence[tuple[Mapping[str, tuple[float, float]] | None, str | None]],
+    *,
+    interval: Literal["percentile", "bca"],
+    simultaneous: bool,
+    alpha: float,
+    cross_fitted: bool,
+) -> ContinuousSurvivalResult:
+    """``result`` with the bootstrap replicates' intervals and band, or with them withheld.
+
+    Parameters
+    ----------
+    result : ContinuousSurvivalResult
+        The fit.
+    outcomes : sequence of tuple
+        Per replicate, each estimate's ``(estimate, standard error)``, or ``None`` with the
+        reason the refit failed.
+    interval : {"percentile", "bca"}
+        The interval each estimate carries.
+    simultaneous : bool
+        Whether to add the studentized band over every risk and risk difference.
+    alpha : float
+        Significance level.
+    cross_fitted : bool
+        Whether the fit is cross-fitted, which picks the label of every bootstrap interval.
+
+    Returns
+    -------
+    ContinuousSurvivalResult
+        A copy carrying :attr:`~ContinuousSurvivalResult.bootstrap`, its status and failures,
+        and, unless more than :data:`BOOTSTRAP_FAILURE_SHARE` of the refits failed, each
+        estimate's :class:`~cleverly.inference.BootstrapSummary` and the band.
+    """
+    from .._warnings import warn
+    from ..exceptions import ConvergenceWarning
+    from ..inference.bootstrap import BootstrapResult, bca_acceleration, bootstrap_band
+
+    requested = len(outcomes)
+    kept = [values for values, _ in outcomes if values is not None]
+    failures = tuple(reason for values, reason in outcomes if values is None and reason)
+    failed = requested - len(kept)
+    names = list(result.estimates)
+    missing = (np.nan, np.nan)
+    # The counts are kept even when every refit failed, so the record always says how many
+    # ran; the draws are then empty.
+    bootstrap = BootstrapResult(
+        draws={
+            name: np.array([row.get(name, missing)[0] for row in kept], dtype=float)
+            for name in names
+        },
+        n_requested=requested,
+        n_failed=failed,
+        resampling="iid",
+        std_errors={
+            name: np.array([row.get(name, missing)[1] for row in kept], dtype=float)
+            for name in names
+        },
+    )
+    if not kept or failed > BOOTSTRAP_FAILURE_SHARE * requested:
+        warn(
+            bootstrap_withheld_text(failed, requested, _failure_reasons(failures), interval),
+            ConvergenceWarning,
+        )
+        return replace(
+            result,
+            bootstrap=bootstrap,
+            bootstrap_status="bootstrap_unstable",
+            bootstrap_failures=failures,
+        )
+    kind: BootstrapKind = "bootstrap_bca" if interval == "bca" else "bootstrap"
+    support = continuous_bootstrap_support(kind=kind, cross_fitted=cross_fitted)
+    estimates = {}
+    for name, estimate in result.estimates.items():
+        if interval == "bca":
+            drawn = bootstrap.interval(
+                name,
+                alpha,
+                interval="bca",
+                estimate=estimate.psi,
+                acceleration=bca_acceleration(estimate.influence_curve),
+            )
+        else:
+            drawn = bootstrap.interval(name, alpha)
+        estimates[name] = estimate.with_bootstrap(replace(drawn, support=support))
+    band = None
+    if simultaneous:
+        risks = risk_names(result.arms, result.causes, result.horizons)
+        band = bootstrap_band(
+            bootstrap,
+            {name: result.estimates[name].psi for name in risks},
+            {name: result.estimates[name].std_error for name in risks},
+            alpha=alpha,
+            support=continuous_bootstrap_support(kind="bootstrap_band", cross_fitted=cross_fitted),
+        )
+    return replace(
+        result,
+        estimates=estimates,
+        bootstrap=bootstrap,
+        bootstrap_band=band,
+        bootstrap_status="ran",
+        bootstrap_failures=failures,
+    )
+
+
 #: The share of random times at which the registered study's score equation held, on average
 #: over its fits (``targeting-readings.csv``, ``mean_off_grid_share``): the reason a restricted
 #: mean must be targeted rather than read off the targeted risks.
@@ -456,6 +665,7 @@ CONTRAST_SUPPORT: Final[Support] = _experimental(
 _LEVEL_PATTERN: Final = re.compile(r"^(?:risk|cif)_regimen\[.+ @ t=(?P<time>[^\]]+)\]$")
 
 if TYPE_CHECKING:
+    from ..inference.bootstrap import BootstrapBand, BootstrapResult
     from ._targeting import WalkResult
     from .data import ContinuousSurvivalData
     from .engine import ContinuousSurvivalRecord, ContinuousSurvivalTMLE
@@ -463,7 +673,9 @@ if TYPE_CHECKING:
 __all__ = [
     "CONTINUOUS_SURVIVAL_STUDY",
     "ContinuousSurvivalResult",
+    "attach_bootstrap",
     "build_estimates",
+    "continuous_bootstrap_support",
     "continuous_survival_support",
     "risk_names",
 ]
@@ -865,6 +1077,23 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         ``None`` only on a result built by hand, which the refits refuse.
     data : ContinuousSurvivalData or None
         The rows the fit read. ``None`` only on a result built by hand.
+    bootstrap : BootstrapResult or None
+        With ``n_bootstrap``, every replicate's estimate and standard error of each estimate,
+        and how many refits were requested and failed (``n_requested``, ``n_failed``); the
+        draws are empty when every refit failed.  ``None`` without a bootstrap.  When at most
+        1% of the refits fail, every bootstrap interval and the band read the refits that fit,
+        with no warning; ``n_failed`` and :attr:`bootstrap_failures` say how many did not.
+    bootstrap_band : BootstrapBand or None
+        The studentized bootstrap band over every risk and risk difference, with ``n_bootstrap``
+        and ``simultaneous=True`` and unless the intervals are withheld.  It is the estimate
+        plus or minus the critical value times its standard error on the identity scale, so a
+        small risk's band can cross 0, and it ignores ``band_scale``.
+    bootstrap_status : {"ran", "bootstrap_unstable"} or None
+        ``"ran"`` when each estimate carries its bootstrap interval, ``"bootstrap_unstable"``
+        when more than 1% of the refits failed and every bootstrap interval is withheld
+        (the failure rule), and ``None`` without a bootstrap.
+    bootstrap_failures : tuple of str
+        The class and first sentence of each failed refit's exception, in replicate order.
 
     Notes
     -----
@@ -892,6 +1121,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     predictable: PredictableCovariance | None = None
     estimator: ContinuousSurvivalTMLE | None = field(default=None, repr=False)
     data: ContinuousSurvivalData | None = field(default=None, repr=False)
+    bootstrap: BootstrapResult | None = field(default=None, repr=False)
+    bootstrap_band: BootstrapBand | None = None
+    bootstrap_status: Literal["ran", "bootstrap_unstable"] | None = None
+    bootstrap_failures: tuple[str, ...] = ()
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
@@ -1573,7 +1806,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             selected models and how the walk ended; and ``settings``, the arms, causes, target
             times, restriction times, units, significance level and variance; and
             ``predictable_covariance``, the targets and matrix of the predictable-variation
-            covariance under ``variance="switched"``, else ``None``.  A value that is not a
+            covariance under ``variance="switched"``, else ``None``; and ``bootstrap``, with
+            ``n_bootstrap``, the status, the replicates requested and failed, each failure's
+            reason and the studentized band, else ``None`` (each estimate's own mapping carries
+            its bootstrap interval).  A value that is not a
             finite number, such as the p-value of a range-logit estimate, reads ``None``, so
             the mapping passes ``json.dumps(..., allow_nan=False)``.
         """
@@ -1615,8 +1851,33 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
                 "predictable_covariance": None
                 if self.predictable is None
                 else self.predictable.to_dict(),
+                "bootstrap": self._bootstrap_dict(),
             }
         )
+
+    def _bootstrap_dict(self) -> dict[str, Any] | None:
+        """The bootstrap's status, counts, failures and band, ``None`` without a bootstrap."""
+        if self.bootstrap_status is None:
+            return None
+        band = self.bootstrap_band
+        return {
+            "status": self.bootstrap_status,
+            "n_requested": None if self.bootstrap is None else int(self.bootstrap.n_requested),
+            "n_failed": None if self.bootstrap is None else int(self.bootstrap.n_failed),
+            "n_kept": None
+            if self.bootstrap is None
+            else int(self.bootstrap.n_requested - self.bootstrap.n_failed),
+            "failures": list(self.bootstrap_failures),
+            "band": None
+            if band is None
+            else {
+                "critical_value": float(band.critical_value),
+                "n_replicates": int(band.n_replicates),
+                "bands": {name: [float(v) for v in limits] for name, limits in band.bands.items()},
+                "support": band.support.label,
+                "support_reason": band.support.reason,
+            },
+        }
 
     def summary(self, *, detail: Literal["short", "full"] = "short") -> Any:
         """A printable report of the fit.
@@ -1648,8 +1909,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         """Plot each arm's risk and their difference at the target times.
 
         Each estimate is drawn at its target time with its interval and, when the fit holds
-        one, its simultaneous band. Nothing is drawn between target times, where the fit
-        estimates no risk.
+        one, its simultaneous band: the multiplier band, or with ``band="bootstrap"`` the
+        studentized bootstrap band of a fit with ``n_bootstrap=`` and ``simultaneous=True``.
+        Nothing is drawn between target times, where the fit estimates no risk.
 
         Parameters
         ----------
@@ -1669,7 +1931,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             When the fit refuses the requested view, with the fit's own reason.
         ValueError
             When ``band=``, ``measure=``, ``scale=`` or ``cause=`` do not fit together or
-            the fit, such as ``band="bootstrap"`` or ``cause=`` with ``measure="rmst"``.
+            the fit, such as ``band="bootstrap"`` on a fit with no bootstrap band or
+            ``cause=`` with ``measure="rmst"``.
         DataError
             When ``cause=`` or ``regimens=`` names a cause or arm the fit does not hold.
         """

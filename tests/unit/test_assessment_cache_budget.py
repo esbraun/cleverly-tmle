@@ -796,6 +796,7 @@ _SAFE = {
     ("learners/crossfit.py", "SeedSequence(self.random_state)"): "only when random_state is set",
     ("targeting_curves.py", "default_rng([0 if random_state"): "list seed",
     ("inference/bootstrap.py", "default_rng(draw.sequence)"): "spawned sequence",
+    ("survival/engine.py", "default_rng(sequence)"): "a bootstrap draw's spawned sequence",
     ("validation/_seeds.py", "SeedSequence(root)"): "validated root",
     ("validation/_seeds.py", "SeedSequence([root"): "list seed",
     ("validation/_continuous_survival_refute.py", "default_rng(seed)"): "resolved seed",

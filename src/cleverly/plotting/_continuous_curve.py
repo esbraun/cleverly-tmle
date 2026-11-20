@@ -94,6 +94,24 @@ def curve_rows(
     return rows, cause_of, (limits if banded else None)
 
 
+def bootstrap_limits(
+    result: ContinuousSurvivalResult, rows: Sequence[_Point], view: str
+) -> dict[str, tuple[float, float]]:
+    """The bootstrap band's limits at each row, mirrored on the survival view as
+    ``result.curve(scale='survival')`` mirrors the multiplier band's."""
+    bands = result.bootstrap_band.bands if result.bootstrap_band is not None else {}
+    limits: dict[str, tuple[float, float]] = {}
+    for row in rows:
+        held = bands.get(row.parameter)
+        if held is None or not _finite_pair(held[0], held[1]):
+            continue
+        low, high = float(held[0]), float(held[1])
+        if view == "survival":
+            low, high = (1.0 - high, 1.0 - low) if row.level else (-high, -low)
+        limits[row.parameter] = (low, high)
+    return limits
+
+
 def restricted_rows(
     result: ContinuousSurvivalResult, measure: str
 ) -> tuple[list[_Point], dict[str, str | None]]:
@@ -174,13 +192,15 @@ def curve(
         raise ValueError(f"measure must be 'curve', 'rmst' or 'rmtl'; got {measure!r}")
     if band not in (None, "multiplier", "bootstrap", "none"):
         raise ValueError(f"band must be 'multiplier', 'bootstrap' or 'none'; got {band!r}")
-    if band == "bootstrap":
+    if band == "bootstrap" and result.bootstrap_band is None:
         raise ValueError(
-            "this fit holds no bootstrap band: a continuous-time survival fit computes the "
-            "multiplier band, which band='multiplier' draws"
+            "this fit holds no bootstrap band; fit it with n_bootstrap= and simultaneous=True, "
+            "and a bootstrap whose refits more than 1% failed holds none"
         )
     if band == "multiplier" and result.simultaneous is None:
         raise ValueError("this fit holds no multiplier band; fit it with simultaneous=True")
+    # The multiplier band is drawn unless band='bootstrap' asks for the bootstrap band.
+    drawn_band: Any = result.bootstrap_band if band == "bootstrap" else result.simultaneous
     single = len(result.causes) == 1
     view = scale or "risk"
     limits: dict[str, tuple[float, float]] | None = None
@@ -188,6 +208,8 @@ def curve(
         rows, cause_of, limits = curve_rows(result, view)
         if band == "none":
             limits = None
+        elif band == "bootstrap":
+            limits = bootstrap_limits(result, rows, view)
     else:
         if scale is not None:
             raise ValueError(
@@ -236,7 +258,7 @@ def curve(
     level = 1.0 - float(rows[0].estimate.alpha)
     band_text = None
     if limits is not None:
-        band_text = _core.band_label(1.0 - float(result.simultaneous.alpha))
+        band_text = _core.band_label(1.0 - float(drawn_band.alpha))
     ncols = len(columns)
     nrows = 2 if contrasts else 1
     heights = [3.2, 1.8][:nrows]
@@ -351,7 +373,7 @@ def curve(
         _core.header(axes[0], title or heading, subtitle, key_sources=axes)
     else:
         _core.figure_header(fig, title or heading, subtitle, key_sources=axes)
-    found = _notes(result, measure, view, in_play, limits, xs)
+    found = _notes(result, measure, view, in_play, limits, xs, bootstrap=band == "bootstrap")
     _core.add_notes(axes[-1] if ncols == 1 else fig, found)
     return fig
 
@@ -363,6 +385,8 @@ def _notes(
     rows: list[_Point],
     limits: Mapping[str, tuple[float, float]] | None,
     xs: Sequence[float],
+    *,
+    bootstrap: bool = False,
 ) -> list[str]:
     times = ", ".join(f"{x:g}" for x in xs)
     found: list[str] = []
@@ -393,13 +417,24 @@ def _notes(
             + ", so none is drawn there and the marker is hollow."
         )
     if measure == "curve":
-        if limits is not None:
+        if limits is not None and bootstrap and result.bootstrap_band is not None:
+            found.append(
+                "The simultaneous band drawn is the studentized bootstrap band over every risk "
+                "and difference, drawn as brackets at each target time. It is formed on the "
+                "estimates' own scale, not the logit, so a small risk's band can fall below 0."
+            )
+            found += _band_note(result.bootstrap_band.support, "simultaneous band")
+        elif limits is not None:
             band = result.simultaneous
             found.append(
                 "The simultaneous band drawn is the multiplier band over every risk and "
                 "difference the fit reports, drawn as brackets at each target time."
             )
             found += _band_note(band.support, "simultaneous band")
+            if result.bootstrap_band is not None:
+                found.append(
+                    "The fit also holds a bootstrap band; pass band='bootstrap' to draw it."
+                )
         elif result.simultaneous is None:
             found.append("The fit holds no simultaneous band; fit with simultaneous=True for one.")
         else:
