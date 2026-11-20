@@ -710,12 +710,79 @@ class EffectCurveResult:
     def diagnostics(self) -> CurveDiagnostics:
         """The curve's assessment: support, out-of-fold calibration, risk and stability.
 
-        Each refit reruns the producing estimator, so these need the fit this curve came
-        from; a loaded curve keeps none.  ``diagnostics.capabilities`` lists the rows.
+        The summaries read the fit this curve came from and each refit reruns its estimator,
+        so a curve that keeps neither refuses them through its replay gate.
+        ``diagnostics.capabilities`` lists the rows.
         """
         from ._curve_assessment import CurveDiagnostics
 
         return CurveDiagnostics(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses on a curve (P1)."""
+        from .assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored curve and its producing fit."""
+        from .assessment import replayability
+
+        return replayability(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            The producing fit's support, nuisance and score checks.
+        """
+        from .assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        Every sensitivity row refuses on a curve: no sensitivity analysis is derived for a
+        conditional contrast curve (P1).  The five curve operations refit the producing
+        estimator, so they run only with ``include_refits=True``.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from .assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def prediction_column(self) -> str:

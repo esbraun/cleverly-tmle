@@ -574,6 +574,30 @@ $\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which neve
 not move when its own outcomes are flipped (and that a refit on every row does move them), and
 each reading against its formula.
 
+Each refit's row reads the predicate its call raises from and carries the call's own record.
+`modifier_stability` refuses a basis of fewer than two modifiers, a `UserBasis` (its one
+function cannot be rebuilt without a column), and a basis that keeps nothing once a modifier is
+dropped. Dropping a modifier from a `Tensor` keeps the other factor, and from an `Interactions`
+basis rebuilds its additive basis. `stability` refuses a curve of zero spread, and an EP sieve
+whose size the matched family cannot hold at the fit's $n$. `targeting_curve` refuses a
+producing fit with `repeats` above 1. `n_folds`, `split` and `compare` resolve the row per
+request, as the call reads them.
+
+`EffectCurveResult.sensitivity` declares every sensitivity route and refuses each one as an
+`implementation_gap` naming P1, because no sensitivity analysis is derived for a conditional
+contrast curve or its working-model coefficients. `assess()` composes `validate()` (the producing
+fit's support, nuisance and score checks), the diagnostics and those refusals. The five curve
+operations refit, so they run only with `include_refits=True`. An EP curve's `score_equations` row
+reads `completed`, with the largest weighted debiasing score after the debiasing regression as a
+fact. `DebiasingScores` carries no standard error, so no pass rule applies.
+
+The summaries read the producing fit, and the refits rerun its estimator. `curve.replayability`
+reads both, and a projection's producing fit passes its own refit preflight. A curve that keeps
+neither, such as `dataclasses.replace(curve, fit=None)`, refuses each row it cannot serve through
+its replay gate, and the call raises the same record. `diagnostics.influence()` redirects to
+`curve.fit.diagnostics.influence()` on a projection, whose coefficients carry the influence
+curves, and refuses on an EP curve, which has none.
+
 ## Refusals
 
 | request | reason | refusal |

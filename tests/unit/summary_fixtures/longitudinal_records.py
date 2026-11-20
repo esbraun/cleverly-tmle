@@ -56,7 +56,7 @@ def check() -> Any:
 @_quiet
 def structural_diagnostics() -> Any:
     """The SNMM's positivity record."""
-    return snmm().diagnostics
+    return snmm().structural_diagnostics
 
 
 @_quiet

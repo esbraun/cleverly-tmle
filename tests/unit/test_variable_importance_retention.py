@@ -192,6 +192,7 @@ def _facts_from_fits(fits: Mapping[str, TMLEResult]) -> ImportanceFacts:
             for candidate, fit in fits.items()
             if (texts := tuple(item.text for item in fit.summary().notes if item.kind == "warning"))
         },
+        fitted_method=first.fitted_method,
     )
 
 
@@ -200,7 +201,12 @@ def _last_fit_facts(fits: Mapping[str, TMLEResult]) -> ImportanceFacts:
     reversed_fits = dict(reversed(list(fits.items())))
     facts = _facts_from_fits(reversed_fits)
     return ImportanceFacts(
-        tuple(fits), facts.first_fit, facts.outcome, facts.n, _facts_from_fits(fits).cautions
+        tuple(fits),
+        facts.first_fit,
+        facts.outcome,
+        facts.n,
+        _facts_from_fits(fits).cautions,
+        facts.fitted_method,
     )
 
 
