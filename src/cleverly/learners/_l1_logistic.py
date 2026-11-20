@@ -20,9 +20,14 @@ parameterization is symmetric: one intercept and one coefficient vector for each
 the penalty on every coefficient. A common shift of the coefficients of one covariate across
 the classes leaves the predictions unchanged, so only predictions are compared.
 
-The solver is coordinate descent on a quadratic approximation, warm-started along the grid,
-followed by a Newton polish on the active set. A solution is accepted when its
-Karush-Kuhn-Tucker residual (:func:`kkt_residual`) is at most ``1e-10``. At penalty 0 the
+The solver is a proximal Newton method on a working set, warm-started along the grid. At each
+step it forms the Hessian of the loss on the working coordinates, minimizes the penalized
+quadratic model there (coordinate descent on that small matrix, then the exact solve on the
+model's support and signs), and takes the longest halving of that step that does not raise the
+objective. The working set holds the nonzero coordinates and those the sequential strong rule
+keeps, and grows by every coordinate that violates its optimality condition, so the rule can
+never leave one out of a solution. A solution is accepted when its Karush-Kuhn-Tucker residual
+(:func:`kkt_residual`) is at most ``1e-10``; the solver stops near ``1e-14``. At penalty 0 the
 binomial solution is the unpenalized maximum likelihood fit, and the multinomial solution
 is the reference-coded unpenalized maximum likelihood fit, which has the same predictions
 as any symmetric solution. When the training rows separate the classes that fit has no
@@ -609,7 +614,11 @@ def _quadratic(
             target = old - local / diagonal[i]
             if penalized[i]:
                 bound = penalty / diagonal[i]
-                new = target - bound if target > bound else (target + bound if target < -bound else 0.0)
+                new = (
+                    target - bound
+                    if target > bound
+                    else (target + bound if target < -bound else 0.0)
+                )
             else:
                 new = target
             change = new - old
@@ -653,7 +662,14 @@ def _line_search(
 def _working_set(point: _Point, threshold: float) -> IntArray:
     """The active coordinates and those whose gradient reaches ``threshold`` (strong rule)."""
     coef = point.penalized()
-    return np.flatnonzero(np.any(coef != 0.0, axis=1) | np.any(np.abs(point.gradient) >= threshold, axis=1))
+    return np.flatnonzero(
+        np.any(coef != 0.0, axis=1) | np.any(np.abs(point.gradient) >= threshold, axis=1)
+    )
+
+
+def _grow(work: IntArray, point: _Point, penalty: float) -> IntArray:
+    """The working set grown by every coordinate that is nonzero or violates its condition."""
+    return np.union1d(work, _working_set(point, penalty))
 
 
 def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | None) -> _Point:
@@ -664,7 +680,8 @@ def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | 
     After each accepted step the set grows by every coordinate that is nonzero or violates its
     condition, so no rule can leave a violator out of the final solution. The loop stops at the
     residual :data:`_SOLVE_TARGET`, or when it stops falling once at most :data:`KKT_TOLERANCE`,
-    or when no step lowers the objective; the caller checks the result with :func:`_kkt`.
+    or when no step lowers the objective; the caller accepts the result only when
+    :meth:`_Point.residual` is at most :data:`KKT_TOLERANCE`.
     """
     k_classes = problem.n_classes
     threshold = penalty if previous is None else 2.0 * penalty - previous
@@ -683,12 +700,17 @@ def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | 
             penalized = np.concatenate([[False], np.ones(work.size, dtype=bool)])
         else:
             gradient = np.concatenate(
-                [np.concatenate([[point.gradient0[k]], point.gradient[work, k]]) for k in range(k_classes)]
+                [
+                    np.concatenate([[point.gradient0[k]], point.gradient[work, k]])
+                    for k in range(k_classes)
+                ]
             )
             start = np.concatenate(
                 [np.concatenate([[0.0], coef[work, k]]) for k in range(k_classes)]
             )
-            penalized = np.tile(np.concatenate([[False], np.ones(work.size, dtype=bool)]), k_classes)
+            penalized = np.tile(
+                np.concatenate([[False], np.ones(work.size, dtype=bool)]), k_classes
+            )
         step = _quadratic(
             hessian, gradient, start, penalized, penalty, max(1e-3 * residual, _MODEL_FLOOR)
         )
@@ -707,7 +729,7 @@ def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | 
         point = trial.finish()
         previous_residual = residual
         residual = point.residual(penalty)
-        grown = np.union1d(work, _working_set(point, penalty))
+        grown = _grow(work, point, penalty)
         if grown.size != work.size:
             work = grown
             columns = np.asfortranarray(problem.z[:, work])
