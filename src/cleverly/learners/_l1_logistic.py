@@ -20,9 +20,16 @@ parameterization is symmetric: one intercept and one coefficient vector for each
 the penalty on every coefficient. A common shift of the coefficients of one covariate across
 the classes leaves the predictions unchanged, so only predictions are compared.
 
-The solver is coordinate descent on a quadratic approximation, warm-started along the grid,
-followed by a Newton polish on the active set. A solution is accepted when its
-Karush-Kuhn-Tucker residual (:func:`kkt_residual`) is at most ``1e-10``. At penalty 0 the
+The solver is a proximal Newton method on a working set, warm-started along the grid. At each
+step it forms the Hessian of the loss on the working coordinates, minimizes the penalized
+quadratic model there (coordinate descent on that small matrix, then the exact solve on the
+model's support and signs), and takes the longest halving of that step that does not raise the
+objective by more than 64 units of rounding relative (below a residual near ``1e-8`` the
+objective is flat to rounding, and that allowance carries the solve down to its stop). The
+working set holds the nonzero coordinates and those the sequential strong rule keeps, and grows
+by every coordinate that violates its optimality condition, so the rule can never leave one out
+of a solution. A solution is accepted when its Karush-Kuhn-Tucker residual
+(:func:`kkt_residual`) is at most ``1e-10``; the solver stops near ``1e-14``. At penalty 0 the
 binomial solution is the unpenalized maximum likelihood fit, and the multinomial solution
 is the reference-coded unpenalized maximum likelihood fit, which has the same predictions
 as any symmetric solution. When the training rows separate the classes that fit has no
@@ -36,10 +43,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from scipy.linalg import blas
 from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, RefusalReason
 
@@ -62,19 +70,21 @@ KKT_TOLERANCE = 1e-10
 #: The number of log-spaced values of the default grid, as in ``glmnet``'s ``nlambda``.
 _N_LAMBDA = 100
 
-#: Bounds on the curvature ``p (1 - p)`` of the quadratic approximation.
-_CURVATURE_FLOOR = 1e-5
-
 #: The largest standardized coefficient or intercept of an unpenalized fit. A larger one
 #: means the training rows separate the classes, where the fit has no maximum: the loss
 #: keeps falling while the coefficients grow, so a gradient test alone would accept a
 #: point on the way to infinity.
 _SEPARATION_BOUND = 1e3
 
-_MAX_OUTER = 500
-_MAX_SWEEPS = 10_000
+#: The Newton iterations of the unpenalized fit at penalty 0.
 _MAX_POLISH = 100
-_MAX_ROUNDS = 50
+#: Proximal Newton steps per penalty, and coordinate sweeps per quadratic model.
+_MAX_STEPS = 100
+_MAX_MODEL_SWEEPS = 10_000
+#: The residual at which a penalty's solve stops, well inside :data:`KKT_TOLERANCE`.
+_SOLVE_TARGET = 1e-14
+#: The smallest residual a quadratic model is solved to.
+_MODEL_FLOOR = 1e-16
 #: A relative objective rise that rounding alone explains: 64 ulps of 1.
 _ROUNDING = 64 * float(np.finfo(float).eps)
 
@@ -169,6 +179,10 @@ class L1Fit:
 
 def _normalized(weights: FloatArray) -> FloatArray:
     w = np.asarray(weights, dtype=float)
+    if not np.all(np.isfinite(w)) or np.any(w < 0.0):
+        # The Hessian is built from square roots of the weighted curvatures, so a negative
+        # weight has no meaning here, as in the weighted likelihood itself.
+        raise ValueError("the L1-penalized propensity needs finite, nonnegative row weights")
     total = float(np.sum(w))
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError("the L1-penalized propensity needs positive total weight")
@@ -419,85 +433,329 @@ class _Problem:
         return intercept, np.zeros((self.p, self.n_classes))
 
 
-def _soft(value: float, threshold: float) -> float:
-    if value > threshold:
-        return value - threshold
-    if value < -threshold:
-        return value + threshold
-    return 0.0
+class _Point:
+    """The loss, probabilities and gradients at one parameter value, from one linear predictor.
+
+    ``loss`` is read first, by the line search; :meth:`finish` adds the probabilities, the
+    gradients and the stopping residual, only for an accepted point.
+    """
+
+    def __init__(self, problem: _Problem, intercept: FloatArray, coef: FloatArray) -> None:
+        z, w, n = problem.z, problem.w, problem.n
+        self.problem = problem
+        self.intercept = intercept
+        self.coef = coef
+        if problem.binary:
+            margin = z @ coef[:, 1]
+            margin += intercept[1]
+            tail = np.exp(-np.abs(margin))
+            loss = np.maximum(margin, 0.0) + np.log1p(tail) - problem.y[:, 1] * margin
+            self.l1 = float(np.sum(np.abs(coef[:, 1])))
+            self._parts: tuple[FloatArray, FloatArray] = (margin, tail)
+        else:
+            eta = z @ coef
+            eta += intercept
+            top = np.max(eta, axis=1)
+            exponent = np.exp(eta - top[:, None])
+            total = np.sum(exponent, axis=1)
+            loss = top + np.log(total) - np.sum(problem.y * eta, axis=1)
+            self.l1 = float(np.sum(np.abs(coef)))
+            self._parts = (exponent, total)
+        self.loss = float(w @ loss) / n
+        self.probability = np.empty(0)
+        self.gradient0 = np.empty(0)
+        self.gradient = np.empty((0, 0))
+
+    def value(self, penalty: float) -> float:
+        return self.loss + penalty * self.l1
+
+    def finish(self) -> _Point:
+        problem = self.problem
+        w, n = problem.w, problem.n
+        if problem.binary:
+            margin, tail = self._parts
+            p1 = np.where(margin >= 0.0, 1.0 / (1.0 + tail), tail / (1.0 + tail))
+            self.probability = p1
+            residual = w * (p1 - problem.y[:, 1]) / n
+            self.gradient0 = np.array([np.sum(residual)])
+            self.gradient = (residual @ problem.z)[:, None]
+        else:
+            exponent, total = self._parts
+            probability = exponent / total[:, None]
+            self.probability = probability
+            residual = w[:, None] * (probability - problem.y) / n
+            self.gradient0 = np.sum(residual, axis=0)
+            self.gradient = problem.z.T @ residual
+        return self
+
+    def penalized(self) -> FloatArray:
+        """The penalized coefficients, aligned with :attr:`gradient`."""
+        return self.coef[:, 1:2] if self.problem.binary else self.coef
+
+    def residual(self, penalty: float) -> float:
+        """The Karush-Kuhn-Tucker residual of the stopping rule, from :meth:`finish`'s gradients."""
+        coef = self.penalized()
+        values = [float(np.max(np.abs(self.gradient0)))]
+        nonzero = coef != 0.0
+        if np.any(nonzero):
+            values.append(
+                float(np.max(np.abs(self.gradient[nonzero] + penalty * np.sign(coef[nonzero]))))
+            )
+        if np.any(~nonzero):
+            values.append(float(np.max(np.abs(self.gradient[~nonzero]) - penalty)))
+        return max(0.0, *values)
 
 
-def _cd_class(
+def _gram(problem: _Problem, point: _Point, columns: FloatArray) -> FloatArray:
+    """The Hessian of the loss in the intercepts and the working coefficients, at ``point``.
+
+    ``columns`` is the F-ordered working design ``z[:, W]``. The binary Hessian is over
+    ``(b0, b_W)``; the multinomial one over each class's ``(b0_k, b_Wk)`` in class order.
+    """
+    w, n = problem.w, problem.n
+    m = 1 + columns.shape[1]
+    if problem.binary:
+        p1 = point.probability
+        root = np.sqrt(w * (p1 * (1.0 - p1)) / n)
+        scaled = np.empty((n, m), order="F")
+        scaled[:, 0] = root
+        np.multiply(columns, root[:, None], out=scaled[:, 1:])
+        upper = blas.dsyrk(1.0, scaled, trans=1, lower=0)
+        return np.asarray(np.triu(upper) + np.triu(upper, 1).T, dtype=float)
+    probability = point.probability
+    k_classes = problem.n_classes
+    design = np.empty((n, m), order="F")
+    design[:, 0] = 1.0
+    design[:, 1:] = columns
+    hessian = np.empty((k_classes * m, k_classes * m))
+    for k in range(k_classes):
+        for other in range(k, k_classes):
+            curvature = probability[:, k] * ((k == other) - probability[:, other])
+            block = (design * (w * curvature / n)[:, None]).T @ design
+            hessian[k * m : (k + 1) * m, other * m : (other + 1) * m] = block
+            hessian[other * m : (other + 1) * m, k * m : (k + 1) * m] = block.T
+    return hessian
+
+
+def _model_residual(
+    gradient: FloatArray, values: FloatArray, penalized: BoolArray, penalty: float
+) -> float:
+    """The KKT residual of the quadratic model, given its gradient ``g + H d`` at ``values``."""
+    free = ~penalized
+    nonzero = penalized & (values != 0.0)
+    zero = penalized & (values == 0.0)
+    worst = 0.0
+    if np.any(free):
+        worst = max(worst, float(np.max(np.abs(gradient[free]))))
+    if np.any(nonzero):
+        worst = max(
+            worst,
+            float(np.max(np.abs(gradient[nonzero] + penalty * np.sign(values[nonzero])))),
+        )
+    if np.any(zero):
+        worst = max(worst, float(np.max(np.abs(gradient[zero]) - penalty)))
+    return worst
+
+
+def _sign_fixed(
+    hessian: FloatArray,
+    gradient: FloatArray,
+    start: FloatArray,
+    step: FloatArray,
+    penalized: BoolArray,
+    penalty: float,
+    threshold: float,
+) -> FloatArray | None:
+    """The model's minimizer on the current support and signs, if it is optimal to ``threshold``.
+
+    The support is the unpenalized and the nonzero coordinates of ``start + step``. On it the
+    model is a linear system; in the symmetric multinomial model that system is singular, so it
+    is solved by least squares, which can miss an inconsistent system. The solution is kept only
+    when the signs agree, the zero coordinates satisfy their condition, and the free coordinates
+    are stationary, each to ``threshold``.
+    """
+    values = start + step
+    free = ~penalized | (values != 0.0)
+    signs = np.where(penalized, np.sign(values), 0.0)
+    trial = -start.copy()
+    trial[free] = 0.0
+    right = -(gradient[free] + penalty * signs[free]) - hessian[np.ix_(free, ~free)] @ trial[~free]
+    trial[free] = np.linalg.lstsq(hessian[np.ix_(free, free)], right, rcond=None)[0]
+    moved = start + trial
+    if np.any(penalized[free] & (np.sign(moved[free]) != signs[free])):
+        return None
+    model = gradient + hessian @ trial
+    zero = ~free
+    if np.any(zero) and float(np.max(np.abs(model[zero]))) > penalty + threshold:
+        return None
+    stationary = model[free] + penalty * signs[free]
+    if float(np.max(np.abs(stationary))) > threshold:
+        return None
+    return trial
+
+
+def _quadratic(
+    hessian: FloatArray,
+    gradient: FloatArray,
+    start: FloatArray,
+    penalized: BoolArray,
+    penalty: float,
+    threshold: float,
+) -> FloatArray:
+    """Minimize the model ``g'd + d'Hd/2 + penalty * |start + d|_1`` (penalized entries) in ``d``.
+
+    Cyclic coordinate descent on the small Hessian; from the second sweep on, the sign-fixed
+    solve on the current support is tried and kept when :func:`_sign_fixed` accepts it. The
+    sweeps stop when the model's own KKT residual is at most ``threshold``.
+    """
+    size = gradient.size
+    step = np.zeros(size)
+    moved = np.zeros(size)
+    diagonal = np.diag(hessian).copy()
+    order = [i for i in range(size) if diagonal[i] > 0.0]
+    for sweep in range(_MAX_MODEL_SWEEPS):
+        for i in order:
+            local = gradient[i] + moved[i]
+            old = start[i] + step[i]
+            target = old - local / diagonal[i]
+            if penalized[i]:
+                bound = penalty / diagonal[i]
+                new = (
+                    target - bound
+                    if target > bound
+                    else (target + bound if target < -bound else 0.0)
+                )
+            else:
+                new = target
+            change = new - old
+            if change != 0.0:
+                step[i] += change
+                moved += hessian[:, i] * change
+        if _model_residual(gradient + moved, start + step, penalized, penalty) <= threshold:
+            return step
+        if sweep >= 1:
+            solved = _sign_fixed(hessian, gradient, start, step, penalized, penalty, threshold)
+            if solved is not None:
+                return solved
+    return step
+
+
+def _line_search(
     problem: _Problem,
-    eta: FloatArray,
+    point: _Point,
+    intercept_step: FloatArray,
+    coef_step: FloatArray,
+    penalty: float,
+) -> _Point | None:
+    """The longest step ``1, 1/2, 1/4, ...`` along the direction whose objective does not rise.
+
+    A rise of up to :data:`_ROUNDING` relative is accepted, since rounding alone explains it.
+    ``None`` when no step down to ``1e-12`` qualifies.
+    """
+    current = point.value(penalty)
+    allowance = _ROUNDING * max(1.0, abs(current))
+    size = 1.0
+    while size >= 1e-12:
+        trial = _Point(
+            problem, point.intercept + size * intercept_step, point.coef + size * coef_step
+        )
+        if trial.value(penalty) <= current + allowance:
+            return trial
+        size *= 0.5
+    return None
+
+
+def _working_set(point: _Point, threshold: float) -> IntArray:
+    """The active coordinates and those whose gradient reaches ``threshold`` (strong rule)."""
+    coef = point.penalized()
+    return np.flatnonzero(
+        np.any(coef != 0.0, axis=1) | np.any(np.abs(point.gradient) >= threshold, axis=1)
+    )
+
+
+def _grow(work: IntArray, point: _Point, penalty: float) -> IntArray:
+    """The working set grown by every coordinate that is nonzero or violates its condition."""
+    return np.union1d(work, _working_set(point, penalty))
+
+
+def _newton(problem: _Problem, point: _Point, penalty: float, previous: float | None) -> _Point:
+    """Proximal Newton on a growing working set, from ``point`` (finished), at ``penalty``.
+
+    Warm (``previous`` given): the working set is the active set plus the sequential strong
+    rule ``|g_j| >= 2 penalty - previous``, also after a shortcut penalty, whose intercept-only
+    fit is the exact solution there. Cold (the first penalty of a grid that starts below the
+    null gradient): the active set plus every ``|g_j| >= penalty``.
+    After each accepted step the set grows by every coordinate that is nonzero or violates its
+    condition, so no rule can leave a violator out of the final solution. The loop stops at the
+    residual :data:`_SOLVE_TARGET`, or when it stops falling once at most :data:`KKT_TOLERANCE`,
+    or when no step lowers the objective; the caller accepts the result only when
+    :meth:`_Point.residual` is at most :data:`KKT_TOLERANCE`.
+    """
+    k_classes = problem.n_classes
+    threshold = penalty if previous is None else 2.0 * penalty - previous
+    work = _working_set(point, threshold)
+    columns = np.asfortranarray(problem.z[:, work])
+    residual = point.residual(penalty)
+    for _ in range(_MAX_STEPS):
+        if residual <= _SOLVE_TARGET:
+            break
+        hessian = _gram(problem, point, columns)
+        m = 1 + work.size
+        coef = point.coef
+        if problem.binary:
+            gradient = np.concatenate([point.gradient0, point.gradient[work, 0]])
+            start = np.concatenate([[0.0], coef[work, 1]])
+            penalized = np.concatenate([[False], np.ones(work.size, dtype=bool)])
+        else:
+            gradient = np.concatenate(
+                [
+                    np.concatenate([[point.gradient0[k]], point.gradient[work, k]])
+                    for k in range(k_classes)
+                ]
+            )
+            start = np.concatenate(
+                [np.concatenate([[0.0], coef[work, k]]) for k in range(k_classes)]
+            )
+            penalized = np.tile(
+                np.concatenate([[False], np.ones(work.size, dtype=bool)]), k_classes
+            )
+        step = _quadratic(
+            hessian, gradient, start, penalized, penalty, max(1e-3 * residual, _MODEL_FLOOR)
+        )
+        intercept_step = np.zeros_like(point.intercept)
+        coef_step = np.zeros_like(coef)
+        if problem.binary:
+            intercept_step[1] = step[0]
+            coef_step[work, 1] = step[1:]
+        else:
+            for k in range(k_classes):
+                intercept_step[k] = step[k * m]
+                coef_step[work, k] = step[k * m + 1 : (k + 1) * m]
+        trial = _line_search(problem, point, intercept_step, coef_step, penalty)
+        if trial is None:
+            break
+        point = trial.finish()
+        previous_residual = residual
+        residual = point.residual(penalty)
+        grown = _grow(work, point, penalty)
+        if grown.size != work.size:
+            work = grown
+            columns = np.asfortranarray(problem.z[:, work])
+        if residual >= previous_residual and residual <= KKT_TOLERANCE:
+            break
+    return point
+
+
+def _solve(
+    problem: _Problem,
     intercept: FloatArray,
     coef: FloatArray,
-    k: int,
     penalty: float,
-) -> None:
-    """Coordinate descent on class ``k``'s quadratic approximation, in place."""
-    z, w, n = problem.z, problem.w, problem.n
-    if problem.binary:
-        margin = eta[:, 1] - eta[:, 0]
-        p = expit(margin)
-        target = problem.y[:, 1]
-    else:
-        probabilities = _probabilities(eta)
-        p = probabilities[:, k]
-        target = problem.y[:, k]
-    curvature = np.clip(p * (1.0 - p), _CURVATURE_FLOOR, None)
-    v = w * curvature / n
-    residual = (target - p) / curvature
-    column_scale = (v[:, None] * z**2).sum(axis=0)
-    for _ in range(_MAX_SWEEPS):
-        largest = 0.0
-        shift = float(v @ residual) / float(np.sum(v))
-        intercept[k] += shift
-        residual -= shift
-        largest = max(largest, abs(shift) * np.sqrt(float(np.sum(v))))
-        for j in range(problem.p):
-            if column_scale[j] <= 0.0:
-                continue
-            old = coef[j, k]
-            update = float(z[:, j] @ (v * residual)) + column_scale[j] * old
-            new = _soft(update, penalty) / column_scale[j]
-            if new != old:
-                residual -= z[:, j] * (new - old)
-                coef[j, k] = new
-                largest = max(largest, abs(new - old) * np.sqrt(column_scale[j]))
-        if largest < 1e-9:
-            break
-
-
-def _descend(
-    problem: _Problem, intercept: FloatArray, coef: FloatArray, penalty: float
-) -> tuple[FloatArray, FloatArray]:
-    """Proximal Newton steps with a backtracking line search, from a warm start."""
-    current = problem.objective(intercept, coef, penalty)
-    classes = [1] if problem.binary else list(range(problem.n_classes))
-    for _ in range(_MAX_OUTER):
-        trial_intercept = intercept.copy()
-        trial_coef = coef.copy()
-        for k in classes:
-            eta = trial_intercept + problem.z @ trial_coef
-            _cd_class(problem, eta, trial_intercept, trial_coef, k, penalty)
-        step = 1.0
-        accepted = False
-        while step > 1e-12:
-            new_intercept = intercept + step * (trial_intercept - intercept)
-            new_coef = coef + step * (trial_coef - coef)
-            value = problem.objective(new_intercept, new_coef, penalty)
-            if value <= current + 1e-16 * max(1.0, abs(current)):
-                accepted = True
-                break
-            step *= 0.5
-        if not accepted:
-            break
-        change = current - value
-        intercept, coef, current = new_intercept, new_coef, value
-        if change <= 1e-12 * max(1.0, abs(current)):
-            break
-    return intercept, coef
+    previous: float | None = None,
+) -> tuple[FloatArray, FloatArray, float]:
+    """Solve one penalty from a start, and return the solution with its :func:`_kkt` residual."""
+    point = _newton(problem, _Point(problem, intercept, coef).finish(), penalty, previous)
+    return point.intercept, point.coef, problem.kkt(point.intercept, point.coef, penalty)
 
 
 def _hessian_parts(
@@ -527,44 +785,6 @@ def _hessian_parts(
             hessian[np.ix_(rows_k, cols_m)] = block
             hessian[np.ix_(cols_m, rows_k)] = block.T
     return gradient, hessian
-
-
-def _polish(
-    problem: _Problem, intercept: FloatArray, coef: FloatArray, penalty: float
-) -> tuple[FloatArray, FloatArray]:
-    """Newton on the active set with signs held fixed; a crossing coordinate leaves it."""
-    n_intercepts = 1 if problem.binary else problem.n_classes
-    for _ in range(_MAX_POLISH):
-        classes = [1] if problem.binary else range(problem.n_classes)
-        active = [(j, k) for j in range(problem.p) for k in classes if coef[j, k] != 0.0]
-        signs = np.array([np.sign(coef[j, k]) for j, k in active])
-        gradient, hessian = _hessian_parts(problem, intercept, coef, active)
-        gradient[n_intercepts:] += penalty * signs
-        if float(np.max(np.abs(gradient))) < 1e-15:
-            break
-        step = -np.linalg.lstsq(hessian, gradient, rcond=None)[0]
-        values = np.array([coef[j, k] for j, k in active])
-        proposed = values + step[n_intercepts:]
-        fraction = 1.0
-        leaving = -1
-        if active:
-            crossing = np.flatnonzero(np.sign(proposed) != signs)
-            if crossing.size:
-                ratios = values[crossing] / (values[crossing] - proposed[crossing])
-                leaving = int(crossing[int(np.argmin(ratios))])
-                fraction = float(np.min(ratios))
-        intercept = intercept.copy()
-        if problem.binary:
-            intercept[1] += fraction * step[0]
-        else:
-            intercept += fraction * step[:n_intercepts]
-        coef = coef.copy()
-        for index, (j, k) in enumerate(active):
-            coef[j, k] = values[index] + fraction * step[n_intercepts + index]
-        if leaving >= 0:
-            j, k = active[leaving]
-            coef[j, k] = 0.0
-    return intercept, coef
 
 
 def _bounded(intercept: FloatArray, coef: FloatArray) -> bool:
@@ -636,20 +856,6 @@ def _mle(problem: _Problem) -> tuple[FloatArray, FloatArray, bool]:
         current = value
     converged = problem.kkt(intercept, coef, 0.0) <= KKT_TOLERANCE
     return intercept, coef, converged and _bounded(intercept, coef)
-
-
-def _solve(
-    problem: _Problem, intercept: FloatArray, coef: FloatArray, penalty: float
-) -> tuple[FloatArray, FloatArray, float]:
-    """Descent, then polish, until the residual meets the tolerance."""
-    residual = np.inf
-    for _ in range(_MAX_ROUNDS):
-        intercept, coef = _descend(problem, intercept, coef, penalty)
-        intercept, coef = _polish(problem, intercept, coef, penalty)
-        residual = problem.kkt(intercept, coef, penalty)
-        if residual <= KKT_TOLERANCE:
-            break
-    return intercept, coef, residual
 
 
 def _expand(problem: _Problem, values: FloatArray) -> FloatArray:
@@ -732,9 +938,14 @@ def penalty_path(
             except _glmstar.GlmstarFallback as failure:
                 return _fall_back(x, y, weights, grid, classes, layer, work, failure.reason)
     fits: list[L1Fit] = []
+    # ``point`` is the solution of ``previous``, the penalty solved just before, which makes
+    # the next solve warm; the intercept-only fit is the solution at every shortcut penalty.
+    point: _Point | None = None
+    previous: float | None = None
     for penalty in grid:
         penalty = float(penalty)
         if problem.p == 0 or (penalty > 0.0 and null_gradient <= penalty):
+            previous = penalty
             fits.append(
                 L1Fit(
                     penalty=penalty,
@@ -762,7 +973,12 @@ def penalty_path(
                 if not residual <= KKT_TOLERANCE:
                     return _fall_back(x, y, weights, grid, classes, layer, work, "polish")
         else:
-            intercept, coef, residual = _solve(problem, intercept, coef, penalty)
+            if point is None:
+                point = _Point(problem, intercept, coef).finish()
+            point = _newton(problem, point, penalty, previous)
+            intercept, coef = point.intercept, point.coef
+            residual = point.residual(penalty)
+            previous = penalty
         if not residual <= KKT_TOLERANCE:
             shown = "0" if penalty == 0.0 else f"{penalty:.6g}"
             raise L1ConvergenceError(
