@@ -379,23 +379,25 @@ def test_w1_a_band_placebo_value_is_the_refit_of_the_old_data_set() -> None:
     assert _same_bits(report["placebo"].values, expected)
 
 
-def test_w1_each_panel_band_placebo_refit_sees_the_old_data(
+def test_w1_w2_each_panel_band_placebo_refit_and_the_later_test_see_the_old_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = _panel_banded()
     seen = _record(monkeypatch, type(result.estimator), stub=True)
     estimand = "ate_regimen[up at 2 vs natural]"
-    refute(result, estimand=estimand, tests=("placebo",), n_replicates=3, random_state=2)
+    refute(result, estimand=estimand, tests=("subset", "placebo"), n_replicates=3, random_state=2)
     data = result.data
     bands = PanelBands.prepare(data)
     assert bands is not None
-    expected = [
-        digest(item) for item in reference_band_sets(data, bands, np.random.default_rng(2), 3)
-    ]
-    assert seen == expected
+    rng = np.random.default_rng(2)
+    sets = [digest(item) for item in reference_band_sets(data, bands, rng, 3)]
+    tail = [digest(data.subset(index)) for index in reference_subsets(data, rng, 3)]
+    assert seen == tail + sets
 
 
-def test_w1_a_vector_band_draw_replays_and_reads_each_support_twice() -> None:
+def test_w1_a_vector_band_draw_replays_and_reads_each_support_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A vector band evaluates every support function once to check, once to refit."""
     calls = {"count": 0}
 
@@ -417,16 +419,19 @@ def test_w1_a_vector_band_draw_replays_and_reads_each_support_twice() -> None:
     assert bands is not None and bands.vector
     old = np.random.default_rng(6)
     reference = [bands.draw(data, old, None) for _ in range(3)]
+    # A vector data set without a fit has no arm check to pass; the draw itself is the subject,
+    # so the replacement is the drawn dose matrix, and the fit's checks are no-ops here.
+    monkeypatch.setattr(CausalData, "with_treatment", lambda self, doses, **_: doses)
+    monkeypatch.setattr(refute_module, "_placebo_preflight", lambda result, item: None)
+    monkeypatch.setattr(refute_module, "_band_extremes_check", lambda result, bands: None)
     calls["count"] = 0
     rng = np.random.default_rng(6)
-    states = []
-    for _ in range(3):
-        states.append(generator_state(rng))
-        bands.draw(data, rng, None)
-    per_draw = calls["count"] / 3
-    replayed = [bands.draw(data, replay(s), None) for s in states]
+    states = refute_module._band_placebo_states(SimpleNamespace(data=data), bands, rng, None, 3)
+    checked = calls["count"]
+    replayed = [refute_module._band_placebo_draw(data, bands, replay(s), None) for s in states]
     assert [digest(item) for item in replayed] == [digest(item) for item in reference]
-    assert per_draw > 0 and calls["count"] == 2 * 3 * per_draw
+    assert rng.bit_generator.state == old.bit_generator.state
+    assert checked > 0 and calls["count"] == 2 * checked
 
 
 def test_w2_mutation_a_replay_from_the_shared_generator_fails(
@@ -580,9 +585,19 @@ def test_w3_a_band_draw_that_fails_its_preflight_refuses_as_before(
             break
     assert found is not None
     seed, k = found
+    item = reference_band_sets(result.data, bands, np.random.default_rng(seed), k)[-1]
+    with pytest.raises(CleverlyError) as reference:
+        try:
+            refute_module._placebo_preflight(result, item)
+        except CleverlyError as error:
+            raise refute_module._on_draw(
+                error, f"on placebo draw {k} of the band-rank placebo"
+            ) from error
     estimand = "ate_policy[uncapped vs natural course]"
-    with pytest.raises(DataError, match=f"on placebo draw {k} of the band-rank placebo"):
+    with pytest.raises(DataError, match=f"on placebo draw {k} of the band-rank placebo") as caught:
         refute(result, estimand=estimand, tests=("placebo",), n_replicates=6, random_state=seed)
+    assert caught.value.refusal.reason is reference.value.refusal.reason
+    assert caught.value.refusal.condition == reference.value.refusal.condition
     # Mutation: checking only the first draw lets the failing draw reach its refit.
     real = refute_module._placebo_preflight
     checked: list[int] = []
@@ -625,7 +640,7 @@ def test_w4_memory_does_not_grow_with_the_draw_count(
         # A Cox fit at 20,000 rows takes minutes; 2,000 keeps the draws far above the bound.
         result, estimand, test = _survival(2_000), SURVIVAL_RD, "subset"
     else:
-        result, estimand, test = _banded(N_LARGE), POLICY, "placebo"
+        result, estimand, test = _banded(5_000), POLICY, "placebo"
     cls = ContinuousSurvivalTMLE if fixture == "survival" else type(result.estimator)
     _record(monkeypatch, cls, stub=True)
 

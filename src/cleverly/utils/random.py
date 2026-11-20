@@ -99,6 +99,11 @@ def generator_state(rng: np.random.Generator) -> dict[str, Any]:
     -------
     dict
         The state, independent of ``rng``.
+
+    Raises
+    ------
+    TypeError
+        If ``rng``'s bit generator is not PCG64, the one :func:`replay` rebuilds.
     """
     if not isinstance(rng.bit_generator, np.random.PCG64):
         # A replay through ``default_rng`` would build another bit generator, whose stream

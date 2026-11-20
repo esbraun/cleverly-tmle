@@ -3034,7 +3034,8 @@ placebo data set first and runs the refit's own declaration checks on each. A dr
 refuses stops the call before any refit, with the check's reason code. Each checked data set is
 then dropped and drawn again, identically, from the recorded generator state at its refit, so
 the test holds one data set at a time. A declared support must therefore be a function of the
-frame it reads: a bound that kept state between calls would give the refit a different band.
+frame it reads: a bound that kept state between calls would give the refit a different placebo
+data set from the one the checks passed.
 
 The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
 nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the

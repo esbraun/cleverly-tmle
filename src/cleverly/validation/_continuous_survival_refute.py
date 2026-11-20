@@ -342,6 +342,9 @@ def continuous_survival_refute(
             refused = guard(k, subset_draw(rng))
             if refused is not None:
                 raise refused
+        # The guard holds per-row copies of the time, event and arm columns; drop them
+        # before the refits.
+        del guard
 
     for name in request.tests:
         count = replicates(name)

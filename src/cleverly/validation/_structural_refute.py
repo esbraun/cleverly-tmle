@@ -184,8 +184,8 @@ def structural_subset_refusal(result: Any, draws: Any) -> Refusal | None:
 
     Each subset row keeps its original fold, so a small ``subset_fraction`` can leave a fold
     whose rows hold fewer than two units of some level of a categorical node. The refit would
-    then stop at the Jacobian floor part way through the test. The check reads every draw
-    before the first subset refit.
+    then stop at the Jacobian floor part way through the test. ``refute()`` passes each draw
+    on its own, in draw order, before the first subset refit.
 
     Parameters
     ----------
