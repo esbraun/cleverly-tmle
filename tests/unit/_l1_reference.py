@@ -8,7 +8,6 @@ old one at run time, in one process, on whatever library versions are installed.
 # ruff: noqa
 # mypy: ignore-errors
 
-
 from __future__ import annotations
 
 from collections.abc import Sequence
