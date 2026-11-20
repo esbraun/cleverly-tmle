@@ -3294,14 +3294,18 @@ so the term counts $j$ workers, not $\min(j, F)$. $w(F)$ is the share of a draw 
 and $m(F)$ the multiple of a draw the parent holds.
 
 With `simultaneous=True`, the default, the multiplier band reuses a buffer of $\text{block}(n)$
-replicates of $n$ doubles, where $\text{block}(n)$ is
-`cleverly.inference.multiplier._block_size(n, n_multiplier)`: a 32 MiB budget, clamped to 4 to 256
-replicates and rounded down to a multiple of four. Its multiplier bits and draws add at most 0.6 of
-the buffer, so $\text{band} = 2 \cdot \text{block}(n) \cdot 8n$ bytes, about 7.8 MiB at 2,000 units
-and 64 MiB at 20,000, and 0 with `simultaneous=False`. It counts once per call, because the band
-runs in the parent after the workers return, and whatever the number of estimates, so a fit with
-one estimate is over-counted by it. The term is analytic, not fitted. It sits inside the margin
-because, added outside it, band-on cells read down to 1.30 (`band_check-outside.out`).
+replicates of $n$ doubles, where $\text{block}(n)$ is `cleverly.inference.multiplier._block_size(n,
+n_multiplier)`: a 32 MiB budget, clamped to 4 to 256 replicates and rounded down to a multiple of
+four. The term is $\text{band} = 2 \cdot \text{block}(n) \cdot 8n$ bytes, about 7.8 MiB at 2,000
+units and 64 MiB at 20,000, and 0 with `simultaneous=False`. The factor 2 is set on the band runs,
+not derived: the measured increment, band-on minus band-off peak, is 1.5 to 1.67 buffers for most
+families and 1.82 to 1.85 for `LTMLE` survival fits, and it grows by about 14 bytes per unit per
+estimate, which fits the centred $n \times k$ copies of the influence curves (`band-*.jsonl`). Those
+copies are covered by the margined draw, not by the term; that cover was checked only up to the band
+cells' estimate counts. The term counts once per call, because the band runs in the parent after the
+workers return and a repeated fit builds its draws' bands one at a time, and whatever the number of
+estimates. It sits inside the margin because, added outside it, band-on cells read down to 1.30
+(`band_check-outside.out`).
 
 The `hazard_one_node` and `hazard_separable` constants were fitted on calls given an already
 prepared `LongitudinalData`. When those fits receive a frame, the panel the fit builds, about
@@ -3424,11 +3428,12 @@ refit that left out one shape at a time, the interior shapes left out read down 
 never below 1 (`design-review-j2d-rev11c.md` in the plans repository).
 
 Every calibration cell above ran with `simultaneous=False`. Over 280 cells run with the band on and
-off (`band_check.out`: every family, two and four regimens, two and four nodes, one fold, 2,000 to
-100,000 units), the band-on cells read 1.54 to 5.02 and the band-off cells at least 1.35. Three
-band-on cells read above 3.5, all `hazard_separable` at two nodes with traced peaks under 20 MiB,
-where the band's fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's
-range) and 3.58 at 5,000.
+off (`band_check.out`: every family at two and four regimens, except `hazard_one_node` at two only
+because its harness has no four-regimen case; two and four nodes; one fold; 2,000 to 100,000 units),
+the band-on cells read 1.54 to 5.02 and the band-off cells 1.349 and up. Three band-on cells read
+above 3.5, all `hazard_separable` at two nodes with traced peaks under 20 MiB, where the band's
+fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's range) and 3.58 at
+5,000.
 
 Because the largest reading without the band is 3.31, the refusal states: "At one worker it can
 exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with the simultaneous band

@@ -68,7 +68,8 @@ __all__ = [
 MARGIN = 1.35
 
 #: How far the margined prediction may exceed the true peak at one worker, which the refusal
-#: states: the largest margined ratio over the fitted and checked cells was 3.31.
+#: states: the largest margined ratio over the fitted and checked cells, with the band off, was
+#: 3.31.
 FACTOR = 3.5
 
 #: The most workers the worker term was measured at; above it the fit is out of range.

@@ -753,6 +753,19 @@ def test_the_band_term_is_twice_the_draw_buffer_and_absent_without_the_band() ->
     assert "the simultaneous band" not in _memory_guard.preview_note(off)
 
 
+@pytest.mark.parametrize(("repeats", "jobs", "folds"), [(2, 1, 1), (1, 4, 4), (2, 4, 4)])
+def test_the_band_counts_once_per_call_in_the_prediction(
+    repeats: int, jobs: int, folds: int
+) -> None:
+    # A repeated fit builds its draws' bands one at a time, and the band runs in the parent
+    # after the workers return, so neither the repeats nor the workers multiply it.
+    counts = replace(_band_cell(True), repeats=repeats, jobs=jobs, folds=folds)
+    prediction = _memory_guard.predict(counts)
+    assert prediction.band == 2 * 256 * 8 * 2_000
+    whole = repeats * prediction.draw + max(prediction.workers, prediction.bootstrap)
+    assert prediction.predicted == math.ceil(_memory_guard.MARGIN * (whole + prediction.band))
+
+
 @pytest.mark.parametrize("simultaneous", [True, False])
 def test_the_counts_read_the_band_setting_of_the_estimator(simultaneous: bool) -> None:
     counts = _route_counts("mtp", overrides={"simultaneous": simultaneous, "n_multiplier": 1_000})
