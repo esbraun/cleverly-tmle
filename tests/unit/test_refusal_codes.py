@@ -382,7 +382,7 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     **{
         ("src/cleverly/estimators/ctmle.py", f"{name}= only applies to strategy="): "a "
         "malformed argument: the option belongs to another strategy of the same estimator"
-        for name in ("candidates", "ordering", "preorder", "oat_design", "lambdas")
+        for name in ("candidates", "ordering", "preorder", "oat_design", "lambdas", "l1_solver")
     },
     ("src/cleverly/estimators/reduced.py", "must contain only finite values"): _MALFORMED,
     ("src/cleverly/estimators/targeting.py", "intervention that defines it; this"): (_INTERNAL),

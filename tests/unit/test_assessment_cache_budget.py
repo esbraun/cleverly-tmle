@@ -922,6 +922,7 @@ _DIRECT_FITS = {
     "estimators/ep.py": (2, "fit time"),
     "estimators/tmle.py": (1, "fit time"),
     "interventions/tuning.py": (2, "fit time"),
+    "learners/_glmstar.py": (1, "fit time: the glmstar path inside C-TMLE's own L1 path"),
     "learners/super_learner.py": (1, "inside fit_learner's own learner"),
     "longitudinal/drift.py": (8, "fit time"),
     "longitudinal/estimator.py": (10, "fit time and the refit truncation curve"),

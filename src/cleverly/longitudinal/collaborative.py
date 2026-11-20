@@ -1769,6 +1769,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         selection_inner_folds: int = 2,
         selection_estimand: str | None = None,
         loss: str = "auto",
+        l1_solver: str = "builtin",
         **refused: Any,
     ) -> None:
         self.selection_folds = selection_folds
@@ -1785,6 +1786,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         self.selection_inner_folds = selection_inner_folds
         self.selection_estimand = selection_estimand
         self.loss = loss
+        self.l1_solver = l1_solver
         self._pending: dict[tuple[str, int], SurvivalSelection] | None = None
         super().__init__(
             regimens,
@@ -1880,6 +1882,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         ):
             if getattr(self, name) is not None:
                 return settings_refusal(name)
+        if self.l1_solver != "builtin":
+            return settings_refusal("l1_solver")
         if self.selection_inner_folds != 2:
             return INNER_FOLDS_REFUSAL
         if self.selection_estimand is not None:
