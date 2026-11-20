@@ -1746,6 +1746,12 @@ class TMLEResult:
                 f"the projection of the {stem} given {given} onto the declared basis "
                 f"({', '.join(contrast.terms)})"
                 + ("" if stratum is None else f", within the baseline stratum {stratum}")
+                + (
+                    ""
+                    if self.intermediate_value is None
+                    else f", with the intermediate {self.data.intermediate_name or 'Z'} held "
+                    f"at {self.intermediate_value:g}"
+                )
             ),
             inference_status=str(self.inference_status),
             status=support.label,

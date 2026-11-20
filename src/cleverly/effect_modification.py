@@ -44,6 +44,8 @@ from .msm import ProjectionFit, check_projection_rank
 __all__ = [
     "CDE_CURVE_TOOLS_REFUSAL",
     "COMPOSITION_GAPS",
+    "EP_INTERMEDIATE_REFUSAL",
+    "INTERMEDIATE_STRATA_REFUSAL",
     "SCALES",
     "EffectModification",
     "EffectModificationSet",
@@ -65,17 +67,12 @@ TARGET_OF_SCALE = {"difference": "cate_projection", "log_ratio": "log_crr_projec
 
 #: What each composition outside P1 is missing (R7 of the P1 plan), by the name of the axis.
 COMPOSITION_GAPS: dict[str, str] = {
-    "an intermediate": (
-        "the controlled direct effect fixes an intermediate variable, and the projection's "
-        "clever covariate with the intermediate mechanism and its study cell are not built."
-    ),
     "a continuous or vector treatment": (
         "the projection contrasts two arms, and a dose has no pair of arms to contrast."
     ),
 }
 
 _COMPOSITION_ALTERNATIVE = {
-    "an intermediate": "Fit ControlledDirectEffect(...) for the effect at a fixed intermediate.",
     "a continuous or vector treatment": (
         "Discretize the treatment and declare treatment= and reference= on the contrast."
     ),
@@ -103,12 +100,27 @@ def effect_modification_gap(axis: str) -> Refusal:
     )
 
 
+#: R-int-strata of the P1 plan: baseline strata beside an intermediate.
+INTERMEDIATE_STRATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "Strata and an intermediate are not combined for a conditional contrast: the stratified "
+    "projection's clever covariate with the intermediate mechanism has no exact-law test and "
+    "no study cell.",
+    alternative=(
+        "Fit the CDE projection without strata=, or fit the stratified projection of the total "
+        "effect."
+    ),
+    roadmap="P1",
+)
+
+
 def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
     """The R7 refusal the data decide, or ``None``.
 
     A missing treatment and baseline strata compose with the projection (the in-sample
-    composite construction, and one block of basis terms per stratum), so only a dose and
-    an intermediate are refused here.
+    composite construction, and one block of basis terms per stratum), and an intermediate
+    with :class:`~cleverly.ControlledDirectEffect`, so a dose is refused here, and strata
+    beside an intermediate (R-int-strata).
 
     Parameters
     ----------
@@ -122,8 +134,8 @@ def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
     """
     if data.is_continuous_treatment or data.treatment_kind == "vector":
         return effect_modification_gap("a continuous or vector treatment")
-    if data.has_intermediate:
-        return effect_modification_gap("an intermediate")
+    if data.has_strata and data.has_intermediate:
+        return INTERMEDIATE_STRATA_REFUSAL
     return None
 
 
@@ -151,6 +163,19 @@ EP_STRATA_REFUSAL = Refusal(
 )
 
 
+#: R-ep-int of the P1 plan: the EP learner with an intermediate.
+EP_INTERMEDIATE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The EP curve's debiasing step has no clever covariate with the intermediate mechanism, "
+    "so it does not estimate a controlled direct effect.",
+    alternative=(
+        "Fit the projection: ControlledDirectEffect(intermediate=z, "
+        "contrast=ConditionalContrast(..., model=basis))."
+    ),
+    roadmap="P1",
+)
+
+
 def effect_modification_ep_refusal(data: CausalData) -> Refusal | None:
     """The refusal of an EP-learner conditional contrast the data decide, or ``None``.
 
@@ -162,8 +187,11 @@ def effect_modification_ep_refusal(data: CausalData) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        R7-ep-mt for a missing treatment, R7-ep-strata for baseline strata.
+        R-ep-int for an intermediate, R7-ep-mt for a missing treatment, R7-ep-strata for
+        baseline strata.
     """
+    if data.has_intermediate:
+        return EP_INTERMEDIATE_REFUSAL
     if data.has_missing_treatment:
         return EP_MISSING_TREATMENT_REFUSAL
     if data.has_strata:

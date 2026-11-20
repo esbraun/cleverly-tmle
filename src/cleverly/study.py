@@ -45,6 +45,7 @@ from .data.treatment_covariates import (
 )
 from .data.validate import RANDOMIZED_INTERCEPT
 from .effect_modification import (
+    CDE_CURVE_TOOLS_REFUSAL,
     TARGET_OF_SCALE,
     EffectModification,
     EffectModificationSet,
@@ -3006,8 +3007,10 @@ class ControlledDirectEffect:
     ----------
     intermediate : float
         Fixed intermediate level. The evidenced implementation accepts zero or one.
-    contrast : ATE, ATT, ATC, RiskRatio, or OddsRatio
-        Arm contrast evaluated at the fixed intermediate level.
+    contrast : ATE, ATT, ATC, RiskRatio, OddsRatio, or ConditionalContrast
+        Arm contrast evaluated at the fixed intermediate level.  A
+        :class:`ConditionalContrast` with ``model=`` declared is the projection of the
+        controlled direct effect given its modifiers onto that model.
 
     See Also
     --------
@@ -3024,17 +3027,22 @@ class ControlledDirectEffect:
     """
 
     intermediate: float
-    contrast: ATE | ATT | ATC | RiskRatio | OddsRatio = field(default_factory=ATE)
+    contrast: ATE | ATT | ATC | RiskRatio | OddsRatio | ConditionalContrast = field(
+        default_factory=ATE
+    )
     name: str = field(default="controlled_direct_effect", init=False)
 
     def __post_init__(self) -> None:
         # Identification reads ``self.contrast.name`` before anything else, so a string here
         # would surface as ``AttributeError: 'str' object has no attribute 'name'`` from deep
         # inside the provider rather than as a refusal naming what to pass instead.
-        if not isinstance(self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio)):
+        if not isinstance(
+            self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio, ConditionalContrast)
+        ):
             raise DataError(
                 "ControlledDirectEffect(contrast=...) takes a typed arm contrast: "
-                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio(), not {self.contrast!r}"
+                "ATE(), ATT(), ATC(), RiskRatio(), OddsRatio(), or ConditionalContrast(...), "
+                f"not {self.contrast!r}"
             )
 
     @property
@@ -3524,6 +3532,15 @@ class ParameterKey:
     term: str | None = None
 
 
+def _unwrapped_contrast(estimand: Any) -> Any:
+    """The contrast a :class:`ControlledDirectEffect` holds at its level, or ``estimand``.
+
+    The sites that read a :class:`ConditionalContrast` read it through here, so a CDE
+    projection reaches them as its contrast while its level stays on the functional.
+    """
+    return estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
+
+
 def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
     """Return the engine estimand and target selected by one typed point question."""
     actual = estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
@@ -3951,6 +3968,17 @@ def _point_identification(
                 )
             continue
         assumptions.append(item)
+    projection = target in TARGET_OF_SCALE.values()
+    if direct and projection:
+        # The projection's record states its treatment support for the compared arms (C2)
+        # and carries no two-arm positivity item, so the held level gets its own sentence:
+        # the clever covariate divides by q(z | b, W) at both compared arms.
+        assert level is not None
+        assumptions.append(
+            f"intermediate positivity at {design.intermediate} = {level:g}: "
+            f"P({design.intermediate} = {level:g} | {design.treatment_name} = b, W) > 0 "
+            "almost surely for both compared arms b"
+        )
     if direct and axis == "learned_rule":
         # The learned-rule records carry no two-arm positivity item (C2 states positivity
         # for every arm), so the positivity of the held level gets its own sentence: the
@@ -4002,6 +4030,11 @@ def _point_identification(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment_name} = d(a, W), W) > 0 almost surely wherever a declared "
                 "shift sends an observed dose"
+            )
+        elif projection:
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment_name} = b, W) > 0 almost surely for both compared arms b"
             )
         elif direct or target in {"att", "atc", "ey", "ey1", "ey0"}:
             _, _, cells = arms()
@@ -5674,6 +5707,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair, log_ratio_scale_refusal
 
         estimand = self.estimand
+        if isinstance(estimand, ControlledDirectEffect):
+            raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
             raise CapabilityError(
                 "assess_score assesses a score of the modifiers of a ConditionalContrast "
@@ -5847,6 +5882,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         )
 
         estimand = self.estimand
+        if isinstance(estimand, ControlledDirectEffect):
+            raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
             raise CapabilityError(
                 "targeting_curve ranks the rows by a score of the modifiers of a "
@@ -6172,7 +6209,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         (R4).  ``ep`` fits the curve, with or without a model, but not a model whose size
         cross-validation chooses.  Every other method has no projection target.
         """
-        estimand = self.estimand
+        estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
         tmle_refusal = (
             None
@@ -6686,7 +6723,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .estimators.ep import EPEstimator, ratio_learner_refusal
 
         assert self._study is not None and isinstance(self._study.data, CausalData)
-        estimand = self.estimand
+        estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
         model = estimand.model
         if model is not None and method.sieve is not None:

@@ -427,6 +427,28 @@ def fit_learned_rule_ep_learner() -> Any:
     return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve, learner=LinearRegression()))
 
 
+def _projection_intermediate(scale: str) -> Any:
+    from tests.unit._direct_effect_support import binary_cde_frame
+
+    return TMLE(**linear_in_sample(), effect_modification=_projection(scale)).fit(
+        binary_cde_frame(),
+        outcome="Y",
+        treatment="A",
+        covariates=CDE_COVARIATES,
+        intermediate="Z",
+    )[0.0]
+
+
+def fit_projection_intermediate() -> Any:
+    """The projection of the controlled direct effect at ``Z = 0``, in sample (P1 PR 2)."""
+    return _projection_intermediate("difference")
+
+
+def fit_projection_intermediate_crr() -> Any:
+    """The log-ratio projection of the controlled direct effect at ``Z = 0`` (P1 PR 2)."""
+    return _projection_intermediate("log_ratio")
+
+
 def fit_projection_bootstrap() -> Any:
     """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
     return (
@@ -2301,6 +2323,13 @@ KINDS: dict[str, Kind] = {
     "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
     "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
     "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    # The CDE projection (P1 PR 2) answers as the projection does; its pseudo-outcome tools
+    # (curve diagnostics, assess_score, targeting_curve) refuse with CDE_CURVE_TOOLS_REFUSAL,
+    # which tests/unit/test_projection_composition_operations.py pins.
+    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, "truncation_curve"),
+    "projection+intermediate+log_ratio": _kind(
+        fit_projection_intermediate_crr, *_READ, "truncation_curve"
+    ),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),

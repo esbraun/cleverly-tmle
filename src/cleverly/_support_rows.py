@@ -3439,11 +3439,17 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "treatment model is not measured.",
         "The simultaneous band of effect_curve(grid=) and the held-out curve checks of "
         "curve.diagnostics are not measured and stay experimental. The plug-in learner "
-        "(method='ep'), model=None, an intermediate variable and missing treatment values "
-        "with cross-fitting refuse. Missing treatment values in sample, strata=, repeats and "
-        "the in-sample bootstrap have their own rows (study projection-compositions); the "
-        "cross-fitted bootstrap reads experimental. No comparator: no maintained package "
-        "fits a projection TMLE of the CATE on a declared basis.",
+        "(method='ep'), model=None and missing treatment values with cross-fitting refuse. "
+        "Missing treatment values in sample, strata=, repeats and the in-sample bootstrap "
+        "have their own rows (study projection-compositions); the cross-fitted bootstrap "
+        "reads experimental. No comparator: no maintained package fits a projection TMLE of "
+        "the CATE on a declared basis.",
+        "The projection of a controlled direct effect (ControlledDirectEffect with a "
+        "ConditionalContrast contrast) carries the intermediate on the missing-data axis, "
+        "which no row covers, so it reads experimental in every composition until a study "
+        "cell measures it. Beside an intermediate, the plug-in learner, strata=, the held-out "
+        "curve checks, the score assessment and the targeting curve refuse, and so do "
+        "missing outcomes with cross-fitting.",
     ]
     cells = {
         "": ["obs_1k", "obs_4k", "slow_1k", "slow_4k", "slow_16k", "noweight_dr_4k"],

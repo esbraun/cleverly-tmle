@@ -717,9 +717,14 @@ class EffectCurveResult:
 
         Each refit reruns the producing estimator, so these need the fit this curve came
         from; a loaded curve keeps none.  ``diagnostics.capabilities`` lists the rows.
+        A controlled direct effect projection refuses before any refit
+        (``CDE_CURVE_TOOLS_REFUSAL``): the held-out checks build the total effect's
+        pseudo-outcome.
         """
         from ._curve_assessment import CurveDiagnostics
+        from .effect_modification import refuse_cde_curve_tools
 
+        refuse_cde_curve_tools(getattr(self.fit, "data", None))
         return CurveDiagnostics(self)
 
     @property

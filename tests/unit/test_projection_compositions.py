@@ -445,11 +445,17 @@ class TestMT7RefusalsBeforeAnyLearner:
         assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
     def test_intermediate(self) -> None:
+        """The CDE projection with a missing treatment refuses with F33, before any learner."""
+        from cleverly import ControlledDirectEffect
+
         frame = COMPOSITE.frame()
         study = composite_study(frame.assign(Z=frame["W"] % 2), intermediate="Z")
         NeverFit.calls = 0
-        with pytest.raises(CapabilityError, match="does not yet compose with an intermediate"):
-            study.identify(CONTRAST).estimate(cross_fit=False, **never())
+        with pytest.raises(CapabilityError, match="controlled direct effect") as caught:
+            study.identify(ControlledDirectEffect(intermediate=0.0, contrast=CONTRAST)).estimate(
+                cross_fit=False, **never()
+            )
+        assert caught.value.refusal.roadmap == "F33"
         assert NeverFit.calls == 0
 
     def test_assess_score_with_strata(self) -> None:
