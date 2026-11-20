@@ -295,7 +295,11 @@ class TestTheSupportRow:
         assert "outcome_by_arm=True" in support.reason
 
     def test_the_effect_modification_axis_measures_the_per_arm_fit(self) -> None:
-        """The reversal: ``T49`` is the per-arm projection, and a pooled one matches no row."""
+        """The reversal: ``T49`` is the per-arm projection, and a pooled one has its own row.
+
+        The key holds the option, so the pooled fit matches only ``T49.pooled``, which the
+        ``projection-evidence`` study measured, and never the per-arm ``T49``.
+        """
         from cleverly import CausalStudy
         from tests.studies import conditional_projection as projection
 
@@ -312,6 +316,13 @@ class TestTheSupportRow:
         assert settings["outcome_by_arm"] is True
         assert {e.support.row for e in by_arm.estimates.values()} == {"T49"}
         for estimate in pooled.estimates.values():
+            assert (estimate.support.label, estimate.support.row) == ("supported", "T49.pooled")
+            assert "projection-evidence" in estimate.support.evidence
+        # Witness: in sample the pooled fit matches neither row.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            in_sample = effect.estimate(**{**settings, "outcome_by_arm": False, "cross_fit": False})
+        for estimate in in_sample.estimates.values():
             assert estimate.support.label == "experimental"
             assert estimate.support.row is None
             assert "No registered study covers this configuration" in estimate.support.reason

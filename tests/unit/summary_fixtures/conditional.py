@@ -98,6 +98,18 @@ def curve_log_ratio() -> Any:
     return _fit("log_ratio").effect_curve(grid=_GRID, random_state=0)
 
 
+def curve_experimental() -> Any:
+    """A pooled curve fitted in sample, which no support row measures, so it reads experimental.
+
+    The cross-fitted pooled fit of the other fixtures matches ``T49.pooled`` and reads
+    supported; this one keeps the experimental-curve note fired.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = _effect("difference").estimate(**_learners(), cross_fit=False)
+    return fit.effect_curve()
+
+
 def curve_outside() -> Any:
     """A curve whose in-sample predictions are stretched past the outcome's range.
 
@@ -293,6 +305,9 @@ FIXTURES: dict[str, Case] = {
     "curve_plain": Case(curve_plain, names=("age",), fidelity=read_effect_curve, sectioned=False),
     "curve_band": Case(curve_band, names=("age",), fidelity=read_effect_curve),
     "curve_log_ratio": Case(curve_log_ratio, names=("age",), fidelity=read_effect_curve),
+    "curve_experimental": Case(
+        curve_experimental, names=("age",), fidelity=read_effect_curve, sectioned=False
+    ),
     "curve_outside": Case(
         curve_outside, names=("age",), fidelity=read_effect_curve, sectioned=False
     ),
