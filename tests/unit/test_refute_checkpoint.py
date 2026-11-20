@@ -388,6 +388,66 @@ def test_w3_a_lambda_inside_a_learner_refuses_by_name(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("drop", [False, True], ids=["key", "mutation"])
+def test_w3_a_fit_that_differs_only_in_its_weights_refuses(
+    drop: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The data fingerprint omits weights, so the data part adds them; without that
+    addition the estimates part still refuses, one part later."""
+    if drop:
+        # Mutation: the data part without its weights and cluster additions.
+        monkeypatch.setattr(
+            checkpoint_module,
+            "_data_key",
+            lambda result: {"fingerprint": result.provenance.data_fingerprint},
+        )
+    n = 300
+    arguments: dict[str, Any] = {"tests": ["dummy_outcome"], "n_replicates": GENERATED_DRAWS}
+    first = support.in_sample(weights=np.ones(n))
+    second = support.in_sample(weights=np.linspace(0.5, 1.5, n))
+    checkpoint = RefutationCheckpoint(tmp_path)
+    with pytest.raises(support.Stop):
+        _quiet(
+            lambda: refute(first, **arguments, checkpoint=checkpoint, progress=support.stopper(2))
+        )
+    message = _refusal(lambda: refute(second, **arguments, checkpoint=checkpoint))
+    assert ("its estimates differs" if drop else "its data differs") in message
+
+
+def test_w3_an_addressed_setting_refuses_by_path_and_an_object_array_keys(
+    tmp_path: Path,
+) -> None:
+    arguments: dict[str, Any] = {"tests": ["dummy_outcome"], "n_replicates": GENERATED_DRAWS}
+    addressed = support.in_sample(learner=support.TaggedLinear(tag=support.Opaque()))
+    message = _refusal(
+        lambda: refute(addressed, **arguments, checkpoint=RefutationCheckpoint(tmp_path / "a"))
+    )
+    assert "outcome_learner.params['tag']" in message and "memory address" in message
+    tagged = support.in_sample(learner=support.TaggedLinear(tag=np.array(["a", "b"], dtype=object)))
+    report = _quiet(
+        lambda: refute(tagged, **arguments, checkpoint=RefutationCheckpoint(tmp_path / "b"))
+    )
+    assert support.walk(report) == support.walk(_quiet(lambda: refute(tagged, **arguments)))
+
+
+def test_w3_a_directory_with_no_draw_takes_a_new_request(tmp_path: Path) -> None:
+    """A call stopped before its first draw finished leaves a request and no draw."""
+    result, arguments = _arguments("point dummy_outcome")
+    checkpoint = RefutationCheckpoint(tmp_path)
+
+    def stop_first(*args: Any, **kwargs: Any) -> Any:
+        raise support.Stop
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(refute_module, "_empirical_draw", stop_first)
+        with pytest.raises(support.Stop):
+            _quiet(lambda: refute(result, **arguments, checkpoint=checkpoint))
+    assert (tmp_path / "request.json").exists()
+    changed = {**arguments, "n_replicates": 12}
+    report = _quiet(lambda: refute(result, **changed, checkpoint=checkpoint))
+    assert support.walk(report) == support.walk(_quiet(lambda: refute(result, **changed)))
+
+
 def test_w3_a_tampered_version_or_seed_refuses(tmp_path: Path) -> None:
     result, arguments, checkpoint = _stored(tmp_path)
     request = tmp_path / "request.json"
@@ -527,6 +587,28 @@ def test_w5_the_facade_cache_ignores_the_keywords(tmp_path: Path) -> None:
     assert support.walk(first) == support.walk(direct)
     assert len(seen) == GENERATED_DRAWS
     assert not (tmp_path / "unused").exists()
+
+
+def test_w5_run_all_leaves_the_keywords_out_of_its_key(tmp_path: Path) -> None:
+    result = dataclasses.replace(_in_sample())
+    _, arguments = _arguments("point dummy_outcome")
+    arguments.pop("random_state")
+    keyed = {**arguments, "checkpoint": RefutationCheckpoint(tmp_path), "progress": print}
+    first = _quiet(
+        lambda: result.diagnostics.run_all(
+            include_refits=True, arguments={"refute": keyed}, random_state=0
+        )
+    )
+    before = len(result.assessment_cache)
+    second = _quiet(
+        lambda: result.diagnostics.run_all(
+            include_refits=True, arguments={"refute": arguments}, random_state=0
+        )
+    )
+    assert len(result.assessment_cache) == before
+    (item,) = [row for row in first.items if row.name == "refute"]
+    assert "checkpoint" not in item.arguments and "progress" not in item.arguments
+    assert support.walk(first.items) == support.walk(second.items)
 
 
 @pytest.mark.parametrize("mark", [True, False], ids=["marked", "mutation"])
@@ -684,10 +766,24 @@ def test_w9_the_preview_refuses_as_refute_does(tmp_path: Path) -> None:
     changed = {**arguments, "n_replicates": 12}
     expected = _refusal(lambda: refute(result, **changed, checkpoint=checkpoint))
     assert _refusal(lambda: planned_refits(result, **changed, checkpoint=checkpoint)) == expected
-    unseeded = support.in_sample(random_state=None)
+    # A fit that draws its seed: the preview checks the parts in refute's order, so another
+    # estimator refuses there as in refute, and the same fit refuses at the seed.
     without = {key: value for key, value in arguments.items() if key != "random_state"}
-    message = _refusal(lambda: planned_refits(unseeded, **without, checkpoint=checkpoint))
-    assert "Pass random_state=0" in message
+    unseeded = support.in_sample(random_state=None)
+
+    def both(target: RefutationCheckpoint) -> tuple[str, str]:
+        return (
+            _refusal(lambda: refute(unseeded, **without, checkpoint=target)),
+            _refusal(lambda: planned_refits(unseeded, **without, checkpoint=target)),
+        )
+
+    expected, preview = both(checkpoint)
+    assert preview == expected and "its estimator differs" in preview
+    stopped = RefutationCheckpoint(tmp_path / "unseeded")
+    with pytest.raises(support.Stop):
+        _quiet(lambda: refute(unseeded, **without, checkpoint=stopped, progress=support.stopper(2)))
+    expected, preview = both(stopped)
+    assert preview == expected and "draws a fresh one" in preview
     fresh = RefutationCheckpoint(tmp_path / "fresh")
     assert planned_refits(result, **arguments, checkpoint=fresh).tests[0].stored == 0
     assert not (tmp_path / "fresh").exists()

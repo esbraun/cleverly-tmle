@@ -383,17 +383,16 @@ def _read_checkpoint(
     module: Any, result: Any, a: dict[str, Any], tests: Any, seed: int | None
 ) -> Any:
     """Open ``checkpoint=`` read-only, refusing what ``refute`` would refuse there."""
-    from ._refute_checkpoint import CHECKPOINTED_TESTS, seed_refusal, stored_root
+    from ._refute_checkpoint import CHECKPOINTED_TESTS, stored_root
 
     checkpoint = a["checkpoint"]
     if checkpoint is None or not any(name in CHECKPOINTED_TESTS for name in tests):
         return None
-    if seed is None:
-        # ``refute`` draws a fresh seed, which cannot match a recorded one.
-        root = stored_root(checkpoint)
-        if root is not None:
-            raise seed_refusal(checkpoint, root, None)
+    if seed is None and stored_root(checkpoint) is None:
         return None
+    # A call that draws its seed checks the same parts in the same order as ``refute``; its
+    # fresh seed cannot match a recorded one, so the check refuses at the seeds part with
+    # ``refute``'s message, unless an earlier part refuses first.
     return module.checkpoint_session(
         result,
         estimand=a["estimand"],
@@ -402,6 +401,7 @@ def _read_checkpoint(
         checkpoint=checkpoint,
         progress=None,
         read_only=True,
+        drawn=seed is None,
     )
 
 

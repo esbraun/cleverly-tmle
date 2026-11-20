@@ -24,6 +24,18 @@ class AddressedLinear(LinearRegression):
         return object.__repr__(self)
 
 
+class Opaque:
+    """A setting whose only description is the default repr, which holds an address."""
+
+
+class TaggedLinear(LinearRegression):
+    """A linear learner with one extra setting, so a test can put any object in its params."""
+
+    def __init__(self, *, tag: Any = None, fit_intercept: bool = True) -> None:
+        super().__init__(fit_intercept=fit_intercept)
+        self.tag = tag
+
+
 def frame(n: int = 300, seed: int = 0) -> Any:
     from tests.unit.test_planned_refits import _point_frame
 
@@ -31,14 +43,27 @@ def frame(n: int = 300, seed: int = 0) -> Any:
 
 
 def in_sample(
-    *, seed: int = 0, random_state: int | None = 0, learner: Any = None, n: int = 300
+    *,
+    seed: int = 0,
+    random_state: int | None = 0,
+    learner: Any = None,
+    n: int = 300,
+    weights: Any = None,
 ) -> Any:
     """An in-sample point fit with no outcome bounds, which every generated test takes."""
     from cleverly import ATE, CausalStudy, PointTreatment
 
+    data = frame(n, seed)
+    if weights is not None:
+        data = data.assign(w=weights)
     study = CausalStudy(
-        frame(n, seed),
-        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+        data,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2"),
+            weights=None if weights is None else "w",
+        ),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

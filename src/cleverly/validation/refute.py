@@ -5481,11 +5481,12 @@ def checkpoint_session(
     result: Any,
     *,
     estimand: str,
-    seed: int,
+    seed: int | None,
     tests: Sequence[str],
     checkpoint: RefutationCheckpoint | None,
     progress: Callable[[RefutationProgress], Any] | None,
     read_only: bool = False,
+    drawn: bool = False,
 ) -> CheckpointSession | None:
     """Open a call's checkpoint, checking its request, when it requests a stored test.
 
@@ -5495,8 +5496,8 @@ def checkpoint_session(
         The fit.
     estimand : str
         The estimand the call refits.
-    seed : int
-        The call's resolved root seed.
+    seed : int or None
+        The call's resolved root seed; ``None`` only for the preview of a call that draws one.
     tests : sequence of str
         The requested tests.
     checkpoint : RefutationCheckpoint or None
@@ -5505,6 +5506,8 @@ def checkpoint_session(
         The progress callback.
     read_only : bool
         Whether the session only reads, as the preview does.
+    drawn : bool
+        Whether the call draws its root seed with fresh entropy, which a refusal names.
 
     Returns
     -------
@@ -5520,7 +5523,7 @@ def checkpoint_session(
         if checkpoint is not None
         else {}
     )
-    return CheckpointSession(checkpoint, parts, progress, read_only=read_only)
+    return CheckpointSession(checkpoint, parts, progress, read_only=read_only, drawn=drawn)
 
 
 def refute(
@@ -5762,6 +5765,7 @@ def refute(
         tests=requested,
         checkpoint=checkpoint,
         progress=progress,
+        drawn=random_state is None and getattr(estimator, "random_state", None) is None,
     )
     rng = np.random.default_rng(seed)
     data = result.data
