@@ -675,6 +675,10 @@ class EffectCurveResult:
     clipped_share : float
         The share of in-sample predictions an EP fit with ``model=None`` clipped to the range
         of a contrast of means; 0 for every other curve.
+    ep_clipped_share : float
+        The share of in-sample rows at which an EP fit's declared log-ratio final learner put
+        its class-1 probability outside the hull of the fractional labels, so the curve was
+        clipped to it; 0 for every other curve.
     fit_warnings : tuple of FitWarning
         The warnings the fit raised, recorded as a point fit records them.
     """
@@ -698,6 +702,7 @@ class EffectCurveResult:
     fitted_method: str = "tmle"
     sieve: Any = None
     clipped_share: float = 0.0
+    ep_clipped_share: float = 0.0
     fit_warnings: tuple[Any, ...] = field(default=(), compare=False)
     assessment_cache: AssessmentCache = field(
         default_factory=AssessmentCache, init=False, repr=False

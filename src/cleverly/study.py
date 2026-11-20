@@ -3124,15 +3124,6 @@ EP_FINAL_LEARNER_PROJECTION_REFUSAL = Refusal(
     alternative="Declare model=None to fit the curve with a final learner of your choice.",
 )
 
-#: Why a declared final learner does not fit a log ratio.
-EP_FINAL_LEARNER_RATIO_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "The log-ratio final stage is a weighted logistic regression with fractional targets "
-    "(arXiv:2402.01972v2, Section 3.2), and no seam passes that loss to a declared learner.",
-    alternative="Fit the log ratio with the default final stage (final_learner=None).",
-    roadmap="P1",
-)
-
 #: Why ``tmle`` does not fit a conditional contrast with no working model (R2).
 TMLE_WITHOUT_MODEL_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
@@ -6689,10 +6680,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """The EP learner :meth:`_estimate_effect_curve` fits and :meth:`planned_fits` counts.
 
         Every refusal here runs before any learner: two declarations of the basis, a final
-        learner beside a declared model or on the log-ratio scale, and a sieve that reads an
-        undeclared domain or level.
+        learner beside a declared model, a log-ratio final learner that is not a weighted
+        classifier, and a sieve that reads an undeclared domain or level.
         """
-        from .estimators.ep import EPEstimator
+        from .estimators.ep import EPEstimator, ratio_learner_refusal
 
         assert self._study is not None and isinstance(self._study.data, CausalData)
         estimand = self.estimand
@@ -6705,14 +6696,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Keep one: model= for the projection, or sieve= with model=None.",
             )
-        if method.final_learner is not None and (
-            model is not None or estimand.scale != "difference"
-        ):
-            raise CapabilityError.from_refusal(
-                EP_FINAL_LEARNER_PROJECTION_REFUSAL
-                if model is not None
-                else EP_FINAL_LEARNER_RATIO_REFUSAL
-            )
+        if method.final_learner is not None and model is not None:
+            raise CapabilityError.from_refusal(EP_FINAL_LEARNER_PROJECTION_REFUSAL)
+        if method.final_learner is not None and estimand.scale == "log_ratio":
+            ratio_refusal = ratio_learner_refusal(method.final_learner)
+            if ratio_refusal is not None:
+                raise CapabilityError.from_refusal(ratio_refusal)
         if model is None:
             sieve = method.sieve if method.sieve is not None else Sieve.default(estimand.modifiers)
             target = "curve"

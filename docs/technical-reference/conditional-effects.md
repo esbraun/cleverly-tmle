@@ -173,8 +173,16 @@ van der Laan, Carone and Luedtke (arXiv:2402.01972v2, "EPL" below). It runs in t
 3. **Final stage** (EPL Algorithm 3). On the difference scale, least squares of
    $\bar Q^*(t, W) - \bar Q^*(r, W)$ on $\varphi_k(V)$, times $b - a$ of the declared outcome
    range, or a declared `final_learner` on the modifier columns. On the log-ratio scale, the
-   logistic regression of $\bar Q^*_t / (\bar Q^*_t + \bar Q^*_r)$ on $\varphi_k$ with weight
-   $\bar Q^*_t + \bar Q^*_r$.
+   logistic regression of $p = \bar Q^*_t / (\bar Q^*_t + \bar Q^*_r)$ on $\varphi_k$ with
+   weight $T = \bar Q^*_t + \bar Q^*_r$ (EPL Section 3.2), or a declared `final_learner`
+   classifier. Because $w T \ell(p, m) = (w \bar Q^*_t)(-\log m) + (w \bar Q^*_r)(-\log(1 - m))$
+   for the log loss $\ell$, that risk is the weighted log loss of the doubled set in which
+   each row appears with label 1 and weight $w \bar Q^*_t$ and with label 0 and weight
+   $w \bar Q^*_r$. The classifier is fitted on that set, the two rows of a pair sharing one
+   `groups` code, and the curve is the logit of its class-1 probability (read through
+   `classes_`), clipped to $[\min_i p_i, \max_i p_i]$. A learner saturated in $V$ is never
+   clipped at the fit's rows; a smoother class or an extrapolation can be, and the result
+   records the clipped share of its rows as `ep_clipped_share`.
 
 The sieve is `Sieve(basis, size=...)`, by default `Sieve.default(modifiers)`: additive cosines
 of each continuous modifier and indicators of each categorical one, up to 6 terms per
@@ -596,7 +604,7 @@ each reading against its formula.
 | `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
 | `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
 | `method="ep"` with both `model=` and `sieve=`, or `final_learner=` with `model=` | two bases for one fit; with a model the final stage is least squares on it | `invalid_declaration` |
-| `final_learner=` on the log-ratio scale | the weighted logistic final stage with a declared learner is not built | `implementation_gap`, roadmap P1 |
+| a log-ratio `final_learner` without `predict_proba`, or whose `fit` takes no `sample_weight` | the final stage is a weighted log loss on two labels | `invalid_declaration` |
 | `EPMethod` with `cross_fit=False`, `repeats` above 1, `cv_evaluation=True`, a non-default targeting scheme, or a fluctuation setting | the debiasing pools every row with its own out-of-fold nuisances and fits no fluctuation | `invalid_declaration` |
 | `assess_score` without `score_kind="external"`, with `computed_from` outside the adjustment set, or on an in-sample curve | the interval needs a fixed function of adjustment columns | `invalid_declaration` |
 | `assess_score` with `compare=` naming the score column, or a column with the same value on every row | the paired risk is 0 with no spread | `DataError` |
