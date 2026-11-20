@@ -134,6 +134,53 @@ overstates the SE slightly. The [score-assessment study](method-evidence/score-a
 measured 0.09 to 0.13 SD of bias on the calibration groups' log-ratio rows at n = 4,000 (0.08
 to 0.10 under a wrong outcome regression) and 0.03 to 0.05 SD on the difference scale at 2,000. The paired row carries neither term, because the constant cancels.
 
+## Controlled direct effects
+
+`ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, on a
+design that declares a binary intermediate $Z$ and $z \in \{0, 1\}$, projects the controlled
+direct effect at $Z = z$ onto the basis. With
+$\tau_z(W) = \bar Q(t, z, W) - \bar Q(r, z, W)$ and $\bar Q(a, z, W) = E[Y \mid A = a, Z = z, W]$,
+the difference-scale target is $\beta_z = M^{-1}E[\varphi(V)\tau_z(W)]$, and the log-ratio target
+solves the log-CRR equation of [Estimands](#estimands) at $\bar Q(\cdot, z, W)$. The coefficients
+keep the names of the total-effect projection, the summary states the level held fixed, and the
+curve's target sentence ends with it. The two levels are different parameters. An engine fit
+with `intermediate=` returns both, keyed by level, from one set of nuisances.
+
+Identification is that of the scalar controlled direct effect
+([point-treatment TMLE](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)): consistency, no
+unmeasured confounding of $A$ given $W$ and of $Z$ given $(A, W)$, positivity
+$g(a \mid W)\,q_z(a, W)\,\Pi(a, W) > 0$, and outcomes missing at random with $\Delta$ independent
+of $Z$ given $(A, W)$. Then $E[Y(a, z) \mid W] = \bar Q(a, z, W)$, and averaging over $W$ given
+$V \subseteq W$ gives the conditional controlled effect. With
+$H_a(O) = 1\{A = a\}1\{Z = z\}\Delta/\{g(a \mid W)\,q_z(a, W)\,\Pi(a, W)\}$ the difference-scale
+influence curve is
+
+$$
+\mathrm{IC}_{\beta_z} = M^{-1}\Big[\varphi(V)\{\tau_z(W) - \varphi(V)^\top\beta_z\} + \varphi(V)\sum_{a \in \{t, r\}} s(a)\,H_a(O)\,\{Y - \bar Q(a, z, W)\}\Big],
+$$
+
+and the log-ratio curve is $-J_z^{-1}$ times the analogous stack with $c_a(V)$ in place of
+$s(a)\varphi(V)$ and $J_z$ the Jacobian at $\bar Q(\cdot, z, W)$. The clever covariate is
+$c_a(V)H_a(O)$ on the observed row and $c_a(V)/\{g\,q_z\,\Pi\}$ on the counterfactual rows, which
+predict at $Z = z$. The remainder is the product form of [Remainders](#remainders) with
+$(g\,q_z\,\Pi)_0/(g\,q_z\,\Pi)_n - 1$ as the mechanism error, so the interval needs every factor and
+the outcome regression to converge at the product rate. One consistent side gives a consistent
+point estimate and no interval claim.
+
+Three of the covariate's terms vanish when the outcome regression is correct: the selection
+$1\{Z = z\}$, the density $q_z$ and $1/\Pi$. Two more vanish on special laws: averaging the
+contrast over the $Z = z$ rows when $\tau_z$ is in the basis span, and predicting at the observed
+$Z$ when $\bar Q$ does not depend on $Z$. `tests/unit/test_cde_projection.py` holds a witness for
+each on a discrete law whose $\tau_z$ is not linear: the fit reproduces the exact projection at
+both levels and on both scales, and each mutant misses it by a tabled vector, the covariate
+mutants at an arm-specific wrong outcome regression where the full covariate still recovers the
+truth. The same file fits the pooled and per-arm outcome regressions, row weights, clusters, the
+pair of a three-arm treatment, repeats and the full-refit bootstrap. Every CDE projection reads
+`experimental`: no registered study measures one. The declared
+`projection-evidence` study (`tests/studies/projection_evidence.py`, not yet run) measures the
+cross-fitted fit at both levels on both scales, with controls for each vanishing term. The
+refusals it meets are in [Refusals](#refusals).
+
 ## Curve, band and heterogeneity test
 
 The curve at a declared point is $\varphi(v)^\top\hat\beta$, with standard error
@@ -145,6 +192,14 @@ makes it valid over a fixed finite set, as the
 shipped band. A point
 outside a declared domain is refused unless `Modifiers(outside="clip")` maps it to the nearest
 end, for the fit and for prediction alike.
+
+The band carries its own support label (`CurveBand.support`), classified from the fit's key with
+the band's multiplier kind and draw count, so it reads `supported` only where a registered study
+measured the joint coverage of that band on that key, and the coefficients' label says nothing
+about it. The summary's band note says which. No registered study measures a band yet: the
+declared `projection-evidence` study measures the Rademacher band with 1,000 draws on the `T49`,
+`T50`, `T49.clustered` and `T49.repeats` keys, each beside a pointwise control whose joint
+coverage must fall below 0.95.
 
 `heterogeneity_test()` tests $\beta_j = 0$ for every term except the intercept, a Wald
 chi-square on as many degrees of freedom $q$. A clustered fit with $J < 40$ clusters, whose
@@ -591,7 +646,11 @@ each reading against its formula.
 | `Sieve(basis)` with its size chosen by cross-validation | no reviewed result covers inference after the selection | `invalid_declaration` |
 | `scale="log_ratio"` with `q_bounds` not starting at 0 | a ratio of means is not invariant to a shift | `invalid_declaration` |
 | a modifier outside the adjustment set | the contrast given $V$ is identified only when $V \subseteq W$ | `invalid_declaration` |
-| an intermediate, a continuous or vector treatment | the projection's clever covariate for the composition is not built | `implementation_gap`, roadmap P1 |
+| a continuous or vector treatment | the projection's clever covariate for the composition is not built | `implementation_gap`, roadmap P1 |
+| a bare `ConditionalContrast` on a design with an intermediate | the projection of the total effect would ignore the intermediate the design declares; wrap the contrast in `ControlledDirectEffect(intermediate=z, contrast=...)` | `invalid_declaration` |
+| `strata=` with an intermediate | the stratified projection's clever covariate with the intermediate mechanism has no exact-law test and no study cell | `implementation_gap`, roadmap P1 |
+| `method="ep"` with an intermediate | the EP curve's debiasing step has no clever covariate with the intermediate mechanism, so it does not estimate a controlled direct effect | `implementation_gap`, roadmap P1 |
+| `assess_score`, `targeting_curve` or the held-out curve checks on a controlled direct effect | each builds pseudo-outcomes without the selection $1\{Z = z\}$ and the density $q_z$, so it would check a different estimand | `implementation_gap`, roadmap P1 |
 | a missing treatment with cross-fitting | the fold-local product of the three factors of $g_{c,a}$ is not built | `implementation_gap`, roadmap X53 |
 | `strata=` with a stratum whose working-model Gram matrix is singular | the stratum's coefficients are not identified | `DataError` |
 | `method="ep"` with a missing treatment | the EP learner cross-fits its nuisances, and the cross-fitted composite is not built | `implementation_gap`, roadmap X53 |
@@ -742,7 +801,16 @@ complete outcomes, cross-fitted nuisances and a fluctuation settled on the full 
 `cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED` and `SCORE_PAIRED_MEASURED` hold the table,
 and `tests/unit/test_score_assessment_tmle.py` checks that every group it names ran and passed.
 Weights, clusters, missing outcomes, a pair of arms of a multi-arm treatment, an ATE fit without
-cross-fitting, a reduced-span fit and every other configuration read `experimental`. The
+cross-fitting, a reduced-span fit and every other configuration read `experimental`. A clustered
+fit with fewer than 40 clusters gives the reason that its interval takes a $t(J - 2)$ reference
+no score-assessment study measures, in place of the reason for clusters. The declared
+`score-assessment-compositions` study (`tests/studies/score_assessment_compositions.py`, not yet
+run) measures the first five of these, one at a time, on the difference-scale binary paired
+design with an estimated mechanism: sampling weights, 800 clusters of 5, outcomes missing at
+random, the pair $(2, 0)$ of three arms, and an ATE fit in sample.
+`cleverly.effect_curves.SCORE_COMPOSITIONS_MEASURED` lifts one composition of a measured
+configuration when a group of a registered study measured it, and it is empty until that study
+registers. The
 difference-scale groups run at n = 2,000 and the log-ratio groups at 4,000: at 2,000 rows the
 pilot's SE ratio of 1.047, the best-constant term plus an unexplained excess, predicted that no
 replication count up to 50,000 meets the calibration rule, and no interval was measured there.
