@@ -17,9 +17,9 @@ S risk difference, and the row-level SE that ignores the clusters on the cluster
 difference and S calibration slope.
 
 The calibration ``R`` comes from the 3,200-draw pilot
-(:mod:`tests.studies.score_assessment_compositions_pilot`), which has not run.  :data:`BUDGETED_R`
-is the floor at which every row at a ratio of 1 passes; the declaration replaces it by the
-pilot's ``R`` when larger.  The point-reading fallback of :mod:`tests.studies.point_reading`
+(:mod:`tests.studies.score_assessment_compositions_pilot`, run with its ``pilot_2`` extension).
+:data:`BUDGETED_R` is the floor at which every row at a ratio of 1 passes; :data:`DECLARED_R`
+is the pilot's ``R``.  The point-reading fallback of :mod:`tests.studies.point_reading`
 applies at :data:`POINT_READING_TARGET` (0.95, chosen on 2026-11-20).  The study is not
 registered: it joins :func:`tests.studies.evidence.registry.registered` with the artifacts of
 its declared run.
@@ -193,7 +193,12 @@ class Group:
         return RISK_ROWS if arm == self.risk_arm else CALIBRATION_ROWS
 
 
-R = BUDGETED_R
+#: The declared calibration ``R``: X32a's rule on the pooled pilot (3,200 draws per row; the
+#: ``k3_cal`` arm extended by ``pilot_2`` to 6,400), committed at 8edc4541.  The first stream
+#: alone gave 17,200, driven by the ``k3_cal`` arm; pooled with ``pilot_2`` it gives 6,000,
+#: above the 4,800 floor and below the plan's 13,200.
+DECLARED_R = 6_000
+R = DECLARED_R
 GROUPS: tuple[Group, ...] = (
     Group(
         "assess_weighted_2k",

@@ -318,6 +318,7 @@ def test_the_pilot_rule_sizes_r_by_x32a_on_correct_ratios() -> None:
     summary = pd.read_csv(pilot.PILOT_CSV)
     computed, _ = pilot.declared_replicates(summary, pd.read_csv(pilot.CORRELATIONS_CSV))
     assert computed >= study.BUDGETED_R
+    assert max(computed, study.BUDGETED_R) == study.DECLARED_R == study.R
     assert pilot.row_variance_failures(summary) == []
 
 

@@ -18,8 +18,8 @@ the fit groups (:data:`GROUPS`) and the cells their fits fill (:func:`group_cell
 the primary phase and the study record (:data:`STUDY`).
 
 The calibration ``R`` comes from the 3,200-draw pilot (:mod:`tests.studies.projection_evidence_pilot`,
-with its ``pilot_2`` extension), which has not run: :data:`BUDGETED_R` is the plan's budget, and the
-declaration commit replaces it by the pilot's ``R`` when larger, never lower.  If no ``R`` up to
+with its ``pilot_2`` extension where an arm needs it): :data:`BUDGETED_R` is the plan's budget, and
+:data:`DECLARED_R` is the pilot's ``R`` where larger, never lower.  If no ``R`` up to
 50,000 meets X32a's rule after ``pilot_2``, the declaration reads each calibration row at its
 pooled pilot ratio and takes the smallest multiple of 400 at which the product of the rows' pass
 probabilities is at least :data:`POINT_READING_TARGET` (0.95, plan 5.0 rule 4, chosen on
@@ -204,7 +204,10 @@ def arm_level(arm: str) -> int | None:
     return None
 
 
-R = BUDGETED_R
+#: The declared calibration ``R``: X32a's rule on the 3,200-draw pilot (committed at 8edc4541;
+#: no arm needed ``pilot_2``) gives 12,000, the budget.
+DECLARED_R = 12_000
+R = DECLARED_R
 GROUPS: tuple[Group, ...] = (
     Group(
         "cde_4k",
