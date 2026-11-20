@@ -46,8 +46,8 @@ python -m pip install cleverly          # Python 3.11 or newer
 python -m pip install "cleverly[all]"   # adds pandas, polars, and plotting
 ```
 
-`cleverly[glmstar]` adds an optional compiled solver that speeds up the lasso paths of
-collaborative TMLE. It is GPL-2.0-only, so `all` does not include it.
+`cleverly[glmstar]` adds an optional compiled solver for the lasso paths of collaborative TMLE.
+It is no faster than the built-in solver, and it is GPL-2.0-only, so `all` does not include it.
 
 The [installation guide](https://esbraun.github.io/cleverly-tmle/getting-started/installation.html)
 covers other learners, development installs, and version pinning.

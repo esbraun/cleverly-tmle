@@ -338,7 +338,7 @@ from a frozen copy in the same process.
 When the residual is larger, the fit raises `L1ConvergenceError`, and the message names the layer
 and the penalty. The usual cause is separation at penalty 0. A grid that ends above 0 avoids it.
 
-**`l1_solver="glmstar"` changes the speed, not the contract.** The option applies to
+**`l1_solver="glmstar"` keeps the contract.** The option applies to
 `strategy="lasso"` and to `strategy="derivative"` without `treatment_candidates=`; every other
 strategy, and `SurvivalCTMLE`, refuses it. It needs the optional `glmstar` package
 (`pip install "cleverly[glmstar]"`, GPL-2.0-only), which wraps the compiled core of R `glmnet`.
@@ -368,6 +368,12 @@ Estimates differed by at most `8e-8` (about `3e-6` of a standard error) and stan
 most `6e-9`. The largest changes are in the derivative strategy, on three treatment levels and at
 small penalties, where the mechanism and its partner nearly coincide and their difference enters
 the clever covariate.
+
+That replay compared glmstar with the coordinate-descent solver. After the
+built-in solver became the proximal Newton method (X106 K2d), the comparison was rerun against
+it on 1,600 of those replicates: every one where glmstar needed a re-solve, and 50 drawn at
+random. Again no decision differed, estimates differed by at most `8e-8` (about `3e-6` of a
+standard error) and standard errors by at most `6e-9`.
 `tests/unit/test_l1_glmstar.py` holds the residual bounds, mutation controls on the mapping, the
 fallbacks and the agreement of public fits, and `tests/unit/test_ctmle_sequence_witness.py` runs
 its `glmnet` comparisons on both solvers.
