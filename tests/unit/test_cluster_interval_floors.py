@@ -39,7 +39,8 @@ from tests.conftest import linear_drtmle, linear_in_sample
 from tests.unit._inference_status_support import assert_keeps_inference
 from tests.unit._inference_status_support import cluster_labels as labels
 from tests.unit._inference_status_support import longitudinal_learners as learners
-from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
+from tests.unit.test_longitudinal_cluster_status import one_node_panel
+from tests.unit.test_sequential_design import COLUMNS, panel
 
 pytestmark = pytest.mark.xdist_group("cluster_interval_floors")
 
@@ -110,14 +111,23 @@ def expected_df(family: str, clusters: int) -> int:
 
 
 def fit_longitudinal(family: str, clusters: int, *, estimator: type = LTMLE) -> Any:
-    """An end-of-study fit of ``family`` on ``clusters`` clusters of the RM26 panel."""
-    frame = multivalue_panel(n=PANEL_ROWS, seed=43).assign(cluster=labels(PANEL_ROWS, clusters))
+    """An end-of-study fit of ``family`` on ``clusters`` clusters, on the family's measured
+    design (:data:`~cleverly._inference_status.MEASURED_LONGITUDINAL_DESIGNS`): one binary
+    node without censoring in sample, two binary nodes with censoring cross-fitted."""
+    if family == "ltmle_in_sample":
+        frame, columns = (
+            one_node_panel(PANEL_ROWS, seed=43),
+            {"outcome": "Y", "treatment": ["A"], "baseline": ["W1"]},
+        )
+    else:
+        frame, columns = panel(PANEL_ROWS, seed=43), COLUMNS
+    frame = frame.assign(cluster=labels(PANEL_ROWS, clusters))
     n_folds = 1 if family == "ltmle_in_sample" else 5
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return estimator(
             {"never": 0, "always": 1}, reference="never", **learners(n_folds=n_folds)
-        ).fit(frame, **COLUMNS, id="cluster")
+        ).fit(frame, **columns, id="cluster")
 
 
 POINT = (
