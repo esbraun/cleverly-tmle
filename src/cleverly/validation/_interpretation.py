@@ -1344,7 +1344,7 @@ def _continuous_survival_rows() -> tuple[VerdictEvidence, ...]:
                     covariates_per_row_max=0.004,
                     min_event_count_min=17,
                     causes=frozenset({2}),
-                    event_share_range=(0.4337, 0.7945),
+                    event_share_range=(0.4336, 0.7946),
                     variances=frozenset({"switched"}),
                 ),
                 sentence=(

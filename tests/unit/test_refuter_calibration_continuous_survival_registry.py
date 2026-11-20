@@ -130,10 +130,10 @@ def test_the_scalar_axes_match_the_size_cells(instrument: str) -> None:
     assert scope.causes == frozenset(int(c) for c in size["causes"])
     assert scope.event_share_range is not None
     low, high = scope.event_share_range
-    # The covered range lies inside the size trials' measured shares, rounded inward.
-    assert float(size["event_share_min"].min()) <= low < float(size["event_share_min"].min()) + 1e-4
+    # The covered range holds every size trial's measured share, rounded outward to 1e-4.
+    assert float(size["event_share_min"].min()) - 1e-4 < low <= float(size["event_share_min"].min())
     assert (
-        float(size["event_share_max"].max()) - 1e-4 < high <= float(size["event_share_max"].max())
+        float(size["event_share_max"].max()) <= high < float(size["event_share_max"].max()) + 1e-4
     )
     assert scope.variances == frozenset({study.estimator(0).variance}) == frozenset({"switched"})
 
@@ -167,8 +167,8 @@ def test_the_recorded_configuration_is_licensed_and_its_neighbours_are_not(
     # descriptive: the influence-curve variance (design review M2), one cause, an event share
     # outside the measured range, and too few events.
     recorded = CELLS.loc[(CELLS["cell"] == "c1_t1.12") & (CELLS["law"] == "size")].iloc[0]
-    # The cell records its smallest trial share, which sits just below the inward-rounded range.
-    fit = replace(_configuration(recorded), event_share=0.5)
+    # The cell records its smallest trial share, the edge of the covered range.
+    fit = _configuration(recorded)
     if instrument == "placebo":
         fit = replace(fit, placebo_draw="permute")
     assert resolve(instrument, rule, fit).licensed

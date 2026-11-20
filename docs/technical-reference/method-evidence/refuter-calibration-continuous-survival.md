@@ -104,7 +104,7 @@ The power cells detect their defects in 46 to 50 of 50 trials. The reporting cel
 The registry `VERDICT_EVIDENCE` holds one placebo row and one subset row. Each covers the recorded
 configuration of the size cells: `ContinuousSurvivalTMLE` with two causes, the stem
 `ate_regimen`, the default learners, the switched variance, ten folds, 20 refits, $n \ge 1000$, at
-least 17 events in every arm and cause by the target time, and an event share of 0.4337 to 0.7945.
+least 17 events in every arm and cause by the target time, and an event share of 0.4336 to 0.7946.
 A fit with `variance="influence_curve"` prints no verdict. The subset row's sentence states its
 measured false-alarm rate. `tests/unit/test_refuter_calibration_continuous_survival_registry.py`
 checks each scope against the committed run.
