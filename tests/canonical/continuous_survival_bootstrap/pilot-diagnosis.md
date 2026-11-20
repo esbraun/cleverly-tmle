@@ -12,7 +12,8 @@ Each fit stops after the engine's checks of the initial hazards, so no walk runs
 python -m tests.studies.continuous_survival_bootstrap_ties --jobs 4 --draws 400 --bootstrap 38 45 0 1
 ```
 
-This note diagnoses only. The engine is unchanged.
+This note was written as a diagnosis, with the engine unchanged. The owner adopted option B on
+2026-11-20; [the decision](#decision-option-b-adopted) at the end says what shipped.
 
 ## What trips the guard
 
@@ -145,6 +146,33 @@ witness with two nonzero causes at the bounded cell. All 10 failures here have a
 0, so a witness of that shape cannot see the cause split. The review in the plans repository
 lists these accompaniments.
 
-The refusal's message no longer blames a late time with few units at risk. It names the
+The refusal's message no longer blamed a late time with few units at risk. It named the
 extrapolation to a counterfactual arm outside that arm's covariate range, which ties can amplify.
-The behaviour is unchanged.
+
+## Decision: option B adopted
+
+The owner adopted option B, amended as the review asked, on 2026-11-20. The refusal is gone; an
+infinite combined jump is still refused, and a NaN jump is walked as before.
+
+- **Placement.** `cleverly.survival._chunked.bound_jumps` runs inside `InitialHazards.jumps`, the
+  one source of the engine's checks, its replay check and every walk block, in every fit and
+  bootstrap refit alike. It writes nothing when no cell reaches $1 - \delta$, $\delta = 10^{-8}$
+  (`JUMP_BOUND`, a constant of its own beside the walk's floor).
+- **The walk's floor.** Each bounded pair takes its own floor, the lower of the other pairs'
+  floor and its own initial survival at the grid's end; the other pairs' floor reads the other
+  pairs only (`run_walk(own_floor=...)`). A fit with no bounded pair runs the old code path.
+- **Record, warning and label.** `ContinuousSurvivalRecord.jump_bound_share` and
+  `jump_bound_at_risk_share`; one `PositivityWarning` per fit naming the arm, the causes and the
+  pairs; every estimate experimental with a reason that names the extrapolation;
+  `result.bootstrap_jump_bounded` counts the refits where the bound acted, and every bootstrap
+  interval's reason names it. The continuous studies' `targeting-readings.csv` gain
+  `mean_jump_bound_share`, and the bootstrap study's `mean_jump_bounded_refits`, at their next
+  regeneration.
+- **Witnesses.** `tests/unit/test_continuous_survival_jump_bound.py` (two nonzero causes at a
+  counterfactual cell, a cell at the received arm while at risk, the threshold) and
+  `tests/unit/test_continuous_survival_blocks.py` (the bounded walk against the dense walk, the
+  own floor, the underflow that a bounded survival can still reach).
+- **A/B replay.** `tests/studies/continuous_survival_jump_bound_replay.py` refits replicates of
+  the four registered continuous studies at the base commit and with the bound, and compares
+  them at `rtol 0`. Its readings are below.
+

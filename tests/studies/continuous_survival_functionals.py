@@ -230,6 +230,7 @@ EXTRA_COLUMNS = (
     "converged",
     "bounded_share",
     "last_time_floor_share",
+    "jump_bound_share",
     "frozen_share",
     "off_grid_share",
 )

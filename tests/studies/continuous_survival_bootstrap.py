@@ -260,11 +260,13 @@ INTERVAL_COLUMNS = (
 FIT_COLUMNS = (
     "seconds",
     "failed_refits",
+    "jump_bounded_refits",
     "steps",
     "halvings",
     "converged",
     "bounded_share",
     "last_time_floor_share",
+    "jump_bound_share",
     "frozen_share",
     "off_grid_share",
 )
@@ -358,6 +360,7 @@ def fit_replicate(
     extra = {
         "seconds": seconds,
         "failed_refits": float(result.bootstrap.n_failed),
+        "jump_bounded_refits": float(result.bootstrap_jump_bounded),
         **registered.readings(result),
         **(early_readings(result, truth) if early else {}),
     }
@@ -527,11 +530,26 @@ def early_time(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
+def targeting_readings(rows: pd.DataFrame) -> pd.DataFrame:
+    """The registered study's targeting record per cell, with how often the jump bound acted in
+    the refits: the mean count per fit and the fits with any."""
+    fits = rows.drop_duplicates(["scenario", "replicate"])
+    refits = (
+        fits.groupby("scenario", sort=True)["jump_bounded_refits"]
+        .agg(
+            mean_jump_bounded_refits="mean",
+            fits_with_jump_bounded_refits=lambda counts: int((counts > 0).sum()),
+        )
+        .reset_index()
+    )
+    return registered.targeting_readings(rows).merge(refits, on="scenario", how="left")
+
+
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """The calibration readings, the targeting record and the first quartile's readings."""
     return {
         CALIBRATION_FILE: calibration(rows),
-        READINGS_FILE: registered.targeting_readings(rows),
+        READINGS_FILE: targeting_readings(rows),
         EARLY_FILE: early_time(rows),
     }
 
