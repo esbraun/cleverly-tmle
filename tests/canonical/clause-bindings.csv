@@ -1493,6 +1493,13 @@ projection-compositions,interval_calibration,se ratio in calibration band,affine
 projection-compositions,power,rejection floor,rejection/0.01
 projection-compositions,type_i_error,coverage floor,coverage/0.5
 projection-compositions,type_i_error,rejection ceiling,rejection/0.1
+projection-evidence,bias,bias discriminated,pair_collapse
+projection-evidence,bias,bias equivalent,bias
+projection-evidence,interval_calibration,coverage in calibration band,affine
+projection-evidence,interval_calibration,se ratio below band,se_high
+projection-evidence,interval_calibration,se ratio in calibration band,affine
+projection-evidence,simultaneous_coverage,joint coverage below nominal,se_low
+projection-evidence,simultaneous_coverage,joint coverage in calibration band,se_low
 refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
 refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 refuter-calibration-continuous-survival,refuter_power,detections at least 38 of 50,se_low
@@ -1520,6 +1527,10 @@ score-assessment,interval_calibration,term dropped se ratio below band,pair_coll
 score-assessment,power,rejection floor,se_high
 score-assessment,type_i_error,coverage floor,coverage/0.5
 score-assessment,type_i_error,rejection ceiling,rejection/0.1
+score-assessment-compositions,interval_calibration,coverage in calibration band,bias
+score-assessment-compositions,interval_calibration,row variance se ratio below band,se_high
+score-assessment-compositions,interval_calibration,se ratio below band,se_high
+score-assessment-compositions,interval_calibration,se ratio in calibration band,affine
 separable-effects,double_robustness,bias discriminated,pair_collapse
 separable-effects,double_robustness,bias equivalent,bias
 separable-effects,double_robustness,se ratio in union band,se/0.05
