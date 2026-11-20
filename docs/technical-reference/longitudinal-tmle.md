@@ -3298,9 +3298,11 @@ replicates of $n$ doubles, where $\text{block}(n)$ is `cleverly.inference.multip
 n_multiplier)`: a 32 MiB budget, clamped to 4 to 256 replicates and rounded down to a multiple of
 four. The term is $\text{band} = 2 \cdot \text{block}(n) \cdot 8n$ bytes, about 7.8 MiB at 2,000
 units and 64 MiB at 20,000, and 0 with `simultaneous=False`. The factor 2 is set on the band runs,
-not derived: the measured increment, band-on minus band-off peak, is 1.5 to 1.67 buffers for most
-families and 1.82 to 1.85 for `LTMLE` survival fits, and it grows by about 14 bytes per unit per
-estimate, which fits the centred $n \times k$ copies of the influence curves (`band-*.jsonl`). Those
+not derived. The measured increment, band-on minus band-off peak, is at most 1.85 buffers: 1.56 to
+1.85 for `LTMLE` iterated-mean fits (largest on survival fits), up to 1.53 for `SDR` and `IPSI`, up to
+1.6 on the classifier route, and up to 1.36 for the hazard families and the binned and index-only
+continuous routes (`band-*.jsonl`). It grows with the number of estimates, which fits the centred
+$n \times k$ copies of the influence curves. Those
 copies are covered by the margined draw, not by the term; that cover was checked only up to the band
 cells' estimate counts. The term counts once per call, because the band runs in the parent after the
 workers return and a repeated fit builds its draws' bands one at a time, and whatever the number of
