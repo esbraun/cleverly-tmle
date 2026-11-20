@@ -6,6 +6,9 @@ loop's, and the caller sees the same warnings, in the same order, as the serial 
 
 from __future__ import annotations
 
+import os
+import pickle
+import re
 import warnings
 from typing import Any
 
@@ -158,3 +161,151 @@ def test_a_caller_filter_still_applies_to_worker_warnings() -> None:
             marginal_sensitivity_bounds(
                 result, gamma=(1.0, 2.0), pseudo_outcome_learner=_NoisyLinear()
             )
+
+
+def _module_pattern(result: Any) -> str:
+    """A ``module=`` filter pattern matching the module that raises the fixture's warning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), pseudo_outcome_learner=_NoisyLinear())
+    names = {marginal_module._module_of(w.filename) for w in caught}
+    assert len(names) == 1, names
+    name = names.pop()
+    assert name is not None
+    return re.escape(name) + r"\Z"
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+def test_a_caller_module_filter_applies_to_worker_warnings(n_jobs: int) -> None:
+    # A filter on ``module=`` matches the replayed warning as it matches the serial one.
+    result = _fit(n_jobs, weights=True)
+    pattern = _module_pattern(_fit(1, weights=True))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=ConvergenceWarning, module=pattern)
+        marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), pseudo_outcome_learner=_NoisyLinear())
+    assert not [w for w in caught if issubclass(w.category, ConvergenceWarning)]
+
+
+def test_dropping_the_module_name_bypasses_a_module_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mutation control: replayed without its module name, the warning escapes the filter.
+    pattern = _module_pattern(_fit(1, weights=True))
+    monkeypatch.setattr(marginal_module, "_module_of", lambda filename: None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", category=ConvergenceWarning, module=pattern)
+        marginal_sensitivity_bounds(
+            _fit(2, weights=True), gamma=(1.0, 2.0), pseudo_outcome_learner=_NoisyLinear()
+        )
+    assert [w for w in caught if issubclass(w.category, ConvergenceWarning)]
+
+
+def _warning_state() -> tuple[Any, ...]:
+    return (list(warnings.filters), warnings.showwarning, warnings._showwarnmsg_impl)  # type: ignore[attr-defined]
+
+
+class _CountingCatch:
+    """Stands in for ``warnings`` in the module and counts ``catch_warnings`` entries."""
+
+    def __init__(self) -> None:
+        self.entered = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(warnings, name)
+
+    def catch_warnings(self, *args: Any, **kwargs: Any) -> Any:
+        self.entered += 1
+        return warnings.catch_warnings(*args, **kwargs)
+
+
+def _threaded(monkeypatch: pytest.MonkeyPatch, spy: _CountingCatch) -> tuple[Any, ...]:
+    result = _fit(2, weights=True)
+    monkeypatch.setattr(marginal_module, "warnings", spy)
+    before = _warning_state()
+    with (
+        warnings.catch_warnings(record=True) as caught,
+        joblib.parallel_config(backend="threading"),
+    ):
+        warnings.simplefilter("always")
+        bounds = marginal_sensitivity_bounds(
+            result, gamma=(1.0, 1.5, 2.0), pseudo_outcome_learner=_NoisyLinear()
+        )
+    shown = sorted((w.category.__name__, str(w.message), w.filename, w.lineno) for w in caught)
+    return bounds, shown, before, _warning_state()
+
+
+def test_thread_backend_sides_raise_their_warnings_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # On threads the sides share the caller's process, where ``catch_warnings`` would swap
+    # process-wide state under the other threads: those sides raise in place instead.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        serial_bounds = marginal_sensitivity_bounds(
+            _fit(1, weights=True), gamma=(1.0, 1.5, 2.0), pseudo_outcome_learner=_NoisyLinear()
+        )
+    serial = sorted((w.category.__name__, str(w.message), w.filename, w.lineno) for w in caught)
+    spy = _CountingCatch()
+    bounds, shown, before, after = _threaded(monkeypatch, spy)
+    assert spy.entered == 0
+    assert after == before
+    assert _frame_bytes(bounds) == _frame_bytes(serial_bounds)
+    assert len(serial) > 1
+    assert shown == serial
+
+
+def test_capturing_on_threads_is_what_the_guard_prevents(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mutation control: with the process check defeated, thread sides enter catch_warnings.
+    pids = iter(range(10**9, 10**9 + 10**6))
+
+    class _Os:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(os, name)
+
+        def getpid(self) -> int:
+            return next(pids)
+
+    monkeypatch.setattr(marginal_module, "os", _Os())
+    spy = _CountingCatch()
+    _threaded(monkeypatch, spy)
+    assert spy.entered > 0
+
+
+def test_gamma_one_sides_stay_in_the_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Gamma = 1 is a closed form: its sides take the serial loop even at n_jobs > 1.
+    calls: list[int] = []
+    original = marginal_module.map_parallel
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(marginal_module, "map_parallel", counting)
+    result = _fit(2)
+    marginal_sensitivity_bounds(result, gamma=(1.0,))
+    assert calls == []
+    marginal_sensitivity_bounds(result, gamma=(1.0, 2.0))
+    assert calls
+
+
+class _Unpicklable(UserWarning):
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.hook = lambda: None
+
+
+def test_a_warning_that_does_not_pickle_travels_as_text() -> None:
+    message = _Unpicklable("cannot travel")
+    shown = marginal_module._portable(message, _Unpicklable, "f.py", 3)
+    assert shown == ("cannot travel", _Unpicklable, "f.py", 3)
+    pickle.dumps(shown)
+
+    class Local(UserWarning):
+        pass
+
+    shown = marginal_module._portable(Local("local"), Local, "f.py", 4)
+    assert shown == ("local", Warning, "f.py", 4)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        marginal_module._replay([shown])
+    assert [(w.category, str(w.message)) for w in caught] == [(Warning, "local")]

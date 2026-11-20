@@ -815,7 +815,10 @@ def _targeted_tilt(
     Each draw solves its own tilt fluctuation from its own targeted regression and
     mechanisms, and the draws combine by the rule the fit's report used
     (:func:`~cleverly.inference.influence.median_estimates`).  A solve that misses the
-    fit's tolerance warns, as the fit's own targeting does.
+    fit's tolerance warns, as the fit's own targeting does.  ``inputs`` holds each draw's
+    :class:`~cleverly.sensitivity._tilt_targeting.TiltInputs` by draw index; a caller that
+    evaluates many ``gamma`` passes the same dict to every call, and a missing draw is built
+    and added on first use.
     """
     if not targets:
         return {}

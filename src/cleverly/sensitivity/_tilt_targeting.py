@@ -42,7 +42,7 @@ moves and the estimate is the reported one.  The tilted parameter is not doubly 
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -520,7 +520,7 @@ class TiltInputs:
             )
         return self._propensities[group]
 
-    def columns(self, key: Any, build: Any) -> FloatArray:
+    def columns(self, key: Any, build: Callable[[], FloatArray]) -> FloatArray:
         """The arm weights stored under ``key``, built by ``build()`` on first use."""
         if key not in self._columns:
             self._columns[key] = _frozen(build())

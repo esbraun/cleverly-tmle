@@ -96,6 +96,10 @@ other fit prints the registry's descriptive sentence.
 
 from __future__ import annotations
 
+import os
+import pickle
+import sys
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any
@@ -1090,18 +1094,23 @@ def _draw_sides(
                 )
             )
     # The continuous sides fit their quantile and tail learners independently of one another,
-    # with seeds fixed per side, so on a fit made with ``n_jobs > 1`` they run in workers and
-    # come back in order: every side is the one the serial loop computes.  A worker's
-    # warnings are captured there and raised again here in task order, so the caller sees
-    # what the serial loop shows.  ``n_jobs=1`` and the binary sides, which are closed forms,
-    # take the serial loop itself.
-    n_jobs = 1 if binary else resolve_n_jobs(getattr(result.estimator, "n_jobs", 1))
+    # each from the draw's seed, so on a fit made with ``n_jobs > 1`` they run in workers and
+    # come back in order: every side is the one the serial loop computes.  A side that runs in
+    # another process has its warnings captured there and raised again here in task order
+    # (:func:`_replay` states where that matches the serial loop).  ``n_jobs=1``, the binary
+    # sides and Gamma = 1, which are closed forms, take the serial loop itself.
+    n_jobs = 1 if binary or gamma == 1.0 else resolve_n_jobs(getattr(result.estimator, "n_jobs", 1))
     if n_jobs == 1 or len(payloads) <= 1:
         return {
             key: function(*arguments, **keywords)
             for key, (function, arguments, keywords) in zip(wanted, payloads, strict=True)
         }
-    outcomes = map_parallel(_captured_side, payloads, n_jobs=n_jobs)
+    caller = os.getpid()
+    outcomes = map_parallel(
+        _captured_side,
+        [(caller, function, arguments, keywords) for function, arguments, keywords in payloads],
+        n_jobs=n_jobs,
+    )
     sides: dict[tuple[float, bool], _Side] = {}
     for key, (side, shown) in zip(wanted, outcomes, strict=True):
         _replay(shown)
@@ -1109,31 +1118,81 @@ def _draw_sides(
     return sides
 
 
-def _captured_side(
-    function: Callable[..., _Side], arguments: tuple[Any, ...], keywords: dict[str, Any]
-) -> tuple[_Side, list[tuple[Any, type[Warning], str, int]]]:
-    """One side in a worker, with every warning it raised, in order, for :func:`_replay`."""
-    import warnings
+#: A warning a worker captured: message, category, file name and line number.
+_Shown = tuple[Any, type[Warning], str, int]
 
+
+def _captured_side(
+    caller: int,
+    function: Callable[..., _Side],
+    arguments: tuple[Any, ...],
+    keywords: dict[str, Any],
+) -> tuple[_Side, list[_Shown]]:
+    """One side, with the warnings it raised in another process, in order, for :func:`_replay`.
+
+    ``warnings.catch_warnings`` swaps process-wide state, so it is safe only where nothing
+    else runs at the same time: a worker process.  A side running in the caller's process (a
+    thread backend, or a call nested in a worker, where joblib uses threads) raises its
+    warnings in place, as the serial loop does, and returns none to replay.
+    """
+    if os.getpid() == caller:
+        return function(*arguments, **keywords), []
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         side = function(*arguments, **keywords)
-    return side, [(w.message, w.category, w.filename, w.lineno) for w in caught]
+    return side, [_portable(w.message, w.category, w.filename, w.lineno) for w in caught]
 
 
-def _replay(shown: Sequence[tuple[Any, type[Warning], str, int]]) -> None:
+def _portable(message: Any, category: type[Warning], filename: str, lineno: int) -> _Shown:
+    """A captured warning that survives the trip back to the caller.
+
+    A warning instance that does not pickle travels as its text, which the caller raises as
+    ``category(text)``.
+    """
+    try:
+        pickle.dumps((message, category))
+    except Exception:
+        try:
+            pickle.dumps(category)
+        except Exception:
+            category = Warning
+        return str(message), category, filename, lineno
+    return message, category, filename, lineno
+
+
+def _replay(shown: Sequence[_Shown]) -> None:
     """Raise a worker's warnings again in the caller, at their original source lines.
 
-    Each one passes through the caller's filters.  No once-per-location registry is passed:
-    the serial loop resets that registry between fits (every learner fit changes the warning
-    filters), so under the ``"default"`` and ``"module"`` actions it shows every repeat, and
-    so does this replay.  Under ``"once"`` the serial loop shows a repeat after each reset and
-    the replay shows it once; under ``"always"``, ``"error"`` and ``"ignore"`` they agree.
+    Each one passes through the caller's filters, under the module name the serial loop would
+    report, so a filter on ``module=`` matches as it would there.  No once-per-location
+    registry is passed: the serial loop resets that registry between fits (every learner fit
+    changes the warning filters), so under the ``"default"`` and ``"module"`` actions it shows
+    every repeat, and so does this replay.  Under ``"once"`` the serial loop shows a repeat
+    after each reset and the replay shows it once; under ``"always"``, ``"error"`` and
+    ``"ignore"`` they agree.
     """
-    import warnings
-
     for message, category, filename, lineno in shown:
-        warnings.warn_explicit(message, category, filename, lineno, registry=None)
+        module = _module_of(filename)
+        if module is None:
+            # An explicit ``module=None`` drops the warning on CPython 3.13; leaving it out
+            # names the module from the file name.
+            warnings.warn_explicit(message, category, filename, lineno, registry=None)
+        else:
+            warnings.warn_explicit(
+                message, category, filename, lineno, module=module, registry=None
+            )
+
+
+def _module_of(filename: str) -> str | None:
+    """The name of the loaded module at ``filename``, as ``warnings.warn`` reports it.
+
+    ``None`` when no loaded module has that file, and :func:`_replay` leaves
+    :func:`warnings.warn_explicit` to name it from the file name.
+    """
+    for name, module in list(sys.modules.items()):
+        if getattr(module, "__file__", None) == filename:
+            return name
+    return None
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:

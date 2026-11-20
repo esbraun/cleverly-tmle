@@ -322,6 +322,11 @@ def test_a_clustered_fold_evaluated_sweep_is_unchanged() -> None:
             fresh, _ = targeted_tilt_estimates(result, repeat, targets, gamma, direction)
             reused, _ = targeted_tilt_estimates(result, repeat, targets, gamma, direction, shared)
             assert _digest(fresh) == _digest(reused)
+    # The fold index arrays are shared across the sweep too, so they are read-only as well.
+    assert shared.folds
+    for fold in shared.folds:
+        with pytest.raises(ValueError, match="read-only"):
+            fold.flat[0] = fold.flat[0]
 
 
 def test_a_sweep_keeps_the_update_warning() -> None:
