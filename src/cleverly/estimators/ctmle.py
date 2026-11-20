@@ -2034,8 +2034,9 @@ default="greedy"
         ``glmnet`` (``pip install "cleverly[glmstar]"``, GPL-2.0-only), and keeps a
         solution only when its Karush-Kuhn-Tucker residual meets the built-in tolerance,
         re-solving it otherwise. The paths therefore agree with ``"builtin"`` to that
-        tolerance, not bitwise, and so do the selection and the estimate, except where a
-        choice along the search is a near tie and the two solvers can pick different
+        tolerance, not bitwise. The selection agrees, and the estimate agrees to many digits
+        (within 8e-8 in the validation replay, about 3e-6 of a standard error), except where
+        a choice along the search is a near tie and the two solvers can pick different
         candidates. A declared glmstar failure solves the path with the built-in solver and
         warns. Every other strategy refuses ``"glmstar"``.
     **kwargs : Any

@@ -348,16 +348,17 @@ which glmstar cannot size (`absent_class`). The selection record counts the work
 `l1_polished`, `l1_fallbacks` and `l1_fallback_reasons` (`CTMLEDerivativeFit` per training set).
 
 Every kept penalty meets the same residual bound under either solver, so the paths agree to that
-tolerance, not bit for bit. The selection agrees too, and the estimate to many digits, except where
-a choice along the search is a near tie: a CV argmin, a step of the path construction, the final step, the
-patience counter or the cross-validated penalty. There the two solvers can pick different
-candidates.
+tolerance, not bit for bit. The selection agrees too, and the estimate to many digits, except
+where a choice along the search is a near tie: a CV argmin, a step of the path construction, the
+final step, the patience counter or the cross-validated penalty. There the two solvers can pick
+different candidates.
 
-The option is not part of the support key: a glmstar fit has the status and support
-record of the same fit with the built-in solver. That decision rests on a decision-equivalence
-replay of the lasso and derivative studies under both solvers (X106 K2c-2). Over 14,128 replayed
-fits no selection, final step, patience stop, path, active set or penalty pair differed. Estimates differed by
-at most `3e-8` and standard errors by at most `3e-9`, the largest in the derivative strategy at
+The option is not part of the support key: a glmstar fit has the status and support record of the
+same fit with the built-in solver. That decision rests on a decision-equivalence replay of the
+lasso and derivative studies under both solvers (X106 K2c-2). Over 14,861 replayed study
+replicates no selection, final step, patience stop, path, active set or penalty pair differed.
+Estimates differed by at most `8e-8` (about `3e-6` of a standard error) and standard errors by at
+most `6e-9`. The largest changes are in the derivative strategy, on three treatment levels and at
 small penalties, where the mechanism and its partner nearly coincide and their difference enters
 the clever covariate.
 `tests/unit/test_l1_glmstar.py` holds the residual bounds, mutation controls on the mapping, the

@@ -1592,9 +1592,9 @@ default="greedy"
         ``strategy="derivative"`` without ``treatment_candidates``. ``"glmstar"`` starts each
         penalty from the optional glmstar package (``pip install "cleverly[glmstar]"``,
         GPL-2.0-only) and checks it to the built-in solver's tolerance, so the paths agree
-        with ``"builtin"`` to that tolerance, not bitwise. The selection and the estimate
-        agree too, except at a near tie, where the two solvers can choose different
-        candidates. Other strategies refuse it.
+        with ``"builtin"`` to that tolerance, not bitwise. The selection agrees too, and the
+        estimate to many digits (within 8e-8 in the validation replay), except at a near tie,
+        where the two solvers can choose different candidates. Other strategies refuse it.
 
     See Also
     --------
