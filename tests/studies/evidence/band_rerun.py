@@ -56,6 +56,14 @@ artifacts as the regeneration wrote them, with ``band_rerun/complete-rerun.json`
 baseline manifest the plan hashed; on a block they join the study's sidecar, labelled
 diagnostic.
 
+**A study regenerated after the wave leaves it.**  A planned study that a later change
+regenerates in full (:data:`REGENERATED`) no longer holds the baseline or the composite the
+plan and the decision describe.  :func:`regenerated_findings` accepts it only while its
+committed manifest is a normal regeneration at the listed run commit, which descends from
+:data:`WAVE_INSTALL_COMMIT`.  :func:`installed_state` then reads it ``regenerated``, and the
+plan's baseline check and the decision check pass over it.  Anything else about the study
+still holds.
+
 **Smoke and timing.**  ``--smoke`` fits the first :data:`SMOKE_REPLICATES` band keys of each
 moved cell on :data:`SMOKE_STREAM`, which salts every study seed function and is never the
 declared stream, and reports per cell the smallest Kish count of a banded curve, the share of
@@ -112,6 +120,8 @@ MODE = "targeted_band_rerun"
 BASELINE_COMMIT = "cef2aa65ec023744523a4b239f2517e025516ed4"
 #: The producer of every wave output descends from the commit that stated the new default.
 FLIP_COMMIT = "62c966e982757cb8f2cb18a60727781d0a10c19d"
+#: The commit that installed the wave's composites and complete reruns (Wave 2, paired rule).
+WAVE_INSTALL_COMMIT = "1fcb07ee0590db347622a84a346d4bcd6e55e15b"
 PLAN_PATH = ROOT / "tests/canonical/band-rerun-plan.json"
 SCHEMA_VERSION = 2
 #: Declared before any fit (plan section 8), as ``seed_repair.REPLAY_TOLERANCE``.
@@ -166,6 +176,17 @@ POST_FLIP = {
         "6fe1bac59025fe460078e82410bd2f0881b3d2da",
         "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip; "
         "regenerated at 6fe1bac under the shipped intervals (Fix-3 PR 3)",
+    ),
+}
+#: Planned studies regenerated in full after the wave installed: slug to the
+#: ``cleverly_commit`` its manifest records (a descendant of :data:`WAVE_INSTALL_COMMIT`) and
+#: why.  The plan keeps the study and its hash, and the decision keeps the reading the wave
+#: made; :func:`regenerated_findings` holds each entry to its committed manifest.
+REGENERATED = {
+    "dose-response": (
+        "58538bfa7ce7a5395afa2137aa447db1b707e81e",
+        "Fix-9: regenerated in full on the refined conditional density, whose bin edges and "
+        "log-linear read move every fit",
     ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.
@@ -735,6 +756,8 @@ def validate_plan(plan: Mapping[str, Any]) -> list[str]:
         out += [f"{slug}: {text}" for text in validate_entry(record, entry)]
     if plan.get("totals") != totals(studies):
         out.append("the totals differ from the studies")
+    for slug in sorted(set(REGENERATED) - set(studies)):
+        out.append(f"{slug}: listed as regenerated after the wave but not planned")
     for slug, (commit, _) in POST_FLIP.items():
         manifest = json.loads((record_for(slug).artifacts / "manifest.json").read_bytes())
         if manifest["generated_with"]["subject"]["cleverly_commit"] != commit:
@@ -744,11 +767,15 @@ def validate_plan(plan: Mapping[str, Any]) -> list[str]:
 
 def validate_entry(record: StudyRecord, entry: Mapping[str, Any]) -> list[str]:
     out = []
-    raw = baseline_manifest_raw(record)
-    if digest(raw) != entry["manifest_sha256"]:
-        out.append("the baseline manifest differs from the one the plan hashed")
-    if json.loads(raw)["sha256"] != entry["artifact_sha256"]:
-        out.append("the baseline artifact hashes differ")
+    if record.slug in REGENERATED:
+        # The tree no longer holds the baseline; only a full regeneration may replace it.
+        out += regenerated_findings(record.slug)
+    else:
+        raw = baseline_manifest_raw(record)
+        if digest(raw) != entry["manifest_sha256"]:
+            out.append("the baseline manifest differs from the one the plan hashed")
+        if json.loads(raw)["sha256"] != entry["artifact_sha256"]:
+            out.append("the baseline artifact hashes differ")
     if entry["artifact_directory"] != record.artifacts.relative_to(ROOT).as_posix():
         out.append("the artifact directory moved")
     if entry["reference"] != record.reference:
@@ -1250,6 +1277,45 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
 
 def descends_from_flip(commit: str) -> bool:
     return git("merge-base", "--is-ancestor", FLIP_COMMIT, commit).returncode == 0
+
+
+def regenerated_findings(slug: str, manifest: Mapping[str, Any] | None = None) -> list[str]:
+    """Why a :data:`REGENERATED` study's manifest is not the full regeneration it lists.
+
+    ``manifest`` defaults to the study's committed one.  It must carry no composite and no
+    generation mode, record a clean tree at the listed run commit, and that commit must descend
+    from :data:`WAVE_INSTALL_COMMIT`.  A shallow checkout cannot read the ancestry; the listed
+    commit is then held to the manifest alone, and a checkout with history checks the rest.
+    """
+    if slug not in REGENERATED:
+        return [f"{slug} is not listed as regenerated after the wave"]
+    commit, _ = REGENERATED[slug]
+    if manifest is None:
+        manifest = json.loads((record_for(slug).artifacts / "manifest.json").read_bytes())
+    out = []
+    if "composite" in manifest or "generation_mode" in manifest:
+        out.append("its manifest is a band-rerun composite, not a full regeneration")
+    subject = manifest.get("generated_with", {}).get("subject", {})
+    if subject.get("cleverly_commit") != commit:
+        out.append(
+            f"its manifest records {subject.get('cleverly_commit')}, not the run {commit[:7]}"
+        )
+    if subject.get("cleverly_worktree_clean") is not True:
+        out.append("its manifest does not record a clean tree")
+    known = git("cat-file", "-e", f"{WAVE_INSTALL_COMMIT}^{{commit}}").returncode == 0
+    if known and git("merge-base", "--is-ancestor", WAVE_INSTALL_COMMIT, commit).returncode != 0:
+        out.append(f"the run {commit[:7]} does not descend from {WAVE_INSTALL_COMMIT[:7]}")
+    return out
+
+
+def regenerated(slug: str) -> bool:
+    """Whether ``slug`` is a :data:`REGENERATED` study whose committed manifest holds."""
+    if slug not in REGENERATED:
+        return False
+    findings = regenerated_findings(slug)
+    if findings:
+        raise ValueError(f"{slug}: " + "; ".join(findings))
+    return True
 
 
 def cache_directory(cache: Path, slug: str, commit: str, plan_sha: str) -> Path:
@@ -2225,12 +2291,20 @@ def installed_state(plan: Mapping[str, Any]) -> dict[str, str]:
     """Each planned study's state in the tree: ``baseline``, ``composite`` or ``sidecar``.
 
     A complete rerun a flip installed (:func:`installed_complete`) reads ``composite``: the
-    flip installed it in place of the study's composite.
+    flip installed it in place of the study's composite.  A :data:`REGENERATED` study reads
+    ``regenerated`` while its manifest holds (:func:`regenerated_findings`), and raises
+    otherwise.
     """
     out = {}
     for slug, entry in plan["studies"].items():
         directory = ROOT / entry["artifact_directory"]
         manifest = json.loads((directory / "manifest.json").read_bytes())
+        if slug in REGENERATED:
+            findings = regenerated_findings(slug, manifest)
+            if findings:
+                raise ValueError(f"{slug}: " + "; ".join(findings))
+            out[slug] = "regenerated"
+            continue
         sidecar = sidecar_record_path(directory).exists()
         if manifest.get("generation_mode") == MODE or installed_complete(directory) is not None:
             out[slug] = "composite+sidecar" if sidecar else "composite"
