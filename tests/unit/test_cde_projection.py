@@ -594,6 +594,33 @@ class TestTheCompositions:
     @pytest.mark.parametrize("scale", SCALES)
     @pytest.mark.parametrize("level", LEVELS)
     @quiet
+    def test_the_per_arm_cross_fitted_fit_is_exact_and_its_curve_the_closed_form(
+        self, level: int, scale: str
+    ) -> None:
+        """The per-arm stacked fit ``projection-evidence`` registers, on the exact law.
+
+        With ``outcome_by_arm=True`` each arm's outcome regression is fitted on that arm's rows
+        and each arm's prediction at ``Z = z`` comes from its own fold models. Six whole copies
+        of the complete law, grouped as clusters into three folds, make every training set the
+        law, so the saturated learners are the oracle there and the fit is exact.
+        """
+        copies = pd.concat(
+            [law.frame(complete=True).assign(C=c) for c in range(6)], ignore_index=True
+        )
+        dgp = law.law(complete=True)
+        truth = law.truth(level, scale, law.complete_probs())
+        settings = saturated(outcome_by_arm=True, cross_fit=True, n_folds=3)
+        settings.pop("missingness_learner")
+        fit = effect(level, scale, frame=copies, missing=False, cluster="C").estimate(**settings)
+        np.testing.assert_allclose(beta(fit), truth, rtol=0, atol=1e-10)
+        curves = np.column_stack([e.influence_curve for e in fit.estimates.values()])
+        expected = closed_form_curve(level, scale, beta(fit), frame=copies, dgp=dgp)
+        np.testing.assert_allclose(curves, expected, rtol=0, atol=1e-9)
+        assert all(e.support.label == "experimental" for e in fit.estimates.values())
+
+    @pytest.mark.parametrize("scale", SCALES)
+    @pytest.mark.parametrize("level", LEVELS)
+    @quiet
     def test_fold_wise_targeting_is_exact_when_every_fold_is_the_law(
         self, level: int, scale: str
     ) -> None:
