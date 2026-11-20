@@ -38,7 +38,8 @@ one pooled outcome model and a combination the study did not run (weights togeth
 for example) read `experimental`: they are computed the same way, and no study has checked them.
 The band over a grid has its own label, in the summary's note on the band, because a study can
 check the coefficients without checking the band. It reads `experimental` until a study checks
-the band in a fit like yours, with the same kind of random weights and number of draws.
+the band in a fit like yours, with the same band settings: the kind of random multipliers and
+the number of draws.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when

@@ -1200,7 +1200,8 @@ def score_assessment_support(
     key = (scale, outcome, "known" if known_mechanism else "estimated")
     departures = (
         (weighted, "weights"),
-        (clusters is not None, "clusters"),
+        # Below the threshold the row is experimental for few_clusters, which no study lifts.
+        (clusters is not None and clusters >= FEW_CLUSTER_THRESHOLD, "clusters"),
         (missing, "missing"),
         (arms > 2, "multi_arm"),
         (not cross_fitted, "not_cross_fitted"),

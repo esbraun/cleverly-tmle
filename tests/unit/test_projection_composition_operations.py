@@ -155,8 +155,12 @@ def test_the_effect_curve_draws_with_its_band(kind: str) -> None:
     if kind in CDE_KINDS:
         # The calibration plot reads the held-out checks, which build the total effect's
         # pseudo-outcome, so it refuses on a CDE projection.
-        with pytest.raises(Exception, match="without the intermediate's selection"):
+        from cleverly.effect_modification import CDE_CURVE_TOOLS_REFUSAL
+        from cleverly.exceptions import CapabilityError
+
+        with pytest.raises(CapabilityError, match="without the intermediate's selection") as caught:
             plotting.calibration(curve)
+        assert caught.value.refusal == CDE_CURVE_TOOLS_REFUSAL
     else:
         assert plotting.calibration(curve).axes
     plt.close("all")
