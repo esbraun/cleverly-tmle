@@ -724,3 +724,14 @@ modules their manifests record, and none of the edits reaches a seed, a fit or a
   which neither study's rows record.
 
 The seed-0 witness of the next section covers these edits too.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` after their runs
+
+Merging main at `7b4d0f08` after the runs changed one module both manifests record,
+`src/cleverly/effect_curves.py`: main adds the curve's sensitivity facade, `replayability`,
+`validate()` and `assess()`, and rewords the diagnostics docstring. None of it is called by a
+fit. The evidence: at seed 0 every one of the 15 groups of the two studies (10 and 5), fitted
+through `fit_group` at `30a15543` and again at the merge with the registration edits of the
+previous section, gives the same point, standard error and band or control values, 375 numbers
+equal bit for bit. Only the five score groups' support labels moved, from experimental to
+supported, which is the registration and enters no recorded row.
