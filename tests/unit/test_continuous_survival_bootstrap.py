@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import ConvergenceWarning, MethodConfigurationError
+from cleverly.exceptions import ConvergenceWarning, DataError, MethodConfigurationError
 from cleverly.inference.bootstrap import (
     _bootstrap_design,
     _bootstrap_draw,
@@ -151,7 +151,8 @@ def _captured_plans(monkeypatch: pytest.MonkeyPatch, replicates: int) -> list[tu
     def spy(self: Any, data: Any, *, folds: Any = None, plan: Any = None) -> Any:
         if self.n_bootstrap == 0 and plan is not None:
             seen.append((data, plan))
-            raise RuntimeError("plan read")
+            # A refusal on the drawn data is a counted failure, so the plans are all read.
+            raise DataError("plan read")
         return original(self, data, folds=folds, plan=plan)
 
     monkeypatch.setattr(ContinuousSurvivalTMLE, "_fit_data", spy)
@@ -259,7 +260,7 @@ def test_an_assessment_refit_runs_no_bootstrap(in_sample: Any) -> None:
         assert estimate.psi == in_sample[name].psi
 
 
-# ------------------------------------------------------------------ T-d3 failed refits (C6)
+# ------------------------------------------------------------------ failed refits
 
 
 def test_too_many_failed_refits_withhold_every_bootstrap_interval() -> None:
@@ -322,7 +323,7 @@ def test_the_share_of_failed_refits_decides_the_withholding(in_sample: Any) -> N
         assert out.bootstrap.n_failed == failed
         withheld = [w for w in caught if issubclass(w.category, ConvergenceWarning)]
         assert len(withheld) == (status == "bootstrap_unstable")
-    # Every refit failing withholds the intervals and keeps no draws.
+    # Every refit failing withholds the intervals and keeps no draws, but keeps the counts.
     with pytest.warns(ConvergenceWarning, match=r"3 of 3 bootstrap refits failed \(3 x E\)"):
         out = result_module.attach_bootstrap(
             plain,
@@ -332,7 +333,11 @@ def test_the_share_of_failed_refits_decides_the_withholding(in_sample: Any) -> N
             alpha=0.05,
             cross_fitted=False,
         )
-    assert out.bootstrap is None and out.bootstrap_status == "bootstrap_unstable"
+    assert out.bootstrap_status == "bootstrap_unstable"
+    assert (out.bootstrap.n_requested, out.bootstrap.n_failed) == (3, 3)
+    assert all(draws.size == 0 for draws in out.bootstrap.draws.values())
+    record = out.to_dict()["bootstrap"]
+    assert (record["n_requested"], record["n_failed"], record["n_kept"]) == (3, 3, 0)
 
 
 # ---------------------------------------------------------------------------- T-d4 BCa
@@ -454,3 +459,119 @@ def test_each_replicate_takes_its_share_of_the_budget() -> None:
     replica = estimator._replica({1: "1", 2: "2"}, 123)
     assert (replica.n_bootstrap, replica.n_jobs, replica.simultaneous) == (0, 1, False)
     assert replica.max_memory_bytes == 123 and replica.causes == {1: "1", 2: "2"}
+
+
+def test_under_the_default_budget_a_replicate_takes_its_share_of_what_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The memory available after the fit already leaves out the resident result, so the
+    # default budget is not reduced by the result a second time.
+    monkeypatch.setattr(engine_module, "available_memory", lambda: 10**9)
+    estimator = _engine(n_bootstrap=50, n_jobs=2)
+    shape = estimator._memory_shape(200, 2, 150, np.eye(3), 2, np.zeros(200))
+    assert estimator._replicate_budget(shape) == 10**9 // 2
+    monkeypatch.setattr(engine_module, "available_memory", lambda: None)
+    assert estimator._replicate_budget(shape) is None
+
+
+# ----------------------------------------------------------------- the replicates' fold draws
+
+
+def _spread(labels: np.ndarray, codes: np.ndarray) -> int:
+    """The largest difference, over event codes, between two folds' unit counts."""
+    folds = np.unique(labels)
+    worst = 0
+    for code in np.unique(codes):
+        counts = [np.count_nonzero((labels == fold) & (codes == code)) for fold in folds]
+        worst = max(worst, max(counts) - min(counts))
+    return worst
+
+
+def test_the_replicate_folds_are_stratified_by_event_on_units() -> None:
+    rng = np.random.default_rng(5)
+    n = 240
+    event = rng.choice([0, 1, 2], size=n, p=[0.6, 0.3, 0.1])
+    index = np.sort(rng.integers(0, n, size=n))
+    plan = engine_module.replicate_plan(
+        index, event[index], cross_fit=True, n_folds=5, learner_folds=4, seed=9
+    )
+    units, first = np.unique(index, return_index=True)
+    unit_event, unit_outer = event[units], plan.outer[first]
+    # Each cause's units are spread over the outer folds to within one unit.
+    assert _spread(unit_outer, unit_event) <= 1
+    for position, fold in enumerate(np.unique(plan.outer)):
+        training_rows = plan.outer != fold
+        inner = np.full(index.size, -1)
+        inner[training_rows] = plan.inner[position]
+        training = unit_outer != fold
+        assert _spread(inner[first][training], unit_event[training]) <= 1
+    # Witness: the rare cause has few units, so a draw that ignores the event code would
+    # leave some fold without them or with several more.
+    assert 5 <= np.count_nonzero(unit_event == 2) <= 30
+
+
+def test_a_programming_error_in_a_replicate_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(data: Any, index: Any) -> Any:
+        raise TypeError("a defect, not a failed refit")
+
+    monkeypatch.setattr(engine_module, "resample", broken)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(TypeError, match="a defect, not a failed refit"):
+            _fit(_frame(), _engine(n_bootstrap=4))
+
+
+# ------------------------------------------------------------------------------- the plots
+
+
+def test_the_curve_draws_the_bootstrap_band_on_request(in_sample: Any) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from cleverly import plotting
+    from cleverly.plotting import _continuous_curve
+
+    rows, _, multiplier = _continuous_curve.curve_rows(in_sample, "risk")
+    limits = _continuous_curve.bootstrap_limits(in_sample, rows, "risk")
+    assert limits == {
+        name: (float(low), float(high))
+        for name, (low, high) in in_sample.bootstrap_band.bands.items()
+    }
+    # Nonzero witness: the bootstrap band is not the multiplier band.
+    assert multiplier is not None and limits != multiplier
+    # The survival view mirrors each limit as result.curve(scale="survival") does (this
+    # two-cause fit refuses that view, so the arithmetic is read on its risk rows).
+    mirrored = _continuous_curve.bootstrap_limits(in_sample, rows, "survival")
+    for row in rows:
+        low, high = in_sample.bootstrap_band.bands[row.parameter]
+        expected = (1.0 - high, 1.0 - low) if row.level else (-high, -low)
+        assert mirrored[row.parameter] == expected
+    fig = plotting.curve(in_sample, band="bootstrap")
+    notes = plotting.notes(fig)
+    assert any(note.startswith("The simultaneous band drawn is the studentized") for note in notes)
+    plt.close(fig)
+    fig = plotting.curve(in_sample)
+    assert "The fit also holds a bootstrap band; pass band='bootstrap' to draw it." in (
+        plotting.notes(fig)
+    )
+    plt.close(fig)
+    plain = result_module.replace(in_sample, bootstrap_band=None)
+    with pytest.raises(ValueError, match="this fit holds no bootstrap band"):
+        plotting.curve(plain, band="bootstrap")
+
+
+def test_the_summary_names_the_bootstrap_or_says_it_was_withheld() -> None:
+    from tests.unit.summary_fixtures import survival_continuous
+
+    ran = survival_continuous.bootstrapped().summary(detail="full")
+    assert "continuous_bootstrap" in ran.note_codes
+    assert "continuous_bootstrap_withheld" not in ran.note_codes
+    assert "40 of 40 refits" in ran.note("continuous_bootstrap").text
+    assert "Why the bootstrap band is experimental" in str(ran)
+    withheld = survival_continuous.bootstrap_withheld().summary()
+    assert "continuous_bootstrap_withheld" in withheld.note_codes
+    assert "continuous_bootstrap" not in withheld.note_codes
+    assert withheld.note("continuous_bootstrap_withheld").text.startswith("2 of 40")
+    assert "continuous_bootstrap" not in survival_continuous.single_cause().summary().note_codes

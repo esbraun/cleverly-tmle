@@ -442,7 +442,7 @@ BAND_SUPPORT: Final[Support] = _experimental(
 BOOTSTRAP_STUDY: Final[str] = "continuous-survival-bootstrap"
 
 #: The share of failed bootstrap refits above which every bootstrap interval of a fit is withheld
-#: (refusal C6): the interval would condition on the replicates that fit.
+#: (the failure rule): the interval would condition on the replicates that fit.
 BOOTSTRAP_FAILURE_SHARE: Final[float] = 0.01
 
 #: Why a bootstrap interval of an in-sample fit reads experimental (X6 plan 8.9): the theory its
@@ -450,7 +450,7 @@ BOOTSTRAP_FAILURE_SHARE: Final[float] = 0.01
 IN_SAMPLE_BOOTSTRAP_REASON: Final[str] = (
     "The bootstrap delta-method conditions are not yet read first-hand. The in-sample bootstrap "
     "of this fit rests on the bootstrap delta method for a Hadamard-differentiable map (van der "
-    "Vaart and Wellner 1996, Theorems 3.9.11 and 3.9.13, relayed through Beutner and Zähle), "
+    "Vaart and Wellner 1996, Section 3.9, relayed through Beutner and Zähle), "
     f"and until its conditions are read the {BOOTSTRAP_STUDY} study cannot set this label alone."
 )
 
@@ -507,7 +507,7 @@ def continuous_bootstrap_support(*, kind: BootstrapKind, cross_fitted: bool) -> 
 
 
 def bootstrap_withheld_text(failed: int, requested: int, reasons: str, interval: str) -> str:
-    """The text of refusal C6: too many failed refits, so every bootstrap interval is withheld.
+    """The failure rule's text: too many failed refits, so every bootstrap interval is withheld.
 
     Parameters
     ----------
@@ -586,24 +586,22 @@ def attach_bootstrap(
     failed = requested - len(kept)
     names = list(result.estimates)
     missing = (np.nan, np.nan)
-    bootstrap = (
-        BootstrapResult(
-            draws={
-                name: np.array([row.get(name, missing)[0] for row in kept], dtype=float)
-                for name in names
-            },
-            n_requested=requested,
-            n_failed=failed,
-            resampling="iid",
-            std_errors={
-                name: np.array([row.get(name, missing)[1] for row in kept], dtype=float)
-                for name in names
-            },
-        )
-        if kept
-        else None
+    # The counts are kept even when every refit failed, so the record always says how many
+    # ran; the draws are then empty.
+    bootstrap = BootstrapResult(
+        draws={
+            name: np.array([row.get(name, missing)[0] for row in kept], dtype=float)
+            for name in names
+        },
+        n_requested=requested,
+        n_failed=failed,
+        resampling="iid",
+        std_errors={
+            name: np.array([row.get(name, missing)[1] for row in kept], dtype=float)
+            for name in names
+        },
     )
-    if bootstrap is None or failed > BOOTSTRAP_FAILURE_SHARE * requested:
+    if not kept or failed > BOOTSTRAP_FAILURE_SHARE * requested:
         warn(
             bootstrap_withheld_text(failed, requested, _failure_reasons(failures), interval),
             ConvergenceWarning,
@@ -1081,14 +1079,19 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         The rows the fit read. ``None`` only on a result built by hand.
     bootstrap : BootstrapResult or None
         With ``n_bootstrap``, every replicate's estimate and standard error of each estimate,
-        and how many refits failed.  ``None`` without a bootstrap, or when every refit failed.
+        and how many refits were requested and failed (``n_requested``, ``n_failed``); the
+        draws are empty when every refit failed.  ``None`` without a bootstrap.  When at most
+        1% of the refits fail, every bootstrap interval and the band read the refits that fit,
+        with no warning; ``n_failed`` and :attr:`bootstrap_failures` say how many did not.
     bootstrap_band : BootstrapBand or None
         The studentized bootstrap band over every risk and risk difference, with ``n_bootstrap``
-        and ``simultaneous=True`` and unless the intervals are withheld.
+        and ``simultaneous=True`` and unless the intervals are withheld.  It is the estimate
+        plus or minus the critical value times its standard error on the identity scale, so a
+        small risk's band can cross 0, and it ignores ``band_scale``.
     bootstrap_status : {"ran", "bootstrap_unstable"} or None
         ``"ran"`` when each estimate carries its bootstrap interval, ``"bootstrap_unstable"``
         when more than 1% of the refits failed and every bootstrap interval is withheld
-        (refusal C6), and ``None`` without a bootstrap.
+        (the failure rule), and ``None`` without a bootstrap.
     bootstrap_failures : tuple of str
         The class and first sentence of each failed refit's exception, in replicate order.
 
@@ -1861,6 +1864,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             "status": self.bootstrap_status,
             "n_requested": None if self.bootstrap is None else int(self.bootstrap.n_requested),
             "n_failed": None if self.bootstrap is None else int(self.bootstrap.n_failed),
+            "n_kept": None
+            if self.bootstrap is None
+            else int(self.bootstrap.n_requested - self.bootstrap.n_failed),
             "failures": list(self.bootstrap_failures),
             "band": None
             if band is None
@@ -1903,8 +1909,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         """Plot each arm's risk and their difference at the target times.
 
         Each estimate is drawn at its target time with its interval and, when the fit holds
-        one, its simultaneous band. Nothing is drawn between target times, where the fit
-        estimates no risk.
+        one, its simultaneous band: the multiplier band, or with ``band="bootstrap"`` the
+        studentized bootstrap band of a fit with ``n_bootstrap=`` and ``simultaneous=True``.
+        Nothing is drawn between target times, where the fit estimates no risk.
 
         Parameters
         ----------
@@ -1924,7 +1931,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
             When the fit refuses the requested view, with the fit's own reason.
         ValueError
             When ``band=``, ``measure=``, ``scale=`` or ``cause=`` do not fit together or
-            the fit, such as ``band="bootstrap"`` or ``cause=`` with ``measure="rmst"``.
+            the fit, such as ``band="bootstrap"`` on a fit with no bootstrap band or
+            ``cause=`` with ``measure="rmst"``.
         DataError
             When ``cause=`` or ``regimens=`` names a cause or arm the fit does not hold.
         """

@@ -1,6 +1,6 @@
-"""The property module of ``continuous-survival-bootstrap``: it declares no property family.
+"""The property module of both continuous-survival-bootstrap records: no property family.
 
-The record's calibration readings and its shrunk-SE control are computed from the primary rows by
+Each record's calibration readings and its shrunk-SE control are computed from the primary rows by
 :func:`tests.studies.continuous_survival_bootstrap.calibration`, since a bootstrap fit costs 501
 fits and a separate calibration stream would double the run.  The property phase writes the
 schema-bearing empty tables and nothing else.
@@ -27,5 +27,7 @@ def generate_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """No property cell, so no verdict: an empty table with the columns the evidence reads."""
     if not rows.empty:
-        raise ValueError("continuous-survival-bootstrap declares no property cell, and got rows")
+        raise ValueError(
+            "the continuous-survival-bootstrap records declare no property cell, and got rows"
+        )
     return property_verdicts.empty_property_table()

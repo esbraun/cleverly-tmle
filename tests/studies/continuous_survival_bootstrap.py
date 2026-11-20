@@ -6,31 +6,31 @@ law (:mod:`tests.studies.continuous_survival_law`) at :math:`n = 1{,}000`.  Each
 study is one bootstrap fit of a fresh draw: the fit, then 500 refits on resamples of its units,
 every fold drawn on the resample's distinct units (X6 plan rev 5, sections 2.4 and 5.5).
 
-**Cells** (:data:`CELLS`):
+**Cell** (:data:`CELLS`): ``b1_in_sample``, ``cross_fit=False``, gated.  The bootstrap delta
+method would cover it, given conditions not yet read first-hand, so its label stays experimental
+whatever this study reads (plan 8.9).  The default cross-fitted fit is a record of its own,
+reported only (:mod:`tests.studies.continuous_survival_bootstrap_cross_fitted`): no theorem covers
+it and Cai and van der Laan (2020) warn against it, so no study can move its label.
 
-* ``b1_in_sample``: ``cross_fit=False``, gated.  The bootstrap delta method would cover it, given
-  conditions not yet read first-hand, so its label stays experimental whatever this study reads
-  (plan 8.9);
-* ``b2_cross_fitted``: the default cross-fitted fit, reported only
-  (``StudyRecord.reported_scenarios``).  No theorem covers it and Cai and van der Laan (2020) warn
-  against it, so no study can move its label.
+**Rows.** Every risk and risk difference at the median and upper quartile of the event times
+(1.12, 2.32), 12 rows (:data:`ROWS`, the registered study's
+:data:`~tests.studies.continuous_survival_law.GATED`).  A primary row is the percentile interval of
+the bootstrap draws with the bootstrap standard error (their SD), read by the primary rule of
+:data:`MARGINS`.  Each row also carries the BCa interval on the same draws and the shipped Wald
+interval of the same fit (:data:`EXTRA_COLUMNS`).  The six targets at the first quartile (0.46)
+come from the same fits and publish as ``early-time.csv`` with no verdict (:data:`EARLY`,
+:func:`early_time`), as in the registered study: the first quartile's Wald interval
+under-covers, and gating it would inform no label.
 
-**Rows.** Every risk and risk difference at the three target times (0.46, 1.12, 2.32), 18 per cell
-(:data:`ESTIMANDS`).  A primary row is the percentile interval of the bootstrap draws with the
-bootstrap standard error (their SD), read by the primary rule of :data:`MARGINS` in ``b1``.  Each
-row also carries the BCa interval on the same draws and the shipped Wald interval of the same fit
-(:data:`EXTRA_COLUMNS`).
-
-**Readings** (``calibration.csv``, :func:`calibration`).  Every row of ``b1`` takes the
-calibration rule: the 99% interval of its SE ratio inside (0.93, 1.07) and its coverage interval
-inside (0.92, 0.98).  The shrunk-SE control multiplies each bootstrap SE by
-:data:`SHRUNKEN_SE_FACTOR` (0.85) and must leave the SE-ratio band below.  ``b1``'s calibration
-rows and controls are a merge gate (:func:`scientific_failures`); the BCa and Wald readings and every
-``b2`` reading are reported.
+**Readings** (``calibration.csv``, :func:`calibration`).  Every row takes the calibration rule: the
+99% interval of its SE ratio inside (0.93, 1.07) and its coverage interval inside (0.92, 0.98).
+The shrunk-SE control multiplies each bootstrap SE by :data:`SHRUNKEN_SE_FACTOR` (0.85) and must
+leave the SE-ratio band below.  The calibration rows and controls are a merge gate
+(:func:`scientific_failures`); the BCa and Wald readings are reported.
 
 **Size and seeds.**  :data:`PRIMARY_REPLICATES` is the family-wise rule of plan 5.5: the smallest
-multiple of 400 at which all 18 calibration rows of ``b1`` pass together with probability at least
-0.95 at SE ratio 1 and coverage 0.95 (``pilot.at_target_count``: 3,200).  The pilot
+multiple of 400 at which all 12 calibration rows pass together with probability at least 0.95 at
+SE ratio 1 and coverage 0.95 (``pilot.at_target_count``: 3,200).  The pilot
 (:mod:`tests.studies.continuous_survival_bootstrap_pilot`) reads each row's plug-in pass at that
 count, the failures and the seconds per fit.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by
 no other study; replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)`` and seeds
@@ -66,8 +66,6 @@ PRIMARY_REPLICATES = 3_200
 REPLICATE_CAP = 7_600
 #: The plan's pilot of ``b1`` (5.5).
 PILOT_REPLICATES = 400
-#: The pilot of ``b2``, which reads its failures and seconds only.
-PILOT_CROSS_FITTED = 50
 #: The bootstrap replicates of every declared fit: the value the docs recommend (plan 5.5).
 N_BOOTSTRAP = 500
 #: The bootstrap replicates of a pilot fit.  The pilot reads the SE ratio and coverage of the
@@ -87,16 +85,20 @@ SHRUNKEN_SE_FACTOR = 0.85
 SUBJECT = "cleverly-continuous-survival-bootstrap"
 
 #: ``cell -> cross-fitted``.
-CELLS: dict[str, bool] = {"b1_in_sample": False, "b2_cross_fitted": True}
+CELLS: dict[str, bool] = {"b1_in_sample": False}
 GATED_CELL = "b1_in_sample"
-REPORTED_CELLS = frozenset({"b2_cross_fitted"})
-#: Every risk and risk difference at the three target times, in the engine's names.
-ROWS: tuple[str, ...] = tuple(law.TRUTH)
+#: Every risk and risk difference at the median and upper quartile, in the engine's names.
+ROWS: tuple[str, ...] = law.GATED
+#: The first quartile's six targets, read from the same fits and reported in ``early-time.csv``.
+EARLY: tuple[str, ...] = law.EARLY
+#: Every risk and risk difference at the three target times.
+ALL_ROWS: tuple[str, ...] = tuple(law.TRUTH)
 ESTIMANDS: dict[str, tuple[str, ...]] = dict.fromkeys(CELLS, ROWS)
 MARGINS = Margins(standardized_bias=0.2)
 
 CALIBRATION_FILE = "calibration.csv"
 READINGS_FILE = "targeting-readings.csv"
+EARLY_FILE = "early-time.csv"
 #: The audit that gates ``b1``'s calibration rows and controls.
 CALIBRATION_AUDIT = "bootstrap calibration"
 
@@ -114,10 +116,9 @@ STUDY = StudyRecord(
     margins=MARGINS,
     implementation=SUBJECT,
     reference=None,
-    reported_scenarios=REPORTED_CELLS,
     failure_bound={SUBJECT: FAILURE_BOUND},
     nuisance_count=3,
-    extra_artifacts=(CALIBRATION_FILE, READINGS_FILE),
+    extra_artifacts=(CALIBRATION_FILE, READINGS_FILE, EARLY_FILE),
     modules=(
         "tests/studies/continuous_survival_bootstrap.py",
         "tests/studies/continuous_survival_bootstrap_properties.py",
@@ -145,6 +146,8 @@ CONFIGURATION = {
     "cells": {cell: "cross-fitted" if cf else "in-sample" for cell, cf in CELLS.items()},
     "n_bootstrap": N_BOOTSTRAP,
     "interval": "percentile (gated), BCa and Wald on the same fits (reported)",
+    "rows": "risks and differences at the median and upper quartile (gated); first quartile "
+    "reported in early-time.csv",
     "times": list(law.TIMES),
     "n_folds": N_FOLDS,
     "learner_folds": LEARNER_FOLDS,
@@ -202,7 +205,9 @@ def bootstrap_fit(frame: pd.DataFrame, *, cross_fit: bool, n_bootstrap: int, see
     return result
 
 
-def interval_readings(result: Any, truth: Mapping[str, float]) -> dict[str, dict[str, float]]:
+def interval_readings(
+    result: Any, truth: Mapping[str, float], rows: tuple[str, ...] = ROWS
+) -> dict[str, dict[str, float]]:
     """Per row: the Wald, percentile and BCa intervals of one bootstrap fit, with coverage.
 
     The percentile and BCa limits are read from the fit's draws by the shared
@@ -212,7 +217,7 @@ def interval_readings(result: Any, truth: Mapping[str, float]) -> dict[str, dict
     from cleverly.inference.bootstrap import bca_acceleration
 
     out = {}
-    for name in ROWS:
+    for name in rows:
         estimate = result[name]
         reference = float(truth[name])
         low, high = estimate.ci
@@ -251,8 +256,8 @@ INTERVAL_COLUMNS = (
     "bca_upper",
     "bca_covered",
 )
-EXTRA_COLUMNS = (
-    *INTERVAL_COLUMNS,
+#: The fit's own readings beside each row.
+FIT_COLUMNS = (
     "seconds",
     "failed_refits",
     "steps",
@@ -263,18 +268,47 @@ EXTRA_COLUMNS = (
     "frozen_share",
     "off_grid_share",
 )
+#: Per first-quartile target, the readings ``early-time.csv`` reads.
+EARLY_FIELDS = (
+    "estimate",
+    "bootstrap_std_error",
+    "percentile_covered",
+    "bca_covered",
+    "wald_std_error",
+    "wald_covered",
+)
+EARLY_COLUMNS = tuple(
+    f"early{index}_{field}" for index in range(len(EARLY)) for field in EARLY_FIELDS
+)
+EXTRA_COLUMNS = (*INTERVAL_COLUMNS, *FIT_COLUMNS, *EARLY_COLUMNS)
+
+
+def early_readings(result: Any, truth: Mapping[str, float]) -> dict[str, float]:
+    """The first quartile's targets of one fit, as :data:`EARLY_COLUMNS`."""
+    readings = interval_readings(result, truth, EARLY)
+    return {
+        f"early{index}_{field}": readings[name][field]
+        for index, name in enumerate(EARLY)
+        for field in EARLY_FIELDS
+    }
 
 
 def result_rows(
-    result: Any, truth: Mapping[str, float], scenario: str, replicate: int
+    result: Any,
+    truth: Mapping[str, float],
+    scenario: str,
+    replicate: int,
+    *,
+    rows: tuple[str, ...] = ROWS,
+    implementation: str = SUBJECT,
 ) -> list[dict[str, Any]]:
     """One row per target: the percentile interval and the bootstrap SE, with the other two."""
-    rows = []
+    out = []
     initial = result.initial_estimates
-    for name, reading in interval_readings(result, truth).items():
-        rows.append(
+    for name, reading in interval_readings(result, truth, rows).items():
+        out.append(
             {
-                "implementation": SUBJECT,
+                "implementation": implementation,
                 "scenario": scenario,
                 "replicate": replicate,
                 "n": result.n,
@@ -291,7 +325,7 @@ def result_rows(
                 **{column: reading[column] for column in INTERVAL_COLUMNS},
             }
         )
-    return rows
+    return out
 
 
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -299,9 +333,16 @@ def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     return draw_scenario(scenario, n, replicate)
 
 
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+def fit_replicate(
+    record: StudyRecord,
+    cross_fit: bool,
+    rows: tuple[str, ...],
+    early: bool,
+    key: tuple[str, int, int],
+    drawn: tuple[pd.DataFrame, dict[str, float]],
 ) -> list[dict[str, Any]]:
+    """One bootstrap fit of ``record``'s replicate ``key``: its rows, with the first quartile's
+    readings beside each when ``early``."""
     scenario, replicate, _ = key
     frame, truth = drawn
     with warnings.catch_warnings():
@@ -309,17 +350,58 @@ def _replicate(
         start = time.perf_counter()
         result = bootstrap_fit(
             frame,
-            cross_fit=CELLS[scenario],
+            cross_fit=cross_fit,
             n_bootstrap=N_BOOTSTRAP,
-            seed=replicate_seed(STUDY, scenario, replicate),
+            seed=replicate_seed(record, scenario, replicate),
         )
         seconds = time.perf_counter() - start
     extra = {
         "seconds": seconds,
         "failed_refits": float(result.bootstrap.n_failed),
         **registered.readings(result),
+        **(early_readings(result, truth) if early else {}),
     }
-    return [{**row, **extra} for row in result_rows(result, truth, scenario, replicate)]
+    found = result_rows(
+        result, truth, scenario, replicate, rows=rows, implementation=record.implementation
+    )
+    return [{**row, **extra} for row in found]
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    return fit_replicate(STUDY, CELLS[key[0]], ROWS, True, key, drawn)
+
+
+def fit_cells(
+    record: StudyRecord,
+    replicate: Any,
+    draw: Any,
+    columns: tuple[str, ...],
+    *,
+    replicates: int,
+    n: int,
+    n_jobs: int,
+    scenarios: tuple[str, ...] | None,
+) -> replication.PhaseResult:
+    """Every cell of ``record`` named in ``scenarios`` (all by default), at its declared size."""
+    sizes = record.sizes(n)
+    chosen = tuple(record.scenarios) if scenarios is None else scenarios
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, sizes[scenario])
+            for scenario in chosen
+            for replicate in range(replicates)
+        ],
+        replicate,
+        draw=draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for result in outcomes.kept for row in result])
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *columns]])
 
 
 def draw_and_fit(
@@ -330,23 +412,16 @@ def draw_and_fit(
     scenarios: tuple[str, ...] | None = None,
 ) -> replication.PhaseResult:
     """Every cell of ``scenarios`` (all by default), each at its declared size."""
-    sizes = STUDY.sizes(n)
-    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
-    outcomes = replication.fit_primary(
-        [
-            (scenario, replicate, sizes[scenario])
-            for scenario in chosen
-            for replicate in range(replicates)
-        ],
+    return fit_cells(
+        STUDY,
         _replicate,
-        draw=_draw,
-        rows_at=None,
+        _draw,
+        EXTRA_COLUMNS,
+        replicates=replicates,
+        n=n,
         n_jobs=n_jobs,
-        implementation=STUDY.implementation,
-        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        scenarios=scenarios,
     )
-    rows = pd.DataFrame([row for result in outcomes.kept for row in result])
-    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *EXTRA_COLUMNS]])
 
 
 # --------------------------------------------------------------- the calibration readings
@@ -361,15 +436,18 @@ VARIANTS: dict[str, tuple[str, str, str, str]] = {
 }
 
 
-def calibration(rows: pd.DataFrame) -> pd.DataFrame:
+def calibration(
+    rows: pd.DataFrame, record: StudyRecord = STUDY, gated_cell: str | None = GATED_CELL
+) -> pd.DataFrame:
     """Per cell, row and interval: SE ratio and coverage with their 99% intervals and verdict.
 
-    A ``positive`` row of ``b1`` passes when both intervals lie inside the calibration bands; a
-    ``control`` row of ``b1`` passes when its SE ratio's interval lies wholly below the band; a
-    ``reported`` row, and every row of ``b2``, carries no verdict (``gated`` false, ``passed``
+    A ``positive`` row of ``gated_cell`` passes when both intervals lie inside the calibration
+    bands; a ``control`` row of it passes when its SE ratio's interval lies wholly below the
+    band; a ``reported`` row, and every row of another cell (every row when ``gated_cell`` is
+    ``None``, as for the cross-fitted record), carries no verdict (``gated`` false, ``passed``
     true by declaration).
     """
-    margins = STUDY.margins
+    margins = record.margins
     low, high = margins.calibration_se_ratio
     records = []
     for (scenario, estimand), group in rows.groupby(["scenario", "estimand"], sort=True):
@@ -384,13 +462,13 @@ def calibration(rows: pd.DataFrame) -> pd.DataFrame:
             ratio = se_ratio_interval(
                 estimate,
                 std_error,
-                record=STUDY,
-                seed=stream_seed(STUDY, "calibration", str(scenario), str(estimand), variant),
+                record=record,
+                seed=stream_seed(record, "calibration", str(scenario), str(estimand), variant),
             )
             coverage = clopper_pearson(
                 covered, len(group), confidence_level=margins.confidence_level
             )
-            gated = scenario == GATED_CELL and role != "reported"
+            gated = gated_cell is not None and scenario == gated_cell and role != "reported"
             if role == "positive":
                 verdict = ratio.within(low, high) and coverage.within(*margins.calibration_coverage)
             else:
@@ -415,16 +493,51 @@ def calibration(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
+def early_time(rows: pd.DataFrame) -> pd.DataFrame:
+    """Per cell and first-quartile target: bias, both SE ratios and the three coverages.
+
+    No row carries a verdict.
+    """
+    fits = rows.drop_duplicates(["scenario", "replicate"])
+    records = []
+    for scenario, group in fits.groupby("scenario", sort=True):
+        for index, name in enumerate(EARLY):
+            column = f"early{index}_{{}}".format
+            estimate = group[column("estimate")].to_numpy(dtype=float)
+            truth = float(law.TRUTH[name])
+            spread = float(np.std(estimate, ddof=1))
+            records.append(
+                {
+                    "scenario": scenario,
+                    "estimand": name,
+                    "fits": int(estimate.size),
+                    "truth": truth,
+                    "bias": float(np.mean(estimate) - truth),
+                    "standardized_bias": float((np.mean(estimate) - truth) / spread),
+                    "empirical_se": spread,
+                    "bootstrap_se_ratio": float(
+                        np.mean(group[column("bootstrap_std_error")]) / spread
+                    ),
+                    "wald_se_ratio": float(np.mean(group[column("wald_std_error")]) / spread),
+                    "percentile_coverage": float(np.mean(group[column("percentile_covered")])),
+                    "bca_coverage": float(np.mean(group[column("bca_covered")])),
+                    "wald_coverage": float(np.mean(group[column("wald_covered")])),
+                }
+            )
+    return pd.DataFrame.from_records(records)
+
+
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """The calibration readings and the targeting record."""
+    """The calibration readings, the targeting record and the first quartile's readings."""
     return {
         CALIBRATION_FILE: calibration(rows),
         READINGS_FILE: registered.targeting_readings(rows),
+        EARLY_FILE: early_time(rows),
     }
 
 
 def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """The gated calibration rows and controls of ``b1`` that did not pass."""
+    """The gated calibration rows and controls that did not pass."""
     table = artifacts[CALIBRATION_FILE]
     return {CALIBRATION_AUDIT: table.loc[table["gated"].astype(bool) & ~table["passed"]]}
 

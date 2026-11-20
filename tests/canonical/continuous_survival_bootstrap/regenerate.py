@@ -6,51 +6,56 @@ The record has no comparator, so the run starts no container.  The law, cells, l
 margins and control are those of :mod:`tests.studies.continuous_survival_bootstrap`, declared from
 X6 plan rev 5, section 5.5, and checked by ``tests/unit/test_continuous_survival_bootstrap_design.py``.
 
+The cross-fitted fit is a separate, reported record with its own script
+(``tests/canonical/continuous_survival_bootstrap_cross_fitted/regenerate.py``); this one runs the
+in-sample record alone.
+
 Pilot.  ``python -m tests.studies.continuous_survival_bootstrap_pilot --jobs N`` draws 400 bootstrap
-fits of ``b1`` and 50 of ``b2``, each with 200 refits, on its own streams, and writes
+fits of ``b1`` and 50 of the cross-fitted fit, each with 200 refits, on its own streams, and writes
 ``continuous_survival_bootstrap_pilot.csv.gz`` (:mod:`tests.studies.continuous_survival_bootstrap_pilot`
 states each reading).  This script refuses a declared run until that file is committed, holds the
-declared draws and agrees with the declaration (:func:`pilot_refusals`):
+declared 400 in-sample draws and agrees with the declaration (:func:`pilot_refusals`):
 
 * ``PRIMARY_REPLICATES`` equals the family-wise rule's count at the design point, at most the cap
   of 7,600; a count above the cap stops the declaration, and the run is never truncated;
-* each calibration row of ``b1`` passes with plug-in probability at least 0.90 at the declared
-  count, or is named in a committed ``pilot-diagnosis.md`` beside this script;
-* no declared cell's pilot predicts, with posterior predictive probability above 0.10, that the run
-  loses more fits than the failure bound of 0.01 allows.
+* each of the 12 gated calibration rows passes with plug-in probability at least 0.90 at the
+  declared count, or is named in a committed ``pilot-diagnosis.md`` beside this script;
+* the in-sample pilot does not predict, with posterior predictive probability above 0.10, that the
+  run loses more fits than the failure bound of 0.01 allows.
 
-Cells.  ``b1_in_sample`` (gated: the primary rule on its 18 percentile rows, and the calibration rule
-with the shrunk-SE control in ``calibration.csv``) and ``b2_cross_fitted`` (reported), each a
-bootstrap fit with 500 refits of the base law at n = 1,000.
+Cell.  ``b1_in_sample``, a bootstrap fit with 500 refits of the base law at n = 1,000, gated: the
+primary rule on its 12 percentile rows at the median and upper quartile, and the calibration rule
+with the shrunk-SE control in ``calibration.csv``.  The first quartile's six rows come from the same
+fits and publish in ``early-time.csv`` with no verdict.
 
 PILOT READINGS.  The committed pilot (local, four workers on one thread each, about 3.4 h of wall
-time) holds 120 draws of ``b1`` and 12 of ``b2``, each a fit with 200 refits; the declared 400 and
-50 extend it on the same streams with ``--resume``, and this script refuses a declared run until
+time) holds 120 draws of ``b1`` and 12 of the cross-fitted fit, each a fit with 200 refits; the
+declared 400 and 50 extend it on the same streams with ``--resume``, and this script refuses a declared run until
 they are committed.  At this size the readings are a screen:
 
-* ``b1``, 118 kept fits: percentile coverage 0.890 to 0.975 (mean 0.932), BCa 0.907 to 0.983
-  (0.944), Wald on the same fits 0.898 to 0.966 (0.937); bootstrap SE ratio 0.856 to 1.040 (mean
-  0.953) beside a Wald SE ratio of 0.884 to 1.043 (0.956).  The two ratios move together row by
-  row, so the shortfall is the fits' own, at a Monte Carlo SD of about 0.065 per row.  The lowest
-  rows are treated cause 2 (0.856 at t = 2.32) and the cause-2 differences (0.884 to 0.920).  At
-  ratios this far below 1 most rows pass the calibration rule at 3,200 with plug-in probability
-  well under 0.90, and the shrunk-SE control leaves the band with probability at least 0.94.
+* ``b1``, 118 kept fits, on the 12 gated rows: percentile coverage 0.890 to 0.966 (mean 0.933),
+  BCa 0.907 to 0.975 (0.944), Wald on the same fits 0.907 to 0.966 (0.937); bootstrap SE ratio
+  0.856 to 1.040 (mean 0.950) beside a Wald SE ratio of 0.884 to 1.019 (0.950).  The two ratios
+  move together row by row, so the shortfall is the fits' own, at a Monte Carlo SD of about 0.065
+  per row.  The lowest rows are treated cause 2 (0.856 at t = 2.32) and the cause-2 differences
+  (0.884 and 0.907).  9 of the 12 rows pass the calibration rule at 3,200 with plug-in probability
+  below 0.90, and the shrunk-SE control leaves the band with probability at least 0.94.  The
+  first quartile's six reported rows read SE ratios of 0.905 to 1.014.
 * ``b1`` lost 2 of 120 fits: each withheld its bootstrap because 7 and 3 of its 200 refits
   raised ``DataError`` (an initial hazard fit puts a combined jump of one or more at some time).
   ``pilot-diagnosis.md`` traces them to a positivity failure: a unit with extreme X3, which the
   treated arm does not cover, read at that counterfactual arm by the interaction Cox model, with
   tied copies of an event unit amplifying the jump.  Over all draws 27 of 24,000 refits failed
-  (0.11%).  The failure rule predicts that 3,200 fits lose more than 32 with probability 0.78, so
-  the declaration stands refused on that line until the owner decides how the engine treats the
-  combined jump.
-* ``b2``, 12 fits, no refit failed in 2,400: percentile coverage 0.833 to 1.000 and bootstrap SE
-  ratio 0.904 to 1.466 (mean 1.088), too few fits to read a row.
+  (0.11%).  The failure rule predicts that 3,200 fits lose more than 32 with probability 0.78.
 
-Budget.  At the pilot's median seconds per fit on one thread (1.34 s in sample, 3.68 s
-cross-fitted, timed while the machine was shared), 3,200 replicates of 501 fits cost about 600
-CPU-h for ``b1`` and about 1,640 CPU-h for ``b2``: about 2,240 CPU-h, local.  ``b2`` runs at the
-record's count because the evidence framework declares one count per record; plan 5.5's 1,000 for
-``b2`` needs a record of its own (about 510 CPU-h).
+The declared run is refused today on three lines: the pilot is short (120 of 400 in-sample draws),
+the failure rule, and the 9 gated rows below plug-in 0.90.  The 400-draw extension (about 280 more
+fits of 201, roughly 100 CPU-h) must read clean on all three before the run, and it waits for the
+owner's decision on how the engine treats the combined jump, which can change both the failures
+and the fits.
+
+Budget.  At the pilot's median seconds per fit on one thread (1.34 s in sample, timed while the
+machine was shared), 3,200 replicates of 501 fits cost about 600 CPU-h, local.
 
 Red-cell readings (declared before any run).  The record is ``gated``.  No cell is re-sized,
 re-drawn or downgraded after a verdict is seen.
@@ -62,8 +67,6 @@ re-drawn or downgraded after a verdict is seen.
   a defect suspect: diagnose it against ``tests/unit/test_continuous_survival_bootstrap.py``
   (T-d1 to T-d4 and their mutations).
 * A shrunk-SE control that does not leave the band is an instrument defect, and the run is void.
-* ``b2``'s readings are a diagnostic: no theorem covers a cross-fitted bootstrap with a selected
-  library, so no reading moves its label.
 * A replication that raises, a withheld bootstrap included, is never redrawn; it is a recordable
   fit failure bounded by 0.01 per cell.
 """
@@ -87,13 +90,12 @@ def pilot_refusals() -> list[str]:
     if rows.empty:
         return [f"{pilot.OUTPUT.name} is not committed; run the pilot first"]
     out = []
-    for kind in ("in_sample", "cross_fitted"):
-        declared = pilot.KINDS[kind][1]
-        if pilot.draws(rows, kind) < declared:
-            out.append(
-                f"the pilot holds {pilot.draws(rows, kind)} draws of {kind}, short of the "
-                f"declared {declared}; extend it with --resume"
-            )
+    declared = pilot.KINDS["in_sample"][1]
+    if pilot.draws(rows, "in_sample") < declared:
+        out.append(
+            f"the pilot holds {pilot.draws(rows, 'in_sample')} draws of in_sample, short of the "
+            f"declared {declared}; extend it with --resume"
+        )
     count = pilot.at_target_count()
     if count > study.REPLICATE_CAP:
         out.append(f"the rule asks for {count} replicates, above the cap; stop")
@@ -101,7 +103,7 @@ def pilot_refusals() -> list[str]:
         out.append(
             f"the rule sets {count} replicates and the record declares {study.PRIMARY_REPLICATES}"
         )
-    out.extend(pilot.failure_refusals(rows, study.PRIMARY_REPLICATES))
+    out.extend(pilot.failure_refusal(rows, "in_sample"))
     diagnosed = pilot.DIAGNOSIS.read_text(encoding="utf-8") if pilot.DIAGNOSIS.exists() else ""
     checks = pilot.calibration_checks(rows, study.PRIMARY_REPLICATES)
     for name, passed in zip(checks["estimand"], checks["plug_in_pass"], strict=True):

@@ -705,7 +705,9 @@ a copy never predicts its twin. The bootstrap interval of each risk sits in `est
 and in the `bootstrap_ci_lower` and `bootstrap_ci_upper` columns of `result.to_frame()`;
 `bootstrap_interval="bca"` on `ContinuousSurvivalTMLE` gives the BCa interval, which corrects the
 percentile interval for skew. If more than 1% of the refits fail, the fit warns, drops every
-bootstrap interval and keeps the usual ones.
+bootstrap interval and keeps the usual ones. Below that share the bootstrap intervals use only the
+refits that worked, without a warning; the summary's bootstrap note gives the count, and
+`result.bootstrap_failures` says why the others failed.
 
 On these fits the bootstrap interval always reads
 `experimental`. With the default cross-fitting no theory yet shows that the bootstrap is valid,

@@ -4920,9 +4920,28 @@ CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "continuous_not_converged": "warning",
         "continuous_switched_variance": "note",
+        "continuous_bootstrap": "note",
+        "continuous_bootstrap_withheld": "warning",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
+
+#: The bootstrap note's clause for a fit that also holds a simultaneous bootstrap band.
+CONTINUOUS_BOOTSTRAP_BAND: Final = (
+    ", and the simultaneous band over the risks (result.bootstrap_band) reads the same refits"
+)
+#: The interval named in the bootstrap note, by ``BootstrapSummary.interval``.
+CONTINUOUS_BOOTSTRAP_INTERVAL: Final[Mapping[str, str]] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
+)
+#: The bootstrap note's sentence when its intervals read experimental.
+CONTINUOUS_BOOTSTRAP_EXPERIMENTAL: Final = (
+    " Every bootstrap interval is experimental, and the full summary gives the reason."
+)
+#: The full summary's line on why the bootstrap intervals are experimental.
+CONTINUOUS_BOOTSTRAP_WHY: Final = "Why the bootstrap intervals are experimental: {reason}"
+#: The full summary's line on why the simultaneous bootstrap band is experimental.
+CONTINUOUS_BOOTSTRAP_BAND_WHY: Final = "Why the bootstrap band is experimental: {reason}"
 
 CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -4935,6 +4954,17 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The standard error of {names} comes from the model-based variance of the event "
             "process, because few events carry its usual variance and the model-based one is "
             "larger. estimate.variance_source names the variance of each estimate."
+        ),
+        "continuous_bootstrap": (
+            "The {interval} bootstrap intervals read the {kept} of {requested} refits on "
+            "resampled units that fit{band}.{label} result.to_frame() lists them in the "
+            "bootstrap_ci_lower and bootstrap_ci_upper columns, and "
+            "result.bootstrap_failures says why any refit failed."
+        ),
+        "continuous_bootstrap_withheld": (
+            "{failed} of {requested} bootstrap refits failed, more than {share}, so the fit "
+            "dropped every bootstrap interval and kept the usual ones. "
+            "result.bootstrap_failures says why the refits failed."
         ),
     }
 )

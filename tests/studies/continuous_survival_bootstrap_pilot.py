@@ -1,7 +1,7 @@
-"""The pilot of the ``continuous-survival-bootstrap`` study, on its own seed streams.
+"""The pilot of the two ``continuous-survival-bootstrap`` records, on its own seed streams.
 
-It draws no declared sample.  Draw ``r`` of a kind takes ``stream_seed(STUDY, "pilot", kind, r)``,
-a stream no declared cell reads, and seeds that fit's folds and bootstrap with the same value.  The
+It draws no declared sample.  Draw ``r`` of a kind takes ``stream_seed(STUDY, "pilot", kind, r)``
+on the in-sample record, a stream no declared cell of either record reads, and seeds that fit's folds and bootstrap with the same value.  The
 driver writes one file beside this module, ``continuous_survival_bootstrap_pilot.csv.gz``, with a
 ``kind`` column:
 
@@ -10,21 +10,24 @@ driver writes one file beside this module, ``continuous_survival_bootstrap_pilot
   with the Wald, percentile and BCa readings of
   :func:`~tests.studies.continuous_survival_bootstrap.interval_readings`, or one row with the error
   class when the fit raised (a withheld bootstrap included);
-* ``cross_fitted``: the same for ``b2``, for its failures and seconds;
+* ``cross_fitted``: the same for the cross-fitted record
+  (:mod:`tests.studies.continuous_survival_bootstrap_cross_fitted`), for its failures and seconds;
 * ``warp``: the warp-speed screen of Giacomini, Politis and White (2013): one fit of ``b1``'s
   configuration and one bootstrap refit of it per draw.  It never gates (plan 5.5).
 
-The committed rows give these readings of X6 plan rev 5, section 5.5, which the regeneration
-script checks before a declared run (``regenerate.pilot_refusals``):
+Every row holds all 18 targets; the in-sample record gates the 12 at the median and upper quartile.
+The committed rows give these readings of X6 plan rev 5, section 5.5, which each record's
+regeneration script checks before a declared run (``regenerate.pilot_refusals``):
 
 * **the count** (:func:`at_target_count`): the family-wise rule at the design point, the smallest
-  multiple of 400 at which every calibration row of ``b1`` passes together with probability at
+  multiple of 400 at which every gated calibration row of ``b1`` passes together with probability at
   least 0.95 at SE ratio 1 and coverage 0.95.  A pilot of 400 leaves each row's SE ratio with a
   predictive SD near half the band, so the rule takes ``guide/studies.md``'s at-target branch;
-* **each row's plug-in pass** (:func:`calibration_checks`) at the declared count, from its pilot
+* **each gated row's plug-in pass** (:func:`calibration_checks`) at the declared count, from its pilot
   SE ratio and coverage: a row below 0.90 asks for a committed diagnosis before the declaration;
-* **the failures** (:func:`failure_refusals`): the posterior predictive probability, under a
-  Jeffreys prior, that a declared cell loses more fits than its bound allows, at most 0.10;
+* **the failures** (:func:`failure_refusal`): the posterior predictive probability, under a
+  Jeffreys prior, that a declared cell loses more fits than its bound allows, at most 0.10 for the
+  gated in-sample cell; the cross-fitted record publishes its reading;
 * **the shrunk-SE control's power** (:func:`shrunken_power`), and **seconds per fit**
   (:func:`seconds`) for the budget.
 
@@ -49,6 +52,7 @@ from scipy.stats import betabinom
 from cleverly.utils.parallel import map_parallel
 from tests.studies import continuous_survival as registered
 from tests.studies import continuous_survival_bootstrap as study
+from tests.studies import continuous_survival_bootstrap_cross_fitted as cross_fitted
 from tests.studies import continuous_survival_law as law
 from tests.studies import repeated_sizing as sizing
 from tests.studies.evidence.seeds import stream_seed
@@ -56,10 +60,19 @@ from tests.studies.evidence.seeds import stream_seed
 OUTPUT = Path(__file__).with_name("continuous_survival_bootstrap_pilot.csv.gz")
 #: ``kind -> (cell, declared draws)``; the warp-speed screen is no declared cell.
 KINDS: dict[str, tuple[str, int]] = {
-    "in_sample": ("b1_in_sample", study.PILOT_REPLICATES),
-    "cross_fitted": ("b2_cross_fitted", study.PILOT_CROSS_FITTED),
-    "warp": ("b1_in_sample", 4_000),
+    "in_sample": (study.GATED_CELL, study.PILOT_REPLICATES),
+    "cross_fitted": (cross_fitted.CELL, cross_fitted.PILOT_REPLICATES),
+    "warp": (study.GATED_CELL, 4_000),
 }
+#: ``kind -> (record module, declared replicates)`` of the two bootstrap kinds.
+RECORDS: dict[str, tuple[Any, int]] = {
+    "in_sample": (study, study.PRIMARY_REPLICATES),
+    "cross_fitted": (cross_fitted, cross_fitted.PRIMARY_REPLICATES),
+}
+#: Whether a kind's failure prediction refuses its record's declared run.  The cross-fitted
+#: record's failure bound gates nothing (``reported_bounds_gate=False``), so its reading is
+#: published, not a refusal.
+FAILURES_REFUSE: dict[str, bool] = {"in_sample": True, "cross_fitted": False}
 BLOCK = 20
 #: The plug-in pass probability below which ``guide/studies.md`` asks for a committed diagnosis.
 PLUG_IN_PASS = 0.90
@@ -75,6 +88,7 @@ def pilot_seed(kind: str, replicate: int) -> int:
 
 def _bootstrap(kind: str, replicate: int) -> list[dict[str, Any]]:
     cell, _ = KINDS[kind]
+    record = RECORDS[kind][0]
     seed = pilot_seed(kind, replicate)
     frame = registered.sample(study.PRIMARY_N, seed)
     head = {"kind": kind, "label": cell, "replicate": replicate, "n": study.PRIMARY_N}
@@ -84,14 +98,14 @@ def _bootstrap(kind: str, replicate: int) -> list[dict[str, Any]]:
             start = time.perf_counter()
             result = study.bootstrap_fit(
                 frame,
-                cross_fit=study.CELLS[cell],
+                cross_fit=record.CELLS[cell],
                 n_bootstrap=study.PILOT_BOOTSTRAP,
                 seed=seed,
             )
             seconds = time.perf_counter() - start
     except Exception as error:  # a raise is a pilot finding, recorded with its class
         return [{**head, "refusal": type(error).__name__, "message": str(error)[:200]}]
-    readings = study.interval_readings(result, law.TRUTH)
+    readings = study.interval_readings(result, law.TRUTH, study.ALL_ROWS)
     return [
         {
             **head,
@@ -131,7 +145,7 @@ def _warp(replicate: int) -> list[dict[str, Any]]:
             "bootstrap_draw": float(result.bootstrap.draws[name][0]),
             "refusal": "",
         }
-        for name in study.ROWS
+        for name in study.ALL_ROWS
     ]
 
 
@@ -244,9 +258,9 @@ def coverage_table(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def calibration_checks(rows: pd.DataFrame, replicates: int) -> pd.DataFrame:
-    """Each ``b1`` row's pilot SE ratio and coverage, and its plug-in pass at ``replicates``."""
+    """Each gated ``b1`` row's pilot SE ratio and coverage, and its plug-in pass at ``replicates``."""
     table = coverage_table(rows)
-    table = table.loc[table["kind"] == "in_sample"]
+    table = table.loc[(table["kind"] == "in_sample") & table["estimand"].isin(study.ROWS)]
     passes = [
         float(
             sizing.calibration_pass(
@@ -279,24 +293,33 @@ def predicted_exceedance(failed: int, pilot_draws: int, replicates: int, allowan
     return float(betabinom(replicates, failed + 0.5, pilot_draws - failed + 0.5).sf(allowance))
 
 
-def failure_refusals(rows: pd.DataFrame, replicates: int) -> list[str]:
-    """One refusal per declared cell whose pilot predicts a breach of its failure bound."""
-    out = []
-    for kind in ("in_sample", "cross_fitted"):
-        held = draws(rows, kind)
-        if not held:
-            out.append(f"the pilot holds no draws of {kind}; run its pilot")
-            continue
-        allowance = int(np.floor(study.FAILURE_BOUND * replicates))
-        failed = failed_draws(rows, kind)
-        probability = predicted_exceedance(failed, held, replicates, allowance)
-        if probability > FAILURE_EXCEEDANCE:
-            out.append(
-                f"{kind} lost {failed} of {held:,} pilot fits, and the declared run of "
-                f"{replicates:,} loses more than the {allowance} its failure bound allows with "
-                f"predictive probability {probability:.3f}, above {FAILURE_EXCEEDANCE:.2f}"
-            )
-    return out
+def failure_exceedance(rows: pd.DataFrame, kind: str) -> float | None:
+    """The predictive probability that ``kind``'s declared run breaches its failure bound.
+
+    ``None`` when the pilot holds no draw of ``kind``.
+    """
+    held = draws(rows, kind)
+    if not held:
+        return None
+    record, replicates = RECORDS[kind]
+    allowance = int(np.floor(record.FAILURE_BOUND * replicates))
+    return predicted_exceedance(failed_draws(rows, kind), held, replicates, allowance)
+
+
+def failure_refusal(rows: pd.DataFrame, kind: str) -> list[str]:
+    """A refusal when ``kind``'s pilot is missing, or predicts a breach of a bound that gates."""
+    probability = failure_exceedance(rows, kind)
+    if probability is None:
+        return [f"the pilot holds no draws of {kind}; run its pilot"]
+    if not FAILURES_REFUSE[kind] or probability <= FAILURE_EXCEEDANCE:
+        return []
+    record, replicates = RECORDS[kind]
+    allowance = int(np.floor(record.FAILURE_BOUND * replicates))
+    return [
+        f"{kind} lost {failed_draws(rows, kind)} of {draws(rows, kind):,} pilot fits, and the "
+        f"declared run of {replicates:,} loses more than the {allowance} its failure bound "
+        f"allows with predictive probability {probability:.3f}, above {FAILURE_EXCEEDANCE:.2f}"
+    ]
 
 
 def seconds(rows: pd.DataFrame) -> dict[str, float]:
@@ -311,12 +334,12 @@ def seconds(rows: pd.DataFrame) -> dict[str, float]:
     return out
 
 
-def budget_cpu_hours(rows: pd.DataFrame, replicates: int) -> dict[str, float]:
-    """The declared run's CPU hours per cell at :data:`N_BOOTSTRAP` refits, from the pilot."""
+def budget_cpu_hours(rows: pd.DataFrame) -> dict[str, float]:
+    """Each record's declared CPU hours at its count and :data:`N_BOOTSTRAP` refits, from the pilot."""
     per_fit = seconds(rows)
     return {
         KINDS[kind][0]: replicates * (study.N_BOOTSTRAP + 1) * per_fit[f"{kind}_per_fit"] / 3_600.0
-        for kind in ("in_sample", "cross_fitted")
+        for kind, (_, replicates) in RECORDS.items()
         if f"{kind}_per_fit" in per_fit
     }
 

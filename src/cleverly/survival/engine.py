@@ -32,7 +32,13 @@ from .._support import Support
 from .._typing import FloatArray, IntArray
 from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
-from ..exceptions import CapabilityError, ConvergenceWarning, DataError, MethodConfigurationError
+from ..exceptions import (
+    CapabilityError,
+    CleverlyError,
+    ConvergenceWarning,
+    DataError,
+    MethodConfigurationError,
+)
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
 from ..utils.memory import available_memory, check_max_memory_bytes
@@ -903,18 +909,26 @@ class ContinuousSurvivalTMLE:
         return max(1, min(self._threads(), self.n_bootstrap))
 
     def _replicate_budget(self, shape: Mapping[str, Any]) -> int | None:
-        """The memory budget of one replicate: the fit's budget less the result, per worker.
+        """The memory budget of one replicate: its worker's share of what the result leaves.
 
-        The budget is :attr:`max_memory_bytes`, or the memory available now; ``None`` where the
-        platform reports none.  The fit already refused, before any learner, a budget that does
-        not hold its result beside one replicate per worker at the replicate's predicted peak,
-        so a replicate never refuses its own.
+        With :attr:`max_memory_bytes` the budget is that, less the result and the draws
+        (:func:`._memory.bootstrap_held`), per worker.  The fit already refused, before any
+        learner, a budget that does not hold the result beside one replicate per worker at the
+        replicate's predicted peak, so a replicate never refuses its own.  Under the default
+        the budget is the memory available now, after the fit, which already leaves out the
+        resident result, so nothing more is subtracted; memory taken by another process since
+        the fit's check can still make a replicate refuse, and the bootstrap counts it as a
+        failed refit.  ``None`` where the platform reports no available memory.
         """
-        budget = self.max_memory_bytes if self.max_memory_bytes is not None else available_memory()
-        if budget is None:
-            return None
-        held = bootstrap_held(**{key: shape[key] for key in BOOTSTRAP_HELD})
-        return max(1, int((budget - held) // self._bootstrap_workers()))
+        if self.max_memory_bytes is not None:
+            held = bootstrap_held(**{key: shape[key] for key in BOOTSTRAP_HELD})
+            budget = self.max_memory_bytes - held
+        else:
+            available = available_memory()
+            if available is None:
+                return None
+            budget = available
+        return max(1, int(budget // self._bootstrap_workers()))
 
     def _bootstrap(
         self, result: ContinuousSurvivalResult, initial: _Initial, seed: int
@@ -925,10 +939,10 @@ class ContinuousSurvivalTMLE:
         :func:`~cleverly.inference.bootstrap.run_index_bootstrap` draws for the fit's seed, and
         the replicate refits at the seed spawned for it beside that index.  Every fold of a
         replicate is drawn on its distinct units (:func:`replicate_plan`).  A replicate that
-        raises is counted with its reason; more than :data:`BOOTSTRAP_FAILURE_SHARE` of them
-        withholds every bootstrap interval (refusal C6).
+        raises a counted refusal (:func:`_replicate`) is counted with its reason; more than
+        :data:`BOOTSTRAP_FAILURE_SHARE` of them withholds every bootstrap interval.
         """
-        from ..inference.bootstrap import _bootstrap_design, _bootstrap_draw
+        from ..inference.bootstrap import _bootstrap_design
 
         assert result.data is not None
         data = result.data
@@ -937,19 +951,13 @@ class ContinuousSurvivalTMLE:
             _Units(n), n_replicates=self.n_bootstrap, resampling="iid", random_state=seed
         )
         replica = self._replica(initial.causes, self._replicate_budget(initial.memory))
-        payloads = [
-            (
-                replica,
-                data,
-                _bootstrap_draw(n, None, np.random.default_rng(draw.sequence))[0],
-                draw.seed,
-            )
-            for draw in design.draws
-        ]
+        # Each worker draws its replicate's row index from the replicate's seed sequence, so
+        # the B indices are never held at once.
+        payloads = [(replica, data, draw.sequence, draw.seed) for draw in design.draws]
         with _suppressed():
             # A resample routinely trips convergence and positivity warnings; one per replicate
             # would bury the fit's own, and none of them belongs to the fit.
-            outcomes = map_parallel(_replicate, payloads, n_jobs=self._bootstrap_workers())
+            outcomes = map_parallel(_drawn_replicate, payloads, n_jobs=self._bootstrap_workers())
         return attach_bootstrap(
             result,
             outcomes,
@@ -2245,13 +2253,26 @@ def resample(data: Any, index: IntArray) -> Any:
     )
 
 
+def _drawn_replicate(
+    estimator: ContinuousSurvivalTMLE, data: Any, sequence: Any, seed: int
+) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
+    """:func:`_replicate` on the row index that ``sequence`` draws, as the shared bootstrap
+    draws it (:func:`~cleverly.inference.bootstrap._bootstrap_draw`)."""
+    from ..inference.bootstrap import _bootstrap_draw
+
+    n = int(np.asarray(data.time).shape[0])
+    index = _bootstrap_draw(n, None, np.random.default_rng(sequence))[0]
+    return _replicate(estimator, data, index, seed)
+
+
 def _replicate(
     estimator: ContinuousSurvivalTMLE, data: Any, index: IntArray, seed: int
 ) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
     """One bootstrap replicate: each estimate and standard error, or why the refit failed.
 
-    Every exception is caught and named, so the fit can count the failures and give their
-    reasons (refusal C6); none is redrawn.
+    The failures a resampled fit can legitimately raise are caught and named, so the fit can
+    count them and give their reasons; none is redrawn.  Any other exception is a
+    defect and propagates.
     """
     try:
         sample = resample(data, index)
@@ -2264,7 +2285,12 @@ def _replicate(
             seed=seed,
         )
         fit = estimator._copy(seed)._fit_data(sample, plan=plan)
-    except Exception as error:  # every failure is counted and named, never redrawn
+    # The engine's refusals on the drawn data (a lost cause or event, a combined jump, an
+    # underflow, a memory refusal) are CleverlyErrors; a singular system in a learner raises
+    # LinAlgError, and floating-point signals that a learner turns into errors raise
+    # FloatingPointError.  A TypeError, IndexError or any other exception is a defect, and
+    # counting it as a failed refit would hide it below the 1% share.
+    except (CleverlyError, np.linalg.LinAlgError, FloatingPointError) as error:
         message = str(error).split(". ")[0].strip()
         return None, f"{type(error).__name__}: {message}" if message else type(error).__name__
     values = {
