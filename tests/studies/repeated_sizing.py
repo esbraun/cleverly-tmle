@@ -79,6 +79,7 @@ from typing import NamedTuple
 import numpy as np
 from scipy.linalg import block_diag
 from scipy.optimize import brentq
+from scipy.signal import fftconvolve
 from scipy.stats import beta, binom, chi2, norm
 
 from tests.studies.evidence.registry import Margins
@@ -138,6 +139,26 @@ def discrimination_floor(checks: int) -> float:
 def family_share(families: int) -> float:
     """The share of one of ``families`` property families: ``1 - SIZED_FAIL / families``."""
     return 1.0 - SIZED_FAIL / families
+
+
+def checked(probability: float, rule: str) -> float:
+    """``probability``, or :class:`ValueError` when it is not finite.
+
+    Every rule compares a pass probability with a target.  ``nan < target`` and
+    ``nan >= target`` are both false, so a non-finite probability would end a size search at
+    its first step or walk it to the cap without saying why.  The rules refuse it instead.
+
+    Parameters
+    ----------
+    probability : float
+        The probability a rule is about to compare.
+    rule : str
+        The rule and size, for the message.
+    """
+    value = float(probability)
+    if not np.isfinite(value):
+        raise ValueError(f"{rule}: the pass probability is {value}, not a finite number")
+    return value
 
 
 # ---------------------------------------------------------------------------- cell probabilities
@@ -300,6 +321,11 @@ def calibration_pass(
     attains (:func:`wald_coverage`), because a cell with a ratio off one is off in both halves.
     A one-sided cell reads only the lower end of the band on both scales (the ``SDR`` C5 arm).
 
+    An SE ratio is positive, and the pass probability falls to zero as the ratio falls to zero,
+    so a ratio at or below zero passes with probability zero.  The pooled reading reaches such
+    ratios at its outer quadrature nodes when the spread between cells is wide.  A non-finite
+    ratio raises :class:`ValueError`.
+
     Parameters
     ----------
     margins : Margins
@@ -316,6 +342,16 @@ def calibration_pass(
         Read the lower end of the band only.
     """
     ratio = np.asarray(ratio, dtype=float)
+    if not np.all(np.isfinite(ratio)):
+        raise ValueError("calibration_pass: every SE ratio must be finite")
+    positive = ratio > 0.0
+    if not np.all(positive):
+        out = np.zeros_like(ratio)
+        if np.any(positive):
+            out[positive] = calibration_pass(
+                margins, replicates, ratio[positive], coverage, bias=bias, one_sided=one_sided
+            )
+        return out
     low, high = margins.calibration_se_ratio
     z = _confidence_z(margins)
     spread = ratio / np.sqrt(2.0 * (replicates - 1))
@@ -485,6 +521,11 @@ def heterogeneity_bound(groups: Sequence[PilotGroup], *, level: float = PILOT_LE
     level : float
         The confidence level of the one-sided bound.
     """
+    for group in groups:
+        if not (np.all(np.isfinite(group.values)) and np.all(np.isfinite(group.noise))):
+            raise ValueError(
+                "heterogeneity_bound: every pilot value and noise entry must be finite"
+            )
     groups = [group for group in groups if len(group.values) > 1]
     if not groups:
         return 0.0
@@ -513,9 +554,26 @@ def heterogeneity_bound(groups: Sequence[PilotGroup], *, level: float = PILOT_LE
     return float(brentq(lambda tau: tail(tau) - target, 0.0, upper, xtol=1e-9))
 
 
-#: Gauss-Hermite nodes and weights (probabilists') of the pooled predictive integral.
+#: Gauss-Hermite nodes and weights (probabilists'), for the outliers of the robust reading.
 _NODES, _WEIGHTS = np.polynomial.hermite_e.hermegauss(31)
 _WEIGHTS = _WEIGHTS / _WEIGHTS.sum()
+
+#: The largest grid step of the pooled reading, on the scale of the cells' values.  A cell's
+#: pass probability changes over the noise of its estimate, ``1 / sqrt(2 R)`` of a ratio or
+#: ``1 / sqrt(R)`` of a standardized bias: 0.0032 at the 50,000-replication cap.
+POOLED_STEP = 1e-4
+#: The pooled reading integrates each normal law to this many standard deviations.
+POOLED_REACH = 10.0
+
+
+def _normal_grid(scale: float, step: float) -> tuple[np.ndarray, np.ndarray]:
+    """Offsets ``k step`` within :data:`POOLED_REACH` scales and their normal weights."""
+    if scale == 0.0:
+        return np.zeros(1), np.ones(1)
+    half = int(np.ceil(POOLED_REACH * scale / step))
+    offsets = np.arange(-half, half + 1) * step
+    weights = np.exp(-0.5 * (offsets / scale) ** 2)
+    return offsets, weights / weights.sum()
 
 
 def pooled_pass_probability(
@@ -532,6 +590,15 @@ def pooled_pass_probability(
     :math:`E_\mu[\prod_c E_z\, p_c(\mu + \tau z)]` for the cell pass probabilities :math:`p_c`.
     Cells that share a fit are positively dependent, which makes the product a lower bound.
 
+    Both expectations are sums on one grid of values, with a step of at most
+    :data:`POOLED_STEP` and a twentieth of :math:`\tau` and :math:`\sigma`, out to
+    :data:`POOLED_REACH` standard deviations.  The inner expectation is a convolution of the
+    cell probability with the normal law of :math:`\tau z`.  A pass probability can change
+    over a few thousandths of a ratio, so a fixed set of quadrature nodes spaced by a fraction
+    of :math:`\tau` misreads it once :math:`\tau` is wide.  A ``tau`` that is negative or not
+    finite, a sequence of the wrong length and a non-finite cell probability raise
+    :class:`ValueError`.
+
     Parameters
     ----------
     groups : Sequence[PilotGroup]
@@ -543,7 +610,14 @@ def pooled_pass_probability(
         One callable serves every cell.  A sequence gives each cell of the pooled groups its
         own, in the order of the groups' cells.
     """
-    nodes = _NODES
+    tau = float(tau)
+    if not (np.isfinite(tau) and tau >= 0.0):
+        raise ValueError(f"pooled_pass_probability: tau must be finite and >= 0, not {tau}")
+    count = sum(len(group.values) for group in groups)
+    if not callable(cell_pass) and len(list(cell_pass)) != count:
+        raise ValueError(
+            f"pooled_pass_probability: {len(list(cell_pass))} cell probabilities for {count} cells"
+        )
     total = 1.0
     offset = 0
     for group in groups:
@@ -552,18 +626,27 @@ def pooled_pass_probability(
             [cell_pass] * size if callable(cell_pass) else list(cell_pass)[offset : offset + size]
         )
         offset += size
-        centres = float(np.mean(group.values)) + float(np.sqrt(group.mean_variance)) * nodes
+        sigma = float(np.sqrt(group.mean_variance))
+        step = min([POOLED_STEP] + [scale / 20.0 for scale in (tau, sigma) if scale > 0.0])
+        centres, outer = _normal_grid(sigma, step)
+        centres = centres + float(np.mean(group.values))
+        spread, kernel = _normal_grid(tau, step)
+        values = centres[0] + spread[0] + np.arange(centres.size + spread.size - 1) * step
         inner: dict[int, np.ndarray] = {}
-        product = np.ones(len(nodes))
+        product = np.ones(centres.size)
         for cell in cells:
             if id(cell) not in inner:
-                if tau > 0.0:
-                    inner[id(cell)] = cell(centres[:, None] + tau * nodes[None, :]) @ _WEIGHTS
-                else:
-                    inner[id(cell)] = cell(centres)
+                passes = np.asarray(cell(values), dtype=float)
+                if not np.all(np.isfinite(passes)):
+                    raise ValueError(
+                        f"pooled_pass_probability: a cell pass probability is not finite "
+                        f"(group mean {float(np.mean(group.values)):.6g}, tau {tau:.6g})"
+                    )
+                smoothed = fftconvolve(passes, kernel, mode="valid") if tau > 0.0 else passes
+                inner[id(cell)] = np.clip(smoothed, 0.0, 1.0)
             product = product * inner[id(cell)]
-        total *= float(np.sum(_WEIGHTS * product))
-    return total
+        total *= float(outer @ product)
+    return checked(total, "pooled_pass_probability")
 
 
 def _bias_gate(margins: Margins, replicates: int) -> Callable[[np.ndarray], np.ndarray]:
@@ -654,13 +737,18 @@ def primary_replicates(
             )
             ** implementations
         )
+        rule = f"primary_replicates at {replicates}"
+        design_bias = bias_equivalent_probability(margins, PRIMARY_DESIGN_BIAS, replicates)
+        design_coverage = coverage_floor_pass_probability(
+            margins, replicates, PRIMARY_DESIGN_COVERAGE
+        )
         if (
-            bias_equivalent_probability(margins, PRIMARY_DESIGN_BIAS, replicates) >= 0.90
-            and coverage_floor_pass_probability(margins, replicates, PRIMARY_DESIGN_COVERAGE)
-            >= PRIMARY_CELL_PASS
-            and product >= coverage_pass
+            checked(design_bias, rule) >= 0.90
+            and checked(design_coverage, rule) >= PRIMARY_CELL_PASS
+            and checked(product, rule) >= coverage_pass
             and (
-                reading is None or reading.probability(_bias_gate(margins, replicates)) >= bias_pass
+                reading is None
+                or checked(reading.probability(_bias_gate(margins, replicates)), rule) >= bias_pass
             )
         ):
             return replicates
@@ -753,7 +841,13 @@ def calibration_replicates(
     groups = calibration_groups(ratios, pilot_replicates, correlations)
     tau = heterogeneity_bound(groups)
     replicates = BUDGET_STEP
-    while calibration_family_pass_probability(margins, replicates, groups, tau) < family_pass:
+    while (
+        checked(
+            calibration_family_pass_probability(margins, replicates, groups, tau),
+            f"calibration_replicates at {replicates}",
+        )
+        < family_pass
+    ):
         replicates += BUDGET_STEP
         if replicates > MAXIMUM_REPLICATES:  # pragma: no cover - a pilot this far off needs a fix
             raise ValueError("no budget up to 50,000 replications meets the calibration rule")
@@ -873,15 +967,18 @@ def calibration_size(
     names = [name for arm in calibration_arms(ratios).values() for name in arm]
 
     def fails(replicates: int) -> float:
-        return calibration_failure_bound(
-            margins,
-            replicates,
-            groups,
-            tau,
-            names,
-            one_sided_arms=one_sided_arms,
-            biases=biases,
-            joint_coverage=joint_coverage,
+        return checked(
+            calibration_failure_bound(
+                margins,
+                replicates,
+                groups,
+                tau,
+                names,
+                one_sided_arms=one_sided_arms,
+                biases=biases,
+                joint_coverage=joint_coverage,
+            ),
+            f"calibration_size at {replicates}",
         )
 
     previous = 0
@@ -1057,7 +1154,8 @@ def property_bias_replicates(
             def cell(bias: np.ndarray, count: int = count) -> np.ndarray:
                 return np.asarray(bias_equivalent_probability(margins, bias, count))
 
-            if pooled_pass_probability([group], tau, cell) >= target:
+            probability = pooled_pass_probability([group], tau, cell)
+            if checked(probability, f"property_bias_replicates for {family} at {count}") >= target:
                 break
             count += PROPERTY_STEP
             if count > MAXIMUM_REPLICATES:  # pragma: no cover - a pilot this far off needs a fix
@@ -1094,7 +1192,7 @@ class RobustReading(NamedTuple):
         failure = 1.0 - pooled_pass_probability(self.kept, self.tau, cell_pass)
         for bias, variance in self.outliers:
             failure += float(1.0 - cell_pass(bias + np.sqrt(variance) * _NODES) @ _WEIGHTS)
-        return 1.0 - failure
+        return checked(1.0 - failure, "robust_probability")
 
 
 def robust_reading(
