@@ -1124,31 +1124,16 @@ def _captured_side(
 def _replay(shown: Sequence[tuple[Any, type[Warning], str, int]]) -> None:
     """Raise a worker's warnings again in the caller, at their original source lines.
 
-    Each one passes through the caller's filters and the registry of the module that raised
-    it, so a warning the caller's filters show once per location is shown once, as in the
-    serial loop.
+    Each one passes through the caller's filters.  No once-per-location registry is passed:
+    the serial loop resets that registry between fits (every learner fit changes the warning
+    filters), so under the ``"default"`` and ``"module"`` actions it shows every repeat, and
+    so does this replay.  Under ``"once"`` the serial loop shows a repeat after each reset and
+    the replay shows it once; under ``"always"``, ``"error"`` and ``"ignore"`` they agree.
     """
-    import sys
     import warnings
 
     for message, category, filename, lineno in shown:
-        module = next(
-            (
-                loaded
-                for loaded in list(sys.modules.values())
-                if getattr(loaded, "__file__", None) == filename
-            ),
-            None,
-        )
-        registry = None if module is None else module.__dict__.setdefault("__warningregistry__", {})
-        warnings.warn_explicit(
-            message,
-            category,
-            filename,
-            lineno,
-            module=None if module is None else module.__name__,
-            registry=registry,
-        )
+        warnings.warn_explicit(message, category, filename, lineno, registry=None)
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:

@@ -480,7 +480,7 @@ class TiltInputs:
         assert mechanism is not None
         self.mechanism = _frozen(mechanism)
         self.folds = (
-            [np.asarray(test, dtype=int) for _, test in nuisance.folds]
+            [_frozen(np.asarray(test, dtype=int)) for _, test in nuisance.folds]
             if config.cv_evaluation and not nuisance.folds.is_single
             else None
         )

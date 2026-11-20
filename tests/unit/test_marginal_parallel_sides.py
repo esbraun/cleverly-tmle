@@ -115,11 +115,13 @@ class _NoisyLinear(LinearRegression):
         return super().fit(X, y, sample_weight=sample_weight)
 
 
-def _seen(n_jobs: int, learner: Any) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
-    """The warnings the caller sees, and the package's records, for one call."""
+def _seen(
+    n_jobs: int, learner: Any, action: str = "always"
+) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+    """The warnings the caller sees under filter ``action``, and the package's records."""
     result = _fit(n_jobs, weights=True)
     with warnings.catch_warnings(record=True) as caught, recording() as records:
-        warnings.simplefilter("always")
+        warnings.simplefilter(action)  # type: ignore[arg-type]
         marginal_sensitivity_bounds(result, gamma=(1.0, 2.0), pseudo_outcome_learner=learner)
     shown = [(w.category, str(w.message), w.filename, w.lineno) for w in caught]
     recorded = [(r.category, r.message, r.count) for r in records]
@@ -132,10 +134,13 @@ def _seen(n_jobs: int, learner: Any) -> tuple[list[tuple[Any, ...]], list[tuple[
     [KNeighborsRegressor(), _NoisyLinear()],
     ids=["package-warning", "third-party-warning"],
 )
-def test_parallel_sides_show_the_serial_warnings(learner: Any) -> None:
-    serial = _seen(1, learner)
-    assert serial[0], "the fixture must warn for the witness to measure anything"
-    assert _seen(2, learner) == serial
+@pytest.mark.parametrize("action", ["always", "default", "module"])
+def test_parallel_sides_show_the_serial_warnings(learner: Any, action: str) -> None:
+    # Under "default" and "module" the serial loop shows every repeat, because each learner fit
+    # resets the once-per-location registry; the replay passes no registry, so it does too.
+    serial = _seen(1, learner, action)
+    assert len(serial[0]) > 1, "the fixture must repeat a warning for the witness to measure"
+    assert _seen(2, learner, action) == serial
 
 
 def test_dropping_the_replay_loses_the_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
