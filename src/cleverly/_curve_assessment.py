@@ -1164,25 +1164,41 @@ def _ate_kwargs(estimator: Any, *, reference: float, seed: int) -> dict[str, Any
     return kwargs
 
 
+def _drops(basis: Any, name: str) -> bool:
+    """Whether ``basis`` reads ``name`` alone, so nothing of it is left without ``name``."""
+    return tuple(getattr(basis, "columns", ())) == (name,)
+
+
 def _without(basis: Any, name: str) -> Any:
-    """``basis`` without the modifier ``name``: its columns and domains, or its components.
+    """``basis`` without the modifier ``name``.
 
     An :class:`~cleverly.bases.Additive` basis drops each component that reads only ``name``
-    and rebuilds each that reads it among others; every other shipped basis is a dataclass
-    of columns and domains.
+    and rebuilds each that reads it among others.  A :class:`~cleverly.bases.Tensor` keeps
+    the other factor when one factor reads only ``name``, and rebuilds a factor that reads it
+    among others.  An :class:`~cleverly.bases.Interactions` basis rebuilds its additive basis
+    and keeps its order where enough components remain.  Every other shipped basis is a
+    dataclass of columns and domains.  :func:`_without_refusal` names what cannot be dropped.
     """
-    from .bases import Additive
+    from .bases import Additive, Interactions, Tensor
 
     _raise(_without_refusal(basis, name))
+    if name not in tuple(getattr(basis, "columns", ())):
+        return basis
     if isinstance(basis, Additive):
-        parts = []
-        for component in basis.bases:
-            reads = tuple(getattr(component, "columns", ()))
-            if name not in reads:
-                parts.append(component)
-            elif len(reads) > 1:
-                parts.append(_without(component, name))
+        parts = [
+            _without(component, name) for component in basis.bases if not _drops(component, name)
+        ]
         return Additive(*parts, intercept=basis.intercept)
+    if isinstance(basis, Tensor):
+        if _drops(basis.left, name):
+            return _without(basis.right, name)
+        if _drops(basis.right, name):
+            return _without(basis.left, name)
+        return Tensor(_without(basis.left, name), _without(basis.right, name))
+    if isinstance(basis, Interactions):
+        additive = _without(basis.basis, name)
+        order = min(basis.order, len(additive.bases))
+        return additive if order == 1 else Interactions(additive, order)
     kept = [column for column in basis.columns if column != name]
     fields: dict[str, Any] = {"columns": kept}
     domains = getattr(basis, "domains", None)
@@ -1196,23 +1212,47 @@ def _without(basis: Any, name: str) -> Any:
 def _without_refusal(basis: Any, name: str) -> Refusal | None:
     """Why :func:`_without` cannot drop ``name`` from ``basis``, or ``None``.
 
-    Read without building the reduced basis, so a capability row can ask it: an additive
-    basis whose every component reads ``name`` alone leaves nothing behind.
+    Read without building the reduced basis, so a capability row can ask it.  An additive
+    basis whose every component reads ``name`` alone, or a tensor product whose two factors
+    each read ``name`` alone, leaves nothing behind.  A
+    :class:`~cleverly.bases.UserBasis` evaluates one function of all its columns, which
+    cannot be rebuilt without one of them.
     """
-    from .bases import Additive
+    from .bases import Additive, Interactions, Tensor, UserBasis
 
+    if name not in tuple(getattr(basis, "columns", ())):
+        return None
+    if isinstance(basis, UserBasis):
+        return _refuse(
+            f"a UserBasis evaluates one function of its columns, so it cannot be rebuilt "
+            f"without {name}.",
+            "Declare a shipped basis, such as Linear or Additive, to compare modifiers.",
+        ).refusal
+    if isinstance(basis, Interactions):
+        return _without_refusal(basis.basis, name)
+    if isinstance(basis, Tensor):
+        factors = (basis.left, basis.right)
+        if all(_drops(factor, name) for factor in factors):
+            return _refuse(
+                f"both factors of the tensor product read {name} alone, so nothing is left "
+                "without it.",
+                "Declare a basis with a factor for each modifier.",
+            ).refusal
+        for factor in factors:
+            inner = None if _drops(factor, name) else _without_refusal(factor, name)
+            if inner is not None:
+                return inner
+        return None
     if not isinstance(basis, Additive):
         return None
     kept = False
     for component in basis.bases:
-        reads = tuple(getattr(component, "columns", ()))
-        if name not in reads:
-            kept = True
-        elif len(reads) > 1:
-            inner = _without_refusal(component, name)
-            if inner is not None:
-                return inner
-            kept = True
+        if _drops(component, name):
+            continue
+        inner = _without_refusal(component, name)
+        if inner is not None:
+            return inner
+        kept = True
     if kept:
         return None
     return _refuse(

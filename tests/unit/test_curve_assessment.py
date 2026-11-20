@@ -417,3 +417,59 @@ def test_influence_refuses_on_a_curve(fitted: Any, sieve_curve: Any) -> None:
     assert "curve.fit.diagnostics.influence()" in projection.refusal.alternative
     ep = _raised(sieve_curve.diagnostics.influence)
     assert ep.refusal.reason is RefusalReason.INVALID_DECLARATION
+
+
+def test_without_rebuilds_a_tensor_and_an_interaction_basis() -> None:
+    """Dropping a modifier from a product or interaction basis keeps the rest of the model.
+
+    Before the fix, both bases went through ``dataclasses.replace(basis, columns=...)`` and
+    raised ``TypeError``, while the ``modifier_stability`` row read available.
+    """
+    from cleverly._curve_assessment import _without, _without_refusal
+    from cleverly.bases import Additive, Cosine, Interactions, Tensor
+
+    product = Tensor(Linear(["W1"]), Cosine(["W2"], 2))
+    assert _without(product, "W1") == Cosine(["W2"], 2)
+    assert _without(product, "W2") == Linear(["W1"])
+    wide = Tensor(Linear(["W1", "W2"]), Cosine(["W1"], 2))
+    assert _without(wide, "W1") == Linear(["W2"])
+    assert _without(wide, "W2") == Tensor(Linear(["W1"]), Cosine(["W1"], 2))
+    three = Interactions(Additive(Linear(["W1"]), Linear(["W2"]), Linear(["W3"])), 2)
+    assert _without(three, "W1") == Interactions(Additive(Linear(["W2"]), Linear(["W3"])), 2)
+    two = Interactions(Additive(Linear(["W1"]), Linear(["W2"])), 2)
+    reduced = _without(two, "W1")
+    assert isinstance(reduced, Additive) and reduced.columns == ("W2",)
+    # A product whose two factors read the modifier alone keeps nothing without it.
+    alone = Tensor(Linear(["W1"]), Cosine(["W1"], 2))
+    assert "both factors" in _without_refusal(alone, "W1").condition
+    with pytest.raises(CapabilityError, match="both factors"):
+        _without(alone, "W1")
+
+
+def test_modifier_stability_runs_on_a_tensor_basis_and_refuses_a_user_basis() -> None:
+    """The row follows the call on both: a product runs, a written function refuses.
+
+    The tensor curve is the nonzero witness that the fix reaches the refit: each dropped
+    modifier gives a finite out-of-fold risk.
+    """
+    from cleverly.bases import Tensor, UserBasis
+
+    product = curve(frame(), basis=Tensor(Linear(["W1"]), Linear(["W2"])))
+    assert product.diagnostics.capability("modifier_stability").available
+    table = product.diagnostics.modifier_stability(n_folds=2, random_state=0).to_frame()
+    assert list(table["dropped"]) == ["W1", "W2"]
+    assert np.isfinite(table.select_dtypes("number").to_numpy()).all()
+    written = UserBasis(
+        lambda rows: np.column_stack(
+            [np.ones_like(np.asarray(rows["W1"], float)), np.asarray(rows["W1"] * rows["W2"])]
+        ),
+        terms=("(intercept)", "W1*W2"),
+        columns=("W1", "W2"),
+        basis_kind="known",
+    )
+    user = curve(frame(), basis=written)
+    _rule_witness(user, "modifier_stability", CHEAP["modifier_stability"])
+    assert (
+        "UserBasis evaluates one function"
+        in user.diagnostics.capability("modifier_stability").reason
+    )
