@@ -233,25 +233,28 @@ class TestControls:
         assert classified(wrong).row.id != wrong.row  # type: ignore[union-attr]
 
     @pytest.mark.parametrize(
-        ("row", "attribute", "value"),
+        ("row", "changes"),
         [
-            ("T01.binary", "cross_fit", True),
-            ("T01.binary", "fluctuation", "linear"),
-            ("T02.binary", "cv_evaluation", True),
-            ("T05.binary", "repeats", 1),
-            ("T06", "target_weights", True),
-            ("D01", "guard", ("Q",)),
-            ("D08", "randomized", False),
-            ("C03", "oat_design", "per_arm"),
-            ("T22", "ratio", "classifier"),
+            ("T01.binary", {"cross_fit": True}),
+            ("T01.binary", {"fluctuation": "linear"}),
+            ("T02.binary", {"cv_evaluation": True}),
+            ("T05.binary", {"repeats": 1}),
+            ("T06", {"target_weights": True}),
+            ("D01", {"guard": ("Q",)}),
+            ("D08", {"randomized": False}),
+            ("C03", {"oat_design": "per_arm"}),
+            # The classifier route fits no binned density and refuses a bin count, so the
+            # control drops the row's density setting with the route.
+            ("T22", {"ratio": "classifier", "density_bins": None}),
         ],
     )
-    def test_one_changed_setting_leaves_the_row(self, row: str, attribute: str, value: Any) -> None:
+    def test_one_changed_setting_leaves_the_row(self, row: str, changes: dict[str, Any]) -> None:
         case = self.case(row)
         estimator, data, estimands = case.build()
         assert classify(estimator, data, estimands).row.id == row  # type: ignore[union-attr]
         changed = copy.copy(estimator)
-        setattr(changed, attribute, value)
+        for attribute, value in changes.items():
+            setattr(changed, attribute, value)
         moved = classify(changed, data, estimands)
         assert moved.row is None or moved.row.id != row
 
