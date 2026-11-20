@@ -124,12 +124,17 @@ The twelve targets at the median and upper quartile of `v1_rare_cause2`, `v3_hal
 
 The lowest gated coverage is the treated arm's risk of cause 2 at $t = 1.12$ in `v3_half_n`
 (0.932), and the lowest SE ratio is the in-sample cause-1 difference at $t = 1.12$ (0.954).
+
 `v3_half_n` lost 12 of 6,000 fits, against an allowance of 60 under the bound of 0.01
 (`failure-accounting.csv`). Eight are the `DataError` of an initial hazard fit whose combined
-jump at a late time with few units at risk is one or more, and four are the `DataError` of a
-treated arm with no cause-2 event by the first target time, whose risk then has a zero influence
-curve. Both refusals are kept on purpose at 500 units (`pilot-diagnosis.md`). No other cell lost
-a fit.
+jump at some time is one or more. In the three refitted (replicates 657, 1209 and 2184), the
+hazard model extrapolated to a unit's counterfactual arm. The unit's X3 was among the sample's
+three most extreme, outside the other arm's range, and its score there was 22 to 39 times the
+largest in a risk set of 141 to 148 units, at times near $t = 2.3$.
+
+The other four are the `DataError` of a treated arm with no cause-2 event by the first target
+time, whose risk then has a zero influence curve. Both refusals are kept on purpose at 500 units
+(`pilot-diagnosis.md`). No other cell lost a fit.
 
 `v2_heavy_weights` is a reported cell. Its rows publish the same readings with no verdict: coverage
 0.905 to 0.954, SE ratios 0.907 to 0.992 and a largest standardized bias of 0.081. Three of its

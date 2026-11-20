@@ -1515,7 +1515,9 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     mechanism, the censoring hazard and the event hazard together until every fluctuation
     parameter is below :math:`10^{-4} n^{-3/5}`.  The interval is the Wald interval from the
     corrected influence curve of Theorem 2 of the source.  The module docstring of
-    :mod:`cleverly.longitudinal.drift` states the algorithm and its departures.
+    :mod:`cleverly.longitudinal.drift` states the algorithm and its departures.  The memory
+    guard of :class:`LTMLE` does not check this fit: its memory is outside that guard's
+    calibration.
 
     Parameters
     ----------
@@ -1615,6 +1617,8 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: A constant node keeps the constant-node status: the curve subtracts residual-regression
     #: terms at each node, which the boundary-node supplement does not bound.
     _boundary_kind: ClassVar[str | None] = "drift"
+    #: Not guarded: its memory is its own (X106 J3), outside the J2d calibration.
+    _retention_guard: ClassVar[bool] = False
 
     def __init__(
         self,

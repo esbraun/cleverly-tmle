@@ -31,6 +31,13 @@ units of a block, ``P = 2 J Q`` targets and ``E`` the trial steps a pass evaluat
   and finished blocks' off-grid rows and targeted jumps wait for their turn; the buffer is
   added on the calling thread once a batch of blocks has finished.
 * ``band``: the multiplier buffer of :func:`~cleverly.inference.simultaneous_bands`.
+* ``bootstrap``, with ``n_bootstrap``: the fit's result (every estimate's influence curve, the
+  record and the data) and the replicate draws, beside one replicate fit per worker process,
+  each at the peak this model predicts for a fit of ``n`` units on the full grid, trained on
+  every unit, with one walk thread and no band (:func:`bootstrap_held`).  A resample's grid
+  holds at most the fit's times, so that prediction bounds every replicate.  The workers are
+  ``min(n_jobs, n_bootstrap)``: the peak grows by one replicate per worker, and the walk's own
+  threads do not multiply it, since each replicate walks on one thread.
 
 The prediction does not cover a user learner's own allocations.
 """
@@ -69,6 +76,59 @@ TREATMENT_FIT: Final = 6 * F8
 #: its mmap threshold has risen, so the resident set of a walk read 7 to 9% above its predicted
 #: arrays at 8,000 to 32,000 units (and under them with the threshold held fixed).
 ALLOCATOR_MARGIN: Final = 1.15
+
+
+#: The keyword arguments of :func:`bootstrap_held`, as :func:`peak_bytes` takes them.
+BOOTSTRAP_HELD: Final = ("n", "estimates", "rows", "covariates", "n_bootstrap")
+
+
+def estimate_count(causes: int, horizons: int, restricted: int) -> int:
+    """The estimates a fit reports: risks, differences and ratios, and the restricted means.
+
+    Parameters
+    ----------
+    causes : int
+        Causes ``J``.
+    horizons : int
+        Target times ``K``.
+    restricted : int
+        Restriction times.
+
+    Returns
+    -------
+    int
+        ``4 J K`` (two arms' risks, their difference and ratio) plus ``3 J + 3`` per restriction
+        time (two arms' RMTL per cause and their difference, two RMSTs and theirs).
+    """
+    J, K, R = int(causes), int(horizons), int(restricted)
+    return 4 * J * K + R * (3 * J + 3)
+
+
+def bootstrap_held(*, n: int, estimates: int, rows: int, covariates: int, n_bootstrap: int) -> int:
+    """The bytes the fit's result and the replicate draws hold while the replicates run.
+
+    Parameters
+    ----------
+    n : int
+        Units.
+    estimates : int
+        The fit's estimates (:func:`estimate_count`).
+    rows : int
+        Weight rows ``Q``, which bound the target times of the record's retention readers.
+    covariates : int
+        Baseline covariates ``p``.
+    n_bootstrap : int
+        Replicates.
+
+    Returns
+    -------
+    int
+        Each estimate's ``(n,)`` influence curve, the record's ``(2, n, K)`` retention and its
+        per-unit vectors, the stored copy of the data, and an estimate and a standard error per
+        replicate and estimate.
+    """
+    n, E, Q, p, B = int(n), int(estimates), int(rows), int(covariates), int(n_bootstrap)
+    return F8 * n * (E + 2 * Q + 6 + p + 3) + 2 * F8 * B * E
 
 
 class ContinuousSurvivalMemoryError(MethodConfigurationError):  # numpydoc ignore=PR01
@@ -282,6 +342,9 @@ def peak_bytes(
     folds: int = 1,
     switched: bool,
     n_jobs: int = 1,
+    n_bootstrap: int = 0,
+    bootstrap_workers: int = 1,
+    estimates: int = 0,
 ) -> PeakEstimate:
     """Predict the bytes a continuous-time fit holds at once, by phase.
 
@@ -337,6 +400,13 @@ def peak_bytes(
         final pass (the initial phase's check runs on one thread), and the off-grid
         rows (and under ``switched`` the targeted jumps) of up to ``2 n_jobs - 1`` finished
         blocks wait to be added in row order.
+    n_bootstrap : int
+        Bootstrap replicates; ``0`` adds no ``bootstrap`` phase.
+    bootstrap_workers : int
+        The worker processes the replicates run on, each holding one replicate fit.
+    estimates : int
+        The fit's estimates (:func:`estimate_count`), whose influence curves the result holds
+        while the replicates run.
 
     Returns
     -------
@@ -440,10 +510,40 @@ def peak_bytes(
         "off_grid": final_phase(switched),
         "band": 5 * influence + band,
     }
+
+    def bootstrap_phase(switched: bool) -> int:
+        """The result and the draws beside one replicate fit per worker."""
+        replicate = peak_bytes(
+            n,
+            J,
+            M,
+            Q,
+            covariates=p,
+            # A resample's training rows never exceed n, and its grid never exceeds M.
+            train_size=n,
+            design_width=design_width,
+            simultaneous=False,
+            n_multiplier=n_multiplier,
+            factual_tilt=factual_tilt,
+            stratified_learner=stratified_learner,
+            restricted=restricted,
+            folds=folds,
+            switched=switched,
+            n_jobs=1,
+        ).bytes
+        held = bootstrap_held(
+            n=n, estimates=estimates, rows=Q, covariates=p, n_bootstrap=n_bootstrap
+        )
+        return held + max(1, int(bootstrap_workers)) * replicate
+
+    if n_bootstrap:
+        phases["bootstrap"] = bootstrap_phase(switched)
     influence_curve = None
     if switched:
         # The same fit without the predictable variation: only the final pass differs.
         plain = {**phases, "off_grid": final_phase(False)}
+        if n_bootstrap:
+            plain["bootstrap"] = bootstrap_phase(False)
         influence_curve = max(plain.values()) + fixed
     return PeakEstimate(
         {name: value + fixed for name, value in phases.items()}, n, J, M, Q, influence_curve
@@ -457,6 +557,7 @@ PHASES: Final = {
     "walk": "the targeting walk",
     "off_grid": "the final pass (the off-grid diagnostic)",
     "band": "the estimates and their simultaneous band",
+    "bootstrap": "the full-refit bootstrap (the fit's result beside one replicate fit per worker)",
 }
 
 
@@ -512,6 +613,11 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
         "Pass max_memory_bytes= to ContinuousSurvivalTMLE to set the budget yourself, higher "
         "or lower."
     )
+    if estimate.phase == "bootstrap":
+        alternative += (
+            " With a smaller n_jobs the bootstrap holds fewer replicate fits at once; each "
+            "worker holds one."
+        )
     if estimate.influence_curve is not None and estimate.influence_curve < estimate.bytes:
         alternative += (
             ' With variance="influence_curve" the fit needs less, a predicted '
@@ -620,10 +726,13 @@ def design_width(library: Any, covariates: int) -> int:
 
 
 __all__ = [
+    "BOOTSTRAP_HELD",
     "ContinuousSurvivalMemoryError",
     "PeakEstimate",
+    "bootstrap_held",
     "check_memory",
     "design_width",
+    "estimate_count",
     "peak_bytes",
     "resident_count",
     "slot_bytes",

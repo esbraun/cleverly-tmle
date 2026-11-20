@@ -406,6 +406,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "continuous_survival": _continuous_survival,
     # X6 (c): restricted_horizons= adds restricted means, in time units, beside the risks.
     "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
+    # X6 (d): the full-refit bootstrap, with the multiplier and the bootstrap band.
+    "continuous_survival_bootstrap": sweep.fit_continuous_survival_bootstrap,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "effect_curve_continuous": _effect_curve_continuous,
@@ -675,6 +677,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "continuous_survival_bootstrap": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "draws",
     },
     "continuous_survival_restricted": {
         "forest": "draws",

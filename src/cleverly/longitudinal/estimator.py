@@ -224,6 +224,7 @@ from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
 from ..utils.memory import check_max_memory_bytes
 from ..utils.random import note_fresh_entropy
+from . import _memory_guard
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
@@ -1821,6 +1822,9 @@ class _Preflight(NamedTuple):
     resolved_bounds: dict[str | None, dict[int, NodeBound]] | None
     declared_bounds: Any
     horizons: tuple[int, ...]
+    #: The memory guard's prediction the call was admitted with (X106 J2d); ``None`` for an
+    #: estimator or a bootstrap replicate the guard does not check.
+    memory: _memory_guard.Prediction | None = None
 
 
 @dataclass(frozen=True)
@@ -5193,8 +5197,9 @@ class _SequentialEstimator:
     #: The variance of a clustered fit, ``"influence_curve"`` or ``"jackknife"``. Only
     #: :class:`LTMLE` takes it.
     cluster_variance: str = "influence_curve"
-    #: The traced-memory limit of a multi-node hazard fit, ``None`` for the fixed limit.  Only
-    #: :class:`LTMLE` takes it.
+    #: The memory budget of the J2d guard and the traced-memory limit of a multi-node hazard
+    #: path fit, ``None`` for the memory available and the fixed limit.  :class:`LTMLE`,
+    #: :class:`SDR` and :class:`IPSI` take it.
     max_memory_bytes: int | None = None
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
@@ -5205,6 +5210,11 @@ class _SequentialEstimator:
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
+    #: Whether this class runs the memory guard (X106 J2d): ``LTMLE``, ``SDR`` and ``IPSI``.
+    _retention_guard: ClassVar[bool] = False
+    #: Whether this fit runs it.  A bootstrap replicate does not: the call that runs the
+    #: replicates counted them before its first learner.
+    _check_memory: bool = True
     #: One outer split per draw that a refit uses instead of drawing its own (:meth:`refit`).
     _frozen_folds: tuple[Folds, ...] | None = None
     #: One seed per draw that a refit uses instead of the seeds of ``random_state``.
@@ -6664,6 +6674,7 @@ class _SequentialEstimator:
             )
         )
         checked: tuple[Plan, ...] | None = None
+        policy_paths: int | None = None
         if plans is not None:
             if (
                 getattr(self, "survival_model", None) == "hazard"
@@ -6675,7 +6686,9 @@ class _SequentialEstimator:
                 # check are raised here (X70 part (a)).  With covariates after baseline the
                 # backward pass evaluates every node at the observed history and builds no path
                 # (part (b2)).
-                path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
+                slots = path_slots(prepared, plans, max_memory_bytes=self.max_memory_bytes)
+                if any(slots.draws):
+                    policy_paths = slots.n_slots
             checked = branch_plans(plans[0]) if learned is not None else plans
             # Every declared factor is checked against the bounds before any learner.
             preflight_known_mechanisms(
@@ -6738,6 +6751,22 @@ class _SequentialEstimator:
                 if len(draws) == 1:
                     raise
                 raise _named_draw(error, index, len(draws)) from error
+        memory: _memory_guard.Prediction | None = None
+        if self._retention_guard and self._check_memory:
+            # Before any learner, and after every other preflight: the predicted peak of the
+            # whole call against the budget (X106 J2d).
+            memory = _memory_guard.check_fit(
+                self,
+                prepared,
+                plans=(len(regimens) if checked is None else len(checked) + len(separable)),
+                horizons=horizons,
+                folds=draws[0][0].n_folds,
+                repeats=len(draws),
+                paths=policy_paths,
+                multinode=is_multinode(prepared),
+                later=bool(later_covariates(prepared)),
+                separable=len(separable) if separable else 0,
+            )
         return _Preflight(
             prepared=prepared,
             learned=learned,
@@ -6754,6 +6783,7 @@ class _SequentialEstimator:
             resolved_bounds=resolved_bounds,
             declared_bounds=declared_bounds,
             horizons=horizons,
+            memory=memory,
         )
 
     def _planned_fits(
@@ -6993,6 +7023,8 @@ class _SequentialEstimator:
             self._plan_bootstrap(state, plans, unresolved, builder)
         if self.cluster_variance == "jackknife" and prepared.cluster is not None:
             self._plan_jackknife(state, plans, unresolved, builder)
+        if state.memory is not None:
+            builder.note(_memory_guard.preview_note(state.memory))
         return builder.build(fold_state)
 
     def _plan_jackknife(
@@ -8163,6 +8195,7 @@ class _SequentialEstimator:
         """
         replicate = copy.copy(self)
         replicate._record_support = False
+        replicate._check_memory = False
         replicate.n_bootstrap = 0
         replicate.simultaneous = False
         replicate.n_jobs = 1
@@ -9325,21 +9358,36 @@ class LTMLE(_SequentialEstimator):
         refit per cluster and builds no simultaneous band. The option is experimental until
         its validation study is registered.
     max_memory_bytes : int or None
-        The traced-memory limit of a ``survival_model="hazard"`` fit with a treatment
-        decision at several nodes, no covariate after baseline and a regimen that draws from
-        a known policy, which holds the hazards of every treatment path for every unit.
-        Before any learner the fit predicts its traced peak from the units, nodes, paths,
-        causes and design columns (:func:`~cleverly.longitudinal.hazard.path_peak`) and raises
-        :class:`~cleverly.exceptions.CapabilityError` when the prediction exceeds the limit.
-        ``None`` keeps the fixed limit of 2 GiB
-        (:data:`~cleverly.longitudinal.hazard.PATH_PEAK_LIMIT`).  A positive integer
-        replaces it, higher or lower.  Every other fit ignores it.
+        The memory budget, in bytes, that two guards read before any learner.  The memory
+        guard of ``LTMLE``, ``SDR`` and ``IPSI`` predicts the peak of the whole call from the
+        units, nodes, regimens, horizons, causes, folds, design columns, density bins,
+        repeats, bootstrap replicates and workers, and raises ``LongitudinalMemoryError``, a
+        :class:`~cleverly.exceptions.MethodConfigurationError`, when the prediction exceeds
+        the budget.  With ``None`` it reads the memory available when the fit starts
+        (:func:`~cleverly.utils.memory.available_memory`), and checks nothing where the
+        platform does not report it, as on macOS.  The prediction counts the arrays the
+        estimator holds, calibrated with GLM, logistic and linear learners, and other
+        learners' own memory is not counted, so a fit with heavier learners can pass the
+        check and still run out of memory.  Outside the calibrated ranges, which the "Memory"
+        section of ``docs/technical-reference/longitudinal-tmle.md`` lists, the prediction is
+        an extrapolation and the refusal says so.  Its worker constants assume workers that
+        start cold, so a repeated call with ``n_jobs > 1`` can be over-counted by about
+        ``n_jobs`` times 324 MiB.  The second guard is the traced-memory limit of a
+        ``survival_model="hazard"`` fit with a treatment decision at several nodes, no
+        covariate after baseline and a regimen that draws from a known policy, which holds the
+        hazards of every treatment path for every unit
+        (:func:`~cleverly.longitudinal.hazard.path_peak`); it raises
+        :class:`~cleverly.exceptions.CapabilityError`, and with ``None`` keeps its fixed
+        limit of 2 GiB (:data:`~cleverly.longitudinal.hazard.PATH_PEAK_LIMIT`).  A positive
+        integer replaces both, higher or lower.  The binned density's own refusal during the
+        fit reads the available memory only, and this setting does not override it.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
     """
 
     _estimator: ClassVar[str] = "tmle"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -9592,6 +9640,17 @@ class SDR(_SequentialEstimator):
         as for :class:`LTMLE`.
     variance : {"influence_curve", "policy_weighted"}
         The variance of every reported interval, as for :class:`LTMLE`.
+    max_memory_bytes : int or None
+        The budget of the memory guard, as for :class:`LTMLE`: the fit predicts the peak of
+        the whole call before any learner and raises ``LongitudinalMemoryError``, a
+        :class:`~cleverly.exceptions.MethodConfigurationError`, when the prediction exceeds
+        the budget.  ``None`` reads the memory available when the fit starts and checks
+        nothing where the platform does not report it.  The prediction counts the arrays the
+        estimator holds, calibrated with GLM, logistic and linear learners, and other
+        learners' own memory is not counted.  Outside the calibrated ranges, which the
+        "Memory" section of ``docs/technical-reference/longitudinal-tmle.md`` lists, it is an
+        extrapolation.  The hazard path limit that :class:`LTMLE` also applies does not arise
+        here.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search`` and
         ``iterate``, which raise :class:`MethodConfigurationError` because the estimator fits no
@@ -9629,6 +9688,7 @@ class SDR(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "sdr"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -9664,8 +9724,10 @@ class SDR(_SequentialEstimator):
         hazard_pooling: str = "node",
         repeats: int = 1,
         variance: str = "influence_curve",
+        max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
+        self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
         if "node_bounds" in refused:
             raise MethodConfigurationError.from_refusal(node_bounds_refusal("the SDR estimator"))
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
@@ -9874,6 +9936,8 @@ class IPSI(_SequentialEstimator):
     repeats : int
         How many independent draws of the outer split the fit combines by their median,
         as for :class:`LTMLE`.
+    max_memory_bytes : int or None
+        The budget of the memory guard, as for :class:`SDR`.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search``,
         ``iterate``, ``targeting`` and ``fluctuation``, which raise
@@ -9915,6 +9979,7 @@ class IPSI(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "ipsi"
+    _retention_guard: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -9945,8 +10010,10 @@ class IPSI(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         hazard_pooling: str = "node",
         repeats: int = 1,
+        max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
+        self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
         if "node_bounds" in refused:
             raise MethodConfigurationError.from_refusal(node_bounds_refusal("IPSI"))
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):

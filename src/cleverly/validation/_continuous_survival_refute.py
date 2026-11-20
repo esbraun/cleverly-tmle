@@ -298,7 +298,9 @@ def continuous_survival_refute(
         replacement: Any, label: str, *, at: int = seed, folds: Any = None
     ) -> tuple[float, float]:
         try:
-            refitted = estimator.refit(replacement, random_state=at, _frozen_folds=folds)
+            refitted = estimator._for_estimate_refits().refit(
+                replacement, random_state=at, _frozen_folds=folds
+            )
         except CleverlyError as error:
             raise _on_draw(error, label) from error
         value = refitted[estimand]

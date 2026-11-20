@@ -2222,14 +2222,19 @@ def fit_separable() -> Any:
 
 
 def fit_continuous_survival(
-    restricted_horizons: tuple[float, ...] = (), variance: str = "switched"
+    restricted_horizons: tuple[float, ...] = (),
+    variance: str = "switched",
+    n_bootstrap: int = 0,
+    simultaneous: bool = False,
+    horizons: tuple[float, ...] = (0.5, 1.0),
 ) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
     selects nothing by cross-validated partial likelihood and runs in well under a second.
     ``variance`` is the fit's variance option, the default switched variance unless a kind
-    names another.
+    names another. ``n_bootstrap`` and ``simultaneous`` add the full-refit bootstrap and the
+    bands.
     """
     from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
 
@@ -2246,10 +2251,12 @@ def fit_continuous_survival(
         {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
     )
     return ContinuousSurvivalTMLE(
-        [0.5, 1.0],
+        list(horizons),
         restricted_horizons=restricted_horizons,
         variance=variance,
         cross_fit=False,
+        n_bootstrap=n_bootstrap,
+        simultaneous=simultaneous,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
         random_state=0,
@@ -2273,6 +2280,17 @@ def fit_continuous_survival_influence_curve() -> Any:
     predictable-variation covariance.
     """
     return fit_continuous_survival(variance="influence_curve")
+
+
+def fit_continuous_survival_bootstrap() -> Any:
+    """The continuous-time fit above with 20 full-refit bootstrap replicates and both bands.
+
+    Each estimate carries its percentile interval and the fit holds the studentized bootstrap
+    band beside the multiplier band (X6 part (d)). Its target times are 1 and 1.5, where every
+    resample keeps an event of each cause in each arm, so no refit fails and the bootstrap
+    is not withheld.
+    """
+    return fit_continuous_survival(n_bootstrap=20, simultaneous=True, horizons=(1.0, 1.5))
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -2594,6 +2612,11 @@ KINDS: dict[str, Kind] = {
     ),
     "continuous_survival+influence_curve": _kind(
         fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
+    ),
+    # X6 (d): the full-refit bootstrap and both bands. Every refit that reads estimates only
+    # (refute, the truncation sweep) refits without the bootstrap.
+    "continuous_survival+bootstrap": _kind(
+        fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
     ),
 }
 
@@ -2955,6 +2978,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "continuous_survival",
                 "continuous_survival+restricted",
                 "continuous_survival+influence_curve",
+                "continuous_survival+bootstrap",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
