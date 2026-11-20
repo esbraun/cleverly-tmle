@@ -12,16 +12,17 @@ import functools
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from ._assessment_cache import AssessmentCache
 from ._inference_status import is_labelled, supplies_inference
 from ._warnings import muted
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
+from .exceptions import CapabilityError, DataError, Refusal, RefusalReason, refuse_inference
 from .inference.influence import ParameterEstimate, support_column
 from .inference.results import reported_status
 from .targets import parameter_stem
@@ -32,12 +33,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ._summary import Detail, Summary
 
 __all__ = [
+    "KEEP_FITS_REFUSAL",
     "ImportanceFacts",
     "VariableImportanceEntry",
     "VariableImportanceResult",
     "variable_importance",
     "variable_importance_plan",
 ]
+
+#: Why a ``keep_fits=False`` run refuses :attr:`VariableImportanceResult.fits` and every
+#: diagnostic and sensitivity analysis, each of which runs on a candidate's fit.
+KEEP_FITS_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "This variable-importance run used keep_fits=False, which keeps each candidate's "
+    "estimates and drops its fit.",
+    alternative="Run variable_importance again with keep_fits=True.",
+)
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,9 @@ class ImportanceFacts:
     cautions : mapping of str to tuple of str
         For each candidate whose fit summary carries a warning note, in candidate order, the
         text of those warnings.
+    fitted_method : str
+        The fitted method of every candidate's fit, such as ``"tmle"``: the run fits each
+        candidate with one estimator.
 
     Attributes
     ----------
@@ -97,6 +111,7 @@ class ImportanceFacts:
     outcome: str
     n: int
     cautions: Mapping[str, tuple[str, ...]]
+    fitted_method: str
 
     @property
     def cautious(self) -> tuple[str, ...]:
@@ -128,6 +143,10 @@ class VariableImportanceResult:
     Attributes
     ----------
     fits : mapping of str to TMLEResult
+    fitted_method : str
+    diagnostics : CandidateDiagnostics
+    sensitivity : CandidateSensitivity
+    replayability : Replayability
     """
 
     entries: tuple[VariableImportanceEntry, ...]
@@ -136,6 +155,15 @@ class VariableImportanceResult:
     method: str = "Benjamini-Hochberg"
     backend: str | None = None
     kept_fits: Mapping[str, TMLEResult] = field(default_factory=dict, repr=False)
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
+    #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
+    #: another run.
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False, compare=False
+    )
+
+    #: The assessment family: each operation runs on every candidate's own fit.
+    assessment_family: ClassVar[str] = "variable_importance"
 
     def __post_init__(self) -> None:
         kept = set(self.kept_fits)
@@ -157,13 +185,96 @@ class VariableImportanceResult:
             When the run used ``keep_fits=False``, which kept no fit.
         """
         if not self.keep_fits:
-            raise CapabilityError(
-                "This variable-importance run used keep_fits=False, which keeps each "
-                "candidate's estimates and drops its fit.",
-                reason=RefusalReason.API_REDIRECTION,
-                alternative="Run variable_importance again with keep_fits=True.",
-            )
+            raise CapabilityError(refusal=KEEP_FITS_REFUSAL)
         return self.kept_fits
+
+    @property
+    def fitted_method(self) -> str:
+        """The fitted method every candidate's fit shares, recorded when the run fitted."""
+        return self.facts.fitted_method
+
+    @property
+    def diagnostics(self) -> Any:
+        """The diagnostics of each candidate's fit, asked together.
+
+        Each operation runs on every candidate's own fit and returns one report per
+        candidate.  A ``keep_fits=False`` run refuses every one.
+        """
+        from ._importance_assessment import CandidateDiagnostics
+
+        return CandidateDiagnostics(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity analyses of each candidate's fit, asked together.
+
+        Each analysis reads one candidate's own estimate and unadjusted interval, not the
+        Benjamini-Hochberg adjusted test.  A ``keep_fits=False`` run refuses every one.
+        """
+        from ._importance_assessment import CandidateSensitivity
+
+        return CandidateSensitivity(self)
+
+    @property
+    def replayability(self) -> Any:
+        """What every candidate's fit can redo; nothing on a ``keep_fits=False`` run."""
+        from .assessment import replayability
+
+        return replayability(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery on every candidate's fit.
+
+        Returns
+        -------
+        ValidationReport
+            One row per check, combining the candidates' rows and naming each candidate
+            that needs attention.
+        """
+        from .assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the post-fit assessment battery on every candidate's fit.
+
+        Each row runs the operation on every candidate's own fit, with the same arguments
+        and seed.  It reads the worst status any candidate reached and names each candidate
+        that needs attention.  An operation that some candidate's fit refuses is refused,
+        with that candidate's reason.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments, passed to every candidate.
+        random_state : int or None
+            Common seed for stochastic refit operations, the same for every candidate.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from .assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     def __getitem__(self, index: int) -> VariableImportanceEntry:
         return self.entries[index]
@@ -599,7 +710,7 @@ def variable_importance(
     assert prepare is not None  # the candidates are non-empty
     fits: dict[str, TMLEResult] = {}
     first_fit: Mapping[str, str] = {}
-    outcome_name, n_rows = outcome, 0
+    outcome_name, n_rows, fitted_method = outcome, 0, ""
     cautions: dict[str, tuple[str, ...]] = {}
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
     for candidate in list(prepared):
@@ -617,6 +728,7 @@ def variable_importance(
         if not raw:
             first_fit = dict(fit_summary.facts)
             outcome_name, n_rows = result.data.outcome_name, int(result.data.n)
+            fitted_method = result.fitted_method
         warned = tuple(item.text for item in fit_summary.notes if item.kind == "warning")
         if warned:
             cautions[candidate] = warned
@@ -646,6 +758,7 @@ def variable_importance(
         outcome=outcome_name,
         n=n_rows,
         cautions=cautions,
+        fitted_method=fitted_method,
     )
     return VariableImportanceResult(
         tuple(entries),

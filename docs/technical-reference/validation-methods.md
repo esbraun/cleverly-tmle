@@ -792,7 +792,9 @@ resolves the deferral for each request, so a supplied `estimand` makes the row a
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
 declares, for each operation and each result family, the answer, the required artifacts, the cost,
-and the execution class. The two costly classes are disjoint and are named separately.
+and the execution class. The two costly classes are disjoint and are named separately. A
+variable-importance run declares no rows of its own: its facades compose each candidate's rows,
+as [variable importance](#variable-importance) states.
 
 A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
@@ -4004,6 +4006,19 @@ are the same under both settings, and so is the summary, except that a fit warni
 in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
+
+`result.diagnostics`, `result.sensitivity`, `result.validate()` and `result.assess()` run each
+operation on every candidate's own fit, through that fit's facade, and return a
+`CandidateReports`: one report per candidate. A bound, a benchmark or a refutation of one
+candidate reads that candidate's own estimate and unadjusted interval, never the
+Benjamini-Hochberg adjusted test. A row is available when every candidate's row is, deferred when
+none refuses and some defers, and otherwise carries the first refusing candidate's refusal, named
+after it. A combined report reads each candidate's report with its own interpreter and takes the
+first status of failed, warning, passed and completed that any candidate reached, naming each
+candidate that needs attention. `diagnostics.influence()` redirects to
+`result.fits[candidate].diagnostics.influence()`. A `keep_fits=False` run keeps no fit, so every
+row refuses with `KEEP_FITS_REFUSAL`, the record `result.fits` raises
+(`tests/unit/test_variable_importance.py`).
 
 `variable_importance_plan` takes the same arguments without `keep_fits` and returns the
 `PlannedFits` record of the run without fitting a learner. It runs the same refusal checks in the
