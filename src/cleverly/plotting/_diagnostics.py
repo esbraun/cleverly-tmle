@@ -1015,6 +1015,10 @@ def _refuse_unread(source: Any, plot: str) -> None:
     from ..survival.result import ContinuousSurvivalResult
     from ..variable_importance import VariableImportanceResult
 
+    if isinstance(source, VariableImportanceResult) and not source.keep_fits:
+        from ..variable_importance import KEEP_FITS_REFUSAL
+
+        raise CapabilityError(refusal=KEEP_FITS_REFUSAL)
     if isinstance(source, (VariableImportanceResult, CandidateReports)):
         raise CapabilityError(
             f"{plot}() draws the nuisance models of one fit, and a variable-importance run "

@@ -1108,15 +1108,20 @@ def test_a_variable_importance_run_redirects_its_nuisance_plots(kind: str, plot:
     """X104: ``result.diagnostics`` now exists on a run, and these plots would read it.
 
     Each candidate is a point fit, so the plot refuses the run with a redirect to one
-    candidate's fit rather than drawing a report of several fits.
+    candidate's fit rather than drawing a report of several fits. A run that kept no fits has
+    no candidate fit to plot, so it raises the keep-fits record instead.
     """
     from cleverly.exceptions import RefusalReason
+    from cleverly.variable_importance import KEEP_FITS_REFUSAL
 
     result = sweep.KINDS[kind].build()
     with pytest.raises(CapabilityError) as caught:
         getattr(plotting, plot)(result)
     assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
-    assert "result.fits[candidate]" in caught.value.refusal.alternative
+    if kind == "variable_importance_no_fits":
+        assert caught.value.refusal == KEEP_FITS_REFUSAL
+    else:
+        assert "result.fits[candidate]" in caught.value.refusal.alternative
     if kind == "variable_importance":
         with pytest.raises(CapabilityError) as caught:
             getattr(plotting, plot)(result.diagnostics.nuisance_models())

@@ -616,8 +616,9 @@ in `tests/unit/test_curve_assessment.py` checks both codes.
 | `curve_replay_no_producing_estimator` | `invalid_declaration` | the producing fit keeps no estimator. Only `summarize_existing_artifacts` stays true, so the summaries run and the refits refuse |
 
 A variable-importance run with `keep_fits=False` keeps each candidate's estimates and drops its
-fit. Its `fits`, every assessment row and `replayability` then refuse as `api_redirection`, and
-the remedy is a run with `keep_fits=True`. `tests/unit/test_variable_importance.py` checks it.
+fit. Its `fits` and every assessment row then refuse as `api_redirection`, its `replayability`
+reads every slot false with `("candidate fits",)` as what is missing, and the remedy is a run
+with `keep_fits=True`. `tests/unit/test_variable_importance.py` checks it.
 
 ### Hazard and isotonic survival refusals
 

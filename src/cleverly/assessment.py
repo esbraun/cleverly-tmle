@@ -128,6 +128,7 @@ __all__ = [
     "AssessmentReport",
     "AssessmentStatus",
     "CacheEntry",
+    "CandidateReports",
     "DiagnosticReport",
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",

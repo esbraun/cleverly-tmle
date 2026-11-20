@@ -366,8 +366,8 @@ diagnostic operation, and `result.sensitivity` one row per sensitivity operation
 or refuses with its reason code. Each `implementation_gap` refusal names its roadmap item. The
 fit's own positivity and learner record is `result.structural_diagnostics`, so the support and
 nuisance rows redirect there, to its `smallest_eigenvalue`, `extreme_share`,
-`learner_diagnostics` and `n_constant_fits`. `result.validate()` reports those three validation
-rows with their refusals, and `result.assess()` adds every diagnostic and sensitivity row. With
+`learner_diagnostics` and `n_constant_fits`. `result.validate()` reports the three validation
+rows (support, nuisance models and score equations) with their refusals, and `result.assess()` adds every diagnostic and sensitivity row. With
 `include_refits=True` it runs `refute`, the one operation that runs on this fit.
 
 `cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,

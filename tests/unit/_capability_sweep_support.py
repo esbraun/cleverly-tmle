@@ -2378,15 +2378,19 @@ class Kind:
 
         :func:`dataclasses.replace` gives the copy an empty ``assessment_cache`` and no
         memoized facade, so no report or row computed on another copy can answer for it.
-        A curve's producing fit and a variable-importance run's candidate fits are copied
-        the same way, since their facades read and fill those fits' own caches. The
+        A curve's producing fit (with an EP fit's nuisance fit) and a variable-importance
+        run's candidate fits are copied the same way, since their facades read and fill those fits' own caches. The
         estimator, the data and the nuisances are shared, and no call the tests make
         writes to them. The fit runs on the first call, so a test that builds before it
         applies a mutation fits without the mutation.
         """
         result = dataclasses.replace(_fitted(self.fit))
         if getattr(result, "fit", None) is not None and dataclasses.is_dataclass(result.fit):
-            result = dataclasses.replace(result, fit=dataclasses.replace(result.fit))
+            fit = dataclasses.replace(result.fit)
+            if getattr(fit, "nuisance_fit", None) is not None:
+                # An EP fit's facade is its nuisance fit's, which holds the cache it fills.
+                fit = dataclasses.replace(fit, nuisance_fit=dataclasses.replace(fit.nuisance_fit))
+            result = dataclasses.replace(result, fit=fit)
         if getattr(result, "kept_fits", None):
             fits = {name: dataclasses.replace(fit) for name, fit in result.kept_fits.items()}
             result = dataclasses.replace(result, kept_fits=fits)

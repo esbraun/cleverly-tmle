@@ -86,6 +86,7 @@ def test_each_build_is_a_fresh_copy_of_one_fit() -> None:
     ("kind", "inner"),
     [
         ("curve_projection", lambda result: [result.fit]),
+        ("curve_ep", lambda result: [result.fit.nuisance_fit]),
         ("variable_importance", lambda result: list(result.kept_fits.values())),
     ],
 )

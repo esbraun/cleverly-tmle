@@ -245,8 +245,10 @@ refits, so a saved fit answers them too.
 - `score_equations()` returns a `DoseResponseScoreReport`: each pair's mean fluctuation score at
   its solution, on the scaled outcome, against the package's score threshold, read with each
   pair's plug-in standard error divided by the outcome scaler's range. The fit already refuses a
-  pair whose fluctuation does not solve its score at a far tighter tolerance, so this row
-  restates convergence.
+  pair whose fluctuation does not solve its score to within about $10^{-6}\,\widehat{sd}/\sqrt{n}$,
+  while the package threshold is about $10^{-3}\,\widehat{sd}/n$. Below about a million rows
+  the solver's bound is the tighter one (by a factor of about 40 at n = 600 and 10 at n = 8,000),
+  so on such a fit this row restates convergence; near a million rows and above it can fail.
 - `nuisance_models()` reports the outcome regression at the observed dose, from a record of
   $n$ floats the fit keeps. It is out of fold on a cross-fitted fit and in sample with
   `cross_fit=False`, and its evaluation label says which.

@@ -482,8 +482,9 @@ class DoseResponseScoreReport:
     The score is the mean weighted score of the pair's fluctuation at its solution, on the
     scaled outcome.  The threshold is
     :func:`~cleverly.validation.score.score_threshold` at the largest finite scaled standard
-    error of the pairs.  The fit refuses a pair whose fluctuation did not solve its score at
-    a far tighter tolerance, so a stored fit passes: the report restates convergence.
+    error of the pairs.  The fit refuses a pair whose fluctuation did not solve its score to
+    about ``1e-6 * sd / sqrt(n)``, against a threshold of about ``1e-3 * sd / n``, so below
+    about a million rows a stored fit passes and the report restates convergence.
 
     Parameters
     ----------
