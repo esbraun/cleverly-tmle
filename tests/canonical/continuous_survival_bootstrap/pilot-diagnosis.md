@@ -176,3 +176,23 @@ infinite combined jump is still refused, and a NaN jump is walked as before.
   the four registered continuous studies at the base commit and with the bound, and compares
   them at `rtol 0`. Its readings are below.
 
+The replay ran 395 fits on each side: 40 replicates spread over each of the nine primary cells,
+six of each reported cell of `continuous-time-survival`, and every fit the committed records lost
+to the refusal, with `positivity_4k` replicate 283 (an underflow) as a control.
+
+| outcome | fits |
+| --- | --- |
+| identical estimates and standard errors at `rtol 0` | 384 (causes 80, functionals 40, variance 200, continuous-time 64) |
+| refused before, fit now | 7 (`v3_half_n` replicates 657, 1209, 2184, 3179, 4433, 4586, 5932) |
+| refused before, refused now on survival underflow | 3 (`v3_half_n` 4272, `functionals_cf_1k` 10023, `positivity_4k` 292) |
+| refused on underflow on both sides | 1 (`positivity_4k` 283) |
+| changed, or newly failing | 0 |
+
+In the three that still fail, one pair's jumps reach the bound at 32, 27 and 1,141 grid times,
+with raw sums up to 1.9, 1.3 and 6.8, so its survival is $\delta$ to that power and falls below
+$10^{-250}$. The bound keeps the refusal for a pair the model extrapolates at many times; it
+rescues a pair that crosses one at a few times, as every bootstrap refit of draws 38 and 45 did.
+Refitted whole, draw 38 lost 0 of 200 refits with the bound acting in 7, and draw 45 lost 0
+with the bound acting in 3
+(`python -m tests.studies.continuous_survival_bootstrap_ties --whole --bootstrap 38 45`).
+
