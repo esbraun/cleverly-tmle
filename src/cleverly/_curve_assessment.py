@@ -587,13 +587,9 @@ class CurveDiagnostics(DiagnosticsFacade):
             The producing fit's support report.
         """
         self._require("support")
-        return _cached(
-            self.curve,
-            "diagnostics.support",
-            (),
-            {},
-            lambda: self._fit("summarize_existing_artifacts").diagnostics.support(),
-        )
+        # The producing fit's facade files the answer in its own cache, so the curve's cache
+        # would hold a second reference to it.
+        return self._fit("summarize_existing_artifacts").diagnostics.support()
 
     def nuisance_models(self) -> Any:
         """The producing fit's held-out nuisance diagnostics.
@@ -604,13 +600,9 @@ class CurveDiagnostics(DiagnosticsFacade):
             The producing fit's report.
         """
         self._require("nuisance_models")
-        return _cached(
-            self.curve,
-            "diagnostics.nuisance_models",
-            (),
-            {},
-            lambda: self._fit("summarize_existing_artifacts").diagnostics.nuisance_models(),
-        )
+        # The producing fit's facade files the answer in its own cache, so the curve's cache
+        # would hold a second reference to it.
+        return self._fit("summarize_existing_artifacts").diagnostics.nuisance_models()
 
     def score_equations(self) -> Any:  # type: ignore[override]
         """The score equations the producing fit solved.
@@ -626,13 +618,15 @@ class CurveDiagnostics(DiagnosticsFacade):
         """
         self._require("score_equations")
 
-        def compute() -> Any:
-            fit = self._fit("summarize_existing_artifacts")
-            if self.curve.fitted_method == "ep":
-                from .estimators.ep import DebiasingScores
-
-                return DebiasingScores.of(fit, backend=self.curve.backend)
+        fit = self._fit("summarize_existing_artifacts")
+        if self.curve.fitted_method != "ep":
+            # Filed in the producing fit's cache, as support() is.
             return fit.diagnostics.score_equations()
+
+        def compute() -> Any:
+            from .estimators.ep import DebiasingScores
+
+            return DebiasingScores.of(fit, backend=self.curve.backend)
 
         return _cached(self.curve, "diagnostics.score_equations", (), {}, compute)
 

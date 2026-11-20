@@ -15,6 +15,7 @@ the first refusing candidate's status and record, named after that candidate.  A
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from functools import cached_property
@@ -261,9 +262,31 @@ class _CandidateFacade(_CapabilityFacade):
             try:
                 facade._require_call(operation, args, kwargs)
             except CapabilityError as error:
-                raise CapabilityError.from_refusal(
-                    _named(name, error.refusal, self._gated(operation))
-                ) from error
+                raise self._candidate_error(operation, name, facade, error) from error
+
+    def _candidate_error(
+        self, operation: str, name: str, facade: Any, error: CapabilityError
+    ) -> CapabilityError:
+        """A candidate's refusal, raised as this facade raises the composed row's.
+
+        A candidate facade that refuses by its row puts ``"<kind> '<operation>' is
+        <status>: "`` before the condition.  The composed row's record names the candidate
+        inside that prefix, so the raise reads ``"<kind> '<operation>' is <status>: candidate
+        <name>: <condition>"``, which is the composed row's message under the same prefix.  A
+        record raised bare by the call itself stays bare, named after the candidate.
+        """
+        record = _named(name, error.refusal, self._gated(operation))
+        bare = (error.refusal.condition if error.refusal is not None else "") or ""
+        match = re.match(
+            rf"{re.escape(facade._kind)} {re.escape(repr(operation))} is (\w+): ", bare
+        )
+        if match is None:
+            return CapabilityError.from_refusal(record)
+        condition = (
+            f"{self._kind} {operation!r} is {match.group(1)}: candidate {name}: "
+            f"{bare[match.end() :]}"
+        )
+        return CapabilityError.from_refusal(replace(record, condition=condition))
 
     def _invoke(self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Any:
         """Run ``operation`` on every candidate's fit, with the same arguments and seed.
@@ -279,9 +302,7 @@ class _CandidateFacade(_CapabilityFacade):
             try:
                 reports[name] = getattr(facade, operation)(*args, **kwargs)
             except CapabilityError as error:
-                raise CapabilityError.from_refusal(
-                    _named(name, error.refusal, self._gated(operation))
-                ) from error
+                raise self._candidate_error(operation, name, facade, error) from error
         return CandidateReports(operation, reports, self._result.backend)
 
 
