@@ -112,6 +112,7 @@ from ..inference.cluster import cluster_reference_df, influence_variance
 from ..inference.delta import reference_quantile
 from ..inference.influence import ParameterEstimate
 from ..utils.frames import emit_frame
+from ..utils.parallel import map_parallel
 from ._limits import bound_limits
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -1056,7 +1057,7 @@ def _draw_sides(
     observed = np.asarray(data.observed, dtype=bool)
     binary = data.family == "binomial"
     treatment = np.asarray(data.treatment, dtype=float)
-    sides: dict[tuple[float, bool], _Side] = {}
+    payloads: list[tuple[Callable[..., _Side], tuple[Any, ...], dict[str, Any]]] = []
     for level, upper in wanted:
         treated = (treatment == level).astype(float)
         e = g[:, level_index[level]]
@@ -1066,25 +1067,40 @@ def _draw_sides(
             column = list(nuisance.arms).index(level)
             observed_weight = np.where(observed, 1.0 / response[:, column], 0.0)
         if binary:
-            sides[(level, upper)] = _binary_side(y, treated, e, mu, gamma, upper, observed_weight)
+            payloads.append((_binary_side, (y, treated, e, mu, gamma, upper, observed_weight), {}))
         else:
-            sides[(level, upper)] = _continuous_side(
-                x,
-                y,
-                treated,
-                e,
-                mu,
-                gamma,
-                upper,
-                assignment,
-                n_folds,
-                quantile_learner,
-                pseudo_outcome_learner,
-                seed,
-                weights=weights,
-                observed_weight=observed_weight,
+            payloads.append(
+                (
+                    _continuous_side,
+                    (
+                        x,
+                        y,
+                        treated,
+                        e,
+                        mu,
+                        gamma,
+                        upper,
+                        assignment,
+                        n_folds,
+                        quantile_learner,
+                        pseudo_outcome_learner,
+                        seed,
+                    ),
+                    {"weights": weights, "observed_weight": observed_weight},
+                )
             )
-    return sides
+    # The continuous sides fit their quantile and tail learners independently of one another,
+    # with seeds fixed per side, so they run on the fit's ``n_jobs`` and come back in order:
+    # every side is the one the serial loop computes.  The binary sides are closed forms and
+    # stay serial.
+    n_jobs = 1 if binary else getattr(result.estimator, "n_jobs", 1)
+    values = map_parallel(_call_side, payloads, n_jobs=n_jobs)
+    return dict(zip(wanted, values, strict=True))
+
+
+def _call_side(function: Any, arguments: tuple[Any, ...], keywords: dict[str, Any]) -> _Side:
+    """One side, from a payload of :func:`_draw_sides`."""
+    return function(*arguments, **keywords)
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:
