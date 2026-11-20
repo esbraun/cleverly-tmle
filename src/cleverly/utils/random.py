@@ -9,6 +9,7 @@ computation a marker does nothing.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -80,3 +81,49 @@ def resolve_assessment_seed(result: Any, random_state: int | None) -> int:
         return int(estimator.random_state)
     note_fresh_entropy()
     return int(np.random.SeedSequence().generate_state(1)[0])
+
+
+def generator_state(rng: np.random.Generator) -> dict[str, Any]:
+    """Return a copy of ``rng``'s bit-generator state, from which :func:`replay` restarts it.
+
+    A refuter that checks every draw before its first refit records the state before each draw
+    and drops the draw, then regenerates it at its refit. That keeps one draw in memory at a
+    time while every draw, and every later draw from ``rng``, stays bitwise identical.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        A generator built by :func:`numpy.random.default_rng`.
+
+    Returns
+    -------
+    dict
+        The state, independent of ``rng``.
+    """
+    if not isinstance(rng.bit_generator, np.random.PCG64):
+        # A replay through ``default_rng`` would build another bit generator, whose stream
+        # differs from the recorded one.
+        raise TypeError(f"replay needs a PCG64 generator, not {type(rng.bit_generator).__name__}")
+    state: dict[str, Any] = copy.deepcopy(dict(rng.bit_generator.state))
+    return state
+
+
+def replay(state: dict[str, Any]) -> np.random.Generator:
+    """Return a new generator that continues from ``state``, leaving its source untouched.
+
+    A :class:`numpy.random.Generator` keeps no state outside its bit generator, so the new
+    generator makes the same draws as the source made after :func:`generator_state` read it.
+
+    Parameters
+    ----------
+    state : dict
+        A state returned by :func:`generator_state`.
+
+    Returns
+    -------
+    numpy.random.Generator
+        The replaying generator.
+    """
+    twin = np.random.default_rng()
+    twin.bit_generator.state = copy.deepcopy(state)
+    return twin
