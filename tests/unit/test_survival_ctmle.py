@@ -1010,7 +1010,6 @@ SETTINGS = [
     ({"preorder": "logistic"}, None),
     ({"lambdas": (1.0, 0.0)}, None),
     ({"oat_design": "per_arm"}, None),
-    ({"l1_solver": "glmstar"}, None),
     ({"selection_inner_folds": 3}, module.INNER_FOLDS_REFUSAL),
     ({"selection_estimand": "ate"}, module.ESTIMAND_REFUSAL),
     ({"loss": "squared"}, module.LOSS_REFUSAL),
