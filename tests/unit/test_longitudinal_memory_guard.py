@@ -40,6 +40,7 @@ from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal, make_point_survival
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental
+from cleverly.learners import SuperLearner
 from cleverly.longitudinal import (
     IPSI,
     LTMLE,
@@ -570,6 +571,36 @@ HELD_OUT: dict[str, tuple[FitCounts, int]] = {
 }
 
 
+#: The held-out cells of the two density routes (the rows of ``dens-check.jsonl``, beside
+#: ``bins-check.jsonl``): n 5,000, T 4, R 2, F 5, with 160 bins on the index route.
+HELD_OUT.update(
+    {
+        f"{family} F 5": (
+            replace(
+                _continuous(
+                    family.replace("_index", "").replace("_classifier", ""),
+                    5_000,
+                    4,
+                    2,
+                    5,
+                    width=9,
+                    bins=0 if family.endswith("_classifier") else 160,
+                    panel_bytes=460_000,
+                ),
+                family=family,
+            ),
+            peak,
+        )
+        for family, peak in (
+            ("ltmle_continuous_index", 88_873_073),
+            ("ltmle_continuous_classifier", 9_629_809),
+            ("sdr_continuous_index", 217_045_226),
+            ("sdr_continuous_classifier", 16_309_789),
+        )
+    }
+)
+
+
 @pytest.mark.parametrize("name", sorted(HELD_OUT))
 def test_a_held_out_continuous_cell_in_range_reads_at_least_the_floor(name: str) -> None:
     # The floor of 1.32 covers the resident set over the traced peak (``packet10.out``).
@@ -615,6 +646,18 @@ def test_each_density_route_is_its_own_family(
     assert (counts.family, counts.bins) == (f"{prefix}_continuous{route}", bins)
 
 
+@pytest.mark.parametrize(
+    "learner",
+    [None, SuperLearner([_IndexLogistic(max_iter=1000)], task="classification")],
+    ids=["default", "super_learner"],
+)
+def test_a_default_or_stacked_treatment_learner_counts_as_binned(learner: Any) -> None:
+    # Neither carries ``bin_design``, so the density step builds the indicator block whatever
+    # a library member sets.
+    counts = _route_counts("mtp", overrides={"treatment_learner": learner})
+    assert (counts.family, counts.bins) == ("ltmle_continuous", 12)
+
+
 def test_a_bin_design_lost_on_cloning_keeps_the_binned_family() -> None:
     # The density step may receive a clone of the learner, which drops an instance attribute;
     # the guard then counts the binned route, which over-counts.
@@ -648,6 +691,73 @@ def test_mutation_ignoring_the_density_route_fails_the_route_witnesses(
     assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}).bins == 12
     counts = _route_counts("mtp", 2_000, R=4, B=320, overrides=index)
     assert _memory_guard.predicted_bytes(counts) > 2**30
+
+
+# ------------------------------------------------------------------ the simultaneous band
+
+#: The band-on cell that reads lowest in ``band_check.out``: ``mtp`` on the classifier route at
+#: n 2,000, T 4, R 4, F 1 with ``simultaneous=True``; its traced peak is the ``peak`` of that
+#: row of ``band-2k.jsonl`` (``rows/X106/J2/evidence/2026-11-19-j2d/rev9/`` in the plans
+#: repository).
+BAND_CELL_PEAK = 13_214_633
+
+
+def _band_cell(simultaneous: bool) -> FitCounts:
+    return FitCounts(
+        estimator="LTMLE",
+        family="ltmle_continuous_classifier",
+        n=2_000,
+        n_times=4,
+        plans=4,
+        horizons=(4,),
+        causes=1,
+        folds=1,
+        width=9,
+        bins=0,
+        msm=False,
+        repeats=1,
+        bootstrap=0,
+        jobs=1,
+        panel_bytes=184_000,
+        simultaneous=simultaneous,
+    )
+
+
+def test_the_band_term_covers_the_lowest_band_on_cell() -> None:
+    # 1.54 with the band term; 0.70 without it.
+    assert _memory_guard.predicted_bytes(_band_cell(True)) >= 1.35 * BAND_CELL_PEAK
+
+
+def test_mutation_a_dropped_band_term_fails_the_band_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_memory_guard, "band_bytes", lambda counts: 0.0)
+    assert _memory_guard.predicted_bytes(_band_cell(True)) < BAND_CELL_PEAK
+
+
+def test_the_band_term_is_twice_the_draw_buffer_and_absent_without_the_band() -> None:
+    from cleverly.inference.multiplier import _block_size
+
+    on = _memory_guard.predict(_band_cell(True))
+    off = _memory_guard.predict(_band_cell(False))
+    assert on.band == 2 * _block_size(2_000, 10_000) * 8 * 2_000 == 2 * 256 * 8 * 2_000
+    assert off.band == 0.0
+    assert off.predicted == math.ceil(_memory_guard.MARGIN * off.draw)
+    assert on.predicted == math.ceil(_memory_guard.MARGIN * (on.draw + on.band))
+    # A small multiplier caps the block; the term is added once, not per worker.
+    few = _memory_guard.predict(replace(_band_cell(True), n_multiplier=8))
+    assert few.band == 2 * 8 * 8 * 2_000
+    parallel = _memory_guard.predict(replace(_band_cell(True), folds=4, jobs=4))
+    assert parallel.band == on.band
+    assert "the simultaneous band" in _memory_guard.preview_note(on)
+    assert "the simultaneous band" not in _memory_guard.preview_note(off)
+
+
+@pytest.mark.parametrize("simultaneous", [True, False])
+def test_the_counts_read_the_band_setting_of_the_estimator(simultaneous: bool) -> None:
+    counts = _route_counts("mtp", overrides={"simultaneous": simultaneous, "n_multiplier": 1_000})
+    assert (counts.simultaneous, counts.n_multiplier) == (simultaneous, 1_000)
+    assert (_memory_guard.predict(counts).band > 0) is simultaneous
 
 
 #: One fitted cell of each route family: ``dens.jsonl`` (``rows/X106/J2/evidence/
@@ -854,6 +964,11 @@ def test_a_mixed_panel_counts_as_continuous_without_raising() -> None:
         later=True,
     )
     assert (counts.family, counts.bins, counts.levels) == ("ltmle_continuous", 8, 2)
+    # No mixed cell was calibrated, so the fit is out of range; the prediction still applies.
+    assert counts.mixed
+    outside = _memory_guard.outside_range(counts)
+    assert outside is not None and "a mixed treatment node" in outside
+    assert _memory_guard.outside_range(replace(counts, mixed=False)) != outside
 
 
 def _width_panels() -> dict[str, LongitudinalData]:
@@ -1305,5 +1420,14 @@ def test_the_message_omits_counts_at_one_and_names_bins() -> None:
     assert "n_jobs" not in text.split(" is predicted")[0]
     assert "20 density bins" in text
     assert "fewer density_bins=" in str(error.refusal.alternative)
-    assert "At one worker it can exceed the true peak by up to 3.5 times" in text
+    assert 'ratio="classifier" (no binned density)' in str(error.refusal.alternative)
+    assert (
+        "At one worker it can exceed the true peak by up to 3.5 times, more on fits under about "
+        "20 MiB with the simultaneous band on, and more with n_jobs > 1." in text
+    )
+    # The classifier route builds no binned density, so neither bins remedy appears.
+    classifier = replace(counts, family="ltmle_continuous_classifier", bins=0)
+    other = _memory_guard.refusal(_memory_guard.predict(classifier), 2**20, explicit=True)
+    assert "density_bins" not in str(other.refusal.alternative)
+    assert "ratio=" not in str(other.refusal.alternative)
     assert re.search(r"the budget is 1\.0 GiB \(1,073,741,824 bytes\)", text)

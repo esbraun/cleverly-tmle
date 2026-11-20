@@ -9,11 +9,12 @@ One draw is predicted as ``c0 + 8 n * sum_k c_k x_k`` over the count terms of :d
 with one constant set per family (:data:`CONSTANTS`), fitted to ``tracemalloc`` peaks over a
 declared grid.  The whole call is
 
-    MARGIN * (repeats * draw + max(workers, bootstrap))
+    MARGIN * (repeats * draw + max(workers, bootstrap) + band)
 
-where, at ``j > 1`` workers, ``workers = (m(F) - 1) draw + min(j, F) w(F) draw + j WORKER +
-HELPER`` when the ``F`` outer folds fan out, and ``bootstrap = min(j, B) (draw + panel) + j
-WORKER + HELPER`` for ``B`` parallel replicates; at one worker a replicate adds one ``draw``.
+where ``band`` is the simultaneous band's draw buffer (:func:`band_bytes`) and, at ``j > 1``
+workers, ``workers = (m(F) - 1) draw + min(j, F) w(F) draw + j WORKER + HELPER`` when the ``F``
+outer folds fan out, and ``bootstrap = min(j, B) (draw + panel) + j WORKER + HELPER`` for ``B``
+parallel replicates; at one worker a replicate adds one ``draw``.
 The prediction counts the arrays the estimator holds with GLM, logistic and linear learners; a
 learner's own working memory beyond them is not counted.
 
@@ -35,6 +36,7 @@ from typing import Any
 import numpy as np
 
 from ..exceptions import MethodConfigurationError, RefusalReason
+from ..inference.multiplier import DEFAULT_N_REPLICATES, _block_size
 
 __all__ = [
     "CONSTANTS",
@@ -50,6 +52,7 @@ __all__ = [
     "FitCounts",
     "LongitudinalMemoryError",
     "Prediction",
+    "band_bytes",
     "check_fit",
     "density_route",
     "draw_bytes",
@@ -133,6 +136,13 @@ class FitCounts:
         Whether the panel has a Markov order.
     levels : int
         The most treatment levels at any node (2 for a binary treatment).
+    simultaneous : bool
+        Whether the call builds the simultaneous band (``simultaneous=True``), whose draw
+        buffer :func:`band_bytes` counts.
+    n_multiplier : int
+        The multiplier replicates of the band, which cap its block of draws.
+    mixed : bool
+        Whether a treatment node is mixed (point masses beside a continuous part).
     """
 
     estimator: str
@@ -154,6 +164,9 @@ class FitCounts:
     censored: bool = False
     markov: bool = False
     levels: int = 2
+    simultaneous: bool = False
+    n_multiplier: int = DEFAULT_N_REPLICATES
+    mixed: bool = False
 
     @property
     def steps(self) -> int:
@@ -1101,8 +1114,10 @@ class Prediction:
         The fold workers' bytes at ``n_jobs > 1``, before :data:`MARGIN`; 0 without them.
     bootstrap : float
         The bootstrap replicates' bytes, before :data:`MARGIN`; 0 without them.
+    band : float
+        The simultaneous band's bytes (:func:`band_bytes`), before :data:`MARGIN`; 0 without it.
     predicted : int
-        :data:`MARGIN` times ``repeats * draw + max(workers, bootstrap)``, in whole bytes.
+        :data:`MARGIN` times ``repeats * draw + max(workers, bootstrap) + band``, in whole bytes.
 
     Attributes
     ----------
@@ -1113,12 +1128,37 @@ class Prediction:
     draw: float
     workers: float
     bootstrap: float
+    band: float
     predicted: int
 
     @property
     def parallel(self) -> bool:
         """Whether the call starts worker processes: the worker term is not zero."""
         return self.workers > 0 or (self.bootstrap > 0 and self.counts.jobs > 1)
+
+
+def band_bytes(counts: FitCounts) -> float:
+    """The bytes of the simultaneous band, 0 when the call builds none.
+
+    The band reuses one buffer of ``block * n`` doubles, where ``block`` is the replicates per
+    pass of :func:`cleverly.inference.multiplier._block_size`; the multiplier bits and the
+    draws add at most 0.6 of it, so the term is twice the buffer.  It counts once per call,
+    because the band runs in the parent after the workers return, and whatever the number of
+    estimates, so a fit with one estimate is over-counted by it.
+
+    Parameters
+    ----------
+    counts : FitCounts
+        The fit's counts.
+
+    Returns
+    -------
+    float
+        ``2 * block * 8 n`` with the band on, else 0.
+    """
+    if not counts.simultaneous:
+        return 0.0
+    return 2.0 * _block_size(counts.n, counts.n_multiplier) * 8.0 * counts.n
 
 
 def predict(counts: FitCounts) -> Prediction:
@@ -1129,7 +1169,7 @@ def predict(counts: FitCounts) -> Prediction:
     there are several folds, and the parallel replicates, when there is a bootstrap.  loky
     starts all ``j`` workers on the first parallel submit, whatever the number of tasks, so
     both count ``j`` worker baselines (:data:`WORKER_BYTES`) and the helper processes
-    (:data:`HELPER_BYTES`).
+    (:data:`HELPER_BYTES`).  The simultaneous band (:func:`band_bytes`) adds once.
 
     Parameters
     ----------
@@ -1155,8 +1195,9 @@ def predict(counts: FitCounts) -> Prediction:
             if jobs == 1
             else min(jobs, counts.bootstrap) * (draw + counts.panel_bytes) + started
         )
-    predicted = math.ceil(MARGIN * (counts.repeats * draw + max(workers, bootstrap)))
-    return Prediction(counts, draw, workers, bootstrap, int(predicted))
+    band = band_bytes(counts)
+    predicted = math.ceil(MARGIN * (counts.repeats * draw + max(workers, bootstrap) + band))
+    return Prediction(counts, draw, workers, bootstrap, band, int(predicted))
 
 
 def predicted_bytes(counts: FitCounts) -> int:
@@ -1201,10 +1242,10 @@ def _counted(value: int, noun: str) -> str:
 def outside_range(counts: FitCounts) -> str | None:
     """What puts a fit outside the calibrated range of the memory model, or ``None``.
 
-    A fit is in range when it has no Markov order, at most :data:`MAX_JOBS` workers, and every
-    field of :data:`RANGE_FIELDS` within its family's fitted bounds (:data:`FITTED`) or within
-    one checked extension's box: from the fitted minimum to the largest value over that
-    extension's checked cells (:data:`EXTENSIONS`).
+    A fit is in range when it has no Markov order, no mixed treatment node, at most
+    :data:`MAX_JOBS` workers, and every field of :data:`RANGE_FIELDS` within its family's
+    fitted bounds (:data:`FITTED`) or within one checked extension's box: from the fitted
+    minimum to the largest value over that extension's checked cells (:data:`EXTENSIONS`).
 
     Parameters
     ----------
@@ -1221,6 +1262,8 @@ def outside_range(counts: FitCounts) -> str | None:
     reasons = []
     if counts.markov:
         reasons.append("a Markov order")
+    if counts.mixed:
+        reasons.append("a mixed treatment node")
     if counts.jobs > MAX_JOBS:
         reasons.append(f"n_jobs {counts.jobs}")
     values = {name: field(counts) for name, field in RANGE_FIELDS.items()}
@@ -1295,8 +1338,13 @@ def _described(counts: FitCounts) -> str:
 
 
 def _whole_call(prediction: Prediction) -> str:
-    workers = " and the parallel workers" if prediction.parallel else ""
-    return f"counting the whole call including the prepared panel{workers}"
+    parts = ["the prepared panel"]
+    if prediction.band:
+        parts.append("the simultaneous band")
+    if prediction.parallel:
+        parts.append("the parallel workers")
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    return f"counting the whole call including {listed}"
 
 
 def _range_clause(counts: FitCounts) -> str:
@@ -1334,7 +1382,8 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         f"{name}'s fit ({_described(counts)}) is predicted to need about {_size(predicted)} "
         f"({predicted:,} bytes) at its peak, {_whole_call(prediction)}; the budget is "
         f"{_size(budget)} ({budget:,} bytes), {source}. {LEARNERS} At one worker it can exceed "
-        f"the true peak by up to {FACTOR:g} times, and by more with n_jobs > 1."
+        f"the true peak by up to {FACTOR:g} times, more on fits under about 20 MiB with the "
+        "simultaneous band on, and more with n_jobs > 1."
         f"{_range_clause(counts)} No learner was fitted."
     )
     remedies = [f"Pass {name}(max_memory_bytes=...) a value above {predicted:,}"]
@@ -1342,6 +1391,8 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         remedies.append("n_jobs=1")
     if counts.bins:
         remedies.append("fewer density_bins=")
+    if counts.family in ("ltmle_continuous", "sdr_continuous"):
+        remedies.append('ratio="classifier" (no binned density)')
     alternative = ", or ".join(remedies) + "; or fit fewer regimens or horizons per call."
     error = LongitudinalMemoryError(
         condition, reason=RefusalReason.INVALID_DECLARATION, alternative=alternative
@@ -1542,6 +1593,9 @@ def fit_counts(
         levels=(
             2 if continuous else max((len(levels) for levels in data.treatment_levels), default=2)
         ),
+        simultaneous=bool(getattr(estimator, "simultaneous", False)),
+        n_multiplier=int(getattr(estimator, "n_multiplier", DEFAULT_N_REPLICATES)),
+        mixed=any(data.node_kind(t) == "mixed" for t in range(1, n_times + 1)),
     )
 
 

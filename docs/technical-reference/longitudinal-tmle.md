@@ -3266,12 +3266,13 @@ $$
 \text{draw} = c_0 + 8 n \sum_k c_k x_k ,
 $$
 
-where $x_k$ runs over the products of the counts in the table below and the constants $c_k$ are
-bytes per unit per count. A path fit with a policy regimen takes the larger of this and the
-`path_peak` prediction of the path guard (H17). The whole call is
+where $x_k$ runs over the products of the counts in the table below and each constant $c_k$ is in
+units of $8n$ bytes per count, so $c_k = 1$ is one double per unit per count. A path fit with a
+policy regimen takes the larger of this and the `path_peak` prediction of the path guard (H17). The
+whole call is
 
 $$
-\text{predicted} = 1.35 \left( r \cdot \text{draw} + \max(\text{workers}, \text{bootstrap}) \right),
+\text{predicted} = 1.35 \left( r \cdot \text{draw} + \max(\text{workers}, \text{bootstrap}) + \text{band} \right),
 $$
 
 with $r$ the `repeats` draws, all kept by the result. With $j$ the worker count `n_jobs` resolves
@@ -3292,6 +3293,16 @@ measured). loky starts all $j$ workers on the first parallel submit, however man
 so the term counts $j$ workers, not $\min(j, F)$. $w(F)$ is the share of a draw a fold worker holds
 and $m(F)$ the multiple of a draw the parent holds.
 
+With `simultaneous=True`, the default, the multiplier band reuses a buffer of $\text{block}(n)$
+replicates of $n$ doubles, where $\text{block}(n)$ is
+`cleverly.inference.multiplier._block_size(n, n_multiplier)`: a 32 MiB budget, clamped to 4 to 256
+replicates and rounded down to a multiple of four. Its multiplier bits and draws add at most 0.6 of
+the buffer, so $\text{band} = 2 \cdot \text{block}(n) \cdot 8n$ bytes, about 7.8 MiB at 2,000 units
+and 64 MiB at 20,000, and 0 with `simultaneous=False`. It counts once per call, because the band
+runs in the parent after the workers return, and whatever the number of estimates, so a fit with
+one estimate is over-counted by it. The term is analytic, not fitted. It sits inside the margin
+because, added outside it, band-on cells read down to 1.30 (`band_check-outside.out`).
+
 The `hazard_one_node` and `hazard_separable` constants were fitted on calls given an already
 prepared `LongitudinalData`. When those fits receive a frame, the panel the fit builds, about
 $8n(3T+2)$ bytes (about 20 MiB at 100,000 units and eight nodes), is not in their constants, and
@@ -3302,7 +3313,7 @@ separable arm, `hazard_one_node`, `hazard_backward` or `hazard_paths` for any ot
 treatment node; several nodes with covariates after baseline; several nodes without them), `ipsi`
 for `IPSI`, and `ltmle` or `sdr`, with `_continuous` when a node is continuous or mixed, for the
 rest. A continuous family also names the route its density step takes, as [the density
-route](#the-density-route) describes. Fixed term in MiB, the others in bytes per unit per count:
+route](#the-density-route) describes. Fixed term in MiB, the others in units of $8n$ bytes per count:
 
 | count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -3370,7 +3381,7 @@ The $w$ and $m$ form, and the two process constants, were chosen after the worke
 ### The density route
 
 At a continuous node the density step takes one of three routes, and each has its own pair of
-families (rev 11d of `rows/X106/J2/comparison-plan.md` in the plans repository).
+families.
 
 | route | when | what the density step holds | families |
 | --- | --- | --- | --- |
@@ -3383,8 +3394,9 @@ it is given, which is `treatment_learner` or its seeded clone, so the guard read
 only when both carry it. A `bin_design` set on an instance and dropped by cloning counts as binned,
 which over-counts the fit. A `SuperLearner` carries no `bin_design`, so the density step builds the
 indicator block whatever its library holds, and the guard counts it as binned. At 2,000 units, two
-nodes, four regimens and 320 bins the three routes traced 1,600 MiB, 43 MiB and 3.5 to 3.9 MiB
-(`smoke11d.py`). The route families' constants, fitted on the `dens` grid with the same program:
+nodes, four regimens, one fold and 320 bins the three routes traced about 1,600 MiB (`bins.jsonl`),
+43 MiB and 3.5 to 3.9 MiB (`dens.jsonl`). The route families' constants, fitted on the `dens` grid
+with the same program:
 
 | count | `ltmle_continuous_index` | `sdr_continuous_index` | `ltmle_continuous_classifier` | `sdr_continuous_classifier` |
 | --- | ---: | ---: | ---: | ---: |
@@ -3411,12 +3423,19 @@ calibration run measured, 1.32 (`packet10.out`). That cover is shown on fitted c
 refit that left out one shape at a time, the interior shapes left out read down to 1.19, and
 never below 1 (`design-review-j2d-rev11c.md` in the plans repository).
 
-Because the largest reading is 3.31, the refusal states that at one worker the prediction can exceed
-the true peak by up to 3.5 times. With `n_jobs > 1` it can exceed it by more. Over the 92 parallel
-runs in a fresh process (2,000 to 100,000 units, two and four workers, 2 to 20 folds, and parallel
-bootstraps) the prediction reads 1.29 to 1.94 times the measured resident footprint of the parent
-and every worker. The lowest, 1.29 to 1.30, are `SDR` and `IPSI` at 5,000 units and 7 to 10 folds
-(`coldterm.out`).
+Every calibration cell above ran with `simultaneous=False`. Over 280 cells run with the band on and
+off (`band_check.out`: every family, two and four regimens, two and four nodes, one fold, 2,000 to
+100,000 units), the band-on cells read 1.54 to 5.02 and the band-off cells at least 1.35. Three
+band-on cells read above 3.5, all `hazard_separable` at two nodes with traced peaks under 20 MiB,
+where the band's fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's
+range) and 3.58 at 5,000.
+
+Because the largest reading without the band is 3.31, the refusal states: "At one worker it can
+exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with the simultaneous band
+on, and more with n_jobs > 1." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
+two and four workers, 2 to 20 folds, and parallel bootstraps) the prediction reads 1.29 to 1.94
+times the measured resident footprint of the parent and every worker. The lowest, 1.29 to 1.30, are
+`SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`coldterm.out`).
 
 The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
 learners, and other learners' own memory is not counted. With the default learner library the
@@ -3431,11 +3450,13 @@ budget this errs toward a needless refusal, and `max_memory_bytes=` overrides it
 
 ### Calibrated ranges
 
-A fit is in the calibrated range when it has no Markov order, at most four workers, binary
-treatment nodes, and every count within its family's fitted bounds below, or when it lies in a
-checked extension further down. Every fitted cell had one draw, no bootstrap and no censoring,
-except the time-to-event panels of `hazard_one_node` and `hazard_separable`, which are censored.
-The `ltmle` cells include a regimen working model.
+A fit is in the calibrated range when it has no Markov order, no mixed treatment node, at most four
+workers, binary treatment nodes, and every count within its family's fitted bounds below, or when it
+lies in a checked extension further down. No mixed node was calibrated, and on a mixed law fits read
+1.07 to 1.51 (`review-j2d-rev11cd.md` in the plans repository), so a mixed node puts the fit out of
+range with "a mixed treatment node"; its prediction is unchanged. Every fitted cell had one draw, no
+bootstrap and no censoring, except the time-to-event panels of `hazard_one_node` and
+`hazard_separable`, which are censored. The `ltmle` cells include a regimen working model.
 
 | family | units | nodes | regimens | causes | folds | design columns | density bins | treatment paths | horizons |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
