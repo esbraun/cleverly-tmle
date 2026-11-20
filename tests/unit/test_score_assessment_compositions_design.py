@@ -280,7 +280,9 @@ def test_each_stream_has_its_own_samples_and_folds_per_group() -> None:
         seen |= samples | folds
 
 
-def _pilot_frame(ratios: Any, se: float = 0.01, controls: float = 0.79) -> pd.DataFrame:
+def _pilot_frame(
+    ratios: Any, se: float = 0.01, controls: float = 0.79, replicates: int = pilot.REPLICATES
+) -> pd.DataFrame:
     cells = list(pilot.positive_cells())
     control_cells = [c for c in study.PROPERTY_CELLS[study.CALIBRATION] if c.endswith("_control")]
     ratio = np.broadcast_to(np.asarray(ratios, dtype=float), (len(cells),))
@@ -290,7 +292,7 @@ def _pilot_frame(ratios: Any, se: float = 0.01, controls: float = 0.79) -> pd.Da
             "group": [pilot.group_of(c) for c in cells + control_cells],
             "arm": [pilot.arm_of(c) for c in cells + control_cells],
             "role": ["positive"] * len(cells) + ["control"] * len(control_cells),
-            "replicates": pilot.REPLICATES,
+            "replicates": replicates,
             "se_ratio": [*ratio, *([controls] * len(control_cells))],
             "se_ratio_se": se,
             "covered": int(0.95 * pilot.REPLICATES),
@@ -299,6 +301,9 @@ def _pilot_frame(ratios: Any, se: float = 0.01, controls: float = 0.79) -> pd.Da
 
 
 NO_PAIRS = pd.DataFrame(columns=["first", "second", "correlation"])
+
+#: Both pilots' draws: the fallback runs only after ``pilot_2`` (plan 5.0 rule 4).
+BOTH = pilot.REPLICATES + pilot.EXTENSION
 
 
 def _alternating(spread: float) -> np.ndarray:
@@ -317,7 +322,7 @@ def test_the_pilot_rule_sizes_r_by_x32a_on_correct_ratios() -> None:
 
 
 def test_the_point_reading_fallback_runs_where_x32a_cannot_and_refuses_suspects() -> None:
-    frame = _pilot_frame(_alternating(0.025))
+    frame = _pilot_frame(_alternating(0.025), replicates=BOTH)
     with pytest.raises(ValueError, match="calibration rule"):
         pilot.x32a_replicates(frame, NO_PAIRS)
     replicates, rule = pilot.declared_replicates(frame, NO_PAIRS)
@@ -327,9 +332,11 @@ def test_the_point_reading_fallback_runs_where_x32a_cannot_and_refuses_suspects(
     assert point_reading.point_reading_pass(study.STUDY.margins, ratios, replicates) >= 0.95
     with pytest.raises(ValueError, match="outside"):
         pilot.declared_replicates(
-            _pilot_frame(_alternating(0.04)), NO_PAIRS, diagnosed=pilot.positive_cells()
+            _pilot_frame(_alternating(0.04), replicates=BOTH),
+            NO_PAIRS,
+            diagnosed=pilot.positive_cells(),
         )
-    tight = _pilot_frame(_alternating(0.025), se=0.002)
+    tight = _pilot_frame(_alternating(0.025), se=0.002, replicates=BOTH)
     with pytest.raises(ValueError, match="no diagnosis"):
         pilot.declared_replicates(tight, NO_PAIRS)
     assert pilot.declared_replicates(tight, NO_PAIRS, diagnosed=pilot.positive_cells())[1] == (
@@ -370,3 +377,16 @@ def test_the_declaration_names_every_file_a_run_writes() -> None:
 
     assert set(study.RUN_FILES) == {*ARTIFACT_NAMES, *RECORD_FILES, *study.STUDY.property_artifacts}
     assert set(study.CONDITIONAL_RUN_FILES) == set(PROPERTY_FAILURE_FILES)
+
+
+def test_the_fallback_answers_only_the_no_budget_case_after_pilot_2() -> None:
+    """Review S6: another sizing error stops the declaration, and so do missing extensions."""
+    with pytest.raises(ValueError, match="only after pilot_2"):
+        pilot.declared_replicates(_pilot_frame(_alternating(0.025)), NO_PAIRS)
+    nan = _pilot_frame(_alternating(0.025), replicates=BOTH)
+    cells = list(pilot.positive_cells())
+    pairs = pd.DataFrame([{"first": cells[0], "second": cells[1], "correlation": float("nan")}])
+    with pytest.raises(ValueError) as caught:
+        pilot.declared_replicates(nan, pairs)
+    assert pilot.NO_BUDGET not in str(caught.value)
+    assert "pilot_2" not in str(caught.value)

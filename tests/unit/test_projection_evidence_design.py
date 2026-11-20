@@ -291,14 +291,14 @@ def test_each_stream_has_its_own_samples_and_folds_per_group() -> None:
     assert set(properties.STREAMS) == {"property", "pilot", "pilot_2", "smoke"}
 
 
-def _pilot_frame(ratios: Any, se: float = 0.01) -> pd.DataFrame:
+def _pilot_frame(ratios: Any, se: float = 0.01, replicates: int = pilot.REPLICATES) -> pd.DataFrame:
     cells = pilot.positive_cells()
     return pd.DataFrame(
         {
             "cell": list(cells),
             "group": [pilot.group_of(cell) for cell in cells],
             "arm": [pilot.arm_of(cell) for cell in cells],
-            "replicates": pilot.REPLICATES,
+            "replicates": replicates,
             "se_ratio": ratios,
             "se_ratio_se": se,
             "covered": int(0.95 * pilot.REPLICATES),
@@ -307,6 +307,9 @@ def _pilot_frame(ratios: Any, se: float = 0.01) -> pd.DataFrame:
 
 
 NO_PAIRS = pd.DataFrame(columns=["first", "second", "correlation"])
+
+#: Both pilots' draws: the fallback runs only after ``pilot_2`` (plan 5.0 rule 4).
+BOTH = pilot.REPLICATES + pilot.EXTENSION
 
 
 def _alternating(spread: float) -> np.ndarray:
@@ -324,7 +327,7 @@ def test_the_pilot_rule_sizes_r_by_x32a_on_correct_ratios() -> None:
 
 
 def test_the_point_reading_fallback_runs_where_x32a_cannot() -> None:
-    frame = _pilot_frame(_alternating(0.02))
+    frame = _pilot_frame(_alternating(0.02), replicates=BOTH)
     with pytest.raises(ValueError, match="calibration rule"):
         pilot.x32a_replicates(frame, NO_PAIRS)
     replicates, rule = pilot.declared_replicates(frame, NO_PAIRS)
@@ -345,11 +348,11 @@ def test_the_point_reading_fallback_runs_where_x32a_cannot() -> None:
 
 def test_the_point_reading_fallback_refuses_a_defect_suspect() -> None:
     # Outside the absorb band: refused even when diagnosed.
-    frame = _pilot_frame(_alternating(0.04))
+    frame = _pilot_frame(_alternating(0.04), replicates=BOTH)
     with pytest.raises(ValueError, match="outside"):
         pilot.declared_replicates(frame, NO_PAIRS, diagnosed=pilot.positive_cells())
     # Inside the band but with a 99% interval that excludes 1: refused until diagnosed.
-    tight = _pilot_frame(_alternating(0.02), se=0.002)
+    tight = _pilot_frame(_alternating(0.02), se=0.002, replicates=BOTH)
     with pytest.raises(ValueError, match="no diagnosis"):
         pilot.declared_replicates(tight, NO_PAIRS)
     assert pilot.declared_replicates(tight, NO_PAIRS, diagnosed=pilot.positive_cells())[1] == (
@@ -426,3 +429,112 @@ def test_the_full_mutant_is_the_fit_and_each_mutation_moves_it(level: int) -> No
     for covariate in ("no_density", "no_selection"):
         moved = study.mutant_tmle(result, level, covariate)
         assert np.abs(moved - full).max() > 1e-3, covariate
+
+
+# ------------------------------------------------------- the reading paths (review S5)
+
+
+@pytest.mark.parametrize("label", ["cde_4k", "cde_crr_4k"])
+def test_the_engine_fit_is_the_study_route_at_both_levels(label: str) -> None:
+    """The CDE groups measure ``fit_cde``; the registered row lifts the study route."""
+    from cleverly import CausalStudy, ConditionalContrast, ControlledDirectEffect, PointTreatment
+
+    group = study.GROUP_BY_LABEL[label]
+    frame, _ = study.draw_from_seed(label, 1_000, 5)
+    engine = study.fit_cde(group, frame, 11)
+    route = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), intermediate="Z"
+        ),
+    )
+    for level in study.LEVELS:
+        identified = route.identify(
+            ControlledDirectEffect(
+                float(level),
+                ConditionalContrast(study.CDE_MODIFIERS, scale=group.scale, model=study.CDE_BASIS),  # type: ignore[arg-type]
+            )
+        )
+        fit = study._quiet(identified.estimate, **study.learners(group), random_state=11)
+        ours = [(e.psi, e.std_error) for e in engine[float(level)].estimates.values()]
+        theirs = [(e.psi, e.std_error) for e in fit.estimates.values()]
+        np.testing.assert_allclose(ours, theirs, rtol=0, atol=1e-12)
+        assert list(engine[float(level)].estimates) == list(fit.estimates)
+
+
+#: The support row each gated band group's coefficients must read (plan 2.3).
+BAND_ROWS = {
+    "band_obs_4k": "T49",
+    "band_crr_4k": "T50",
+    "band_clustered_4k": "T49.clustered",
+    "band_rep3_4k": "T49.repeats",
+}
+
+
+@pytest.mark.parametrize("label", sorted(BAND_ROWS))
+def test_each_band_group_reads_the_row_its_band_evidence_names(label: str) -> None:
+    group = study.GROUP_BY_LABEL[label]
+    frame, _ = study.draw_from_seed(label, group.n, 3)
+    fit = study.fit_projection(group, frame, 3)
+    assert {(e.support.label, e.support.row) for e in fit.estimates.values()} == {
+        ("supported", BAND_ROWS[label])
+    }
+    assert {g.label for g in study.GROUPS if g.band == "gated"} == set(BAND_ROWS)
+
+
+def test_the_plugin_stratum_control_is_the_stratum_projection_on_the_exact_law() -> None:
+    """On the discrete law the control equals ``law.plugin_stratum(z)``, not the CDE."""
+    from tests import discrete_law_cde_projection as discrete
+    from tests.unit import test_cde_projection as exact
+
+    frame = discrete.frame().rename(columns={"W": "W1"})
+    from cleverly import CausalStudy, ConditionalContrast, ControlledDirectEffect, PointTreatment
+    from cleverly.bases import Linear, Modifiers
+
+    design = PointTreatment(
+        outcome="Y", treatment="A", adjustment=("W1",), missingness="Delta", intermediate="Z"
+    )
+    contrast = ConditionalContrast(
+        Modifiers(["W1"], domains={"W1": (0.0, 2.0)}),
+        model=Linear(["W1"]),  # type: ignore[arg-type]
+    )
+    for level in study.LEVELS:
+        identified = CausalStudy(frame, design=design).identify(
+            ControlledDirectEffect(float(level), contrast)
+        )
+        fit = study._quiet(identified.estimate, **exact.oracle())
+        np.testing.assert_allclose(
+            study.plugin_stratum(fit, level), discrete.plugin_stratum(level), atol=1e-10
+        )
+        assert np.max(np.abs(discrete.plugin_stratum(level) - discrete.truth(level))) > 0.02
+
+
+def test_the_declared_wrong_outcome_is_the_logit_shift_at_both_arms_and_levels() -> None:
+    from scipy.special import expit
+
+    group = study.GROUP_BY_LABEL["cde_dr_4k"]
+    frame, _ = study.draw_from_seed(group.label, 1_000, 7)
+    fits = study.fit_cde(group, frame, 7)
+    w = frame[["W1", "W2", "W3"]].to_numpy()
+    for level in study.LEVELS:
+        arms = fits[float(level)].repeats[0].nuisance.outcome.arms
+        for a in (0.0, 1.0):
+            expected = expit(law.outcome_logit(w, a, level) + law.declared_error(w, a))
+            np.testing.assert_allclose(arms[a], expected, rtol=0, atol=1e-10)
+        assert np.max(np.abs(law.declared_error(w, 1.0) - law.declared_error(w, 0.0))) > 0.05
+
+
+def test_the_fallback_answers_only_the_no_budget_case_after_pilot_2() -> None:
+    """Review S6: another sizing error stops the declaration, and so do missing extensions."""
+    low = np.ones(len(pilot.positive_cells()))
+    low[[pilot.arm_of(c) == "__pooled" for c in pilot.positive_cells()]] = 0.945
+    assert pilot.pilot_2_arms(_pilot_frame(low)) == ("__pooled",)
+    with pytest.raises(ValueError, match="only after pilot_2"):
+        pilot.declared_replicates(_pilot_frame(low), NO_PAIRS)
+    nan = _pilot_frame(_alternating(0.02), replicates=BOTH)
+    cells = list(pilot.positive_cells())
+    pairs = pd.DataFrame([{"first": cells[0], "second": cells[1], "correlation": float("nan")}])
+    with pytest.raises(ValueError) as caught:
+        pilot.declared_replicates(nan, pairs)
+    assert pilot.NO_BUDGET not in str(caught.value)
+    assert "pilot_2" not in str(caught.value)

@@ -200,19 +200,44 @@ def x32a_replicates(summary: pd.DataFrame, pairs: pd.DataFrame) -> int:
     )
 
 
+#: The message of :func:`repeated_sizing.calibration_replicates` when no budget meets X32a's
+#: rule: the only error the point-reading fallback may answer.
+NO_BUDGET = "no budget up to 50,000 replications meets the calibration rule"
+
+
+def pilot_2_shortfall(summary: pd.DataFrame) -> list[str]:
+    """The arms ``pilot_2`` should have extended that hold fewer than both pilots' draws."""
+    needed = study.PILOT_DRAWS + study.PILOT_2_DRAWS
+    rows = summary
+    short = []
+    for arm in pilot_2_arms(summary):
+        fewest = int(rows.loc[rows["arm"] == arm, "replicates"].min())
+        if fewest < needed:
+            short.append(f"{arm}: {fewest} draws, below {needed}")
+    return short
+
+
 def declared_replicates(
     summary: pd.DataFrame, pairs: pd.DataFrame, *, diagnosed: Collection[str] = ()
 ) -> tuple[int, str]:
     """The calibration ``R`` and the rule that set it: ``"x32a"`` or ``"point_reading"``.
 
-    X32a's rule first; if no ``R`` up to 50,000 meets it, the point-reading fallback at
+    X32a's rule first; if no ``R`` up to 50,000 meets it, and every arm ``pilot_2`` extends
+    holds both pilots' draws, the point-reading fallback at
     :data:`~tests.studies.projection_evidence.POINT_READING_TARGET`, which refuses unless every
     row whose 99% interval excludes 1 is in ``diagnosed`` and lies within the absorb band.
     The declared ``R`` is never below :data:`~tests.studies.projection_evidence.BUDGETED_R`.
     """
     try:
         computed, rule = x32a_replicates(summary, pairs), "x32a"
-    except ValueError:
+    except ValueError as error:
+        if NO_BUDGET not in str(error):
+            raise
+        short = pilot_2_shortfall(summary)
+        if short:
+            raise ValueError(
+                "the point-reading fallback runs only after pilot_2: " + "; ".join(short)
+            ) from error
         computed = point_reading.point_reading_replicates(
             study.STUDY.margins,
             dict(zip(summary["cell"], summary["se_ratio"], strict=True)),

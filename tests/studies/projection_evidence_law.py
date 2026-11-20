@@ -256,12 +256,17 @@ def smallest_density_product(*, nodes: int = NODES) -> float:
 # ---------------------------------------------------------------------------- the bands
 
 
+#: The Monte Carlo seed of the band design numbers: a local constant, not a record seed (the
+#: study's record seeds are 20261511 and 20261512).
+BAND_DESIGN_SEED = 20261513
+
+
 def pointwise_joint_coverage(
     covariance: np.ndarray,
     grid_design: np.ndarray,
     *,
     draws: int = 400_000,
-    seed: int = 20261501,
+    seed: int = BAND_DESIGN_SEED,
 ) -> tuple[float, float]:
     """``(joint coverage of the pointwise 95% intervals, max-t critical value)`` over a grid.
 
