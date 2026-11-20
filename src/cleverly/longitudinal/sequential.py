@@ -3941,30 +3941,34 @@ def _clever_covariate(
     else:
         base = numerator if numerator.base is None else numerator.base
         sources = (at_risk, trained_on, cumulative, base)
-        extra = (time, numerator.__array_interface__["data"][0], numerator.strides)
-    return cached(
-        "clever",
+        # The view's own data pointer, shape and strides: two columns of one numerator, or
+        # two views of one buffer, never share a key.
+        extra = (
+            time,
+            numerator.__array_interface__["data"][0],
+            numerator.shape,
+            numerator.strides,
+        )
+    # Two entries on the same key, so a record that keeps ``clever`` shares it although
+    # nothing keeps ``counterfactual``.
+    counterfactual = cached(
+        "counterfactual",
         sources,
         extra,
-        lambda: _compute_clever(at_risk, trained_on, cumulative, time, numerator),
+        lambda: _counterfactual_weight(at_risk, cumulative, time, numerator),
     )
+    clever = cached("clever", sources, extra, lambda: np.where(trained_on, counterfactual, 0.0))
+    return counterfactual, clever
 
 
-def _compute_clever(
-    at_risk: BoolArray,
-    trained_on: BoolArray,
-    cumulative: FloatArray,
-    time: int,
-    numerator: FloatArray | None,
-) -> tuple[FloatArray, FloatArray]:
-    """:func:`_clever_covariate`, computed."""
+def _counterfactual_weight(
+    at_risk: BoolArray, cumulative: FloatArray, time: int, numerator: FloatArray | None
+) -> FloatArray:
+    """The weight of :func:`_clever_covariate` on ``at_risk``, computed."""
     denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
     if numerator is None:
-        counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
-    else:
-        counterfactual = np.where(at_risk, numerator / denominator, 0.0)
-    clever = np.where(trained_on, counterfactual, 0.0)
-    return counterfactual, clever
+        return np.where(at_risk, 1.0 / denominator, 0.0)
+    return np.where(at_risk, numerator / denominator, 0.0)
 
 
 def _fluctuate_node(

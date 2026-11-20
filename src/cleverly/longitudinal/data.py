@@ -123,7 +123,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
-from ._fit_cache import cached
+from ._fit_cache import active, cached, held
 from .panel import PanelLayout
 
 __all__ = [
@@ -3207,6 +3207,29 @@ class LongitudinalData:
 
     # ----------------------------------------------------------------- design
 
+    def _clean_blocks(self, start: int, stop: int) -> list[FloatArray]:
+        """The baseline and the covariate blocks of nodes ``start..stop``, finite.
+
+        Each block is :meth:`covariate_history`'s fill of that block alone, so a history is
+        their concatenation.  Inside a fit's cache every block is built once and held, at the
+        size of the panel's own covariates; outside it only the blocks asked for are built.
+        """
+
+        def finite(block: FloatArray) -> FloatArray:
+            return np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if not active():
+            return [
+                finite(block) for block in (self.baseline, *self.time_varying[start - 1 : stop])
+            ]
+        clean = held(
+            "clean_blocks",
+            (self,),
+            None,
+            lambda: tuple(finite(block) for block in (self.baseline, *self.time_varying)),
+        )
+        return [clean[0], *clean[start : stop + 1]]
+
     def covariate_history(self, time: int) -> FloatArray:
         """``[W, L_1, ..., L_t]`` as a finite matrix.
 
@@ -3223,10 +3246,13 @@ class LongitudinalData:
         return cached("history", (self,), time, lambda: self._covariate_history(time))
 
     def _covariate_history(self, time: int) -> FloatArray:
-        """:meth:`covariate_history`, computed."""
-        blocks = [self.baseline, *self.time_varying[:time]]
-        matrix = np.hstack([block for block in blocks if block.shape[1]])
-        return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
+        """:meth:`covariate_history`, computed from the finite blocks.
+
+        Filling each block and then joining them gives the same matrix, bit for bit, as
+        joining and then filling: the fill acts on each cell alone.
+        """
+        blocks = self._clean_blocks(1, time)
+        return np.hstack([block for block in blocks if block.shape[1]])
 
     def window_start(self, time: int) -> int:
         """The first covariate node the nuisance designs at ``time`` read.
@@ -3294,12 +3320,11 @@ class LongitudinalData:
 
     def _window_covariates(self, time: int) -> FloatArray:
         """:meth:`window_covariates` under a Markov order, computed."""
-        start = self.window_start(time)
-        blocks = [self.baseline, *self.time_varying[start - 1 : time]]
+        blocks = self._clean_blocks(self.window_start(time), time)
         present = [block for block in blocks if block.shape[1]]
         if not present:
             return np.zeros((self.n, 0))
-        return np.nan_to_num(np.hstack(present), nan=0.0, posinf=0.0, neginf=0.0)
+        return np.hstack(present)
 
     def history_names(self, time: int) -> tuple[str, ...]:
         """Column names of :meth:`covariate_history`, in its column order.
@@ -4240,7 +4265,7 @@ def _check_presence(
     if values.dtype.kind in "biufc":
         finite = np.isfinite(np.asarray(values, dtype=float))
     else:
-        finite = np.asarray([_categorical_value_is_present(value) for value in values], dtype=bool)
+        finite = _present_objects(values)
     missing = required & ~finite
     if np.any(missing):
         if absent is not None:
@@ -4259,6 +4284,36 @@ def _check_presence(
             "refused rather than silently dropped: set the nodes after a unit leaves to "
             "missing."
         )
+
+
+def _present_objects(values: Any) -> BoolArray:
+    """:func:`_categorical_value_is_present` of every cell of an object array.
+
+    The element types are collected in one pass first.  A column whose cells are all exactly
+    ``float``, ``float64``, ``float32`` or ``float16`` (a numeric column handed over as
+    objects) is then read with :func:`numpy.isfinite`, which is that function's answer for each
+    such float: each converts to ``float64`` exactly.  A column with no ``None``, no pandas
+    ``NA`` and no float of any kind holds only present labels.  Any other mix is read one cell
+    at a time, including ``longdouble``, whose finite values above the ``float64`` range would
+    convert to infinity, and a Python ``int``, which is never converted for the same reason.
+    """
+    types = set(map(type, values))
+    if types and types <= _EXACT_FLOATS:
+        return np.asarray(np.isfinite(values.astype(float)), dtype=bool)
+    if not any(_may_be_absent(kind) for kind in types):
+        return np.ones(len(values), dtype=bool)
+    return np.asarray([_categorical_value_is_present(value) for value in values], dtype=bool)
+
+
+#: The element types :func:`_present_objects` converts to ``float64``: each converts exactly.
+_EXACT_FLOATS: frozenset[type] = frozenset({float, np.float64, np.float32, np.float16})
+
+
+def _may_be_absent(kind: type) -> bool:
+    """Whether a ``kind`` cell can read as absent in :func:`_categorical_value_is_present`."""
+    if kind is type(None) or issubclass(kind, (float, np.floating)):
+        return True
+    return kind.__name__ == "NAType" and kind.__module__.startswith("pandas")
 
 
 def _categorical_value_is_present(value: Any) -> bool:

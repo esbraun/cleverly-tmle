@@ -251,6 +251,7 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
+from ._fit_cache import in_fit_cache
 from .baselines import (
     IPW_NORMALIZATIONS,
     fit_gcomp_cell,
@@ -337,7 +338,6 @@ from .regimen import (
     resolve_tuned_plans,
     tilt_mix_refusal,
 )
-from ._fit_cache import fit_cache
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .separable import (
     SeparablePlan,
@@ -7178,12 +7178,8 @@ class _SequentialEstimator:
             mechanism,
         )
 
-    def _fit_draw(self, *args: Any, **kwargs: Any) -> _DrawOutcome:
-        """:meth:`_fit_draw_shared` inside one draw's :func:`~._fit_cache.fit_cache`."""
-        with fit_cache():
-            return self._fit_draw_shared(*args, **kwargs)
-
-    def _fit_draw_shared(
+    @in_fit_cache
+    def _fit_draw(
         self,
         prepared: LongitudinalData,
         plans: tuple[Plan, ...],
