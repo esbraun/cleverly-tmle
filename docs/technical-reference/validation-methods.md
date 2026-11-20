@@ -3143,9 +3143,14 @@ The directory's `request.json` records, on first use:
 A call whose request differs in any part refuses with `INVALID_DECLARATION`, naming the part, and
 so does a stored draw whose seed differs from the one the call derives. No part is keyed by a
 `repr` that holds a memory address: a lambda or local function refuses the checkpoint by name,
-and so does an object whose only description holds an address. The data fingerprint and the
-version check do not separate two development commits with one `cleverly` version, so give each
-commit its own directory. An unseeded fit draws its root seed at the first call; the directory
+and so does an object whose only description holds an address. A bound method keys by its name
+alone and an object with neither `get_params` nor dataclass fields by its `repr`; the estimates
+part separates fits that differ only there.
+
+The version check does not separate two development
+commits with one `cleverly` version, so give each commit its own directory. A directory that
+holds no draw yet takes a new request, and the request file is not locked, so run one call per
+directory at a time. An unseeded fit draws its root seed at the first call; the directory
 records it, and the refusal of a later call names it as the `random_state=` to pass. Each stored
 draw is the raw record or retained failure, before the ratio filter, so the filter runs on the
 merged draws as it does on an uninterrupted call.
@@ -3153,9 +3158,11 @@ merged draws as it does on an uninterrupted call.
 `progress` receives a `RefutationProgress(test, completed, requested, failed, resumed,
 candidate)` in the calling process after each draw's file is in place. It is called outside the
 blocks that retain a refit failure, so an exception it raises stops the call and is never
-recorded as a failed draw. Loading a stored draw marks the call as having fitted learners, so the facade keeps
-the answer as it keeps a refitted one. The facade's cache key leaves out `checkpoint` and
-`progress`, so a repeated request returns the cached answer without opening the directory. A
+recorded as a failed draw. Loading a stored draw marks the call as having fitted learners, so the
+facade keeps the answer as it keeps a refitted one.
+
+The facade's cache keys, `run_all`'s included, leave out `checkpoint` and `progress`, so a
+repeated request returns the cached answer without reading the stored draws. A
 variable-importance run gives each candidate a subdirectory named by a digest of its name.
 `planned_refits(..., checkpoint=...)` reads the directory without writing, refuses as `refute()`
 would, and reports `stored` draws per test, counting only the rest; it ignores `progress`.

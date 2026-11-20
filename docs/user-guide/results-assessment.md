@@ -671,7 +671,7 @@ bound, because a drawn fold where a binary target has one class needs no model.
 [The technical reference](../technical-reference/validation-methods.md#refutation-operations)
 says which counts are exact.
 
-A 400-draw generated-outcome test can run for hours on a large fit. Pass
+A 400-draw generated-outcome test refits 400 times, which takes tens of minutes on a large fit. Pass
 `checkpoint=RefutationCheckpoint("refute-draws")` (from `cleverly.validation`) and each finished
 draw is saved as a file in that folder. If the call stops, run the same call again with the same
 folder: it loads the saved draws, refits only the rest, and returns the report an uninterrupted

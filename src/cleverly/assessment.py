@@ -2991,7 +2991,10 @@ class _CapabilityFacade:
             {
                 "include_refits": include_refits,
                 "include_retargets": include_retargets,
-                "arguments": supplied,
+                "arguments": {
+                    operation: _cache_arguments(operation, dict(values))
+                    for operation, values in supplied.items()
+                },
                 "random_state": random_state,
             },
             compute,
@@ -3076,7 +3079,7 @@ class _CapabilityFacade:
         args: tuple[Any, ...] = (),
     ) -> dict[str, Any]:
         bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
-        effective = _bound_arguments(bound, report)
+        effective = _cache_arguments(operation, _bound_arguments(bound, report))
         if operation == "evalue" and effective.get("estimand") is None:
             # Explicit OR requests choose the approximation; keep None replayable there.
             source = getattr(report, "source_estimand", None)
@@ -3910,7 +3913,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         **kwargs
             Options forwarded to :func:`cleverly.validation.refute`. The answer is cached
             without ``checkpoint`` and ``progress``, so a repeated request returns the cached
-            answer without opening the checkpoint directory or calling ``progress``.
+            answer without reading the checkpoint's draws or calling ``progress``. A
+            variable-importance run still records its candidates' names in the directory.
 
         Returns
         -------

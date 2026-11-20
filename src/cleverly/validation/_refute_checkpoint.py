@@ -17,6 +17,7 @@ import inspect
 import json
 import os
 import re
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,7 +61,9 @@ class RefutationProgress:
     requested : int
         Draws the test runs.
     failed : int
-        Finished draws that ended in a retained failure.
+        Finished draws whose refit failed so far. A ratio draw that refits to a
+        nonpositive value is moved to the failures after the last draw, so it is not
+        counted here.
     resumed : int
         Finished draws loaded from the checkpoint rather than refitted.
     candidate : str or None
@@ -94,8 +97,9 @@ class RefutationCheckpoint:
     whose request differs in any part refuses, naming the part. Two development commits can
     share one ``cleverly`` version, so give each commit its own directory. An unseeded fit
     draws its seed at the first call; the directory records it, and a resume passes it back as
-    ``random_state=``. A facade call whose answer is already cached returns it without opening
-    the directory.
+    ``random_state=``. A directory that holds no draw yet takes a new request. A facade call
+    whose answer is already cached returns it without reading the draws. Run one call per
+    directory at a time: the request file is not locked.
 
     Parameters
     ----------
@@ -184,7 +188,7 @@ class RefutationCheckpoint:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(json.dumps(payload, sort_keys=True))
     os.replace(temporary, path)
 
@@ -256,6 +260,12 @@ def config_key(value: Any, *, path: str = "value", seen: frozenset[int] = frozen
     """
     from .._assessment_cache import _normalize
 
+    if isinstance(value, np.ndarray) and value.dtype == object:
+        # An object array holds references, which ``_normalize`` cannot hash by content.
+        return {
+            "object array": list(value.shape),
+            "items": config_key(value.ravel().tolist(), path=path, seen=seen),
+        }
     if value is None or isinstance(value, (str, int, float, bool, np.ndarray, np.generic)):
         return _normalize(value)
     if id(value) in seen:
@@ -387,7 +397,9 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def request_parts(result: Any, *, estimand: str, seed: int, repeat_seeds: Any) -> dict[str, Any]:
+def request_parts(
+    result: Any, *, estimand: str, seed: int | None, repeat_seeds: Any
+) -> dict[str, Any]:
     """The parts of a call's request that every stored test shares.
 
     Parameters
@@ -396,8 +408,8 @@ def request_parts(result: Any, *, estimand: str, seed: int, repeat_seeds: Any) -
         The fit.
     estimand : str
         The estimand the call refits.
-    seed : int
-        The call's resolved root seed.
+    seed : int or None
+        The call's resolved root seed, or ``None`` for the preview of a call that draws one.
     repeat_seeds : Any
         The fit's repeat seeds, or the structural fit seeds.
 
@@ -409,7 +421,10 @@ def request_parts(result: Any, *, estimand: str, seed: int, repeat_seeds: Any) -
     return {
         "estimator": _estimator_key(getattr(result, "estimator", None)),
         "data": _data_key(result),
-        "seeds": {"root": int(seed), "repeats": config_key(repeat_seeds, path="repeat seeds")},
+        "seeds": {
+            "root": None if seed is None else int(seed),
+            "repeats": config_key(repeat_seeds, path="repeat seeds"),
+        },
         "estimates": _estimates_key(result),
         "estimand": estimand,
         "library versions": _versions(),
@@ -485,6 +500,8 @@ class CheckpointSession:
     read_only : bool
         Whether the session only reads the directory, as the preview of planned refits does.
         It checks the request the same way and writes nothing.
+    drawn : bool
+        Whether the call draws its root seed with fresh entropy, which a refusal names.
     """
 
     def __init__(
@@ -494,10 +511,12 @@ class CheckpointSession:
         progress: Callable[[RefutationProgress], Any] | None,
         *,
         read_only: bool = False,
+        drawn: bool = False,
     ) -> None:
         self.checkpoint = checkpoint
         self.progress = progress
         self.read_only = read_only
+        self.drawn = drawn
         self.parts = parts
         if checkpoint is not None:
             self._check_common()
@@ -510,6 +529,10 @@ class CheckpointSession:
         stored: dict[str, Any] = json.loads(path.read_text())
         return stored
 
+    def _has_draws(self) -> bool:
+        assert self.checkpoint is not None
+        return any(Path(self.checkpoint.directory).glob("*/draw-*.json"))
+
     def _write(self, request: dict[str, Any]) -> None:
         assert self.checkpoint is not None
         if self.read_only:
@@ -519,7 +542,9 @@ class CheckpointSession:
     def _check_common(self) -> None:
         assert self.checkpoint is not None
         stored = self._request()
-        if stored is None:
+        if stored is None or not self._has_draws():
+            # A request with no stored draw holds nothing a new request could mix with, so a
+            # call stopped before its first draw finished leaves the directory reusable.
             self._write({"common": self.parts, "tests": {}})
             return
         common = stored.get("common", {})
@@ -527,7 +552,8 @@ class CheckpointSession:
             if _digest(common.get(key)) == _digest(value):
                 continue
             if key == "seeds" and common.get(key, {}).get("root") != value["root"]:
-                raise seed_refusal(self.checkpoint, int(common[key]["root"]), value["root"])
+                resolved = None if self.drawn else value["root"]
+                raise seed_refusal(self.checkpoint, int(common[key]["root"]), resolved)
             raise _refuse(
                 self.checkpoint.directory,
                 f"holds draws of another request: its {_PART_NAMES[key]} differs",
@@ -549,7 +575,9 @@ class CheckpointSession:
         keyed = {key: config_key(value, path=f"{name}.{key}") for key, value in parts.items()}
         stored = self._request() or {"common": self.parts, "tests": {}}
         previous = stored.setdefault("tests", {}).get(name)
-        if previous is None:
+        if previous is None or not any(
+            (Path(self.checkpoint.directory) / name).glob("draw-*.json")
+        ):
             stored["tests"][name] = keyed
             self._write(stored)
             return
