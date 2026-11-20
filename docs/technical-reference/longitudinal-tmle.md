@@ -3297,8 +3297,9 @@ With `simultaneous=True`, the default, the multiplier band reuses a buffer of $\
 replicates of $n$ doubles, where $\text{block}(n)$ is `cleverly.inference.multiplier._block_size(n,
 n_multiplier)`: a 32 MiB budget, clamped to 4 to 256 replicates and rounded down to a multiple of
 four. The term is $\text{band} = 2 \cdot \text{block}(n) \cdot 8n$ bytes, about 7.8 MiB at 2,000
-units and 64 MiB at 20,000, and 0 with `simultaneous=False`. The factor 2 is set on the band runs,
-not derived. The measured increment, band-on minus band-off peak, is at most 1.85 buffers: 1.56 to
+units and 64 MiB at 20,000, and 0 with `simultaneous=False`.
+
+The factor 2 is set on the band runs, not derived. The measured increment, band-on minus band-off peak, is at most 1.85 buffers: 1.56 to
 1.85 for `LTMLE` iterated-mean fits (largest on survival fits), up to 1.53 for `SDR` and `IPSI`, up to
 1.6 on the classifier route, and up to 1.36 for the hazard families and the binned and index-only
 continuous routes (`band-*.jsonl`). It grows with the number of estimates, which fits the centred
