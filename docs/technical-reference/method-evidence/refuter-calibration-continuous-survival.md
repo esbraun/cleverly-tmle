@@ -92,7 +92,9 @@ the detections of a defect. The cell name gives the estimand, then the reading.
 
 All 20 property cells pass. One of the 600 size trials was lost to a recorded fitting failure (a
 subset refit whose initial hazard fit put a combined jump of one or more at one time), under the
-failure bound of 0.01, so each size cell reads 599 trials.
+failure bound of 0.01, so each size cell reads 599 trials. The engine now bounds such a jump
+instead of refusing it; refitted under the bound, that trial still fails at the same subset
+refit, on survival underflow after the bound acted, so the count stands.
 
 The placebo cells reject in 28, 27, 33 and 33 trials, rates of 0.045 to 0.055. The subset cells
 reject in 57, 48, 55 and 52 trials (cause 1 at 1.12 and 2.32, then cause 2), rates of 0.080 to

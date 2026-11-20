@@ -712,6 +712,12 @@ gates it with one cause and with three. This item holds what remains.
 | (e) time-varying treatment and covariates | the continuous-time intensity model and its targeting | Rytgaard, Gerds and van der Laan (2022), *Annals of Statistics* 50(5) |
 | (f) a comparator | `concrete` 1.0.5 implements the form of Rytgaard, Eriksson and van der Laan (2023), tilts only each unit's received arm, which a mutation test shows is not doubly robust, and is archived. Pin it by commit before any paired cell | the `concrete` source |
 
+A NaN initial hazard jump, which only a user learner can give, is walked, not refused: the jump
+bound leaves a NaN cell alone, and the block walk follows the dense walk on it
+(`test_a_nan_initial_jump_is_kept_and_walked_as_the_dense_walk_walks_it`). Whether to refuse it
+as a learner defect, as the replay check refuses a learner whose predictions change between
+calls, is open here and needs its own test rewrite.
+
 ### X105. Negative controls, generated outcomes and resampling for continuous-time fits
 
 `refute` on a `ContinuousSurvivalResult` runs the placebo, random-common-cause and subset tests

@@ -156,8 +156,11 @@ infinite combined jump is still refused, and a NaN jump is walked as before.
 
 - **Placement.** `cleverly.survival._chunked.bound_jumps` runs inside `InitialHazards.jumps`, the
   one source of the engine's checks, its replay check and every walk block, in every fit and
-  bootstrap refit alike. It writes nothing when no cell reaches $1 - \delta$, $\delta = 10^{-8}$
-  (`JUMP_BOUND`, a constant of its own beside the walk's floor).
+  bootstrap refit alike. It acts on cells whose sum is at least 1, exactly the cells the old
+  code refused, and scales them to $1 - \delta$, $\delta = 10^{-8}$ (`JUMP_BOUND`, a constant of
+  its own beside the walk's floor). It writes nothing when no cell reaches 1, so every fit that
+  ran before computes the same arrays. (The first version acted from $1 - \delta$; the
+  implementation review narrowed it to 1 so the bound moves provably nothing that ran.)
 - **The walk's floor.** Each bounded pair takes its own floor, the lower of the other pairs'
   floor and its own initial survival at the grid's end; the other pairs' floor reads the other
   pairs only (`run_walk(own_floor=...)`). A fit with no bounded pair runs the old code path.
@@ -166,7 +169,7 @@ infinite combined jump is still refused, and a NaN jump is walked as before.
   pairs; every estimate experimental with a reason that names the extrapolation;
   `result.bootstrap_jump_bounded` counts the refits where the bound acted, and every bootstrap
   interval's reason names it. The continuous studies' `targeting-readings.csv` gain
-  `mean_jump_bound_share`, and the bootstrap study's `mean_jump_bounded_refits`, at their next
+  `mean_jump_bound_share` and `mean_jump_bound_at_risk_share`, and the bootstrap study's `mean_jump_bounded_refits`, at their next
   regeneration.
 - **Witnesses.** `tests/unit/test_continuous_survival_jump_bound.py` (two nonzero causes at a
   counterfactual cell, a cell at the received arm while at risk, the threshold) and
@@ -178,7 +181,8 @@ infinite combined jump is still refused, and a NaN jump is walked as before.
 
 The replay ran 395 fits on each side: 40 replicates spread over each of the nine primary cells,
 six of each reported cell of `continuous-time-survival`, and every fit the committed records lost
-to the refusal, with `positivity_4k` replicate 283 (an underflow) as a control.
+to the refusal, with `positivity_4k` replicate 283 (an underflow) as a control. It ran again after the
+bound was narrowed to sums of at least 1, with the same counts.
 
 | outcome | fits |
 | --- | --- |
@@ -190,7 +194,8 @@ to the refusal, with `positivity_4k` replicate 283 (an underflow) as a control.
 
 In the three that still fail, one pair's jumps reach the bound at 32, 27 and 1,141 grid times,
 with raw sums up to 1.9, 1.3 and 6.8, so its survival is $\delta$ to that power and falls below
-$10^{-250}$. The bound keeps the refusal for a pair the model extrapolates at many times; it
+$10^{-250}$. The refuter calibration's trial 465, outside the replay, fails the same way
+at subset refit 8. The bound keeps the refusal for a pair the model extrapolates at many times; it
 rescues a pair that crosses one at a few times, as every bootstrap refit of draws 38 and 45 did.
 Refitted whole, draw 38 lost 0 of 200 refits with the bound acting in 7, and draw 45 lost 0
 with the bound acting in 3

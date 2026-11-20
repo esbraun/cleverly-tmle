@@ -242,9 +242,10 @@ def jump_bound_reason(pairs: int) -> str:
     noun = "pair" if pairs == 1 else "pairs"
     return (
         f"The hazard fit put a combined jump of one or more at {pairs:,} (unit, arm) {noun}, "
-        "which the engine scaled below one: the hazard model extrapolates there, usually at "
-        "a unit's counterfactual arm for covariates outside that arm's range, a positivity "
-        "signal. No registered study gates a fit in which this bound acted."
+        "which the engine scaled below one. With distinct event times the hazard model "
+        "extrapolates there, usually at a unit's counterfactual arm for covariates outside "
+        "that arm's range, a positivity signal. No registered study gates a fit in which this "
+        "bound acted."
     )
 
 

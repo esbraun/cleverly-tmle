@@ -948,11 +948,13 @@ def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
 
     monkeypatch.setattr(_chunked, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
     monkeypatch.setattr(_chunked, "bound_jumps", recording)
-    with pytest.raises(DataError, match=match):
+    with pytest.raises(DataError, match=match) as caught:
         ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
             _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
         )
     assert acted and all(value == bounded for value in acted)
+    # An underflow after the bound names the bound and the extrapolation.
+    assert ("The hazard model also put a combined jump" in str(caught.value)) is bounded
 
 
 def test_a_declared_cause_with_no_event_is_refused() -> None:

@@ -58,9 +58,10 @@ RESIDENT_SHARE: Final = 0.75
 #: A bound on a step's increment at a time the reduced grid drops, above which the increment is
 #: computed exactly on the full grid: ``exp`` overflows above about 709.78.
 OVERFLOW_BOUND: Final = 700.0
-#: Where a unit's cause hazard jumps at one arm and time sum to at least ``1 - JUMP_BOUND``,
-#: :func:`bound_jumps` scales them to sum to ``1 - JUMP_BOUND``, each cause keeping its share,
-#: so the initial survival there falls to about ``JUMP_BOUND`` rather than to zero or below.
+#: Where a unit's cause hazard jumps at one arm and time sum to one or more, the cells the
+#: engine used to refuse, :func:`bound_jumps` scales them to sum to ``1 - JUMP_BOUND``, each
+#: cause keeping its share, so the initial survival there falls to about ``JUMP_BOUND`` rather
+#: than to zero or below.
 #: The value is the walk's survival floor's, :data:`~._targeting.WALK_SURVIVAL_FLOOR`, but the
 #: constant is its own, so a test that moves the walk's floor leaves the bound alone.
 JUMP_BOUND: Final = 1e-8
@@ -714,7 +715,7 @@ def run_walk(
     survival_floor: float | FloatArray = min(T.WALK_SURVIVAL_FLOOR, np.nan if undefined else lowest)
     if own_floor is not None:
         # A pair the engine bounded keeps its own floor (``own_floor`` above), so the bound
-        # moves no other pair's walk; its NaN survival reads the others' floor.
+        # lowers no other pair's floor; its NaN survival reads the others' floor.
         own_lasts = np.concatenate([last for _, _, last in lasts if last is not None], axis=1)
         survival_floor = np.where(
             own_floor, np.fmin(survival_floor, own_lasts), float(survival_floor)
@@ -1006,9 +1007,12 @@ def _jumps(cumulative: FloatArray) -> FloatArray:
 def bound_jumps(dlam: FloatArray) -> np.ndarray | None:
     r"""Bound each cell's combined cause jump below one, in place, and say where it acted.
 
-    Where the cause jumps of a unit at one arm and time sum to :math:`s \ge 1 - \delta`, with
+    Where the cause jumps of a unit at one arm and time sum to :math:`s \ge 1`, with
     :math:`\delta` = :data:`JUMP_BOUND`, each is multiplied by :math:`(1 - \delta) / s`, so
     the cell sums to :math:`1 - \delta` and each cause keeps its share :math:`d\Lambda_j / s`.
+    The threshold is the old refusal's, so the bound acts exactly on the cells the engine used
+    to refuse, and every fit that ran before computes the same arrays.  At :math:`s = 1` the
+    survival factor steps from 0 to :math:`\delta`, below the walk's floor.
     A Breslow jump is :math:`s_i d / \sum_{R} s_k`, below one for a unit in the risk set at
     its received arm when one event falls at the time, so on data with distinct times the bound
     acts only on extrapolated cells: a unit read at its counterfactual arm, or after it left
@@ -1034,7 +1038,7 @@ def bound_jumps(dlam: FloatArray) -> np.ndarray | None:
     for a in range(dlam.shape[0]):
         total = dlam[a].sum(axis=0)
         with np.errstate(invalid="ignore"):
-            over = (total >= 1.0 - JUMP_BOUND) & np.isfinite(total)
+            over = (total >= 1.0) & np.isfinite(total)
         if not over.any():
             continue
         if bounded is None:

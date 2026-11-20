@@ -127,7 +127,8 @@ The lowest gated coverage is the treated arm's risk of cause 2 at $t = 1.12$ in 
 
 `v3_half_n` lost 12 of 6,000 fits, against an allowance of 60 under the bound of 0.01
 (`failure-accounting.csv`). Eight are the `DataError` of an initial hazard fit whose combined
-jump at some time is one or more. In the three refitted (replicates 657, 1209 and 2184), the
+jump at some time is one or more; the engine now bounds such a jump, under which seven of the
+eight fit, and the study's regeneration under the bound is pending. In the three refitted (replicates 657, 1209 and 2184), the
 hazard model extrapolated to a unit's counterfactual arm. The unit's X3 was among the sample's
 three most extreme, outside the other arm's range, and its score there was 22 to 39 times the
 largest in a risk set of 141 to 148 units, at times near $t = 2.3$.

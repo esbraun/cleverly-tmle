@@ -1380,8 +1380,11 @@ def test_a_bounded_survival_that_underflows_is_refused() -> None:
     1 - 1e-8, and the survival, 1e-8 to the power of the times, underflows."""
     name = "two causes"
     extra = {"hazard_library": [Wrapped("refuse", 1.0)], "censoring_library": [Wrapped()]}
-    with pytest.raises(DataError, match="survival falls below"):
+    with pytest.raises(DataError, match="survival falls below") as caught:
         _fit(name, rows=ROWS, **extra)
+    # The refusal names the bound, since a refused fit returns nothing to warn about.
+    message = str(caught.value)
+    assert "combined jump of one or more at" in message and "positivity signal" in message
 
 
 @pytest.mark.parametrize("which", ["hazard", "censoring"])

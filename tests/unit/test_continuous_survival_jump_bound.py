@@ -216,12 +216,17 @@ def test_a_jump_at_the_received_arm_while_at_risk_is_counted_apart() -> None:
 
 @pytest.mark.parametrize(
     ("jumps", "acts"),
-    [((0.6, 0.4 - 2 * DELTA), False), ((0.6, 0.4 - DELTA / 2), True), ((0.6, 0.4), True)],
+    [
+        ((0.6, 0.4 - 2 * DELTA), False),
+        ((0.6, 0.4 - DELTA / 2), False),
+        ((0.6, 0.4 + 1e-9), True),
+    ],
 )
-def test_the_bound_acts_from_one_less_delta_and_leaves_lower_cells_untouched(
+def test_the_bound_acts_from_one_and_leaves_lower_cells_untouched(
     jumps: tuple[float, float], acts: bool
 ) -> None:
-    """The threshold: a cell just below ``1 - delta`` is not written to, bit for bit."""
+    """The threshold is the old refusal's: a cell below one, even within ``delta`` of it, is
+    not written to, bit for bit, and its fit is the one that ran before the bound."""
     frame = _sample()
     unit, arm, at = _cell(frame, own_arm=False)
     result, initial, caught = _fit(frame, unit, arm, at, jumps)
@@ -236,3 +241,25 @@ def test_the_bound_acts_from_one_less_delta_and_leaves_lower_cells_untouched(
     if acts:
         m = int(np.searchsorted(initial.grid, at))
         assert abs(bounded[arm, :, unit, m].sum() - (1.0 - DELTA)) <= 1e-15
+
+
+def test_the_bound_scales_a_sum_of_exactly_one_and_nothing_below_it() -> None:
+    """``bound_jumps`` on chosen sums: exactly 1 is scaled; one ulp below 1 and ``1 - delta / 2``
+    are not, and an array with no such cell is not written to."""
+    below = np.nextafter(1.0, 0.0)
+    dlam = np.zeros((2, 2, 3, 2))
+    dlam[1, :, 0, 1] = (0.75, 0.25)  # sums to exactly 1
+    dlam[1, :, 1, 1] = (0.5, below - 0.5)
+    dlam[0, :, 2, 0] = (0.5, 0.5 - DELTA / 2)
+    assert dlam[1, :, 0, 1].sum() == 1.0 and dlam[1, :, 1, 1].sum() < 1.0
+    before = dlam.copy()
+    scaled = _chunked.bound_jumps(dlam)
+    assert scaled is not None and scaled.sum() == 1 and scaled[1, 0, 1]
+    changed = dlam != before
+    assert changed[1, :, 0, 1].all() and changed.sum() == 2
+    np.testing.assert_allclose(dlam[1, :, 0, 1], (0.75 * (1 - DELTA), 0.25 * (1 - DELTA)))
+    untouched = before.copy()
+    untouched[1, :, 0, 1] = (0.5, 0.25)
+    copy = untouched.copy()
+    assert _chunked.bound_jumps(copy) is None
+    assert np.array_equal(copy, untouched)

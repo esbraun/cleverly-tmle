@@ -276,6 +276,9 @@ each event type's share of it, and goes on. It warns with `PositivityWarning`, n
 and how many people it capped, and marks every estimate `experimental`, because no study measured a
 fit where this happened. `result.record.jump_bound_share` gives the share of person and treatment
 pairs it capped; check `overlap` and consider a model without the treatment interaction.
+When the cap acts at many times for one person, that person's predicted chance of staying free
+of every event shrinks past what the computer can hold, and the fit still stops with a
+`DataError` that names the cap.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
 

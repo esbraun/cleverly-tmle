@@ -267,6 +267,7 @@ FIT_COLUMNS = (
     "bounded_share",
     "last_time_floor_share",
     "jump_bound_share",
+    "jump_bound_at_risk_share",
     "frozen_share",
     "off_grid_share",
 )

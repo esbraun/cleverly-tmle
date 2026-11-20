@@ -114,6 +114,39 @@ def _names(labels: Sequence[str]) -> str:
     return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " and " + quoted[-1]
 
 
+def _bound_text() -> str:
+    """:data:`~._chunked.JUMP_BOUND` as ``1e-8``."""
+    return f"{_chunked.JUMP_BOUND:g}".replace("e-0", "e-")
+
+
+def jump_bound_underflow_text(pairs: int, times: int) -> str:
+    """What the underflow refusal adds when the jump bound acted in the fit.
+
+    Parameters
+    ----------
+    pairs : int
+        The (unit, arm) pairs with a cell the bound scaled.
+    times : int
+        The most grid times the bound scaled for one pair.
+
+    Returns
+    -------
+    str
+        The sentences.
+    """
+    noun = "pair" if pairs == 1 else "pairs"
+    many = "time" if times == 1 else "times"
+    return (
+        f"The hazard model also put a combined jump of one or more at {pairs} (unit, arm) "
+        f"{noun}, at up to {times} grid {many} for one pair; the engine scaled each to "
+        f"1 - {_bound_text()}, which multiplies that pair's survival by about {_bound_text()} "
+        "at every such time. With distinct event times such jumps come from extrapolation to "
+        "covariates outside an arm's range, a positivity signal: check the arms' overlap (the "
+        "fitted treatment probabilities), or use a hazard library without the treatment "
+        "interaction."
+    )
+
+
 def jump_bound_text(
     per_arm: Sequence[int],
     at_risk: int,
@@ -149,11 +182,11 @@ def jump_bound_text(
     text = (
         f"The initial hazard fit put a combined jump of one or more at {total} (unit, arm) "
         f"{pair}: {', '.join(parts)}. Under a Cox model a unit's jump is its risk score times "
-        "the events at that time over the summed scores of everyone at risk, so it reaches one "
-        "only where the model extrapolates: usually at the unit's counterfactual arm, for "
-        "covariates outside the range that arm's units cover. That is a positivity "
-        f"signal. The engine scaled each such jump to 1 - {_chunked.JUMP_BOUND:g}, keeping "
-        "each cause's share, and the fit's estimates read experimental."
+        "the events at that time over the summed scores of everyone at risk, so with distinct "
+        "event times it reaches one only where the model extrapolates: usually at the unit's "
+        "counterfactual arm, for covariates outside the range that arm's units cover. That is "
+        f"a positivity signal. The engine scaled each such jump to 1 - {_bound_text()}, "
+        "keeping each cause's share, and the fit's estimates read experimental."
     )
     if at_risk:
         text += (
@@ -220,8 +253,8 @@ class ContinuousSurvivalRecord:
         restricted horizon when that is later.
     jump_bound_share : float
         The share of (unit, arm) pairs, over both arms, with a grid time at which the initial
-        cause hazard jumps summed to one or more, less :math:`10^{-8}`, and the engine scaled
-        them to sum to :math:`1 - 10^{-8}`, each cause keeping its share (the jump bound).
+        cause hazard jumps summed to one or more, and the engine scaled them to sum to
+        :math:`1 - 10^{-8}`, each cause keeping its share (the jump bound).
         Under a Cox model with distinct event times such a cell is an extrapolation: a unit read
         at its counterfactual arm, or after it left follow-up.  A fit with a nonzero share
         reads experimental and warns.
@@ -1466,10 +1499,12 @@ class ContinuousSurvivalTMLE:
         bounded_pairs = np.zeros((2, n), dtype=bool)
         bounded_at_risk = np.zeros((2, n), dtype=bool)
         bounded_causes = np.zeros((2, len(codes)), dtype=bool)
+        bounded_times = 0
         for k, (lo, hi) in enumerate(blocks(n, block)):
             dlam, scaled = hazards.bounded_jumps(lo, hi)
             if scaled is not None:
                 bounded_pairs[:, lo:hi] = scaled.any(axis=-1)
+                bounded_times = max(bounded_times, int(scaled.sum(axis=-1).max()))
                 factual = A[None, lo:hi, None] == np.arange(2)[:, None, None]
                 followed = T[None, lo:hi, None] >= grid[None, None, :]
                 bounded_at_risk[:, lo:hi] = (scaled & factual & followed).any(axis=-1)
@@ -1497,8 +1532,8 @@ class ContinuousSurvivalTMLE:
             total = dlam.sum(axis=1)
             # Both checks read the fitted hazards on these data, so a draw that trips one is a
             # data failure (recorded by a study), not an unsupported composition.  The jump
-            # bound has scaled every finite combined jump of at least 1 - JUMP_BOUND, so only
-            # an infinite one reaches one here.
+            # bound has scaled every finite combined jump of one or more, so only an infinite
+            # one reaches one here.
             combined = combined or bool(np.any(total >= 1.0))
             survival = np.cumprod(1.0 - total, axis=-1)
             low_survival = low_survival or bool(np.any(survival[..., -1] < SURVIVAL_UNDERFLOW))
@@ -1526,13 +1561,17 @@ class ContinuousSurvivalTMLE:
                 "choose earlier target times or restricted horizons, or a smaller hazard library."
             )
         if low_survival:
-            raise DataError(
+            message = (
                 f"The initial survival falls below {SURVIVAL_UNDERFLOW:.0e} before the last time "
                 "a target reads (the last target time or restricted horizon) for some unit and "
                 "arm, beyond the range in which double precision holds the clever covariate's "
                 "conditional risks. Choose an earlier last target time or restricted horizon, "
                 "or a hazard library that does not extrapolate so far."
             )
+            if bounded_pairs.any():
+                # A refused fit returns nothing to warn about, so the refusal names the bound.
+                message += " " + jump_bound_underflow_text(int(bounded_pairs.sum()), bounded_times)
+            raise DataError(message)
         if bounded_pairs.any():
             _warn(
                 jump_bound_text(

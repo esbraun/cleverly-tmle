@@ -47,11 +47,13 @@ time or restricted horizon, where double precision no longer holds the clever co
 
 ### The jump bound
 
-Where the cause jumps of a unit at one arm and time sum to $s \ge 1 - \delta$, with
-$\delta = 10^{-8}$ (`cleverly.survival._chunked.JUMP_BOUND`), the engine multiplies each by
-$(1 - \delta) / s$. The cell then sums to $1 - \delta$, each cause keeps its share
-$d\Lambda_j / s$, and the product-limit survival falls to $\delta$ there rather than to zero or
-below. The bound acts in every fit, the original and each bootstrap refit, in the one place every
+Where the cause jumps of a unit at one arm and time sum to $s \ge 1$, the cells the engine
+used to refuse, it multiplies each by $(1 - \delta) / s$, with $\delta = 10^{-8}$
+(`cleverly.survival._chunked.JUMP_BOUND`). The cell then sums to $1 - \delta$, each cause keeps
+its share $d\Lambda_j / s$, and the product-limit survival falls to $\delta$ there rather than
+to zero or below. A cell below one, however close, is not touched, so every fit that ran before
+the bound computes the same arrays. At $s = 1$ the survival factor steps from 0 to $\delta$,
+below the walk's floor, which moves $\psi$ by at most $\delta / n$ per pair. The bound acts in every fit, the original and each bootstrap refit, in the one place every
 reader of the initial hazards takes them from, so the checks and the walk read the same jumps.
 
 A Cox jump is $s_i\, d / \sum_{R} s$, unit $i$'s risk score times the tied events over the risk
@@ -72,17 +74,22 @@ estimand, the initial fit's consistency, the score equation the walk solves and 
 influence curve are unchanged. At a bounded counterfactual cell the factual score is untouched,
 and only the plug-in $F_j(t \mid a, L_i)$ moves, by at most $k / n$ for $k$ copies. The kink sits
 where the true law never is, so the bootstrap delta method's differentiability is not affected;
-a bound applied to the refits alone would bootstrap a different estimator. A NaN jump is walked
-as before, and an infinite one has no share to keep, so it is refused. A pair whose jumps reach
+a bound applied to the refits alone would bootstrap a different estimator.
+
+A NaN jump is walked as before, and an infinite one has no share to keep, so it is refused. A
+pair whose jumps reach
 the bound at $k$ grid times has survival near $\delta^k$, so a pair the model extrapolates at
-many times still meets the underflow refusal: of the ten fits the registered studies had lost to
-the old refusal, seven fit under the bound and three, with one pair bounded at 27 to 1,141 times,
-raise on underflow (`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+many times still meets the underflow refusal, whose message then names the bound and the
+extrapolation. Of the ten fits the registered studies had lost to the old refusal, seven fit
+under the bound and three, with one pair bounded at 27 to 1,141 times, raise on underflow; so
+does the refuter-calibration study's lost size trial
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
 
 A bounded pair's survival at the grid's end is $\delta$ or less, below the walk's floor of
 $10^{-8}$. Each bounded pair therefore takes its own floor, the lower of the others' floor and its
 own initial survival, and the other pairs' floor is read over the other pairs only, so the bound
-moves no other pair's walk (`run_walk(own_floor=...)`). A fit where the bound acted emits one
+lowers no other pair's floor (`run_walk(own_floor=...)`). A bounded pair still enters the score,
+the direction and the step search, so it does move the other pairs' path. A fit where the bound acted emits one
 `PositivityWarning` that names the arm, the causes and the number of pairs, and every estimate
 reads experimental with a reason that names the extrapolation, because no registered study gates
 such a fit. `result.record.jump_bound_share` is the share of (unit, arm) pairs with a bounded
