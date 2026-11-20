@@ -24,12 +24,18 @@ from cleverly.validation._interpretation import (
     VerdictEvidence,
     check_scope_containment,
     continuous_survival_configuration,
+    continuous_survival_learners,
     resolve,
 )
 from tests.studies import refuter_calibration_continuous_survival as study
 
 ARTIFACTS = study.STUDY.artifacts
 CELLS = pd.read_csv(ARTIFACTS / "cells.csv", keep_default_na=False)
+
+#: The learners every trial ran, named whole as the configuration reader names them now. The
+#: committed ``cells.csv`` names them member by member, as the reader did when the run wrote
+#: it; ``test_the_committed_learners_are_the_study_estimators`` ties the two together.
+LEARNERS = continuous_survival_learners(study.estimator(0), study.N)
 
 
 def _rows() -> list[VerdictEvidence]:
@@ -47,7 +53,7 @@ def _configuration(recorded: pd.Series, *, variance: str = "switched") -> FitCon
         estimand_kind=str(recorded["estimand_kind"]),
         outcome_family=str(recorded["outcome_family"]),
         treatment_kind=str(recorded["treatment_kind"]),
-        learners=tuple(str(recorded["learners"]).split(" | ")),
+        learners=LEARNERS,
         cross_fitting=str(recorded["cross_fitting"]),
         inference=str(recorded["inference"]),
         known_mechanism=str(recorded["known_mechanism"]) == "True",
@@ -69,17 +75,38 @@ def _cells(instrument: str) -> dict[str, CalibrationCell]:
     table = pd.read_csv(ARTIFACTS / "properties.csv")
     cells: dict[str, CalibrationCell] = {}
     for row in table.itertuples():
-        key = str(row.cell).split("__", 1)[0]
-        law = "size" if row.property == "refuter_size" else "power"
+        key, reading = str(row.cell).split("__", 1)
+        # A subset power cell rescales the statistic of one of size trials 0 to 49, so it
+        # reads the size law; only the stale-row placebo cells run the power law.
+        law = "power" if reading == "placebo_stale_rows" else "size"
         recorded = CELLS.loc[(CELLS["cell"] == key) & (CELLS["law"] == law)].iloc[0]
         configuration = _configuration(recorded)
         if instrument == "placebo":
             configuration = replace(configuration, placebo_draw=study.PLACEBO_DRAW)
         kind: Literal["size", "power"] = "size" if row.property == "refuter_size" else "power"
+        shares = (float(recorded["event_share_min"]), float(recorded["event_share_max"]))
         cells[f"{row.property}/{row.cell}"] = CalibrationCell(
-            kind=kind, passed=bool(row.property_passed), configuration=configuration
+            kind=kind,
+            passed=bool(row.property_passed),
+            configuration=configuration,
+            event_shares=shares,
         )
     return cells
+
+
+def test_the_committed_learners_are_the_study_estimators() -> None:
+    # cells.csv records each library member in turn; the same estimator, named whole, is what
+    # the registry rows cover, so the committed column and LEARNERS describe the same fits.
+    estimator = study.estimator(0)
+    members = [repr(m) for m in (*estimator.hazard_library, *estimator.censoring_library)]
+    assert set(CELLS["learners"]) == {" | ".join([*members, "default"])}
+    assert (
+        "hazard=[" + ", ".join(repr(m) for m in estimator.hazard_library) + "]",
+        "censoring=[" + ", ".join(repr(m) for m in estimator.censoring_library) + "]",
+        "treatment=default",
+    ) == LEARNERS
+    for row in _rows():
+        assert row.scope.learners == frozenset(LEARNERS)
 
 
 def test_the_study_registers_one_placebo_and_one_subset_row() -> None:
@@ -145,6 +172,14 @@ def test_the_scalar_axes_match_the_size_cells(instrument: str) -> None:
         ("covariates_per_row_max", 0.008),
         ("n_min", 500),
         ("estimand_kinds", frozenset({"continuous:ate_regimen", "continuous:rr_regimen"})),
+        ("variances", frozenset({"switched", "influence_curve"})),
+        ("variances", None),
+        ("causes", frozenset({1, 2})),
+        ("causes", None),
+        ("event_share_range", (0.40, 0.7946)),
+        ("event_share_range", (0.4336, 0.85)),
+        ("event_share_range", None),
+        ("learners", frozenset({*LEARNERS, "hazard=[CoxHazard('main')]"})),
     ],
 )
 def test_a_wider_row_fails_containment(axis: str, widened: Any) -> None:
@@ -165,7 +200,7 @@ def test_the_recorded_configuration_is_licensed_and_its_neighbours_are_not(
 ) -> None:
     # The size cell's own configuration resolves to the row. Each changed axis leaves it
     # descriptive: the influence-curve variance (design review M2), one cause, an event share
-    # outside the measured range, and too few events.
+    # outside the measured range, too few events, and a reduced hazard or censoring library.
     recorded = CELLS.loc[(CELLS["cell"] == "c1_t1.12") & (CELLS["law"] == "size")].iloc[0]
     # The cell records its smallest trial share, the edge of the covered range.
     fit = _configuration(recorded)
@@ -177,6 +212,11 @@ def test_the_recorded_configuration_is_licensed_and_its_neighbours_are_not(
         "causes": replace(fit, causes=1),
         "share": replace(fit, event_share=0.30),
         "events": replace(fit, min_event_count=16),
+        # A subset of a default library is a different fit (implementation review 1).
+        "hazard library": replace(fit, learners=("hazard=[CoxHazard('main')]", *fit.learners[1:])),
+        "censoring library": replace(
+            fit, learners=(fit.learners[0], "censoring=[CoxHazard('main')]", fit.learners[2])
+        ),
     }
     for name, other in outside.items():
         assert not resolve(instrument, rule, other).licensed, name
@@ -221,3 +261,17 @@ def test_the_configuration_reads_the_fits_variance_rule(variance: str) -> None:
     result = _small(variance)
     name = next(name for name in result if name.startswith("ate_regimen"))
     assert continuous_survival_configuration(result, name).variance == variance
+
+
+def test_a_fit_with_a_reduced_library_is_not_licensed() -> None:
+    # The fit's own reader names a one-member library whole, so the scope, which names the
+    # three-member defaults, leaves it descriptive. Before the libraries were named whole,
+    # CoxHazard('main') was a member of the default and this fit's learners were covered.
+    result = _small("switched")
+    name = next(name for name in result if name.startswith("ate_regimen"))
+    reduced = continuous_survival_configuration(result, name).learners
+    assert reduced[:2] == ("hazard=[CoxHazard('main')]", "censoring=[CoxHazard('main')]")
+    recorded = CELLS.loc[(CELLS["cell"] == "c1_t1.12") & (CELLS["law"] == "size")].iloc[0]
+    fit = _configuration(recorded)
+    assert resolve("subset", "rho", fit).licensed
+    assert not resolve("subset", "rho", replace(fit, learners=reduced)).licensed

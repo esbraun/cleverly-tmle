@@ -18,8 +18,8 @@ Scope. Eight size cells: the placebo ``t`` (permute, R = 20) and the subset ``rh
 frozen outer folds, R = 20) on the risk difference of each of the two causes at the median and
 upper quartile of the observed event times, 600 trials each on the base law of
 ``continuous-time-survival``, all eight readings of a trial from the same 41 fits; pass at no more
-than 68 rejections, the largest count whose 99% Clopper-Pearson upper endpoint stays under that of
-the X82 rule's 17 of 200; a cell then passes with probability 0.875 at a true rate of 0.10 (0.285
+than 68 rejections, the largest count whose 99% Clopper-Pearson upper endpoint (0.1506) stays under
+the ceiling of the X82 rule's 17 of 200 (0.1517); a cell then passes with probability 0.875 at a true rate of 0.10 (0.285
 under the X82 count). Twelve power cells: the stale-row placebo (share 0.35) on 50 trials of the
 power law (beta 2.0, cause-2 arm coefficient -1.0, every difference at least 4.3 efficiency SE),
 and the subset ``rho`` of size trials 0 to 49 at the reported SE halved and doubled; pass at no

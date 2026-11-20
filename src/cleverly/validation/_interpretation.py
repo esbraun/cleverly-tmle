@@ -455,13 +455,44 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     )
 
 
+def continuous_survival_learners(estimator: Any, n: int) -> tuple[str, str, str]:
+    """Name a continuous-time survival estimator's three learners, each library as one.
+
+    A library is named whole, as ``hazard=[...]`` and ``censoring=[...]`` over its members'
+    ``repr`` in order, so a scope that lists the default library does not cover a subset of
+    it. A hazard member's ``repr`` tells ``CoxHazard`` settings apart where
+    :func:`learner_fingerprint` reads a class with no ``get_params`` by its name alone.
+
+    Parameters
+    ----------
+    estimator : ContinuousSurvivalTMLE
+        The estimator, fitted or not.
+    n : int
+        The sample size, which :func:`learner_fingerprint` reads for the treatment learner.
+
+    Returns
+    -------
+    tuple of str
+        The hazard library, the censoring library and the treatment learner.
+    """
+    treatment = (
+        "default"
+        if estimator.treatment_learner is None
+        else learner_fingerprint(estimator.treatment_learner, n)
+    )
+    return (
+        "hazard=[" + ", ".join(repr(member) for member in estimator.hazard_library) + "]",
+        "censoring=[" + ", ".join(repr(member) for member in estimator.censoring_library) + "]",
+        f"treatment={treatment}",
+    )
+
+
 def continuous_survival_configuration(result: Any, estimand: str) -> FitConfiguration:
     """Read the scope axes of a continuous-time survival fit for one estimand.
 
     The estimand kind is ``"continuous:"`` and the parameter stem (``risk``, ``ate_regimen``
-    or ``rr_regimen``), since an arm or cause label is the user's own text. A hazard member
-    is named by its ``repr``, which tells ``CoxHazard`` settings apart where
-    :func:`learner_fingerprint` reads a class with no ``get_params`` by its name alone. The
+    or ``rr_regimen``), since an arm or cause label is the user's own text. The learners are
+    named by :func:`continuous_survival_learners`, each library as one learner. The
     event count is the fewest events of any arm and cause at or before the estimand's time,
     and the event share is the share of observed events, of any cause, by that time.
 
@@ -499,13 +530,7 @@ def continuous_survival_configuration(result: Any, estimand: str) -> FitConfigur
         for code in codes
     ]
     observed = T[D > 0]
-    learners = (
-        *(repr(member) for member in estimator.hazard_library),
-        *(repr(member) for member in estimator.censoring_library),
-        learner_fingerprint(estimator.treatment_learner, n)
-        if estimator.treatment_learner is not None
-        else "default",
-    )
+    learners = continuous_survival_learners(estimator, n)
     return FitConfiguration(
         method="ContinuousSurvivalTMLE",
         estimand_kind=f"continuous:{kind}",
@@ -697,7 +722,13 @@ class CalibrationScope:
         # The order follows plain_mismatches, which names the same axes in plain words.
         if self.causes is not None and fit.causes not in self.causes:
             found.append(f"cause count {fit.causes!r}")
-        if self.variances is not None and fit.variance not in self.variances:
+        # A fit with no variance rule (any method but ContinuousSurvivalTMLE) differs on its
+        # method already, so the variance axis does not name it again.
+        if (
+            self.variances is not None
+            and fit.variance is not None
+            and fit.variance not in self.variances
+        ):
             found.append(f"variance rule {fit.variance!r}")
         if self.event_share_range is not None and not _within(
             fit.event_share, self.event_share_range
@@ -1287,13 +1318,13 @@ _CONTINUOUS_SURVIVAL_ESTIMANDS: Final[tuple[str, ...]] = (
     "c2_t2.32",
 )
 
-#: The default hazard libraries and treatment learner of ``ContinuousSurvivalTMLE``, as
-#: :func:`continuous_survival_configuration` names them.
+#: The default hazard and censoring libraries and treatment learner of
+#: ``ContinuousSurvivalTMLE``, each named whole by :func:`continuous_survival_learners`, so a
+#: fit with a subset of a default library is outside the scope.
 _CONTINUOUS_SURVIVAL_LEARNERS: Final[tuple[str, ...]] = (
-    "CoxHazard('treatment')",
-    "CoxHazard('main')",
-    "CoxHazard('interaction')",
-    "default",
+    "hazard=[CoxHazard('treatment'), CoxHazard('main'), CoxHazard('interaction')]",
+    "censoring=[CoxHazard('treatment'), CoxHazard('main'), CoxHazard('interaction')]",
+    "treatment=default",
 )
 
 #: Each instrument: rule, size reading, power readings, the defect, and the measured size
@@ -2051,10 +2082,12 @@ def plain_mismatches(scope: CalibrationScope, fit: FitConfiguration | None) -> l
         found.append(f"{fit.clusters} clusters")
     if scope.causes is not None and fit.causes not in scope.causes:
         found.append(f"{fit.causes} event types")
-    if scope.variances is not None and fit.variance not in scope.variances:
-        found.append(
-            "another standard-error rule" + ("" if fit.variance is None else f" ({fit.variance})")
-        )
+    if (
+        scope.variances is not None
+        and fit.variance is not None
+        and fit.variance not in scope.variances
+    ):
+        found.append(f"another standard-error rule ({fit.variance})")
     if scope.event_share_range is not None and not _within(
         fit.event_share, scope.event_share_range
     ):
@@ -2074,11 +2107,24 @@ class CalibrationCell:
         Whether the cell passed its declared threshold.
     configuration : FitConfiguration
         The configuration the fit recorded, read off the fitted result.
+    event_shares : tuple of float, optional
+        The smallest and largest event share the cell's trials recorded, for a cell whose
+        trials draw their event share. ``None`` when the cell records none.
     """
 
     kind: Literal["size", "power"]
     passed: bool
     configuration: FitConfiguration = field(repr=False)
+    event_shares: tuple[float, float] | None = None
+
+
+#: The grid a row's event-share range is printed on. A row rounds its range outward to it, so
+#: containment allows the range to pass the size trials' shares by less than one step.
+EVENT_SHARE_STEP: Final[float] = 1e-4
+
+#: Methods whose rows must restrict the variance rule, the cause count and the event share,
+#: since each moves the reading's size (X101, design review M2).
+_SHARE_METHODS: Final[frozenset[str]] = frozenset({"ContinuousSurvivalTMLE"})
 
 
 def check_scope_containment(
@@ -2199,4 +2245,46 @@ def check_scope_containment(
         clusters = [c.configuration.clusters for c in passing if c.configuration.clusters]
         if scope.clusters_min is not None and (not clusters or scope.clusters_min < min(clusters)):
             problems.append(f"{row.instrument}/{row.rule}: cluster bound below the {kind} cells")
+        problems.extend(_share_axis_problems(row, kind, passing))
+    return problems
+
+
+def _share_axis_problems(
+    row: VerdictEvidence, kind: str, passing: list[CalibrationCell]
+) -> list[str]:
+    """The variance-rule, cause-count and event-share violations of one kind's cells.
+
+    A row whose methods include a :data:`_SHARE_METHODS` method must restrict all three. The
+    variance rules and cause counts must each be ones a passing cell ran. The event-share range
+    is read against the size cells alone: the size cells fix the false-alarm rate across the
+    shares a fit can have, while a power cell may run a law of its own (the X101 placebo power
+    law), whose shares its page states as a limitation.
+    """
+    scope = row.scope
+    label = f"{row.instrument}/{row.rule}"
+    problems: list[str] = []
+    if scope.methods is not None and scope.methods & _SHARE_METHODS:
+        for axis, covered in (
+            ("variances", scope.variances),
+            ("causes", scope.causes),
+            ("event_share_range", scope.event_share_range),
+        ):
+            if covered is None:
+                problems.append(f"{label}: axis {axis} is unrestricted")
+    for axis, covered, ran in (
+        ("variances", scope.variances, {c.configuration.variance for c in passing}),
+        ("causes", scope.causes, {c.configuration.causes for c in passing}),
+    ):
+        if covered is not None and not covered <= ran:
+            problems.append(f"{label}: axis {axis} has a value no passing {kind} cell ran")
+    if kind == "size" and scope.event_share_range is not None:
+        shares = [c.event_shares for c in passing if c.event_shares is not None]
+        if len(shares) < len(passing):
+            problems.append(f"{label}: a passing size cell records no event shares")
+        elif shares:
+            low, high = scope.event_share_range
+            if low <= min(s[0] for s in shares) - EVENT_SHARE_STEP or (
+                high >= max(s[1] for s in shares) + EVENT_SHARE_STEP
+            ):
+                problems.append(f"{label}: event-share range outside the size cells' shares")
     return problems

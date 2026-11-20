@@ -50,7 +50,8 @@ sample, fits it once, and runs one placebo test and one subset test of 20 refits
 readings of a trial come from those 41 fits: the four :func:`~cleverly.validation.refute` calls of
 a trial share one seed, so they draw the same permutations and subsets, and :func:`shared_refits`
 fits each perturbed sample once. A reading passes when it rejects in at most 68 trials, the largest
-count whose 99% Clopper-Pearson upper endpoint stays below that of the X82 rule's 17 of 200. The
+count whose 99% Clopper-Pearson upper endpoint (0.1506) stays under the ceiling of the X82 rule's
+17 of 200 (0.1517, midway between the endpoints at 17 and 18 of 200). The
 tolerated size is larger than the X82 count's: at a true rejection rate of 0.10 a cell passes with
 probability 0.875 (0.285 at 17 of 200). The 200-trial pilot sized the count: its predictive family
 pass reads 0.39 at 200 trials, 0.82 at 400 and 0.92 at 600.

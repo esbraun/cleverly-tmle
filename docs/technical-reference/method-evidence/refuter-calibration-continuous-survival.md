@@ -35,7 +35,8 @@ The X101 plan (rev 2, section 5) fixed the laws, the cells, the seeds and the re
 the run. The plan declared 200 size trials and the X82 rule of at most 17 rejections, and required
 a predictive family pass of 0.90 before the declaration. The 200-trial pilot read 0.39 at that
 size. The owner amended the size cells on 2026-11-19 to 600 trials at no more than 68 rejections,
-the largest count whose 99% Clopper-Pearson upper endpoint stays under that of 17 of 200. The
+the largest count whose 99% Clopper-Pearson upper endpoint (0.1506) stays under the ceiling of
+the X82 rule's 17 of 200 (0.1517, midway between the endpoints at 17 and 18 of 200). The
 module docstring of `tests/studies/refuter_calibration_continuous_survival.py` states each law and
 defect, and `tests/unit/test_refuter_calibration_continuous_survival_design.py` reads the pilot.
 
@@ -169,9 +170,10 @@ from the committed results and checked at the precision printed.
 | A looser size tolerance than the X82 rule | A rule with true size 0.10 passes a size cell with probability 0.875. A pass does not certify the size to two decimals, and the subset rule measured 0.080 to 0.095 |
 | The subset rule over-rejects | About one fit in eleven fails the subset check with nothing wrong. Read a subset failure with that rate in mind |
 | One law and one size | Each row covers $n \ge 1000$ at 0.004 covariates per row, two causes and the measured event shares. A smaller fit, a single-cause fit or a target time outside the shares prints no verdict |
-| The default fit only | The rows name the default Cox libraries and treatment learner, ten folds and the switched variance. Any other learner, fold count or variance prints no verdict |
+| The default fit only | The rows name the default Cox libraries, each as a whole library, the default treatment learner, ten folds and the switched variance. Any other library, including a subset of a default one, and any other learner, fold count or variance prints no verdict |
 | Risk differences only | A ratio or an arm's risk prints no verdict |
-| The primary phase is under-resolved | 200 replications cannot put the 99% coverage limit above its floor. Three truth rows are red with an owner, and no rule row reads them |
+| The primary phase is under-resolved | With 200 replications the 99% coverage limit of cause 1 at 2.32 and cause 2 at 1.12 stays under its floor (0.8960 and 0.8829), and cause 2 at 2.32 reads a small bias. These three truth rows are red with an owner, and no rule row reads them |
+| Placebo power was measured on one law | The stale-row placebo cells ran the power law, whose event shares run from 0.54 to 0.85. The rows cover shares down to 0.4336, where the placebo's power was not measured |
 
 ## Reproduction
 
