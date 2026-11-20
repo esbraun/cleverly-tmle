@@ -2221,6 +2221,12 @@ SAME_DRAW_FAMILIES = {
     # shows that trimming leaves a remainder that double robustness otherwise removes, on the
     # draws whose correct-outcome fits the point cells measure.
     "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
+    # ``refuter-calibration-continuous-survival`` (X101): each subset power cell rescales the
+    # subset statistic of one of the first 50 size trials by 1/2 or 2, so it reads the size
+    # draws by construction (``trial_readings`` in the study module).  It controls the rule's
+    # sensitivity to a misscaled standard error on the very fits whose size the size cell
+    # measures, and no claim reads the two verdicts jointly.
+    "refuter-calibration-continuous-survival": (frozenset({"refuter_power", "refuter_size"}),),
     # ``isotonic-binding``: the interval at the projected level and the two move shares read one
     # fit per draw of law LG2, so the shares say how often the level the interval is centred at
     # moved on exactly the draws the calibration cell reads.
@@ -4406,9 +4412,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = (
-    "tests.studies.refuter_calibration_continuous_survival_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

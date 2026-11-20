@@ -6626,6 +6626,58 @@ def _refuter_band_cells() -> None:
 _refuter_band_cells()
 
 
+def _refuter_continuous_survival_cells() -> None:
+    """The continuous-time survival refutation study (X101): eight size and twelve power cells."""
+    slug = "refuter-calibration-continuous-survival"
+    STUDY_SCENARIOS[(slug, "size")] = (
+        "the registered two-cause continuous-time survival law at n = 1,000; the default "
+        "ContinuousSurvivalTMLE at ten folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-continuous-survival"] = (
+        "`cleverly` fit that the continuous-time survival refutation rules read"
+    )
+    estimands = {
+        f"c{cause}_t{time}": f"the cause-{cause} risk difference at t = {time}"
+        for cause in (1, 2)
+        for time in ("1.12", "2.32")
+    }
+    for cause in (1, 2):
+        for time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[(slug, f"ate_regimen[treated vs control, cause{cause} @ t={time}]")] = (
+                f"difference in the risk of cause {cause} by t = {time} between treatment and no "
+                "treatment"
+            )
+    size = "no more than 68 rejections in 600 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": (
+            "the placebo t rule against the exact null 0",
+            {
+                "placebo_stale_rows": "the placebo t rule, with 35% of rows keeping their treatment",
+            },
+        ),
+        "subset": (
+            "the subset rho rule against the fit's standard error",
+            {
+                "subset_half_se": "the subset rho rule, at the reported SE halved",
+                "subset_double_se": "the subset rho rule, at the reported SE doubled",
+            },
+        ),
+    }
+    for key, estimand in estimands.items():
+        for reading, (words, defects) in readings.items():
+            table = {("refuter_size", f"{key}__{reading}"): (f"{estimand}: {words}", size)}
+            for defect, text in defects.items():
+                table[("refuter_power", f"{key}__{defect}")] = (f"{estimand}: {text}", power)
+            for cell, value in table.items():
+                if cell in CELLS:
+                    raise ValueError(f"{cell} is already described")
+                CELLS[cell] = value
+
+
+_refuter_continuous_survival_cells()
+
+
 # ------------------------------------------------------------------ X82 SH limit coverage
 
 

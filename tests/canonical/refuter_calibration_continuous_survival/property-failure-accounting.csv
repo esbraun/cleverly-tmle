@@ -1,0 +1,25 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+refuter_size,c1_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c1_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.07791311776153086,0.0760160816500725,support: j=1 rejected,True,True,within bound
+refuter_size,c1_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c1_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c1_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.0213729605496156,0.01969510616115372,support: j=1 rejected,True,True,within bound
+refuter_size,c1_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c1_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c1_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.07994186068858387,0.0780341122579119,support: j=1 rejected,True,True,within bound
+refuter_size,c1_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c1_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c1_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.038551710361236016,0.03681798925623976,support: j=1 rejected,True,True,within bound
+refuter_size,c1_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c2_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c2_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.06787406237233418,0.06602566355631627,support: j=1 rejected,True,True,within bound
+refuter_size,c2_t1.12__placebo,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c2_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c2_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.025168798370107853,0.023479098735968845,support: j=1 rejected,True,True,within bound
+refuter_size,c2_t1.12__subset,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c2_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c2_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.06787406237233418,0.06602566355631627,support: j=1 rejected,True,True,within bound
+refuter_size,c2_t2.32__placebo,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
+refuter_size,c2_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,failure bound,1.0,6.0,,True,True,within bound
+refuter_size,c2_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,rejections at most 68 of 600,0.03088498104762344,0.029176939462605633,support: j=1 rejected,True,True,within bound
+refuter_size,c2_t2.32__subset,positive,600,1,0.0016666666666666668,0.01,6,informative-failure witness,5.397429412960898,0.04340567612687813,replicate 465: largest absolute standardized value,True,True,within bound
