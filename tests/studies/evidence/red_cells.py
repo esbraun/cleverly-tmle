@@ -443,11 +443,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "targeting_necessity/static__targeted",
         "targeting_necessity/static__untargeted",
     ),
-    "RM18-comparator-density": _keys(
-        "shift-policies",
-        "paired",
-        "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
-    ),
     # The coverage cell of a misspecified arm, red on one draw set under the shipped logit
     # interval of a bounded mean, which the declared run reads.
     "learned-rule-arms-coverage-draws": _keys(

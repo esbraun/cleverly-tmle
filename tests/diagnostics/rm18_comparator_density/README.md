@@ -22,8 +22,15 @@ Ca row. A missing committed file fails the test.
 
 The design first ran at commit `4b91a916`. The roadmap at commit `985849c6` gives that reading in
 "[What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found)".
-The design ran again after `ate_shift` became `ate_policy`. The committed files are from that run.
-The bootstrap seed hashes the estimand label, so the excess bounds moved. The reading did not.
+The design ran again after `ate_shift` became `ate_policy`. The bootstrap seed hashes the
+estimand label, so the excess bounds moved. The reading did not.
+
+Fix-9 replaced the conditional density and regenerated `shift-policies`. On those rows the paired
+row passes: its calibration excess bound is 0.012462 (resolution 0.009881) against the margin of
+0.05. The design ran a third time, on the regenerated rows, and the committed files are from that
+run. Cb's `D` fell from 0.0724 to 0.0005, `D_Cb - D_L` covers 0, and the reading is `unresolved`:
+there is no excess left to attribute. The red-cell owner `RM18-comparator-density` closed with it,
+and the directory stays as the record of the design and its readings.
 
 ## Run
 

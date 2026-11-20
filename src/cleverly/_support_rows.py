@@ -666,8 +666,6 @@ def _t_rows() -> tuple[SupportRow, ...]:
             treatment=("continuous",),
             options={"ratio": "density"},
             cells=["continuous_modified_policy"],
-            # Roadmap: RM18.
-            limits=["One paired calibration leg is red."],
         )
     )
     rows.append(
@@ -2779,13 +2777,6 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "X8-identity-small-stratum: coverage 0.9233 to 0.9515, SE ratio 0.9264 to 1.0042,"
             " empirical efficiency ratio 0.9925 to 1.0766, reported efficiency ratio 0.9937 "
             "to 1.0005"
-        ),
-    ),
-    "T21": (
-        (
-            "RM18-comparator-density: difference 0.000061 to 0.000361 within 0.000770, RMSE "
-            "ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, "
-            "calibration excess bound 0.0648 vs 0.0500, resolution 0.0439"
         ),
     ),
     "T22": (

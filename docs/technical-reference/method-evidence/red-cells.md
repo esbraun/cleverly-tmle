@@ -122,7 +122,6 @@ The test fails on four states.
 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) | 8 | selector-based multi-arm C-TMLE, DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE, cross-fitted weighted end-of-study longitudinal TMLE |
 | [`RM18-one-sided-bias`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 5 | ordinary weighted end-of-study longitudinal TMLE |
-| [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 1 | ordinary point-treatment TMLE with baseline strata |
 | [`learned-rule-arms-coverage-draws`](../../roadmap.md#red-cell-owners) | 1 | Learned treatment rules over three arms |
 | [`ctmle-derivative-coverage-draws`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE0 derivative covariate |
@@ -158,7 +157,7 @@ The test fails on four states.
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 2 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
-| total | 214 | 45 studies |
+| total | 213 | 44 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -222,7 +221,6 @@ same text as the "measured" column of its study page.
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=2.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000134 to 0.000323 within 0.0039, RMSE ratio bound 0.9870 vs 1.1000, coverage difference bound -0.000834 vs -0.0250, calibration excess bound 0.0391 vs 0.0500, resolution 0.0079, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=3.5]` | paired | inconclusive: calibration leg | difference -0.000247 to 0.000594 within 0.0045, RMSE ratio bound 1.0392 vs 1.1000, coverage difference bound 0.0015 vs -0.0250, calibration excess bound 0.0558 vs 0.0500, resolution 0.0141, failures 6 of 4800 (complete case fails) | [`X93-upper-dose-calibration`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2.5,a=3.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000187 to 0.000730 within 0.0043, RMSE ratio bound 1.0710 vs 1.1000, coverage difference bound -0.0035 vs -0.0250, calibration excess bound 0.0393 vs 0.0500, resolution 0.0213, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
-| [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | paired | `continuous_modified_policy/ate_policy[+0.25 vs natural course]` | paired | inconclusive: calibration leg | difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, calibration excess bound 0.0648 vs 0.0500, resolution 0.0439 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) |
 | [ordinary point modified treatment policies](point-modified-treatment-policies.md) | property | `interval_calibration/halve__correctly_specified` | positive | its own rule | coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to 1.0034 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9241 to 0.9499, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0019, margin 0.0075 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
@@ -408,6 +406,7 @@ row. A move to `gated` is a separate registry decision.
 | [Patience on the cross-validated C-TMLE path](option-patience.md) | 7 | 0 |
 | [Binding isotonic projection of a survival curve](isotonic-binding.md) | 6 | 0 |
 | [Asymmetric Wald intervals](asymmetric-wald-intervals.md) | 13 | 0 |
+| [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | 36 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 96 | 0 |
 | [censored continuous-treatment modified policies](mtp-pricing-censored.md) | 16 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
