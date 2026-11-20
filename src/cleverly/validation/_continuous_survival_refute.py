@@ -18,8 +18,10 @@ the stored :class:`~cleverly.survival.data.ContinuousSurvivalData`:
   guards before the first subset refit.
 
 The readings are those of every family (:mod:`cleverly.validation._readings`), and their
-records come from the builders the point loop uses. No registered study calibrates them on
-this family, so each reading is descriptive: ``passed`` is ``None``.
+records come from the builders the point loop uses. The placebo ``t`` and the subset ``rho`` on
+a risk difference print a verdict inside the scope that ``refuter-calibration-continuous-survival``
+measured (``VERDICT_EVIDENCE`` in :mod:`cleverly.validation._interpretation`); every other
+reading is descriptive: ``passed`` is ``None``.
 """
 
 from __future__ import annotations

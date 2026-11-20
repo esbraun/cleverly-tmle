@@ -12,6 +12,7 @@ reader from ``_point_readers`` that checks every printed number against the obje
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from collections.abc import Callable
 from typing import Any
@@ -90,6 +91,19 @@ def lasso_selection() -> Any:
 
 
 @functools.cache
+def lasso_fallback() -> Any:
+    """The lasso record of a glmstar fit whose analysis-sample path fell back."""
+    record = lasso_selection()
+    return dataclasses.replace(
+        record,
+        l1_solver="glmstar",
+        l1_polished=(0,) * len(record.candidate_fits),
+        l1_fallbacks=(1,) + (0,) * (len(record.candidate_fits) - 1),
+        l1_fallback_reasons=("short_path",),
+    )
+
+
+@functools.cache
 def learners_unordered() -> Any:
     """Candidate learners listed out of order of complexity."""
     candidates = [LogisticRegression(max_iter=1000), LogisticRegression(C=0.01, max_iter=1000)]
@@ -140,6 +154,20 @@ def derivative() -> Any:
 @functools.cache
 def derivative_record() -> Any:
     return _record(derivative(), "ctmle")
+
+
+@functools.cache
+def derivative_fallback() -> Any:
+    """The derivative record of a glmstar fit whose first training set's path fell back."""
+    record = derivative_record()
+    sets = len(record.penalties)
+    return dataclasses.replace(
+        record,
+        l1_solver="glmstar",
+        l1_polished=(0,) * sets,
+        l1_fallbacks=(1,) + (0,) * (sets - 1),
+        l1_fallback_reasons=("nonconvergence",),
+    )
 
 
 # ----------------------------------------------------------------- DR-TMLE and IPTW
@@ -408,10 +436,12 @@ FIXTURES: dict[str, Case] = {
     "greedy_selection": Case(greedy_selection, names=COVARIATES, fidelity=read.read_selection),
     "ordered_patience": Case(ordered_patience, names=COVARIATES, fidelity=read.read_selection),
     "lasso_selection": Case(lasso_selection, names=COVARIATES, fidelity=read.read_selection),
+    "lasso_fallback": Case(lasso_fallback, names=COVARIATES, fidelity=read.read_selection),
     "learners_selection": Case(learners_selection, names=COVARIATES, fidelity=read.read_selection),
     "outcome_adaptive": Case(outcome_adaptive, fidelity=read.read_oat),
     "stacked": Case(stacked_record, fidelity=read.read_oat),
     "derivative": Case(derivative_record, fidelity=read.read_derivative),
+    "derivative_fallback": Case(derivative_fallback, fidelity=read.read_derivative),
     "reduced": Case(reduced, fidelity=read.read_reduced),
     "reduced_bivariate": Case(reduced_bivariate, fidelity=read.read_reduced),
     "reduced_missing": Case(reduced_missing, fidelity=read.read_reduced),

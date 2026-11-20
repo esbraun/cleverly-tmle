@@ -249,6 +249,9 @@ AXIS_WORDS = (
     ("covariates per row ", "covariates"),
     ("minimum event count ", "events"),
     ("cluster count ", "clusters"),
+    ("cause count ", "event types"),
+    ("variance rule ", "standard-error rule"),
+    ("event share ", "share of events"),
 )
 
 
@@ -287,6 +290,8 @@ def _scopes() -> list[CalibrationScope]:
         {"estimand_kind": "arm:rr", "arms": 3, "learners": ("forest",), "treatment_kind": "dose"},
         {"replicates": 7, "nodes": 3, "placebo_draw": "markov", "min_event_count": 2},
         {"covariates_per_row": 0.9},
+        # A fit with no variance rule is not named on that axis, so one case sets a rule.
+        {"variance": "influence_curve", "causes": 1, "event_share": 0.1},
     ],
 )
 def test_plain_mismatches_name_the_same_axes_as_mismatches(changes: dict[str, Any]) -> None:
@@ -335,3 +340,14 @@ def test_an_unreadable_fit_and_a_scope_print_plainly() -> None:
         inference=frozenset({"estimated_mechanism_plugin", "generated_design_plugin"})
     )
     assert "no interval or no interval" not in _interpretation.plain_scope(both)
+
+
+def test_a_fit_with_no_variance_rule_is_not_named_on_that_axis() -> None:
+    scope = CalibrationScope(variances=frozenset({"switched"}))
+    assert scope.mismatches(_fit()) == []
+    assert _interpretation.plain_mismatches(scope, _fit()) == []
+    other = _fit(variance="influence_curve")
+    assert scope.mismatches(other) == ["variance rule 'influence_curve'"]
+    assert _interpretation.plain_mismatches(scope, other) == [
+        "another standard-error rule (influence_curve)"
+    ]

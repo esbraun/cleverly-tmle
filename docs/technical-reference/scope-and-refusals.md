@@ -692,6 +692,17 @@ scope limit, not a theoretical one: no source refuses a modified treatment polic
 declared mechanism there, and this fit does not build either. Each message names the supported
 route. The roadmap carries no row for H4 or for the `api_redirection` refusals.
 
+### The longitudinal memory guard
+
+`LTMLE`, `SDR` and `IPSI` predict the peak memory of the whole call before any learner, as
+[Memory](longitudinal-tmle.md#memory) states, and refuse a call whose prediction exceeds the
+budget. `tests/unit/test_longitudinal_memory_guard.py` pins the refusal one byte below the
+prediction, with learners that raise if they are fitted, and the admitted fit at the prediction.
+
+| trigger | when | type and code | message |
+| --- | --- | --- | --- |
+| the predicted peak exceeds `max_memory_bytes=`, or the memory available when it is `None` | `fit`, `planned_fits` | `LongitudinalMemoryError` (a `MethodConfigurationError`), `invalid_declaration` | "{Class}'s fit ({n} units, {T} nodes, {R} regimens, {H} horizons, {F} folds, ...) is predicted to need about {X} ({x} bytes) at its peak, counting the whole call including {the prepared panel \| the prepared panel and the simultaneous band \| the prepared panel and the parallel workers \| the prepared panel, the simultaneous band and the parallel workers}; the budget is {Y} ({y} bytes), {which max_memory_bytes sets \| the memory available now}. The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear learners, and other learners' own memory is not counted. At one worker it can exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with the simultaneous band on, and more with n_jobs > 1. No learner was fitted." The count list adds causes, density bins, repeats, bootstrap replicates and `n_jobs` when they are not 1 or 0. A fit outside the calibrated range adds "This fit lies outside the calibrated range of the memory model ({counts}), so the prediction is an extrapolation." The alternative is "Pass {Class}(max_memory_bytes=...) a value above {x}; or fit fewer regimens or horizons per call", with `n_jobs=1` when workers are counted, fewer `density_bins=` when bins are, and `ratio="classifier"` (no binned density) on the binned density route. On a `CausalStudy` it also spells the direct engine call |
+
 ### Collaborative TMLE of a risk curve
 
 [Time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes) states the estimator.
