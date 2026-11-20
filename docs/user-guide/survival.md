@@ -698,6 +698,23 @@ a note under the summary says the bootstrap interval is experimental. Report the
 as the main result. When the fit warns with `SparseInfluenceWarning` that an estimate rests on
 few people, show the bootstrap interval beside it.
 
+A fit with exact times, `grid="continuous"`, takes `n_bootstrap=` too. Each resample refits every
+model and the risks, so it costs about as long as the fit itself. A person drawn twice into a
+resample stays in one group when the fit splits the rows to fit predictions on the other rows, so
+a copy never predicts its twin. The bootstrap interval of each risk sits in `estimate.bootstrap`
+and in the `bootstrap_ci_lower` and `bootstrap_ci_upper` columns of `result.to_frame()`;
+`bootstrap_interval="bca"` on `ContinuousSurvivalTMLE` gives the BCa interval, which corrects the
+percentile interval for skew. If more than 1% of the refits fail, the fit warns, drops every
+bootstrap interval and keeps the usual ones. Below that share the bootstrap intervals use only the
+refits that worked, without a warning; the summary's bootstrap note gives the count, and
+`result.bootstrap_failures` says why the others failed.
+
+On these fits the bootstrap interval always reads
+`experimental`. With the default cross-fitting no theory yet shows that the bootstrap is valid,
+and for a fit without cross-fitting the conditions of the theory that would cover it have not
+yet been checked. [The full-refit bootstrap](../technical-reference/continuous-time-survival.md#the-full-refit-bootstrap)
+gives both reasons and the study planned to measure it.
+
 :::{dropdown} Details: which bootstrap fits a study covers
 The registered study covers an in-sample, single-cause survival fit on the wide layout with one
 treatment decision at each time point, static plans, and no weights, measured with correctly

@@ -1433,8 +1433,8 @@ def bootstrap(
     Raises
     ------
     ValueError
-        When a fit holds no bootstrap, the estimand has no replicates, fewer than two
-        replicates are finite, or every replicate is equal.
+        When a fit holds no bootstrap or withheld its bootstrap intervals, the estimand has
+        no replicates, fewer than two replicates are finite, or every replicate is equal.
 
     See Also
     --------
@@ -1495,11 +1495,22 @@ def bootstrap(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     estimate = result.estimates.get(name) if result is not None else None
+    if getattr(result, "bootstrap_status", None) == "bootstrap_unstable":
+        # A continuous-time fit withholds every bootstrap interval when more than 1% of its
+        # refits failed; limits read from the replicates that fit would condition on them.
+        raise ValueError(
+            f"this fit withheld its bootstrap intervals: {replicates.n_failed} of "
+            f"{replicates.n_requested} refits failed (result.bootstrap_failures says why), "
+            "and limits read from the replicates that fit would condition on them"
+        )
     if estimate is not None and estimate.bootstrap is not None:
         read = _from_summary(name, estimate)
     else:
         if result is not None:
-            level = 1.0 - float(result.config.alpha_sig)
+            config = getattr(result, "config", None)
+            alpha = config.alpha_sig if config is not None else getattr(estimate, "alpha", None)
+            if alpha is not None:
+                level = 1.0 - float(alpha)
         bare = replicates.interval(name, 1.0 - level)
         low, high = (float(value) for value in bare.ci)
         read = _Replicates(

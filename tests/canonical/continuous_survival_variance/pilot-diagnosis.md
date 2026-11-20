@@ -74,10 +74,14 @@ V3 lost 5 of 2,000 pilot fits (V1, V4 and V7 lost none). Refitting draws 1182 an
 two kinds of refusal the code keeps on purpose at 500 units:
 
 - `DataError` (draws 1182, 1587, 1870): an initial hazard fit puts a combined jump of one or more
-  at a late time with few units at risk, so the product-limit survival is not a probability. The
-  check (`engine.py`, the combined-jump guard, from X91 part G) reads both arms' fitted hazards
-  up to the last target time; the pilot does not record which arm trips it, and the fix that
-  removed the survival floor does not touch this guard.
+  at some time, so the product-limit survival is not a probability. The check (`engine.py`, the
+  combined-jump guard, from X91 part G) reads both arms' fitted hazards up to the last target
+  time; the pilot does not record which arm trips it, and the fix that removed the survival floor
+  does not touch this guard. Correction (X6 part (d)): this note first blamed a late time with few
+  units at risk. Three of the registered run's eight such failures, refitted with
+  `tests/studies/continuous_survival_bootstrap_ties.py`, trip it at the unit's counterfactual arm,
+  for a unit whose X3 is among the sample's three most extreme and outside that arm's range, with 141 to 148 units at
+  risk (`../continuous_survival_bootstrap/pilot-diagnosis.md`).
 - `CapabilityError` (draws 1521, 1776): the treated arm has no cause-2 event by the first target
   time, so that risk's influence curve is zero and its interval undefined.
 

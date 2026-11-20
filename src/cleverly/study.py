@@ -87,6 +87,7 @@ from .longitudinal import (
     SurvivalDRTMLE,
 )
 from .longitudinal import estimator as _sequential
+from .longitudinal._memory_guard import LongitudinalMemoryError
 from .longitudinal.data import check_markov_order, markov_restriction
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
@@ -6636,10 +6637,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             with self._spelled_memory_refusal(settings):
                 return engine._planned_fit_data(self._study.data)
         if self.functional.longitudinal:
-            return cast(
-                "PlannedFits",
-                self._longitudinal_engine(normalized)._planned_fits(self._study.data),
-            )
+            with self._spelled_longitudinal_memory_refusal(normalized):
+                return cast(
+                    "PlannedFits",
+                    self._longitudinal_engine(normalized)._planned_fits(self._study.data),
+                )
         if isinstance(normalized, EPMethod):
             assert isinstance(self._study.data, CausalData)
             return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
@@ -7059,6 +7061,49 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
             raise spelled_error from error
 
+    @contextlib.contextmanager
+    def _spelled_longitudinal_memory_refusal(self, method: EstimationMethod) -> Iterator[None]:
+        """Spell the engine call of a longitudinal memory refusal in its alternative (X106 J2d).
+
+        :meth:`_estimate_longitudinal` and :meth:`planned_fits` both run the engine's memory
+        guard, so both raise the same record.
+        """
+        try:
+            yield
+        except LongitudinalMemoryError as error:
+            # The facade has no memory setting; spell the engine call that reproduces this fit,
+            # so a user can set the budget there.
+            functional = self.functional
+            engine = type(self._longitudinal_engine(method)).__name__
+            settings = method.estimator_kwargs(longitudinal=True)
+            spelled = ", ".join(
+                [repr(functional.interventions)]
+                + [
+                    f"reference={functional.reference!r}",
+                    f"horizons={functional.horizons!r}",
+                    f"msm={functional.msm!r}",
+                ]
+                + [f"{key}={value!r}" for key, value in settings.items()]
+                + ["max_memory_bytes=..."]
+            )
+            seeded = settings.get("random_state") is not None
+            alternative = (
+                f"{error.refusal.alternative} On a study, fit the same estimator directly, with "
+                "these settings (an object shown by its printed form is passed as itself): "
+                f"cleverly.longitudinal.{engine}({spelled}).fit(study.data). "
+                + (
+                    "With this seed it returns the result this study would."
+                    if seeded
+                    else "Without random_state each fit draws its own seed; set it to "
+                    "reproduce a study's result."
+                )
+            )
+            spelled_error = LongitudinalMemoryError(
+                refusal=replace(error.refusal, alternative=alternative)
+            )
+            spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
+            raise spelled_error from error
+
     def _continuous_engine(
         self, method: EstimationMethod
     ) -> tuple[ContinuousSurvivalTMLE, dict[str, Any]]:
@@ -7106,7 +7151,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
         estimator = self._longitudinal_engine(method)
-        raw = estimator.fit(self._study.data)
+        with self._spelled_longitudinal_memory_refusal(method):
+            raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
             "ate_regime": ("ate_regimen[", "risk_difference["),

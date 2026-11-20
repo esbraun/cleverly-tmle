@@ -1207,7 +1207,7 @@ def continuous_surface(
                 replay.cause_index >= 0, codes_array[np.maximum(replay.cause_index, 0)], 0
             )
             replacement = replace(data, time=replay.time, event=event, treatment=labelled)
-            refitted = estimator.refit(
+            refitted = estimator._for_estimate_refits().refit(
                 replacement,
                 random_state=root_seed,
                 _frozen_plan=estimator._fold_plan if frozen else None,

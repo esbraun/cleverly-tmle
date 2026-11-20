@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-from scipy.stats import beta, norm
+from scipy.stats import beta, binom, norm
 
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
@@ -932,3 +932,252 @@ def test_the_x32a_binding_reproduces_the_shared_rules() -> None:
     )
     for left, right in zip(shared, mapped, strict=True):
         np.testing.assert_array_equal(left.noise, right.noise)
+
+
+# ---------------------------------------------------------------- a wide spread and non-finite values
+
+#: Two cells of one arm whose pilot ratios differ by 0.04 at 3,200 draws, with squared label
+#: correlation 0.5.  The spread bound is 0.111, so the pooled reading's outer nodes reach SE
+#: ratios below zero.  Before the guard the family-wise probability was NaN, ``nan < 0.95`` was
+#: false and the calibration rule returned 400.
+WIDE_RATIOS = {"a__X": 1.01, "b__X": 0.97}
+WIDE_PILOT = 3_200
+
+
+def _wide_correlations(labels: Sequence[str]) -> np.ndarray:
+    root = np.sqrt(0.5)
+    return np.array([[1.0, root], [root, 1.0]])
+
+
+def _wide_groups() -> list[sizing.PilotGroup]:
+    return sizing.calibration_groups(WIDE_RATIOS, WIDE_PILOT, _wide_correlations)
+
+
+def test_a_wide_spread_reaches_ratios_below_zero() -> None:
+    """The case is the one that failed: the quadrature reaches a negative SE ratio."""
+    groups = _wide_groups()
+    tau = sizing.heterogeneity_bound(groups)
+    assert tau == pytest.approx(0.1113, abs=1e-3)
+    lowest = min(
+        float(np.mean(g.values)) - float(np.sqrt(g.mean_variance)) * sizing._NODES.max()
+        for g in groups
+    )
+    assert lowest - tau * sizing._NODES.max() < 0.0
+
+
+def test_the_calibration_rule_refuses_a_wide_spread_instead_of_returning_400() -> None:
+    groups = _wide_groups()
+    tau = sizing.heterogeneity_bound(groups)
+    for replicates in (400, 4_000, 50_000):
+        probability = sizing.calibration_family_pass_probability(MARGINS, replicates, groups, tau)
+        assert np.isfinite(probability)
+        assert 0.0 <= probability < 0.25
+    with pytest.raises(ValueError, match="no budget"):
+        sizing.calibration_replicates(MARGINS, WIDE_RATIOS, WIDE_PILOT, _wide_correlations)
+    assert sizing.calibration_size(
+        MARGINS, WIDE_RATIOS, WIDE_PILOT, _wide_correlations
+    ) == sizing.CalibrationSize(sizing.CALIBRATION_CAP, False)
+
+
+def test_the_cell_probability_is_zero_at_a_ratio_at_or_below_zero() -> None:
+    ratios = np.array([-0.5, -1e-9, 0.0])
+    for one_sided in (False, True):
+        np.testing.assert_array_equal(
+            sizing.calibration_pass(MARGINS, 4_000, ratios, one_sided=one_sided), np.zeros(3)
+        )
+    with pytest.raises(ValueError, match="finite"):
+        sizing.calibration_pass(MARGINS, 4_000, np.array([1.0, np.nan]))
+    # Nonzero witness: with an explicit coverage the old one-sided formula read a negative
+    # ratio as a near-certain pass (0.99999993), because the negative spread flipped both
+    # normal arguments.
+    np.testing.assert_array_equal(
+        sizing.calibration_pass(MARGINS, 4_000, np.array([-0.5, -0.1]), 0.95, one_sided=True),
+        np.zeros(2),
+    )
+
+
+def _two_sided_before_the_fix(replicates: int, ratio: np.ndarray) -> np.ndarray:
+    """The two-sided cell probability as main computed it before ratios at or below zero."""
+    low, high = MARGINS.calibration_se_ratio
+    z = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+    spread = ratio / np.sqrt(2.0 * (replicates - 1))
+    half = z * spread
+    se_pass = np.maximum(
+        norm.cdf((high - half - ratio) / spread) - norm.cdf((low + half - ratio) / spread), 0.0
+    )
+    wald = 2.0 * norm.cdf(float(norm.ppf(1.0 - MARGINS.alpha / 2.0)) * ratio) - 1.0
+    accepted = sizing.accepted_counts(MARGINS, replicates)
+    assert accepted is not None
+    coverage = binom.cdf(accepted[1], replicates, wald) - binom.cdf(
+        accepted[0] - 1, replicates, wald
+    )
+    return se_pass * coverage
+
+
+def test_the_cell_probability_is_unchanged_at_positive_ratios() -> None:
+    """At a positive ratio the cell reads the formula it read before, bit for bit."""
+    positive = np.linspace(0.05, 2.0, 40)
+    for replicates in (400, 4_000, 50_000):
+        np.testing.assert_array_equal(
+            sizing.calibration_pass(MARGINS, replicates, positive),
+            _two_sided_before_the_fix(replicates, positive),
+        )
+    mixed = np.concatenate([[-0.2, 0.0], positive])
+    for one_sided in (False, True):
+        alone = sizing.calibration_pass(MARGINS, 4_000, positive, one_sided=one_sided)
+        together = sizing.calibration_pass(MARGINS, 4_000, mixed, one_sided=one_sided)
+        np.testing.assert_array_equal(together[2:], alone)
+
+
+def test_the_pooled_reading_refuses_a_non_finite_cell_probability() -> None:
+    """Deliberate mutation: a cell that returns NaN at one node stops the reading."""
+    groups = _wide_groups()
+
+    def poisoned(values: np.ndarray) -> np.ndarray:
+        out = np.ones_like(values)
+        out.flat[0] = np.nan
+        return out
+
+    with pytest.raises(ValueError, match="not finite"):
+        sizing.pooled_pass_probability(groups, 0.01, poisoned)
+    with pytest.raises(ValueError, match="not finite"):
+        sizing.pooled_pass_probability(groups, 0.0, poisoned)
+
+
+def _nan(*_args: object, **_kwargs: object) -> float:
+    return float("nan")
+
+
+@pytest.mark.parametrize(
+    ("patched", "rule"),
+    [
+        ("calibration_family_pass_probability", "calibration_replicates"),
+        ("calibration_failure_bound", "calibration_size"),
+        ("coverage_floor_pass_probability", "primary_replicates"),
+        ("pooled_pass_probability", "property_bias_replicates"),
+    ],
+)
+def test_every_rule_refuses_a_non_finite_probability(
+    monkeypatch: pytest.MonkeyPatch, patched: str, rule: str
+) -> None:
+    """Deliberate mutation: each rule raises where it once returned a size."""
+    monkeypatch.setattr(sizing, patched, _nan)
+    calls = {
+        "calibration_replicates": lambda: sizing.calibration_replicates(
+            MARGINS, WIDE_RATIOS, WIDE_PILOT, _wide_correlations
+        ),
+        "calibration_size": lambda: sizing.calibration_size(
+            MARGINS, WIDE_RATIOS, WIDE_PILOT, _wide_correlations
+        ),
+        "primary_replicates": lambda: sizing.primary_replicates(
+            MARGINS, {"a": 950, "b": 948}, 1_000
+        ),
+        "property_bias_replicates": lambda: sizing.property_bias_replicates(
+            MARGINS, {"f/a": 0.01, "f/b": -0.02}, 2_000, lambda labels: np.eye(len(labels))
+        ),
+    }
+    with pytest.raises(ValueError, match="not a finite number"):
+        calls[rule]()
+
+
+def test_the_robust_probability_refuses_a_non_finite_outlier_reading() -> None:
+    reading = sizing.RobustReading(kept=[], extra=[], tau=0.0, outliers=[(0.0, 1e-4)])
+    with pytest.raises(ValueError, match="not a finite number"):
+        reading.probability(lambda values: np.full_like(values, np.nan))
+
+
+def test_the_spread_bound_refuses_a_non_finite_pilot() -> None:
+    group = sizing.PilotGroup(np.array([1.0, np.nan]), np.eye(2) * 1e-4)
+    with pytest.raises(ValueError, match="finite"):
+        sizing.heterogeneity_bound([group])
+
+
+def _pooled_monte_carlo(groups: list[sizing.PilotGroup], tau: float, replicates: int) -> tuple:
+    """The pooled model by simulation: the mean and the Monte Carlo SE of the pass product."""
+    rng = np.random.default_rng(20261120)
+    draws = 100_000
+    probability = np.ones(draws)
+    for group in groups:
+        mu = float(np.mean(group.values)) + np.sqrt(group.mean_variance) * rng.standard_normal(
+            draws
+        )
+        for _ in group.values:
+            ratio = mu + tau * rng.standard_normal(draws)
+            probability *= sizing.calibration_pass(MARGINS, replicates, ratio)
+    return float(probability.mean()), float(probability.std(ddof=1) / np.sqrt(draws))
+
+
+def test_the_pooled_reading_agrees_with_a_simulation_of_its_model_at_a_wide_spread() -> None:
+    """The 31-node rule read 0.136 here against the model's 0.152: about 20 simulation SEs."""
+    groups = _wide_groups()
+    tau = sizing.heterogeneity_bound(groups)
+    reading = sizing.calibration_family_pass_probability(MARGINS, 20_000, groups, tau)
+    mean, se = _pooled_monte_carlo(groups, tau, 20_000)
+    assert reading > 0.1
+    assert abs(reading - mean) < 4.0 * se
+
+
+def test_the_inner_expectation_matches_adaptive_quadrature() -> None:
+    """One cell at a pilot mean of one with no pilot noise: E_z p(1 + tau z) to 1e-4.
+
+    At tau 0.07 and 8,000 replications the 31-node rule read 0.569 against 0.519.
+    """
+    from scipy import integrate
+
+    group = sizing.PilotGroup(np.array([1.0]), np.zeros((1, 1)))
+    for tau, replicates in ((0.02, 20_000), (0.05, 8_000), (0.07, 8_000), (0.1, 8_000)):
+        cell = sizing._calibration_cell(MARGINS, replicates)
+
+        def integrand(
+            z: float, tau: float = tau, cell: Callable[[np.ndarray], np.ndarray] = cell
+        ) -> float:
+            return float(cell(np.array([1.0 + tau * z]))[0] * norm.pdf(z))
+
+        edges = [(edge - 1.0) / tau for edge in MARGINS.calibration_se_ratio]
+        exact = integrate.quad(integrand, -12.0, 12.0, points=edges, limit=400)[0]
+        assert sizing.pooled_pass_probability([group], tau, cell) == pytest.approx(exact, abs=1e-4)
+
+
+def test_the_pooled_reading_refuses_a_bad_spread_or_cell_count() -> None:
+    groups = _wide_groups()
+    cell = sizing._calibration_cell(MARGINS, 4_000)
+    for tau in (float("nan"), -0.01, float("inf")):
+        with pytest.raises(ValueError, match="tau"):
+            sizing.pooled_pass_probability(groups, tau, cell)
+    with pytest.raises(ValueError, match="1 cell probabilities for 2 cells"):
+        sizing.pooled_pass_probability(groups, 0.01, [cell])
+
+
+def test_a_vanishing_spread_is_a_point_mass_and_stays_cheap() -> None:
+    """A tiny tau or pilot variance sets no step: the wider law does.
+
+    Before the step followed the wider law, tau 1e-7 beside a pilot SD of 0.007 asked for
+    millions of grid points and a pilot SD of 1e-7 beside tau 0.05 ran out of memory.
+    """
+    groups = _wide_groups()
+    cell = sizing._calibration_cell(MARGINS, 8_000)
+    flat = sizing.pooled_pass_probability(groups, 0.0, cell)
+    assert sizing.pooled_pass_probability(groups, 1e-7, cell) == pytest.approx(flat, abs=1e-9)
+    narrow = sizing.PilotGroup(np.array([1.0, 1.0]), np.full((2, 2), 1e-14))
+    assert sizing.pooled_pass_probability([narrow], 0.05, cell) == pytest.approx(
+        sizing.pooled_pass_probability(
+            [sizing.PilotGroup(np.array([1.0, 1.0]), np.zeros((2, 2)))], 0.05, cell
+        ),
+        abs=1e-9,
+    )
+
+
+def test_the_pooled_reading_takes_a_one_pass_iterable_of_cells() -> None:
+    """A generator of cell probabilities reads the same as the list it yields."""
+    groups = _wide_groups()
+    cells = [sizing._calibration_cell(MARGINS, 8_000), sizing._calibration_cell(MARGINS, 12_000)]
+    assert sizing.pooled_pass_probability(groups, 0.01, iter(cells)) == (
+        sizing.pooled_pass_probability(groups, 0.01, cells)
+    )
+
+
+def test_the_pooled_reading_refuses_a_probability_outside_zero_and_one() -> None:
+    groups = _wide_groups()
+    for tau in (0.0, 0.01):
+        with pytest.raises(ValueError, match=r"not in \[0, 1\]"):
+            sizing.pooled_pass_probability(groups, tau, lambda values: np.full_like(values, 1.5))
