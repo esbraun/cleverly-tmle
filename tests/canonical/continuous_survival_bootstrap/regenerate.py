@@ -37,11 +37,11 @@ they are committed.  At this size the readings are a screen:
   well under 0.90, and the shrunk-SE control leaves the band with probability at least 0.94.
 * ``b1`` lost 2 of 120 fits: each withheld its bootstrap because 7 and 3 of its 200 refits
   raised ``DataError`` (an initial hazard fit puts a combined jump of one or more at some time).
-  The likely mechanism, not yet confirmed, is that copies of one unit tie at its time and the
-  in-sample Cox fit's jump for a high-risk unit reaches 1.  Over all draws 27 of 24,000 refits
-  failed (0.11%).  The failure rule predicts that 3,200 fits lose more than 32 with probability
-  0.78, so the declaration stands refused on that line until the extension or a diagnosis
-  settles it.
+  ``pilot-diagnosis.md`` traces them to tied copies of an event unit times the
+  counterfactual-arm score of the interaction Cox model, and recommends bounding the combined
+  jump in the engine.  Over all draws 27 of 24,000 refits failed (0.11%).  The failure rule
+  predicts that 3,200 fits lose more than 32 with probability 0.78, so the declaration stands
+  refused on that line until that bound lands.
 * ``b2``, 12 fits, no refit failed in 2,400: percentile coverage 0.833 to 1.000 and bootstrap SE
   ratio 0.904 to 1.466 (mean 1.088), too few fits to read a row.
 
