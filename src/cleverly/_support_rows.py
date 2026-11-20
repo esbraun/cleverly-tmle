@@ -3447,9 +3447,11 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "The projection of a controlled direct effect (ControlledDirectEffect with a "
         "ConditionalContrast contrast) carries the intermediate on the missing-data axis, "
         "which no row covers, so it reads experimental in every composition until a study "
-        "cell measures it. Beside an intermediate, the plug-in learner, strata=, the held-out "
-        "curve checks, the score assessment and the targeting curve refuse, and so do "
-        "missing outcomes with cross-fitting.",
+        "cell measures it, among them a declared treatment law, randomized=True and "
+        "fold-wise targeting (targeting_scheme='fold'), each exact on a discrete law. Beside "
+        "an intermediate, the plug-in learner, strata=, the held-out curve checks, the score "
+        "assessment and the targeting curve refuse, and so do missing outcomes with "
+        "cross-fitting and missing treatment values (F33).",
     ]
     cells = {
         "": ["obs_1k", "obs_4k", "slow_1k", "slow_4k", "slow_16k", "noweight_dr_4k"],

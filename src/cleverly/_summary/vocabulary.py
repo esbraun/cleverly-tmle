@@ -367,6 +367,19 @@ QUESTION_PHRASES: Final[Mapping[str, str]] = MappingProxyType(
 SEVERAL_ROWS_QUESTION: Final = "effect of {A} on {Y}; each row is defined below"
 #: The Question fact of a controlled direct effect.
 DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for every unit"
+#: The meaning of a projection coefficient of a controlled direct effect (P1 PR 2), which the
+#: target registry's level-free description would misstate as the total conditional effect.
+CDE_PROJECTION_MEANINGS: Final = {
+    "cate_projection": (
+        "coefficients of the best linear projection of the controlled direct effect "
+        "E[Y(t, {z}) - Y(r, {z}) | V], with {Z} held at {z}, onto a declared basis phi(V)"
+    ),
+    "log_crr_projection": (
+        "coefficients of the projection of the conditional log risk ratio "
+        "log E[Y(t, {z}) | V] - log E[Y(r, {z}) | V], with {Z} held at {z}, onto a declared "
+        "basis phi(V)"
+    ),
+}
 #: The Question fact of a learned-rule fit, whose target the data chose.
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
 #: The Question fact of a fit of the value of the optimal rule (X11 (f)), a fixed parameter.

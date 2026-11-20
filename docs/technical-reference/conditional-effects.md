@@ -175,8 +175,13 @@ each on a discrete law whose $\tau_z$ is not linear: the fit reproduces the exac
 both levels and on both scales, and each mutant misses it by a tabled vector, the covariate
 mutants at an arm-specific wrong outcome regression where the full covariate still recovers the
 truth. The same file fits the pooled and per-arm outcome regressions, row weights, clusters, the
-pair of a three-arm treatment, repeats and the full-refit bootstrap. Every CDE projection reads
-`experimental`: no registered study measures one. The declared
+pair of a three-arm treatment, repeats and the full-refit bootstrap.
+
+The stacked cross-fitted fit, a declared treatment law, `randomized=True` and fold-wise targeting
+(`targeting_scheme="fold"`) each reproduce the projection exactly on the same law, also at a wrong
+outcome regression. The fold-wise check groups six whole copies of the law into three folds,
+because a fold's own fluctuation reads its cell imbalance on a random split. Every CDE projection
+reads `experimental`: no registered study measures one. The declared
 `projection-evidence` study (`tests/studies/projection_evidence.py`, not yet run) measures the
 cross-fitted fit at both levels on both scales, with controls for each vanishing term. The
 refusals it meets are in [Refusals](#refusals).

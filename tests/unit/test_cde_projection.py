@@ -154,14 +154,29 @@ def wrong_outcome() -> Any:
     return bad
 
 
-def closed_form_curve(level: int, scale: str, coefficients: np.ndarray) -> np.ndarray:
+def wrong_complete_outcome() -> Any:
+    """:func:`wrong_outcome` on the complete-row law."""
+    bad = law.law(complete=True)
+    bad.q = bad.q.copy()
+    bad.q[:, 1, :] += 0.125 * np.arange(3.0)[:, None]
+    return bad
+
+
+def closed_form_curve(
+    level: int,
+    scale: str,
+    coefficients: np.ndarray,
+    *,
+    frame: pd.DataFrame | None = None,
+    dgp: Any = None,
+) -> np.ndarray:
     """The influence curve of rows/P1/plan-pr2.md 2.1 at the oracle nuisances, row by row."""
-    frame = law.frame()
-    dgp = law.law()
+    frame = law.frame() if frame is None else frame
+    dgp = law.law() if dgp is None else dgp
     w = frame["W"].to_numpy().astype(int)
     a = frame["A"].to_numpy().astype(int)
     z = frame["Z"].to_numpy()
-    delta = frame["Delta"].to_numpy()
+    delta = frame["Delta"].to_numpy() if "Delta" in frame else np.ones(len(frame))
     y = np.nan_to_num(frame["Y"].to_numpy())
     phi = np.column_stack([np.ones(len(frame)), w])
     q_t, q_r = dgp.q[w, 1, level], dgp.q[w, 0, level]
@@ -373,6 +388,22 @@ class TestTheStudySites:
         assert caught.value.refusal == CDE_CURVE_TOOLS_REFUSAL
         assert NeverFit.calls == 0
 
+    @pytest.mark.parametrize("scale", SCALES)
+    def test_the_summary_says_each_row_is_the_controlled_effect_at_its_level(
+        self, scale: str
+    ) -> None:
+        from cleverly.estimators._point_summary import _meaning
+
+        for level in LEVELS:
+            fit = exact_fit(level, scale)
+            for name in fit.estimates:
+                meaning = _meaning(fit, name)
+                assert f"Y(t, {level})" in meaning and f"Y(r, {level})" in meaning, meaning
+                assert f"with Z held at {level}" in meaning
+                assert "E[Y^t" not in meaning
+            text = " ".join(str(fit.summary()).split())
+            assert "E[Y^t - Y^r | V]" not in text
+
     def test_the_curve_carries_the_level_and_refuses_its_held_out_checks(self) -> None:
         curve = exact_fit(1, "difference").effect_curve()
         assert curve.target_sentence.endswith("with the intermediate Z held at 1")
@@ -532,6 +563,109 @@ class TestTheCompositions:
         for estimate in fit.estimates.values():
             assert len(estimate.bootstrap.draws) == 4
             assert estimate.bootstrap.support.label == "experimental"
+
+    @pytest.mark.parametrize("scale", SCALES)
+    @pytest.mark.parametrize("level", LEVELS)
+    @quiet
+    def test_the_cross_fitted_stacked_fit_is_exact_and_its_curve_the_closed_form(
+        self, level: int, scale: str
+    ) -> None:
+        """The composition ``projection-evidence`` measures: stacked CV-TMLE, complete outcomes.
+
+        The oracle learners ignore their training rows, so every fold's nuisances are the
+        law's and the stacked fit reproduces the projection exactly; at the wrong outcome
+        regression the pooled fluctuation still recovers it.
+        """
+        dgp = law.law(complete=True)
+        truth = law.truth(level, scale, law.complete_probs())
+        settings = {"cross_fit": True, "n_folds": 4}
+        fit = effect(level, scale, missing=False).estimate(**{**oracle(dgp), **settings})
+        np.testing.assert_allclose(beta(fit), truth, rtol=0, atol=EXACT)
+        curves = np.column_stack([e.influence_curve for e in fit.estimates.values()])
+        expected = closed_form_curve(
+            level, scale, beta(fit), frame=law.frame(complete=True), dgp=dgp
+        )
+        np.testing.assert_allclose(curves, expected, rtol=0, atol=1e-9)
+        wrong = effect(level, scale, missing=False).estimate(
+            **{**oracle(dgp, outcome=wrong_complete_outcome()), **settings}
+        )
+        np.testing.assert_allclose(beta(wrong), truth, rtol=0, atol=1e-9)
+
+    @pytest.mark.parametrize("scale", SCALES)
+    @pytest.mark.parametrize("level", LEVELS)
+    @quiet
+    def test_fold_wise_targeting_is_exact_when_every_fold_is_the_law(
+        self, level: int, scale: str
+    ) -> None:
+        """``targeting_scheme="fold"``: one fluctuation per fold, read on that fold's rows.
+
+        Each fold's epsilon solves its own score equation, so on a random split of the law's
+        rows a fold's cell imbalance moves it. Six whole copies of the complete law, grouped as
+        clusters into three folds, make every fold the law itself: the fold-wise fit is then
+        exact, at the oracle and at the wrong outcome regression, where each fold's epsilon is
+        not zero. It reads ``experimental``: no study measures it.
+        """
+        copies = pd.concat(
+            [law.frame(complete=True).assign(C=c) for c in range(6)], ignore_index=True
+        )
+        dgp = law.law(complete=True)
+        truth = law.truth(level, scale, law.complete_probs())
+        settings = {"cross_fit": True, "n_folds": 3, "targeting_scheme": "fold"}
+        for outcome in (None, wrong_complete_outcome()):
+            fit = effect(level, scale, frame=copies, missing=False, cluster="C").estimate(
+                **{**oracle(dgp, outcome=outcome), **settings}
+            )
+            np.testing.assert_allclose(beta(fit), truth, rtol=0, atol=1e-9)
+            assert all(e.support.label == "experimental" for e in fit.estimates.values())
+        # Witness: the wrong regression's plug-in is off by more than the floor.
+        bad = wrong_complete_outcome().q[:, :, level]
+        assert (
+            np.max(
+                np.abs(
+                    law.projection(law.complete_probs().sum(axis=(1, 2, 3)), bad[:, 1] - bad[:, 0])
+                    - law.truth(level, "difference", law.complete_probs())
+                )
+            )
+            > 0.05
+        )
+
+    @pytest.mark.parametrize("scale", SCALES)
+    @quiet
+    def test_a_declared_treatment_law_is_exact(self, scale: str) -> None:
+        """``treatment_probabilities=`` replaces the treatment learner by the declared law."""
+        frame = law.frame(complete=True)
+        dgp = law.law(complete=True)
+        frame["g1"] = dgp.g[frame["W"].to_numpy().astype(int)]
+        frame["g0"] = 1.0 - frame["g1"]
+        declared = {"treatment_probabilities": {1.0: "g1", 0.0: "g0"}, "mechanism_law": "sample"}
+        for level in LEVELS:
+            study = CausalStudy(frame, design=design(missing=False, **declared))
+            identified = study.identify(
+                ControlledDirectEffect(intermediate=float(level), contrast=contrast(scale))
+            )
+            learners = oracle(dgp, outcome=wrong_complete_outcome())
+            learners["treatment_learner"] = NeverFit()
+            fit = identified.estimate(**learners)
+            truth = law.truth(level, scale, law.complete_probs())
+            np.testing.assert_allclose(beta(fit), truth, rtol=0, atol=1e-9)
+            assert all(e.support.label == "experimental" for e in fit.estimates.values())
+
+    @pytest.mark.parametrize("scale", SCALES)
+    @quiet
+    def test_a_randomized_design_is_exact(self, scale: str) -> None:
+        """``randomized=True`` with the treatment learner at the law's mechanism."""
+        dgp = law.law(complete=True)
+        for level in LEVELS:
+            study = CausalStudy(
+                law.frame(complete=True), design=design(missing=False, randomized=True)
+            )
+            identified = study.identify(
+                ControlledDirectEffect(intermediate=float(level), contrast=contrast(scale))
+            )
+            fit = identified.estimate(**oracle(dgp, outcome=wrong_complete_outcome()))
+            truth = law.truth(level, scale, law.complete_probs())
+            np.testing.assert_allclose(beta(fit), truth, rtol=0, atol=1e-9)
+            assert all(e.support.label == "experimental" for e in fit.estimates.values())
 
     @quiet
     def test_the_cross_fitted_stacked_fit_runs_and_reads_experimental_until_registration(
