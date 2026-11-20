@@ -288,6 +288,9 @@ other refusal in the table before any learner fits, except the zero-density rule
 | quadrature nodes that need more than 4 GB | `DataError` | declare fewer pairs, fewer `nodes_per_piece` or fewer density bins |
 | a fitted density of zero at an observed dose or a node where a weight is nonzero | `DataError`, raised after the nuisance fit | narrow the dose interval |
 | an interval for the unsmoothed curve, or a band over every dose in an interval | not offered | [F39](../roadmap.md#f39-unsmoothed-dose-response-curve) |
+| `diagnostics.refute`, and the omitted-variable and marginal bounds of `result.sensitivity` | `CapabilityError`, `implementation_gap` | [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part K. Each capability row reads `unavailable` before any call |
+| `sensitivity.simulated_confounding` | `CapabilityError`, `implementation_gap` | [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (l) |
+| `sensitivity.evalue`, `missingness` and `tipping_gamma` | `CapabilityError`, `invalid_declaration` | a pair is a mean at one dose, not a contrast, and the fit takes no missing outcome to tilt. [Assessing the curve](dose-response.md#assessing-the-curve) states every row |
 
 ### Adaptive TMLE refusals
 
@@ -603,6 +606,20 @@ fit, and every row that needs the false slot reads `unavailable`.
 The second code reads the checks that `refit()` runs before its first learner. These are the fold
 policy and four data contracts. `TestTheRefitSlotReadsTheRefitPreflight` in
 `tests/unit/test_capability_row_predicates.py` checks each slot against the call it describes.
+
+An effect curve has two codes of its own. A row that needs a false slot reads `unavailable`, and
+its refusal names a refit of the curve. `test_a_curve_without_its_fit_refuses_every_reading_by_its_replay_record`
+in `tests/unit/test_curve_assessment.py` checks both codes.
+
+| omission code | refusal code | replay boundary |
+| --- | --- | --- |
+| `curve_replay_no_producing_fit` | `invalid_declaration` | the curve keeps no producing fit. Every slot reads false |
+| `curve_replay_no_producing_estimator` | `invalid_declaration` | the producing fit keeps no estimator. Only `summarize_existing_artifacts` stays true, so the summaries run and the refits refuse |
+
+A variable-importance run with `keep_fits=False` keeps each candidate's estimates and drops its
+fit. Its `fits` and every assessment row then refuse as `api_redirection`, its `replayability`
+reads every slot false with `("candidate fits",)` as what is missing, and the remedy is a run
+with `keep_fits=True`. `tests/unit/test_variable_importance.py` checks it.
 
 ### Hazard and isotonic survival refusals
 

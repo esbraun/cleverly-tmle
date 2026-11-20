@@ -237,7 +237,7 @@ def _notes(result: StructuralNestedMeanResult) -> list[Note]:
 def _settings(result: StructuralNestedMeanResult) -> SummarySection:
     config = result.config
     data = result.data
-    diagnostics = result.diagnostics
+    diagnostics = result.structural_diagnostics
     lines: list[str] = []
     if config.n_folds > 1:
         lines.append(f"Folds: {config.n_folds}.")

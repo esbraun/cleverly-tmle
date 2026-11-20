@@ -243,11 +243,45 @@ def test_structural_rows_redirect_to_the_fit_diagnostics(structural_result) -> N
         alternative = rows[operation].refusal.alternative
         assert rows[operation].refusal.reason is RefusalReason.API_REDIRECTION
         for attribute in alternative.removeprefix("Read ").rstrip(".").split(" and "):
-            assert hasattr(structural_result, "diagnostics")
-            name = attribute.removeprefix("result.diagnostics.")
-            assert hasattr(structural_result.diagnostics, name), name
+            assert attribute.startswith("result.structural_diagnostics."), attribute
+            name = attribute.removeprefix("result.structural_diagnostics.")
+            assert hasattr(structural_result.structural_diagnostics, name), name
     for operation in ("score_equations", "corrections", "truncation_curve"):
         assert rows[operation].status is AssessmentStatus.NOT_APPLICABLE
+
+
+def test_the_result_carries_the_diagnostics_facade_and_the_battery(structural_result) -> None:  # type: ignore[no-untyped-def]
+    """``result.diagnostics`` is the facade over the structural rows, and ``assess()`` runs.
+
+    ``refute`` is the one supported row: the battery runs it once the request names an
+    estimand and pays for refits, and reports every other row omitted with its own record.
+    The control is the bare battery, which runs nothing and reports ``refute`` deferred.
+    """
+    facade = structural_result.diagnostics
+    assert isinstance(facade, DiagnosticsFacade)
+    declared = {row.operation: row for row in assessment_capabilities(structural_result)}
+    rows = {row.operation: row for row in facade.capabilities}
+    assert rows.keys() == declared.keys()
+    for operation, row in rows.items():
+        if operation != "refute":
+            assert row == declared[operation], operation
+    request = {"refute": {"estimand": BLIP, "tests": ("subset",), "n_replicates": 1}}
+    report = structural_result.assess(include_refits=True, arguments=request, random_state=0)
+    items = {item.name: item for item in report.diagnostics.items}
+    assert items["refute"].report.tests[0].name == "subset"
+    assert items["refute"].status is not AssessmentStatus.UNAVAILABLE
+    for operation, row in declared.items():
+        if operation == "refute":
+            continue
+        assert items[operation].status is row.status, operation
+        assert items[operation].refusal == row.refusal, operation
+    for item in report.validation.items:
+        assert item.refusal == declared[item.name].refusal, item.name
+    sensitivity = structural_result.sensitivity
+    for item in report.sensitivity.items:
+        assert item.refusal == sensitivity.capability(item.name).refusal, item.name
+    bare = {item.name: item for item in structural_result.assess().diagnostics.items}
+    assert bare["refute"].status is AssessmentStatus.DEFERRED
 
 
 def test_the_sensitivity_rows_follow_the_matrix(structural_result) -> None:  # type: ignore[no-untyped-def]

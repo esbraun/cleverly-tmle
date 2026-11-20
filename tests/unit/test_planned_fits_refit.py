@@ -35,6 +35,7 @@ from cleverly._planned_fits import refit_plan
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
 from cleverly.estimators.ep import EPEstimator
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.longitudinal import (
     IPSI,
     LTMLE,
@@ -46,6 +47,7 @@ from cleverly.longitudinal import (
     SurvivalDRTMLE,
 )
 from cleverly.longitudinal.estimator import _SequentialEstimator
+from cleverly.longitudinal.structural import StructuralNestedMean
 from cleverly.survival.engine import ContinuousSurvivalTMLE
 from tests.unit import _planned_fits_support as support
 from tests.unit._capability_sweep_support import KINDS, fit_continuous_survival
@@ -140,6 +142,22 @@ def _refusal(call: Callable[[], Any]) -> tuple[type, Any, str] | None:
 @pytest.mark.parametrize("kind", list(KINDS))
 def test_refit_plan_counts_the_fits_of_one_refit(kind: str) -> None:
     result = KINDS[kind].build()
+    estimator = getattr(result, "estimator", None)
+    # An adaptive TMLE fit keeps no estimator and reruns its method instead.
+    reruns = result.assessment_family == "augmented_trial"
+    if not reruns and (estimator is None or type(estimator) in UNPREVIEWED):
+        # No refit to compare with: an effect curve, a dose-response fit and a
+        # variable-importance run keep no estimator, and an unpreviewed engine refits with
+        # nothing to price it.  Each refuses as a CapabilityError, never a crash.
+        refused = _refusal(lambda: refit_plan(result))
+        assert refused is not None and refused[0] is CapabilityError, (kind, refused)
+        expected = (
+            RefusalReason.INVALID_DECLARATION
+            if estimator is None
+            else RefusalReason.IMPLEMENTATION_GAP
+        )
+        assert refused[1] is expected, (kind, refused)
+        return
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         refused = _refusal(lambda: refit_plan(result))
@@ -230,6 +248,13 @@ DISPATCHED: frozenset[type] = frozenset(
 #: Engine classes allowed to fit without a preview.  Pinned both ways, and empty.
 UNPRICED: frozenset[type] = frozenset()
 
+#: Estimator classes of :data:`KINDS` that the study does not dispatch to and that define no
+#: preview yet, each with the roadmap item that owns it.  Pinned both ways.
+UNPREVIEWED: dict[type, str] = {
+    # The structural nested mean model is fitted directly, outside CausalStudy.estimate.
+    StructuralNestedMean: "X106 part (g)",
+}
+
 
 def _priced(cls: type) -> bool:
     """Whether the class that defines ``cls.fit`` defines ``_planned_fits`` beside it, with
@@ -257,7 +282,9 @@ def test_every_engine_defines_a_preview_beside_its_fit() -> None:
         for result in (kind.build() for kind in KINDS.values())
         if getattr(result, "estimator", None) is not None
     }
-    assert kinds <= _engines(), kinds - _engines()
+    assert kinds - _engines() == set(UNPREVIEWED), kinds - _engines()
+    assert not any(_priced(cls) for cls in UNPREVIEWED)
+    kinds -= set(UNPREVIEWED)
     unpriced = {cls for cls in _engines() | kinds if not _priced(cls)}
     assert unpriced == UNPRICED
     assert frozenset() == UNPRICED

@@ -641,6 +641,14 @@ it needs in `requires_replay`, and the shared base applies that gate to every ro
 patch one row by name. `refute` read its slot only while running, and so reported `available=True`
 on a result that carries no estimator.
 
+A variable-importance run composes its facades from its candidates' own facades
+(`cleverly._importance_assessment`). Each row is composed from the candidates' rows for the same
+request, and each call runs on each candidate's facade, so every gate is the candidate fit's own.
+No gate runs at the level of the run, and the run's `replayability` is a summary that no row
+reads. Anything that reads a run's fits refuses a `keep_fits=False` run with
+`KEEP_FITS_REFUSAL`, the record that `result.fits` raises. A plot that draws one fit's nuisance
+models redirects to `result.fits[candidate]`.
+
 A replay slot reads the checks that its call runs before any learner. The slot `refit_nuisances`
 reads `TMLE._refit_configuration_refusal`. That method runs `_configured_for_refit` and then
 `_preflight_fit_configuration`, which includes `_resolve_estimands_for_data` with every subclass

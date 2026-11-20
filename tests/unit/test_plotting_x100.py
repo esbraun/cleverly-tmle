@@ -586,7 +586,7 @@ def test_reading_the_clipped_membership_fails_the_adaptive_check(
 
 
 def test_structural_storage_reproduces_the_positivity_summary(structural: Any) -> None:
-    diagnostics = structural.diagnostics
+    diagnostics = structural.structural_diagnostics
     weights = structural.data.weights
     margin = structural.config.positivity_margin
     assert len(diagnostics.class_probabilities) == len(structural.config.nodes)
@@ -603,7 +603,7 @@ def test_structural_overlap_draws_class_probabilities_with_the_margin(
     assert len(panels) == len(structural.config.nodes)
     for time, panel in enumerate(panels, start=1):
         codes = structural.data.node_codes(time)
-        values = structural.diagnostics.class_probabilities[time - 1][:, 0]
+        values = structural.structural_diagnostics.class_probabilities[time - 1][:, 0]
         _check_mirror(panel, values, codes == 1.0, np.isfinite(codes))
         assert sorted(_markers(panel)) == pytest.approx([margin, 1.0 - margin])
     _check_tail_shares(fig, structural)
@@ -612,7 +612,7 @@ def test_structural_overlap_draws_class_probabilities_with_the_margin(
 
 def _check_tail_shares(fig: Figure, result: Any) -> None:
     """On a two-level node, the printed shares beyond the margin add up to extreme_share."""
-    shares = result.diagnostics.extreme_share
+    shares = result.structural_diagnostics.extreme_share
     # Witness: a node with a share well away from zero, so a wrong margin moves the sum.
     assert max(shares) > 0.1
     for panel, share in zip(_panels(fig), shares, strict=True):
@@ -659,7 +659,7 @@ def test_a_structural_dose_node_refuses_overlap() -> None:
             continuous_treatment=["D1"],
         )
     )
-    assert np.isnan(result.diagnostics.extreme_share[0])
+    assert np.isnan(result.structural_diagnostics.extreme_share[0])
     with pytest.raises(CapabilityError, match="holds a dose") as caught:
         plotting.overlap(result)
     assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
