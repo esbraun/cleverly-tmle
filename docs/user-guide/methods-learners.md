@@ -205,10 +205,10 @@ search never does.
 
 `l1_solver="glmstar"` solves the lasso and derivative penalty paths with the optional `glmstar`
 package, which wraps the compiled solver of R's `glmnet`, for example
-`CollaborativeTMLEMethod(models=parametric, strategy="lasso", l1_solver="glmstar")`. It is no
-longer faster than the default solver: on a lasso fit with 100,000 rows and four covariates, the
-default took 1.00 times as long as glmstar (95% interval 0.98 to 1.03, five paired runs), so the
-default solver is the one to use for speed.
+`CollaborativeTMLEMethod(models=parametric, strategy="lasso", l1_solver="glmstar")`. Do not
+expect it to be faster than the default solver. On a binary-treatment lasso fit with 100,000 rows
+and four covariates, the only case timed against the current default, the default took 1.00 times
+as long as glmstar (95% interval 0.98 to 1.03, five paired runs).
 
 Install it with `pip install "cleverly[glmstar]"`. It is licensed GPL-2.0-only and adds about
 390 MB of dependencies, so `cleverly[all]` leaves it out. `cleverly` checks every glmstar
