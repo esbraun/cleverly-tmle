@@ -1019,7 +1019,9 @@ class ContinuousSurvivalTMLE:
         cross-validation over the inner folds, ``M * V`` fits and one refit of the winner (one
         fit for a library of one), and the treatment model is the user's learner, one fit,
         or the selection over the four default logistic models, ``4 * V + 1`` fits.  ``V`` is
-        the inner fold count the stratified labels reach on the fold's training rows.
+        the inner fold count the stratified labels reach on the fold's training rows.  With
+        :attr:`n_bootstrap` every replicate's refits are added, per bootstrap replicate
+        (:meth:`_plan_bootstrap`).
 
         Parameters
         ----------
@@ -1095,11 +1097,7 @@ class ContinuousSurvivalTMLE:
                 count,
             )
         if self.n_bootstrap:
-            builder.note(
-                f"The bootstrap refits every model above on each of {self.n_bootstrap} "
-                "resamples, with folds drawn on that resample's distinct units; those refits are "
-                "not counted, since their folds depend on the draw."
-            )
+            self._plan_bootstrap(builder, data, seed, inputs[2])
         if len(hazard_library) > 1 or len(censoring_library) > 1:
             builder.note(
                 "A hazard selection's refit is filed under the first member's class; the "
@@ -1112,6 +1110,55 @@ class ContinuousSurvivalTMLE:
             if folds is None
             else "outer realized"
         )
+
+    def _plan_bootstrap(
+        self, builder: Any, data: Any, seed: int, causes: Mapping[int, str]
+    ) -> None:
+        """Add every bootstrap replicate's planned fits to ``builder``, counted unfitted.
+
+        Each replicate's row index and fold plan follow from the fit's seed alone, as
+        :meth:`_bootstrap` and :func:`_replicate` draw them, so the replicate's fits are
+        counted on its resample with :func:`replicate_plan`'s folds, one replicate at a time:
+        no learner runs and one resample is held at once.  A replicate the checks before the
+        first fit refuse (a lost cause, say) makes no fit and adds none.
+        """
+        from ..inference.bootstrap import _bootstrap_design
+
+        n = int(np.asarray(data.time).shape[0])
+        design = _bootstrap_design(
+            _Units(n), n_replicates=self.n_bootstrap, resampling="iid", random_state=seed
+        )
+        replica = self._replica(causes, None)
+        refused = 0
+        for draw in design.draws:
+            index = _replicate_index(data, draw.sequence)
+            sample = resample(data, index)
+            plan = replicate_plan(
+                index,
+                sample.event,
+                cross_fit=replica.cross_fit,
+                n_folds=replica.n_folds,
+                learner_folds=replica.learner_folds,
+                seed=draw.seed,
+            )
+            try:
+                counted = replica._copy(draw.seed)._planned_fit_data(sample, plan=plan)
+            except (CleverlyError, np.linalg.LinAlgError, FloatingPointError):
+                refused += 1
+                continue
+            builder.absorb(counted, lambda scope: f"{scope}, per bootstrap replicate")
+        builder.multiply("bootstrap replicates", self.n_bootstrap)
+        builder.note(
+            f"The bootstrap refits every model on each of {self.n_bootstrap} resamples, with "
+            "folds drawn on that resample's distinct units; the rows marked per bootstrap "
+            "replicate count them, summed over the replicates. A replicate whose refit fails "
+            "stops at the failure, so it makes at most the fits counted."
+        )
+        if refused:
+            builder.note(
+                f"{refused} of the {self.n_bootstrap} resamples fail the checks before the "
+                "first fit, so their replicates make no fit and none is counted."
+            )
 
     def _initial_inputs(
         self,
@@ -2263,11 +2310,16 @@ def _drawn_replicate(
 ) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
     """:func:`_replicate` on the row index that ``sequence`` draws, as the shared bootstrap
     draws it (:func:`~cleverly.inference.bootstrap._bootstrap_draw`)."""
+    return _replicate(estimator, data, _replicate_index(data, sequence), seed)
+
+
+def _replicate_index(data: Any, sequence: Any) -> IntArray:
+    """The row index of the replicate whose seed sequence is ``sequence``, as the shared
+    bootstrap draws it (:func:`~cleverly.inference.bootstrap._bootstrap_draw`)."""
     from ..inference.bootstrap import _bootstrap_draw
 
     n = int(np.asarray(data.time).shape[0])
-    index = _bootstrap_draw(n, None, np.random.default_rng(sequence))[0]
-    return _replicate(estimator, data, index, seed)
+    return _bootstrap_draw(n, None, np.random.default_rng(sequence))[0]
 
 
 def _replicate(

@@ -579,3 +579,61 @@ def test_the_summary_names_the_bootstrap_or_says_it_was_withheld() -> None:
     assert "continuous_bootstrap" not in withheld.note_codes
     assert withheld.note("continuous_bootstrap_withheld").text.startswith("2 of 40")
     assert "continuous_bootstrap" not in survival_continuous.single_cause().summary().note_codes
+
+
+# ---------------------------------------------------------------- the preview of the refits
+
+
+def _planned_and_realized(estimator: ContinuousSurvivalTMLE, frame: pd.DataFrame) -> Any:
+    from tests.unit import _planned_fits_support as support
+
+    return support.witness(
+        lambda: estimator._planned_fits(
+            frame, time="time", event="event", treatment="a", baseline=BASELINE
+        ),
+        lambda: _fit(frame, estimator),
+    )
+
+
+def test_the_preview_counts_every_bootstrap_replicate(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = _frame()
+    estimator = _engine(
+        cross_fit=True,
+        n_folds=3,
+        hazard_library=[CoxHazard("main"), CoxHazard("treatment")],
+        n_bootstrap=5,
+        # One process, so the class-wide count sees every replicate's fits.
+        n_jobs=1,
+    )
+    seen = _planned_and_realized(estimator, frame)
+    plan, result = seen.plan, seen.result
+    assert result.bootstrap_status == "ran" and result.bootstrap.n_failed == 0
+    realized = sum(seen.class_wide.values())
+    assert plan.exact and realized == plan.total_candidate_fits, (dict(seen.class_wide), plan)
+    assert ("bootstrap replicates", 5) in plan.multipliers
+    replicate = [row for row in plan.rows if row.scope.endswith("per bootstrap replicate")]
+    assert replicate and sum(row.fits for row in replicate) > 0
+    # Each replicate refits the same models as the fit, so the replicate rows hold five times
+    # the fit's own fits.
+    own = sum(row.fits for row in plan.rows if row not in replicate)
+    assert sum(row.fits for row in replicate) == 5 * own
+    # A replicate whose refit fails makes at most the counted fits.  With the interaction model
+    # two of five refits raise on a combined jump, which the engine checks after every initial
+    # fit, so here they make all of them.
+    failing = _engine(
+        cross_fit=True,
+        n_folds=3,
+        hazard_library=[CoxHazard("main"), CoxHazard("interaction")],
+        n_bootstrap=5,
+        n_jobs=1,
+    )
+    short = _planned_and_realized(failing, frame)
+    assert short.result.bootstrap.n_failed == 2
+    assert sum(short.class_wide.values()) <= short.plan.total_candidate_fits
+    assert any("at most the fits counted" in text for text in short.plan.notes)
+    # Mutation control: a preview that drops the replicate rows misses the refits.
+    monkeypatch.setattr(
+        engine_module.ContinuousSurvivalTMLE, "_plan_bootstrap", lambda *args, **kwargs: None
+    )
+    dropped = _planned_and_realized(estimator, frame)
+    assert dropped.plan.total_candidate_fits < sum(dropped.class_wide.values())
