@@ -668,7 +668,7 @@ To see what a refutation will cost before you run it, call
 fits they make, and it raises the same error `refute()` would raise for a request it rejects. Tests
 that refit drawn data, such as `placebo`, `subset` and the generated outcomes, show an upper
 bound, because a drawn fold where a binary target has one class needs no model.
-[The technical reference](../technical-reference/validation-methods.md#counting-the-refits-before-they-run)
+[The technical reference](../technical-reference/validation-methods.md#refutation-operations)
 says which counts are exact.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
