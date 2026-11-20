@@ -662,6 +662,15 @@ draws, and a budget below 400 prints its readings without a verdict. A budget be
 states the bands and the evidence ladder. Generated outcomes apply only to identified additive
 contrasts for binary point treatments.
 
+To see what a refutation will cost before you run it, call
+`ate_result.diagnostics.planned_refits(...)` with the same arguments you would pass to
+`refute()`. It fits nothing. It returns one row per test with the number of refits and the model
+fits they make, and it raises the same error `refute()` would raise for a request it rejects. Tests
+that refit drawn data, such as `placebo`, `subset` and the generated outcomes, show an upper
+bound, because a drawn fold where a binary target has one class needs no model.
+[The technical reference](../technical-reference/validation-methods.md#counting-the-refits-before-they-run)
+says which counts are exact.
+
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against
 `tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity

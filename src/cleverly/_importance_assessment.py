@@ -413,6 +413,30 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
         """
         return self._invoke("refute", (), kwargs)
 
+    def planned_refits(self, **kwargs: Any) -> CandidateReports:
+        """Each candidate fit's planned refits, counted as :meth:`refute` would make them.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to each fit's ``diagnostics.planned_refits``.
+
+        Returns
+        -------
+        CandidateReports
+            One :class:`~cleverly.validation.PlannedRefits` per candidate. Its ``to_frame``
+            stacks the candidates' test rows.
+        """
+        _, kwargs = _single_pass((), kwargs)
+        self._require_call("refute", (), kwargs)
+        reports = {}
+        for name, facade in self._facades.items():
+            try:
+                reports[name] = facade.planned_refits(**kwargs)
+            except CapabilityError as error:
+                raise self._candidate_error("refute", name, facade, error) from error
+        return CandidateReports("planned_refits", reports, self._result.backend)
+
     def influence(self) -> Any:
         """Refused: each candidate's influence curves are its own fit's.
 

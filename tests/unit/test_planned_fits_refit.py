@@ -289,7 +289,7 @@ def test_every_engine_defines_a_preview_beside_its_fit() -> None:
     assert StructuralNestedMean in outside
     assert {cls for cls in outside if not _priced(cls)} == set(UNPREVIEWED), outside
     assert not any(_priced(cls) for cls in UNPREVIEWED)
-    assert {} == UNPREVIEWED
+    assert UNPREVIEWED == {}
     kinds -= set(UNPREVIEWED)
     unpriced = {cls for cls in _engines() | kinds if not _priced(cls)}
     assert unpriced == UNPRICED
