@@ -328,8 +328,9 @@ The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected c
 **The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by a
 proximal Newton method on a working set, warm-started along the grid. Each step minimizes the
 penalized quadratic model of the loss on the working coordinates and halves the step until the
-objective rises by at most 64 units of rounding, relative to its value. The working set holds the nonzero coordinates and those the sequential
-strong rule keeps, and grows by every coordinate that violates its optimality condition. Its
+objective rises by at most 64 units of rounding, relative to its value. The working set holds
+the nonzero coordinates and those the sequential strong rule keeps, and grows by every
+coordinate that violates its optimality condition. Its
 Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty, and the solver stops near
 `1e-14`. `tests/unit/test_l1_solver.py` holds it to the coordinate-descent solver it replaced, run
 from a frozen copy in the same process.
