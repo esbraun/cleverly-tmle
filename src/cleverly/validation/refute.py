@@ -4772,6 +4772,13 @@ def _bandless(result: Any) -> Any:
     return copied
 
 
+def _control_swaps(estimator: Any, family: str) -> bool:
+    """Whether a control of ``family`` regresses with the fit's pseudo-outcome learner, because
+    the fit's outcome learner is a classifier (:func:`_control_estimator`)."""
+    learner = getattr(estimator, "outcome_learner", None)
+    return family != "binomial" and _classification_only_learner(learner) is not None
+
+
 def _control_estimator(
     estimator: Any, family: str, values: np.ndarray
 ) -> tuple[Any, tuple[float, float] | None]:
@@ -4798,7 +4805,7 @@ def _control_estimator(
     if family != "binomial" and values.size and (cross_fitted or declared is not None):
         bounds = (float(np.min(values)), float(np.max(values)))
     learner = getattr(estimator, "outcome_learner", None)
-    swap = family != "binomial" and _classification_only_learner(learner) is not None
+    swap = _control_swaps(estimator, family)
     if bounds == declared and not swap:
         return estimator, bounds
     copied = copy.copy(estimator)
@@ -4828,16 +4835,29 @@ def _learner_clause(learner: Any, family: str, *, swapped: bool) -> str:
     return f"; the control fit models its {family} outcome with {name}"
 
 
-def _control_learner_clause(estimator: Any, control: Any, replacement: Any) -> str:
+def _control_learner_clause(
+    estimator: Any, control: Any, replacement: Any, *, structural: bool
+) -> str:
     """The learner clause of a negative-control refit, or ``""`` for a fit with no outcome
-    model (an :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control)."""
+    model (an :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control).
+
+    ``estimator`` refits the primary outcome and ``control`` the control, as
+    :func:`_control_estimator` returns it. A structural fit regresses a target outside
+    {0, 1} with its ``regression_learner``, or its outcome learner when that is ``None``.
+    """
     from ..estimators.iptw import AdaptiveIPTW
 
     if isinstance(control, AdaptiveIPTW) or not hasattr(control, "outcome_learner"):
         return ""
-    learner = control.outcome_learner
-    swapped = learner is not getattr(estimator, "outcome_learner", None)
-    return _learner_clause(learner, str(replacement.family), swapped=swapped)
+    family = str(replacement.family)
+    if structural:
+        learner = control.outcome_learner
+        if family != "binomial" and getattr(control, "regression_learner", None) is not None:
+            learner = control.regression_learner
+        return _learner_clause(learner, family, swapped=False)
+    # The swap ``_control_estimator`` made from the fit's own estimator.
+    swapped = _control_swaps(estimator, family)
+    return _learner_clause(control.outcome_learner, family, swapped=swapped)
 
 
 def _bounds_clause(bounds: tuple[float, float] | None) -> str:
@@ -4852,7 +4872,7 @@ def _bounds_clause(bounds: tuple[float, float] | None) -> str:
 
 def _future_treatment_fit(
     result: Any, *, control: Any, node: int, seed: int
-) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int]:
+) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int, bool]:
     """The point TMLE of the future-treatment test and the data it fits, unfitted.
 
     :func:`_future_treatment_test` fits it, and the refit preview counts its fits.
@@ -4861,7 +4881,8 @@ def _future_treatment_fit(
     -------
     tuple
         The estimator, the point data, the rows at risk at ``node``, the history's column
-        names, the control's outcome bounds and the fold count.
+        names, the control's outcome bounds, the fold count, and whether the fit's
+        pseudo-outcome learner stands in for its classifier outcome learner.
     """
     from ..data import CausalData
     from ..estimators.tmle import TMLE
@@ -4905,7 +4926,7 @@ def _future_treatment_fit(
         # every number the test reports is unchanged.
         simultaneous=False,
     )
-    return fitter, point, rows, names, bounds, folds
+    return fitter, point, rows, names, bounds, folds, swapped
 
 
 def _future_treatment_test(
@@ -4918,11 +4939,9 @@ def _future_treatment_test(
     at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
     count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
     """
-    fitter, point, rows, names, bounds, folds = _future_treatment_fit(
+    fitter, point, rows, names, bounds, folds, swapped = _future_treatment_fit(
         result, control=control, node=node, seed=seed
     )
-    template_learner = getattr(result.estimator, "outcome_learner", None)
-    swapped = fitter.outcome_learner is not template_learner
     cross_fit = folds > 1
     fitted = fitter.fit(point)
     estimate = fitted.single()["ate"]
@@ -6151,7 +6170,9 @@ def refute(
                     detail=(
                         f"the negative-control outcome shows an estimate of {value:+.5g} "
                         f"(z = {z:+.3g} {unit} from the no-effect value {no_effect_null:g})"
-                        + _control_learner_clause(estimator, control_estimator, replacement)
+                        + _control_learner_clause(
+                            estimator, control_estimator, replacement, structural=structural
+                        )
                         + _bounds_clause(control_bounds)
                     ),
                     rung=resolution.rung,

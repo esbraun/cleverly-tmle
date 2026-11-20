@@ -749,7 +749,8 @@ class PlasmodeLaw:
         if self.clusters is None:
             return
         # ``np.flatnonzero(clusters == label)`` per label, in one stable sort: the rows of
-        # each cluster in ascending order, the clusters in ``np.unique`` order.
+        # each cluster in ascending order, the clusters in ``np.unique`` order. The field
+        # holds the data's integer cluster codes, so no label is NaN.
         _, inverse, counts = np.unique(self.clusters, return_inverse=True, return_counts=True)
         order = np.argsort(inverse.reshape(-1), kind="stable")
         members = tuple(np.split(order, np.cumsum(counts)[:-1]))

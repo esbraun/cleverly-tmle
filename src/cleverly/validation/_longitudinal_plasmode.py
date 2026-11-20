@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from ..data.validate import MIN_OBSERVATIONS
 from .outcome_processes import GaussianAdjustmentOutcome, standardized_sum
 
 #: The largest number of histories per support point that the truth enumerates. A law with
@@ -567,9 +568,10 @@ def _policy_density(
     return np.asarray(plan.values[:, node] == 1.0, dtype=float)
 
 
-#: Rows of the all-reachable panel a static regimen is resolved on; ``LongitudinalData.subset``
-#: refuses fewer than 10.
-_STATIC_PANEL_ROWS = 10
+#: Rows of the all-reachable panel a static regimen is resolved on: the fewest a panel holds
+#: (``LongitudinalData.subset`` refuses fewer). A validated support always has as many, so the
+#: guard in :func:`_policy_density` is defensive.
+_STATIC_PANEL_ROWS = MIN_OBSERVATIONS
 
 
 def _histories(

@@ -191,6 +191,31 @@ def test_g5b_the_negative_control_detail_names_its_learner_and_family() -> None:
     assert "pseudo-outcome learner" in swapped.detail
 
 
+def test_g5b_a_structural_continuous_control_names_its_regression_learner() -> None:
+    from cleverly.longitudinal.structural import StructuralNestedMean
+
+    estimator = StructuralNestedMean(
+        {"always": 1, "never": 0},
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        regression_learner=LinearRegression(),
+        n_folds=2,
+        random_state=0,
+        simultaneous=False,
+    )
+    result = _quiet(
+        lambda: estimator.fit(
+            _frame(),
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+        )
+    )
+    test = _negative(result, _control("continuous"), estimand="blip[A1:1.0:intercept]")
+    assert "models its gaussian outcome with linear regression" in test.detail
+
+
 # ----------------------------------------------------------------- G5g point refits
 
 
@@ -213,6 +238,10 @@ def _banded() -> Any:
     )
 
 
+#: The plan lists ``dummy_outcome`` too; the generated tests refuse a direct fit, which carries
+#: no identification metadata, and a study fit of one estimand builds no band. The bootstrap
+#: test stands in for the drawn-data path (``_run_empirical_refits``), which the generated
+#: tests share.
 G5G_TESTS = [
     "placebo",
     "random_common_cause",
@@ -240,6 +269,39 @@ def test_g5g_refits_build_no_band_and_report_the_same_numbers(
         candidate = _quiet(lambda: refute(result, **arguments))
     assert bands["bands"] == 0
     assert support.walk(candidate) == support.walk(baseline)
+
+
+@pytest.mark.parametrize("test", ["subset", "bootstrap_stability"])
+def test_g5g_a_held_rule_refits_with_the_bandless_estimator(
+    test: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The replay of a learned rule wraps the estimator ``_bandless`` returns, on the subset
+    path (the refit closure) and the drawn-data path (``_run_empirical_refits``)."""
+    import copy
+
+    from cleverly.interventions import learned
+    from tests.unit import _learned_rule_support as rules
+    from tests.unit.test_refute_learned_rule import _fit as learned_fit
+
+    result = learned_fit()
+    marked: list[Any] = []
+
+    def bandless(fit: Any) -> Any:
+        copied = copy.copy(fit.estimator)
+        marked.append(copied)
+        return copied
+
+    seen: list[Any] = []
+    replay = learned.frozen_rule_replay
+
+    def recording(estimator: Any, rule: Any, rows: Any = None) -> Any:
+        seen.append(estimator)
+        return replay(estimator, rule, rows)
+
+    monkeypatch.setattr(refute_module, "_bandless", bandless)
+    monkeypatch.setattr(learned, "frozen_rule_replay", recording)
+    _quiet(lambda: refute(result, estimand=rules.NAME, tests=[test], n_replicates=R))
+    assert seen and all(any(item is mark for mark in marked) for item in seen)
 
 
 def test_g5g_a_fit_that_built_no_band_refits_as_it_is() -> None:
@@ -276,7 +338,8 @@ def _old_rows(self: PlasmodeLaw, rng: np.random.Generator) -> tuple[np.ndarray, 
 def _clustered_point() -> Any:
     from cleverly import ATE, CausalStudy, PointTreatment
 
-    frame = support.frame(300).assign(g=np.arange(300) // 5)
+    # Interleaved labels, so a grouping that assumed contiguous clusters would differ.
+    frame = support.frame(300).assign(g=np.random.default_rng(3).permutation(np.arange(300) // 5))
     study = CausalStudy(
         frame,
         design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"), cluster="g"),
