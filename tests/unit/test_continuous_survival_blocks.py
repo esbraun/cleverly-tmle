@@ -197,6 +197,8 @@ def _record_fields(fit: Fit) -> dict[str, Any]:
             "initial_psi",
             "bounded_share",
             "last_time_floor_share",
+            "jump_bound_share",
+            "jump_bound_at_risk_share",
             "frozen_share",
             "off_grid_share",
             "grid_size",
@@ -451,8 +453,8 @@ class Wrapped(BaseEstimator):  # type: ignore[misc]
     ``mode`` changes its predictions: ``"smooth"`` adds a small linear cumulative hazard, so
     every time jumps; ``"negative"`` puts a negative jump at ``at``; ``"nan"`` makes the
     cumulative hazard NaN at ``at`` for rows with ``w0 > 2``; ``"noise"`` adds call-dependent
-    noise; ``"refuse"`` gives rows with ``w0 > 1.8`` a jump of one at ``at`` and rows with
-    ``w0 < -1.8`` a survival near zero.
+    noise; ``"spike"`` gives rows with ``w0 > 1.8`` a jump of one at ``at``; ``"refuse"`` adds
+    a survival near zero for rows with ``w0 < -1.8``.
     """
 
     calls = 0
@@ -485,10 +487,11 @@ class Wrapped(BaseEstimator):  # type: ignore[misc]
         elif self.mode == "noise":
             self.noise_ += 1
             out *= 1.0 + 1e-9 * self.noise_
-        elif self.mode == "refuse":
+        elif self.mode in ("spike", "refuse"):
             later = times >= self.at
             out[np.ix_(X[:, 1] > 1.8, later)] += 1.0
-            out[X[:, 1] < -1.8] = 30.0 * np.arange(times.size)[None, :]
+            if self.mode == "refuse":
+                out[X[:, 1] < -1.8] = 30.0 * np.arange(times.size)[None, :]
         return out
 
 
@@ -1306,15 +1309,78 @@ def test_skipping_a_replayed_hold_is_caught(monkeypatch: pytest.MonkeyPatch) -> 
     assert _bitwise(_record_fields(mutated), _record_fields(kept)) != []
 
 
-def test_the_combined_jump_refusal_comes_before_the_zero_survival_one() -> None:
-    """DR13: the dense engine checked every unit's jumps before any survival."""
+def test_a_combined_jump_of_one_is_bounded_and_every_block_reads_the_bounded_jumps() -> None:
+    """The jump bound acts in ``InitialHazards.jumps``: the checks, the replay check and every
+    rebuilt block read the same bounded jumps, and the walk equals the dense walk on them.
+
+    Each cause of a unit with ``w0 > 1.8`` jumps by one at the first grid time from 1.0, at both
+    arms, so its cell sums to two or more and is scaled to sum to 1 - 1e-8.
+    """
     name = "two causes"
     data = law(*FIXTURES[name][:2])
-    w0 = np.asarray(data.baseline)[:, 0]
-    # The zero survival sits in an earlier block than the combined jump.
-    assert np.flatnonzero(w0 < -1.8).min() < np.flatnonzero(w0 > 1.8).min()
+    w0, T_ = np.asarray(data.baseline)[:, 0], np.asarray(data.time)
+    spiked = w0 > 1.8
+    extra = {"hazard_library": [Wrapped("spike", 1.0)], "censoring_library": [Wrapped()]}
+    kept = _fit(name, rows=ROWS, resident=1.0, **extra)
+    rebuilt = _fit(name, rows=ROWS, resident=0.0, **extra)
+    initial, record = kept.initial, kept.result.record
+    assert len(engine.blocks(initial.n, initial.block)) >= 4 and rebuilt.run.replayed > 0
+    # Both arms of every spiked unit, and the spiked units still at risk there at their own arm.
+    at = float(initial.grid[initial.grid >= 1.0][0])
+    assert record.jump_bound_share == spiked.sum() / initial.n
+    assert record.jump_bound_at_risk_share == (spiked & (at <= T_)).sum() / (2 * initial.n) > 0
+    dlam = initial.hazards.jumps(0, initial.n)
+    position = int(np.searchsorted(initial.grid, at))
+    total = dlam[:, :, spiked, position].sum(axis=1)
+    np.testing.assert_allclose(total, 1.0 - _chunked.JUMP_BOUND, rtol=0, atol=1e-15)
+    assert _bitwise(_record_fields(rebuilt), _record_fields(kept)) == []
+    reference = _reference(kept, name)
+    assert _close(_walk_fields(kept.run.result), _walk_fields(reference.result)) == []
+
+
+def test_a_bounded_pair_takes_its_own_walk_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review concern 2: a bounded pair's initial survival at the grid's end is below 1e-8, so a
+    walk floor taken over every pair would lower every other pair's floor.  The other pairs keep
+    1e-8 and each bounded pair takes its own survival there."""
+    name = "two causes"
+    floors: list[Any] = []
+    trial_rows = _chunked._trial_rows
+
+    def capture(walker: Any, v: Any, sizes: Any, floor: Any, *args: Any) -> Any:
+        floors.append(floor)
+        return trial_rows(walker, v, sizes, floor, *args)
+
+    monkeypatch.setattr(_chunked, "_trial_rows", capture)
+    extra = {"hazard_library": [Wrapped("spike", 1.0)], "censoring_library": [Wrapped()]}
+    fit = _fit(name, rows=ROWS, **extra)
+    own = fit.initial.jump_bounded
+    assert own is not None and floors
+    survival = T.curves(fit.initial.hazards.jumps(0, fit.initial.n))[0][..., -1]
+    # Nonzero witness: every bounded pair ends below 1e-8, every other pair above it.
+    assert (survival[own] < T.WALK_SURVIVAL_FLOOR).all()
+    assert (survival[~own] > T.WALK_SURVIVAL_FLOOR).all()
+    floor = floors[0]
+    assert floor.shape == own.shape
+    assert (floor[~own] == T.WALK_SURVIVAL_FLOOR).all()
+    assert np.array_equal(floor[own], survival[own])
+    # Mutation control: one floor over every pair is the bounded pairs' lowest survival.
+    floors.clear()
+    run_walk = _chunked.run_walk
+    monkeypatch.setattr(
+        _chunked,
+        "run_walk",
+        lambda plan, **kwargs: run_walk(plan, **{**kwargs, "own_floor": None}),
+    )
+    _fit(name, rows=ROWS, **extra)
+    assert floors[0] == survival.min() < T.WALK_SURVIVAL_FLOOR
+
+
+def test_a_bounded_survival_that_underflows_is_refused() -> None:
+    """Rows with ``w0 < -1.8`` jump by 30 per cause at every time: each cell is bounded to
+    1 - 1e-8, and the survival, 1e-8 to the power of the times, underflows."""
+    name = "two causes"
     extra = {"hazard_library": [Wrapped("refuse", 1.0)], "censoring_library": [Wrapped()]}
-    with pytest.raises(DataError, match="combined jump of one or more"):
+    with pytest.raises(DataError, match="survival falls below"):
         _fit(name, rows=ROWS, **extra)
 
 
