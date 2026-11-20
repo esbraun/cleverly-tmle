@@ -95,8 +95,21 @@ def test_the_committed_pilot_holds_both_cells() -> None:
     assert pilot.draws(PILOT, "cross_fitted") >= 1
     table = pilot.coverage_table(PILOT)
     assert set(table["estimand"]) == set(study.ROWS)
-    assert pilot.failure_refusals(PILOT, study.PRIMARY_REPLICATES) == []
     assert set(pilot.budget_cpu_hours(PILOT, study.PRIMARY_REPLICATES)) == set(study.CELLS)
+
+
+def test_the_failure_reading_follows_the_pilots_lost_fits() -> None:
+    allowance = int(study.FAILURE_BOUND * study.PRIMARY_REPLICATES)
+    refusals = pilot.failure_refusals(PILOT, study.PRIMARY_REPLICATES)
+    for kind in ("in_sample", "cross_fitted"):
+        failed, held = pilot.failed_draws(PILOT, kind), pilot.draws(PILOT, kind)
+        probability = pilot.predicted_exceedance(failed, held, study.PRIMARY_REPLICATES, allowance)
+        named = any(reason.startswith(f"{kind} lost ") for reason in refusals)
+        assert named == (probability > pilot.FAILURE_EXCEEDANCE), kind
+    # Witness: no lost fit in 400 draws proceeds, and 2 in 100 (the committed pilot's
+    # in-sample reading, from withheld bootstraps) does not.
+    assert pilot.predicted_exceedance(0, 400, 3_200, allowance) < pilot.FAILURE_EXCEEDANCE
+    assert pilot.predicted_exceedance(2, 100, 3_200, allowance) > pilot.FAILURE_EXCEEDANCE
 
 
 def test_a_declared_run_waits_for_the_declared_pilot(monkeypatch: pytest.MonkeyPatch) -> None:

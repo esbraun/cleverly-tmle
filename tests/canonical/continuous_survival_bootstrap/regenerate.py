@@ -23,15 +23,33 @@ Cells.  ``b1_in_sample`` (gated: the primary rule on its 18 percentile rows, and
 with the shrunk-SE control in ``calibration.csv``) and ``b2_cross_fitted`` (reported), each a
 bootstrap fit with 500 refits of the base law at n = 1,000.
 
-PILOT READINGS.  The committed container pilot holds 100 draws of ``b1`` and 8 of ``b2``; the
-declared 400 and 50 extend it on the same streams with ``--resume``, and the readings are written
-here once the extension is committed.  The design review reads the container pilot's readings in
-the study's evidence page draft and in the X6 progress notes.
+PILOT READINGS.  The committed pilot (local, four workers on one thread each, about 3.4 h of wall
+time) holds 120 draws of ``b1`` and 12 of ``b2``, each a fit with 200 refits; the declared 400 and
+50 extend it on the same streams with ``--resume``, and this script refuses a declared run until
+they are committed.  At this size the readings are a screen:
 
-Budget.  At the container pilot's seconds per fit (about 1.5 s in sample and 3.7 s cross-fitted on
-one thread), 3,200 replicates of 501 fits cost about 670 CPU-h for ``b1`` and about 1,650 CPU-h for
-``b2``: about 2,300 CPU-h, local.  ``b2`` runs at the record's count because the evidence framework
-declares one count per record; plan 5.5's 1,000 for ``b2`` needs a record of its own.
+* ``b1``, 118 kept fits: percentile coverage 0.890 to 0.975 (mean 0.932), BCa 0.907 to 0.983
+  (0.944), Wald on the same fits 0.898 to 0.966 (0.937); bootstrap SE ratio 0.856 to 1.040 (mean
+  0.953) beside a Wald SE ratio of 0.884 to 1.043 (0.956).  The two ratios move together row by
+  row, so the shortfall is the fits' own, at a Monte Carlo SD of about 0.065 per row.  The lowest
+  rows are treated cause 2 (0.856 at t = 2.32) and the cause-2 differences (0.884 to 0.920).  At
+  ratios this far below 1 most rows pass the calibration rule at 3,200 with plug-in probability
+  well under 0.90, and the shrunk-SE control leaves the band with probability at least 0.94.
+* ``b1`` lost 2 of 120 fits: each withheld its bootstrap because 7 and 3 of its 200 refits
+  raised ``DataError`` (an initial hazard fit puts a combined jump of one or more at some time).
+  The likely mechanism, not yet confirmed, is that copies of one unit tie at its time and the
+  in-sample Cox fit's jump for a high-risk unit reaches 1.  Over all draws 27 of 24,000 refits
+  failed (0.11%).  The failure rule predicts that 3,200 fits lose more than 32 with probability
+  0.78, so the declaration stands refused on that line until the extension or a diagnosis
+  settles it.
+* ``b2``, 12 fits, no refit failed in 2,400: percentile coverage 0.833 to 1.000 and bootstrap SE
+  ratio 0.904 to 1.466 (mean 1.088), too few fits to read a row.
+
+Budget.  At the pilot's median seconds per fit on one thread (1.34 s in sample, 3.68 s
+cross-fitted, timed while the machine was shared), 3,200 replicates of 501 fits cost about 600
+CPU-h for ``b1`` and about 1,640 CPU-h for ``b2``: about 2,240 CPU-h, local.  ``b2`` runs at the
+record's count because the evidence framework declares one count per record; plan 5.5's 1,000 for
+``b2`` needs a record of its own (about 510 CPU-h).
 
 Red-cell readings (declared before any run).  The record is ``gated``.  No cell is re-sized,
 re-drawn or downgraded after a verdict is seen.
