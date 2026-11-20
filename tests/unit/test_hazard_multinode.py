@@ -1188,6 +1188,10 @@ def test_h17_max_memory_bytes_replaces_the_limit_in_both_directions(
     bytes per state value put the prediction above the fixed 2 GiB limit, which refuses the
     fit without the override, so the override admits a fit the limit refuses."""
     n, n_times = 2_000, 6
+    # One budget feeds both guards, and the memory guard (X106 J2d) margins the path
+    # prediction, so a budget at the path cap's own prediction would meet it; this test pins
+    # the path cap alone (``test_longitudinal_memory_guard.py`` pins the memory guard).
+    monkeypatch.setattr(LTMLE, "_retention_guard", False)
     if raised:
         monkeypatch.setattr(hazard_module, "PATH_STATE_BYTES", 3e4)
     frame, columns = _random_panel(n, n_times)
@@ -1228,6 +1232,8 @@ def test_h17_a_fit_admitted_by_max_memory_bytes_runs_to_the_end(
     from sklearn.linear_model import LogisticRegression
 
     n, n_times = 1_000, 3
+    # The path cap alone, as in the test above.
+    monkeypatch.setattr(LTMLE, "_retention_guard", False)
     monkeypatch.setattr(hazard_module, "PATH_STATE_BYTES", 1e6)
     frame, columns = _random_panel(n, n_times)
     coin = {"coin": DynamicRegimen("coin", tuple(_coin(k) for k in range(1, n_times + 1)))}
