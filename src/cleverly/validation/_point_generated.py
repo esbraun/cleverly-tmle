@@ -739,6 +739,21 @@ class PlasmodeLaw:
     recording: np.ndarray | None = None
     mediator: np.ndarray | None = None
     clusters: np.ndarray | None = None
+    #: The row indices of each cluster, in label order, computed once rather than on every
+    #: draw (X106 G5e). Derived from ``clusters``, so it is neither compared nor printed.
+    _members: tuple[np.ndarray, ...] | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.clusters is None:
+            return
+        # ``np.flatnonzero(clusters == label)`` per label, in one stable sort: the rows of
+        # each cluster in ascending order, the clusters in ``np.unique`` order.
+        _, inverse, counts = np.unique(self.clusters, return_inverse=True, return_counts=True)
+        order = np.argsort(inverse.reshape(-1), kind="stable")
+        members = tuple(np.split(order, np.cumsum(counts)[:-1]))
+        object.__setattr__(self, "_members", members)
 
     @property
     def treated(self) -> np.ndarray:
@@ -905,9 +920,9 @@ class PlasmodeLaw:
         n = self.covariates.shape[0]
         if self.clusters is None:
             return np.asarray(rng.integers(0, n, size=n)), None
-        labels = np.unique(self.clusters)
-        members = [np.flatnonzero(self.clusters == label) for label in labels]
-        chosen = rng.integers(0, labels.size, size=labels.size)
+        members = self._members
+        assert members is not None
+        chosen = rng.integers(0, len(members), size=len(members))
         rows = np.concatenate([members[index] for index in chosen])
         ids = np.concatenate(
             [np.full(members[index].size, copy) for copy, index in enumerate(chosen)]
