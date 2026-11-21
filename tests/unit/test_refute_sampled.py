@@ -457,6 +457,41 @@ def test_w3b_a_column_constant_only_in_the_sample_withholds_every_verdict() -> N
     assert all(test.passed is None for test in report.tests)
 
 
+def test_w3b_a_sample_that_loses_a_stratum_refuses() -> None:
+    frame = _point_frame()
+    outside = np.setdiff1d(np.arange(len(frame)), _rows(len(frame), 20))[:40]
+    frame["S"] = 0
+    frame.loc[outside, "S"] = 1
+    fit = _fit_point(frame, {"cross_fit": False}, {"strata": ["S"]})
+    with pytest.raises(DataError, match="no unit of a stratum"):
+        _quiet(lambda: refute(fit, tests=("subset",), sample_limit=20, random_state=SEED))
+
+
+def test_w3b_a_panel_column_is_screened_in_its_own_block() -> None:
+    """A time-varying column equal to a baseline one is kept by a fresh preparation."""
+    from cleverly.longitudinal import LongitudinalData
+    from cleverly.validation._sampled_refute import check_sample
+
+    frame = _panel_frame()
+    frame["B"] = np.random.default_rng(1).binomial(1, 0.5, size=len(frame)).astype(float)
+    frame["LB"] = frame["B"]
+    frame.loc[[0, 1], "LB"] = 1 - frame.loc[[0, 1], "B"]
+    roles = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2", "B"],
+        "time_varying": [[], ["L2", "LB"]],
+    }
+    data = LongitudinalData.from_frame(frame, **roles)
+    rows = np.setdiff1d(np.arange(len(frame)), [0, 1])[:400]
+    fresh = LongitudinalData.from_frame(frame.iloc[rows].reset_index(drop=True), **roles)
+    assert fresh.time_varying_names == data.time_varying_names
+    assert check_sample(data, rows) == ()
+    frame.loc[rows, "LB"] = 0.0
+    data = LongitudinalData.from_frame(frame, **roles)
+    assert check_sample(data, rows) == ("LB constant",)
+
+
 def _count_refits(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     calls: list[int] = []
     original = TMLE.refit
@@ -613,6 +648,26 @@ def test_w6_the_preview_counts_the_baseline_and_the_refits_refute_makes(
     assert len(calls) == plan.total_refits
 
 
+def test_w6_the_preview_prices_a_split_plan_fit_on_its_sampled_plan() -> None:
+    frame = _point_frame()
+    plan = SplitPlan.from_folds([random_partition(len(frame), 2, seed=5)])
+    fit = _fit_point(frame, {"split_plan": plan}, {})
+    preview = planned_refits(
+        fit, tests=("placebo", "subset"), sample_limit=150, random_state=SEED, n_replicates=DRAWS
+    )
+    assert preview.tests[0].name == "sampled_baseline"
+    assert preview.tests[0].learner_fits > 0
+
+
+def test_w6_the_preview_refuses_a_sample_that_loses_an_arm() -> None:
+    frame = _point_frame()
+    frame.loc[:, "A"] = 0
+    frame.loc[[3, 4, 5], "A"] = 1
+    fit = _fit_point(frame, {"cross_fit": False}, {})
+    with pytest.raises(DataError, match="no unit with treatment code"):
+        planned_refits(fit, tests=("subset",), sample_limit=20, random_state=SEED)
+
+
 # ----------------------------------------------------------------- W7 checkpoints
 
 
@@ -642,7 +697,7 @@ def test_w7_a_sampled_directory_serves_only_its_own_sample(tmp_path: Path) -> No
     for keywords, part in (
         ({"random_state": SEED}, "sampling"),
         ({"sample_limit": 140, "random_state": SEED}, "sampling"),
-        ({"sample_limit": 150, "random_state": SEED + 1}, ""),
+        ({"sample_limit": 150, "random_state": SEED + 1}, "root seed"),
     ):
         with pytest.raises(CapabilityError, match=part):
             _bootstrap(fit, tmp_path, **keywords)
@@ -738,6 +793,15 @@ def test_w9_a_sample_below_the_registered_size_prints_no_verdict() -> None:
     assert "150 rows (fewer than 2,000)" in report["placebo"].evidence
 
 
+def test_w9_a_clustered_sample_prints_no_verdict() -> None:
+    fit = _fit_point(_point_frame(), {}, {"id": "cl"})
+    report = _quiet(
+        lambda: refute(fit, tests=("placebo",), sample_limit=40, random_state=SEED, n_replicates=20)
+    )
+    assert report.sample is not None and report.sample.rule == "clusters"
+    assert report["placebo"].passed is None
+
+
 def test_w9_a_sample_on_the_registered_configuration_prints_the_verdict() -> None:
     from tests.studies import refuter_calibration_point as point
 
@@ -762,6 +826,17 @@ def test_w10_the_same_seed_repeats_and_the_recorded_seed_regenerates_the_sample(
     first, second = call(SEED), call(SEED)
     _assert_same_report(first, second)
     assert first.sample == second.sample
+
+
+def test_w10_the_default_call_is_the_twin_fitted_and_refuted_at_the_fit_seed() -> None:
+    """H5: with no ``random_state`` the sample, the baseline and the tests read the fit's seed."""
+    frame = _point_frame()
+    fit = _fit_point(frame, {}, {})
+    sampled = _quiet(lambda: refute(fit, tests=("placebo",), sample_limit=150, n_replicates=DRAWS))
+    rows = _rows(len(frame), 150, seed=SEED)
+    twin = _fit_point(frame.iloc[rows].reset_index(drop=True), {}, {})
+    reference = _quiet(lambda: refute(twin, tests=("placebo",), n_replicates=DRAWS))
+    _assert_same_report(sampled, reference)
 
 
 def test_w10_an_unseeded_fit_records_the_drawn_seed() -> None:

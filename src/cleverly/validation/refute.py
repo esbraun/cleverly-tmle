@@ -1923,7 +1923,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 
 
 def _refuse_sampling(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a sampled request on a fit given ``split_plan=``, or with a mismatched rule."""
+    """Refuse a sampled request whose rule disagrees with the fit, or too few units."""
     return sampling_refusal(result, request.sample_limit, request.sampling)
 
 
@@ -5748,8 +5748,8 @@ def refute(
         registered evidence covers a fit of the sampled size, and it is the verdict of the
         analysis on the sample, not a check of the full-data fit.
         :attr:`RefutationResult.sample` records the counts, the rule and the seed. A limit of
-        at least the unit count refutes the full data. A fit given ``split_plan=`` refuses it
-        before any refit.
+        at least the unit count refutes the full data. A fit given ``split_plan=`` refits
+        under the plan its generator records draw on the sampled units.
     sampling : {"units", "clusters"} or None
         The inclusion rule of ``sample_limit``: subjects or whole clusters. ``None`` draws the
         fit's own independent unit, clusters on a clustered fit. A rule that disagrees with
@@ -5876,14 +5876,24 @@ def _sampled_baseline(result: Any, sampled: Any, seed: int) -> Any:
     try:
         if is_continuous_survival(result):
             return result.estimator._for_estimate_refits().refit(sampled, random_state=seed)
-        estimator = _bandless(result)
-        plan = getattr(estimator, "split_plan", None)
-        if plan is not None:
-            estimator = copy.copy(estimator)
-            estimator.split_plan = sampled_plan(plan, sampled)
+        estimator = _sampled_estimator(result, sampled)
         return estimator.refit(sampled, random_state=seed, **_intermediate_option(result))
     except CleverlyError as error:
         raise _on_draw(error, "on the refit of the sampled baseline") from error
+
+
+def _sampled_estimator(result: Any, sampled: Any) -> Any:
+    """The estimator a point or panel sampled baseline refits, as the preview prices it too.
+
+    The stored estimator without its band, and under a ``split_plan=`` the plan its generator
+    records draw on the sampled units.
+    """
+    estimator = _bandless(result)
+    plan = getattr(estimator, "split_plan", None)
+    if plan is not None:
+        estimator = copy.copy(estimator)
+        estimator.split_plan = sampled_plan(plan, sampled)
+    return estimator
 
 
 def _sampled_refute(

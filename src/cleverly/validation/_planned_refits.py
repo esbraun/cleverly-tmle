@@ -21,7 +21,7 @@ import numpy as np
 
 from .._planned_fits import PlannedFits
 from .._summary import Summary
-from ._sampled_refute import draw_rows, resolved_rule, unit_count
+from ._sampled_refute import check_sample, draw_rows, resolved_rule, unit_count
 
 __all__ = ["PlannedRefitTest", "PlannedRefits", "planned_refits"]
 
@@ -50,7 +50,9 @@ _SAMPLE_NOTE = (
     "test on that refit. Its folds and repeat seeds are not known before it is fitted, so each "
     "test is counted at the learners' nominal counts per refit, as an upper bound, and draws a "
     "checkpoint holds are not subtracted. A request rule that reads the sampled rows (an arm "
-    "with no event in the sample, say) can still stop refute() after the baseline refit."
+    "with no event in the sample, say) can still stop refute() after the baseline refit. A "
+    "sample that loses an arm or stratum refuses here when the seed is known, and in refute() "
+    "before any refit when it is drawn at the call."
 )
 _SEED_NOTE = (
     "Neither random_state nor the fit records a seed, so refute() draws one; tests whose "
@@ -752,6 +754,10 @@ def _sampled_baseline_test(
     from .._continuous_survival_family import is_continuous_survival
 
     rows = draw_rows(result.data, child, limit)
+    if known:
+        # The rows are the call's own, so a sample that loses an arm or stratum refuses here
+        # as it does in ``refute`` before any refit.
+        check_sample(result.data, rows)
     sampled = module._sampled_data(result, rows)
     test = _Test("sampled_baseline", 1)
     if is_continuous_survival(result):
@@ -760,7 +766,7 @@ def _sampled_baseline_test(
     else:
         test.add(
             _preview(
-                module._bandless(result),
+                module._sampled_estimator(result, sampled),
                 sampled,
                 random_state=root,
                 nominal=not known,

@@ -118,7 +118,7 @@ class RefutationSample:
             f"{self.full_estimate:.5g} is shown for information only."
         )
         if self.departures:
-            text += f" {withheld_clause(self.departures).capitalize()}."
+            text += f" {_sentence_case(withheld_clause(self.departures))}."
         return text
 
     def limits(self) -> tuple[str, ...]:
@@ -276,6 +276,11 @@ def row_aligned(values: Any, rows: np.ndarray, n: int) -> Any:
     return values
 
 
+def _sentence_case(text: str) -> str:
+    """``text`` with its first letter upper case and the rest, column names included, kept."""
+    return text[:1].upper() + text[1:]
+
+
 def withheld_clause(departures: tuple[str, ...]) -> str:
     """The clause a test prints when a sample departure withholds its verdict."""
     return (
@@ -285,49 +290,59 @@ def withheld_clause(departures: tuple[str, ...]) -> str:
     )
 
 
-def _columns(data: Any) -> list[tuple[str, np.ndarray]]:
-    """The named covariate columns of ``data`` that a fresh preparation would check."""
+Block = tuple[list[tuple[str, np.ndarray]], np.ndarray | None]
+
+
+def _blocks(data: Any) -> list[Block]:
+    """The covariate blocks a fresh preparation screens, each with the rows it screens on.
+
+    A point fit's preparation screens its covariates together on every row. A longitudinal
+    fit's screens the baseline block on every row and each time-varying block alone on the
+    rows still observed at its node (``LongitudinalData.from_frame``), whose values are
+    finite. A continuous-time survival fit's preparation drops no column, so it has none.
+    """
     if hasattr(data, "covariates") and hasattr(data, "covariate_names"):
         matrix = np.asarray(data.covariates, dtype=float)
-        return [(str(name), matrix[:, j]) for j, name in enumerate(data.covariate_names)]
-    out: list[tuple[str, np.ndarray]] = []
-    baseline = getattr(data, "baseline", None)
-    names = getattr(data, "baseline_names", None)
-    if baseline is not None:
-        matrix = np.asarray(baseline, dtype=float)
-        if matrix.ndim == 1:
-            matrix = matrix.reshape(-1, 1)
-        width = matrix.shape[1]
-        labels = list(names) if names is not None else [f"baseline {j}" for j in range(width)]
-        out += [(str(labels[j]), matrix[:, j]) for j in range(matrix.shape[1])]
-    blocks = getattr(data, "time_varying", None) or ()
-    block_names = getattr(data, "time_varying_names", None) or ()
-    for node, block in enumerate(blocks):
+        return [([(str(name), matrix[:, j]) for j, name in enumerate(data.covariate_names)], None)]
+    if not hasattr(data, "node_kind"):
+        return []
+    out: list[Block] = []
+    baseline = np.asarray(data.baseline, dtype=float).reshape(data.n, -1)
+    names = list(data.baseline_names)
+    out.append(([(str(names[j]), baseline[:, j]) for j in range(baseline.shape[1])], None))
+    for block, labels in zip(data.time_varying, data.time_varying_names, strict=True):
         matrix = np.asarray(block, dtype=float)
-        if matrix.ndim != 2:
+        if matrix.ndim != 2 or not matrix.shape[1]:
             continue
-        labels = list(block_names[node]) if node < len(block_names) else []
-        for j in range(matrix.shape[1]):
-            label = labels[j] if j < len(labels) else f"node {node + 1} column {j}"
-            out.append((str(label), matrix[:, j]))
+        present = np.isfinite(matrix).all(axis=1)
+        out.append(([(str(labels[j]), matrix[:, j]) for j in range(matrix.shape[1])], present))
     return out
 
 
-def _degenerate(columns: list[tuple[str, np.ndarray]], rows: np.ndarray | None) -> set[str]:
-    """Names of columns constant, or exact duplicates of an earlier column, on ``rows``."""
-    found: set[str] = set()
-    seen: dict[bytes, str] = {}
-    for name, values in columns:
-        part = values if rows is None else values[rows]
-        finite = part[np.isfinite(part)]
-        if finite.size and float(np.ptp(finite)) == 0.0:
-            found.add(f"{name} constant")
-            continue
-        key = np.ascontiguousarray(np.nan_to_num(part, nan=np.inf)).tobytes()
-        if key in seen:
-            found.add(f"{name} a copy of {seen[key]}")
-        else:
-            seen[key] = name
+def _degenerate(blocks: list[Block], rows: np.ndarray | None) -> list[str]:
+    """Columns constant, or exact copies of an earlier column of their block, on ``rows``.
+
+    Each block is read on its own screened rows, restricted to ``rows``.
+    """
+    found: list[str] = []
+    for columns, present in blocks:
+        keep = np.ones(columns[0][1].size, dtype=bool) if present is None else present.copy()
+        if rows is not None:
+            chosen = np.zeros(keep.size, dtype=bool)
+            chosen[rows] = True
+            keep &= chosen
+        seen: dict[bytes, str] = {}
+        for name, values in columns:
+            part = values[keep]
+            finite = part[np.isfinite(part)]
+            if finite.size and float(np.ptp(finite)) == 0.0:
+                found.append(f"{name} constant")
+                continue
+            key = np.ascontiguousarray(np.nan_to_num(part, nan=np.inf)).tobytes()
+            if key in seen:
+                found.append(f"{name} a copy of {seen[key]}")
+            else:
+                seen[key] = name
     return found
 
 
@@ -419,10 +434,9 @@ def check_sample(data: Any, rows: np.ndarray) -> tuple[str, ...]:
                     "the sample holds no unit of a stratum the fit holds, so that stratum's "
                     "estimate is not defined on it. Raise sample_limit, or refute the full data."
                 )
-    columns = _columns(data)
-    fresh = _degenerate(columns, rows) - _degenerate(columns, None)
-    order = {name: k for k, (name, _) in enumerate(columns)}
-    return tuple(sorted(fresh, key=lambda item: order.get(item.split(" ")[0], 0)))
+    blocks = _blocks(data)
+    before = set(_degenerate(blocks, None))
+    return tuple(item for item in _degenerate(blocks, rows) if item not in before)
 
 
 def sampled_plan(plan: Any, sampled: Any) -> Any:

@@ -3139,7 +3139,7 @@ The directory's `request.json` records, on first use:
 | request | the estimand |
 | per test | draw count; process and bands (generated tests); resolved resampling, and the declaration and rule (measurement error) |
 | library versions | `cleverly`, NumPy, SciPy and scikit-learn |
-| sampling | for a sampled call, the limit, the rule, the unit count and the sample seed (absent otherwise); each stored draw also records the sampled baseline's estimate and standard error |
+| sampling | for a sampled call, the limit, the rule, the unit count and the sample seed, and `null` for an unsampled call; each stored test's part also records the sampled baseline's estimate and standard error |
 
 A call whose request differs in any part refuses with `INVALID_DECLARATION`, naming the part, and
 so does a stored draw whose seed differs from the one the call derives. No part is keyed by a
