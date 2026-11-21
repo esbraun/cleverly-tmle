@@ -1687,17 +1687,30 @@ cross-fitted fit, which stays with [F2](#f2-targeted-bootstrap-inference). The E
 with a declared `sieve=` or `learner=` reads experimental until the declared
 `learned-rule-ep-declared` study is run and registered.
 
-What stays here is the compositions the shipped refusals name with this item: an intermediate and
-a continuous or vector treatment for `ConditionalContrast`; a conditional contrast from a method
-other than `method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a
-curve; a declared final learner on the log-ratio scale; and scalar aggregates of an EP curve. A
+The projection of a controlled direct effect,
+`ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, has
+shipped on both scales, and so has a declared final learner on the EP curve's log-ratio scale. The
+projection band and the external-score check each read their label from their own measured
+configurations. The registered `projection-evidence` study measured the projection of a
+controlled direct effect (stacked, cross-fitted, one outcome regression per arm), the pooled
+outcome regression and the Rademacher band on four keys, and its rows label those fits supported.
+The registered `score-assessment-compositions` study measured the score check under weights,
+clusters, missing outcomes, a pair of three arms and an ATE fit in sample, one at a time on the
+difference scale, and `SCORE_COMPOSITIONS_MEASURED` labels each of them supported alone. Other
+compositions of each read experimental.
+
+What stays here is the compositions the shipped refusals name with this item: a continuous or
+vector treatment for `ConditionalContrast`; a conditional contrast from a method other than
+`method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a curve;
+`strata=` with an intermediate; the EP curve of a controlled direct effect; the score check, the
+targeting curve and the held-out curve checks on a controlled direct effect, whose pseudo-outcomes
+need the selection and the intermediate density; and scalar aggregates of an EP curve. A
 cross-fitted missing treatment is [X53](#x53-missing-outcome-cv-tmle-variants) (c).
 
 Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
-`ep-assessment` studies are pending, and the EP curve carries no interval. The projection band,
-an external-score check outside the configurations the `score-assessment` study measured, a pooled
-outcome regression, a cross-validated sieve size and a declared final learner read experimental
-until a registered study measures them. The EP rule's interval
+`ep-assessment` studies are pending, and the EP curve carries no interval. A cross-validated sieve
+size and a declared final learner on either scale read experimental after any study, because
+EPL's theorems cover least squares over a declared convex class, not a learner's own fit. The EP rule's interval
 under-covers at the exceptional law (coverage 0.901 at n = 2,000).
 Other losses and contrasts need their own derivations. An aggregate of an EP curve is a separate
 parameter and receives scalar inference only after its influence contribution is implemented and

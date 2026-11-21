@@ -45,6 +45,7 @@ from .data.treatment_covariates import (
 )
 from .data.validate import RANDOMIZED_INTERCEPT
 from .effect_modification import (
+    CDE_CURVE_TOOLS_REFUSAL,
     TARGET_OF_SCALE,
     EffectModification,
     EffectModificationSet,
@@ -3006,8 +3007,10 @@ class ControlledDirectEffect:
     ----------
     intermediate : float
         Fixed intermediate level. The evidenced implementation accepts zero or one.
-    contrast : ATE, ATT, ATC, RiskRatio, or OddsRatio
-        Arm contrast evaluated at the fixed intermediate level.
+    contrast : ATE, ATT, ATC, RiskRatio, OddsRatio, or ConditionalContrast
+        Arm contrast evaluated at the fixed intermediate level.  A
+        :class:`ConditionalContrast` with ``model=`` declared is the projection of the
+        controlled direct effect given its modifiers onto that model.
 
     See Also
     --------
@@ -3024,17 +3027,22 @@ class ControlledDirectEffect:
     """
 
     intermediate: float
-    contrast: ATE | ATT | ATC | RiskRatio | OddsRatio = field(default_factory=ATE)
+    contrast: ATE | ATT | ATC | RiskRatio | OddsRatio | ConditionalContrast = field(
+        default_factory=ATE
+    )
     name: str = field(default="controlled_direct_effect", init=False)
 
     def __post_init__(self) -> None:
         # Identification reads ``self.contrast.name`` before anything else, so a string here
         # would surface as ``AttributeError: 'str' object has no attribute 'name'`` from deep
         # inside the provider rather than as a refusal naming what to pass instead.
-        if not isinstance(self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio)):
+        if not isinstance(
+            self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio, ConditionalContrast)
+        ):
             raise DataError(
                 "ControlledDirectEffect(contrast=...) takes a typed arm contrast: "
-                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio(), not {self.contrast!r}"
+                "ATE(), ATT(), ATC(), RiskRatio(), OddsRatio(), or ConditionalContrast(...), "
+                f"not {self.contrast!r}"
             )
 
     @property
@@ -3122,15 +3130,6 @@ EP_FINAL_LEARNER_PROJECTION_REFUSAL = Refusal(
     "is least squares on the model's basis; another final learner would estimate a different "
     "curve.",
     alternative="Declare model=None to fit the curve with a final learner of your choice.",
-)
-
-#: Why a declared final learner does not fit a log ratio.
-EP_FINAL_LEARNER_RATIO_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "The log-ratio final stage is a weighted logistic regression with fractional targets "
-    "(arXiv:2402.01972v2, Section 3.2), and no seam passes that loss to a declared learner.",
-    alternative="Fit the log ratio with the default final stage (final_learner=None).",
-    roadmap="P1",
 )
 
 #: Why ``tmle`` does not fit a conditional contrast with no working model (R2).
@@ -3531,6 +3530,15 @@ class ParameterKey:
     horizon: int | None = None
     cause: str | None = None
     term: str | None = None
+
+
+def _unwrapped_contrast(estimand: Any) -> Any:
+    """The contrast a :class:`ControlledDirectEffect` holds at its level, or ``estimand``.
+
+    The sites that read a :class:`ConditionalContrast` read it through here, so a CDE
+    projection reaches them as its contrast while its level stays on the functional.
+    """
+    return estimand.contrast if isinstance(estimand, ControlledDirectEffect) else estimand
 
 
 def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
@@ -3960,6 +3968,17 @@ def _point_identification(
                 )
             continue
         assumptions.append(item)
+    projection = target in TARGET_OF_SCALE.values()
+    if direct and projection:
+        # The projection's record states its treatment support for the compared arms (C2)
+        # and carries no two-arm positivity item, so the held level gets its own sentence:
+        # the clever covariate divides by q(z | b, W) at both compared arms.
+        assert level is not None
+        assumptions.append(
+            f"intermediate positivity at {design.intermediate} = {level:g}: "
+            f"P({design.intermediate} = {level:g} | {design.treatment_name} = b, W) > 0 "
+            "almost surely for both compared arms b"
+        )
     if direct and axis == "learned_rule":
         # The learned-rule records carry no two-arm positivity item (C2 states positivity
         # for every arm), so the positivity of the held level gets its own sentence: the
@@ -4011,6 +4030,11 @@ def _point_identification(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment_name} = d(a, W), W) > 0 almost surely wherever a declared "
                 "shift sends an observed dose"
+            )
+        elif projection:
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment_name} = b, W) > 0 almost surely for both compared arms b"
             )
         elif direct or target in {"att", "atc", "ey", "ey1", "ey0"}:
             _, _, cells = arms()
@@ -5683,6 +5707,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         from .effect_modification import _resolve_pair, log_ratio_scale_refusal
 
         estimand = self.estimand
+        if isinstance(estimand, ControlledDirectEffect):
+            raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
             raise CapabilityError(
                 "assess_score assesses a score of the modifiers of a ConditionalContrast "
@@ -5856,6 +5882,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         )
 
         estimand = self.estimand
+        if isinstance(estimand, ControlledDirectEffect):
+            raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
         if not isinstance(estimand, ConditionalContrast) or self._study is None:
             raise CapabilityError(
                 "targeting_curve ranks the rows by a score of the modifiers of a "
@@ -6181,7 +6209,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         (R4).  ``ep`` fits the curve, with or without a model, but not a model whose size
         cross-validation chooses.  Every other method has no projection target.
         """
-        estimand = self.estimand
+        estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
         tmle_refusal = (
             None
@@ -6689,13 +6717,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """The EP learner :meth:`_estimate_effect_curve` fits and :meth:`planned_fits` counts.
 
         Every refusal here runs before any learner: two declarations of the basis, a final
-        learner beside a declared model or on the log-ratio scale, and a sieve that reads an
-        undeclared domain or level.
+        learner beside a declared model, a log-ratio final learner that is not a weighted
+        classifier, and a sieve that reads an undeclared domain or level.
         """
-        from .estimators.ep import EPEstimator
+        from .estimators.ep import EPEstimator, ratio_learner_refusal
 
         assert self._study is not None and isinstance(self._study.data, CausalData)
-        estimand = self.estimand
+        estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
         model = estimand.model
         if model is not None and method.sieve is not None:
@@ -6705,14 +6733,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative="Keep one: model= for the projection, or sieve= with model=None.",
             )
-        if method.final_learner is not None and (
-            model is not None or estimand.scale != "difference"
-        ):
-            raise CapabilityError.from_refusal(
-                EP_FINAL_LEARNER_PROJECTION_REFUSAL
-                if model is not None
-                else EP_FINAL_LEARNER_RATIO_REFUSAL
-            )
+        if method.final_learner is not None and model is not None:
+            raise CapabilityError.from_refusal(EP_FINAL_LEARNER_PROJECTION_REFUSAL)
+        if method.final_learner is not None and estimand.scale == "log_ratio":
+            ratio_refusal = ratio_learner_refusal(method.final_learner)
+            if ratio_refusal is not None:
+                raise CapabilityError.from_refusal(ratio_refusal)
         if model is None:
             sieve = method.sieve if method.sieve is not None else Sieve.default(estimand.modifiers)
             target = "curve"

@@ -313,6 +313,31 @@ def _effect_curve() -> Any:
     return fit.effect_curve()
 
 
+def _ep_curve_log_ratio_learner() -> Any:
+    """The EP log-ratio curve with a declared classifier as its final learner (P1 PR 2)."""
+    from cleverly import EPMethod
+    from cleverly.bases import Sieve
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.uniform(-1, 1, n)
+    treated = rng.binomial(1, 0.5, n)
+    y = rng.binomial(1, 0.3 + 0.2 * treated * (w > 0))
+    frame = pd.DataFrame({"Y": y, "A": treated, "W": w})
+    design = PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    question = ConditionalContrast(Modifiers(["W"], domains={"W": (-1, 1)}), scale="log_ratio")
+    method = EPMethod(sieve=Sieve(Linear(["W"]), size=1), final_learner=_logistic())
+    return (
+        CausalStudy(frame, design=design)
+        .identify(question)
+        .estimate(
+            method.with_overrides(
+                outcome_learner=_logistic(), treatment_learner=_logistic(), random_state=0
+            )
+        )
+    )
+
+
 def _dose_response() -> Any:
     rng = np.random.default_rng(0)
     n = 500
@@ -424,6 +449,11 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "projection_bootstrap": sweep.fit_projection_bootstrap,
     "learned_rule_ep_sieve": sweep.fit_learned_rule_ep_sieve,
     "learned_rule_ep_learner": sweep.fit_learned_rule_ep_learner,
+    # P1 PR 2: the projection of a controlled direct effect on both scales, and the EP
+    # log-ratio curve with a declared classifier.
+    "projection_intermediate": sweep.fit_projection_intermediate,
+    "projection_intermediate_log_ratio": sweep.fit_projection_intermediate_crr,
+    "ep_curve_log_ratio_learner": _ep_curve_log_ratio_learner,
     # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
     # plot answers as it does on an estimated-mechanism fit of the same kind.
     "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
@@ -869,6 +899,42 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_intermediate": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_intermediate_log_ratio": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ep_curve_log_ratio_learner": {
+        "forest": "TypeError: forest() takes fitted results, result",
+        "curve": "draws",
+        "influence": "TypeError: influence() takes a ParameterEstimate or",
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "TypeError: bootstrap() takes a fitted result",
     },
     "point_tmle_known_sample": {
         "forest": "draws",

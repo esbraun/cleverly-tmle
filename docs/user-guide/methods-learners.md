@@ -99,7 +99,8 @@ refuses `cross_fit=False`, `repeats` above 1, `cv_evaluation=True` and every tar
 except the bounds
 ([conditional effects refusals](../technical-reference/conditional-effects.md)). It reports no
 interval. `EPMethod(sieve=..., final_learner=...)` sets the
-smooth functions the correction uses and the regressor of the last step.
+smooth functions the correction uses and the model of the last step: a regressor for a
+difference, or a classifier that accepts row weights for a log ratio.
 [Conditional effects](conditional-effects.md#fit-the-effect-without-choosing-a-basis) shows the
 workflow.
 

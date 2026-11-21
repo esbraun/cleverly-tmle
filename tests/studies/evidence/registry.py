@@ -810,6 +810,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
+    from tests.studies.projection_evidence import STUDY as PROJECTION_EVIDENCE
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_continuous_survival import (
         STUDY as REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
@@ -820,6 +821,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
+    from tests.studies.score_assessment_compositions import (
+        STUDY as SCORE_ASSESSMENT_COMPOSITIONS,
+    )
     from tests.studies.separable_effects import STUDY as SEPARABLE_EFFECTS
     from tests.studies.small_sample_wald import STUDY as SMALL_SAMPLE_WALD
     from tests.studies.stratified_drtmle_foldwise import STUDY as STRATIFIED_DRTMLE_FOLDWISE
@@ -882,6 +886,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         PROJECTION_COMPOSITIONS,
+        PROJECTION_EVIDENCE,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,
@@ -901,6 +906,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CONTINUOUS_SURVIVAL_CAUSES,
         TARGETING_CURVES,
         SCORE_ASSESSMENT,
+        SCORE_ASSESSMENT_COMPOSITIONS,
         OPTION_STOPPING_POINT,
         OPTION_TREATMENT_ADJUSTMENT,
         OPTION_OUTCOME_BY_ARM,

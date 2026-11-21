@@ -22,6 +22,7 @@ from ._support import (
     DEFAULT_BAND_OPTION,
     KEY_AXES,
     T_BAND_OPTION,
+    BandOption,
     Kind,
     SupportKey,
     SupportRow,
@@ -41,6 +42,9 @@ __all__ = [
     "POLICY_CELLS",
     "POLICY_NOTES",
     "POLICY_STUDY",
+    "PROJECTION_BAND_CELLS",
+    "PROJECTION_BAND_DRAWS",
+    "PROJECTION_BAND_OPTION",
     "SHORTFALLS",
     "TAIL_NOTES",
     "T_BAND_CELLS",
@@ -3061,6 +3065,7 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
         measured = {
             DEFAULT_BAND_OPTION: BAND_OPTION_DRAWS.get(row.id, DEFAULT_BAND_DRAWS),
             T_BAND_OPTION: DEFAULT_BAND_DRAWS,
+            PROJECTION_BAND_OPTION: PROJECTION_BAND_DRAWS,
         }
         draws = (
             tuple((option, measured[option]) for option in row.band_options)
@@ -3425,7 +3430,8 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "The study measures the pointwise Wald intervals of the coefficients of the projection "
         "on Linear(['W1', 'W3']), with continuous modifiers on [-1, 1], binary outcomes, "
         "default targeting, stacked cross-fitting and one outcome regression per arm "
-        "(outcome_by_arm=True; a pooled outcome regression on this axis reads experimental). "
+        "(outcome_by_arm=True; the pooled outcome regression has rows of its own, study "
+        "projection-evidence). "
         "The basis, the modifiers, the law and n are not in the key, so another basis "
         "(Indicators, Cosine, BSpline, Additive, Tensor), another law or another n reads "
         "supported and rests on the theory alone.",
@@ -3437,13 +3443,24 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "the weighted group. The bias ladder (both nuisances off by 5 n^(-1/3)) and two laws "
         "with a declared wrong outcome regression measure bias, not coverage; a misspecified "
         "treatment model is not measured.",
-        "The simultaneous band of effect_curve(grid=) and the held-out curve checks of "
-        "curve.diagnostics are not measured and stay experimental. The plug-in learner "
-        "(method='ep'), model=None, an intermediate variable and missing treatment values "
-        "with cross-fitting refuse. Missing treatment values in sample, strata=, repeats and "
-        "the in-sample bootstrap have their own rows (study projection-compositions); the "
-        "cross-fitted bootstrap reads experimental. No comparator: no maintained package "
-        "fits a projection TMLE of the CATE on a declared basis.",
+        "The held-out curve checks of curve.diagnostics are not measured and stay "
+        "experimental. The simultaneous band of effect_curve(grid=) is measured on T49, T50, "
+        "T49.clustered and T49.repeats and reads experimental on every other row. The plug-in "
+        "learner (method='ep'), model=None and missing treatment values with cross-fitting "
+        "refuse. "
+        "Missing treatment values in sample, strata=, repeats and the in-sample bootstrap "
+        "have their own rows (study projection-compositions); the cross-fitted bootstrap "
+        "reads experimental. No comparator: no maintained package fits a projection TMLE of "
+        "the CATE on a declared basis.",
+        "The projection of a controlled direct effect (ControlledDirectEffect with a "
+        "ConditionalContrast contrast) carries the intermediate on the missing-data axis. "
+        "Rows T49.intermediate and T50.intermediate (study projection-evidence) cover it "
+        "stacked and cross-fitted with one outcome regression per arm and complete outcomes; "
+        "every other composition reads experimental, among them a declared treatment law, "
+        "randomized=True and fold-wise targeting (targeting_scheme='fold'), each exact on a "
+        "discrete law. Beside an intermediate, the plug-in learner, strata=, the held-out "
+        "curve checks, the score assessment and the targeting curve refuse, and so do missing "
+        "outcomes with cross-fitting and missing treatment values (F33).",
     ]
     cells = {
         "": ["obs_1k", "obs_4k", "slow_1k", "slow_4k", "slow_16k", "noweight_dr_4k"],
@@ -3609,6 +3626,135 @@ def _projection_composition_rows() -> tuple[SupportRow, ...]:
                 )
             )
     return tuple(rows)
+
+
+def _projection_evidence_rows() -> tuple[SupportRow, ...]:
+    """The rows of ``projection-evidence`` (P1 PR 2): the CDE and pooled ``T49`` and ``T50`` keys.
+
+    ``T49.intermediate`` and ``T50.intermediate`` are the key of the controlled-direct-effect
+    projection, ``ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(...))``,
+    fitted stacked and cross-fitted with one outcome regression per arm and complete outcomes:
+    the intermediate sits on the missing-data axis.  ``T49.pooled`` and ``T50.pooled`` are the
+    stacked projection with one pooled outcome regression (``outcome_by_arm=False``, the
+    default).  The rows were added because every declared verdict passed, with no failed fit:
+    every ``interval_calibration`` positive and the shrunken-SE control, the CDE ``bias``
+    positives under a declared wrong outcome regression and their five controls, and both
+    primary tests.  The rows license the Wald interval only: the bands of ``cde_4k`` and
+    ``pooled_4k`` were published under the diagnostic role.  The numbers are the committed
+    results (``tests/canonical/projection_evidence``).
+    """
+    cde_limits = [
+        "The study measures the pointwise Wald intervals of the coefficients of the projection "
+        "of the controlled direct effect E[Y(t, z) - Y(r, z) | V] on Linear(['W1']), at z = 0 "
+        "and z = 1 of a binary intermediate, with a continuous modifier on [-1, 1], binary "
+        "outcomes, default targeting, stacked cross-fitting with five folds and one outcome "
+        "regression per arm. The basis, the modifiers, the law and n are not in the key, so "
+        "another basis, law or n reads supported and rests on the theory alone.",
+        "The interval covers the coefficients of the least-squares projection of the "
+        "controlled direct effect with Z held at z on the basis over the sample's modifier "
+        "distribution, not the effect where it lies outside the span of the basis.",
+        "The calibration groups fit a spline GLM per arm with the raw intermediate and "
+        "logistic treatment and intermediate models. A declared wrong outcome regression with "
+        "the true mechanisms was measured for bias only (cells cde_dr_4k_*); a misspecified "
+        "intermediate or treatment model is not measured.",
+        "Every other composition with an intermediate reads experimental: in sample, a pooled "
+        "outcome regression, weights, clusters, repeats, the bootstrap, a declared treatment "
+        "law, randomized=True and fold-wise targeting (targeting_scheme='fold'), each exact on "
+        "a discrete law. The plug-in learner, strata=, the held-out curve checks, the score "
+        "assessment and the targeting curve refuse, and so do missing outcomes with "
+        "cross-fitting and missing treatment values (F33). The simultaneous band reads "
+        "experimental. No comparator: no maintained package fits a projection TMLE of a "
+        "controlled direct effect.",
+    ]
+    pooled_limits = [
+        "The study measures the pointwise Wald intervals of the coefficients of the projection "
+        "on Linear(['W1', 'W3']) with one pooled outcome regression, a spline GLM in W with A "
+        "and A x spline(W), with continuous modifiers on [-1, 1], binary outcomes, default "
+        "targeting and stacked cross-fitting. The basis, the modifiers, the law, the pooled "
+        "learner and n are not in the key, so another basis, law, learner or n reads supported "
+        "and rests on the theory alone.",
+        "The interval covers the coefficients of the least-squares projection of the CATE on "
+        "the basis over the sample's modifier distribution, not the CATE where it lies outside "
+        "the span of the basis.",
+        "The pooled regression with weights, clusters, missing outcomes, three arms, strata=, "
+        "repeats, in sample or with the bootstrap matches no row and reads experimental, and "
+        "so does its simultaneous band. No comparator: no maintained package fits a projection "
+        "TMLE of the CATE on a declared basis.",
+    ]
+    rows = []
+    for family, row_id, scale in (("P13", "T49", ""), ("P14", "T50", "_crr")):
+        rows.append(
+            point_row(
+                f"{row_id}.intermediate",
+                ["projection-evidence"],
+                families=(family,),
+                missing=("intermediate",),
+                splitting=("stacked",),
+                options={"outcome_by_arm": True},
+                cells=[f"cde{scale}_4k", *(["cde_dr_4k"] if not scale else [])],
+                # Roadmap: P1.
+                limits=cde_limits,
+            )
+        )
+        rows.append(
+            point_row(
+                f"{row_id}.pooled",
+                ["projection-evidence"],
+                families=(family,),
+                splitting=("stacked",),
+                cells=[f"pooled{scale}_4k"],
+                # Roadmap: P1.
+                limits=pooled_limits,
+            )
+        )
+    return tuple(rows)
+
+
+#: The band of a projection curve that ``projection-evidence`` measured: the shipped Rademacher
+#: multipliers on the identity scale with the normal reference (P1 PR 2, plan 3.3).
+PROJECTION_BAND_OPTION: Final[BandOption] = ("rademacher", "identity", "normal")
+
+#: The multiplier draws each ``projection-evidence`` band cell measured.
+PROJECTION_BAND_DRAWS: Final[int] = 1_000
+
+#: The ``projection-evidence`` band cells that license :data:`PROJECTION_BAND_OPTION` on each
+#: row, written by :func:`_band`.  Each gated band group fits the projection under the row's key
+#: (``tests/studies/projection_evidence.py``, ``band_*`` groups), and every cell passed its joint
+#: rule beside a gated pointwise control that failed it.
+PROJECTION_BAND_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T49": (_band("projection_evidence", "band_obs_4k"),),
+    "T50": (_band("projection_evidence", "band_crr_4k"),),
+    "T49.clustered": (_band("projection_evidence", "band_clustered_4k"),),
+    "T49.repeats": (_band("projection_evidence", "band_rep3_4k"),),
+}
+
+
+def _with_projection_band(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
+    """Give each row of :data:`PROJECTION_BAND_CELLS` the projection band and its evidence."""
+    out = []
+    for row in rows:
+        cells = PROJECTION_BAND_CELLS.get(row.id)
+        if cells:
+            settings = [
+                cell.rsplit("/", 1)[1].removesuffix("__simultaneous_band") for cell in cells
+            ]
+            row = replace(
+                row,
+                kinds=row.kinds | {"band"},
+                evidence=tuple(dict.fromkeys((*row.evidence, "projection-evidence"))),
+                cells=tuple(dict.fromkeys((*row.cells, *settings))),
+                band_options=(PROJECTION_BAND_OPTION,),
+                limits=(
+                    *row.limits,
+                    "The simultaneous band of effect_curve(grid=) was measured with Rademacher "
+                    "multipliers, 1,000 draws, the identity scale and the normal reference, over "
+                    "a nine-point grid of (W1, W3) (study projection-evidence, cell "
+                    f"{settings[0]}__simultaneous_band); another multiplier, scale, reference or "
+                    "fewer draws reads experimental.",
+                ),
+            )
+        out.append(row)
+    return tuple(out)
 
 
 # The point rows of the X76 option studies, one function per part, each registered from its
@@ -3928,8 +4074,8 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_c_rows(),
         *_categorical_point_rows(),
         *_adaptive_iptw_rows(),
-        *_projection_rows(),
-        *_projection_composition_rows(),
+        *_with_projection_band((*_projection_rows(), *_projection_composition_rows())),
+        *_projection_evidence_rows(),
         *_x76_stopping_point_rows(),
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),
@@ -6895,6 +7041,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "of a point row. cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED and "
         "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
         "licenses."
+    ),
+    "score-assessment-compositions": (
+        "It measures the score assessment of an external score in five compositions, which is "
+        "no Target and no fit of a point row. cleverly.effect_curves.SCORE_COMPOSITIONS_MEASURED, "
+        "not a support row, records the compositions the study licenses."
     ),
     "learned-rule-arms": (
         "It registered the plug-in rule over three arms, whose row needed both "

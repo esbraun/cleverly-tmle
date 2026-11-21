@@ -93,12 +93,14 @@ learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
 projection-compositions
+projection-evidence
 ep-cate
 ep-crr
 ep-assessment
 learned-rule-ep
 targeting-curves
 score-assessment
+score-assessment-compositions
 option-stopping-point
 option-treatment-adjustment
 option-outcome-by-arm

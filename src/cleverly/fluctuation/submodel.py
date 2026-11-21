@@ -1254,10 +1254,13 @@ def effect_modification_submodel(
     missingness : ndarray or None
         ``(n, K)`` response mechanism.
     intermediate_density : ndarray or None
-        Accepted for the common signature; a conditional contrast refuses an
-        intermediate before any learner.
+        ``(n, K)`` density :math:`q_z(a, W)` of a controlled direct effect projection at
+        its level ``z``, or ``None``.  :func:`msm_submodel` divides every arm's covariate
+        by it, as it divides by ``g`` and :math:`\Pi`.
     selection : ndarray or None
-        Accepted for the common signature.
+        ``(n,)`` indicator :math:`1\{Z = z\}` of that projection, or ``None``; it
+        multiplies the observed covariate only, so the counterfactual rows keep
+        :math:`c_a(V) / \{g\, q_z\, \Pi\}`.
     regimes : ndarray or None
         Accepted and ignored.
     policies : ndarray or None
@@ -1332,9 +1335,11 @@ def effect_modification_ratio_submodel(
     missingness : ndarray or None
         ``(n, K)`` response mechanism.
     intermediate_density : ndarray or None
-        Accepted for the common signature.
+        ``(n, K)`` density :math:`q_z(a, W)` of a controlled direct effect projection, as
+        :func:`effect_modification_submodel` reads it.
     selection : ndarray or None
-        Accepted for the common signature.
+        ``(n,)`` indicator :math:`1\{Z = z\}` of that projection, as
+        :func:`effect_modification_submodel` reads it.
     regimes : ndarray or None
         Accepted and ignored.
     policies : ndarray or None

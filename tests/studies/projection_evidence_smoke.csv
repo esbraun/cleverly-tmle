@@ -1,0 +1,11 @@
+group,fits,seconds_per_fit
+cde_4k,19,0.409
+cde_crr_4k,20,0.4207
+cde_dr_4k,20,0.2821
+cde_total_4k,20,0.2267
+pooled_4k,20,0.3601
+pooled_crr_4k,20,0.2774
+band_obs_4k,20,0.2582
+band_crr_4k,20,0.2888
+band_clustered_4k,20,0.1753
+band_rep3_4k,20,0.7548

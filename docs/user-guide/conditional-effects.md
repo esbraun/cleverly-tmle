@@ -33,10 +33,16 @@ curve.predict({"age": [40, 60]}, interval=True)  # the effect at new ages, with 
 A simulation study checked these intervals in repeated samples: they covered the true
 coefficients about 95% of the time, on both scales and with three treatment levels, weights,
 clusters and missing outcomes. The status line of `fit.summary()` reads `supported` for a fit
-like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A fit with
-one pooled outcome model, a combination the study did not run (weights together with clusters,
-for example) and the band over a grid read `experimental`: they are computed the same way, and
-no study has checked them.
+like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A second
+study checked one pooled outcome model on plain rows, so that fit reads `supported` too. A
+combination no study ran (a pooled model with weights, or weights together with clusters, for
+example) reads `experimental`: it is computed the same way, and no study has checked it.
+
+The band over a grid has its own label, in the summary's note on the band, because a study can
+check the coefficients without checking the band. A study checked the default band (random signs
+as multipliers, 1,000 draws) on fits like the one above, on both scales, with clusters and with
+repeated cross-fitting, and it held at all grid points together about 95% of the time. Other band
+settings, and fits that study did not run, read `experimental`.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -327,12 +333,56 @@ are labelled `experimental` until their validation study has run.
 - **The bootstrap.** `n_bootstrap=200` refits the whole analysis on 200 resamples of the rows
   and reports an interval from the spread of the refitted coefficients.
 
+## Hold a later variable fixed
+
+Sometimes a variable that the treatment can change, such as whether a patient was admitted, sits
+between the treatment and the outcome. The effect with that variable held at one value for
+everyone is a *controlled direct effect*. Declare the variable as `intermediate=` and wrap the
+contrast in `ControlledDirectEffect`, with the value to hold it at, 0 or 1:
+
+```python
+from cleverly import ControlledDirectEffect
+
+study = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y", treatment="A", adjustment=("age", "W2", "W3"), intermediate="Z"
+    ),
+)
+direct = study.identify(
+    ControlledDirectEffect(
+        intermediate=0.0,
+        contrast=ConditionalContrast(
+            Modifiers(["age"], domains={"age": (18, 90)}), model=Linear(["age"])
+        ),
+    )
+)
+direct_fit = direct.estimate(
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    intermediate_learner=LogisticRegression(max_iter=1000),  # P(Z = 1 | A, covariates)
+    outcome_by_arm=True,
+    random_state=0,
+)
+direct_fit.summary()  # "effect of A on Y with Z held at 0 for every unit"
+```
+
+The coefficients describe how the effect with `Z` held at 0 changes with age. The interval needs
+two more conditions than the plain conditional effect: no unmeasured variable that affects both
+`Z` and the outcome, given the treatment and the covariates, and some rows with `Z` at the held
+value in every treatment arm at every covariate value. A simulation study checked this fit, with
+one outcome model per arm and the default cross-fitting, and its intervals covered the true
+coefficients about 95% of the time, so it reads `supported`. Other settings, such as weights or a
+fit without cross-fitting, read `experimental`. The score checks and the held-out curve checks refuse on it,
+because they would check the total effect instead.
+
 ## What is not supported yet
 
-An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,
-checks of how much hidden confounding would move the coefficients, an intermediate variable, and
-rows with no recorded treatment combined with cross-fitting each refuse before any model is
-fitted and say what to do instead.
+An interval for the EP curve, checks of how much hidden confounding would move the coefficients,
+a variable held fixed together with groups (`strata=`) or with the EP curve, and rows with no
+recorded treatment combined with cross-fitting each refuse before any model is fitted and say
+what to do instead. A learner of your own as the EP curve's last step on the log-ratio scale runs
+and is labelled `experimental`, because no theorem covers it.
 
 The [conditional effects reference](../technical-reference/conditional-effects.md) gives
 the exact targets, the formulas behind the intervals and the evidence.

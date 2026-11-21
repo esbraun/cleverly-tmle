@@ -524,6 +524,9 @@ SCREEN_REASONS: dict[str, str] = {
     "score-assessment": (
         "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
     ),
+    "score-assessment-compositions": (
+        "the flagged cells are calibration slopes of a CATE score, not package intervals of a mean"
+    ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "
         "package intervals of a mean"

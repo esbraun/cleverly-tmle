@@ -445,11 +445,17 @@ class TestMT7RefusalsBeforeAnyLearner:
         assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
     def test_intermediate(self) -> None:
+        """The CDE projection with a missing treatment refuses with F33, before any learner."""
+        from cleverly import ControlledDirectEffect
+
         frame = COMPOSITE.frame()
         study = composite_study(frame.assign(Z=frame["W"] % 2), intermediate="Z")
         NeverFit.calls = 0
-        with pytest.raises(CapabilityError, match="does not yet compose with an intermediate"):
-            study.identify(CONTRAST).estimate(cross_fit=False, **never())
+        with pytest.raises(CapabilityError, match="controlled direct effect") as caught:
+            study.identify(ControlledDirectEffect(intermediate=0.0, contrast=CONTRAST)).estimate(
+                cross_fit=False, **never()
+            )
+        assert caught.value.refusal.roadmap == "F33"
         assert NeverFit.calls == 0
 
     def test_assess_score_with_strata(self) -> None:
@@ -1139,10 +1145,10 @@ class TestTheBootstrap:
         for key in w1_names("difference"):
             reason = stacked.estimates[key].bootstrap.support.reason
             assert stacked.estimates[key].bootstrap.support.label == "experimental"
-            # The point estimate on this law reads experimental too, so its own reason
-            # comes first and the cross-fitted bootstrap's reason follows.
-            assert reason.endswith(tmle_module.CROSS_FITTED_BOOTSTRAP_REASON)
-            assert reason.startswith(stacked.estimates[key].support.reason)
+            # The pooled point estimate reads supported (row T49.pooled), so the cross-fitted
+            # bootstrap's reason is the whole reason.
+            assert stacked.estimates[key].support.label == "supported"
+            assert reason == tmle_module.CROSS_FITTED_BOOTSTRAP_REASON
             # No row measures the in-sample projection bootstrap until its study registers.
             assert in_sample.estimates[key].bootstrap.support.reason != reason
 

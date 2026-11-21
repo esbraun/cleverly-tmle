@@ -230,6 +230,10 @@ def _meaning(result: TMLEResult, name: str) -> str:
     key = result.parameter_keys.get(name)
     target = _target_name(result, name)
     axis = getattr(key, "axis", "arm")
+    if result.intermediate_value is not None and target in vocabulary.CDE_PROJECTION_MEANINGS:
+        return vocabulary.CDE_PROJECTION_MEANINGS[target].format(
+            Z=result.data.intermediate_name or "Z", z=f"{result.intermediate_value:g}"
+        )
     template = vocabulary.ESTIMAND_MEANINGS.get(target or "")
     if template is not None and axis == "arm":
         return _fill(template, result, key, target)

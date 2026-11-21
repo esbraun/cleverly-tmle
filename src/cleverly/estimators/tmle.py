@@ -6462,7 +6462,13 @@ class TMLE:
                 # the marginal names, and the stratified one, whose block s reads stratum s's
                 # coefficients and which reports the stratum names (P1 plan 2.2).
                 submodel, fluctuation = self._solve_projection(
-                    data, nuisance, group, bounds, nuisance_bound, stop=stop
+                    data,
+                    nuisance,
+                    group,
+                    bounds,
+                    nuisance_bound,
+                    stop=stop,
+                    intermediate_value=intermediate_value,
                 )
                 if group == STRATIFIED_RATIO_GROUP:
                     assert fluctuation.projection is not None
@@ -7208,6 +7214,7 @@ class TMLE:
         bounds: tuple[float, float],
         nuisance_bound: float | None,
         stop: StopContext | None = None,
+        intermediate_value: float | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Alternate the projection and the fluctuation, pooled or fold by fold.
 
@@ -7232,6 +7239,7 @@ class TMLE:
             weights=self._validation_weights(data, nuisance),
             observed=data.observed,
             stop=stop,
+            intermediate_value=intermediate_value,
         )
         if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
             per_fold: list[ProjectionFluctuation] = []

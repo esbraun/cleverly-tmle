@@ -267,6 +267,8 @@ class TestTheThreeCellLaw:
         expected = law.contamination_eif(functional, mar.PROBS, mar.SUPPORT)
         reported = law_curves(assessment, mar.first_row_of())
         np.testing.assert_allclose(reported, expected, atol=1e-11, rtol=0)
+        # score-assessment-compositions measured missing outcomes and the in-sample fit one at
+        # a time, so the two together stay experimental on either scale.
         assert assessment.status == "experimental"
         assert "missing outcomes" in assessment.status_reason
         for _, _, estimate in assessment.rows():
@@ -767,6 +769,7 @@ class TestTheSixCellWitnessLaw:
                 mass / mass.mean() * np.asarray(b.influence_curve)[first_copy],
                 atol=1e-11,
             )
+        # Weights were measured alone; beside this fit's in-sample nuisances they stay experimental.
         assert left.status == "experimental" and "observation weights" in left.status_reason
 
 
@@ -827,7 +830,7 @@ def test_t9_the_targeted_fit_stays_in_range_where_one_step_weights_turn_negative
 # ----------------------------------------------------------------- clusters (T12)
 
 
-def _clustered(clusters: int) -> Any:
+def _clustered(clusters: int, *, cross_fit: bool = False) -> Any:
     rng = np.random.default_rng(clusters)
     n = 400
     w = rng.uniform(-1, 1, n)
@@ -858,7 +861,7 @@ def _clustered(clusters: int) -> Any:
             compare_computed_from=["W"],
             outcome_learner=LogisticRegression(),
             treatment_learner=LogisticRegression(),
-            cross_fit=False,
+            cross_fit=cross_fit,
             random_state=0,
         ), frame["site"].to_numpy()
 
@@ -895,14 +898,17 @@ def test_t12_clustered_rows_sum_the_curve_and_take_the_few_cluster_reference(
         half = (high - low) / 2.0
         assert half == pytest.approx(float(stats.t.ppf(0.975, df)) * se, rel=1e-10)
         assert half > 1.96 * se
-    assert assessment.status == "experimental" and "clustered rows" in assessment.status_reason
+    # Every count here is below FEW_CLUSTER_THRESHOLD, where the t(J-2) reference is unmeasured.
+    assert assessment.status == "experimental"
+    assert "fewer than 40 clusters" in assessment.status_reason
+    assert "clustered rows" not in assessment.status_reason
 
 
 # ----------------------------------------------------------------- support (T14)
 
 _MEASURED_FLAGS = {
     "weighted": False,
-    "clustered": False,
+    "clusters": None,
     "missing": False,
     "arms": 2,
     "cross_fitted": True,
@@ -926,11 +932,14 @@ def test_t14_each_measured_configuration_reads_supported_with_its_studies(
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
-        ({"weighted": True}, "observation weights"),
-        ({"clustered": True}, "clustered rows"),
-        ({"missing": True}, "missing outcomes"),
-        ({"arms": 3}, "multi-arm"),
-        ({"cross_fitted": False}, "not cross-fitted"),
+        # The compositions are measured on the difference scale (t20), so their reasons read
+        # on the log ratio.
+        ({"weighted": True, "scale": "log_ratio"}, "observation weights"),
+        ({"clusters": 40, "scale": "log_ratio"}, "clustered rows"),
+        ({"clusters": 39}, "fewer than 40 clusters"),
+        ({"missing": True, "scale": "log_ratio"}, "missing outcomes"),
+        ({"arms": 3, "scale": "log_ratio"}, "multi-arm"),
+        ({"cross_fitted": False, "scale": "log_ratio"}, "not cross-fitted"),
         ({"reduced_span": True, "scale": "log_ratio"}, "collinear direction"),
         ({"outcome": "continuous", "scale": "log_ratio"}, "measures this configuration"),
         ({"known_mechanism": True, "scale": "log_ratio"}, "measures this configuration"),
@@ -970,8 +979,8 @@ def test_t14_a_paired_row_outside_its_table_reads_experimental_beside_supported_
 
 @_quiet
 def test_t14_a_fitted_assessment_carries_its_support_on_every_row() -> None:
-    assessment = paired("difference")
-    # The three-cell oracle fit is not cross-fitted, which no study measures.
+    assessment = paired("log_ratio")
+    # The three-cell oracle fit is not cross-fitted, which no study measures on the log ratio.
     labels = {estimate.support.label for _, _, estimate in assessment.rows()}
     assert labels == {"experimental"}
     assert "not cross-fitted" in assessment.status_reason
@@ -1027,9 +1036,197 @@ def test_t14_a_fitted_known_mechanism_reads_its_own_configuration() -> None:
     assert {e.support.label for _, _, e in log_ratio.rows()} == {"experimental"}
 
 
+# ------------------------------------------------- composition labels (P1 PR 2, plan 3.4)
+
+_BASE = ("difference", "binary", "estimated")
+_COMPOSITION_STUDY = "score-assessment-compositions: g"
+
+#: Each lifted code with the flags that raise it on the measured base configuration.
+_COMPOSITIONS = {
+    "weights": {"weighted": True},
+    "clusters": {"clusters": 800},
+    "missing": {"missing": True},
+    "multi_arm": {"arms": 3},
+    "not_cross_fitted": {"cross_fitted": False},
+}
+
+
+def _with_compositions(monkeypatch: pytest.MonkeyPatch, *codes: str, key: Any = _BASE) -> None:
+    monkeypatch.setattr(
+        ec,
+        "SCORE_COMPOSITIONS_MEASURED",
+        {(key, code): _COMPOSITION_STUDY for code in codes},
+    )
+
+
+def _base_support(**change: Any) -> tuple[Any, Any]:
+    arguments: dict[str, Any] = {
+        "scale": "difference",
+        "outcome": "binary",
+        "known_mechanism": False,
+        **_MEASURED_FLAGS,
+    }
+    arguments.update(change)
+    return ec.score_assessment_support(**arguments)
+
+
+def test_t20_the_shipped_table_lists_each_composition_with_its_own_group() -> None:
+    """``score-assessment-compositions`` registered one group per code (t14 checks the cells)."""
+    from tests.studies import score_assessment_compositions as study
+
+    assert set(ec.SCORE_COMPOSITIONS_MEASURED) == {(_BASE, code) for code in _COMPOSITIONS}
+    for (_, code), entry in ec.SCORE_COMPOSITIONS_MEASURED.items():
+        (group,) = [g.label for g in study.GROUPS if g.code == code]
+        assert entry == f"score-assessment-compositions: {group}", code
+        single, pair = _base_support(**_COMPOSITIONS[code])
+        assert single.label == pair.label == "supported", code
+        # Off the measured configuration the composition stays experimental.
+        single, _ = _base_support(**_COMPOSITIONS[code], scale="log_ratio")
+        assert single.label == "experimental", code
+
+
+def test_t20_two_measured_compositions_together_stay_experimental() -> None:
+    """Each group measured one composition alone, so a stack of two keeps both reasons."""
+    codes = sorted(_COMPOSITIONS)
+    for i, first in enumerate(codes):
+        for second in codes[i + 1 :]:
+            single, pair = _base_support(**{**_COMPOSITIONS[first], **_COMPOSITIONS[second]})
+            assert single.label == pair.label == "experimental", (first, second)
+            for code in (first, second):
+                assert ec._sentence(ec.SCORE_REASONS[code]) in single.reason, (first, second)
+
+
+@pytest.mark.parametrize("code", sorted(_COMPOSITIONS))
+def test_t20_a_listed_composition_reads_supported_with_both_studies(
+    monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    _with_compositions(monkeypatch, code)
+    single, pair = _base_support(**_COMPOSITIONS[code])
+    assert single.label == pair.label == "supported"
+    assert "score-assessment-compositions" in single.evidence
+    assert "score-assessment-compositions" in pair.evidence
+    assert "score-assessment" in pair.evidence
+    # Witness: another code listed does not lift this one.
+    other = next(c for c in sorted(_COMPOSITIONS) if c != code)
+    _with_compositions(monkeypatch, other)
+    single, _ = _base_support(**_COMPOSITIONS[code])
+    assert single.label == "experimental"
+    assert single.reason == ec._sentence(ec.SCORE_REASONS[code])
+
+
+@pytest.mark.parametrize(("clusters", "label"), [(39, "experimental"), (40, "supported")])
+def test_t20_clusters_lift_only_at_the_few_cluster_threshold(
+    monkeypatch: pytest.MonkeyPatch, clusters: int, label: str
+) -> None:
+    from cleverly._inference_status import FEW_CLUSTER_THRESHOLD
+
+    assert FEW_CLUSTER_THRESHOLD == 40
+    _with_compositions(monkeypatch, "clusters")
+    single, pair = _base_support(clusters=clusters)
+    assert single.label == pair.label == label
+    codes, _ = ec.score_assessment_codes(
+        scale="difference",
+        outcome="binary",
+        known_mechanism=False,
+        **{**_MEASURED_FLAGS, "clusters": clusters},
+    )
+    assert codes == (("few_clusters",) if clusters < 40 else ())
+    if label == "experimental":
+        assert "fewer than 40 clusters" in single.reason.lower() and "t(J-2)" in single.reason
+
+
+def test_t20_a_composition_on_another_configuration_stays_experimental(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The table is keyed by the configuration: a log-ratio weighted assessment is not lifted."""
+    _with_compositions(monkeypatch, "weights")
+    single, pair = _base_support(weighted=True, scale="log_ratio")
+    assert single.label == pair.label == "experimental"
+    assert "observation weights" in single.reason.lower()
+    _with_compositions(monkeypatch, "weights", key=("log_ratio", "binary", "estimated"))
+    single, _ = _base_support(weighted=True, scale="log_ratio")
+    assert single.label == "supported"
+
+
+def _three_arm_effect(*, cross_fit: bool = True, arms: int = 3) -> Any:
+    """A binary outcome under a treatment of ``arms`` levels, the pair (arms - 1, 0)."""
+    rng = np.random.default_rng(11)
+    n = 900
+    w = rng.uniform(-1, 1, n)
+    a = rng.integers(0, arms, n)
+    y = rng.binomial(1, expit(-0.3 + 0.6 * w + (a > 0) * (0.3 + 0.4 * w)))
+    frame = pd.DataFrame({"Y": y, "A": a, "W": w, "S": 0.1 + 0.2 * w, "SB": 0.1 * w**2})
+    study = CausalStudy(frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",)))
+    contrast = (
+        ConditionalContrast(Modifiers(["W"]), treatment=arms - 1, reference=0)
+        if arms > 2
+        else ConditionalContrast(Modifiers(["W"]))
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(contrast).assess_score(
+            "S",
+            computed_from=["W"],
+            score_kind="external",
+            compare="SB",
+            compare_computed_from=["W"],
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            cross_fit=cross_fit,
+            random_state=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("setting", "code", "reason"),
+    [
+        ({"arms": 3}, "multi_arm", "multi-arm"),
+        ({"arms": 2, "cross_fit": False}, "not_cross_fitted", "not cross-fitted"),
+    ],
+)
+def test_t20_a_fitted_assessment_reads_its_composition(
+    monkeypatch: pytest.MonkeyPatch, setting: dict[str, Any], code: str, reason: str
+) -> None:
+    """Witnesses through a fit: the flag reaches the label, and the table lifts only it."""
+    _with_compositions(monkeypatch)
+    assessment = _three_arm_effect(**setting)
+    assert assessment.status == "experimental"
+    assert reason in assessment.status_reason
+    _with_compositions(monkeypatch, code)
+    lifted = _three_arm_effect(**setting)
+    assert lifted.status == "supported", lifted.status_reason
+    for _, _, estimate in lifted.rows():
+        assert "score-assessment-compositions" in estimate.support.evidence
+    # The cross-fitted two-arm fit is the base configuration, supported with no entry.
+    _with_compositions(monkeypatch)
+    assert _three_arm_effect(arms=2).status == "supported"
+    # The shipped table lifts the composition too.
+    monkeypatch.undo()
+    assert _three_arm_effect(**setting).status == "supported"
+
+
+@pytest.mark.parametrize(("clusters", "status"), [(39, "experimental"), (40, "supported")])
+def test_t20_a_fitted_clustered_assessment_counts_its_clusters(
+    monkeypatch: pytest.MonkeyPatch, clusters: int, status: str
+) -> None:
+    _with_compositions(monkeypatch, "clusters", "not_cross_fitted")
+    assessment, _ = _clustered(clusters, cross_fit=True)
+    assert assessment.status == status, assessment.status_reason
+    # Witness: in sample at 40 clusters two measured compositions stack, and a stack stays
+    # experimental.  Below 40 the in-sample fit is the one measured composition, beside the
+    # few-cluster reason no study lifts.
+    stacked, _ = _clustered(clusters)
+    assert stacked.status == "experimental"
+    assert ("not cross-fitted" in stacked.status_reason) == (clusters >= 40)
+
+
 def _measured_cells() -> list[tuple[str, str]]:
     cells = []
-    for table in (ec.SCORE_ASSESSMENT_MEASURED, ec.SCORE_PAIRED_MEASURED):
+    for table in (
+        ec.SCORE_ASSESSMENT_MEASURED,
+        ec.SCORE_PAIRED_MEASURED,
+        ec.SCORE_COMPOSITIONS_MEASURED,
+    ):
         for entry in table.values():
             for item in entry.split(";"):
                 study, groups = item.split(":", 1)
@@ -1134,3 +1331,110 @@ def test_cellmeans_learner_on_the_six_cell_law_is_the_oracle() -> None:
     np.testing.assert_allclose(
         values(assessment), six_truth(SIX_Q, "log_ratio", (S6, S6B)), atol=1e-10
     )
+
+
+# ------------------------------------------- a controlled direct effect fit (P1 PR 2)
+
+
+@functools.cache
+def _cde_fit() -> Any:
+    """A shipped CDE fit at ``Z = 0`` on :mod:`tests.discrete_law_cde`, with oracle nuisances."""
+    from cleverly import ControlledDirectEffect
+    from tests import discrete_law_cde as cde
+    from tests.conftest import OracleDirectOutcome, OracleIntermediate
+
+    dgp = cde.DiscreteLaw()
+    design = PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W",),
+        missingness="Delta",
+        intermediate="Z",
+    )
+    effect = CausalStudy(cde.frame(), design=design).identify(
+        ControlledDirectEffect(intermediate=0.0)
+    )
+    return effect.estimate(
+        outcome_learner=OracleDirectOutcome(dgp),
+        treatment_learner=OracleTreatment(dgp),
+        missingness_learner=OracleMissingness(dgp),
+        intermediate_learner=OracleIntermediate(dgp),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def _refuses_with_the_cde_tools_text(error: pytest.ExceptionInfo[CapabilityError]) -> None:
+    from cleverly.effect_modification import CDE_CURVE_TOOLS_REFUSAL
+
+    assert error.value.refusal == CDE_CURVE_TOOLS_REFUSAL
+    assert "without the intermediate's selection 1{Z = z} and density q_z" in str(error.value)
+
+
+@_quiet
+def test_t19_a_direct_assessment_of_a_cde_fit_refuses_before_any_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The call used to build the total-effect pseudo-outcome on a CDE fit; now it refuses.
+
+    The witness that the refusal is load-bearing: with the guard switched off, the same call
+    returns an assessment, which is the silent wrong-estimand path.
+    """
+    fit = _cde_fit()
+    assert fit.data.has_intermediate
+    score = {"S": np.asarray(fit.data.covariates, dtype=float)[:, 0]}
+
+    def never(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the assessment refitted before refusing")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(ec, "_target_scores", never)
+        for scale in ("difference", "log_ratio"):
+            with pytest.raises(CapabilityError) as error:
+                ec.score_assessment(fit, fit.data, score, scale=scale)
+            _refuses_with_the_cde_tools_text(error)
+    import cleverly.effect_modification as em
+
+    monkeypatch.setattr(em, "refuse_cde_curve_tools", lambda data: None)
+    assert len(ec.score_assessment(fit, fit.data, score).to_frame()) == 3
+
+
+@_quiet
+def test_t19_the_shared_targeting_engine_refuses_a_cde_fit() -> None:
+    fit = _cde_fit()
+    basis = np.ones((fit.data.n, 1))
+    with pytest.raises(CapabilityError) as error:
+        pt.solve_pooled(fit, fit.data, basis, -basis, (1.0, 0.0), what="the targeting curve")
+    _refuses_with_the_cde_tools_text(error)
+
+
+def test_t19_the_refusal_is_not_an_assertion_and_survives_python_optimize() -> None:
+    """Under ``python -O`` an ``assert`` is stripped; the refusal must still raise."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = (
+        "import warnings; warnings.simplefilter('ignore')\n"
+        "import numpy as np\n"
+        "from cleverly import effect_curves as ec\n"
+        "from cleverly.exceptions import CapabilityError\n"
+        "from tests.unit.test_score_assessment_tmle import _cde_fit\n"
+        "fit = _cde_fit()\n"
+        "score = {'S': np.asarray(fit.data.covariates, dtype=float)[:, 0]}\n"
+        "try:\n"
+        "    ec.score_assessment(fit, fit.data, score)\n"
+        "except CapabilityError as error:\n"
+        "    print('refused', error.refusal.roadmap)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    assert done.stdout.strip().splitlines()[-1] == "refused P1"
