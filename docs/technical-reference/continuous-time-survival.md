@@ -312,8 +312,8 @@ first-quartile targets, as the registered `continuous-survival` study does.
 
 `continuous-survival-bootstrap-cross-fitted`
 (`tests/studies/continuous_survival_bootstrap_cross_fitted.py`) reports the cross-fitted fit on all
-18 targets at 1,000 fits and gates nothing. Neither has run. The in-sample run stays refused until
-its pilot of 400 draws reads clean ([roadmap X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)). A pass would not set either
+18 targets at 1,000 fits and gates nothing. Neither has run; both wait for idle capacity on a local
+machine ([roadmap X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)). A pass would not set either
 label alone: the in-sample label also waits on the reading of the theorem's conditions, and the
 cross-fitted label on a theorem.
 `tests/unit/test_continuous_survival_bootstrap.py` checks the shared folds of a unit's copies
