@@ -738,13 +738,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
     # shortfall and share the owner.  The heavy-weight fix closed the owner with ``variance="policy_weighted"``
     # (``mtp-policy-variance``); the rows stay red as standing records of the default interval.
+    # The regeneration under the shipped intervals (Fix-9) kept the ``cleverly`` estimates and
+    # standard errors, and the logit interval of the two ``cleverly`` level rows passes their
+    # floor, so those two left the owner; ``lmtp`` reports the identity interval.
     "mtp-pricing-calibration": (
         *_keys(
             "mtp-pricing",
             "truth",
             *(
-                f"{subject}/pricing_{engine}_tau5/{estimand}"
-                for subject in ("cleverly-mtp-pricing", "lmtp")
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/"
+                "ate_regimen[price_down vs natural_prices]"
+                for engine in ("ltmle", "sdr")
+            ),
+            *(
+                f"lmtp/pricing_{engine}_tau5/{estimand}"
                 for engine in ("ltmle", "sdr")
                 for estimand in (
                     "ey_regimen[price_down]",
@@ -753,14 +760,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             ),
         ),
     ),
-    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    # The learned-density arms of the price study, declared ``reporting`` before the run.  On the
+    # Fix-9 regeneration the five-node arm passes and left the owner.
     "mtp-pricing-learned-density": (
         *_keys(
             "mtp-pricing",
             "property",
             *(
                 f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
-                for tau in (2, 3, 5)
+                for tau in (2, 3)
             ),
         ),
     ),

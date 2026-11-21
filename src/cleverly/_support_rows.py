@@ -2597,13 +2597,13 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "0.9079)."
     ),
     ("G39.ltmle.tau5", "wald"): (
-        "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration). "
+        "Row G39.ltmle.tau5 is red for the price_down contrast at five nodes and n = 5,000: "
+        "coverage 0.9200 and SE ratio 0.9310 (mtp-pricing-calibration). "
         "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     ("G39.sdr.tau5", "wald"): (
-        "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration). "
+        "Row G39.sdr.tau5 is red for the price_down contrast at five nodes and n = 5,000: "
+        "coverage 0.9230 and SE ratio 0.9339 (mtp-pricing-calibration). "
         "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
@@ -2716,7 +2716,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
             " 1.1006"
         ),
-        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
+        "mtp-pricing-learned-density: coverage 0.9445 to 0.9683, SE ratio 0.9878 to 1.0786",
     ),
     "G14.survival": (
         (
@@ -2742,10 +2742,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G40.tau3": (
-        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
-    ),
-    "G40.tau5": (
-        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+        "mtp-pricing-learned-density: coverage 0.9383 to 0.9635, SE ratio 1.0000 to 1.0867",
     ),
     "G34.competing": (
         (

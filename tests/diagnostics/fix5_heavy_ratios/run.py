@@ -8,7 +8,11 @@ Three readings, written to this directory:
     ``tests/canonical/mtp_boundaries/{replicates,property-replicates}.parquet``): coverage, the SE
     ratio ``mean(SE) / SD(estimate)``, the RMS ratio ``sqrt(mean(SE^2)) / SD(estimate)``, the
     correlation of the error with the SE, the misses on each side, the coverage by SE quartile and
-    the CV of the SE.  Coverage reads each replication's committed ``covered`` flag.  The RMS ratio reads the bias of the variance estimator; the SE ratio adds
+    the CV of the SE.  Coverage reads each replication's committed ``covered`` flag, so
+    it reads the interval each study ran under: the pricing rows, regenerated under the shipped
+    intervals, the logit interval of a level and the MOVER interval of a contrast.  The misses
+    read the identity interval ``estimate -+ 1.96 SE``.  The RMS ratio reads the bias of the
+    variance estimator; the SE ratio adds
     the Jensen gap of a dispersed SE, about ``1 - CV^2 / 2``.  On the pricing rows the misses are
     one-sided and the error correlates with the SE at about -0.75: the draws that hold none of the
     rare rows with large cumulative ratios read a small SE.  :func:`committed_reading` rebuilds it
