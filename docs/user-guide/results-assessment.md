@@ -688,6 +688,24 @@ names what changed. A fit with no seed draws one at the first call, and the refu
 call names it, so pass it as `random_state=` to resume. Pass `progress=print`, or any function,
 to see each draw as it finishes.
 
+On a very large fit, `sample_limit=` runs the refutation on a random part of the data. For
+example, `refute(result, sample_limit=20_000)` draws 20,000 of the fit's units at random without
+replacement, refits the same analysis on them, and runs every test on that refit, so each test
+reads the estimate and standard error of the smaller analysis, never those of the full fit. A
+clustered fit draws whole clusters, and `sample_limit` then counts clusters; a panel or survival
+fit draws subjects with all their rows. The report prints the full-data estimate beside the
+sampled one for comparison.
+
+A sampled result answers a narrower question: did the same analysis, run on these units, pass?
+It is a test of the analysis at the smaller size, so it can miss a problem that only shows with
+more data, and another seed draws other units. The pass or fail rules are the ones for a fit of
+the sampled size, so a sample below the size a rule was checked at prints no verdict. A sample
+that loses a treatment level or a stratum is refused, and one where a covariate becomes constant
+prints its numbers without a verdict. A limit of at least the fit's unit count changes nothing.
+`planned_refits(sample_limit=...)` counts the one extra refit of the sample.
+[The technical reference](../technical-reference/validation-methods.md#refutation-operations)
+gives the exact statement.
+
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against
 `tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity

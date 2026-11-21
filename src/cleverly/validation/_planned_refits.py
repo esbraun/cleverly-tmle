@@ -14,13 +14,14 @@ bound with a floor (``min_fits``) that holds when no draw fails.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
 
 from .._planned_fits import PlannedFits
 from .._summary import Summary
+from ._sampled_refute import draw_rows, resolved_rule, unit_count
 
 __all__ = ["PlannedRefitTest", "PlannedRefits", "planned_refits"]
 
@@ -43,6 +44,13 @@ _CONTROL_CHECK_NOTE = (
     "The check that the control is not nearly a function of the adjustment set fits two "
     "least-squares regressions before any refit. The preview runs that check too, so it "
     "makes those two fits itself; they are counted under preparation."
+)
+_SAMPLE_NOTE = (
+    "sample_limit= refits the fit once on the sampled units (sampled_baseline) and runs every "
+    "test on that refit. Its folds and repeat seeds are not known before it is fitted, so each "
+    "test is counted at the learners' nominal counts per refit, as an upper bound, and draws a "
+    "checkpoint holds are not subtracted. A request rule that reads the sampled rows (an arm "
+    "with no event in the sample, say) can still stop refute() after the baseline refit."
 )
 _SEED_NOTE = (
     "Neither random_state nor the fit records a seed, so refute() draws one; tests whose "
@@ -380,7 +388,12 @@ def planned_refits(result: Any, **kwargs: Any) -> PlannedRefits:
 
 
 def _read_checkpoint(
-    module: Any, result: Any, a: dict[str, Any], tests: Any, seed: int | None
+    module: Any,
+    result: Any,
+    a: dict[str, Any],
+    tests: Any,
+    seed: int | None,
+    sampling: dict[str, Any] | None = None,
 ) -> Any:
     """Open ``checkpoint=`` read-only, refusing what ``refute`` would refuse there."""
     from ._refute_checkpoint import CHECKPOINTED_TESTS, stored_root
@@ -402,6 +415,7 @@ def _read_checkpoint(
         progress=None,
         read_only=True,
         drawn=seed is None,
+        sampling=sampling,
     )
 
 
@@ -435,6 +449,8 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
         outcome_bands=a["outcome_bands"],
         bootstrap_measurement_error=a["bootstrap_measurement_error"],
         measurement_error_rule=a["measurement_error_rule"],
+        sample_limit=a["sample_limit"],
+        sampling=a["sampling"],
     )
     estimator = result.estimator
     random_state = a["random_state"]
@@ -453,7 +469,21 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
     seed_spread = bool(a["seed_spread"])
     data = result.data
     tests: list[PlannedRefitTest] = []
-    session = _read_checkpoint(module, result, a, request.tests, seed)
+    limit = request.sample_limit
+    sampled = limit is not None and limit < unit_count(result)
+    baseline: PlannedRefitTest | None = None
+    if sampled:
+        assert limit is not None
+        child = module._generated_child_seeds(root, "sample", 1)[0]
+        part = {"limit": limit, "rule": resolved_rule(result), "units": unit_count(result)}
+        # Opened for its refusals only: the sampled tests are upper bounds, so no stored draw
+        # is subtracted.
+        _read_checkpoint(module, result, a, request.tests, seed, {**part, "seed": child})
+        session = None
+        baseline = _sampled_baseline_test(module, result, child, int(limit), root, known)
+        notes.append(_SAMPLE_NOTE)
+    else:
+        session = _read_checkpoint(module, result, a, request.tests, seed)
 
     def count(name: str) -> int:
         if n_replicates is not None:
@@ -489,7 +519,10 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
             tests.append(test.build())
         notes.append(_DRAW_NOTE)
         return PlannedRefits(
-            tests=tuple(tests), estimand=request.estimand, random_state=seed, notes=tuple(notes)
+            tests=_sampled_tests(tests, baseline),
+            estimand=request.estimand,
+            random_state=seed,
+            notes=tuple(notes),
         )
 
     longitudinal = module._is_longitudinal(result)
@@ -700,5 +733,47 @@ def _planned(result: Any, a: dict[str, Any]) -> PlannedRefits:
     if ("subset" in requested or "placebo" in requested) and _DRAW_NOTE not in notes:
         notes.append(_DRAW_NOTE)
     return PlannedRefits(
-        tests=tuple(tests), estimand=request.estimand, random_state=seed, notes=tuple(notes)
+        tests=_sampled_tests(tests, baseline),
+        estimand=request.estimand,
+        random_state=seed,
+        notes=tuple(notes),
     )
+
+
+def _sampled_baseline_test(
+    module: Any, result: Any, child: int, limit: int, root: int, known: bool
+) -> PlannedRefitTest:
+    """The one refit of a sampled call's baseline, priced on the rows the sample draws.
+
+    The sample is drawn from its own child of the root seed and fits nothing, so the preview
+    draws it as :func:`~cleverly.validation.refute` does. When the call draws its seed, these
+    are the rows of a stand-in seed: the same count, so the same shape.
+    """
+    from .._continuous_survival_family import is_continuous_survival
+
+    rows = draw_rows(result.data, child, limit)
+    sampled = module._sampled_data(result, rows)
+    test = _Test("sampled_baseline", 1)
+    if is_continuous_survival(result):
+        fitter = result.estimator._for_estimate_refits()
+        test.add(_preview(fitter, sampled, random_state=root, nominal=not known))
+    else:
+        test.add(
+            _preview(
+                module._bandless(result),
+                sampled,
+                random_state=root,
+                nominal=not known,
+                **module._intermediate_option(result),
+            )
+        )
+    return test.build()
+
+
+def _sampled_tests(
+    tests: list[PlannedRefitTest], baseline: PlannedRefitTest | None
+) -> tuple[PlannedRefitTest, ...]:
+    """``tests``, or on a sampled call the baseline first and every test as an upper bound."""
+    if baseline is None:
+        return tuple(tests)
+    return (baseline, *(replace(test, bound="upper", stored=0) for test in tests))

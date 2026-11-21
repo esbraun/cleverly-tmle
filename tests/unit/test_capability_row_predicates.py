@@ -621,6 +621,7 @@ class TestTheRefuteRowResolvesEachRequest:
             "stability_eligibility",
             "measurement_budget",
             "generated_budget",
+            "sampling",
         ]
 
     @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)

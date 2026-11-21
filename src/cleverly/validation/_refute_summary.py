@@ -219,7 +219,10 @@ def _reading(report: RefutationResult) -> str:
 
 
 def _notes(report: RefutationResult) -> list[Note]:
-    notes = [_test_note(test) for test in report.tests]
+    notes = []
+    if report.sample is not None and report.sample.applied:
+        notes.append(Note("sampled_refutation", report.sample.sentence(), "warning"))
+    notes.extend(_test_note(test) for test in report.tests)
     failures = [test for test in report.tests if test.n_failed]
     if failures:
         notes.append(
@@ -294,6 +297,8 @@ def _sections(report: RefutationResult) -> list[SummarySection]:
                 line += f", with true effect {test.declared_effect:.4g}"
         draws.append(line + ".")
     sections.append(SummarySection(vocabulary.SECTION_DRAWS, tuple(draws)))
+    if report.sample is not None and report.sample.applied:
+        sections.append(SummarySection(vocabulary.SECTION_SAMPLE, report.sample.limits()))
     return sections
 
 
@@ -324,6 +329,14 @@ def refutation_summary(report: RefutationResult, detail: str) -> Summary:
         ),
         (vocabulary.RESULT, _report_result(report)),
     ]
+    sample = report.sample
+    if sample is not None:
+        units = (
+            f"{sample.sampled_units:,} of {sample.units:,} (sample)"
+            if sample.applied
+            else f"{sample.units:,} (all)"
+        )
+        header.insert(3, (vocabulary.UNITS_REFUTED, units))
     tables = [_tests_table(report, decimals)]
     tables.extend(table for table in (_statistics_table(report), _readings_table(report)) if table)
     return Summary.build(
@@ -385,6 +398,11 @@ def report_repr(report: RefutationResult) -> str:
         [
             ("", report.estimand),
             ("", f"{len(report.tests)} test{'s' * (len(report.tests) != 1)}"),
+            *(
+                [("sample", f"{report.sample.sampled_units:,} of {report.sample.units:,}")]
+                if report.sample is not None and report.sample.applied
+                else []
+            ),
             ("", _report_result(report)),
         ],
     )
