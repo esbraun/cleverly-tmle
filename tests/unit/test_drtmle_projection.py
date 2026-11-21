@@ -24,7 +24,7 @@ is computed from the cell counts, with no library code.
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -722,3 +722,147 @@ class TestTheCurve:
         assert (
             "solve no doubly-robust correction equations" in rows["corrections"].refusal.condition
         )
+
+
+class TestTheOpenedPaths:
+    """The plan 1.6 rows the deleted refusal opens beyond the registered composition."""
+
+    def test_fixed_weights_equal_duplicated_rows(self, law_g: Law) -> None:
+        # Weights that read the covariate only, so the declared mechanism holds in the target.
+        frame = law_g.frame.assign(wt=1.0 + 2.0 * (law_g.frame["W"] == 2))
+        duplicated = frame.loc[frame.index.repeat(frame["wt"].astype(int))].reset_index(drop=True)
+        weighted = fit(
+            frame,
+            estimator(G_TIED, Q_WRONG_ARM1),
+            known=G_TIED,
+            weights="wt",
+            mechanism_law="target",
+            covariates=["W"],
+        )
+        copies = fit(duplicated, estimator(G_TIED, Q_WRONG_ARM1), known=G_TIED, covariates=["W"])
+        for j, term in enumerate(TERMS):
+            name = f"cate_projection[{term}]"
+            # To the alternation's stopping tolerance: the two fits stop at different rounds.
+            assert weighted[name].psi == pytest.approx(copies[name].psi, abs=1e-7)
+            # The weights move the target, so the equality is not the unweighted truth again.
+            assert abs(weighted[name].psi - law_g.beta[j]) > FLOOR
+
+    def test_clusters_sum_the_curve(self, law_g: Law, known_fit: Any) -> None:
+        frame = law_g.frame.assign(cluster=np.arange(len(law_g.frame)) // 4)
+        clustered = fit(
+            frame, estimator(G_TIED, Q_WRONG_ARM1), known=G_TIED, id="cluster", covariates=["W"]
+        )
+        for name, estimate in clustered.estimates.items():
+            curve = np.asarray(known_fit[name].influence_curve)
+            sums = np.bincount(frame["cluster"].to_numpy(), weights=curve)
+            n, clusters = curve.size, sums.size
+            expected = np.sqrt(np.sum(sums**2) / n**2 * clusters / (clusters - 1))
+            assert estimate.psi == pytest.approx(known_fit[name].psi, abs=1e-14)
+            assert estimate.std_error == pytest.approx(expected, rel=1e-6)
+            assert estimate.std_error != pytest.approx(known_fit[name].std_error, rel=1e-3)
+
+    def test_repeats_fit_and_read_experimental(self) -> None:
+        result = law_p_fit(law_p(600, LAW_P_SEED), cross_fit=True, n_folds=3, repeats=2)
+        assert len(result.repeats) == 2
+        for estimate in result.estimates.values():
+            assert np.isfinite(estimate.psi)
+            assert estimate.inference == "influence_curve"
+            assert estimate.support.label == "experimental"
+
+    def test_the_bootstrap_reads_the_status_note(self) -> None:
+        from cleverly._inference_status import STATUS_RECORDS
+        from cleverly.inference.influence import bootstrap_line
+
+        frame = law_p(600, LAW_P_SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                law_p_estimator(n_bootstrap=4)
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+        note = STATUS_RECORDS["reduced_regression_plugin"].bootstrap_note
+        for estimate in result.estimates.values():
+            assert estimate.inference == "reduced_regression_plugin"
+            assert estimate.support.label == "experimental"
+            assert estimate.bootstrap is not None
+            assert f"range [{estimate.bootstrap.ci[0]:.5g}" in bootstrap_line(estimate)
+            assert bootstrap_line(estimate).endswith(f"({note})")
+
+    def test_randomized_reads_its_mechanism(self) -> None:
+        """Declared probabilities read known; without them the interval is withheld."""
+        frame = law_p(600, LAW_P_SEED)
+        known = law_p_fit(frame, randomized=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            estimated = (
+                law_p_estimator(randomized=True)
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+        assert {e.inference for e in known.estimates.values()} == {"influence_curve"}
+        assert {e.inference for e in estimated.estimates.values()} == {"reduced_regression_plugin"}
+        for name, estimate in known.estimates.items():
+            assert estimate.support.label == "experimental"
+            assert estimate.psi != pytest.approx(estimated[name].psi, abs=1e-6)
+
+    def test_a_continuous_outcome_with_q_bounds_fits(self) -> None:
+        from sklearn.linear_model import LinearRegression
+
+        frame = law_p(600, LAW_P_SEED)
+        noise = np.random.default_rng(1).normal(scale=0.3, size=len(frame))
+        frame = frame.assign(Y=frame["Y"] + noise)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                law_p_estimator(q_bounds=(-1.5, 2.5), outcome_learner=LinearRegression())
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+        assert getattr(result.nuisance.reduced, "n_terms", None) == 2
+        for estimate in result.estimates.values():
+            assert np.isfinite(estimate.psi) and np.isfinite(estimate.plugin_std_error)
+            assert estimate.inference == "reduced_regression_plugin"
+            assert estimate.support.label == "experimental"
+
+
+def _truncation_estimator(kind: str, **options: Any) -> Any:
+    if kind == "drtmle":
+        return law_p_estimator(**options)
+    scale: Literal["difference", "log_ratio"] = (
+        "log_ratio" if kind == "tmle_log_ratio" else "difference"
+    )
+    return TMLE(
+        outcome_learner=OffsetLogistic(columns=(0, 1)),
+        treatment_learner=CubicLogistic(),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+        effect_modification=EffectModification(Linear(["W1"]), Modifiers(["W1"]), scale),
+        **options,
+    )
+
+
+@pytest.mark.parametrize("kind", ["tmle_difference", "tmle_log_ratio", "drtmle"])
+def test_each_truncation_row_equals_a_refit_at_its_bound(kind: str) -> None:
+    """Plan 4.3: the replay reuses the cached nuisances, and a DR-TMLE replay refits the
+    reductions per bound, so every row is the fit at that bound; the 0.1 bound binds."""
+    frame = law_p(1000, LAW_P_SEED)
+
+    def fitted(bound: float) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            est = _truncation_estimator(kind, g_bounds=(bound, 1.0 - bound))
+            return est.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"]).single()
+
+    result = fitted(0.01)
+    curve = result.diagnostics.truncation_curve(bounds=[0.05, 0.1]).to_frame()
+    for bound in (0.05, 0.1):
+        rows = curve.loc[curve["bound"] == bound]
+        values = dict(zip(rows["estimand"], rows["psi"], strict=True))
+        refit = fitted(bound)
+        for name, estimate in refit.estimates.items():
+            assert values[name] == pytest.approx(estimate.psi, abs=1e-10)
+    bound = curve.loc[curve["bound"] == 0.1]
+    moved = np.abs(bound["psi"].to_numpy() - bound["fitted_psi"].to_numpy())
+    assert float(moved.max()) > 1e-5
