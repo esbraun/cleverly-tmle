@@ -3,8 +3,8 @@
 This study checks `refute(result, sample_limit=m)`, which refutes a sample of a fit's units
 instead of all of them. The call draws `m` of the fit's `n` independent units without replacement,
 refits the stored estimator on them, and runs every test on that sampled baseline as on any fit of
-`m` units. The [sampled refutation](../validation-methods.md#refuting-a-sample-of-the-units)
-section of the validation reference defines the call.
+`m` units. The "Refuting a sample of the units" part of the
+[refutation operations](../validation-methods.md#refutation-operations) section defines the call.
 
 Under i.i.d. units the sampled verdict has exactly the distribution of the full-data verdict at
 `n = m`, whatever `m/n`. The argument is exact: a simple random sample of `m` i.i.d. units is
