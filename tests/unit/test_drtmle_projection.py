@@ -595,7 +595,12 @@ class TestTheMultiArmPair:
 
 
 class TestTheStudyAvailability:
-    def _contrast(self, scale: str, frame: pd.DataFrame | None = None, **design: Any) -> Any:
+    def _contrast(
+        self,
+        scale: Literal["difference", "log_ratio"],
+        frame: pd.DataFrame | None = None,
+        **design: Any,
+    ) -> Any:
         study = CausalStudy(
             law.frame() if frame is None else frame,
             design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), **design),
@@ -683,6 +688,72 @@ class TestTheCorrectionCheck:
             assert row.reported == pytest.approx(expected, rel=1e-12)
             assert row.label.endswith(f"[{row.term}]")
 
+    @pytest.mark.parametrize("arms", [2, 3])
+    def test_each_row_reads_its_own_stored_score(self, arms: int) -> None:
+        """``_term_rows`` pairs each ``(arm, term)`` with its own column of the stored scores.
+
+        After convergence every stored score is about zero, so a swapped index passes every
+        fit.  Here the stored scores are ``1, 2, ..., K p`` and each arm's term-``j``
+        correction is the constant its column should hold: equation (10), and the two-arm
+        tilt, store term-major (``j K + k``); the armwise tilt above two arms stores each arm's
+        ``p`` columns together (``k p + j``).  With ``p = 2`` the layouts disagree at both
+        ``K``, so either index swapped misreads a row.
+        """
+        from types import SimpleNamespace
+
+        from cleverly.validation.drtmle import _term_rows
+
+        n, p, terms = 4, 2, ("(intercept)", "W1")
+        levels = tuple(float(a) for a in range(arms))
+        stored = np.arange(1.0, arms * p + 1.0)
+
+        def column(index: int) -> np.ndarray:
+            return np.full(n, stored[index])
+
+        g_index = (lambda j, k: j * arms + k) if arms == 2 else (lambda j, k: k * p + j)
+        parts = SimpleNamespace(
+            guard=("Q", "g"),
+            d_g={
+                a: np.column_stack([column(g_index(j, k)) for j in range(p)])
+                for k, a in enumerate(levels)
+            },
+            d_q={
+                a: np.column_stack([column(j * arms + k) for j in range(p)])
+                for k, a in enumerate(levels)
+            },
+            clip_bias={a: np.zeros((n, p)) for a in levels},
+        )
+        propensity = SimpleNamespace(
+            n_arms=arms,
+            simplex=True,
+            truncate=lambda bounds: SimpleNamespace(clipped=np.zeros(n, dtype=bool)),
+        )
+        reduction = SimpleNamespace(
+            reduced=SimpleNamespace(arms=levels, n_terms=p, gr1=np.full((n, arms), 0.5)),
+            bounds=(0.01, 0.99),
+            score=stored,
+        )
+        rows = _term_rows(
+            0,
+            SimpleNamespace(arm_label=lambda arm: f"a{arm:g}"),
+            SimpleNamespace(
+                effect_modification=SimpleNamespace(terms=terms), propensity=propensity
+            ),
+            reduction,
+            SimpleNamespace(score=stored),
+            parts,
+            weights=np.ones(n),
+            scale=1.0,
+            clipped=0,
+            margin=0.5,
+        )
+        assert len(rows) == 2 * arms * p
+        assert {(row.arm, row.term, row.equation) for row in rows} == {
+            (a, t, e) for a in levels for t in terms for e in ("D*_g", "D*_Q")
+        }
+        for row in rows:
+            assert row.stored == row.reported, (row.arm, row.term, row.equation)
+
 
 class TestTheCurve:
     """An effect curve of a DR-TMLE projection: its corrections and truncation rows route to
@@ -704,6 +775,26 @@ class TestTheCurve:
         routed = curve.diagnostics.corrections()
         assert routed.rows == known_fit.diagnostics.corrections().rows
         assert len(routed.rows) == 8
+
+    def test_an_empty_guard_curve_has_no_corrections_row(self, law_g: Law) -> None:
+        """``guard=()`` solves no correction equation, so the curve's row is the fit's.
+
+        The fit's ``corrections`` row is not applicable; the curve, which routes to it, says
+        the same rather than advertising a row that raises when called.
+        """
+        result = fit(law_g.frame, estimator(G_TIED, Q_WRONG_ARM1, guard=()), known=G_TIED)
+        curve = result.effect_curve()
+        assert curve.fitted_method == "drtmle"
+        mine = {row.operation: row for row in curve.diagnostics.capabilities}["corrections"]
+        theirs = {row.operation: row for row in result.diagnostics.capabilities}["corrections"]
+        assert not mine.available and not theirs.available
+        assert mine.status == theirs.status
+        assert mine.refusal is not None and theirs.refusal is not None
+        assert mine.refusal.condition == theirs.refusal.condition
+        assert "subtracts no correction term" in mine.refusal.condition
+        for target in (curve.diagnostics, result.diagnostics):
+            with pytest.raises(CapabilityError, match="subtracts no correction term"):
+                target.corrections()
 
     def test_the_tmle_curve_keeps_its_corrections_text(self, law_g: Law) -> None:
         dgp = Misspecified(G_TIED, Q_WRONG_ARM1)
@@ -740,12 +831,23 @@ class TestTheOpenedPaths:
             covariates=["W"],
         )
         copies = fit(duplicated, estimator(G_TIED, Q_WRONG_ARM1), known=G_TIED, covariates=["W"])
+        weight = frame["wt"].to_numpy()
+        # The first copy of each row; every copy carries the same curve value.
+        first = np.r_[0, np.cumsum(weight.astype(int))[:-1]]
         for j, term in enumerate(TERMS):
             name = f"cate_projection[{term}]"
-            # To the alternation's stopping tolerance: the two fits stop at different rounds.
-            assert weighted[name].psi == pytest.approx(copies[name].psi, abs=1e-7)
+            assert weighted[name].psi == pytest.approx(copies[name].psi, abs=1e-12)
             # The weights move the target, so the equality is not the unweighted truth again.
             assert abs(weighted[name].psi - law_g.beta[j]) > FLOOR
+            # A weighted row's curve is its copies' value times its weight, on the scale of
+            # the weighted fit's n rather than the duplicated table's.
+            expected = (
+                np.asarray(copies[name].influence_curve)[first]
+                * weight
+                * len(frame)
+                / len(duplicated)
+            )
+            np.testing.assert_allclose(weighted[name].influence_curve, expected, atol=1e-12)
 
     def test_clusters_sum_the_curve(self, law_g: Law, known_fit: Any) -> None:
         frame = law_g.frame.assign(cluster=np.arange(len(law_g.frame)) // 4)

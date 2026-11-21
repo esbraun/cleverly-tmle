@@ -496,6 +496,9 @@ _CURVE_TRUNCATION_ROUTED = _capability(
 )
 
 
+#: Why a DR-TMLE fit with ``guard=()``, and its curve, have no ``corrections`` row.
+_NO_CORRECTION_TERM = "the fitted DR-TMLE guard subtracts no correction term"
+
 #: The ``corrections`` row of a DR-TMLE projection curve, which reads the producing fit's.
 _CURVE_CORRECTIONS_ROUTED = _capability(
     "corrections",
@@ -1173,8 +1176,21 @@ def _curve_fit_wide_rules(
             continue
         if row.operation == "corrections" and method == "drtmle":
             # A DR-TMLE projection solves the correction equations per arm and term, so its
-            # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).
-            resolved.append(_CURVE_CORRECTIONS_ROUTED)
+            # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).  A fit with
+            # guard=() solves none, and the curve's row says what the fit's row says.
+            fit = getattr(result, "fit", None)
+            routed = _CURVE_CORRECTIONS_ROUTED
+            if fit is not None and not getattr(fit, "solved_corrections", False):
+                routed = replace(
+                    routed,
+                    available=False,
+                    status=AssessmentStatus.NOT_APPLICABLE,
+                    refusal=Refusal(
+                        RefusalReason.INVALID_DECLARATION,
+                        _NO_CORRECTION_TERM,
+                    ),
+                )
+            resolved.append(routed)
             continue
         rule = rules.get(row.operation)
         refusal = None if rule is None or not row.available else rule(result)
@@ -1357,7 +1373,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             status=AssessmentStatus.NOT_APPLICABLE,
             refusal=Refusal(
                 RefusalReason.INVALID_DECLARATION,
-                "the fitted DR-TMLE guard subtracts no correction term"
+                _NO_CORRECTION_TERM
                 if _method(result) == "drtmle"
                 else "the fitted method does not use the correction system",
             ),

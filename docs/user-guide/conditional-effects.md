@@ -209,13 +209,14 @@ bound was hit).
 With `model=` declared, `method="ep"` estimates the same projection as the default fit, without
 intervals, so the default fit is the better choice there.
 
-`method="drtmle"` also fits the projection on the difference scale. It adds a step that keeps the
-estimate on target when the treatment model is wrong, by fitting extra regressions on the fitted
-treatment probabilities. When you pass the true treatment probabilities, as in a trial with
-`treatment_probabilities=`, it reports intervals, and these can be narrower than the default fit's
-when the outcome model is wrong. With estimated treatment probabilities it reports the estimates
-without intervals, because its error can then depend on the treatment model's error in a way no
-check on the data can rule out. The [reference page](../technical-reference/conditional-effects.md#the-dr-tmle-projection)
+`method="drtmle"` also fits the projection on the difference scale. Like the default fit, its
+estimate is on target when either the outcome model or the treatment model is right. It adds extra
+regressions on the fitted treatment probabilities and outcome predictions, which aim to keep the
+interval valid when one of the two models is wrong. It reports intervals only when you pass the
+true treatment probabilities, as in a trial with `treatment_probabilities=`; those intervals stay
+valid when the outcome model is wrong, and they can be narrower than the default fit's. With
+estimated treatment probabilities it reports the estimates without intervals, because its error
+can then depend on the treatment model's error in a way no check on the data can rule out. The [reference page](../technical-reference/conditional-effects.md#the-dr-tmle-projection)
 gives the conditions and the cases it refuses.
 
 ## Check a score fitted elsewhere
