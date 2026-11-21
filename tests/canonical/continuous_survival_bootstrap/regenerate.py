@@ -47,12 +47,17 @@ they are committed.  At this size the readings are a screen:
   treated arm does not cover, read at that counterfactual arm by the interaction Cox model, with
   tied copies of an event unit amplifying the jump.  Over all draws 27 of 24,000 refits failed
   (0.11%).  The failure rule predicts that 3,200 fits lose more than 32 with probability 0.78.
+* The owner adopted the jump bound on 2026-11-20: the engine now scales such a jump to sum to
+  1 - 1e-8, keeping each cause's share, in every fit and refit, and records it
+  (``jump_bound_share``, ``bootstrap_jump_bounded``) and labels the fit experimental.  Refitted
+  under it, draws 38 and 45 lose no refit; the pilot's failure line was read before the bound
+  and is stale.
 
 The declared run is refused today on three lines: the pilot is short (120 of 400 in-sample draws),
 the failure rule, and the 9 gated rows below plug-in 0.90.  The 400-draw extension (about 280 more
-fits of 201, roughly 100 CPU-h) must read clean on all three before the run, and it waits for the
-owner's decision on how the engine treats the combined jump, which can change both the failures
-and the fits.
+fits of 201, roughly 100 CPU-h) must read clean on all three before the run.  It runs under the
+jump bound, so its draws are fitted by the engine that will run the study, and its failure line
+reads the refits that still fail (the bound leaves the survival-underflow refusal in place).
 
 Budget.  At the pilot's median seconds per fit on one thread (1.34 s in sample, timed while the
 machine was shared), 3,200 replicates of 501 fits cost about 600 CPU-h, local.

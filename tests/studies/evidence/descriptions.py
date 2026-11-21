@@ -12124,3 +12124,143 @@ for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
                 f"clusters): {_fcfv_arm_words}",
                 _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
             )
+
+
+#: ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` (X54 parts (a) to
+#: (c)): the interval floor of each fit family and the part (c) comparison of two small-sample
+#: constructions with the shipped interval. Mirrored from ``tests/studies/few_cluster_floor_tmle.py``
+#: and ``few_cluster_floor_ltmle.py``; a superset of their grids, so a cell either study publishes
+#: has an entry, and a key ``clustered-few-cluster-tmle`` already describes keeps its text.
+_FLOOR_TMLE_SLUG = "few-cluster-floor-tmle"
+_FLOOR_LTMLE_SLUG = "few-cluster-floor-cross-fitted-ltmle"
+STUDY_SCENARIOS[(_FLOOR_TMLE_SLUG, "floor_unequal_informative_j10")] = (
+    "10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on "
+    "one node with parametric learners, the shipped report"
+)
+STUDY_SCENARIOS[(_FLOOR_LTMLE_SLUG, "floor_equal40_j10")] = (
+    "10 clusters of 40 units on the end-of-study longitudinal law, an LTMLE with five "
+    "whole-cluster folds capped at the cluster count and parametric learners, the shipped report"
+)
+PROPERTIES["few_cluster_candidate"] = (
+    "a small-sample construction, Wang et al.'s inflation or the delete-one-cluster jackknife, "
+    "is not worse than the shipped interval on the same draws, read from 2,000 draws per cell"
+)
+PROPERTIES["few_cluster_candidate_pooled"] = (
+    "the same comparison pooled over every cell of one configuration from the count where the "
+    "candidate could be admitted"
+)
+_FLOOR_FITS = {
+    "tmle_in_sample_known": "in-sample TMLE, propensity declared known",
+    "tmle_in_sample_estimated": "in-sample TMLE, propensity a main-terms GLM",
+    "tmle_stacked_known": "stacked TMLE with min(5, J) folds, propensity declared known",
+    "tmle_stacked_estimated": "stacked TMLE with min(5, J) folds, propensity a main-terms GLM",
+    "tmle_stacked_d5_known": (
+        "stacked TMLE with three pure-noise covariates added, propensity declared known"
+    ),
+    "tmle_stacked_d5_estimated": (
+        "stacked TMLE with three pure-noise covariates added, propensity a main-terms GLM"
+    ),
+    "tmle_fold_evaluated_known": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity declared known"
+    ),
+    "tmle_fold_evaluated_estimated": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity a main-terms GLM"
+    ),
+    "drtmle_known": "cross-fitted DR-TMLE with foldwise reduced regressions, mechanism known",
+    "ltmle_in_sample": "in-sample LTMLE on one node",
+    "ltmle_cross_fitted": "LTMLE with five whole-cluster folds capped at J",
+}
+_FLOOR_SIZES = {
+    "equal10": "clusters of 10 rows",
+    "unequal_informative": "clusters of size uniform on 2 to 18, the size in the outcome",
+    "equal40": "clusters of 40 units",
+    "unequal40": "clusters of size uniform on 10 to 70",
+}
+_FLOOR_POSITIVE = (
+    "the exact 99% lower end of all-draw coverage, withheld and lost draws counted as misses, "
+    "at least 0.90, and bias inside the margin"
+)
+_FLOOR_ARMS = {
+    "t_reference": ("the shipped interval, t with J - 2 degrees of freedom", _FLOOR_POSITIVE),
+    "iid_t_control": (
+        "the same point and t quantile with the IID row standard error",
+        "on the shown draws, the 99% upper end of the paired ratio of mean IID SE to mean "
+        "cluster SE below 0.80, and the positive arm's shown-only SE-ratio upper end at most 1.20",
+    ),
+    "normal_reference": (
+        "the cluster standard error on the normal reference",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_1_reference": (
+        "the cluster standard error on t with J - 1 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_2_reference": (
+        "the fold-evaluated standard error on t with J - 2 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "wang_inflated": (
+        "Wang et al.'s inflation J / (J - p) of the cluster variance on t with J - p degrees of "
+        "freedom, every draw",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+}
+_FLOOR_CANDIDATE_ARMS = {
+    "wang_inflated": (
+        "Wang et al.'s inflated interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_wang_inflated": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+    "cluster_jackknife": (
+        "the delete-one-cluster jackknife interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_cluster_jackknife": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+}
+for _floor_fit, _floor_fit_words in _FLOOR_FITS.items():
+    for _floor_size, _floor_size_words in _FLOOR_SIZES.items():
+        for _floor_j in (*range(3, 21), 30, 39):
+            _floor_where = f"{_floor_fit_words}, {_floor_j} {_floor_size_words}"
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_ARMS.items():
+                CELLS.setdefault(
+                    (
+                        "few_cluster_reference",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    ),
+                    (f"{_floor_where}: {_floor_words}", _floor_required),
+                )
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_CANDIDATE_ARMS.items():
+                CELLS[
+                    (
+                        "few_cluster_candidate",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    )
+                ] = (f"{_floor_where}: {_floor_words}", _floor_required)
+    for _floor_candidate in ("wang_inflated", "cluster_jackknife"):
+        CELLS[("few_cluster_candidate_pooled", f"{_floor_fit}__{_floor_candidate}")] = (
+            f"{_floor_fit_words}: {_FLOOR_CANDIDATE_ARMS[_floor_candidate][0]}, pooled over every "
+            "law and count from the candidate's admissibility count",
+            "the 99% lower end of the pooled paired coverage gain at least -0.01",
+        )
+
+#: The one-node in-sample ``LTMLE`` primaries of ``clustered-few-cluster-tmle`` and
+#: ``few-cluster-floor-tmle`` assign one treatment, so their plans read as one decision, not
+#: as "both times" and "neither time" of the two-node panels (X54 implementation review m3).
+for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
+    STUDY_ESTIMANDS.update(
+        {
+            (_one_node_slug, "ey_regimen[always]"): "mean outcome under the plan treat",
+            (_one_node_slug, "ey_regimen[never]"): "mean outcome under the plan do not treat",
+            (_one_node_slug, "ate_regimen[always vs never]"): (
+                'difference in mean outcome between the plans "treat" against "do not treat"'
+            ),
+        }
+    )

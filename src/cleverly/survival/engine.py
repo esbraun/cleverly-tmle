@@ -38,6 +38,7 @@ from ..exceptions import (
     ConvergenceWarning,
     DataError,
     MethodConfigurationError,
+    PositivityWarning,
 )
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
@@ -108,6 +109,96 @@ def _time_text(t: float) -> str:
     return f"{t:g}"
 
 
+def _names(labels: Sequence[str]) -> str:
+    quoted = [repr(label) for label in labels]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " and " + quoted[-1]
+
+
+def _bound_text() -> str:
+    """:data:`~._chunked.JUMP_BOUND` as ``1e-8``."""
+    return f"{_chunked.JUMP_BOUND:g}".replace("e-0", "e-")
+
+
+def jump_bound_underflow_text(pairs: int, times: int) -> str:
+    """What the underflow refusal adds when the jump bound acted in the fit.
+
+    Parameters
+    ----------
+    pairs : int
+        The (unit, arm) pairs with a cell the bound scaled.
+    times : int
+        The most grid times the bound scaled for one pair.
+
+    Returns
+    -------
+    str
+        The sentences.
+    """
+    noun = "pair" if pairs == 1 else "pairs"
+    many = "time" if times == 1 else "times"
+    return (
+        f"The hazard model also put a combined jump of one or more at {pairs} (unit, arm) "
+        f"{noun}, at up to {times} grid {many} for one pair; the engine scaled each to "
+        f"1 - {_bound_text()}, which multiplies that pair's survival by about {_bound_text()} "
+        "at every such time. With distinct event times such jumps come from extrapolation to "
+        "covariates outside an arm's range, a positivity signal: check the arms' overlap (the "
+        "fitted treatment probabilities), or use a hazard library without the treatment "
+        "interaction."
+    )
+
+
+def jump_bound_text(
+    per_arm: Sequence[int],
+    at_risk: int,
+    arms: Sequence[str],
+    causes: Sequence[Sequence[str]],
+) -> str:
+    """The warning of a fit whose initial hazards the jump bound scaled.
+
+    Parameters
+    ----------
+    per_arm : sequence of int
+        Per arm code, the units with a cell the bound scaled at that arm.
+    at_risk : int
+        The (unit, arm) pairs with such a cell at the received arm while the unit is at risk.
+    arms : sequence of str
+        The arm labels, by arm code.
+    causes : sequence of sequence of str
+        Per arm code, the causes that jumped at a scaled cell.
+
+    Returns
+    -------
+    str
+        The warning's text.
+    """
+    total = int(sum(per_arm))
+    parts = [
+        f"{int(count)} at arm {arms[a]!r} "
+        f"(cause{'s' if len(causes[a]) > 1 else ''} {_names(causes[a])})"
+        for a, count in enumerate(per_arm)
+        if count
+    ]
+    pair = "pair" if total == 1 else "pairs"
+    text = (
+        f"The initial hazard fit put a combined jump of one or more at {total} (unit, arm) "
+        f"{pair}: {', '.join(parts)}. Under a Cox model a unit's jump is its risk score times "
+        "the events at that time over the summed scores of everyone at risk, so with distinct "
+        "event times it reaches one only where the model extrapolates: usually at the unit's "
+        "counterfactual arm, for covariates outside the range that arm's units cover. That is "
+        f"a positivity signal. The engine scaled each such jump to 1 - {_bound_text()}, "
+        "keeping each cause's share, and the fit's estimates read experimental."
+    )
+    if at_risk:
+        text += (
+            f" {at_risk} of the pairs had such a jump at the received arm while at risk, which "
+            "needs tied event times."
+        )
+    return text + (
+        " Check the arms' overlap (the fitted treatment probabilities), use a hazard library "
+        "without the treatment interaction, or choose earlier target times."
+    )
+
+
 @dataclass(frozen=True)
 class PropensitySelection:
     """The cross-validated choice of a treatment model.
@@ -160,6 +251,17 @@ class ContinuousSurvivalRecord:
         :math:`\\pi S_c(u_M^-)` at the grid's end is below the floor: the counterfactual
         reach of the positivity bound.  The grid ends at the last target time, or at the last
         restricted horizon when that is later.
+    jump_bound_share : float
+        The share of (unit, arm) pairs, over both arms, with a grid time at which the initial
+        cause hazard jumps summed to one or more, and the engine scaled them to sum to
+        :math:`1 - 10^{-8}`, each cause keeping its share (the jump bound).
+        Under a Cox model with distinct event times such a cell is an extrapolation: a unit read
+        at its counterfactual arm, or after it left follow-up.  A fit with a nonzero share
+        reads experimental and warns.
+    jump_bound_at_risk_share : float
+        The share of (unit, arm) pairs, over both arms, with such a cell at the unit's received
+        arm while it is at risk, which under a Cox model needs tied event times; the rest of
+        :attr:`jump_bound_share` is extrapolation.
     frozen_share : float
         The share of (unit, arm) pairs, over both arms, that the walk held for at least one
         trial step because that step would have taken their survival at the grid's end below
@@ -218,6 +320,8 @@ class ContinuousSurvivalRecord:
     initial_psi: tuple[float, ...]
     bounded_share: float
     last_time_floor_share: float
+    jump_bound_share: float
+    jump_bound_at_risk_share: float
     frozen_share: float
     off_grid_share: float
     cross_fitted: bool
@@ -966,14 +1070,17 @@ class ContinuousSurvivalTMLE:
         with _suppressed():
             # A resample routinely trips convergence and positivity warnings; one per replicate
             # would bury the fit's own, and none of them belongs to the fit.
-            outcomes = map_parallel(_drawn_replicate, payloads, n_jobs=self._bootstrap_workers())
+            # The jump bound's warning is one of them; each replicate says whether the bound
+            # acted, and the count joins the bootstrap's record.
+            drawn = map_parallel(_drawn_replicate, payloads, n_jobs=self._bootstrap_workers())
         return attach_bootstrap(
             result,
-            outcomes,
+            [(values, reason) for values, reason, _ in drawn],
             interval=self.bootstrap_interval,
             simultaneous=self.simultaneous,
             alpha=self.alpha,
             cross_fitted=self.cross_fit,
+            jump_bounded=sum(bounded for _, _, bounded in drawn),
         )
 
     def _memory_shape(
@@ -1421,8 +1528,23 @@ class ContinuousSurvivalTMLE:
         lowest = np.empty(n)
         jumping = np.zeros(grid.size, dtype=bool)
         combined = low_survival = False
+        # The (unit, arm) pairs with a cell the jump bound scaled, those with such a cell at the
+        # received arm while the unit is at risk, and per arm and cause whether the cause jumped
+        # at a scaled cell.
+        bounded_pairs = np.zeros((2, n), dtype=bool)
+        bounded_at_risk = np.zeros((2, n), dtype=bool)
+        bounded_causes = np.zeros((2, len(codes)), dtype=bool)
+        bounded_times = 0
         for k, (lo, hi) in enumerate(blocks(n, block)):
-            dlam = hazards.jumps(lo, hi)
+            dlam, scaled = hazards.bounded_jumps(lo, hi)
+            if scaled is not None:
+                bounded_pairs[:, lo:hi] = scaled.any(axis=-1)
+                bounded_times = max(bounded_times, int(scaled.sum(axis=-1).max()))
+                factual = A[None, lo:hi, None] == np.arange(2)[:, None, None]
+                followed = T[None, lo:hi, None] >= grid[None, None, :]
+                bounded_at_risk[:, lo:hi] = (scaled & factual & followed).any(axis=-1)
+                bounded_causes |= ((dlam > 0) & scaled[:, None]).any(axis=(2, 3))
+                del factual, followed, scaled
             if (
                 k == 0
                 and hazards.calls_model
@@ -1444,11 +1566,9 @@ class ContinuousSurvivalTMLE:
                 )
             total = dlam.sum(axis=1)
             # Both checks read the fitted hazards on these data, so a draw that trips one is a
-            # data failure (recorded by a study), not an unsupported composition.  A Cox jump is
-            # s_i d / sum of the risk set's scores; with one event at a time it is below one for
-            # any unit in the risk set at its received arm, so the combined-jump check trips
-            # only on an extrapolated cell (a counterfactual arm, or a time after the unit left
-            # follow-up), or on tied events, as a bootstrap resample's copies make.
+            # data failure (recorded by a study), not an unsupported composition.  The jump
+            # bound has scaled every finite combined jump of one or more, so only an infinite
+            # one reaches one here.
             combined = combined or bool(np.any(total >= 1.0))
             survival = np.cumprod(1.0 - total, axis=-1)
             low_survival = low_survival or bool(np.any(survival[..., -1] < SURVIVAL_UNDERFLOW))
@@ -1470,23 +1590,35 @@ class ContinuousSurvivalTMLE:
             del retention, retention_before, product, at_targets
         if combined:
             raise DataError(
-                "An initial hazard fit puts a combined jump of one or more at some time, so the "
-                "product-limit survival is not a probability there. A unit's jump is its risk "
-                "score times the baseline jump, so it reaches one only where the hazard model "
-                "extrapolates: usually at the unit's counterfactual arm, for covariates outside "
-                "the range that arm's units cover, where the unit's score exceeds the summed "
-                "scores of everyone at risk. Tied event times, as in a bootstrap resample, "
-                "multiply the baseline jump. Check the arms' overlap (the fitted treatment "
-                "probabilities), or choose earlier target times or restricted horizons, or a "
-                "smaller hazard library."
+                "An initial hazard fit puts an infinite hazard jump at some time, so the "
+                "product-limit survival is not defined there and no bound can keep a share of "
+                "each cause. Check the hazard learner's cumulative_hazard for overflow, or "
+                "choose earlier target times or restricted horizons, or a smaller hazard library."
             )
         if low_survival:
-            raise DataError(
+            message = (
                 f"The initial survival falls below {SURVIVAL_UNDERFLOW:.0e} before the last time "
                 "a target reads (the last target time or restricted horizon) for some unit and "
                 "arm, beyond the range in which double precision holds the clever covariate's "
                 "conditional risks. Choose an earlier last target time or restricted horizon, "
                 "or a hazard library that does not extrapolate so far."
+            )
+            if bounded_pairs.any():
+                # A refused fit returns nothing to warn about, so the refusal names the bound.
+                message += " " + jump_bound_underflow_text(int(bounded_pairs.sum()), bounded_times)
+            raise DataError(message)
+        if bounded_pairs.any():
+            _warn(
+                jump_bound_text(
+                    [int(count) for count in bounded_pairs.sum(axis=1)],
+                    int(bounded_at_risk.sum()),
+                    arm_labels,
+                    tuple(
+                        tuple(causes[code] for j, code in enumerate(codes) if bounded_causes[a, j])
+                        for a in (0, 1)
+                    ),
+                ),
+                PositivityWarning,
             )
         observed = T[D > 0]
         kept = walk_grid(grid, jumping, observed, target_index)
@@ -1513,6 +1645,8 @@ class ContinuousSurvivalTMLE:
             kept=kept,
             block=block,
             lowest=lowest,
+            jump_bounded=bounded_pairs if bounded_pairs.any() else None,
+            jump_bound_at_risk=int(bounded_at_risk.sum()),
             # Risks first, then restricted means, in the order of the weight rows.
             shares=tuple(
                 float(np.mean(observed <= time))
@@ -1546,6 +1680,7 @@ class ContinuousSurvivalTMLE:
         walk runs and never what it returns.
         """
         n, A, grid = initial.n, initial.A, initial.grid
+        bounded_pairs = 0 if initial.jump_bounded is None else int(initial.jump_bounded.sum())
         plan = _FitPlan(initial, floor)
         cutoff = default_cutoff(n) if self.tol is None else float(self.tol)
         rng = np.random.default_rng()
@@ -1579,6 +1714,7 @@ class ContinuousSurvivalTMLE:
             resident=resident_blocks(plan, self.max_memory_bytes),
             final=final if readers else None,
             n_jobs=plan.shape["n_jobs"],
+            own_floor=initial.jump_bounded,
         )
         result = run.result
         # Only the means and influence curves are read from here on; a walk that kept its one
@@ -1609,6 +1745,8 @@ class ContinuousSurvivalTMLE:
             initial_psi=tuple(float(v) for v in result.initial.psi),
             bounded_share=plan.bounded_share,
             last_time_floor_share=plan.last_time_floor_share,
+            jump_bound_share=bounded_pairs / (2 * n),
+            jump_bound_at_risk_share=initial.jump_bound_at_risk / (2 * n),
             frozen_share=result.frozen_share,
             off_grid_share=off_grid_share,
             cross_fitted=self.cross_fit,
@@ -1636,6 +1774,7 @@ class ContinuousSurvivalTMLE:
                 restricted_horizons=len(restricted),
                 variance_rel_sd=relative_sd,
                 past_last_time=bool(restricted) and max(restricted) > max(self.horizons),
+                jump_bound_pairs=bounded_pairs,
             )
 
         estimates, covariance = build_estimates(
@@ -1680,8 +1819,11 @@ class _Initial:
     models.  ``kept`` holds the grid positions the walk runs on (the event-support grid), and
     ``block`` the units per block.  ``lowest`` is each unit's smallest
     :math:`\\hat\\pi(a \\mid L)\\hat S_c(u^- \\mid a, L)` over both arms and the grid, which a
-    truncation curve reads.  ``rng_state`` is the generator state after the nuisance phase,
-    from which every walk's off-grid draws start.
+    truncation curve reads.  ``jump_bounded`` holds the ``(2, n)`` (unit, arm) pairs with a
+    cell the jump bound scaled (:func:`~._chunked.bound_jumps`), ``None`` when it scaled none,
+    and ``jump_bound_at_risk`` how many of them have such a cell at the received arm while the
+    unit is at risk.  ``rng_state`` is the generator state after the nuisance phase, from which
+    every walk's off-grid draws start.
     """
 
     n: int
@@ -1706,6 +1848,8 @@ class _Initial:
     kept: IntArray
     block: int
     lowest: FloatArray
+    jump_bounded: np.ndarray | None
+    jump_bound_at_risk: int
     shares: tuple[float, ...]
     rng_state: Mapping[str, Any]
     plan: FoldPlan
@@ -2342,7 +2486,7 @@ def resample(data: Any, index: IntArray) -> Any:
 
 def _drawn_replicate(
     estimator: ContinuousSurvivalTMLE, data: Any, sequence: Any, seed: int
-) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
+) -> tuple[dict[str, tuple[float, float]] | None, str | None, bool]:
     """:func:`_replicate` on the row index that ``sequence`` draws, as the shared bootstrap
     draws it (:func:`~cleverly.inference.bootstrap._bootstrap_draw`)."""
     return _replicate(estimator, data, _replicate_index(data, sequence), seed)
@@ -2359,8 +2503,9 @@ def _replicate_index(data: Any, sequence: Any) -> IntArray:
 
 def _replicate(
     estimator: ContinuousSurvivalTMLE, data: Any, index: IntArray, seed: int
-) -> tuple[dict[str, tuple[float, float]] | None, str | None]:
-    """One bootstrap replicate: each estimate and standard error, or why the refit failed.
+) -> tuple[dict[str, tuple[float, float]] | None, str | None, bool]:
+    """One bootstrap replicate: each estimate and standard error, or why the refit failed, and
+    whether the engine's jump bound acted in the refit.
 
     The failures a resampled fit can legitimately raise are caught and named, so the fit can
     count them and give their reasons; none is redrawn.  Any other exception is a
@@ -2377,16 +2522,20 @@ def _replicate(
             seed=seed,
         )
         fit = estimator._copy(seed)._fit_data(sample, plan=plan)
-    # The engine's refusals on the drawn data (a lost cause or event, a combined jump, an
+    # The engine's refusals on the drawn data (a lost cause or event, an infinite jump, an
     # underflow, a memory refusal) are CleverlyErrors; a singular system in a learner raises
     # LinAlgError, and floating-point signals that a learner turns into errors raise
     # FloatingPointError.  A TypeError, IndexError or any other exception is a defect, and
     # counting it as a failed refit would hide it below the 1% share.
     except (CleverlyError, np.linalg.LinAlgError, FloatingPointError) as error:
         message = str(error).split(". ")[0].strip()
-        return None, f"{type(error).__name__}: {message}" if message else type(error).__name__
+        return (
+            None,
+            f"{type(error).__name__}: {message}" if message else type(error).__name__,
+            False,
+        )
     values = {
         name: (float(estimate.psi), float(estimate.std_error))
         for name, estimate in fit.estimates.items()
     }
-    return values, None
+    return values, None, fit.record.jump_bound_share > 0

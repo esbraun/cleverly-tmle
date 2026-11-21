@@ -73,6 +73,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, Refusal
 from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Static
 from cleverly.learners import make_folds
+from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -1411,6 +1412,108 @@ def fit_few_clusters() -> Any:
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
+def fit_floor_mixed_tmle() -> Any:
+    """In-sample TMLE at its family's floor, 6 clusters: mixed estimate statuses (X54 B1).
+
+    The ATE reads the family floor and keeps ``"influence_curve"``; the arm means keep the
+    default floor of 10 and take ``"few_cluster_estimand_plugin"``.
+    """
+    frame, _ = make_clustered(n=6 * 30, cluster_size=30, seed=7)
+    return (
+        TMLE(**linear_in_sample(estimands=("ate", "ey1", "ey0")))
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
+        .single()
+    )
+
+
+def fit_floor_mixed_ltmle() -> Any:
+    """In-sample LTMLE at its family's floor on its measured design: one binary node, no
+    censoring, 6 clusters. The always-versus-never contrast keeps ``"influence_curve"``; the
+    two means take ``"few_cluster_estimand_plugin"`` (X54 B1)."""
+    rng = np.random.default_rng(11)
+    n = 240
+    w1 = rng.standard_normal(n)
+    a = (rng.random(n) < 1.0 / (1.0 + np.exp(-0.4 * w1))).astype(float)
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(0.3 * w1 + 0.5 * a)))).astype(float)
+    frame = pd.DataFrame({"W1": w1, "A": a, "Y": y, "site": np.arange(n) * 6 // n})
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+    )
+    return estimator.fit(frame, outcome="Y", treatment=["A"], baseline=["W1"], id="site")
+
+
+def _fit_ltmle_jackknife(n_folds: int) -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)`` in 20 clusters of 20 units."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame["site"] = np.arange(len(frame)) // 20
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=n_folds,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    return estimator.fit(
+        frame,
+        outcome="Y",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+        id="site",
+    )
+
+
+def fit_ltmle_jackknife() -> Any:
+    """The in-sample clustered LTMLE fit with the cluster jackknife variance."""
+    return _fit_ltmle_jackknife(1)
+
+
+def fit_ltmle_jackknife_cross_fitted() -> Any:
+    """The clustered LTMLE fit cross-fitted over 5 folds, with the cluster jackknife."""
+    return _fit_ltmle_jackknife(5)
+
+
+def fit_ltmle_jackknife_refit_withheld() -> Any:
+    """Twelve clusters where only cluster 0 treats at the first node, with the jackknife.
+
+    The refit without cluster 0 has no unit that follows ``always`` and raises, so every
+    estimate takes ``"jackknife_refit_plugin"``: the point is kept, the interval withheld
+    (X54 (c), the reachable state of ``TestAWithheldRefit``).
+    """
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame = frame.loc[frame["Y"].notna()].drop(columns=["C1", "C2"]).reset_index(drop=True)
+    frame = frame.iloc[:240].assign(site=np.arange(240) // 20)
+    frame.loc[frame["site"] != 0, "A1"] = 0.0
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            id="site",
+        )
+
+
 def fit_fold_targeted_repeated() -> Any:
     """A fold-targeted, fold-evaluated two-fold fit repeated over two draws.
 
@@ -2607,6 +2710,13 @@ KINDS: dict[str, Kind] = {
     "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
     # The iterated-mean path, clustered: the same rows run on the supplemented horizons.
     "ltmle_boundary_node_iterated": _kind(fit_ltmle_boundary_node_iterated, *_READ, *_POINT),
+    # X54 (c): the clustered LTMLE fit with the cluster jackknife variance. The truncation
+    # replay reads the influence-curve variance at each bound, so its row refuses by name.
+    "ltmle_jackknife": _kind(fit_ltmle_jackknife, *_READ, "refute"),
+    "ltmle_jackknife_cross_fitted": _kind(fit_ltmle_jackknife_cross_fitted, *_READ, "refute"),
+    # A refit that raises makes the jackknife undefined: every estimate withholds its interval.
+    # The point-TMLE jackknife is refused by the registered measurement (few-cluster-floor-tmle).
+    "ltmle_jackknife_refit_withheld": _kind(fit_ltmle_jackknife_refit_withheld, *_READ, "refute"),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -2664,6 +2774,12 @@ KINDS: dict[str, Kind] = {
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
+    # X54 B1: a fit at its family's floor with mixed estimate statuses. The ATE reads the
+    # family floor and the arm means take few_cluster_estimand_plugin; the sweep's default
+    # marginal request reads the ATE, and a request for an arm mean refuses
+    # (test_capability_row_sweep.py::test_a_floor_fit_bounds_the_ate_and_refuses_an_arm_mean).
+    "floor_mixed_tmle": _kind(fit_floor_mixed_tmle, "marginal_bounds", *_ARM),
+    "floor_mixed_ltmle": _kind(fit_floor_mixed_ltmle, *_LIVE),
     # The fold-evaluated report averages over folds, so the E-value reads no ratio interval.
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
@@ -3115,7 +3231,9 @@ MUTATIONS: dict[str, Mutation] = {
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
         frozenset({"incremental", "incremental+missing"}),
-        _RAISED.format("truncation_curve") + r"the propensity g is \*inside\* the estimand",
+        _RAISED.format("truncation_curve")
+        + r"(the propensity g is \*inside\* the estimand|"
+        + r"the truncation curve re-targets the fitted nuisances)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -3137,6 +3255,10 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_jackknife",
+                "ltmle_jackknife_cross_fitted",
+                "ltmle_jackknife_refit_withheld",
+                "floor_mixed_ltmle",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
                 "sdr_mtp_censored",

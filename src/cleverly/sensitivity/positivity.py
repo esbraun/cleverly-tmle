@@ -1394,9 +1394,12 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> Ref
     """
     from ..estimators.drtmle import DRTMLE
     from ..estimators.iptw import OPERATION_REFUSALS
+    from ..inference.cluster_jackknife import JACKKNIFE_TRUNCATION_REFUSAL, jackknife_fit
 
     if getattr(result, "fitted_method", None) == "adaptive_iptw":
         return OPERATION_REFUSALS["truncation_curve"]
+    if jackknife_fit(result):
+        return JACKKNIFE_TRUNCATION_REFUSAL
     if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
         settings = result.estimator._reduction_configuration_refusal(
             result.extra.get("drtmle"), result.nuisance

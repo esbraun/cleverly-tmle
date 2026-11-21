@@ -95,6 +95,7 @@ import numpy as np
 from .._inference_status import (
     CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
+    MEASURED_POINT_ESTIMAND,
     MINIMUM_FOLD_TRAINING_CLUSTERS,
     OUT_OF_RANGE_STATUS,
     InferenceStatus,
@@ -108,8 +109,10 @@ from .._support import (
     band_shape,
     band_support,
     classify_point_fit,
+    point_interval_floor,
     record_fit,
     record_refusal_site,
+    support_for,
 )
 from .._typing import (
     BoolArray,
@@ -129,6 +132,7 @@ from .._typing import (
     TargetingScheme,
 )
 from .._warnings import records_fit
+from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..data.known_mechanism import (
@@ -156,6 +160,7 @@ from ..exceptions import (
     CleverlyError,
     ConvergenceWarning,
     DataError,
+    DataWarning,
     InSampleLearnerWarning,
     MethodConfigurationError,
     PositivityWarning,
@@ -197,6 +202,19 @@ from ..inference.cluster import (
     influence_variance,
     smallest_training_clusters,
     unequal_positive_cluster_mass,
+    unmeasured_estimand_status,
+)
+from ..inference.cluster_jackknife import (
+    CLUSTER_VARIANCES,
+    ClusterVariance,
+    jackknife_estimates,
+    jackknife_family_refusal,
+    jackknife_fold_refusal,
+    jackknife_learner,
+    jackknife_learner_refusal,
+    leave_one_cluster_out,
+    positive_mass_clusters,
+    refit_folds,
 )
 from ..inference.influence import (
     ArmMean,
@@ -313,6 +331,7 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
+from ..utils.parallel import map_parallel
 from ._nuisance import (
     DrawInference,
     KnownPropensity,
@@ -1229,8 +1248,21 @@ class TMLE:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
         it must not assume it is being run from inside a repository.
+    cluster_variance:
+        The variance of a clustered fit's estimates. ``"influence_curve"`` (default) is the
+        cluster-robust variance of the influence curve. ``"jackknife"`` refits the whole
+        estimator once per cluster with that cluster's rows removed, every nuisance refitted
+        and the targeting redone, and reports the delete-one-cluster jackknife variance with
+        the same Student t reference (:mod:`cleverly.inference.cluster_jackknife`). It needs
+        ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
+        :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared treatment
+        mechanism) and one stacked or in-sample split whose every fold holds two clusters,
+        and it is refused otherwise. The fit costs one refit per cluster and builds no
+        simultaneous band. The option is experimental until its validation study is
+        registered.
     random_state, n_jobs:
-        Reproducibility and parallelism.
+        Reproducibility and parallelism. ``n_jobs`` also runs the jackknife refits in
+        parallel.
 
     Notes
     -----
@@ -1267,15 +1299,38 @@ class TMLE:
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and
-            ``"few_cluster_plugin"`` on a fit with fewer than ten clusters with positive
-            weight mass in total or in one baseline stratum. The cluster sizes do not
-            enter, in sample or cross-fitted.
+            ``"few_cluster_plugin"`` on a fit with fewer clusters with positive weight mass,
+            in total or in one baseline stratum, than the fit's interval floor
+            (:meth:`_cluster_interval_floor`). The cluster sizes do not enter, in sample or
+            cross-fitted.
         """
         return cluster_inference_status(
             data.cluster,
             strata=data.strata,
             weights=data.weights if data.is_weighted else None,
+            minimum=self._cluster_interval_floor(data),
         )
+
+    def _cluster_interval_floor(self, data: CausalData) -> int:
+        """The fewest positive-mass clusters from which this fit's interval carries no label.
+
+        The floor of the fit's floor family (:func:`~cleverly._support.point_interval_floor`):
+        in-sample, stacked and fold-evaluated ``TMLE`` each have their own, and cross-fitted
+        foldwise ``DRTMLE`` has one under a declared treatment mechanism only, where its linear
+        remainder vanishes. Every other configuration keeps
+        :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        int
+            The floor.
+        """
+        return point_interval_floor(self, data)
 
     def _summary_facts(self, result: TMLEResult) -> SummaryFacts:
         """The method facts :meth:`TMLEResult.summary` prints for a fit of this estimator.
@@ -1447,6 +1502,7 @@ class TMLE:
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
+        cluster_variance: ClusterVariance = "influence_curve",
     ) -> None:
         if not isinstance(outcome_by_arm, (bool, np.bool_)):
             raise MethodConfigurationError(
@@ -1522,10 +1578,116 @@ class TMLE:
         self.iterate = iterate
         self.random_state = random_state
         self.n_jobs = n_jobs
+        self.cluster_variance = cluster_variance
         self._validate_settings()
 
     def _uses_corrections(self) -> bool:
         return False
+
+    #: The R5 ``{what}`` of each subclass construction the jackknife does not cover.
+    _JACKKNIFE_ENGINES: Final = {
+        "drtmle": "the DR-TMLE reduced regressions, which are fitted on an estimated index",
+        "collaborative_tmle": (
+            "the collaborative propensity selection, which chooses its covariates from the data"
+        ),
+        "adaptive_iptw": (
+            "the adaptive IPTW reduced regression, which is fitted on an estimated index"
+        ),
+    }
+
+    def _jackknife_configuration_refusal(self) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets in the configuration alone.
+
+        Asked at construction and again by the preflight, before any learner. ``None`` under
+        the default variance and for a configuration the jackknife covers.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal naming the first construction the jackknife has no argument for.
+        """
+        if getattr(self, "cluster_variance", "influence_curve") != "jackknife":
+            return None
+        method = self._assessment_method
+        what: str | None = None
+        if method != "tmle":
+            what = self._JACKKNIFE_ENGINES.get(method, f"the {method} construction")
+        elif self.cv_evaluation:
+            what = "a fold-evaluated estimate, whose variance is centred within folds"
+        elif self.targeting_scheme == "fold" and self.cross_fit:
+            what = "fold-specific targeting, whose variance is centred within folds"
+        elif self.repeats != 1:
+            what = "a repeated split, whose median over splits no leave-one-out refit reproduces"
+        elif self.learned_rule is not None:
+            what = "a learned rule, which every refit would learn again"
+        elif self.incremental:
+            what = (
+                "an incremental propensity-score intervention, whose target moves with the "
+                "mechanism"
+            )
+        elif self.effect_modification is not None:
+            what = "an effect-modification projection"
+        if what is not None:
+            return jackknife_learner_refusal(what)
+        # The registered measurement refuses the in-sample family and defers the stacked one
+        # (few-cluster-floor-tmle, X54 part (c)).
+        measured = jackknife_family_refusal("tmle_stacked" if self.cross_fit else "tmle_in_sample")
+        if measured is not None:
+            return measured
+        if self.n_bootstrap:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "cluster_variance='jackknife' and n_bootstrap both replace the influence-curve "
+                "variance, so the fit would report two variances for one interval.",
+                alternative=(
+                    "Choose one variance: n_bootstrap=0, or cluster_variance='influence_curve'."
+                ),
+            )
+        return None
+
+    def _jackknife_data_refusal(self, data: CausalData) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets on ``data``, before any learner.
+
+        It needs clusters, a discrete treatment, and every nuisance the fit uses to be a GLM:
+        the outcome learner always, the treatment learner unless the data declare the
+        mechanism, the missingness learner with a missing outcome or treatment, and the
+        intermediate learner with an intermediate.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal, or ``None`` when the jackknife covers the fit.
+        """
+        if getattr(self, "cluster_variance", "influence_curve") != "jackknife":
+            return None
+        if data.cluster is None:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "cluster_variance='jackknife' leaves out one cluster at a time, and the data "
+                "declare no clusters.",
+                alternative="Pass id= to CausalData, or use the default cluster variance.",
+            )
+        if data.treatment_kind == "vector" or data.is_continuous_treatment:
+            return jackknife_learner_refusal(
+                "a continuous-treatment fit, whose density-ratio nuisance is not a GLM"
+            )
+        roles: list[tuple[str, Any]] = [("outcome", self.outcome_learner)]
+        if data.known_treatment is None:
+            roles.append(("treatment", self.treatment_learner))
+        if data.has_missing_outcome or data.has_missing_treatment:
+            roles.append(("missingness", self.missingness_learner))
+        if data.has_intermediate:
+            roles.append(("intermediate", self.intermediate_learner))
+        for role, learner in roles:
+            if not jackknife_learner(learner):
+                name = "the default library" if learner is None else type(learner).__name__
+                return jackknife_learner_refusal(f"the {role} learner {name}")
+        return None
 
     def _validate_settings(self) -> None:
         check_band_reference(self.band_reference)
@@ -1591,6 +1753,14 @@ class TMLE:
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
         check_rule_bootstrap(getattr(self, "stopping", "relative"), self.n_bootstrap)
+        if self.cluster_variance not in CLUSTER_VARIANCES:
+            raise ValueError(
+                f"cluster_variance must be one of {list(CLUSTER_VARIANCES)}; got "
+                f"{self.cluster_variance!r}"
+            )
+        refusal = self._jackknife_configuration_refusal()
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         declared = [
             name
             for name, value in (
@@ -2963,6 +3133,12 @@ class TMLE:
         :meth:`_refuse_known_compositions` first, and the bound check of
         :meth:`_refuse_moved_known_values` once the targets are resolved.
         """
+        for jackknife_refusal in (
+            self._jackknife_configuration_refusal(),
+            self._jackknife_data_refusal(data),
+        ):
+            if jackknife_refusal is not None:
+                raise CapabilityError.from_refusal(jackknife_refusal)
         self._refuse_vector_compositions(data)
         self._refuse_known_compositions(data)
         self._refuse_mismatched_arm_columns(data)
@@ -3370,6 +3546,15 @@ class TMLE:
             details.append(detail)
 
         estimates = self._combine_repeats(per_repeat)
+        if self.cluster_variance == "jackknife":
+            estimates = self._jackknife(
+                data,
+                estimates,
+                fold_draws[0],
+                draw_seeds[0],
+                intermediate_value=intermediate_value,
+                classification=classification,
+            )
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
             raise DataError(
@@ -3474,6 +3659,7 @@ class TMLE:
             and not has_t_reference(banded)
             and not known_regime_estimates(banded)
             and not out_of_range(banded, self.band_scale)
+            and not any(estimate.jackknife is not None for estimate in banded.values())
         ):
             # A learned-rule fit reports the mean over its splits, which is linear, so the
             # band reads the mean curves as it reads the curves of one split. A learned-rule
@@ -3558,6 +3744,93 @@ class TMLE:
             )
         record_fit(classification, result, source="TMLE._fit_single")
         return result
+
+    def _jackknife(
+        self,
+        data: CausalData,
+        estimates: dict[str, ParameterEstimate],
+        folds: Folds,
+        seed: int,
+        *,
+        intermediate_value: float | None,
+        classification: Any,
+    ) -> dict[str, ParameterEstimate]:
+        """The estimates with the delete-one-cluster jackknife variance.
+
+        Refits the whole estimator once per positive-mass cluster with that cluster's rows
+        removed, on the drawn split less those rows and under the same seed, so no split is
+        redrawn. A refit that raises is recorded with its error, never ignored, and a
+        :class:`~cleverly.exceptions.DataWarning` names the clusters whose refit failed.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data of the full fit.
+        estimates : dict of str to ParameterEstimate
+            The full fit's estimates.
+        folds : Folds
+            The full fit's split.
+        seed : int
+            The full fit's seed.
+        intermediate_value : float or None
+            The level of the intermediate the fit targets.
+        classification : Classification or None
+            The fit's support classification, read for an estimate a failed refit withholds.
+
+        Returns
+        -------
+        dict of str to ParameterEstimate
+            :func:`~cleverly.inference.cluster_jackknife.jackknife_estimates` of the refits.
+        """
+        assert data.cluster is not None
+        weights = data.weights if data.is_weighted else None
+        codes = positive_mass_clusters(data.cluster, weights)
+        if codes.size < 2 or not any(item.supplies_inference for item in estimates.values()):
+            return estimates
+        refitter = copy.copy(self)
+        refitter.cluster_variance = "influence_curve"
+        refitter.simultaneous = False
+        refitter.n_jobs = 1
+        cluster = data.cluster
+
+        def one(code: int) -> tuple[int, dict[str, ParameterEstimate] | None, str]:
+            keep = leave_one_cluster_out(cluster, code)
+            try:
+                with _suppressed():
+                    result = refitter.refit(
+                        data.subset(keep),
+                        intermediate_value=intermediate_value,
+                        frozen_folds=(refit_folds(folds, keep),),
+                        frozen_seeds=(seed,),
+                    )
+            except Exception as error:  # recorded on the estimate, never ignored
+                return code, None, f"{type(error).__name__}: {str(error)[:80]}"
+            return code, dict(result.estimates), ""
+
+        refits = map_parallel(one, [int(code) for code in codes], n_jobs=self.n_jobs)
+        out = jackknife_estimates(
+            estimates,
+            refits,
+            support_of=lambda status: support_for(classification, status),
+        )
+        failed = sorted(
+            {
+                code
+                for item in out.values()
+                if item.jackknife is not None
+                for code in item.jackknife.failed_refits
+            }
+        )
+        if failed:
+            _warn(
+                f"cluster_variance='jackknife': the refit without cluster(s) {failed} raised "
+                "or withheld an estimate, so the estimates that read it withhold their "
+                "interval (status 'jackknife_refit_plugin'). result.estimates[name].jackknife"
+                ".failures says what happened.",
+                DataWarning,
+                stacklevel=3,
+            )
+        return out
 
     def _single_preflight(self, data: CausalData, intermediate_value: float | None) -> Preflight:
         """The checks of :meth:`_fit_single` that need no fold, and the resolved targets.
@@ -5357,6 +5630,18 @@ class TMLE:
                 source_fingerprint=data_fingerprint(data),
             )
         self._preflight_cluster_validation_folds(data, folds)
+        if self.cluster_variance == "jackknife" and data.cluster is not None:
+            # The jackknife holds this split fixed, so every fold must keep a positive-mass
+            # cluster after any one removal. The check reads the drawn labels, not J < 2V.
+            weights = data.weights if data.is_weighted else None
+            for draw in folds:
+                if draw.is_single:
+                    continue
+                refusal = jackknife_fold_refusal(
+                    data.cluster, weights, draw.assignment, draw.n_folds
+                )
+                if refusal is not None:
+                    raise CapabilityError.from_refusal(refusal)
         if self.cv_evaluation:
             # The fold-evaluated stratum estimate needs every stratum, and every arm inside
             # it, in every validation fold of every draw (X28).
@@ -6392,8 +6677,21 @@ class TMLE:
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )
+        # A floor family's floor holds for the ATE its study measured at every count; every
+        # other estimate keeps the default floor (unmeasured_estimand_status).
+        general = unmeasured_estimand_status(
+            status,
+            prepared.cluster,
+            strata=prepared.strata,
+            weights=prepared.weights if prepared.is_weighted else None,
+        )
+        statuses = {
+            name: status if name == MEASURED_POINT_ESTIMAND else general
+            for report in (estimates, pooled_report, fold_evaluated_report)
+            for name in report
+        }
         ordered = stamp_inference(
-            _in_report_order(estimates, requested), status, headline_reference, classification
+            _in_report_order(estimates, requested), statuses, headline_reference, classification
         )
         detail = (
             CVTargeting(
@@ -6406,7 +6704,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
-            ).stamped(status, cluster_reference, classification)
+            ).stamped(statuses, cluster_reference, classification)
             if indices
             else None
         )

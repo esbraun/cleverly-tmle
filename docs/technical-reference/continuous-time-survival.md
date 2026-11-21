@@ -41,20 +41,63 @@ finite-dimensional model.
 An event and a censoring at one time are ordered event first, so the censoring hazard leaves the
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
-initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival below $10^{-250}$ before the grid's end, the last target
+initial fits and raise a `DataError`, which a study records as a failed fit: an infinite cause
+hazard jump, and an initial survival below $10^{-250}$ before the grid's end, the last target
 time or restricted horizon, where double precision no longer holds the clever covariate.
 
-A Cox jump is $s_i\, d / \sum_{R} s$, unit $i$'s risk score times the tied events over the risk set's
-summed scores. With one event at a time it stays below one for a unit at risk at its received
-arm, so a combined jump of one or more comes from extrapolation: a unit read at its counterfactual
-arm, with covariates outside that arm's range, whose score exceeds the risk set's sum, or a time
-after the unit left follow-up. Tied events, as in a bootstrap resample, multiply the atom. In
-refitted failures of the switched-variance study and of the bootstrap pilot, the offending unit
-had one of the sample's most extreme covariate values and was read at the arm that does not cover
-it, at times with 140
-to 350 units at risk, so the check is mainly a positivity signal
+### The jump bound
+
+Where the cause jumps of a unit at one arm and time sum to $s \ge 1$, the cells the engine
+used to refuse, it multiplies each by $(1 - \delta) / s$, with $\delta = 10^{-8}$
+(`cleverly.survival._chunked.JUMP_BOUND`). The cell then sums to $1 - \delta$, each cause keeps
+its share $d\Lambda_j / s$, and the product-limit survival falls to $\delta$ there rather than
+to zero or below. A cell below one, however close, is not touched, so every fit that ran before
+the bound computes the same arrays. At $s = 1$ the survival factor steps from 0 to $\delta$,
+below the walk's floor, which moves $\psi$ by at most $\delta / n$ per pair. The bound acts in every fit, the original and each bootstrap refit, in the one place every
+reader of the initial hazards takes them from, so the checks and the walk read the same jumps.
+
+A Cox jump is $s_i\, d / \sum_{R} s$, unit $i$'s risk score times the tied events over the risk
+set's summed scores. With one event at a time it stays below one for a unit at risk at its
+received arm, so on data with distinct times the bound acts only on extrapolated cells: a unit
+read at its counterfactual arm, with covariates outside that arm's range, whose score exceeds the
+risk set's sum, or a time after the unit left follow-up. Tied events, as in a bootstrap resample,
+multiply the atom and can reach a unit at risk. In refitted cases from the switched-variance study
+and the bootstrap pilot, the offending unit had one of the sample's most extreme covariate values
+and was read at the arm that does not cover it, at times with 140 to 350 units at risk. The
+bound is therefore mainly a positivity signal
 (`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+
+The bound changes the initial estimator only on an event whose probability tends to zero at a
+fixed law: with finite coefficients the Breslow atom is $O_p(1/n)$, and the largest risk score and
+tie count grow slowly enough that the bound is inactive with probability tending to one. The
+estimand, the initial fit's consistency, the score equation the walk solves and the efficient
+influence curve are unchanged. At a bounded counterfactual cell the factual score is untouched,
+and only the plug-in $F_j(t \mid a, L_i)$ moves, by at most $k / n$ for $k$ copies. The kink sits
+where the true law never is, so the bootstrap delta method's differentiability is not affected;
+a bound applied to the refits alone would bootstrap a different estimator.
+
+A NaN jump is walked as before, and an infinite one has no share to keep, so it is refused. A
+pair whose jumps reach
+the bound at $k$ grid times has survival near $\delta^k$, so a pair the model extrapolates at
+many times still meets the underflow refusal, whose message then names the bound and the
+extrapolation. Of the ten fits the registered studies had lost to the old refusal, seven fit
+under the bound and three, with one pair bounded at 27 to 1,141 times, raise on underflow; so
+does the refuter-calibration study's lost size trial
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+
+A bounded pair's survival at the grid's end is $\delta$ or less, below the walk's floor of
+$10^{-8}$. Each bounded pair therefore takes its own floor, the lower of the others' floor and its
+own initial survival, and the other pairs' floor is read over the other pairs only, so the bound
+lowers no other pair's floor (`run_walk(own_floor=...)`). A bounded pair still enters the score,
+the direction and the step search, so it does move the other pairs' path. A fit where the bound acted emits one
+`PositivityWarning` that names the arm, the causes and the number of pairs, and every estimate
+reads experimental with a reason that names the extrapolation, because no registered study gates
+such a fit. `result.record.jump_bound_share` is the share of (unit, arm) pairs with a bounded
+cell, and `jump_bound_at_risk_share` the share with one at the received arm while at risk. A
+bootstrap refit warns of nothing; `result.bootstrap_jump_bounded` counts the refits where the
+bound acted, and every bootstrap interval's reason names that count when it is nonzero. The
+witnesses are in `tests/unit/test_continuous_survival_jump_bound.py` and
+`tests/unit/test_continuous_survival_blocks.py`.
 
 ## The one-step walk
 
@@ -238,7 +281,7 @@ multiplier band. The Wald intervals above are unchanged, and `to_frame()` and `t
 bootstrap's.
 
 A replicate whose refit raises a `CleverlyError` (the engine's refusals on the drawn data, such
-as a lost cause, a combined jump, an underflow or a memory refusal), `numpy.linalg.LinAlgError` or
+as a lost cause, an infinite jump, an underflow or a memory refusal), `numpy.linalg.LinAlgError` or
 `FloatingPointError` is counted with its reason and never redrawn. Any other exception propagates,
 including one a learner raises, because counting a defect as a failed refit would hide it below
 the failure share. When more than 1% of the
@@ -552,11 +595,11 @@ lower $M$ but changes the analysis, so the engine never does it.
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
 | a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
 | a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
-| an initial hazard fit whose cause jumps at some unit, arm and time sum to one or more | the product-limit survival is not a probability there; the hazard model extrapolates to a unit's counterfactual arm outside that arm's covariate range, and ties can amplify it |
+| an initial hazard fit with an infinite cause jump | the product-limit survival is not defined there, and the [jump bound](#the-jump-bound) has no share of each cause to keep |
 | the bootstrap intervals and band of a fit where more than 1% of the `n_bootstrap=` refits fail | the kept replicates would condition on the resamples that fit; the fit warns, keeps its Wald intervals and sets `bootstrap_status="bootstrap_unstable"`; see [The full-refit bootstrap](#the-full-refit-bootstrap) |
 | `bootstrap_interval="bca"` without `n_bootstrap=` | there are no replicates to read |
 
-The rows on an arm's first event of a cause, on an arm's follow-up and on a combined jump read the
+The rows on an arm's first event of a cause, on an arm's follow-up and on an infinite jump read the
 drawn data, not the request, so they raise `DataError`, and a repeated-sampling study records such
 a draw as a lost replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or
 `bootstrap_interval=` set wrongly raises `ValueError` at construction. The other rows raise

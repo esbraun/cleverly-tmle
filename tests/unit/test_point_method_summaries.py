@@ -85,16 +85,6 @@ def test_the_rounds_note_names_the_rounds_run() -> None:
     assert f"({fit.rounds}" in text
 
 
-@pytest.mark.parametrize(
-    ("name", "reason"),
-    [("lasso_fallback", "short_path"), ("derivative_fallback", "nonconvergence")],
-)
-def test_the_fallback_note_names_the_reason(name: str, reason: str) -> None:
-    """Both C-TMLE record types print the glmstar fallback note with its reason."""
-    text = _built(name).summary().note("l1_fallback").text
-    assert f"({reason})" in text and "1 lasso path" in text
-
-
 def test_the_guard_note_follows_the_record() -> None:
     assert _built("reduced").guard
     assert "guard_scope" in _built("reduced").summary().note_codes

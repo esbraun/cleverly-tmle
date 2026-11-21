@@ -29,15 +29,23 @@ __all__ = [
     "ADAPTIVE_BASELINE_STATUS",
     "BOUNDARY_NODE_BAND_NOTE",
     "BOUNDARY_NODE_OUT_OF_REACH",
+    "CLUSTER_INTERVAL_FLOORS",
     "CONSTANT_ARM_CELL_STATUS",
     "CONSTANT_NODE_STATUS",
+    "DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS",
+    "DEFAULT_POINT_INTERVAL_CLUSTERS",
+    "FEW_CLUSTER_ESTIMAND_STATUS",
     "FEW_CLUSTER_THRESHOLD",
+    "FLOOR_FAMILY_NAMES",
     "HELD_OUT_SCALE",
+    "JACKKNIFE_REFIT_STATUS",
+    "MEASURED_CONTRASTS",
+    "MEASURED_LONGITUDINAL_DESIGNS",
+    "MEASURED_POINT_ESTIMAND",
     "MINIMUM_FOLD_TRAINING_CLUSTERS",
-    "MINIMUM_INTERVAL_CLUSTERS",
-    "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_CONSTANT_ARM_BANDS",
+    "NO_JACKKNIFE_BANDS",
     "NO_KNOWN_REGIME_BANDS",
     "NO_LOGIT_RANGE_BANDS",
     "NO_SIMULTANEOUS_BANDS",
@@ -53,7 +61,11 @@ __all__ = [
     "InferenceStatus",
     "Interval",
     "StatusRecord",
+    "cluster_interval_floor",
+    "floor_table",
     "is_labelled",
+    "longitudinal_floor_family",
+    "point_floor_family",
     "precedent_status",
     "status_record",
     "supplies_inference",
@@ -73,8 +85,10 @@ InferenceStatus = Literal[
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
+    "few_cluster_estimand_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
+    "jackknife_refit_plugin",
     "low_dose_support_plugin",
     "working_model_projection",
     "constant_arm_cell_plugin",
@@ -93,13 +107,12 @@ InferenceStatus = Literal[
 #: The cluster count below which a clustered estimate takes a Student t reference.
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
-#: The fewest clusters with positive weight mass for which a clustered fit reports an
-#: interval without the few-cluster label. It is the smallest count a registered study measures:
-#: ``clustered-few-cluster-tmle`` starts at 10 clusters, because at 4 a share of draws admits no
-#: fit at all. From :data:`MINIMUM_T_REFERENCE_CLUSTERS` to one below it the fit takes
-#: ``"few_cluster_plugin"``, which shows a labelled interval on ``t(J - 2)``. X54 in
-#: ``docs/roadmap.md`` holds the evidence for 4 to 9 clusters.
-MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
+#: The fewest clusters with positive weight mass for which a point-treatment fit that no
+#: registered study measures below it reports an interval without the few-cluster label. It is
+#: the smallest count ``clustered-few-cluster-tmle`` measures: at 4 clusters a share of draws
+#: admits no fit at all. From :data:`MINIMUM_T_REFERENCE_CLUSTERS` to one below it the fit takes
+#: ``"few_cluster_plugin"``, which shows a labelled interval on ``t(J - 2)``.
+DEFAULT_POINT_INTERVAL_CLUSTERS: Final[int] = 10
 
 #: The fewest clusters with positive weight mass a training complement of a fold-evaluated
 #: ``TMLE`` (``cv_evaluation=True``) must hold for the fit to report its interval without the
@@ -109,8 +122,8 @@ MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
 #: registered ``few-cluster-fold-variance`` study measures the centred fold cluster variance from
 #: 2 to 24 training clusters: with either mechanism every cell passes from 4, and at 2 the
 #: all-draw coverage or the coverage band fails. A fit whose smallest training complement holds
-#: fewer takes ``"few_cluster_plugin"``, on top of the floor of
-#: :data:`MINIMUM_INTERVAL_CLUSTERS` on the whole fit.
+#: fewer takes ``"few_cluster_plugin"``, on top of the fit family's floor in
+#: :data:`CLUSTER_INTERVAL_FLOORS` on the whole fit.
 MINIMUM_FOLD_TRAINING_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
     {"estimated": 4, "known": 4}
 )
@@ -120,10 +133,215 @@ MINIMUM_FOLD_TRAINING_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
 #: and reports its point estimate only.
 MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 
-#: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
-#: ``LTMLE`` from 20 clusters: at 10, about 1 draw in 4,000 admits no LTMLE fit, so those cells
-#: are not in its grid. Below this count an ``LTMLE`` fit takes ``"few_cluster_plugin"``.
-MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
+#: The same floor for a longitudinal fit that no registered study measures below it: SDR,
+#: IPSI, the structural fits and repeated splits. ``LTMLE`` in sample and cross-fitted take their
+#: measured floors in :data:`CLUSTER_INTERVAL_FLOORS`.
+DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
+
+#: The fit families whose interval floor a registered few-cluster study sets on its own
+#: ladder of counts, with the plain name a status text gives each. A family's floor is the
+#: smallest count from which every registered count of that family passes (X54 parts (a) and
+#: (b); ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle``). Every other
+#: configuration takes :data:`DEFAULT_POINT_INTERVAL_CLUSTERS` or
+#: :data:`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`.
+FLOOR_FAMILY_NAMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "tmle_in_sample": "in-sample TMLE",
+        "tmle_stacked": "stacked cross-fitted TMLE",
+        "tmle_fold_evaluated": "fold-evaluated TMLE",
+        "drtmle_cross_fitted_known_mechanism": (
+            "cross-fitted DR-TMLE with a declared treatment mechanism"
+        ),
+        "ltmle_in_sample": "in-sample LTMLE",
+        "ltmle_cross_fitted": "cross-fitted LTMLE",
+    }
+)
+
+#: The smallest positive-mass cluster count from which each measured fit family reports the
+#: interval of its measured contrast (:data:`MEASURED_CONTRASTS`) without the few-cluster label:
+#: the smallest count from which every registered count of the family passes in
+#: ``few-cluster-floor-tmle`` or ``few-cluster-floor-cross-fitted-ltmle``, each passing count
+#: certifying an all-draw coverage whose exact 99% lower end is at least 0.90. Every cell of those
+#: studies reads that one contrast, so a floor certifies it alone: every other estimate of the fit
+#: keeps :data:`DEFAULT_POINT_INTERVAL_CLUSTERS` or :data:`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`
+#: (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`). Stacked TMLE keeps the default
+#: floor: its five-covariate configuration's IID control is red at 10 clusters with no committed
+#: cell to compare, so the family is redeclared before any lower floor ships.
+CLUSTER_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
+    {
+        "tmle_in_sample": 6,
+        "tmle_stacked": DEFAULT_POINT_INTERVAL_CLUSTERS,
+        "tmle_fold_evaluated": 8,
+        "drtmle_cross_fitted_known_mechanism": 8,
+        "ltmle_in_sample": 6,
+        "ltmle_cross_fitted": 4,
+    }
+)
+
+#: The point-treatment estimand a point floor family's study measured at every count: the ATE.
+MEASURED_POINT_ESTIMAND: Final[str] = "ate"
+
+#: The contrast each floor family's study measured at every count, as a status text names it.
+#: A point fit's is the ATE (:data:`MEASURED_POINT_ESTIMAND`). An ``LTMLE`` fit's is the
+#: difference between the static plan that treats at every node and the static plan that treats
+#: at none, on an outcome without horizons, causes or a policy-weighted variance
+#: (:func:`~cleverly.longitudinal.estimator.measured_contrast`).
+MEASURED_CONTRASTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "tmle_in_sample": "the ATE",
+        "tmle_stacked": "the ATE",
+        "tmle_fold_evaluated": "the ATE",
+        "drtmle_cross_fitted_known_mechanism": "the ATE",
+        "ltmle_in_sample": (
+            "the always-treat versus never-treat contrast of one binary node without censoring"
+        ),
+        "ltmle_cross_fitted": (
+            "the always-treat versus never-treat contrast of two binary nodes with censoring"
+        ),
+    }
+)
+
+#: The panel design each ``LTMLE`` floor family's study measured, as ``(treatment nodes,
+#: censored)``, every node binary: ``few-cluster-floor-tmle`` fits in-sample ``LTMLE`` on one
+#: node without censoring, and ``few-cluster-floor-cross-fitted-ltmle`` fits cross-fitted
+#: ``LTMLE`` on two nodes with censoring. A fit of another design keeps
+#: :data:`DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS` for every estimate
+#: (:func:`~cleverly.longitudinal.estimator.measured_design`).
+MEASURED_LONGITUDINAL_DESIGNS: Final[Mapping[str, tuple[int, bool]]] = MappingProxyType(
+    {"ltmle_in_sample": (1, False), "ltmle_cross_fitted": (2, True)}
+)
+
+#: The point-treatment splitting schemes a floor family names, by the first entry of a support
+#: key's ``splitting`` axis.
+_POINT_FLOOR_SCHEMES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "in_sample": "tmle_in_sample",
+        "stacked": "tmle_stacked",
+        "fold_evaluated": "tmle_fold_evaluated",
+    }
+)
+
+
+def point_floor_family(
+    method: str,
+    scheme: str,
+    *,
+    repeated: bool = False,
+    known_mechanism: bool = False,
+    foldwise: bool = False,
+) -> str | None:
+    """The floor family of a point-treatment fit, or ``None`` for an unmeasured configuration.
+
+    Parameters
+    ----------
+    method : str
+        The estimator's assessment method: ``"tmle"`` or ``"drtmle"`` name a family; every other
+        method keeps the default floor.
+    scheme : str
+        The splitting scheme, the first entry of the support key's ``splitting`` axis.
+    repeated : bool
+        Whether the fit combines several fold draws (``repeats`` above 1), which no floor study
+        measures.
+    known_mechanism : bool
+        Whether the data declare the treatment mechanism (``treatment_probabilities=``).
+    foldwise : bool
+        Whether a DR-TMLE fit builds the foldwise reduced regressions
+        (``reduced_crossfit="foldwise"`` with ``cross_fit=True``).
+
+    Returns
+    -------
+    str or None
+        A key of :data:`CLUSTER_INTERVAL_FLOORS`, or ``None``.
+    """
+    if repeated:
+        return None
+    if method == "tmle":
+        return _POINT_FLOOR_SCHEMES.get(scheme)
+    if method == "drtmle" and scheme == "stacked" and known_mechanism and foldwise:
+        # The DR-TMLE linear remainder vanishes only under a declared mechanism (plan H2), so
+        # an estimated mechanism keeps the default floor.
+        return "drtmle_cross_fitted_known_mechanism"
+    return None
+
+
+def longitudinal_floor_family(
+    estimator: str, *, cross_fitted: bool, repeated: bool = False
+) -> str | None:
+    """The floor family of a longitudinal fit, or ``None`` for an unmeasured configuration.
+
+    Parameters
+    ----------
+    estimator : str
+        The recursion: ``"tmle"`` (``LTMLE``) names a family; SDR, IPSI and the baselines keep
+        the default floor.
+    cross_fitted : bool
+        Whether the fit draws more than one outer fold.
+    repeated : bool
+        Whether the fit combines several fold draws (``repeats`` above 1).
+
+    Returns
+    -------
+    str or None
+        A key of :data:`CLUSTER_INTERVAL_FLOORS`, or ``None``.
+    """
+    if estimator != "tmle" or repeated:
+        return None
+    return "ltmle_cross_fitted" if cross_fitted else "ltmle_in_sample"
+
+
+def cluster_interval_floor(family: str | None, *, longitudinal: bool) -> int:
+    """The interval floor of a floor family, or the default floor of the fit's kind.
+
+    Parameters
+    ----------
+    family : str or None
+        A key of :data:`CLUSTER_INTERVAL_FLOORS`, or ``None`` for an unmeasured configuration.
+    longitudinal : bool
+        Whether the fit is longitudinal, which picks the default floor.
+
+    Returns
+    -------
+    int
+        The fewest positive-mass clusters from which the fit's interval carries no
+        few-cluster label.
+    """
+    if family is not None:
+        return CLUSTER_INTERVAL_FLOORS[family]
+    return (
+        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS if longitudinal else DEFAULT_POINT_INTERVAL_CLUSTERS
+    )
+
+
+def floor_table() -> str:
+    """The interval floors by fit and estimate, as one clause a status text prints.
+
+    Returns
+    -------
+    str
+        Each family's plain name and floor with the contrast it holds for, then the default
+        floors of every other estimate: those of the measured families and those of every other
+        point-treatment and longitudinal fit.
+    """
+    parts = []
+    for name, floor in CLUSTER_INTERVAL_FLOORS.items():
+        longitudinal = name.startswith("ltmle")
+        default = (
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+            if longitudinal
+            else DEFAULT_POINT_INTERVAL_CLUSTERS
+        )
+        held = "" if floor == default else f" for {MEASURED_CONTRASTS[name]}"
+        parts.append(f"{FLOOR_FAMILY_NAMES[name]} {floor}{held}")
+    parts.append(
+        "every other estimate of a point-treatment fit, and every other point-treatment fit, "
+        f"{DEFAULT_POINT_INTERVAL_CLUSTERS}"
+    )
+    parts.append(
+        "every other estimate of a longitudinal fit, and every other longitudinal fit, "
+        f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS}"
+    )
+    return ", ".join(parts)
+
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit, and ``{stratum}`` is
@@ -164,6 +382,14 @@ NO_T_REFERENCE_BANDS: Final[str] = (
     f"fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass or because it is "
     "averaged over cross-fitting folds, and no source gives a band calibrated to a t "
     "reference, so the fit reports one-at-a-time intervals only."
+)
+
+#: The line a result summary prints when a fit with ``cluster_variance="jackknife"`` and 40 or
+#: more clusters skips its default band (X54 part (c)). Below 40 the t reference skips it first.
+NO_JACKKNIFE_BANDS: Final[str] = (
+    "No simultaneous bands: the estimates of this fit report the delete-one-cluster jackknife "
+    "variance, which the influence curves behind a band's multiplier draws do not carry, so "
+    "the fit reports one-at-a-time intervals only."
 )
 
 #: The line a result summary prints when a learned-rule fit with known regimes skips its
@@ -544,29 +770,30 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "few_cluster_plugin": StatusRecord(
             plain_reason=(
-                f"With {MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_INTERVAL_CLUSTERS - 1} clusters "
-                f"({MINIMUM_T_REFERENCE_CLUSTERS} to {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1} "
-                "on a longitudinal fit) the interval uses a t distribution with the degrees of "
-                "freedom in the df column, and no validation study measures intervals at so few "
-                "clusters, so cleverly marks it experimental. A fold-evaluated fit takes the "
-                "same mark when the clusters outside one validation fold, which fit that fold's "
-                "models, number fewer than "
+                f"With {MINIMUM_T_REFERENCE_CLUSTERS} clusters up to one below the fit's "
+                f"interval floor ({floor_table()}) the interval uses a t distribution with "
+                "the degrees of freedom in the df column, and no validation study supports "
+                "intervals at so few clusters for this fit, so cleverly marks it experimental. "
+                "A fold-evaluated fit takes the same mark when the clusters outside one "
+                "validation fold, which fit that fold's models, number fewer than "
                 f"{min(MINIMUM_FOLD_TRAINING_CLUSTERS.values())}."
             ),
             reason=(
                 "A clustered fit that reads from "
                 f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive weight mass up to one "
-                f"below {MINIMUM_INTERVAL_CLUSTERS} (one below "
-                f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit), in the fit "
-                "or in one reported baseline stratum, reports its interval and p-value on a "
-                "Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
-                "Section 2.2, last paragraph, recommend. The registered few-cluster study "
-                f"measures point-treatment fits from {MINIMUM_INTERVAL_CLUSTERS} clusters and "
-                f"longitudinal fits from {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, and no "
-                "registered study measures an interval below those counts. The estimate "
-                "carries the experimental label. X54 in docs/roadmap.md holds the registered "
-                "measurements that reopen counts from "
-                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor. A fold-evaluated "
+                "below its interval floor, in the fit or in one reported baseline stratum, "
+                "reports its interval and p-value on a Student t reference with J - 2 degrees "
+                "of freedom, as Nugent et al. (2024), Section 2.2, last paragraph, recommend. "
+                f"The floors by fit are: {floor_table()}. Each measured fit's floor is the "
+                "smallest count from which every count the registered few-cluster-floor-tmle "
+                "or few-cluster-floor-cross-fitted-ltmle study measures passes; below it a "
+                "measured count fails or no study measures it. Every cell of those studies "
+                "reads one contrast, so the floor holds for that contrast alone, and every "
+                "other estimate of the fit keeps the default floor of its kind. The estimate "
+                "carries the experimental label. F28 in docs/roadmap.md records the measured "
+                "limits below each floor, among them an in-sample LTMLE arm-mean measurement "
+                "below the default longitudinal floor, and X54 holds the redeclaration of the "
+                "stacked TMLE floor and the arm-mean cells. A fold-evaluated "
                 "TMLE whose smallest training complement holds fewer positive-mass clusters "
                 "than MINIMUM_FOLD_TRAINING_CLUSTERS at its treatment mechanism ("
                 f"{MINIMUM_FOLD_TRAINING_CLUSTERS['estimated']} estimated, "
@@ -575,26 +802,75 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "cluster variance from those counts."
             ),
             assessment_note=(
-                "the reported interval is experimental: no registered study measures it for a "
-                f"fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters "
-                f"({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), and X54 in "
-                "the roadmap is the condition that supports it"
+                "the reported interval is experimental: no registered study supports it for "
+                f"this fit below its interval floor ({floor_table()}), and F28 in the roadmap "
+                "records the measured limits"
             ),
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
                 "with few clusters"
             ),
             diagnostic_noun="few-cluster plug-in interval",
-            reopened_by="X54",
+            reopened_by="F28",
             alternative=NO_ALTERNATIVE,
             interval="shown",
             shown_reason=(
                 "The interval uses a Student t reference with J - 2 degrees of freedom, and no "
-                f"registered study measures a clustered interval below {MINIMUM_INTERVAL_CLUSTERS} "
-                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
-                "or a fold-evaluated interval whose smallest training complement holds fewer "
-                "than MINIMUM_FOLD_TRAINING_CLUSTERS. X54 in docs/roadmap.md holds the "
-                "measurements."
+                "registered study supports a clustered interval of this fit below its floor "
+                f"({floor_table()}), or a fold-evaluated interval whose smallest training "
+                "complement holds fewer than MINIMUM_FOLD_TRAINING_CLUSTERS. F28 in "
+                "docs/roadmap.md records the measured limits."
+            ),
+        ),
+        "few_cluster_estimand_plugin": StatusRecord(
+            plain_reason=(
+                "A validation study measured this kind of fit at so few clusters for one effect "
+                "on one design only, and this estimate is not that effect on that design, so no "
+                "study supports its interval here and cleverly marks it experimental. The "
+                "interval uses a t distribution with the degrees of freedom in the df column."
+            ),
+            reason=(
+                "A clustered fit of a measured fit family that reads at least its family's "
+                "interval floor in positive-mass clusters, but fewer than the default floor of "
+                f"its kind ({DEFAULT_POINT_INTERVAL_CLUSTERS} for a point-treatment fit, "
+                f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), shows the "
+                "interval of every estimate other than its measured contrast under the "
+                "experimental label, on the same Student t reference with J - 2 degrees of "
+                "freedom. An LTMLE fit whose panel is not its family's measured design "
+                "(MEASURED_LONGITUDINAL_DESIGNS) has no measured contrast, so every estimate, "
+                "the always-versus-never contrast included, takes this status. The registered "
+                "few-cluster-floor-tmle and "
+                "few-cluster-floor-cross-fitted-ltmle studies measure one contrast per family "
+                "at every count: the ATE for a point-treatment fit, and the difference between "
+                "always treating and never treating for an LTMLE fit. A family's floor "
+                f"({floor_table()}) certifies that contrast alone, on that design. The one "
+                "arm-mean "
+                "measurement below a default floor, of an in-sample LTMLE fit, fails its "
+                "coverage floor. X54 in docs/roadmap.md holds the cells "
+                "that would measure the other estimates."
+            ),
+            assessment_note=(
+                "the reported interval is experimental: no registered study supports this "
+                "estimate of the fit below the default floor of its kind, since the fit's "
+                "family floor holds only for its measured contrast on its measured design, and "
+                "X54 in the roadmap holds the cells that would measure it"
+            ),
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of this estimate at so "
+                "few clusters"
+            ),
+            diagnostic_noun="unmeasured-estimand few-cluster interval",
+            reopened_by="X54",
+            alternative=NO_ALTERNATIVE,
+            interval="shown",
+            shown_reason=(
+                "The interval uses a Student t reference with J - 2 degrees of freedom. The "
+                "fit's family floor holds only for its measured contrast on its measured design, "
+                "and no registered study supports another estimate, or a fit of another design, "
+                "below the default floor of its "
+                f"kind ({DEFAULT_POINT_INTERVAL_CLUSTERS} for a point-treatment fit, "
+                f"{DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). X54 in "
+                "docs/roadmap.md holds the cells that would measure it."
             ),
         ),
         "low_dose_support_plugin": StatusRecord(
@@ -705,6 +981,40 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             reopened_by="X58",
             alternative=NO_ALTERNATIVE,
             code=RefusalReason.INVALID_DECLARATION,
+        ),
+        "jackknife_refit_plugin": StatusRecord(
+            plain_reason=(
+                "The cluster jackknife refits the analysis once with each cluster left out, and "
+                "at least one of those refits failed or gave no interval for this estimate, so "
+                "no jackknife standard error is available."
+            ),
+            reason=(
+                "A fit with cluster_variance='jackknife' reports no confidence interval, no "
+                "p-value and no standard error for an estimate whose leave-one-cluster-out "
+                "refit raised an error or withheld that estimate's interval on at least one "
+                "cluster, because the jackknife variance needs every refit. The fit's warning "
+                "and the estimate's jackknife record (failed_refits, failures) name each "
+                "cluster and what happened. The point estimate stands. The plug-in standard "
+                "error of the influence curve remains as a diagnostic under plugin_std_error "
+                "and plugin_interval. F28 in docs/roadmap.md holds the finite-sample limits of "
+                "clustered intervals."
+            ),
+            assessment_note=(
+                "the reported curve is a jackknife-refit diagnostic: no confidence interval or "
+                "p-value is available for an estimate whose leave-one-cluster-out refit failed, "
+                "and F28 in the roadmap holds the finite-sample limits of clustered intervals"
+            ),
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap of a fit whose jackknife "
+                "refit failed"
+            ),
+            diagnostic_noun="jackknife-refit plug-in diagnostic",
+            reopened_by="F28",
+            alternative=(
+                "Fit with the default cluster_variance='influence_curve', or collect more "
+                "clusters so that no leave-one-cluster-out sample loses an arm or a level."
+            ),
+            code=RefusalReason.INFERENCE_GAP,
         ),
         "constant_arm_cell_plugin": StatusRecord(
             plain_reason=(
@@ -893,6 +1203,12 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
     }
 )
 
+#: The status of an estimate of a measured fit family other than its measured contrast, when the
+#: fit reads at least the family's floor but fewer than the default floor of its kind. A
+#: parameter status, the one that shows its interval
+#: (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`).
+FEW_CLUSTER_ESTIMAND_STATUS: Final[InferenceStatus] = "few_cluster_estimand_plugin"
+
 #: The statuses one parameter takes beside the status of its fit. Every other status holds
 #: for the whole fit. :data:`CONSTANT_NODE_STATUS` marks a longitudinal parameter whose
 #: recursion read a constant node regression, and the other parameters of that fit keep their
@@ -901,7 +1217,9 @@ BOUNDARY_NODE_OUT_OF_REACH: Final[Mapping[str, tuple[str, str]]] = MappingProxyT
 PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
     {
         CONSTANT_NODE_STATUS,
+        FEW_CLUSTER_ESTIMAND_STATUS,
         "stack_failure_plugin",
+        "jackknife_refit_plugin",
         "constant_arm_cell_plugin",
         "out_of_range_plugin",
     }
@@ -929,6 +1247,11 @@ UNREPORTED_INTERVAL_STATUSES: Final[frozenset[str]] = frozenset(
 #: one sample (:mod:`cleverly.estimators._oat_stack`). A parameter status, like
 #: :data:`CONSTANT_NODE_STATUS`.
 STACK_FAILURE_STATUS: Final = "stack_failure_plugin"
+
+#: The status of an estimate of a ``cluster_variance="jackknife"`` fit whose
+#: leave-one-cluster-out refit raised or withheld it (:mod:`cleverly.inference.cluster_jackknife`).
+#: A parameter status.
+JACKKNIFE_REFIT_STATUS: Final = "jackknife_refit_plugin"
 
 
 def supplies_inference(status: str) -> bool:

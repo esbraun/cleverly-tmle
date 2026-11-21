@@ -14,7 +14,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
+from .._inference_status import DEFAULT_POINT_INTERVAL_CLUSTERS
 from .._summary import (
     Cell,
     Detail,
@@ -504,7 +504,7 @@ def bootstrap_summary_summary(summary: BootstrapSummary, detail: Detail) -> Summ
                 "bootstrap_diagnostic",
                 vocabulary.BOOTSTRAP_DIAGNOSTIC[reason].format(
                     names="this row",
-                    clusters=summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS,
+                    clusters=summary.cluster_floor or DEFAULT_POINT_INTERVAL_CLUSTERS,
                 ),
             )
         ]

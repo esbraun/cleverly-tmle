@@ -249,7 +249,7 @@ class TestLostReplicates:
 
     def test_the_candidate_fills_both_arms_toward_the_ceiling(self, lost: pd.DataFrame) -> None:
         ctx = _context(lost)
-        rule = pv._few_cluster_rule()
+        rule = pv.few_cluster_rule()
         clause = rule.clause("paired iid/cluster se ratio under its ceiling")
         row = pd.Series({"property": FEW_CLUSTER_FAMILY, "cell": CONTROL, "role": "control"})
         ((_, judged),) = clause.candidates(ctx, row)
@@ -264,9 +264,7 @@ class TestLostReplicates:
 
     def test_the_positive_clause_reads_the_positive_cell(self, lost: pd.DataFrame) -> None:
         ctx = _context(lost)
-        clause = pv._few_cluster_rule().clause(
-            "paired positive se ratio at most the sanity ceiling"
-        )
+        clause = pv.few_cluster_rule().clause("paired positive se ratio at most the sanity ceiling")
         row = pd.Series({"property": FEW_CLUSTER_FAMILY, "cell": CONTROL, "role": "control"})
         assert clause.reads is not None
         assert (FEW_CLUSTER_FAMILY, POSITIVE) in clause.reads(ctx, row)
@@ -274,3 +272,195 @@ class TestLostReplicates:
         # The S4 set of a cell that lost one replicate: one SE-at-max set and two vertices.
         assert len(candidates) == 3
         assert all(judged.passed for _, judged in candidates)
+
+
+class TestShownOnly:
+    """A study whose fits withhold intervals reads the SE ratios on the shown draws."""
+
+    @staticmethod
+    def withheld(
+        rows: pd.DataFrame, replicates: set[int], *, keep_se: bool = False
+    ) -> pd.DataFrame:
+        """Withhold the gated arms' intervals on ``replicates``; ``keep_se`` keeps the computed
+        SE on the withheld rows, as a constant-arm or out-of-range withholding does."""
+        out = rows.copy()
+        if "withheld" not in out:
+            out["withheld"] = 0
+        hit = out["replicate"].isin(replicates) & out["cell"].isin((POSITIVE, CONTROL))
+        out.loc[hit, "withheld"] = 1
+        if not keep_se:
+            out.loc[hit, "std_error"] = np.nan
+        return out
+
+    def test_withheld_draws_without_an_se_are_dropped_from_the_ratios(self) -> None:
+        rows = synthetic_rows(400, cluster_scale=1.0, iid_scale=0.6, seed=3)
+        gone = set(range(0, 400, 7))
+        with pytest.raises(ValueError, match="finite and positive"):
+            verdicts(self.withheld(rows, gone))
+        summary, _ = apply_shared_verdicts(
+            self.withheld(rows, gone), RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(
+            summary, self.withheld(rows, gone), RECORD, GROUPS, shown_only=True
+        )
+        control = summary.set_index("cell").loc[CONTROL]
+        kept = rows.loc[~rows["replicate"].isin(gone)]
+        expected = paired_se_ratio_interval(
+            kept.loc[kept["cell"] == CONTROL, ["replicate", "std_error"]],
+            kept.loc[kept["cell"] == POSITIVE, ["replicate", "std_error"]],
+            replicates=RECORD.margins.bootstrap_replicates,
+            confidence_level=RECORD.margins.confidence_level,
+            seed=pv.stream_seed(RECORD, FEW_CLUSTER_FAMILY, CONTROL),
+        )
+        assert control["paired_se_ratio"] == pytest.approx(expected.ratio, rel=1e-12)
+        assert control["paired_se_ratio_ci_upper"] == expected.interval.high
+        assert bool(control["passed"])
+
+    def test_withheld_draws_that_keep_their_se_are_dropped_too(self) -> None:
+        """A withheld row that keeps a finite SE is not shown, so the ratios leave it out. The
+        withheld draws here carry inflated SEs, so reading them moves the paired ratio."""
+        rows = synthetic_rows(400, cluster_scale=1.0, iid_scale=0.6, seed=3)
+        gone = set(range(0, 400, 7))
+        marked = self.withheld(rows, gone, keep_se=True)
+        hit = marked["replicate"].isin(gone) & (marked["cell"] == POSITIVE)
+        marked.loc[hit, "std_error"] *= 4.0
+        summary, _ = apply_shared_verdicts(
+            marked, RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(summary, marked, RECORD, GROUPS, shown_only=True)
+        control = summary.set_index("cell").loc[CONTROL]
+        kept = rows.loc[~rows["replicate"].isin(gone)]
+        expected = paired_se_ratio_interval(
+            kept.loc[kept["cell"] == CONTROL, ["replicate", "std_error"]],
+            kept.loc[kept["cell"] == POSITIVE, ["replicate", "std_error"]],
+            replicates=RECORD.margins.bootstrap_replicates,
+            confidence_level=RECORD.margins.confidence_level,
+            seed=pv.stream_seed(RECORD, FEW_CLUSTER_FAMILY, CONTROL),
+        )
+        assert control["paired_se_ratio"] == pytest.approx(expected.ratio, rel=1e-12)
+        # The mutation that selects on the SE alone reads the withheld rows.
+        se_only = marked.loc[marked["cell"].isin((POSITIVE, CONTROL))]
+        mutated = paired_se_ratio_interval(
+            se_only.loc[se_only["cell"] == CONTROL, ["replicate", "std_error"]],
+            se_only.loc[se_only["cell"] == POSITIVE, ["replicate", "std_error"]],
+            replicates=RECORD.margins.bootstrap_replicates,
+            confidence_level=RECORD.margins.confidence_level,
+            seed=pv.stream_seed(RECORD, FEW_CLUSTER_FAMILY, CONTROL),
+        )
+        assert abs(mutated.ratio - expected.ratio) > 0.01
+
+    def test_a_cell_with_every_draw_withheld_fails_its_control(self) -> None:
+        rows = self.withheld(synthetic_rows(50, cluster_scale=1.0, iid_scale=0.6), set(range(50)))
+        summary, _ = apply_shared_verdicts(
+            rows, RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(summary, rows, RECORD, GROUPS, shown_only=True)
+        table = summary.set_index("cell")
+        assert np.isnan(table.loc[POSITIVE, "se_ratio_ci_upper"])
+        assert not bool(table.loc[CONTROL, "passed"])
+
+
+class TestShownOnlyAccounting:
+    """The shown-only rule's worst cases read what the shown-only verdict reads: the lost count
+    from the unfiltered cell, then the withheld rows dropped (NaN SE or not)."""
+
+    LOST, WITHHELD_NAN = 5, 9
+    #: Withheld draws that keep a finite SE, enough of them to move a ratio of means.
+    WITHHELD_KEPT = frozenset(range(13, 400, 20))
+
+    @pytest.fixture(scope="class")
+    def rows(self) -> pd.DataFrame:
+        rows = synthetic_rows(400, cluster_scale=1.0, iid_scale=0.6, seed=6)
+        rows["withheld"] = 0
+        rows = rows.loc[rows["replicate"] != self.LOST].copy()
+        rows["failed_replicates"] = 1
+        gated = rows["cell"].isin((POSITIVE, CONTROL))
+        nan = gated & (rows["replicate"] == self.WITHHELD_NAN)
+        kept = gated & rows["replicate"].isin(self.WITHHELD_KEPT)
+        rows.loc[nan | kept, "withheld"] = 1
+        rows.loc[nan, "std_error"] = np.nan
+        # The withheld row keeps an inflated cluster SE, as an out-of-range withholding does.
+        rows.loc[kept & (rows["cell"] == POSITIVE), "std_error"] *= 5.0
+        return rows
+
+    def _by_hand(self, rows: pd.DataFrame, drop: set[int]) -> float:
+        def arm(cell: str, fill: Any) -> pd.DataFrame:
+            group = rows.loc[(rows["cell"] == cell) & ~rows["replicate"].isin(drop)]
+            group = group.loc[:, ["replicate", "std_error"]]
+            lost = pd.DataFrame({"replicate": [self.LOST], "std_error": [fill(group)]})
+            return pd.concat([group, lost], ignore_index=True)
+
+        margins = RECORD.margins
+        return paired_se_ratio_interval(
+            arm(CONTROL, lambda g: float(g["std_error"].max())),
+            arm(POSITIVE, lambda g: float(g["std_error"].min())),
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=pv.stream_seed(RECORD, FEW_CLUSTER_FAMILY, CONTROL),
+        ).interval.high
+
+    def test_the_paired_worst_case_drops_withheld_rows(self, rows: pd.DataFrame) -> None:
+        row = pd.Series({"property": FEW_CLUSTER_FAMILY, "cell": CONTROL, "role": "control"})
+        name = "paired iid/cluster se ratio under its ceiling"
+        # The all-row form resamples the withheld NaN SE and raises.
+        with pytest.raises(ValueError, match="finite and positive"):
+            pv.few_cluster_rule().clause(name).candidates(_context(rows), row)
+        clause = pv.few_cluster_rule(shown_only=True).clause(name)
+        ((_, judged),) = clause.candidates(_context(rows), row)
+        shown = self._by_hand(rows, {self.WITHHELD_NAN, *self.WITHHELD_KEPT})
+        assert judged.slack == pytest.approx(FEW_CLUSTER_IID_CONTROL_CEILING - shown, abs=1e-15)
+        # The mutation that keeps the withheld row with a finite SE reads another statistic.
+        kept = self._by_hand(rows, {self.WITHHELD_NAN})
+        assert abs(kept - shown) > 0.01
+
+    def test_the_positive_worst_case_counts_only_lost_draws(self, rows: pd.DataFrame) -> None:
+        row = pd.Series({"property": FEW_CLUSTER_FAMILY, "cell": CONTROL, "role": "control"})
+        name = "paired positive se ratio at most the sanity ceiling"
+        clause = pv.few_cluster_rule(shown_only=True).clause(name)
+        summary = _context(rows).summary.assign(se_ratio_ci_lower=0.9)
+        ctx = pf.Context(RECORD, rows, summary, groups={FEW_CLUSTER_FAMILY: GROUPS})
+        candidates = clause.candidates(ctx, row)
+        # One lost draw: one SE-at-max set and two vertices. Counting the withheld rows as
+        # lost (filter, then count) would give many more.
+        assert len(candidates) == 3
+        positive = rows.loc[rows["cell"] == POSITIVE]
+        shown, k = pf._shown_rows(positive)
+        assert k == 1 and len(shown) == len(positive) - 1 - len(self.WITHHELD_KEPT)
+        assert not shown["replicate"].isin([self.WITHHELD_NAN, *self.WITHHELD_KEPT]).any()
+
+
+class TestShownOnlyTooFew:
+    """An arm with fewer than two shown draws and a lost draw gives the complete-case reading,
+    which fails as the verdict does, instead of filling with NaN and raising."""
+
+    @staticmethod
+    def rows() -> pd.DataFrame:
+        rows = synthetic_rows(20, cluster_scale=1.0, iid_scale=0.6, seed=8)
+        rows["withheld"] = 0
+        rows = rows.loc[rows["replicate"] != 0].copy()  # one lost draw
+        rows["failed_replicates"] = 1
+        gated = rows["cell"].isin((POSITIVE, CONTROL))
+        # The positive shows no draw and the control one: the old fills read NaN and raised.
+        rows.loc[gated & (rows["replicate"] > 1), "withheld"] = 1
+        rows.loc[(rows["cell"] == POSITIVE) & (rows["replicate"] == 1), "withheld"] = 1
+        return rows
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "paired iid/cluster se ratio under its ceiling",
+            "paired positive se ratio at most the sanity ceiling",
+        ],
+    )
+    def test_the_complete_case_reading_fails(self, name: str) -> None:
+        rows = self.rows()
+        summary, _ = apply_shared_verdicts(
+            rows, RECORD, extra_columns=FEW_CLUSTER_COLUMNS, rate_labels=()
+        )
+        few_cluster_reference_verdicts(summary, rows, RECORD, GROUPS, shown_only=True)
+        assert not bool(summary.set_index("cell").loc[CONTROL, "passed"])
+        ctx = pf.Context(RECORD, rows, summary, groups={FEW_CLUSTER_FAMILY: GROUPS})
+        row = summary.loc[summary["cell"] == CONTROL].iloc[0]
+        clause = pv.few_cluster_rule(shown_only=True).clause(name)
+        ((label, judged),) = clause.candidates(ctx, row)
+        assert label == pf.SHOWN_TOO_FEW and not judged.passed

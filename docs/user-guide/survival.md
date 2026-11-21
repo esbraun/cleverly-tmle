@@ -268,6 +268,17 @@ Each box holds everyone given that arm, whether or not they were still followed 
 
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
+
+Such people can also push the event-rate model past what it can predict. A person whose covariates
+lie outside the range seen in one treatment group can get, under that treatment, a predicted chance
+of an event at a single time of one or more. The fit then caps that chance just below one, keeping
+each event type's share of it, and goes on. It warns with `PositivityWarning`, naming the treatment
+and how many people it capped, and marks every estimate `experimental`, because no study measured a
+fit where this happened. `result.record.jump_bound_share` gives the share of person and treatment
+pairs it capped; check `overlap` and consider a model without the treatment interaction.
+When the cap acts at many times for one person, that person's predicted chance of staying free
+of every event shrinks past what the computer can hold, and the fit still stops with a
+`DataError` that names the cap.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
 
@@ -719,8 +730,8 @@ gives both reasons and the study planned to measure it.
 The registered study covers an in-sample, single-cause survival fit on the wide layout with one
 treatment decision at each time point, static plans, and no weights, measured with correctly
 specified cell-mean models on finite binary laws at $n = 1000$. A `TimeToEvent` fit, whose one
-treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer than 20 clusters (groups such as care teams whose members' outcomes move
-together) prints its bootstrap standard deviation and percentile range as diagnostics.
+treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer clusters than its floor (groups such as care teams whose members' outcomes move
+together; the floor is 20 for most longitudinal fits) prints its bootstrap standard deviation and percentile range as diagnostics.
 [The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each resample redraws and refits, and
 [Bootstrap for sparse regimens](longitudinal.md#bootstrap-for-sparse-regimens) covers the BCa

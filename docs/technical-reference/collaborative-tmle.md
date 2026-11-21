@@ -325,45 +325,18 @@ The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected c
 *initial* fit. R `ctmleGlmnet` and this package fluctuate its *targeted* fit
 (`R/ctmle_glmnet.R`, line 291).
 
-**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by
-coordinate descent with a Newton polish on the active set, warm-started along the grid. Its
-Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residual is larger, the
-fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
-is separation at penalty 0. A grid that ends above 0 avoids it.
+**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by a
+proximal Newton method on a working set, warm-started along the grid. Each step minimizes the
+penalized quadratic model of the loss on the working coordinates and halves the step until the
+objective rises by at most 64 units of rounding, relative to its value. The working set holds
+the nonzero coordinates and those the sequential strong rule keeps, and grows by every
+coordinate that violates its optimality condition. Its
+Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty, and the solver stops near
+`1e-14`. `tests/unit/test_l1_solver.py` holds it to the coordinate-descent solver it replaced, run
+from a frozen copy in the same process.
 
-**`l1_solver="glmstar"` changes the speed, not the contract.** The option applies to
-`strategy="lasso"` and to `strategy="derivative"` without `treatment_candidates=`; every other
-strategy, and `SurvivalCTMLE`, refuses it. It needs the optional `glmstar` package
-(`pip install "cleverly[glmstar]"`, GPL-2.0-only), which wraps the compiled core of R `glmnet`.
-For each positive penalty below the training set's `lambda_max`, glmstar solves the same objective
-on the same standardized columns and normalized weights, and the built-in solver checks its
-Karush-Kuhn-Tucker residual. A solution at most `1e-10` is kept; a larger one is re-solved from
-there by the built-in solver. The intercept-only fits and penalty 0 stay with the built-in solver.
-
-The built-in solver solves the whole path again, with a `UserWarning`, when glmstar fails in a
-declared way. The reasons are a non-convergence warning with a shortened path (`nonconvergence`),
-a fatal error code (`fatal`), a path shorter than the grid (`short_path`), non-finite values
-(`nonfinite`), a re-solve that cannot reach `1e-10` (`polish`), and a class with no training row,
-which glmstar cannot size (`absent_class`). The selection record counts the work per branch in
-`l1_polished`, `l1_fallbacks` and `l1_fallback_reasons` (`CTMLEDerivativeFit` per training set).
-
-Every kept penalty meets the same residual bound under either solver, so the paths agree to that
-tolerance, not bit for bit. The selection agrees too, and the estimate to many digits, except
-where a choice along the search is a near tie: a CV argmin, a step of the path construction, the
-final step, the patience counter or the cross-validated penalty. There the two solvers can pick
-different candidates.
-
-The option is not part of the support key: a glmstar fit has the status and support record of the
-same fit with the built-in solver. That decision rests on a decision-equivalence replay of the
-lasso and derivative studies under both solvers (X106 K2c-2). Over 14,861 replayed study
-replicates no selection, final step, patience stop, path, active set or penalty pair differed.
-Estimates differed by at most `8e-8` (about `3e-6` of a standard error) and standard errors by at
-most `6e-9`. The largest changes are in the derivative strategy, on three treatment levels and at
-small penalties, where the mechanism and its partner nearly coincide and their difference enters
-the clever covariate.
-`tests/unit/test_l1_glmstar.py` holds the residual bounds, mutation controls on the mapping, the
-fallbacks and the agreement of public fits, and `tests/unit/test_ctmle_sequence_witness.py` runs
-its `glmnet` comparisons on both solvers.
+When the residual is larger, the fit raises `L1ConvergenceError`, and the message names the layer
+and the penalty. The usual cause is separation at penalty 0. A grid that ends above 0 avoids it.
 
 **The ends of the default grid hold on the analysis sample.** There, the first
 default candidate is the intercept-only mechanism exactly, and the last is the unpenalized
