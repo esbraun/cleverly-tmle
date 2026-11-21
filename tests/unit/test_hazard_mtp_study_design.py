@@ -1208,3 +1208,25 @@ class TestTheCells:
             for r in range(50)
         }
         assert not foreign & set(seeds)
+
+    def test_the_gated_untruncated_cells_read_unseen_draws(self) -> None:
+        """The gated ``untruncated_density`` cells do not read the stream of the reported rows.
+
+        The first declared run drew 800 reported rows on the stream named by the fit label, and
+        their results were read; the gated cells take a stream of their own.
+        """
+        streams = [stream for family, stream, *_ in properties.FIT_SETS]
+        gated = properties.calibration_stream("untruncated_density")
+        assert gated != "untruncated_density" and streams.count(gated) == 1
+        assert "untruncated_density" not in streams
+        seen = {
+            stream_seed(
+                study.STUDY, "property_sample", "interval_calibration", "untruncated_density", r
+            )
+            for r in range(800)
+        }
+        fresh = {
+            stream_seed(study.STUDY, "property_sample", "interval_calibration", gated, r)
+            for r in range(properties.CALIBRATION_REPLICATES)
+        }
+        assert not seen & fresh

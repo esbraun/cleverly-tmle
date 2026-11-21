@@ -359,10 +359,28 @@ def fits_differ_reading(
 
 # ------------------------------------------------------------------ the grid
 
+#: The stream label of each fit label's calibration fit set, where it is not the fit label.
+#: ``untruncated_density`` was first declared as reported rows on the stream of its own name,
+#: and those rows were seen; its gated cells read a stream no earlier run drew.
+CALIBRATION_STREAMS = {"untruncated_density": "untruncated_density_gated"}
+
+
+def calibration_stream(fit: str) -> str:
+    """The stream label of one fit label's calibration fit set."""
+    return CALIBRATION_STREAMS.get(fit, fit)
+
+
 #: Every fit set: ``(family, stream label, configuration, n, replicates, fit label)``.
 FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
     *(
-        ("interval_calibration", fit, "both_correct", CALIBRATION_N, CALIBRATION_REPLICATES, fit)
+        (
+            "interval_calibration",
+            calibration_stream(fit),
+            "both_correct",
+            CALIBRATION_N,
+            CALIBRATION_REPLICATES,
+            fit,
+        )
         for fit in CALIBRATION_FITS
     ),
     *(
@@ -475,7 +493,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     name,
                     CALIBRATION_N,
                     CALIBRATION_REPLICATES,
-                    fit,
+                    calibration_stream(fit),
                 )
     levels = DeclaredEstimates("levels")
     for configuration in CONFIGURATIONS:
