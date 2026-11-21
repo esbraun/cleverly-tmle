@@ -804,3 +804,16 @@ untruncated density fit included), refit at `58538bfa` and at the merged tree, a
 equal in every column. `tests/unit/test_method_evidence.py` re-summarizes the committed
 `property-replicates.parquet` with the merged modules and reads the committed `passed` and
 `property_passed` on every row of `properties.csv`.
+
+## Main merged into `vector-mtp` after its Fix-9 run
+
+The run ran at `58538bfa`. Landing it on a branch that merged main through `cb17f08f` changes
+three modules the manifest records: `tests/studies/evidence/properties.py`,
+`tests/studies/evidence/property_verdicts.py` and `tests/studies/fractional_glm.py`. Each is
+identical at `1231ef9c` and `58538bfa`, so main's edits since `1231ef9c` are the whole difference,
+the same edits the `hazard-mtp` section above describes: bootstrap indices gathered from the same
+stream, the `shown_only` few-cluster readings this study does not declare, and a docstring. The
+evidence: two primary samples of each scenario and one replicate of every property fit set (40
+primary and 36 property rows), refit at `58538bfa` and at the merged tree, are bitwise equal in
+every column. `tests/unit/test_method_evidence.py` re-summarizes the committed rows with the
+merged modules and reads the committed verdicts.

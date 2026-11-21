@@ -180,6 +180,7 @@ CURRENT: dict[str, str] = {
     "mtp-pricing": "regenerated under the shipped intervals (Fix-9)",
     "mtp-policy-variance": "regenerated under the shipped intervals (Fix-9)",
     "shift-policies": "regenerated under the shipped intervals (Fix-9)",
+    "vector-mtp": "regenerated under the shipped intervals (Fix-9)",
     "mtp-density-tails": "its rows were written under the shipped intervals (Fix-9)",
     # First run after the intervals shipped (X101 declared run at 927379cf).
     "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "

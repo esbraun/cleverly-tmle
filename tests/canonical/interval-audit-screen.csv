@@ -165,7 +165,7 @@ survival-ctmle,neutral,7,6,0.003125,,,0,
 survival-dr-tmle,neutral,15,15,0.002833,,,0,
 survival-node-bounds,neutral,12,12,0.006528,,,0,
 targeting-curves,declared,28,28,0.959333,simultaneous_coverage/H_band__correctly_specified;type_i_error/N_band__null;type_i_error/U_band__null,simultaneous_coverage/H_band__correctly_specified;type_i_error/N_band__null;type_i_error/U_band__null,0,"the flagged cells are band and type I rows of a targeting curve with truth 0, not package intervals of a mean"
-vector-mtp,neutral,23,20,0.011,,,0,
+vector-mtp,neutral,23,11,0.0145,,double_robustness/longitudinal_vector_ordered_density__outcome_wrong,0,
 weighted-ltmle,neutral,6,1,0.01,,root_n_and_efficiency/static__n_8000,0,
 weighted-ltmle-crossfit,neutral,7,7,0.014167,,power/static__alternative;weight_necessity/static__weighted,0,
 weighted-tmle,neutral,12,11,0.01125,,root_n_and_efficiency/n_2000,0,
