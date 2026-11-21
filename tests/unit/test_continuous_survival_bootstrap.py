@@ -238,9 +238,17 @@ def test_a_replicate_is_the_fit_of_its_resampled_frame() -> None:
         direct = _engine(causes={1: "1", 2: "2"}).refit(
             _container(resampled), random_state=draw.seed, _frozen_plan=plan
         )
+        # Without the band a replicate reads the influence-curve variance (no reader of its
+        # standard errors needs the switched one), and its estimates stay the switched fit's.
+        plain = _engine(causes={1: "1", 2: "2"}, variance="influence_curve").refit(
+            _container(resampled), random_state=draw.seed, _frozen_plan=plan
+        )
         for name, estimate in direct.items():
             assert fit.bootstrap.draws[name][b] == estimate.psi, (b, name)
-            assert fit.bootstrap.std_errors[name][b] == estimate.std_error, (b, name)
+            assert plain[name].psi == estimate.psi, (b, name)
+            assert fit.bootstrap.std_errors[name][b] == plain[name].std_error, (b, name)
+        # Witness: the two variances differ, so the standard errors tell them apart.
+        assert any(plain[name].std_error != estimate.std_error for name, estimate in direct.items())
     # Witness: the replicates differ from the fit and from each other.
     name = next(iter(fit))
     values = fit.bootstrap.draws[name]
@@ -442,16 +450,42 @@ def test_the_bootstrap_holds_the_result_beside_one_replicate_per_worker() -> Non
     assert "bootstrap" not in memory.peak_bytes(**_shape(n_bootstrap=0)).phases
 
 
+def test_without_the_band_a_replicate_is_sized_at_the_influence_curve_peak() -> None:
+    # A replicate keeps the switched variance only beside the band (``_replica``).
+    def replicate(switched: bool) -> int:
+        return memory.peak_bytes(
+            **_shape(
+                train_size=1_000,
+                simultaneous=False,
+                n_jobs=1,
+                n_bootstrap=0,
+                bootstrap_workers=2,
+                switched=switched,
+            )
+        ).bytes
+
+    plain = memory.peak_bytes(**_shape(simultaneous=False, bootstrap_workers=2))
+    banded = memory.peak_bytes(**_shape(bootstrap_workers=2))
+    one = memory.peak_bytes(**_shape(simultaneous=False))
+    assert plain.phases["bootstrap"] - one.phases["bootstrap"] == replicate(False)
+    assert banded.phases["bootstrap"] - memory.peak_bytes(**_shape()).phases["bootstrap"] == (
+        replicate(True)
+    )
+    # Witness: the switched replicate is the larger one.
+    assert replicate(True) > replicate(False)
+
+
 def test_a_budget_below_the_bootstrap_phase_refuses_before_any_learner() -> None:
     frame = _frame()
-    estimator = _engine(n_bootstrap=50)
+    # Two workers hold two replicates, so the bootstrap is the binding phase.
+    estimator = _engine(n_bootstrap=50, n_jobs=2)
     data = _container(frame)
     shape = estimator._memory_shape(len(frame), 2, 150, np.eye(3), 2, np.zeros(len(frame)))
     estimate = memory.peak_bytes(**shape)
     assert estimate.phase == "bootstrap"
     budget = max(value for key, value in estimate.phases.items() if key != "bootstrap") + 1
     with pytest.raises(MethodConfigurationError, match="in the full-refit bootstrap") as caught:
-        _engine(n_bootstrap=50, max_memory_bytes=budget).fit_data(data)
+        _engine(n_bootstrap=50, n_jobs=2, max_memory_bytes=budget).fit_data(data)
     assert "With a smaller n_jobs the bootstrap holds fewer replicate fits" in str(caught.value)
 
 
@@ -463,6 +497,14 @@ def test_each_replicate_takes_its_share_of_the_budget() -> None:
     replica = estimator._replica({1: "1", 2: "2"}, 123)
     assert (replica.n_bootstrap, replica.n_jobs, replica.simultaneous) == (0, 1, False)
     assert replica.max_memory_bytes == 123 and replica.causes == {1: "1", 2: "2"}
+
+
+def test_a_replicate_keeps_the_switched_variance_only_for_the_band() -> None:
+    # The studentized band reads each replicate's standard errors; nothing else does.
+    plain = _engine(n_bootstrap=50)._replica({1: "1", 2: "2"}, None)
+    banded = _engine(n_bootstrap=50, simultaneous=True)._replica({1: "1", 2: "2"}, None)
+    assert (plain.variance, banded.variance) == ("influence_curve", "switched")
+    assert not banded.simultaneous
 
 
 def test_under_the_default_budget_a_replicate_takes_its_share_of_what_is_free(

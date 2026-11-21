@@ -258,7 +258,11 @@ arrays.
 
 `n_bootstrap=B` on `ContinuousSurvivalTMLE` (at least 2), or on the study route, refits the whole
 estimator on $B$ resamples of the units: initial fits, library selection, the walk and the
-variance. Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
+variance. Only the studentized band below reads a replicate's standard error, so without the band
+a replicate computes the influence-curve variance instead of the switched one; the switched
+variance never enters the walk, so every replicate estimate is the same to the bit, and a
+replicate costs about 0.8 of a switched one in sample and 0.93 cross-fitted
+(`ContinuousSurvivalTMLE._replica`). Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
 draws for the fit's `random_state` and refits at the seed spawned beside it. Every fold is drawn
 on the resample's distinct units and then copied to their rows (`replicate_plan` in
 `cleverly.survival.engine`): a unit drawn several times has all its copies in one cross-fitting

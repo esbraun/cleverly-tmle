@@ -1135,7 +1135,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     bootstrap : BootstrapResult or None
         With ``n_bootstrap``, every replicate's estimate and standard error of each estimate,
         and how many refits were requested and failed (``n_requested``, ``n_failed``); the
-        draws are empty when every refit failed.  ``None`` without a bootstrap.  When at most
+        draws are empty when every refit failed.  A replicate's standard error is its
+        switched-variance standard error with ``simultaneous=True``, whose studentized band
+        reads it, and its influence-curve standard error otherwise.  ``None`` without a
+        bootstrap.  When at most
         1% of the refits fail, every bootstrap interval and the band read the refits that fit,
         with no warning; ``n_failed`` and :attr:`bootstrap_failures` say how many did not.
     bootstrap_band : BootstrapBand or None

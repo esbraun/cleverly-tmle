@@ -537,7 +537,9 @@ def peak_bytes(
         return held + max(1, int(bootstrap_workers)) * replicate
 
     if n_bootstrap:
-        phases["bootstrap"] = bootstrap_phase(switched)
+        # Only the studentized band reads a replicate's standard errors, so a replicate keeps
+        # the switched variance only beside the band (``ContinuousSurvivalTMLE._replica``).
+        phases["bootstrap"] = bootstrap_phase(switched and simultaneous)
     influence_curve = None
     if switched:
         # The same fit without the predictable variation: only the final pass differs.
