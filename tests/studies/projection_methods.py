@@ -19,6 +19,12 @@ groups (:data:`GROUPS`) and the cells their fits fill (:func:`group_cells`), the
 primary phase and the study record (:data:`STUDY`).  Each control and reading has its own cells,
 and every group draws its own seed stream.
 
+The study has no witness of the mechanism correction ``D_A``.  At the estimator's targeted
+limit the ``d_star`` reading predicts ratios of 1.039 and 1.057, both inside the calibration
+band, so the reading is published without a verdict.  The witness is the fast tier's exact-law
+curve test, ``tests/unit/test_drtmle_projection.py``, which checks the reported curve row by
+row against its closed form with the ``D_A`` term nonzero.
+
 The calibration ``R`` of ``dr_known_4k`` comes from the 3,200-draw pilot
 (:mod:`tests.studies.projection_methods_pilot`, with ``pilot_2`` where an arm needs it): X32a's
 rule over the two one-row arms (plan 6.1).  :data:`BUDGETED_R` is the ``R`` at pilot ratios of
@@ -243,14 +249,16 @@ GROUP_BY_LABEL: Mapping[str, Group] = {group.label: group for group in GROUPS}
 CONTROL_CLAIMS: Mapping[str, str] = {
     "shrunken_se": "the reported SE times 0.70: its SE-ratio interval must fall below the band",
     "wrong_q_witness": "the plug-in at the wrong outcome regression: its bias must lie wholly "
-    "outside the margin (+5.35 SD on the intercept, -4.95 SD on the slope), the witness that "
+    "outside the margin (+5.35 SD on the intercept, -4.86 SD on the slope), the witness that "
     "the wrong regression is wrong on both terms",
 }
 #: What each reading publishes, with no verdict (plan 5.3).
 READING_CLAIMS: Mapping[str, str] = {
     "d_star_reading": "the SE of D* alone (the curve without the mechanism correction) beside "
-    "the spread: predicted ratios 1.063 and 1.113; a fit that skips equation (9) but subtracts "
-    "D_A would read 0.94 and 0.90",
+    "the spread: predicted ratios 1.039 and 1.057 at the targeted limit, both inside the "
+    "calibration band, so the reading is not a D_A witness (the exact-law curve test in "
+    "tests/unit/test_drtmle_projection.py is); a fit that skips equation (9) but subtracts "
+    "D_A would read 0.96 and 0.95",
     "plugin_reading": "the plug-in SE beside the spread, withheld by the fit's status",
 }
 

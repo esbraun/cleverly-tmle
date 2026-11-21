@@ -736,14 +736,20 @@ complete data. With an estimated mechanism and a non-empty guard the fit reports
 a diagnostic ([inference statuses](inference.md)).
 
 Under H2 the reported curve also needs $Q_{r,j,a}$ consistent for $E[\varphi_j D \mid g_0]$; if it
-is not, the variance is misstated and the point is not biased. Take $W_1, W_2$ standard normal,
+is not, the variance is misstated and the point is not biased.
+
+Take $W_1, W_2$ standard normal,
 $g_0(1 \mid W) = \mathrm{expit}(0.6 W_1 + 0.3 W_2)$,
 $\bar Q_0(a, W) = \mathrm{expit}(-0.2 + a(0.5 + 0.6 W_1) - W_1 + 2 W_2)$, the basis
-`Linear(["W1"])` and an outcome regression that omits $W_2$. At $n = 4{,}000$, quadrature gives
-intercept and slope SDs of 0.0157 and 0.0159 for the DR-TMLE projection with the mechanism
-declared and 0.0167 and 0.0177 for the TMLE projection. The efficient bound, which needs a correct
-outcome regression, is 0.0128 and 0.0136. No study has measured this, so the figures are predictions and the
-composition reads `experimental`.
+`Linear(["W1"])` and an outcome regression that omits $W_2$. Both fits target that regression, so
+the SDs are taken at its limit after the projection's fluctuation, not at the regression itself.
+At $n = 4{,}000$, quadrature gives intercept and slope SDs of 0.0157 and 0.0162 for the DR-TMLE
+projection with the mechanism declared and 0.0163 and 0.0171 for the TMLE projection, about 4%
+and 5% wider. The efficient bound, which needs a correct outcome regression, is 0.0128 and 0.0136.
+No study has measured this, so the figures are predictions and the composition reads
+`experimental`. The gap lies inside the study's calibration band, so the study cannot see
+whether the fit subtracts $D_A$; the exact-law curve test in `tests/unit/test_drtmle_projection.py`
+checks that term.
 
 `tests/unit/test_reduced_projection.py` checks each weighted reduced regression against its
 closed form on exact laws, with ties in $g_0$ and in $\bar Q_0(1, \cdot)$ that catch a weight

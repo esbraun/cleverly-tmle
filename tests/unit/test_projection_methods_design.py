@@ -163,25 +163,50 @@ def test_the_law_p_readings_are_the_plans() -> None:
     np.testing.assert_allclose(t["gram"], np.eye(2), atol=1e-10)
     assert t["wrong_limit"] == pytest.approx((-0.2473, 0.6678, -0.4731), abs=1e-4)
     assert t["efficient_sd"] == pytest.approx((0.0128, 0.0136), abs=1e-4)
-    assert t["dr_known_sd"] == pytest.approx((0.0157, 0.0159), abs=1e-4)
-    assert t["d_star_sd"] == pytest.approx((0.0167, 0.0177), abs=1e-4)
-    assert t["plugin_displacement"] == pytest.approx((5.35, -4.95), abs=0.01)
-    assert t["conditioning_norms"][1] == pytest.approx((0.259, 0.221), abs=1e-3)
-    assert t["conditioning_norms"][0] == pytest.approx((0.282, 0.243), abs=1e-3)
-    assert t["conservative_ratio"] == pytest.approx((1.19, 1.00), abs=0.005)
-    assert t["correlation"] == pytest.approx(0.002, abs=0.001)
+    assert t["dr_known_sd"] == pytest.approx((0.0157, 0.0162), abs=1e-4)
+    assert t["d_star_sd"] == pytest.approx((0.0163, 0.0171), abs=1e-4)
+    assert t["plugin_displacement"] == pytest.approx((5.35, -4.86), abs=0.01)
+    assert t["conditioning_norms"][1] == pytest.approx((0.272, 0.252), abs=1e-3)
+    assert t["conditioning_norms"][0] == pytest.approx((0.268, 0.223), abs=1e-3)
+    assert t["conservative_ratio"] == pytest.approx((1.189, 1.000), abs=0.001)
+    assert t["correlation"] == pytest.approx(-0.029, abs=0.001)
     assert law.quadrature_error() < 1e-8
+
+
+def test_the_readings_are_taken_at_the_targeted_limit() -> None:
+    """The projection's fluctuation moves the wrong GLM: its population score is nonzero there.
+
+    At the targeted limit ``Qbar*`` the score ``sum_a s(a) E[phi (Qbar_0 - Qbar*)(a)]`` is zero,
+    and at the untargeted GLM it is not, so the SDs of plan 5.1 rev 2 (taken at the GLM) were
+    the wrong estimator's.
+    """
+    p = law.law()
+    assert p.epsilon == pytest.approx((-0.0795, 0.0700), abs=1e-4)
+
+    def score(q: dict[int, np.ndarray]) -> np.ndarray:
+        return np.array(
+            [
+                sum(p.grid.mean((1.0 if a else -1.0) * f * (p.q0[a] - q[a])) for a in (0, 1))
+                for f in p.grid.phi
+            ]
+        )
+
+    np.testing.assert_allclose(score(p.q_target), 0.0, atol=1e-12)
+    assert np.abs(score(p.q_wrong)).min() > 0.01
+    # The untargeted readings, which a fit that skipped the fluctuation would have.
+    untargeted = p.sd(p.covariance(p.q_wrong, subtract=False))
+    assert untargeted == pytest.approx((0.0167, 0.0177), abs=1e-4)
 
 
 def test_the_ladder_is_the_plans_and_each_other_offset_vanishes_on_a_term() -> None:
     ladder = table()["ladder"]
     np.testing.assert_allclose(
-        ladder["product"], [[-0.71, -0.54], [-0.91, -0.69], [-1.15, -0.88]], atol=0.005
+        ladder["product"], [[-0.698, -0.518], [-0.887, -0.659], [-1.122, -0.835]], atol=0.002
     )
     # The near-symmetries of plan 5.1: each single offset barely moves one term.
-    assert np.abs(ladder["w2"][:, 1]).max() < 0.05
-    assert np.abs(ladder["w1w2"][:, 0]).max() < 0.02
-    assert np.abs(ladder["w1"][:, 1]).max() < 0.03
+    assert np.abs(ladder["w2"][:, 1]).max() == pytest.approx(0.027, abs=0.001)
+    assert np.abs(ladder["w1w2"][:, 0]).max() == pytest.approx(0.028, abs=0.001)
+    assert np.abs(ladder["w1"][:, 1]).max() == pytest.approx(0.013, abs=0.001)
 
 
 def test_every_declared_witness_clears_its_floor_before_the_pilot() -> None:
@@ -207,12 +232,12 @@ def test_every_ladder_rung_and_growth_cell_detects() -> None:
     ladder = table()["ladder"]["product"]
     replicates = study.LADDER_R
     smallest = float(np.abs(ladder).min())
-    assert smallest == pytest.approx(0.54, abs=0.005)
-    assert repeated_sizing.bias_discriminated_probability(MARGINS, 0.52, replicates) > 1 - 1e-8
+    assert smallest == pytest.approx(0.518, abs=0.001)
+    assert repeated_sizing.bias_discriminated_probability(MARGINS, smallest, replicates) > 1 - 1e-8
     spread = float(np.sqrt(2.0 / replicates))  # two independent standardized biases
     z = float(stats.norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
     growth = np.abs(ladder[-1]) - np.abs(ladder[0])
-    assert growth == pytest.approx((0.44, 0.34), abs=0.01)
+    assert growth == pytest.approx((0.42, 0.32), abs=0.01)
     assert spread == pytest.approx(0.045, abs=0.001)
     for value in growth:
         assert float(stats.norm.sf((z * spread - value) / spread)) > 0.999
@@ -266,12 +291,18 @@ def test_the_dr_glm_clauses_pass_at_their_planning_figures() -> None:
 
 
 def test_the_d_star_reading_is_published_not_gated() -> None:
-    """Plan 5.3: 1.063 and 1.113; the slope lies above the band, the intercept inside."""
+    """1.039 and 1.057 at the targeted limit: both inside the band, so no ``D_A`` witness.
+
+    The study therefore has no witness of the mechanism correction; the exact-law curve test of
+    ``tests/unit/test_drtmle_projection.py`` is the witness, and the study docstring says so.
+    """
     ratios = table()["d_star_ratio"]
-    assert ratios == pytest.approx((1.063, 1.113), abs=0.001)
+    assert ratios == pytest.approx((1.039, 1.057), abs=0.001)
     low, high = MARGINS.calibration_se_ratio
-    assert low < ratios[0] < high < ratios[1]
+    assert low < ratios[0] < ratios[1] < high
     assert "d_star_reading" in study.READING_CLAIMS
+    assert "not a D_A witness" in study.READING_CLAIMS["d_star_reading"]
+    assert "no witness of the mechanism correction" in " ".join(str(study.__doc__).split())
 
 
 def test_the_family_passes_at_the_budget_with_correct_intervals() -> None:

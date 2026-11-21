@@ -12,6 +12,14 @@ which omits ``W2`` and the modification.  The slow mechanism of the ``dr_slow`` 
 correct GLM plus the logit offset ``n^(-1/3) W2 (1 + W1)``, a constructed error that breaks the
 level sets of ``g_0``.
 
+The estimator's outcome regression is not the wrong GLM itself but its targeted limit
+``Qbar*``.  With ``g = g_0`` the projection's fluctuation along ``s(a) phi / g_0(a | W)`` has a
+nonzero population score at the wrong GLM, and solving it gives ``epsilon = (-0.0795, 0.0700)``
+(:func:`projection_fluctuation`).  Every reading of the fitted estimator (the curves' SDs, the
+reduced regressions, the conditioning norms, the ladder and the conservative ratio) is taken at
+``Qbar*``.  The wrong-``Qbar`` witness reads the plug-in of the initial regression, so its
+displacement takes the untargeted GLM and is stated in SDs of the curve at ``Qbar*``.
+
 Every number of plan 5.1 is computed here by ``120 x 120`` Gauss--Hermite quadrature on the
 ``g_0`` index ``u = (0.6 W1 + 0.3 W2) / sqrt(0.45)`` and its orthogonal coordinate ``v``.  The two
 are independent standard normals, so a mean given ``u`` (the population reduced regression on
@@ -136,6 +144,43 @@ def wrong_columns(grid: Grid, a: int) -> list[np.ndarray]:
     return [np.ones_like(grid.w1), np.full_like(grid.w1, float(a)), grid.w1]
 
 
+def targeted(
+    grid: Grid, g: dict[int, np.ndarray], q: dict[int, np.ndarray], epsilon: np.ndarray
+) -> dict[int, np.ndarray]:
+    """``Qbar`` after the projection's logistic fluctuation along ``s(a) phi / g_0(a | W)``."""
+    tilt = epsilon[0] * grid.phi[0] + epsilon[1] * grid.phi[1]
+    return {a: expit(logit(q[a]) + (1.0 if a == 1 else -1.0) * tilt / g[a]) for a in (0, 1)}
+
+
+def projection_fluctuation(
+    grid: Grid, g: dict[int, np.ndarray], q0: dict[int, np.ndarray], q: dict[int, np.ndarray]
+) -> np.ndarray:
+    """The population fluctuation parameter of the projection at the true mechanism.
+
+    Newton's method solves ``sum_a s(a) E[phi (Qbar_0 - Qbar*)(a, W)] = 0``, the population
+    score of the covariate ``s(a) phi / g_0(a | W)``.  Equation (10)'s covariate
+    ``1_a g_r2 / g_r1`` and equation (9)'s mechanism step are zero in the population at
+    ``g = g_0``, so this fluctuation alone moves the outcome regression's limit.
+    """
+    epsilon = np.zeros(2)
+    for _ in range(100):
+        current = targeted(grid, g, q, epsilon)
+        score = np.zeros(2)
+        hessian = np.zeros((2, 2))
+        for a in (0, 1):
+            sign = 1.0 if a == 1 else -1.0
+            slope = current[a] * (1.0 - current[a]) / g[a]
+            for i, pi in enumerate(grid.phi):
+                score[i] += grid.mean(sign * pi * (q0[a] - current[a]))
+                for j, pj in enumerate(grid.phi):
+                    hessian[i, j] += grid.mean(pi * pj * slope)
+        step = np.linalg.solve(hessian, score)
+        epsilon = epsilon + step
+        if np.max(np.abs(step)) < 1e-13:
+            return epsilon
+    raise RuntimeError("the population projection fluctuation did not converge")
+
+
 class LawP:
     """Every plan 5.1 reading of law P, computed once."""
 
@@ -157,9 +202,12 @@ class LawP:
             )
             for a in (0, 1)
         }
-        # Q_{r,j,a} = E[phi_j (Qbar_0 - Qbar)(a, W) | g_0], the weighted reduced regression.
+        self.epsilon = projection_fluctuation(grid, self.g, self.q0, self.q_wrong)
+        # The estimator's limit: the wrong GLM after the projection's fluctuation.
+        self.q_target = targeted(grid, self.g, self.q_wrong, self.epsilon)
+        # Q_{r,j,a} = E[phi_j (Qbar_0 - Qbar*)(a, W) | g_0], the weighted reduced regression.
         self.qr = {
-            a: [grid.given_index(p * (self.q0[a] - self.q_wrong[a])) for p in phi] for a in (0, 1)
+            a: [grid.given_index(p * (self.q0[a] - self.q_target[a])) for p in phi] for a in (0, 1)
         }
 
     def _terms(self, q: dict[int, np.ndarray], a: int, y: int, subtract: bool) -> list[np.ndarray]:
@@ -204,27 +252,27 @@ class LawP:
 
     @property
     def dr_known(self) -> np.ndarray:
-        """The covariance of ``IC_beta`` with the declared ``g`` and the wrong ``Qbar``: ``D* - D_A``."""
-        return self.covariance(self.q_wrong, subtract=True)
+        """The covariance of ``IC_beta`` with the declared ``g`` at ``Qbar*``: ``D* - D_A``."""
+        return self.covariance(self.q_target, subtract=True)
 
     @property
     def d_star(self) -> np.ndarray:
-        """The covariance of ``D*`` alone at the wrong ``Qbar``: the TMLE projection's curve."""
-        return self.covariance(self.q_wrong, subtract=False)
+        """The covariance of ``D*`` alone at ``Qbar*``: the curve the ``d_star`` reading reads."""
+        return self.covariance(self.q_target, subtract=False)
 
     def plugin_displacement(self) -> np.ndarray:
-        """The plug-in at the wrong ``Qbar`` minus the truth, in SDs of ``IC_beta`` at 4,000."""
+        """The plug-in at the initial wrong ``Qbar`` minus the truth, in SDs of ``IC_beta``."""
         tau = self.q_wrong[1] - self.q_wrong[0]
         plugin = self.gram_inverse @ np.array([self.grid.mean(p * tau) for p in self.grid.phi])
         return (plugin - self.beta) / self.sd(self.dr_known)
 
     def conditioning_norms(self) -> dict[int, np.ndarray]:
-        """``L_2(F_{j,a})``, ``F = phi_j (Qbar_0 - Qbar) - E[. | g_0]``: H1 fails when nonzero."""
+        """``L_2(F_{j,a})``, ``F = phi_j (Qbar_0 - Qbar*) - E[. | g_0]``: H1 fails when nonzero."""
         out = {}
         for a in (1, 0):
             values = []
             for p in self.grid.phi:
-                f = p * (self.q0[a] - self.q_wrong[a])
+                f = p * (self.q0[a] - self.q_target[a])
                 values.append(math.sqrt(self.grid.mean((f - self.grid.given_index(f)) ** 2)))
             out[a] = np.array(values)
         return out
@@ -243,7 +291,7 @@ class LawP:
         for a in (0, 1):
             sign = 1.0 if a == 1 else -1.0
             for k, p in enumerate(self.grid.phi):
-                f = p * (self.q0[a] - self.q_wrong[a])
+                f = p * (self.q0[a] - self.q_target[a])
                 f = f - self.grid.given_index(f)
                 total[k] += sign * self.grid.mean(f * (self.g[a] - gn[a]) / self.g[a])
         return math.sqrt(n) * (self.gram_inverse @ total) / np.sqrt(np.diag(self.dr_known))
@@ -257,7 +305,8 @@ class LawP:
     def conservative_ratio(self) -> np.ndarray:
         """The predicted SE ratio of ``dr_glm_4k``: the reported over the true SD per coefficient.
 
-        With the correct GLM mechanism on ``(1, W1, W2)`` and the wrong ``Qbar``, the estimator's
+        With the correct GLM mechanism on ``(1, W1, W2)`` and the wrong GLM's targeted limit
+        ``Qbar*``, the estimator's
         curve is ``IC_beta`` minus its projection on the mechanism GLM's score ``X (A - g_0)``
         (``theorem.md``, "A parametric mechanism makes the interval conservative"), while the
         fit reports ``IC_beta`` itself.
@@ -271,8 +320,8 @@ class LawP:
         cross = np.zeros((2, 3))
         for a in (0, 1):
             residual = (1.0 if a == 1 else 0.0) - g1
-            # Y integrated out: E[Y - Qbar | a, W] = Qbar_0 - Qbar at the wrong regression.
-            terms = self._terms(self.q_wrong, a, 0, subtract=True)
+            # Y integrated out: E[Y - Qbar* | a, W] = Qbar_0 - Qbar* at the targeted limit.
+            terms = self._terms(self.q_target, a, 0, subtract=True)
             sign = 1.0 if a == 1 else -1.0
             terms = [
                 t + sign * p / self.g[a] * self.q0[a] for t, p in zip(terms, grid.phi, strict=True)
