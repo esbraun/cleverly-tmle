@@ -507,6 +507,8 @@ BACKEND_ROUTES: dict[str, str] = {
     "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
     "PlannedFits": "argument",
+    # X106 G2: the refutation refit preview has no fit data of its own.
+    "PlannedRefits": "argument",
     "SurvivalSelection": "argument",
     "DriftRecord": "argument",
     "StudyResult": "argument",
