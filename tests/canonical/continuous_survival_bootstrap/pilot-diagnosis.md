@@ -220,7 +220,7 @@ whose empirical SD has a relative Monte Carlo SD of $1/\sqrt{2 \cdot 399} = 0.03
 
 The shortfall is shared with the Wald interval on the same fits, so it is not the bootstrap's. On
 each row the mean bootstrap SE is 0.983 to 1.030 times the mean Wald SE, a paired reading with a
-Monte Carlo SE of 0.003 to 0.005 that does not involve the empirical SD. The percentile coverage
+Monte Carlo SE of 0.0025 to 0.0056 (delta method) that does not involve the empirical SD. The percentile coverage
 minus the Wald coverage on the same draws is -0.015 to +0.010 by row, -0.003 on average. The low
 SE ratios come from the denominator: the pilot's Wald SE ratios on these rows read 0.912 to 1.044.
 
@@ -228,9 +228,14 @@ SE ratios come from the denominator: the pilot's Wald SE ratios on these rows re
 fit: the same law (its sampler returns the registered sampler's frame for the same seed, and its
 truths are equal), $n = 1{,}000$, `cross_fit=False`, the default libraries and folds, on 6,000 fits.
 There the Wald SE ratios of these 12 rows are 0.954 to 1.003 and the coverage 0.937 to 0.951. The
-pilot's Wald SE ratios sit up to 2.2 of their Monte Carlo SDs below those of `v4_in_sample`, on
-the treated cause-2 risks and the cause-2 differences, which share draws. So the pilot's 400
-samples spread more than the law does on those rows.
+pilot's Wald SE ratios sit 0.3 to 2.3 of their Monte Carlo SDs below those of `v4_in_sample` on
+10 of the 12 rows, deepest on the treated cause-2 risks, which share draws with the cause-2
+differences. A largest deviation near 2.3 SDs over 12 correlated rows is within chance, so this is
+the Monte Carlo spread of the pilot's 400 samples, not a property of the law. The 6,000 disjoint
+fits of `v4_in_sample` stand in for the extension of the pilot that `guide/studies.md` asks for
+when a row's plug-in pass is below 0.90: they measure the same estimator's Wald SE ratio and
+coverage on 15 times the pilot's draws, and an extension would add only each row's own percentile
+minus Wald coverage difference.
 
 The anchored reading below multiplies each row's paired bootstrap-to-Wald SE by its
 `v4_in_sample` Wald SE ratio, and takes `v4_in_sample`'s coverage, since the percentile and Wald
@@ -253,18 +258,29 @@ coverages agree on average.
 
 Anchored, every row's bootstrap SE ratio is 0.972 to 1.003, inside the band (0.93, 1.07). What
 remains is the coverage half. At 3,200 fits the 99% Clopper-Pearson interval of a coverage near
-0.94 has half-width about 0.011, so a row whose true coverage is below about 0.931 fails the band's
-lower edge of 0.92. The in-sample fit's own Wald coverage sits at 0.937 to 0.951, close to that
-edge, so the anchored family pass at 3,200 is 0.26, with about 1.2 red rows expected. The family
-reaches 0.93 at 5,600 fits and 0.97 at 6,400.
+0.94 has half-width about 0.011, so a row whose true coverage is about 0.931 fails the band's
+lower edge of 0.92 with probability about one half, and a row below it more likely fails than
+passes. The in-sample fit's own Wald coverage sits at 0.937 to 0.951, close to that edge. Taking
+each row's percentile coverage at the pooled difference of -0.003 from `v4_in_sample`'s, the
+anchored family pass at 3,200 is 0.26, with 1.2 red rows expected; that family reaches 0.93 at
+5,600 fits and 0.97 at 6,400. The row differences (-0.015 to +0.010, Monte Carlo SE 0.004 to
+0.012) do not reject a common value (chi-squared 14.6 on 11 degrees of freedom, p = 0.20, ignoring
+the correlation between rows), and they do not confirm one. Taking each row's own difference, the
+family pass at 3,200 is 0.003 with 3.1 red rows expected, and only 0.07 at 5,600, 0.09 at 6,400
+and 0.15 at 7,600, because `ate_regimen[treated vs control, cause1 @ t=2.32]` (0.941 - 0.015) and
+`cif_regimen[control, cause1 @ t=1.12]` (0.937 - 0.0075) sit near 0.93 at any count. So 1.2 to
+3.1 red rows are expected at 3,200.
 
-Diagnosis: no defect. The low plug-in passes come from the pilot's sample spread, which the Wald
-interval on the same fits shares, and from the in-sample fit's own coverage near 0.94, which the
-bootstrap inherits and does not cause. The declaration keeps 3,200 fits (the at-target count).
-A red row there is read against the Wald interval on the same fits, as `regenerate.py`'s red-cell
-readings state. Doubling the count to reach a family pass of 0.97 would cost about 580 CPU-h more
-and could move no label: the in-sample bootstrap stays experimental until the conditions of the
-bootstrap delta method are read.
+Diagnosis: no defect. The low plug-in passes come from the chance spread of the pilot's samples,
+which the Wald interval on the same fits shares, and from the in-sample fit's own coverage near
+0.94, which the bootstrap inherits and does not cause. The declaration keeps 3,200 fits (the
+at-target count). A red row there is a defect suspect unless its SE-ratio interval contains 1 and
+its coverage is consistent with 0.95. Its declared diagnosis starts from `paired-wald.csv`, which
+compares the row with the Wald interval on the same fits, as `regenerate.py`'s red-cell readings
+state. Doubling the count would cost about 580 CPU-h more and buy a family pass of 0.97 under the
+pooled difference but 0.09 under the rows' own differences. It could move no label either: the
+in-sample bootstrap stays experimental until the conditions of the bootstrap delta method are
+read.
 
 The rows this diagnosis covers: `cif_regimen[treated, cause1 @ t=2.32]`,
 `cif_regimen[treated, cause2 @ t=1.12]`, `cif_regimen[treated, cause2 @ t=2.32]`,

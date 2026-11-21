@@ -286,3 +286,90 @@ def test_the_first_quartile_publishes_without_a_verdict() -> None:
     assert (table["bca_coverage"] == 0.0).all() and (table["percentile_coverage"] == 1.0).all()
     assert set(study.EARLY_COLUMNS) <= set(study.EXTRA_COLUMNS)
     assert not set(study.EARLY_COLUMNS) & set(cross_fitted.EXTRA_COLUMNS)
+
+
+def _paired_rows(*, ratio: float, fits: int = 3_200, seed: int = 5) -> pd.DataFrame:
+    """One gated row whose Wald SE varies by fit and whose bootstrap SE is ``ratio`` times it."""
+    rng = np.random.default_rng(seed)
+    estimand = study.ROWS[0]
+    truth = float(law.TRUTH[estimand])
+    estimate = truth + 0.01 * rng.normal(size=fits)
+    wald = 0.01 * np.exp(0.2 * rng.normal(size=fits))
+    boot = ratio * wald * (1.0 + 0.02 * rng.normal(size=fits))
+    return pd.DataFrame(
+        {
+            "scenario": study.GATED_CELL,
+            "replicate": range(fits),
+            "estimand": estimand,
+            "truth": truth,
+            "estimate": estimate,
+            "std_error": boot,
+            "ci_lower": estimate - 1.96 * boot,
+            "ci_upper": estimate + 1.96 * boot,
+            "wald_std_error": wald,
+            "wald_lower": estimate - 1.96 * wald,
+            "wald_upper": estimate + 1.96 * wald,
+        }
+    )
+
+
+def test_the_paired_readings_compare_each_fit_with_its_own_wald_interval() -> None:
+    assert study.PAIRED_FILE in study.STUDY.extra_artifacts
+    assert study.PAIRED_SE_MARGIN == (0.95, 1.05) and study.PAIRED_COVERAGE_MARGIN == -0.025
+    (same,) = study.paired_wald(_paired_rows(ratio=1.0)).to_dict("records")
+    assert same["paired_se_ratio_ci_lower"] < 1.0 < same["paired_se_ratio_ci_upper"]
+    assert same["se_ratio_within_margin"] and same["coverage_difference_within_margin"]
+    # Nonzero witness: a bootstrap SE at 0.9 times the Wald SE of the same fit leaves the SE
+    # margin, and its narrower percentile interval covers less, by fits the Wald interval alone
+    # covers.
+    (low,) = study.paired_wald(_paired_rows(ratio=0.9)).to_dict("records")
+    assert abs(low["paired_se_ratio"] - 0.9) < 0.002
+    assert low["paired_se_ratio_ci_upper"] < study.PAIRED_SE_MARGIN[0]
+    assert not low["se_ratio_within_margin"]
+    assert low["percentile_only"] == 0 and low["wald_only"] > 0
+    assert np.isclose(low["coverage_difference"], low["percentile_coverage"] - low["wald_coverage"])
+    assert low["coverage_difference_ci_lower"] < study.PAIRED_COVERAGE_MARGIN
+    assert low["coverage_difference_ci_lower"] < low["coverage_difference"]
+    assert low["coverage_difference"] < low["coverage_difference_ci_upper"] <= 0.0
+    assert not low["coverage_difference_within_margin"]
+
+
+def test_the_paired_readings_depend_on_the_pairing() -> None:
+    # Deliberate mutation: shuffling each fit's Wald interval to another fit keeps both margins
+    # (the mean SEs and the two coverages) but breaks the pairs.  A reading that ignored the
+    # pairing, such as an unpaired interval, would not change; the paired one must.
+    rows = _paired_rows(ratio=0.97)
+    order = np.random.default_rng(6).permutation(len(rows))
+    shuffled = rows.copy()
+    for column in ("wald_std_error", "wald_lower", "wald_upper"):
+        shuffled[column] = rows[column].to_numpy()[order]
+    (paired,) = study.paired_wald(rows).to_dict("records")
+    (broken,) = study.paired_wald(shuffled).to_dict("records")
+    for name in ("paired_se_ratio", "percentile_coverage", "wald_coverage"):
+        assert np.isclose(paired[name], broken[name]), name
+    width = paired["paired_se_ratio_ci_upper"] - paired["paired_se_ratio_ci_lower"]
+    assert broken["paired_se_ratio_ci_upper"] - broken["paired_se_ratio_ci_lower"] > 5 * width
+    assert broken["percentile_only"] > paired["percentile_only"]
+    spread = paired["coverage_difference_ci_upper"] - paired["coverage_difference_ci_lower"]
+    assert (
+        broken["coverage_difference_ci_upper"] - broken["coverage_difference_ci_lower"] > 2 * spread
+    )
+
+
+def test_newcombes_interval_matches_the_paired_wald_interval_at_large_counts() -> None:
+    both, first, second, neither = 20_000, 400, 600, 1_000
+    trials = both + first + second + neither
+    low, high = study.paired_difference_interval(
+        both, first, second, neither, confidence_level=0.99
+    )
+    difference = (first - second) / trials
+    spread = np.sqrt(((first + second) / trials - difference**2) / trials)
+    assert low < difference < high
+    assert np.allclose(
+        [low, high], [difference - 2.576 * spread, difference + 2.576 * spread], atol=2e-4
+    )
+    # The difference is first minus second: swapping the discordant cells mirrors it.
+    assert np.allclose(
+        study.paired_difference_interval(both, second, first, neither, confidence_level=0.99),
+        (-high, -low),
+    )

@@ -28,6 +28,14 @@ The shrunk-SE control multiplies each bootstrap SE by :data:`SHRUNKEN_SE_FACTOR`
 leave the SE-ratio band below.  The calibration rows and controls are a merge gate
 (:func:`scientific_failures`); the BCa and Wald readings are reported.
 
+**Paired readings** (``paired-wald.csv``, :func:`paired_wald`).  Per row, the percentile interval
+against the Wald interval of the same fits: the mean bootstrap SE over the mean Wald SE with a 99%
+delta-method interval, and the percentile coverage minus the Wald coverage with its discordant
+counts and Newcombe's (1998) hybrid score interval for paired proportions.  Each carries a
+reading against a declared margin (:data:`PAIRED_SE_MARGIN`, :data:`PAIRED_COVERAGE_MARGIN`).
+They carry no verdict: the regeneration script's red-cell readings name them as the declared
+diagnosis of a red calibration row.
+
 **Size and seeds.**  :data:`PRIMARY_REPLICATES` is the family-wise rule of plan 5.5: the smallest
 multiple of 400 at which all 12 calibration rows pass together with probability at least 0.95 at
 SE ratio 1 and coverage 0.95 (``pilot.at_target_count``: 3,200).  The pilot
@@ -46,6 +54,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from cleverly.exceptions import DataError
 from cleverly.survival import ContinuousSurvivalTMLE
@@ -99,6 +108,14 @@ MARGINS = Margins(standardized_bias=0.2)
 CALIBRATION_FILE = "calibration.csv"
 READINGS_FILE = "targeting-readings.csv"
 EARLY_FILE = "early-time.csv"
+PAIRED_FILE = "paired-wald.csv"
+#: The equivalence margin of the paired SE ratio (mean bootstrap SE over mean Wald SE on the same
+#: fits): its 99% interval inside it reads the bootstrap SE as the Wald SE's.
+PAIRED_SE_MARGIN = (0.95, 1.05)
+#: The non-inferiority margin of the paired coverage difference (percentile minus Wald on the
+#: same fits): its lower 99% limit above it reads the percentile coverage as no worse than the
+#: Wald coverage.
+PAIRED_COVERAGE_MARGIN = -0.025
 #: The audit that gates ``b1``'s calibration rows and controls.
 CALIBRATION_AUDIT = "bootstrap calibration"
 
@@ -118,7 +135,7 @@ STUDY = StudyRecord(
     reference=None,
     failure_bound={SUBJECT: FAILURE_BOUND},
     nuisance_count=3,
-    extra_artifacts=(CALIBRATION_FILE, READINGS_FILE, EARLY_FILE),
+    extra_artifacts=(CALIBRATION_FILE, READINGS_FILE, EARLY_FILE, PAIRED_FILE),
     modules=(
         "tests/studies/continuous_survival_bootstrap.py",
         "tests/studies/continuous_survival_bootstrap_properties.py",
@@ -497,6 +514,117 @@ def calibration(
     return pd.DataFrame.from_records(records)
 
 
+def _wilson(successes: int, trials: int, z: float) -> tuple[float, float]:
+    """The Wilson score interval of a proportion at normal quantile ``z``."""
+    share = successes / trials
+    centre = (share + z * z / (2 * trials)) / (1 + z * z / trials)
+    half = z * np.sqrt(share * (1 - share) / trials + z * z / (4 * trials * trials))
+    return float(centre - half / (1 + z * z / trials)), float(centre + half / (1 + z * z / trials))
+
+
+def paired_difference_interval(
+    both: int, first_only: int, second_only: int, neither: int, *, confidence_level: float
+) -> tuple[float, float]:
+    """Newcombe's (1998) hybrid score interval for a difference of paired proportions.
+
+    Method 10 of Newcombe (1998), *Statistics in Medicine* 17(22), 2635-2650: the Wilson
+    intervals of the two marginal proportions, combined with the phi correlation of the 2 x 2
+    table of pairs (0 when a margin is empty).  The difference is first minus second.
+    """
+    trials = both + first_only + second_only + neither
+    z = float(norm.ppf(0.5 + confidence_level / 2.0))
+    first = (both + first_only) / trials
+    second = (both + second_only) / trials
+    low_first, high_first = _wilson(both + first_only, trials, z)
+    low_second, high_second = _wilson(both + second_only, trials, z)
+    margins = float(
+        (both + first_only)
+        * (second_only + neither)
+        * (both + second_only)
+        * (first_only + neither)
+    )
+    phi = (both * neither - first_only * second_only) / np.sqrt(margins) if margins > 0 else 0.0
+    down = np.sqrt(
+        max(
+            (first - low_first) ** 2
+            - 2 * phi * (first - low_first) * (high_second - second)
+            + (high_second - second) ** 2,
+            0.0,
+        )
+    )
+    up = np.sqrt(
+        max(
+            (high_first - first) ** 2
+            - 2 * phi * (high_first - first) * (second - low_second)
+            + (second - low_second) ** 2,
+            0.0,
+        )
+    )
+    return float(first - second - down), float(first - second + up)
+
+
+def paired_wald(rows: pd.DataFrame, record: StudyRecord = STUDY) -> pd.DataFrame:
+    r"""Per cell and row: the percentile interval against the Wald interval of the same fits.
+
+    Each fit gives one pair.  ``paired_se_ratio`` is the mean bootstrap SE over the mean Wald SE,
+    with a delta-method interval at the record's confidence level: the SE of a ratio of means
+    :math:`\bar b / \bar w` is the SD of :math:`(b_i - r w_i) / \bar w` over :math:`\sqrt m`,
+    which keeps the covariance of a fit's two SEs.  ``coverage_difference`` is the percentile
+    coverage minus the Wald coverage, ``percentile_only`` and ``wald_only`` count the discordant
+    fits, and its interval is :func:`paired_difference_interval`.  Both intervals are read against
+    the declared margins (:data:`PAIRED_SE_MARGIN`, :data:`PAIRED_COVERAGE_MARGIN`); no row
+    carries a verdict.
+    """
+    level = record.margins.confidence_level
+    z = float(norm.ppf(0.5 + level / 2.0))
+    records = []
+    for (scenario, estimand), group in rows.groupby(["scenario", "estimand"], sort=True):
+        truth = float(group["truth"].iloc[0])
+        boot = group["std_error"].to_numpy(dtype=float)
+        wald = group["wald_std_error"].to_numpy(dtype=float)
+        fits = len(group)
+        ratio = float(np.mean(boot) / np.mean(wald))
+        spread = float(np.std((boot - ratio * wald) / np.mean(wald), ddof=1) / np.sqrt(fits))
+        percentile = (group["ci_lower"].to_numpy(dtype=float) <= truth) & (
+            truth <= group["ci_upper"].to_numpy(dtype=float)
+        )
+        shipped = (group["wald_lower"].to_numpy(dtype=float) <= truth) & (
+            truth <= group["wald_upper"].to_numpy(dtype=float)
+        )
+        both = int(np.sum(percentile & shipped))
+        percentile_only = int(np.sum(percentile & ~shipped))
+        wald_only = int(np.sum(~percentile & shipped))
+        neither = fits - both - percentile_only - wald_only
+        low, high = paired_difference_interval(
+            both, percentile_only, wald_only, neither, confidence_level=level
+        )
+        records.append(
+            {
+                "scenario": scenario,
+                "estimand": estimand,
+                "fits": fits,
+                "mean_bootstrap_se": float(np.mean(boot)),
+                "mean_wald_se": float(np.mean(wald)),
+                "paired_se_ratio": ratio,
+                "paired_se_ratio_ci_lower": ratio - z * spread,
+                "paired_se_ratio_ci_upper": ratio + z * spread,
+                "percentile_coverage": float(np.mean(percentile)),
+                "wald_coverage": float(np.mean(shipped)),
+                "coverage_difference": (percentile_only - wald_only) / fits,
+                "percentile_only": percentile_only,
+                "wald_only": wald_only,
+                "coverage_difference_ci_lower": low,
+                "coverage_difference_ci_upper": high,
+                "se_ratio_within_margin": bool(
+                    PAIRED_SE_MARGIN[0] < ratio - z * spread
+                    and ratio + z * spread < PAIRED_SE_MARGIN[1]
+                ),
+                "coverage_difference_within_margin": bool(low > PAIRED_COVERAGE_MARGIN),
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
 def early_time(rows: pd.DataFrame) -> pd.DataFrame:
     """Per cell and first-quartile target: bias, both SE ratios and the three coverages.
 
@@ -547,11 +675,13 @@ def targeting_readings(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """The calibration readings, the targeting record and the first quartile's readings."""
+    """The calibration readings, the targeting record, the first quartile's readings and the
+    paired readings against the Wald interval."""
     return {
         CALIBRATION_FILE: calibration(rows),
         READINGS_FILE: targeting_readings(rows),
         EARLY_FILE: early_time(rows),
+        PAIRED_FILE: paired_wald(rows),
     }
 
 
