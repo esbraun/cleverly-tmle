@@ -450,16 +450,42 @@ def test_the_bootstrap_holds_the_result_beside_one_replicate_per_worker() -> Non
     assert "bootstrap" not in memory.peak_bytes(**_shape(n_bootstrap=0)).phases
 
 
+def test_without_the_band_a_replicate_is_sized_at_the_influence_curve_peak() -> None:
+    # A replicate keeps the switched variance only beside the band (``_replica``).
+    def replicate(switched: bool) -> int:
+        return memory.peak_bytes(
+            **_shape(
+                train_size=1_000,
+                simultaneous=False,
+                n_jobs=1,
+                n_bootstrap=0,
+                bootstrap_workers=2,
+                switched=switched,
+            )
+        ).bytes
+
+    plain = memory.peak_bytes(**_shape(simultaneous=False, bootstrap_workers=2))
+    banded = memory.peak_bytes(**_shape(bootstrap_workers=2))
+    one = memory.peak_bytes(**_shape(simultaneous=False))
+    assert plain.phases["bootstrap"] - one.phases["bootstrap"] == replicate(False)
+    assert banded.phases["bootstrap"] - memory.peak_bytes(**_shape()).phases["bootstrap"] == (
+        replicate(True)
+    )
+    # Witness: the switched replicate is the larger one.
+    assert replicate(True) > replicate(False)
+
+
 def test_a_budget_below_the_bootstrap_phase_refuses_before_any_learner() -> None:
     frame = _frame()
-    estimator = _engine(n_bootstrap=50)
+    # Two workers hold two replicates, so the bootstrap is the binding phase.
+    estimator = _engine(n_bootstrap=50, n_jobs=2)
     data = _container(frame)
     shape = estimator._memory_shape(len(frame), 2, 150, np.eye(3), 2, np.zeros(len(frame)))
     estimate = memory.peak_bytes(**shape)
     assert estimate.phase == "bootstrap"
     budget = max(value for key, value in estimate.phases.items() if key != "bootstrap") + 1
     with pytest.raises(MethodConfigurationError, match="in the full-refit bootstrap") as caught:
-        _engine(n_bootstrap=50, max_memory_bytes=budget).fit_data(data)
+        _engine(n_bootstrap=50, n_jobs=2, max_memory_bytes=budget).fit_data(data)
     assert "With a smaller n_jobs the bootstrap holds fewer replicate fits" in str(caught.value)
 
 

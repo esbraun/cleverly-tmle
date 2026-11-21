@@ -1009,8 +1009,8 @@ class ContinuousSurvivalTMLE:
         :attr:`n_jobs` workers.  ``budget`` is the memory each replicate may use.  Only the
         studentized band reads a replicate's standard errors, so without the band a replicate
         reads the influence-curve variance: the switched variance's predictable variation never
-        touches the walk, so every replicate estimate is bit for bit the same, at about three
-        quarters of the cost.
+        touches the walk, so every replicate estimate is bit for bit the same, and a replicate
+        costs about 0.8 of a switched one in sample and 0.93 cross-fitted.
         """
         replica = self._without_bootstrap()
         replica.causes = dict(causes)
