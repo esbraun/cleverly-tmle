@@ -1,0 +1,11 @@
+cell,analysis_rows,arms,causes,clusters,covariates_per_row,cross_fitting,estimand_kind,event_share,inference,known_mechanism,learners,method,n,nodes,outcome_family,placebo_draw,replicates,treatment_kind,variance
+I2-F,2000,2,,,0.01,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,2000,,gaussian,,20,discrete,
+I2-H,2000,2,,,0.005,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,4000,,gaussian,,20,discrete,
+I2-T,2000,2,,,0.001,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,20000,,gaussian,,20,discrete,
+I1-F,1000,2,,,0.02,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,1000,,gaussian,,20,discrete,
+I1-T,1000,2,,,0.002,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,10000,,gaussian,,20,discrete,
+C-F,2000,2,,400.0,0.01,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,2000,,gaussian,,20,discrete,
+C-H,2000,2,,800.0,0.005,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,4000,,gaussian,,20,discrete,
+C-T,2000,2,,4000.0,0.001,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,20000,,gaussian,,20,discrete,
+P-4k,4000,2,,,0.005,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,4000,,gaussian,,20,discrete,
+P-20k,20000,2,,,0.001,folds=5,ate,,influence_curve,False,"LinearRegression() | LogisticRegression(C=inf,max_iter=2000)",TMLE,20000,,gaussian,,20,discrete,
