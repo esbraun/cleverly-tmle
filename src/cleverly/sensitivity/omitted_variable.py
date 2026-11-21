@@ -1781,7 +1781,9 @@ def _elements_for(
     if axis is not None and axis.basis is not None:
         # A projection coefficient's representer reads the rows where e_j' M^{-1} phi(V) is
         # nonzero: every row for a Linear basis, the coefficient's strata for Indicators.
-        support = support * (axis.basis @ axis.coefficient_rows(parameter) != 0.0)
+        # Relative to the largest value, because np.linalg.inv leaves +-2.2e-16 on strata an
+        # intercept does not read, which an exact comparison would count as read.
+        support = support * _read_rows(axis.basis @ axis.coefficient_rows(parameter))
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.
     scaled = scaler.scale(data.outcome)
@@ -2178,6 +2180,16 @@ class _AxisInputs:
         """``b = M^{-1} e_j``, the row of the inverse Gram matrix coefficient ``j`` reads."""
         assert self.gram_inverse is not None
         return np.asarray(self.gram_inverse[:, int(parameter.arm)], dtype=float)
+
+
+#: Below this share of the largest ``|phi(V)' M^{-1} e_j|`` a row is not read by coefficient ``j``.
+_READ_TOLERANCE = 1e-10
+
+
+def _read_rows(values: FloatArray) -> FloatArray:
+    """``1`` where a coefficient reads a row, ``0`` where its representer is rounding noise."""
+    scale = float(np.max(np.abs(values))) if values.size else 0.0
+    return np.asarray(np.abs(values) > _READ_TOLERANCE * scale, dtype=float)
 
 
 def _riesz_representer(

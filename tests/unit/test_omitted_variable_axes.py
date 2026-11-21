@@ -31,6 +31,7 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -416,7 +417,12 @@ def _indicators(*, intercept: bool) -> Any:
 
 
 def projection_fit(
-    projection: Any, *, oracle: bool = False, covariates: tuple[str, ...] = ("W",), **extra: Any
+    projection: Any,
+    *,
+    oracle: bool = False,
+    covariates: tuple[str, ...] = ("W",),
+    frame: pd.DataFrame | None = None,
+    **extra: Any,
 ) -> Any:
     from tests.unit.test_omitted_variable_part_g import oracle_learners
 
@@ -425,7 +431,7 @@ def projection_fit(
     return (
         TMLE(**settings, effect_modification=projection, **extra)
         .fit(
-            exact_frame(),
+            exact_frame() if frame is None else frame,
             outcome="Y",
             treatment="A",
             covariates=list(covariates),
@@ -631,22 +637,62 @@ class TestTheProjectionAxis:
             unmasked = float(np.average(residual**2, weights=data.weights))
             assert abs(unmasked - expected) > 0.01, name
 
-    def test_the_stratum_bridge(self) -> None:
+    def test_an_intercept_does_not_read_a_stratum_through_rounding(self) -> None:
+        """``Indicators(V, intercept=True)``: the intercept's residual reads ``V = 0`` only.
+
+        Its ``b = M^{-1} e_1`` is zero on ``V = 1`` in exact arithmetic.  On the exact law tiled
+        12 times (the same law, 216 rows at a twelfth of the weight, the smallest tiling that
+        rounds), ``np.linalg.inv`` leaves ``2.2e-16`` there, which an exact ``!= 0`` mask counts
+        as read: ``sigma^2`` would then be the whole sample's residual variance.
+        """
+        tiled = pd.concat([exact_frame()] * 12, ignore_index=True)
+        tiled["weight"] = tiled["weight"] / 12
+        result = projection_fit(_indicators(intercept=True), covariates=("W", "V"), frame=tiled)
+        data, repeat = result.data, result.repeats[0]
+        spec = repeat.nuisance.effect_modification
+        basis = np.asarray(spec.design, dtype=float)
+        w = np.asarray(data.weights, dtype=float)
+        gram = np.einsum("ip,iq,i->pq", basis, basis, w) / w.sum()
+        v = tiled["V"].to_numpy()
+        noise = (basis @ np.linalg.inv(gram)[:, 0])[v == 1.0]
+        # The precondition: the rounding is there for the mask to ignore.
+        assert np.any(noise != 0.0) and np.abs(noise).max() < 1e-15
+        residual = np.where(
+            np.asarray(data.observed, dtype=bool),
+            data.outcome - repeat.fluctuations["effect_modification"].targeted.observed,
+            0.0,
+        )
+        expected = float(np.average(np.where(v == 0.0, residual, 0.0) ** 2, weights=w))
+        sigma2 = ov.sensitivity_elements(result, "cate_projection[(intercept)]").sigma2
+        assert sigma2 == pytest.approx(expected, rel=1e-12)
+        assert abs(float(np.average(residual**2, weights=w)) - expected) > 0.01
+
+    @pytest.mark.parametrize("oracle", [False, True])
+    def test_the_stratum_bridge(self, oracle: bool) -> None:
         """``Indicators(V, intercept=False)`` reads the stratum ATE's representer and curve.
 
         Its ``nu^2`` and the curve of ``nu^2`` equal those of ``ATE()`` with ``strata=V``:
         the projection's Gram term is the stratum share's term. Under ``intercept=True``
         the intercept is the reference stratum's.
+
+        ``sigma^2``, the bias bound, the bound and the robustness value also read the targeted
+        outcome regression, which is not the same function in the two fits: the projection
+        tilts both arms along one ``phi(V) s(a) / g`` per term, the stratum ATE each arm along
+        its own covariate.  ``sigma^2`` and the bias bound therefore agree to ``2e-3``
+        relative, not to rounding (the gap is ``4e-4`` with the wrong mechanisms and ``1.4e-3``
+        on ``V = 1`` with the law's own).  The points agree only with the law's mechanisms,
+        so the bound and the robustness value are compared there.  A ``sigma^2`` read on every
+        row, the failure the residual mask guards against, misses by more than 25%.
         """
         from cleverly import ATE
         from tests.unit.test_omitted_variable_part_g import stratum_fit, stratum_names
 
-        stratum = stratum_fit(ATE())
+        stratum = stratum_fit(ATE(), oracle=oracle)
         by_level = {
             stratum.parameter_keys[name].stratum[0]: name for name in stratum_names(stratum, "ate")
         }
-        free = projection_fit(_indicators(intercept=False), covariates=("W", "V"))
-        anchored = projection_fit(_indicators(intercept=True), covariates=("W", "V"))
+        free = projection_fit(_indicators(intercept=False), covariates=("W", "V"), oracle=oracle)
+        anchored = projection_fit(_indicators(intercept=True), covariates=("W", "V"), oracle=oracle)
         cases = [
             (free, sorted(free.estimates)[0], by_level[0.0]),
             (free, sorted(free.estimates)[1], by_level[1.0]),
@@ -658,6 +704,21 @@ class TestTheProjectionAxis:
             assert mine.nu2 == pytest.approx(theirs.nu2, rel=1e-10), coefficient
             assert mine.psi_nu2 is not None and theirs.psi_nu2 is not None
             np.testing.assert_allclose(mine.psi_nu2, theirs.psi_nu2, atol=1e-10)
+            assert mine.sigma2 == pytest.approx(theirs.sigma2, rel=2e-3), coefficient
+            bound = ov.omitted_variable_bounds(result, coefficient, cf_y=0.02, cf_d=0.02)
+            reference = ov.omitted_variable_bounds(stratum, ate, cf_y=0.02, cf_d=0.02)
+            assert bound.max_bias == pytest.approx(reference.max_bias, rel=2e-3), coefficient
+            if not oracle:
+                continue
+            assert bound.psi == pytest.approx(reference.psi, abs=1e-12), coefficient
+            assert (bound.lower, bound.upper) == pytest.approx(
+                (reference.lower, reference.upper), abs=1e-4
+            ), coefficient
+            assert bound.robustness_value is not None
+            assert reference.robustness_value is not None
+            assert bound.robustness_value == pytest.approx(reference.robustness_value, rel=2e-3), (
+                coefficient
+            )
 
     def test_the_log_ratio_and_strata_refuse(self) -> None:
         from cleverly.exceptions import RefusalReason
