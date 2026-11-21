@@ -36,8 +36,9 @@ CDE_KINDS = ("projection+intermediate", "projection+intermediate+log_ratio")
 EP_KINDS = ("learned_rule_ep_sieve", "learned_rule_ep_learner")
 
 #: The rows that refuse a working-model coefficient of a conditional contrast, by name.
+#: ``refute`` runs on a named coefficient since P1 PR 3 and prints no verdict
+#: (tests/unit/test_projection_refutations.py).
 WORKING_MODEL_REFUSED = (
-    "refute",
     "omitted_confounding",
     "robustness_value",
     "elements",
@@ -60,8 +61,9 @@ def _rows(result: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("kind", PROJECTION_KINDS)
-def test_refute_and_sensitivity_refuse_a_projection_coefficient_by_name(kind: str) -> None:
-    rows = _rows(KINDS[kind].build())
+def test_sensitivity_refuses_a_projection_coefficient_by_name(kind: str) -> None:
+    result = KINDS[kind].build()
+    rows = _rows(result)
     for operation in WORKING_MODEL_REFUSED:
         row = rows[operation]
         assert not row.available, (kind, operation)
@@ -70,6 +72,12 @@ def test_refute_and_sensitivity_refuse_a_projection_coefficient_by_name(kind: st
         assert row.refusal.alternative == "Run it on ATE() or RiskRatio() on the same study."
     for operation in ("nuisance_models", "score_equations", "support", "truncation_curve"):
         assert rows[operation].available, (kind, operation)
+    # refute asks for one coefficient by name, and answers once it has one.
+    assert rows["refute"].refusal.condition.startswith("refute answers for one estimand")
+    named = result.diagnostics._capability_for_arguments(
+        "refute", {"estimand": next(iter(result.estimates))}
+    )
+    assert named.available, (kind, named.refusal)
 
 
 @pytest.mark.parametrize("kind", EP_KINDS)

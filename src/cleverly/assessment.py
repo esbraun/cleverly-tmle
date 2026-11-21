@@ -416,6 +416,33 @@ def projection_sensitivity_refusal(operation: str) -> Refusal:
 POINT_METHODS = ("tmle", "collaborative_tmle", "drtmle")
 POINT_METHODS_WITH_IPTW = (*POINT_METHODS, "adaptive_iptw")
 
+#: The refusal of ``refute`` on an effect curve (R-curve-refute of the P1 PR 3 plan): the fit
+#: that produced the curve is what a refutation refits.
+CURVE_REFUTE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "refute refits an estimator and compares one reported estimate. A curve is computed from a "
+    "fit and reports no estimand of its own.",
+    alternative=(
+        "Run refute on the fit that produced the curve, naming a coefficient such as "
+        "'cate_projection[W1]'."
+    ),
+)
+
+#: The ``truncation_curve`` row of a projection curve, which reads the producing fit's curve.
+_CURVE_TRUNCATION_ROUTED = _capability(
+    "truncation_curve",
+    "effect_modification",
+    artifacts=("the producing fit's nuisance predictions", "its targeting state"),
+    execution="retarget",
+    cost="moderate",
+    requires_replay="summarize_existing_artifacts",
+    interpretation=(
+        "the producing fit's truncation curve: its coefficients retargeted at each declared "
+        "mechanism bound"
+    ),
+)
+
+
 # This is intentionally data rather than branches hidden inside the facade.  Contract tests
 # check both directions: every operation covers every family, and no declaration names a
 # family or operation that the public result surface no longer exposes.
@@ -789,8 +816,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.NOT_APPLICABLE,
         refusal=Refusal(
             RefusalReason.INVALID_DECLARATION,
-            "a projection curve is fitted by TMLE and an EP curve by one debiasing regression, "
-            "and neither solves doubly-robust correction equations.",
+            "a projection curve fitted by TMLE or the per-arm C-TMLE, and an EP curve fitted "
+            "by one debiasing regression, solve no doubly-robust correction equations.",
         ),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),
@@ -815,7 +842,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         artifacts=(),
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        refusal=projection_sensitivity_refusal("refute"),
+        refusal=CURVE_REFUTE_REFUSAL,
         interpretation="behavior under placebo, noise, and subsampling perturbations",
     ),
     *(
@@ -1043,21 +1070,9 @@ def _is_projection(result: Any) -> bool:
     )
 
 
-def _refuse_on_projection(
-    rows: tuple[AssessmentCapability, ...], operations: Container[str] | None = None
-) -> tuple[AssessmentCapability, ...]:
-    """Mark ``operations`` (every row when ``None``) unavailable with the R9 record."""
-    return tuple(
-        replace(
-            row,
-            available=False,
-            status=AssessmentStatus.UNAVAILABLE,
-            refusal=projection_sensitivity_refusal(row.operation),
-        )
-        if operations is None or row.operation in operations
-        else row
-        for row in rows
-    )
+def _is_ep_curve(curve: Any) -> bool:
+    """Whether ``curve`` came from the EP learner, which has no truncation curve."""
+    return getattr(curve, "fitted_method", None) == "ep"
 
 
 def _curve_fit_wide_rules(
@@ -1083,6 +1098,10 @@ def _curve_fit_wide_rules(
     }
     resolved = []
     for row in rows:
+        if row.operation == "truncation_curve" and not _is_ep_curve(result):
+            # A projection curve reads its producing fit's truncation curve (P1 PR 3, 3.3).
+            resolved.append(_CURVE_TRUNCATION_ROUTED)
+            continue
         rule = rules.get(row.operation)
         refusal = None if rule is None or not row.available else rule(result)
         resolved.append(
@@ -1106,8 +1125,6 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     if family == "effect_modification":
         # A curve has its own fit-wide rules; none of the point rules below reads a curve.
         return _curve_fit_wide_rules(result, rows)
-    if family == "point" and _is_projection(result):
-        rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
         rows = tuple(
             replace(
@@ -3842,6 +3859,11 @@ class DiagnosticsFacade(_CapabilityFacade):
         # raises from, and it is checked before the cache, so an unanswerable request is
         # refused whether or not the cache already holds a curve.
         self._require("truncation_curve", {"mechanism": mechanism})
+        if _family(self._result) == "effect_modification":
+            # The row reads available only for a projection curve that keeps its fit.
+            return self._result.fit.diagnostics.truncation_curve(
+                bounds, estimands=estimands, mechanism=mechanism
+            )
         # The cache key holds these arguments, so a one-shot iterator is read once here.
         (bounds, estimands), _ = _single_pass((bounds, estimands), {})
         if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:

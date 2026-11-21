@@ -2614,23 +2614,19 @@ KINDS: dict[str, Kind] = {
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
     # The projection of a conditional contrast and its P1 PR 1 compositions. The summarize
-    # rows and the truncation curve run; refute and every sensitivity row refuse a
-    # working-model coefficient by name, with the ATE or the risk ratio as the alternative.
-    "projection": _kind(fit_projection, *_READ, "truncation_curve"),
-    "projection+missing_treatment": _kind(
-        fit_projection_missing_treatment, *_READ, "truncation_curve"
-    ),
-    "projection+strata": _kind(fit_projection_strata, *_READ, "truncation_curve"),
-    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
-    "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
-    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    # rows, the truncation curve and refute run (refute with no verdict, P1 PR 3); every
+    # sensitivity row refuses a working-model coefficient by name.
+    "projection": _kind(fit_projection, *_READ, *_POINT),
+    "projection+missing_treatment": _kind(fit_projection_missing_treatment, *_READ, *_POINT),
+    "projection+strata": _kind(fit_projection_strata, *_READ, *_POINT),
+    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, *_POINT),
+    "projection+repeats": _kind(fit_projection_repeated, *_READ, *_POINT),
+    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, *_POINT),
     # The CDE projection (P1 PR 2) answers as the projection does; its pseudo-outcome tools
     # (curve diagnostics, assess_score, targeting_curve) refuse with CDE_CURVE_TOOLS_REFUSAL,
     # which tests/unit/test_projection_composition_operations.py pins.
-    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, "truncation_curve"),
-    "projection+intermediate+log_ratio": _kind(
-        fit_projection_intermediate_crr, *_READ, "truncation_curve"
-    ),
+    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, *_POINT),
+    "projection+intermediate+log_ratio": _kind(fit_projection_intermediate_crr, *_READ, *_POINT),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),
@@ -2798,9 +2794,10 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
-    # A projection coefficient has no refutation or sensitivity derivation (R9, P1).
-    "cate_projection": _kind(fit_cate_projection, *_READ, "truncation_curve"),
-    "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
+    # A projection coefficient runs refute with no verdict (P1 PR 3); the sensitivity rows
+    # keep R9 here and are opened in the plan's next step.
+    "cate_projection": _kind(fit_cate_projection, *_READ, *_POINT),
+    "log_crr_projection": _kind(fit_log_crr_projection, *_READ, *_POINT),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
     # X54 B1: a fit at its family's floor with mixed estimate statuses. The ATE reads the
@@ -2846,18 +2843,28 @@ KINDS: dict[str, Kind] = {
         fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
     ),
     # X104: the effect curves. The summaries read the producing fit, and the five curve
-    # operations refit its estimator on two folds or seeds. Every refutation and sensitivity
-    # row refuses a curve (P1). Each witness kind loses the rows its fit-wide rule refuses.
+    # operations refit its estimator on two folds or seeds. The truncation curve reads the
+    # producing fit's (P1 PR 3); refute redirects to that fit and every sensitivity row
+    # refuses a curve. Each witness kind loses the rows its fit-wide rule refuses.
     "curve_projection": _kind(
-        fit_curve_projection, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+        fit_curve_projection,
+        *_READ,
+        "truncation_curve",
+        *CURVE_OPERATIONS,
+        arguments=_CURVE_ARGUMENTS,
     ),
     "curve_projection_crr": _kind(
-        fit_curve_projection_crr, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+        fit_curve_projection_crr,
+        *_READ,
+        "truncation_curve",
+        *CURVE_OPERATIONS,
+        arguments=_CURVE_ARGUMENTS,
     ),
     # One modifier: none can be dropped from the basis.
     "curve_projection_one_modifier": _kind(
         fit_curve_projection_one_modifier,
         *_READ,
+        "truncation_curve",
         *(name for name in CURVE_OPERATIONS if name != "modifier_stability"),
         arguments=_CURVE_ARGUMENTS,
     ),
@@ -2865,6 +2872,7 @@ KINDS: dict[str, Kind] = {
     "curve_projection_repeated": _kind(
         fit_curve_projection_repeated,
         *_READ,
+        "truncation_curve",
         *(name for name in CURVE_OPERATIONS if name != "targeting_curve"),
         arguments=_CURVE_ARGUMENTS,
     ),

@@ -109,6 +109,7 @@ from ._interpretation import FitConfiguration, Resolution, Rung
 from ._markov_placebo import MarkovKernel, _placebo_law, placebo_known_mechanisms
 from ._point_generated import (
     PROJECTION_LINKS,
+    ContrastProjection,
     InterventionLaw,
     PointTarget,
     Projection,
@@ -1095,15 +1096,6 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Re
     return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_projection(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
-    """Refuse a fit of a conditional contrast's projection, which no refutation covers."""
-    if getattr(getattr(result, "config", None), "parameter_axis", None) != "effect_modification":
-        return None
-    from ..assessment import projection_sensitivity_refusal
-
-    return projection_sensitivity_refusal("refute")
-
-
 def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
@@ -1523,6 +1515,10 @@ def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
         return None
     if declaration.parameter_axis == "msm":
         return None
+    if declaration.parameter_axis == "effect_modification":
+        # With no effect the contrast is 0 at every row on the difference scale, and its log
+        # ratio is 0, so every coefficient of either projection is 0 (P1 PR 3).
+        return 0.0
     if declaration.scale == "ratio":
         return 1.0
     if declaration.scale == "difference" or declaration.name == "paf":
@@ -1896,7 +1892,6 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
-    ("projection", _refuse_projection),
     ("estimand", _refuse_unreported_estimand),
     ("structural_tests", _refuse_structural_tests),
     ("longitudinal_tests", _refuse_longitudinal_tests),
@@ -2930,7 +2925,12 @@ def _validate_generated_eligibility(
             roadmap="X82",
         )
     declared_estimand = getattr(getattr(identified, "estimand", None), "name", None)
-    expected_estimand = "ey" if key.estimand in ("ey1", "ey0") else key.estimand
+    expected_estimand = {
+        "ey1": "ey",
+        "ey0": "ey",
+        "cate_projection": "cate",
+        "log_crr_projection": "log_crr",
+    }.get(key.estimand, key.estimand)
     if functional.intermediate is not None:
         expected_estimand = "controlled_direct_effect"
     if functional.target != key.estimand or declared_estimand != expected_estimand:
@@ -3012,6 +3012,21 @@ def _validate_generated_eligibility(
             projection=_msm_projection(result, functional, key, name),
             **shared,
         )
+    elif kind == "projection":
+        spec = result.nuisance.effect_modification
+        value_code, reference_code = (float(code) for code in spec.pair)
+        target = PointTarget(
+            kind="projection",
+            population="all",
+            value_code=value_code,
+            reference_code=reference_code,
+            contrast_projection=ContrastProjection(
+                design=np.asarray(spec.design, dtype=float),
+                scale=str(spec.scale),
+                term=tuple(spec.terms).index(str(key.term)),
+            ),
+            **shared,
+        )
     elif kind in ("par", "paf"):
         # The key value of ``par`` and ``paf`` is the reference arm r of ``ey_obs - ey[r]``.
         endpoint = key.value if key.value is not None else data.arm_codes[0]
@@ -3072,10 +3087,13 @@ _POINT_TARGET_KINDS: dict[str, TargetKind] = {
     "ey_policy": "intervention",
     "ate_policy": "intervention_difference",
     "msm": "msm",
+    "cate_projection": "projection",
+    "log_crr_projection": "projection",
 }
 
-#: The parameter axes whose targets have a point generated law (part E3).
-_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "policy", "msm")
+#: The parameter axes whose targets have a point generated law (part E3; the conditional
+#: contrast's projection from P1 PR 3).
+_POINT_TARGET_AXES = ("arm", "regime", "ipsi", "policy", "msm", "effect_modification")
 
 
 def _refuse_continuous_point_target(functional: Any, process: Any, name: str) -> None:
