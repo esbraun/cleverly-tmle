@@ -18,11 +18,16 @@ controls ``NC`` and ``NCU``. ``TMLE`` ATE with linear and logistic nuisances, fi
 two-sided at 0.05. A full cell at ``n = 2,000`` is the registered T1 configuration.
 
 **The clustered law** (cells ``C-*``) groups rows in clusters of five. It adds ``b_Y``, drawn
-once per cluster from ``N(0, 0.5^2)``, to the outcome and to both controls, and an independent
-``b_A`` from the same law to the treatment logit. ``b_A`` and ``b_Y`` are independent, so the
-clusters correlate the treatment and the outcome within a cluster and confound nothing: the
-ATE stays 1 and the valid control's adjusted contrast stays 0. The fit declares the clusters
-(``id=``), so its inference is cluster-robust and its folds keep clusters whole.
+once per cluster from ``N(0, 0.5^2)``, to the outcome and to both controls, an independent
+``b_A`` from the same law to the treatment logit, and an independent cluster effect modifier
+``c`` from ``N(0, 1)``, so a member's outcome is ``Y = (1 + c) A + L(W) + b_Y + e``. The three
+cluster effects are independent of each other and of ``(W, U)``, so they correlate members'
+treatments and outcomes and confound nothing: the ATE stays 1 (``E[c] = 0`` and ``c`` is
+independent of ``A`` given ``W``), and the valid control's adjusted contrast stays 0. The
+modifier makes members' influence-curve terms share ``c A / g``, so the fit's cluster-robust
+variance is well above the i.i.d. one; the design test requires a design effect of at least 1.4,
+so a sampled path that split clusters or read i.i.d. SEs would show. The fit declares the
+clusters (``id=``), so its inference is cluster-robust and its folds keep clusters whole.
 
 **The cells.** Each trial draws ``n`` units, fits once at ``n`` with the trial's fit seed, and
 calls ``refute(fit, tests=("placebo", "subset", "negative_control_outcome"),
@@ -68,12 +73,25 @@ them and the design test checks their operating characteristics):
 
 The I1 and clustered absolute sizes, the weak defects, the P cells, the printed-verdict scope
 and the sampled baseline beside the full fit are reported in :data:`REPORTED_FILE`, not gated.
+The SE rescaling is free of ``n``, so its weak level reads the same in every cell; what
+sampling costs in power is read from the stale-row and control defects only.
+:data:`TRIALS_FILE` keeps every trial's readings (statistic, p-value, rejection and printed
+verdict), the sampled baseline beside the full fit, and the trial's seeds.
+
+**The family-wise target.** With the X82 rules at size exactly 0.05 and the strong defects at
+power 0.90, the chance of at least one false red across the 39 gated readings is at most 0.03
+(the Bonferroni sum, computed in the design test). The bound is conditional on that size: the
+absolute count is sharp, and a rule of true size 0.06 would turn the nine absolute readings red
+with probability about 0.30.
 
 **Red reading** (declared before the run). A red absolute size or power cell of a full cell is
-a finding on the X82 rule, routed to the refutation owner, not to this row. A red relative or
-absolute cell of a sampled cell whose full partner is green is a defect suspect in the sampled
-path and is diagnosed first (W1's identity on the failing trials' seeds). A green mutation cell
-that should be red means the study cannot see the reference it is built to detect, and the
+a finding on the X82 rule, routed to the refutation owner, not to this row. When I2-F's absolute
+reading on a rule is red, the absolute reds of I2-H and I2-T on that rule go to the X82 owner
+with it, and this row's claim on that rule rests on its relative and power gates: the grid row
+then records the X82 red as the cause and the sampled claim as the relative reading. A red
+relative or absolute cell of a sampled cell whose full partner is green is a defect suspect in
+the sampled path and is diagnosed first (W1's identity on the failing trials' seeds). A mutation
+cell that is not red means the study cannot see the reference it is built to detect, and the
 sampled claim is withheld until the study is repaired under a fresh declaration. No trial count,
 law, threshold, defect size or seed moves after a verdict is seen. No rerun buys a pass.
 """
@@ -133,6 +151,8 @@ WEAK_CONTROL_DELTA = 0.15
 #: Members per cluster, and the SD of each cluster effect.
 CLUSTER_SIZE = 5
 CLUSTER_SD = 0.5
+#: The SD of the cluster effect modifier ``c`` in ``Y = (1 + c) A + ...``.
+MODIFIER_SD = 1.0
 
 SIZE_FAMILY = "refuter_size"
 RELATIVE_FAMILY = "refuter_size_relative"
@@ -145,6 +165,8 @@ READINGS = ("placebo", "subset", "negative_control")
 STRONG_DEFECTS = ("placebo_stale_rows", "subset_half_se", "subset_double_se", "control_confounded")
 WEAK_DEFECTS = tuple(f"{name}_weak" for name in STRONG_DEFECTS)
 
+#: The committed file of every trial's readings.
+TRIALS_FILE = "trials.csv"
 #: The committed file of reported readings, and the file of fit configurations.
 REPORTED_FILE = "reported.csv"
 CELLS_FILE = "cells.csv"
@@ -246,9 +268,53 @@ STUDY = StudyRecord(
     runner_module="tests.studies.refuter_sampled",
     properties_module="tests.studies.refuter_sampled_properties",
     property_cells=PROPERTY_CELLS,
-    property_artifacts=(CELLS_FILE, REPORTED_FILE),
+    property_artifacts=(CELLS_FILE, REPORTED_FILE, TRIALS_FILE),
     publication_policy="reporting",
 )
+
+
+CONFIGURATION = {
+    "folds": N_FOLDS,
+    "refits": REFITS,
+    "subset_fraction": SUBSET_FRACTION,
+    "size_trials": SIZE_TRIALS,
+    "power_trials": POWER_TRIALS,
+    "size_pass": f"rejections <= {SIZE_MAX_REJECTIONS} of {SIZE_TRIALS}",
+    "power_pass": f"detections >= {POWER_MIN_DETECTIONS} of {POWER_TRIALS}",
+    "relative_pass": (
+        f"the {1 - 2 * RELATIVE_LEVEL:.0%} Wald interval of the difference of rejection rates "
+        f"inside +-{RELATIVE_MARGIN}"
+    ),
+    "mutation_pass": (
+        "fails the absolute count, and its relative interval lies wholly outside the margin"
+    ),
+    "law": "refuter-calibration-point T1 (Gaussian outcome, 20 covariates, unmeasured U)",
+    "clustered_law": (
+        f"clusters of {CLUSTER_SIZE}; b_Y ~ N(0, {CLUSTER_SD}^2) in Y, NC and NCU; "
+        f"b_A ~ N(0, {CLUSTER_SD}^2) in the treatment logit; Y = (1 + c) A + L(W) + b_Y + e "
+        f"with c ~ N(0, {MODIFIER_SD}^2); all independent"
+    ),
+    "strong_defects": {
+        "stale_share": STRONG_STALE_SHARE,
+        "se_factors": list(STRONG_SE_FACTORS),
+        "control_delta": STRONG_CONTROL_DELTA,
+    },
+    "weak_defects": {
+        "stale_share": WEAK_STALE_SHARE,
+        "se_factors": list(WEAK_SE_FACTORS),
+        "control_delta": WEAK_CONTROL_DELTA,
+    },
+    "cells": {
+        name: {
+            "n": cell.n,
+            "m": cell.m,
+            "clustered": cell.clustered,
+            "trials": cell.trials,
+            "partner": cell.partner,
+        }
+        for name, cell in CELLS.items()
+    },
+}
 
 
 # ---- the law ------------------------------------------------------------------------------
@@ -268,12 +334,14 @@ def draw_law(cell: Cell, seed: int) -> pd.DataFrame:
     cluster = np.repeat(np.arange(cell.n), CLUSTER_SIZE)
     effect_y = rng.normal(scale=CLUSTER_SD, size=cell.n)[cluster]
     effect_a = rng.normal(scale=CLUSTER_SD, size=cell.n)[cluster]
+    modifier = rng.normal(scale=MODIFIER_SD, size=cell.n)[cluster]
     covariates = rng.standard_normal((n, len(COVARIATES)))
     latent = rng.standard_normal(n)
     eta = point.treatment_index(covariates)
     treatment = rng.binomial(1, expit(eta + point.GAMMA_U * latent + effect_a)).astype(float)
     index = point.outcome_index(covariates)
-    outcome = point.GAUSSIAN_EFFECT * treatment + index + effect_y + rng.standard_normal(n)
+    effect = point.GAUSSIAN_EFFECT + modifier
+    outcome = effect * treatment + index + effect_y + rng.standard_normal(n)
     control = index + effect_y + rng.standard_normal(n)
     confounded = (
         index + effect_y + point.CONTROL_DELTA["gaussian"] * latent + rng.standard_normal(n)
@@ -383,8 +451,8 @@ def trial_seed(stream: str, name: str, trial: int) -> int:
     """The seed of one named stream of one trial.
 
     The streams are ``"property_sample"`` (the draw), ``"property_fit"`` (the fit, whose seed
-    is also the size call's root seed), ``"refute_stale"`` and ``"refute_control"`` (the
-    defect calls), and ``"pilot_sample"`` and ``"pilot_fit"`` for the pilot.
+    is also the root seed of every refute call of the trial, the defect calls included), and
+    the same pair on the ``pilot`` and ``smoke`` streams.
     """
     return stream_seed(STUDY, stream, name, trial)
 
@@ -423,11 +491,11 @@ def trial_readings(
     }
     baseline = report.sample.baseline_estimate if report.sample else float(result["ate"].psi)
     baseline_se = (
-        report.sample.baseline_std_error if report.sample else float(result["ate"].std_error)
+        report.sample.baseline_std_error if report.sample else float(result["ate"].plugin_std_error)
     )
     reported: dict[str, Any] = {
         "full_estimate": float(result["ate"].psi),
-        "full_std_error": float(result["ate"].std_error),
+        "full_std_error": float(result["ate"].plugin_std_error),
         "baseline_estimate": float(baseline),
         "baseline_std_error": float(baseline_se),
         "sample_applied": bool(report.sample is not None and report.sample.applied),
@@ -444,7 +512,6 @@ def trial_readings(
                     result,
                     cell,
                     tests=("placebo",),
-                    random_state=trial_seed("refute_stale" + level, name, trial),
                 )
             readings[f"placebo_stale_rows{level}"] = _reading(stale["placebo"])
             rho = readings["subset"].statistic
@@ -455,10 +522,12 @@ def trial_readings(
                 cell,
                 tests=("negative_control_outcome",),
                 negative_control_outcome=confounded_control(frame, delta),
-                random_state=trial_seed("refute_control" + level, name, trial),
             )
             readings[f"control_confounded{level}"] = _reading(control["negative_control_outcome"])
-    return Trial(readings, reported, point.trial_configuration(result))
+    configuration = point.trial_configuration(result)
+    # The registry reads the sampled baseline's configuration (D3): its rows and units.
+    configuration["analysis_rows"] = report.sample.sampled_rows if report.sample else result.n
+    return Trial(readings, reported, configuration)
 
 
 # ---- the primary phase --------------------------------------------------------------------

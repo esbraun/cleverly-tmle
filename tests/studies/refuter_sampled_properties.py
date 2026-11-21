@@ -52,6 +52,7 @@ from tests.studies.evidence.replication import fit_properties, splat_draw, splat
 STUDY = study.STUDY
 CELLS = study.CELLS
 CELLS_FILE = study.CELLS_FILE
+TRIALS_FILE = study.TRIALS_FILE
 REPORTED_FILE = study.REPORTED_FILE
 REPORTED_FAMILY = "refuter_reported"
 PARTNER = "__partner"
@@ -112,6 +113,12 @@ def relative_interval(sampled: np.ndarray, partner: np.ndarray) -> tuple[float, 
     return p - q, p - q - z * se, p - q + z * se
 
 
+def relative_detects(sampled: np.ndarray, partner: np.ndarray) -> bool:
+    """The mutation's relative leg: the interval lies wholly outside ``±`` the margin."""
+    _, low, high = relative_interval(sampled, partner)
+    return bool(low > study.RELATIVE_MARGIN or high < -study.RELATIVE_MARGIN)
+
+
 def relative_passes(sampled: np.ndarray, partner: np.ndarray) -> bool:
     """The relative size gate: the interval lies inside ``±`` the margin."""
     _, low, high = relative_interval(sampled, partner)
@@ -158,6 +165,7 @@ def _row(
         "covered": int(not reading.rejected),
         "rejected": int(reading.rejected),
         **extra,
+        "pvalue": reading.pvalue,
         "verdict": "" if reading.verdict is None else str(bool(reading.verdict)),
     }
 
@@ -225,7 +233,11 @@ def trial_rows(
     result = study.trial_readings(
         name, frame, trial, power=trial < study.POWER_TRIALS, fit_seed=fit_seed
     )
-    extra = {"configuration": json.dumps(result.configuration, sort_keys=True), **result.reported}
+    extra = {
+        "configuration": json.dumps(result.configuration, sort_keys=True),
+        "stream": stream,
+        **result.reported,
+    }
     rows = []
     for family, cell in cells_of(name, trial):
         source = cell.removesuffix(PARTNER).split("__")[1]
@@ -341,24 +353,71 @@ def reported_table(rows: pd.DataFrame) -> pd.DataFrame:
         record["baseline_se_mean"] = float(first["baseline_std_error"].mean())
         record["full_se_mean"] = float(first["full_std_error"].mean())
         records.append(record)
-    return pd.DataFrame(records)
+    table = pd.DataFrame(records)
+    table["verdict_scope"] = [
+        "; ".join(scope_problems(record)) or "as declared" for record in table.to_dict("records")
+    ]
+    return table
 
 
-def verdict_scope_problems(rows: pd.DataFrame) -> list[str]:
-    """Each cell whose printed verdicts break the declared scope.
+def trials_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per cell and trial: every reading, the baseline beside the full fit, the seeds.
+
+    Each reading ``r`` contributes ``r_statistic``, ``r_pvalue``, ``r_rejected`` and
+    ``r_verdict`` (empty when the call printed none).
+    """
+    own = rows.loc[~rows["cell"].str.endswith(PARTNER)].copy()
+    own["name"] = own["cell"].str.split("__").str[0]
+    own["reading"] = own["cell"].str.split("__").str[1]
+    own = own.drop_duplicates(["name", "reading", "replicate"])
+    keys = ["name", "replicate"]
+    wide = own.pivot(index=keys, columns="reading", values=["estimate", "pvalue", "rejected"])
+    verdicts = own.pivot(index=keys, columns="reading", values="verdict")
+    table = pd.DataFrame(index=wide.index)
+    for reading in sorted(own["reading"].unique()):
+        table[f"{reading}_statistic"] = wide[("estimate", reading)]
+        table[f"{reading}_pvalue"] = wide[("pvalue", reading)]
+        table[f"{reading}_rejected"] = wide[("rejected", reading)].astype("Int64")
+        table[f"{reading}_verdict"] = verdicts[reading]
+    extra = own.drop_duplicates(keys).set_index(keys)
+    for column in (
+        "full_estimate",
+        "full_std_error",
+        "baseline_estimate",
+        "baseline_std_error",
+        "sample_applied",
+    ):
+        table[column] = extra[column]
+    table = table.reset_index().rename(columns={"name": "cell", "replicate": "trial"})
+    streams = rows["stream"].iloc[0] if "stream" in rows.columns else "property"
+    table["sample_seed"] = [
+        study.trial_seed(f"{streams}_sample", c, int(t))
+        for c, t in zip(table["cell"], table["trial"], strict=True)
+    ]
+    table["fit_seed"] = [
+        study.trial_seed(f"{streams}_fit", c, int(t))
+        for c, t in zip(table["cell"], table["trial"], strict=True)
+    ]
+    order = {name: k for k, name in enumerate(CELLS)}
+    table["_order"] = table["cell"].map(order)
+    return table.sort_values(["_order", "trial"]).drop(columns="_order").reset_index(drop=True)
+
+
+def scope_problems(record: dict[str, Any]) -> list[str]:
+    """How one cell's printed verdicts break the declared scope, from its reported row.
 
     Every I2 trial prints a verdict for each rule; every I1 and clustered trial prints none.
+    The run records a break in ``reported.csv`` rather than stopping, and the registry test
+    reads it from ``trials.csv``.
     """
-    table = reported_table(rows)
+    name = record["cell"]
     problems = []
-    for record in table.to_dict("records"):
-        name = record["cell"]
-        for reading in study.READINGS:
-            share = record[f"{reading}_verdict_share"]
-            if name.startswith("I2") and share != 1.0:
-                problems.append(f"{name} {reading} printed a verdict on {share:.3f} of trials")
-            if name.startswith(("I1", "C-")) and share != 0.0:
-                problems.append(f"{name} {reading} printed a verdict on {share:.3f} of trials")
+    for reading in study.READINGS:
+        share = record[f"{reading}_verdict_share"]
+        if name.startswith("I2") and share != 1.0:
+            problems.append(f"{reading} printed a verdict on {share:.3f} of trials")
+        if name.startswith(("I1", "C-")) and share != 0.0:
+            problems.append(f"{reading} printed a verdict on {share:.3f} of trials")
     return problems
 
 
@@ -401,11 +460,11 @@ def generate_property_artifacts(
     found = set(zip(rows["property"], rows["cell"], strict=True))
     if budget is None and cells == tuple(CELLS) and found != written_cells():
         raise RuntimeError(f"cells {sorted(found ^ written_cells())} differ from the declaration")
-    if budget is None:
-        problems = verdict_scope_problems(rows)
-        if problems:
-            raise RuntimeError("verdict scope: " + "; ".join(problems))
-    tables = {CELLS_FILE: cell_configurations(rows), REPORTED_FILE: reported_table(rows)}
+    tables = {
+        CELLS_FILE: cell_configurations(rows),
+        REPORTED_FILE: reported_table(rows),
+        TRIALS_FILE: trials_table(rows),
+    }
     return rows.loc[:, list(REPLICATE_COLUMNS)], tables
 
 
@@ -446,9 +505,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             low,
             high,
         )
-        verdict = relative_passes(own, partner)
-        summary.loc[index, "passed"] = True if cell.endswith(PARTNER) else verdict
-        summary.loc[index, "property_passed"] = verdict
+        # A partner row is the reference arm: it publishes its interval and states no verdict.
+        summary.loc[index, "passed"] = cell.endswith(PARTNER) or relative_passes(own, partner)
     mutation = summary["property"] == study.MUTATION_FAMILY
     for index in summary.index[mutation]:
         cell = str(summary.loc[index, "cell"])
@@ -461,7 +519,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             low,
             high,
         )
-        detected = not size_passes(int(mutated.sum()), mutated.size) and not relative_passes(
+        detected = not size_passes(int(mutated.sum()), mutated.size) and relative_detects(
             mutated, partner
         )
         summary.loc[index, "passed"] = detected
@@ -469,9 +527,56 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+def _filled(values: np.ndarray, lost: int, rejected: int) -> np.ndarray:
+    """``values`` with ``lost`` trials filled in, ``rejected`` of them as rejections."""
+    return np.r_[values, np.ones(rejected), np.zeros(lost - rejected)]
+
+
+def _relative_clause(name: str, *, detect: bool, partner: Any, applies: pf.Applies) -> pf.Clause:
+    """S3d: the difference of two cells' rejection rates against the margin.
+
+    The two cells' trials are independent indicators, so every split of each cell's lost trials
+    into rejections and non-rejections is a candidate, and the set needs no range assumption.
+    ``detect`` reads the mutation's leg (the interval wholly outside the margin) rather than
+    the equivalence (wholly inside). ``partner(row)`` names the ``(family, cell)`` read against.
+    """
+    margin = study.RELATIVE_MARGIN
+
+    def judge(low: float, high: float) -> pf.Judged:
+        if detect:
+            return pf.Judged(max(low - margin, -margin - high), low > margin or high < -margin)
+        return pf.Judged(min(low + margin, margin - high), low > -margin and high < margin)
+
+    def read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        own = _rejections(ctx.rows, str(row["property"]), str(row["cell"]))
+        other = _rejections(ctx.rows, *partner(row))
+        _, low, high = relative_interval(own, other)
+        return judge(low, high)
+
+    def reads(ctx: pf.Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), str(row["cell"])), partner(row)]
+
+    def candidates(ctx: pf.Context, row: pd.Series) -> list[tuple[str, pf.Judged]]:
+        family, cell = str(row["property"]), str(row["cell"])
+        own = _rejections(ctx.rows, family, cell)
+        other = _rejections(ctx.rows, *partner(row))
+        k1, k2 = ctx.lost_in(family, cell), ctx.lost_in(*partner(row))
+        out = []
+        for j1 in range(k1 + 1):
+            for j2 in range(k2 + 1):
+                _, low, high = relative_interval(_filled(own, k1, j1), _filled(other, k2, j2))
+                out.append((f"j={j1} rejected, partner j={j2} rejected", judge(low, high)))
+        return out
+
+    return pf.Clause(name, "S3d", applies, read, candidates, imputation=pf.SUPPORT, reads=reads)
+
+
 def _rules() -> tuple[pf.FamilyRule, ...]:
-    def every(ctx: pf.Context, row: pd.Series) -> bool:
-        return True
+    def own_partner(row: pd.Series) -> tuple[str, str]:
+        return study.RELATIVE_FAMILY, str(row["cell"]) + PARTNER
+
+    def subset_partner(row: pd.Series) -> tuple[str, str]:
+        return study.RELATIVE_FAMILY, f"{str(row['cell']).split('__')[0]}__subset{PARTNER}"
 
     return (
         pf.FamilyRule(
@@ -482,7 +587,7 @@ def _rules() -> tuple[pf.FamilyRule, ...]:
                     "rejections at most 73 of 1,000",
                     statistic="S3",
                     judge=pf.ceiling_judge(lambda ctx: SIZE_CEILING),
-                    applies=every,
+                    applies=pf.every,
                 ),
             ),
         ),
@@ -494,13 +599,45 @@ def _rules() -> tuple[pf.FamilyRule, ...]:
                     "detections at least 38 of 50",
                     statistic="S3",
                     judge=pf.floor_judge(lambda ctx: POWER_FLOOR),
-                    applies=every,
+                    applies=pf.every,
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({study.RELATIVE_FAMILY}),
+            shared="summarize_properties",
+            clauses=(
+                _relative_clause(
+                    "difference of rejection rates inside the margin",
+                    detect=False,
+                    partner=own_partner,
+                    applies=pf.roles("positive"),
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({study.MUTATION_FAMILY}),
+            shared="summarize_properties",
+            clauses=(
+                pf.proportion_clause(
+                    "absolute count fails",
+                    statistic="S3",
+                    judge=lambda ctx, row, iv: pf.Judged(
+                        iv.high - SIZE_CEILING, iv.high > SIZE_CEILING
+                    ),
+                    applies=pf.every,
+                ),
+                _relative_clause(
+                    "difference of rejection rates outside the margin",
+                    detect=True,
+                    partner=subset_partner,
+                    applies=pf.every,
                 ),
             ),
         ),
     )
 
 
-#: The failure accounting's declared rules. The relative and mutation families have no clause
-#: the accounting can impute, so a lost trial there leaves the cell not accountable.
+#: The failure accounting's declared rules, one per gated family. The relative and mutation
+#: legs enumerate every split of both cells' lost trials (S3d).
 PROPERTY_RULES = _rules()

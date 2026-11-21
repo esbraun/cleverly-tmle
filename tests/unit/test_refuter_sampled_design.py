@@ -58,6 +58,15 @@ class TestLaw:
         assert outcome == pytest.approx(point.GAUSSIAN_EFFECT, abs=0.03)
         assert control == pytest.approx(0.0, abs=0.03)
 
+    def test_the_clustered_fit_has_a_design_effect_of_at_least_1_4(self) -> None:
+        """The nonzero witness that the C cells can see cluster handling."""
+        cell = study.CELLS["C-T"]
+        frame = study.draw_law(cell, seed=7)
+        clustered = study.fit_cell(cell, frame, seed=8)
+        rows = study.fit_cell(study.Cell(cell.rows, None, False, 1), frame, seed=8)
+        ratio = (clustered["ate"].plugin_std_error / rows["ate"].plugin_std_error) ** 2
+        assert ratio >= 1.4
+
     def test_the_clustered_law_correlates_members(self) -> None:
         frame = study.draw_law(study.Cell(4_000, None, True, 1), seed=5)
         residual = frame["NC"] - point.outcome_index(frame[list(study.COVARIATES)].to_numpy())
@@ -145,14 +154,20 @@ class TestGates:
         assert self._relative_pass(0.12, 0.05) <= 0.01
 
     def test_the_family_false_red_is_at_most_0_05(self) -> None:
-        size = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, 0.05)
-        relative = self._relative_pass(0.05, 0.05)
-        power = stats.binom.sf(study.POWER_MIN_DETECTIONS - 1, study.POWER_TRIALS, 0.90)
+        """The Bonferroni sum over the gated readings, which needs no independence."""
+        size = 1.0 - stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, 0.05)
+        relative = 1.0 - self._relative_pass(0.05, 0.05)
+        power = 1.0 - stats.binom.sf(study.POWER_MIN_DETECTIONS - 1, study.POWER_TRIALS, 0.90)
         sizes = len(study.PROPERTY_CELLS[study.SIZE_FAMILY])
         relatives = len(study.PROPERTY_CELLS[study.RELATIVE_FAMILY])
         powers = len(study.PROPERTY_CELLS[study.POWER_FAMILY])
-        family = size**sizes * relative**relatives * power**powers
-        assert 1.0 - family <= 0.05
+        assert sizes * size + relatives * relative + powers * power <= 0.03
+
+    def test_the_bound_is_conditional_on_exact_size(self) -> None:
+        # The declaration's stated fragility: at size 0.06 the nine absolute readings alone
+        # turn red with probability about 0.30.
+        green = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, 0.06) ** 9
+        assert 1.0 - green == pytest.approx(0.30, abs=0.02)
 
 
 class TestCells:
@@ -232,7 +247,7 @@ class TestVerdicts:
         row = summary.loc[(summary["property"] == family) & (summary["cell"] == cell)]
         return bool(row["passed"].iloc[0])
 
-    def test_a_calibrated_sampled_path_passes_every_gate_but_the_mutation(self) -> None:
+    def test_a_calibrated_sampled_path_and_a_detected_mutation_pass_every_gate(self) -> None:
         mutation = {
             (study.MUTATION_FAMILY, cell): 0.6
             for cell in study.PROPERTY_CELLS[study.MUTATION_FAMILY]
@@ -260,3 +275,44 @@ class TestVerdicts:
         rates = {(study.POWER_FAMILY, "I2-H__placebo_stale_rows"): 0.6}
         summary = properties.summarize_properties(_rows(rates))
         assert not self._passed(summary, study.POWER_FAMILY, "I2-H__placebo_stale_rows")
+
+
+class TestRules:
+    def test_each_rule_reads_the_verdict_the_summary_writes(self) -> None:
+        from tests.studies.evidence import property_failures as pf
+
+        for rates in ({}, {(study.RELATIVE_FAMILY, "I2-T__placebo"): 0.11}):
+            rows = _rows(rates)
+            summary = properties.summarize_properties(rows)
+            ctx = pf.Context(study.STUDY, rows, summary)
+            for rule in properties.PROPERTY_RULES:
+                for _, row in summary.loc[summary["property"].isin(rule.families)].iterrows():
+                    legs = [
+                        clause.read(ctx, row).passed
+                        for clause in rule.clauses
+                        if clause.target == "passed" and clause.applies(ctx, row)
+                    ]
+                    if legs:
+                        assert all(legs) == bool(row["passed"]), (row["property"], row["cell"])
+
+    def test_the_relative_leg_enumerates_both_cells_lost_trials(self) -> None:
+        from tests.studies.evidence import property_failures as pf
+
+        rows = _rows({})
+        summary = properties.summarize_properties(rows)
+        lost = {
+            (study.RELATIVE_FAMILY, "I2-T__placebo"): 2,
+            (study.RELATIVE_FAMILY, f"I2-T__placebo{properties.PARTNER}"): 3,
+        }
+        ctx = pf.Context(study.STUDY, rows, summary, lost=lost)
+        rule = pf.rule_for(study.RELATIVE_FAMILY, properties)
+        assert rule is not None
+        pick = (summary["property"] == study.RELATIVE_FAMILY) & (summary["cell"] == "I2-T__placebo")
+        row = summary.loc[pick].iloc[0]
+        assert len(rule.clauses[0].candidates(ctx, row)) == 3 * 4
+
+    def test_every_gated_family_resolves_to_a_rule(self) -> None:
+        from tests.studies.evidence import property_failures as pf
+
+        for family in study.PROPERTY_CELLS:
+            assert pf.rule_for(family, properties) is not None
