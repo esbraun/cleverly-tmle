@@ -242,11 +242,11 @@ N = 2_000
 PRIMARY_N = N
 
 STUDY = StudyRecord(
-    name="sampled refutation",
+    name="sampled refutation verdict rules",
     slug="refuter-sampled",
     artifacts=ROOT / "tests" / "canonical" / "refuter_sampled",
     document="docs/technical-reference/method-evidence/refuter-sampled.md",
-    anchor="sampled-refutation",
+    anchor="sampled-refutation-verdict-rules",
     scenarios=SCENARIOS,
     replicates=PRIMARY_REPLICATES,
     n=N,

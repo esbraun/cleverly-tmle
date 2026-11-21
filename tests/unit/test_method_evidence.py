@@ -1125,6 +1125,27 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own count {count}"
                 )
 
+        relative = published.loc[
+            published["property"].isin({"refuter_size_relative", "refuter_mutation"})
+        ]
+        if not relative.empty:
+            declared = study.runner()
+            margin = declared.RELATIVE_MARGIN
+            for row in relative.itertuples():
+                inside = -margin < row.relative_ci_lower and row.relative_ci_upper < margin
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.property == "refuter_size_relative":
+                    expected = inside
+                else:
+                    count = round(row.rejection_rate * row.replicates)
+                    outside = row.relative_ci_lower > margin or row.relative_ci_upper < -margin
+                    expected = count > declared.SIZE_MAX_REJECTIONS and outside
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own interval "
+                    f"{row.relative_ci_lower} to {row.relative_ci_upper}"
+                )
+
         # X76 (a): a positive residual-share or widened-coverage row answers to the lower limit
         # of its exact interval, the plain control to the upper limit, against the study's
         # declared floors and ceiling.
@@ -2111,6 +2132,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # own detection count (checked below against the study's declared thresholds).
         "refuter_size",
         "refuter_power",
+        # X106 H: a relative row answers to its own interval of the rate difference, its
+        # partner carries the diagnostic role; a mutation row to its count and that interval.
+        "refuter_size_relative",
+        "refuter_mutation",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",

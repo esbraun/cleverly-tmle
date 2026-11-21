@@ -3212,6 +3212,14 @@ request; refusals that depend on the drawn rows come after the one baseline refi
 fitted on the sampled rows, bit for bit, for each family, with a mutation control that hands the
 tests the full fit.
 
+The [sampled-refutation study](method-evidence/refuter-sampled.md) reads the placebo, subset and
+negative-control rules on the point study's T1 fit at `m` of 2,000 and 1,000 subjects and 400
+clusters of five, with `m / N` of 1, 0.5 and 0.1, 1,000 trials each. Each sampled rejection rate
+lies within 0.05 of the full-data rate at `n = m`, and the nine registered-configuration size
+readings reject in 4.4% to 5.8% of null trials. A subset reading that takes the full fit's
+standard error and unit count in place of the sampled baseline's rejects in 79% to 88% of null
+trials at `m / N = 0.1`, which is why every reference comes from `S`.
+
 #### Generated point outcomes
 
 A point process declares a mean `m(a, W)` and an arm term `c(a)`. The scalar `effect` gives

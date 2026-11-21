@@ -573,6 +573,20 @@ def measured(row: Any) -> str:
         word = "rejections" if family == "refuter_size" else "detections"
         count = round(float(row.rejection_rate) * int(row.replicates))
         return f"{word} {count} of {int(row.replicates)}"
+    if family in {"refuter_size_relative", "refuter_mutation"}:
+        # refuter-sampled (X106 H): the cell's rejection count beside the 90% interval of its
+        # rate minus the full cell's, which the relative and mutation verdicts read.
+        count = round(float(row.rejection_rate) * int(row.replicates))
+        return (
+            f"rejections {count} of {int(row.replicates)}, difference "
+            f"{_interval(row.relative_ci_lower, row.relative_ci_upper)}"
+        )
+    if family == "refuter_reported":
+        # refuter-sampled (X106 H): a reported rate with its exact 99% interval, no verdict.
+        return (
+            f"rejection {render(float(row.rejection_rate))}, "
+            f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+        )
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "

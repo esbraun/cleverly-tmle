@@ -6678,6 +6678,107 @@ def _refuter_continuous_survival_cells() -> None:
 _refuter_continuous_survival_cells()
 
 
+def _refuter_sampled_cells() -> None:
+    """The sampled-refutation study (X106 H): size, relative size, power and the mutation."""
+    slug = "refuter-sampled"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point refutation study's linear Gaussian law at n = 2,000; TMLE at five folds, "
+        "refuted on its whole data"
+    )
+    IMPLEMENTATIONS["cleverly-refute-sampled"] = (
+        "`cleverly` fit that the sampled refutation rules read"
+    )
+    PROPERTIES["refuter_size_relative"] = (
+        "a refutation rule on a sample of m units rejects at the rate of the same rule on a fit "
+        "of m units, within 0.05"
+    )
+    PROPERTIES["refuter_mutation"] = (
+        "a subset reading that takes the full fit's SE and unit count fails both size gates"
+    )
+    PROPERTIES["refuter_reported"] = "a refutation rate reported with no verdict"
+    cells = {
+        "I2-F": "independent rows, n = 2,000 and m = 2,000 (a limit that does not bind)",
+        "I2-H": "independent rows, n = 4,000 and a sample of m = 2,000",
+        "I2-T": "independent rows, n = 20,000 and a sample of m = 2,000",
+        "I1-F": "independent rows, n = 1,000 and m = 1,000 (a limit that does not bind)",
+        "I1-T": "independent rows, n = 10,000 and a sample of m = 1,000",
+        "C-F": "400 clusters of five, with m = 400 clusters (a limit that does not bind)",
+        "C-H": "800 clusters of five and a sample of m = 400 whole clusters",
+        "C-T": "4,000 clusters of five and a sample of m = 400 whole clusters",
+        "P-4k": "independent rows, n = 4,000, refuted in full",
+        "P-20k": "independent rows, n = 20,000, refuted in full",
+    }
+    readings = {
+        "placebo": "the placebo t rule against the exact null 0",
+        "subset": "the subset rho rule against the sampled baseline",
+        "negative_control": "the negative-control rule on an outcome the treatment does not move",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo rule, with 5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE halved",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE doubled",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.45",
+    }
+    weak = {
+        "placebo_stale_rows": "the placebo rule, with 2.5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE times 0.75",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE times 1.43",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.15",
+    }
+    size = "no more than 73 rejections in 1,000 trials"
+    power = "at least 38 detections in 50 trials"
+    relative = (
+        "the 90% interval of the sampled rate minus the full-data rate lies inside -0.05 to 0.05"
+    )
+    diagnostic = "none. The row is a diagnostic and states no verdict"
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, words in cells.items():
+        for reading, text in readings.items():
+            row = (f"{words}: {text}", size)
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_size", f"{cell}__{reading}")] = row
+            else:
+                table[("refuter_reported", f"{cell}__{reading}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            if cell.endswith(("-H", "-T")):
+                table[("refuter_size_relative", f"{cell}__{reading}")] = (
+                    f"{words}: {text}, beside its full-data partner",
+                    relative,
+                )
+                table[("refuter_size_relative", f"{cell}__{reading}__partner")] = (
+                    f"the full-data partner of {words}: {text}",
+                    diagnostic,
+                )
+        for defect, text in defects.items():
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{words}: {text}", power)
+            else:
+                table[("refuter_reported", f"{cell}__{defect}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            table[("refuter_reported", f"{cell}__{defect}_weak")] = (
+                f"{words}: the rejection rate of {weak[defect]}",
+                diagnostic,
+            )
+    for cell in ("I2-T", "I1-T", "C-T"):
+        table[("refuter_mutation", f"{cell}__subset_full_reference")] = (
+            f"{cells[cell]}: the subset rule read against the full-data fit, the mutation that "
+            "skips the sampled baseline",
+            "the rejection count exceeds 73 of 1,000, and the 90% interval of its rate minus "
+            "the full cell's subset rate lies wholly outside -0.05 to 0.05",
+        )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_sampled_cells()
+
+
 # ------------------------------------------------------------------ X82 SH limit coverage
 
 
