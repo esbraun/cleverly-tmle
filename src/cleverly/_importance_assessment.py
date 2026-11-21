@@ -426,7 +426,10 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
         Parameters
         ----------
         **kwargs
-            Passed to each fit's ``diagnostics.refute``.
+            Passed to each fit's ``diagnostics.refute``. With ``sample_limit=``, each
+            candidate refutes its own sample; the candidates draw the same units only when
+            they share a root seed, that is under an explicit ``random_state=`` or seeded
+            fits.
 
         Returns
         -------

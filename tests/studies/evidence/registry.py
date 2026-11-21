@@ -819,6 +819,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
     from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
+    from tests.studies.refuter_sampled import STUDY as REFUTER_SAMPLED
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.score_assessment_compositions import (
@@ -997,6 +998,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
         REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
+        REFUTER_SAMPLED,
         DEFAULT_SIMULTANEOUS_BANDS,
         BAND_T_REFERENCE,
         BAND_T_REFERENCE_HELD_OUT,

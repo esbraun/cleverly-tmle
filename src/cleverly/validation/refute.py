@@ -135,6 +135,18 @@ from ._refute_checkpoint import (
     RefutationProgress,
     request_parts,
 )
+from ._sampled_refute import (
+    RefutationSample,
+    check_sample,
+    draw_rows,
+    resolved_rule,
+    row_aligned,
+    sampled_plan,
+    sampling_refusal,
+    unit_count,
+    validated_sampling,
+    withheld_clause,
+)
 from ._structural_refute import (
     is_structural,
     structural_fit_seeds,
@@ -695,6 +707,9 @@ class RefutationResult:
         Seed this report ran under.  Pass it back to :func:`refute` to obtain the report
         again, whether or not the fit carries a seed of its own.  ``None`` only on a
         report built by hand.
+    sample : RefutationSample or None
+        How a call given ``sample_limit=`` drew the units it refuted. ``None`` on a call on
+        the full data.
     """
 
     tests: tuple[RefutationTest, ...]
@@ -707,6 +722,8 @@ class RefutationResult:
     #: the fit's own, else one drawn here.  It pins the perturbations and the refits they
     #: feed, so the report is enough to obtain the report again.
     random_state: int | None = None
+    #: How a sampled call drew its units (X106 part H); ``None`` on a call on the full data.
+    sample: RefutationSample | None = None
 
     @property
     def passed(self) -> bool | None:
@@ -860,6 +877,7 @@ _CHILD_SEED_TAGS = {
     "simulated_outcome": 2,
     "random_common_cause": 3,
     "plasmode": 4,
+    "sample": 5,
 }
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
@@ -893,6 +911,8 @@ def _validated_tests(
     negative_control_floor: float = 0.01,
     future_treatment_control: Any = None,
     future_treatment_node: int = 1,
+    sample_limit: Any = None,
+    sampling: Any = None,
 ) -> tuple[str, ...]:
     """Refuse malformed arguments of :func:`refute` before any refit.
 
@@ -919,6 +939,10 @@ def _validated_tests(
         The control the future-treatment test reads.
     future_treatment_node : int
         The node ``t`` whose next treatment is the exposure.
+    sample_limit : Any
+        The most independent units a sampled refutation reads, or ``None``.
+    sampling : Any
+        The inclusion rule of a sampled refutation, or ``None``.
 
     Returns
     -------
@@ -930,7 +954,8 @@ def _validated_tests(
     ValueError
         If no test is named, a test name is unknown, ``n_replicates`` is not a positive integer, the
         placebo mode or the control kind is unknown, the floor is outside ``(0, 1)``, the
-        node is not a positive integer, or a control test has no control.
+        node is not a positive integer, a control test has no control, or a sampling keyword
+        is malformed.
     """
     requested = tuple(tests)
     if not requested:
@@ -973,6 +998,7 @@ def _validated_tests(
             "the future_treatment test needs a control measured before the later treatment "
             "and outside its declared history; pass future_treatment_control=<array>"
         )
+    validated_sampling(sample_limit, sampling)
     return requested
 
 
@@ -1014,6 +1040,10 @@ class _RefuteRequest:
     negative_control_floor : float
         The least cross-fitted residual variance share of a pre-treatment or future-treatment
         control.
+    sample_limit : int or None
+        The most independent units a sampled refutation reads, or ``None`` for the full data.
+    sampling : str or None
+        The inclusion rule of a sampled refutation, or ``None`` for the fit's own unit.
     placebo_bands : dict
         Holds the band-rank draw of the fit once the placebo rule has built it, under the key
         ``"bands"``, so :func:`refute` does not build it twice. Not part of the request's value.
@@ -1034,6 +1064,8 @@ class _RefuteRequest:
     future_treatment_control: Any = None
     future_treatment_node: int = 1
     negative_control_floor: float = 0.01
+    sample_limit: int | None = None
+    sampling: str | None = None
     placebo_bands: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
@@ -1890,6 +1922,11 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Ref
     )
 
 
+def _refuse_sampling(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """Refuse a sampled request whose rule disagrees with the fit, or too few units."""
+    return sampling_refusal(result, request.sample_limit, request.sampling)
+
+
 #: Every refusal of a :func:`refute` request that its arguments and the result decide
 #: before any refit, in the one order the call and the ``refute`` capability row both use.
 #: Each rule assumes its predecessors returned ``None``.  The names are the introspection
@@ -1917,6 +1954,7 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal 
     ("stability_eligibility", _refuse_stability_eligibility),
     ("measurement_budget", _refuse_measurement_budget),
     ("generated_budget", _refuse_generated_budget),
+    ("sampling", _refuse_sampling),
 )
 
 
@@ -1951,6 +1989,8 @@ def refute_refusal(
     negative_control_floor: float = 0.01,
     future_treatment_control: Any = None,
     future_treatment_node: int = 1,
+    sample_limit: int | None = None,
+    sampling: str | None = None,
 ) -> Refusal | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
@@ -1998,6 +2038,10 @@ def refute_refusal(
         The control of the future-treatment test.
     future_treatment_node : int
         The node ``t`` whose next treatment is the exposure.
+    sample_limit : int or None
+        The most independent units a sampled refutation reads.
+    sampling : str or None
+        The inclusion rule of a sampled refutation.
 
     Returns
     -------
@@ -2017,6 +2061,8 @@ def refute_refusal(
             negative_control_floor,
             future_treatment_control,
             future_treatment_node,
+            sample_limit,
+            sampling,
         )
     except ValueError:
         return None
@@ -2036,11 +2082,13 @@ def refute_refusal(
         future_treatment_control=future_treatment_control,
         future_treatment_node=int(future_treatment_node),
         negative_control_floor=float(negative_control_floor),
+        sample_limit=None if sample_limit is None else int(sample_limit),
+        sampling=sampling,
     )
     if is_continuous_survival(result):
         from ._continuous_survival_refute import continuous_survival_rules
 
-        return continuous_survival_rules(result, request)
+        return continuous_survival_rules(result, request) or _refuse_sampling(result, request)
     return _first_refusal(result, request)
 
 
@@ -5333,6 +5381,8 @@ def _refute_preflight(
     outcome_bands: EquivalenceBands,
     bootstrap_measurement_error: BootstrapMeasurementError | None,
     measurement_error_rule: EmpiricalInclusionRule,
+    sample_limit: int | None = None,
+    sampling: str | None = None,
 ) -> _RefuteRequest:
     """Every check :func:`refute` runs before its first draw, in order; the parsed request.
 
@@ -5364,6 +5414,8 @@ def _refute_preflight(
             negative_control_floor,
             future_treatment_control,
             future_treatment_node,
+            sample_limit,
+            sampling,
         ),
         n_replicates,
         dummy_outcome,
@@ -5378,13 +5430,15 @@ def _refute_preflight(
         future_treatment_control=future_treatment_control,
         future_treatment_node=int(future_treatment_node),
         negative_control_floor=float(negative_control_floor),
+        sample_limit=None if sample_limit is None else int(sample_limit),
+        sampling=sampling,
     )
     if is_continuous_survival(result):
         # A continuous-time fit has its own request rules, which never read ``result.data``
         # as point-treatment data (X101).
         from ._continuous_survival_refute import continuous_survival_rules
 
-        refusal = continuous_survival_rules(result, request)
+        refusal = continuous_survival_rules(result, request) or _refuse_sampling(result, request)
     else:
         refusal = _first_refusal(result, request)
     if refusal is not None:
@@ -5506,6 +5560,7 @@ def checkpoint_session(
     progress: Callable[[RefutationProgress], Any] | None,
     read_only: bool = False,
     drawn: bool = False,
+    sampling: Mapping[str, Any] | None = None,
 ) -> CheckpointSession | None:
     """Open a call's checkpoint, checking its request, when it requests a stored test.
 
@@ -5527,6 +5582,8 @@ def checkpoint_session(
         Whether the session only reads, as the preview does.
     drawn : bool
         Whether the call draws its root seed with fresh entropy, which a refusal names.
+    sampling : mapping or None
+        The sample a sampled call draws, which the request records; ``None`` on the full data.
 
     Returns
     -------
@@ -5538,7 +5595,13 @@ def checkpoint_session(
     if not any(name in CHECKPOINTED_TESTS for name in tests):
         return None
     parts = (
-        request_parts(result, estimand=estimand, seed=seed, repeat_seeds=_fit_repeat_seeds(result))
+        request_parts(
+            result,
+            estimand=estimand,
+            seed=seed,
+            repeat_seeds=_fit_repeat_seeds(result),
+            sampling=sampling,
+        )
         if checkpoint is not None
         else {}
     )
@@ -5569,6 +5632,8 @@ def refute(
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    sample_limit: int | None = None,
+    sampling: Literal["units", "clusters"] | None = None,
     random_state: int | None = None,
     checkpoint: RefutationCheckpoint | None = None,
     progress: Callable[[RefutationProgress], Any] | None = None,
@@ -5673,6 +5738,22 @@ def refute(
     measurement_error_rule : EmpiricalInclusionRule
         Recorded rule that compares the original estimate with measurement-error refits.
         It supplies the tail probability the report prints, and no verdict.
+    sample_limit : int or None
+        The most independent units the refutation reads. ``None`` refutes the full data. With
+        fewer units than the fit holds, the call draws a simple random sample of
+        ``sample_limit`` units without replacement (whole clusters on a clustered fit, each
+        unit with its whole trajectory on a panel), refits the stored estimator on it, and runs
+        every test on that refit as it runs on any fit of that many units: each test compares
+        with the sampled refit, never with the full-data fit. A verdict prints only where the
+        registered evidence covers a fit of the sampled size, and it is the verdict of the
+        analysis on the sample, not a check of the full-data fit.
+        :attr:`RefutationResult.sample` records the counts, the rule and the seed. A limit of
+        at least the unit count refutes the full data. A fit given ``split_plan=`` refits
+        under the plan its generator records draw on the sampled units.
+    sampling : {"units", "clusters"} or None
+        The inclusion rule of ``sample_limit``: subjects or whole clusters. ``None`` draws the
+        fit's own independent unit, clusters on a clustered fit. A rule that disagrees with
+        the fit is refused before any refit.
     random_state : int or None
         Seed for the randomised tests.  ``None`` uses the seed the fit was run with, so a
         seeded fit gives the same refutation every time.  An unseeded fit draws a seed, and
@@ -5686,7 +5767,8 @@ def refute(
         same call again with it and the stored draws are loaded rather than refitted, so an
         interrupted call resumes and returns the report an uninterrupted call returns. The
         other tests are not stored. :class:`RefutationCheckpoint` says what the directory
-        records and when it refuses.
+        records and when it refuses. A sampled call records its sample, so its directory never
+        serves a call on the full data or on another sample.
     progress : callable or None
         Called after every draw of those five tests with a :class:`RefutationProgress`. An
         exception it raises stops the call; the draws already stored stay.
@@ -5707,7 +5789,9 @@ def refute(
         If ``checkpoint`` is not a :class:`RefutationCheckpoint` or ``progress`` is not
         callable. This check precedes the others.
     CapabilityError
-        If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
+        If ``refute_refusal`` refuses the request. Each such refusal precedes every refit. On
+        a sampled call, a refusal that reads the sampled rows themselves (an arm with no
+        event in the sample, say) comes after the one refit of the sampled baseline.
     """
     _validated_checkpoint(checkpoint, progress)
     request = _refute_preflight(
@@ -5727,7 +5811,237 @@ def refute(
         outcome_bands=outcome_bands,
         bootstrap_measurement_error=bootstrap_measurement_error,
         measurement_error_rule=measurement_error_rule,
+        sample_limit=sample_limit,
+        sampling=sampling,
     )
+    # The package convention for a stochastic operation on a fitted object: an explicit seed
+    # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
+    # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
+    #
+    # An unseeded fit draws one seed here rather than handing ``None`` to the generator, so
+    # the report can name it.  The seed then goes to the refits as well as to the draws.
+    # A perturbation is only half of a refutation: ``refit`` re-learns the nuisances, and an
+    # estimator with no ``random_state`` redraws its folds every time, so seeding the draws
+    # alone would leave the report unrepeatable.
+    seed = resolve_assessment_seed(result, random_state)
+    drawn = random_state is None and getattr(result.estimator, "random_state", None) is None
+    if sample_limit is not None:
+        return _sampled_refute(
+            result,
+            request,
+            seed=seed,
+            checkpoint=checkpoint,
+            progress=progress,
+            drawn=drawn,
+            subset_fraction=subset_fraction,
+            seed_spread=seed_spread,
+        )
+    session = checkpoint_session(
+        result,
+        estimand=estimand,
+        seed=seed,
+        tests=request.tests,
+        checkpoint=checkpoint,
+        progress=progress,
+        drawn=drawn,
+    )
+    return _refute_fit(
+        result,
+        request,
+        seed=seed,
+        session=session,
+        subset_fraction=subset_fraction,
+        seed_spread=seed_spread,
+    )
+
+
+def _sampled_data(result: Any, rows: np.ndarray) -> Any:
+    """The fit's data restricted to the sampled ``rows``, with each family's own subset."""
+    if is_continuous_survival(result):
+        from ._continuous_survival_refute import _rows
+
+        return _rows(result.data, rows)
+    return result.data.subset(rows)
+
+
+def _sampled_baseline(result: Any, sampled: Any, seed: int) -> Any:
+    """The stored estimator refitted on the sampled data at the call's root seed.
+
+    It is a fit like any other: its own folds, nuisances and, on a learned-rule fit, its own
+    rules, so nothing learned from the full data reaches the sampled analysis. It builds no
+    band: no test reads one (X106 G5g), and a continuous-time fit refits without its bootstrap,
+    as each of its refutation refits does. A fit given ``split_plan=`` refits under the plan its
+    generator records draw on the sampled units (:func:`sampled_plan`).
+    """
+    try:
+        if is_continuous_survival(result):
+            return result.estimator._for_estimate_refits().refit(sampled, random_state=seed)
+        estimator = _sampled_estimator(result, sampled)
+        return estimator.refit(sampled, random_state=seed, **_intermediate_option(result))
+    except CleverlyError as error:
+        raise _on_draw(error, "on the refit of the sampled baseline") from error
+
+
+def _sampled_estimator(result: Any, sampled: Any) -> Any:
+    """The estimator a point or panel sampled baseline refits, as the preview prices it too.
+
+    The stored estimator without its band, and under a ``split_plan=`` the plan its generator
+    records draw on the sampled units.
+    """
+    estimator = _bandless(result)
+    plan = getattr(estimator, "split_plan", None)
+    if plan is not None:
+        estimator = copy.copy(estimator)
+        estimator.split_plan = sampled_plan(plan, sampled)
+    return estimator
+
+
+def _sampled_refute(
+    result: Any,
+    request: _RefuteRequest,
+    *,
+    seed: int,
+    checkpoint: RefutationCheckpoint | None,
+    progress: Callable[[RefutationProgress], Any] | None,
+    drawn: bool,
+    subset_fraction: float,
+    seed_spread: bool,
+) -> RefutationResult:
+    """Run ``request`` on a simple random sample of the fit's units (X106 part H).
+
+    The sample is drawn from its own child of the root seed, the stored estimator is refitted
+    on it, and the tests run on that refit at the root seed, as :func:`refute` runs them on any
+    fit of that many units. A limit of at least the unit count runs the full data.
+    """
+    assert request.sample_limit is not None
+    limit = int(request.sample_limit)
+    rule = resolved_rule(result)
+    units = unit_count(result)
+    full = result[request.estimand]
+    data = result.data
+    if limit >= units:
+        # Nothing to sample: the call is the full-data analysis, bit for bit, and shares its
+        # checkpoint directory.
+        session = checkpoint_session(
+            result,
+            estimand=request.estimand,
+            seed=seed,
+            tests=request.tests,
+            checkpoint=checkpoint,
+            progress=progress,
+            drawn=drawn,
+        )
+        report = _refute_fit(
+            result,
+            request,
+            seed=seed,
+            session=session,
+            subset_fraction=subset_fraction,
+            seed_spread=seed_spread,
+        )
+        return replace(
+            report,
+            sample=RefutationSample(
+                limit=limit,
+                rule=rule,
+                applied=False,
+                units=units,
+                sampled_units=units,
+                rows=int(data.n),
+                sampled_rows=int(data.n),
+                seed=None,
+                full_estimate=float(full.psi),
+                baseline_estimate=float(full.psi),
+                baseline_std_error=float(full.plugin_std_error),
+            ),
+        )
+    sample_seed = _generated_child_seeds(seed, "sample", 1)[0]
+    rows = draw_rows(data, sample_seed, limit)
+    departures = check_sample(data, rows)
+    session = checkpoint_session(
+        result,
+        estimand=request.estimand,
+        seed=seed,
+        tests=request.tests,
+        checkpoint=checkpoint,
+        progress=progress,
+        drawn=drawn,
+        sampling={"limit": limit, "rule": rule, "units": units, "seed": sample_seed},
+    )
+    n = int(data.n)
+    inner = replace(
+        request,
+        negative_control_outcome=row_aligned(request.negative_control_outcome, rows, n),
+        future_treatment_control=row_aligned(request.future_treatment_control, rows, n),
+        placebo_bands={},
+    )
+    baseline = _sampled_baseline(result, _sampled_data(result, rows), seed)
+    # The request rules again, on the sampled baseline: a rule that reads the rows (an arm with
+    # no event, a band-rank draw outside the sampled support) decides on the rows the tests read.
+    if is_continuous_survival(baseline):
+        from ._continuous_survival_refute import continuous_survival_rules
+
+        refusal = continuous_survival_rules(baseline, inner)
+    else:
+        refusal = _first_refusal(baseline, inner)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    estimate = baseline[request.estimand]
+    if session is not None:
+        # The reference of every stored draw is the baseline, which each call refits; a
+        # resume whose baseline moved (a library release, say) refuses rather than mixing draws.
+        session.bind_reference(
+            {"estimate": float(estimate.psi), "std_error": float(estimate.plugin_std_error)}
+        )
+    report = _refute_fit(
+        baseline,
+        inner,
+        seed=seed,
+        session=session,
+        subset_fraction=subset_fraction,
+        seed_spread=seed_spread,
+    )
+    if departures:
+        clause = withheld_clause(departures)
+        report = replace(
+            report,
+            tests=tuple(
+                test if test.passed is None else replace(test, passed=None, withheld=clause)
+                for test in report.tests
+            ),
+        )
+    return replace(
+        report,
+        sample=RefutationSample(
+            limit=limit,
+            rule=rule,
+            applied=True,
+            units=units,
+            sampled_units=limit,
+            rows=n,
+            sampled_rows=int(rows.size),
+            seed=sample_seed,
+            full_estimate=float(full.psi),
+            baseline_estimate=float(estimate.psi),
+            baseline_std_error=float(estimate.plugin_std_error),
+            departures=departures,
+        ),
+    )
+
+
+def _refute_fit(
+    result: Any,
+    request: _RefuteRequest,
+    *,
+    seed: int,
+    session: CheckpointSession | None,
+    subset_fraction: float,
+    seed_spread: bool,
+) -> RefutationResult:
+    """Run the admitted tests of ``request`` on ``result`` at the root ``seed``.
+
+    :func:`refute` has run every check of the request, so every test named runs.
+    """
     if is_continuous_survival(result):
         # A continuous-time fit has its own request rules, which never read ``result.data``
         # as point-treatment data, and its own refits (X101).
@@ -5736,10 +6050,21 @@ def refute(
         return continuous_survival_refute(
             result,
             request,
-            seed=resolve_assessment_seed(result, random_state),
+            seed=seed,
             subset_fraction=subset_fraction,
             seed_spread=seed_spread,
         )
+    estimand = request.estimand
+    n_replicates = request.n_replicates
+    placebo_mode = request.placebo_mode
+    noise_nodes = request.noise_nodes
+    negative_control_outcome = request.negative_control_outcome
+    negative_control_kind = request.negative_control_kind
+    future_treatment_control = request.future_treatment_control
+    future_treatment_node = request.future_treatment_node
+    outcome_bands = request.outcome_bands
+    bootstrap_measurement_error = request.bootstrap_measurement_error
+    measurement_error_rule = request.measurement_error_rule
     requested = request.tests
     estimator = _bandless(result)
     processes = {name: request.process(name) for name in _GENERATED_TESTS}
@@ -5767,25 +6092,6 @@ def refute(
     status = result[estimand].inference
     unit = spread_name("standard errors", status)
     fit = _read_configuration(result, estimand)
-    # The package convention for a stochastic operation on a fitted object: an explicit seed
-    # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
-    # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
-    #
-    # An unseeded fit draws one seed here rather than handing ``None`` to the generator, so
-    # the report can name it.  The seed then goes to the refits as well as to the draws
-    # below.  A perturbation is only half of a refutation: ``refit`` re-learns the
-    # nuisances, and an estimator with no ``random_state`` redraws its folds every time, so
-    # seeding the draws alone would leave the report unrepeatable.
-    seed = resolve_assessment_seed(result, random_state)
-    session = checkpoint_session(
-        result,
-        estimand=estimand,
-        seed=seed,
-        tests=requested,
-        checkpoint=checkpoint,
-        progress=progress,
-        drawn=random_state is None and getattr(estimator, "random_state", None) is None,
-    )
     rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []

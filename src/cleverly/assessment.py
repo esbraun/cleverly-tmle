@@ -3209,6 +3209,8 @@ def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
         bound.arguments["negative_control_floor"],
         bound.arguments["future_treatment_control"],
         bound.arguments["future_treatment_node"],
+        bound.arguments["sample_limit"],
+        bound.arguments["sampling"],
     )
 
 
