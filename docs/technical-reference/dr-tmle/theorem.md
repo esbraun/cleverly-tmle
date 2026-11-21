@@ -559,14 +559,18 @@ symmetry, as `tests/unit/test_drtmle_h1_symmetry.py` pins. The missing-data stud
 consistent nuisance as an exact law table, which is H2.
 
 **The routes.** DR-TMLE is the only shipped family that publishes an interval exposed to this
-term. Its status stays `influence_curve` on every route, because a fit cannot tell which case it
-is in, and the interval is valid when both nuisances are consistent at the product rates.
+term. Its status stays `influence_curve` on every arm-mean route, because a fit cannot tell which
+case it is in, and the interval is valid when both nuisances are consistent at the product rates.
+That contract predates the rule that a linear remainder ships an interval only where a fit can
+check that the term vanishes. The projection route is new and follows the rule, so it withholds
+the interval unless the mechanism is declared.
 
 | route | index of the conditioning term | one-wrong interval established when | evidence |
 | --- | --- | --- | --- |
 | complete outcome: binary, more arms, strata, fixed weights, clusters, both reductions | `g_n` with the outcome wrong, `Q̄_n` with the mechanism wrong | the case table above | the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md), and the probe log `reviews/rm40/drdr_summary.log` |
 | [randomized missing outcome](#randomized-trials-with-missing-outcomes) | the product `ĝ_A ĝ_Delta` | the product mechanism is known. A known `g_A` alone is not enough | `reviews/rm40/lra_summary.log`, and the law-M control of the registered study: with `g_A` declared and a slow observation mechanism, an arm-mean bias of −0.53 and −0.54 SD |
 | [composite indicator](#observational-missing-data-the-composite-indicator) | the composite mechanism `g_c,a` | the case table above, applied arm by arm to `(W, C_a, C_a Y)` | the complete-outcome probe applies, because this route is the same theorem on a recoded treatment |
+| [projection coefficients](../conditional-effects.md#the-dr-tmle-projection) of a conditional contrast, difference scale | `g_n` per basis term, with the weight `phi_j(V)` inside the conditioning error, and `Q̄_n` with the mechanism wrong | a declared known mechanism only. With an estimated mechanism the fit withholds the interval under `reduced_regression_plugin` | `tests/unit/test_drtmle_projection.py`; no study |
 | results computed from a fit on these routes: `variable_importance`, E-values, truncation curves, the full-refit bootstrap | inherited from the fit | as for the fit | none |
 
 ### A data-adaptive mechanism

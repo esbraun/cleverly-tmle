@@ -488,6 +488,40 @@ def fit_curve_projection_ctmle_oat() -> Any:
     return fit_projection_ctmle_oat().effect_curve()
 
 
+def fit_projection_drtmle() -> Any:
+    """The DR-TMLE projection with an estimated mechanism, points only (P1 PR 3).
+
+    The guarded fit reports ``reduced_regression_plugin``, which withholds the interval.
+    """
+    frame, _ = make_binary_outcome(n=240, seed=11)
+    return (
+        DRTMLE(**linear_drtmle(n_folds=3), effect_modification=_projection())
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_drtmle_known() -> Any:
+    """The DR-TMLE projection with a declared mechanism, which keeps its interval (P1 PR 3)."""
+    frame = known_mechanism.point_frame()
+    return (
+        DRTMLE(**linear_drtmle(n_folds=3), effect_modification=_projection())
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
+def fit_curve_projection_drtmle() -> Any:
+    """The curve of :func:`fit_projection_drtmle`: the five held-out rows refuse."""
+    return fit_projection_drtmle().effect_curve()
+
+
 def fit_projection_bootstrap() -> Any:
     """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
     return (
@@ -2668,6 +2702,10 @@ KINDS: dict[str, Kind] = {
     # refusal of a selecting C-TMLE fit.
     "projection+ctmle_oat": _kind(fit_projection_ctmle_oat, *_READ, *_POINT),
     "projection+ctmle_oat+log_ratio": _kind(fit_projection_ctmle_oat_crr, *_READ, *_POINT),
+    # The DR-TMLE projection (P1 PR 3) reads its correction scores; the estimated mechanism
+    # withholds the interval under reduced_regression_plugin, and the declared one keeps it.
+    "projection+drtmle": _kind(fit_projection_drtmle, *_READ, *_POINT, "corrections"),
+    "projection+drtmle_known": _kind(fit_projection_drtmle_known, *_READ, *_POINT, "corrections"),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),
@@ -2932,6 +2970,15 @@ KINDS: dict[str, Kind] = {
         fit_curve_projection_ctmle_oat,
         *_READ,
         "truncation_curve",
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # A DR-TMLE projection's curve (P1 PR 3): the corrections and truncation rows route to
+    # the producing fit, and the five held-out rows refuse with DRTMLE_CURVE_TOOLS_REFUSAL.
+    "curve_projection+drtmle": _kind(
+        fit_curve_projection_drtmle,
+        *_READ,
+        "truncation_curve",
+        "corrections",
         arguments=_CURVE_ARGUMENTS,
     ),
     # No producing fit: the replay gate refuses every row.
@@ -3496,6 +3543,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "curve_projection_one_modifier",
                 "curve_projection_repeated",
                 "curve_projection+ctmle_oat",
+                "curve_projection+drtmle",
             }
         ),
         r"(calibration|risk_comparison|modifier_stability|stability|targeting_curve) declined: ",

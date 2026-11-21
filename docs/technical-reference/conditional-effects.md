@@ -643,7 +643,8 @@ $\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which neve
 `truncation_curve` reads the producing fit's truncation curve: the coefficients retargeted at
 each bound from the cached nuisances, so each row equals a refit at that bound with the same
 learners. An EP curve keeps the refusal, since its debiasing regression has no clever covariate
-to retarget. `corrections` is declared unavailable, and `refute` redirects to the producing fit,
+to retarget. `corrections` reads the producing fit's correction check on a DR-TMLE projection
+and is declared unavailable on any other curve. `refute` redirects to the producing fit,
 because a curve reports no estimand of its own. `tests/unit/test_projection_refutations.py`
 checks the truncation rows against refits on both scales. `tests/unit/test_curve_assessment.py`
 checks the other rows, that a held-out fold's predictions do
@@ -703,6 +704,55 @@ are descriptive, since no `ovb_limit` row covers the `projection` feature. On
 identity per feature, the oracle representer, the $\hat M$ term against a Gateaux derivative,
 the mask and that bridge.
 
+## The DR-TMLE projection
+
+`DRTMLEMethod` fits the difference-scale projection. Each $\psi_j = \sum_a s(a) E[\varphi_j(V) \bar Q(a, W)]$
+is a mean of the arm regressions with the known bounded weight $\varphi_j(V)$, so Theorem 1 of
+Benkeser, Carone, van der Laan and Gilbert (2017) runs with that weight in every display. The fit
+therefore fits one block of reduced regressions per arm and basis term:
+$Q_{r,j,a} = E[\varphi_j(Y - \bar Q(a, W)) \mid A = a, g_a(W)]$ and
+$g_{r2,j,a} = E[\varphi_j (1\{A = a\} - g_a)/g_a \mid \bar Q(a, W)]$. The regression
+$g_{r1,a} = E[1\{A = a\} \mid \bar Q(a, W)]$ carries no weight and is shared by the terms. The
+alternation solves equations (9) and (10) for every term beside the projection's own score, with
+the columns stored term by term.
+
+The influence curve is
+$M^{-1}[\varphi(\tau - \varphi^\top\beta) + \varphi s(A)(Y - \bar Q^*(A, W))/g(A \mid W) - \sum_a s(a)(D_{A,a} + D_{Y,a})]$,
+with $D_{A,j,a} = Q_{r,j,a}(1\{A = a\} - g_a)/g_a$ and
+$D_{Y,j,a} = 1\{A = a\} g_{r2,j,a}(Y - \bar Q^*(a, W))/g_{r1,a}$. As for an arm mean, `guard=`
+names the equations solved, and the curve subtracts one correction per solved equation. An empty
+guard is the TMLE projection, bit for bit. On two arms the fit tilts $g_1$ along $2p$ columns; a
+pair of a multi-arm treatment tilts each arm's margin along $p$ columns.
+
+For term $j$ the outcome-wrong remainder is $P_0[F_{j,a}(g_{0,a} - g_{n,a})/g_{0,a}]$, with
+$F_{j,a} = \varphi_j D(a, W) - E[\varphi_j D(a, W) \mid g_0]$ and $D = \bar Q_0 - \bar Q$. It is
+linear in $g_n - g_0$, as in [the conditioning terms](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error).
+It vanishes under H2, a declared known mechanism, and under H1 for every term:
+$\varphi_j(\bar Q_0 - \bar Q)(a, \cdot)$ a function of $g_0$. The mechanism-wrong remainder is linear
+in $\bar Q_n - \bar Q_0$ and vanishes when the error of $\bar Q_n$ is a function of $\bar Q_0$.
+Only H2 can be checked from a fit, so the interval is reported only with a declared mechanism on
+complete data. With an estimated mechanism and a non-empty guard the fit reports the point under
+`reduced_regression_plugin`, which withholds the interval and keeps the plug-in standard error as
+a diagnostic ([inference statuses](inference.md)).
+
+Under H2 the reported curve also needs $Q_{r,j,a}$ consistent for $E[\varphi_j D \mid g_0]$; if it
+is not, the variance is misstated and the point is not biased. Take $W_1, W_2$ standard normal,
+$g_0(1 \mid W) = \mathrm{expit}(0.6 W_1 + 0.3 W_2)$,
+$\bar Q_0(a, W) = \mathrm{expit}(-0.2 + a(0.5 + 0.6 W_1) - W_1 + 2 W_2)$, the basis
+`Linear(["W1"])` and an outcome regression that omits $W_2$. At $n = 4{,}000$, quadrature gives
+intercept and slope SDs of 0.0157 and 0.0159 for the DR-TMLE projection with the mechanism
+declared and 0.0167 and 0.0177 for the TMLE projection. The efficient bound, which needs a correct
+outcome regression, is 0.0128 and 0.0136. No study has measured this, so the figures are predictions and the
+composition reads `experimental`.
+
+`tests/unit/test_reduced_projection.py` checks each weighted reduced regression against its
+closed form on exact laws, with ties in $g_0$ and in $\bar Q_0(1, \cdot)$ that catch a weight
+applied after the regression. `tests/unit/test_drtmle_projection.py` checks the point and the
+curve row by row with a known and an estimated mechanism, each guard, the cross-fitted law under
+both `reduced_crossfit` settings, a multi-arm pair, a finite-sample witness that equation (9)
+moves the declared mechanism, and the engine against the study to $10^{-12}$. `correction_check`
+reports one row per arm, basis term and equation.
+
 ## Per-arm C-TMLE points
 
 `CollaborativeTMLEMethod(strategy="oat")`, whose design is `oat_design="per_arm"`, fits the
@@ -748,6 +798,12 @@ composition, so it reads `experimental`.
 | `method="collaborative_tmle"` with a strategy other than `"oat"` with `oat_design="per_arm"` | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target | `implementation_gap`, roadmap P1 |
 | the per-arm C-TMLE projection with `strata=`, a missing outcome or a missing treatment | its point contract for strata and missing data covers the arm means | `implementation_gap`, roadmap P1 |
 | the five held-out curve checks on a curve of a per-arm C-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also reads the per-arm design. The support, nuisance, score and truncation rows still answer | `implementation_gap`, roadmap P1 |
+| `method="drtmle"` with `scale="log_ratio"` | a log-ratio coefficient weights the arm regressions by $\mathrm{expit}(\varphi^\top\beta)$, which moves with the coefficients, so the reduced regressions would regress on a target the fit changes | `implementation_gap`, roadmap P1 |
+| `method="drtmle"` with `reduction="bivariate"` | no derivation says what the bivariate reduction must condition on when each basis term weights the target | `implementation_gap`, roadmap P1 |
+| `method="drtmle"` with a missing outcome or a missing treatment | the randomized and composite routes would need a block of reduced regressions per basis term over the response or composite mechanism | `implementation_gap`, roadmap P1 |
+| `method="drtmle"` with `strata=` | the stratified fluctuation has no reduced regressions per stratum and basis term | `implementation_gap`, roadmap P1 |
+| `method="drtmle"` with `targeting="one_step"` or `evaluation=` | the one-step update and the companion carry one scalar per arm, and the projection needs one per arm and basis term | `implementation_gap`, roadmap P1 |
+| the five held-out curve checks on a curve of a DR-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also solves the reduced-regression equations. The support, nuisance, score, truncation and correction rows still answer | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
 | `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |

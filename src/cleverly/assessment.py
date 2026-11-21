@@ -496,6 +496,18 @@ _CURVE_TRUNCATION_ROUTED = _capability(
 )
 
 
+#: The ``corrections`` row of a DR-TMLE projection curve, which reads the producing fit's.
+_CURVE_CORRECTIONS_ROUTED = _capability(
+    "corrections",
+    "effect_modification",
+    artifacts=("the producing fit's doubly-robust correction state",),
+    requires_replay="summarize_existing_artifacts",
+    interpretation=(
+        "the producing fit's correction identities: one row per arm, basis term and equation"
+    ),
+)
+
+
 # This is intentionally data rather than branches hidden inside the facade.  Contract tests
 # check both directions: every operation covers every family, and no declaration names a
 # family or operation that the public result surface no longer exposes.
@@ -1149,21 +1161,27 @@ def _curve_fit_wide_rules(
         "stability": stability_refusal,
         "targeting_curve": targeting_curve_refusal,
     }
-    from .effect_modification import CTMLE_CURVE_TOOLS_REFUSAL
+    from .effect_modification import curve_tools_refusal
 
-    collaborative = getattr(result, "fitted_method", None) == "collaborative_tmle"
+    method = getattr(result, "fitted_method", None)
+    tools = curve_tools_refusal(method)
     resolved = []
     for row in rows:
         if row.operation == "truncation_curve" and not _is_ep_curve(result):
             # A projection curve reads its producing fit's truncation curve (P1 PR 3, 3.3).
             resolved.append(_CURVE_TRUNCATION_ROUTED)
             continue
+        if row.operation == "corrections" and method == "drtmle":
+            # A DR-TMLE projection solves the correction equations per arm and term, so its
+            # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).
+            resolved.append(_CURVE_CORRECTIONS_ROUTED)
+            continue
         rule = rules.get(row.operation)
         refusal = None if rule is None or not row.available else rule(result)
-        if collaborative and row.available and row.operation in CURVE_OPERATIONS:
-            # The held-out rows rebuild the TMLE pseudo-outcome, which a per-arm C-TMLE
-            # projection's estimate does not solve (P1 PR 3).
-            refusal = CTMLE_CURVE_TOOLS_REFUSAL
+        if tools is not None and row.available and row.operation in CURVE_OPERATIONS:
+            # The held-out rows rebuild the TMLE pseudo-outcome, which a DR-TMLE or per-arm
+            # C-TMLE projection's estimate does not solve (P1 PR 3).
+            refusal = tools
         resolved.append(
             row
             if refusal is None
@@ -3827,6 +3845,11 @@ class DiagnosticsFacade(_CapabilityFacade):
             If the fitted method does not use the correction system.
         """
         self._require("corrections")
+        if _family(self._result) == "effect_modification":
+            # The row reads available only for a DR-TMLE projection curve that keeps its fit.
+            return self._result.fit.diagnostics.corrections(
+                tolerance=tolerance, identity_tolerance=identity_tolerance
+            )
         if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
             return _cached(
                 self._result, "diagnostics.corrections", (), {}, self._result.corrections_report

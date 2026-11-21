@@ -612,3 +612,113 @@ class TestTheStudyAvailability:
     def test_the_difference_scale_is_available(self) -> None:
         records = {r.name: r for r in self._contrast("difference").available_methods()}
         assert records["drtmle"].available
+
+
+class TestTheCorrectionCheck:
+    """``diagnostics.corrections()``: one row per arm, basis term and equation."""
+
+    @pytest.fixture(scope="class")
+    def estimated(self) -> Any:
+        frame = law_p(2000, LAW_P_SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return (
+                law_p_estimator()
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+
+    def test_every_identity_holds_per_term(self, estimated: Any) -> None:
+        check = estimated.diagnostics.corrections()
+        assert len(check.rows) == 2 * 2 * 2
+        assert {row.term for row in check.rows} == {"(intercept)", "W1"}
+        for row in check.rows:
+            assert abs(row.residual) < 1e-8
+            assert abs(row.reported) < 1e-6
+        assert check.passed
+
+    def test_every_correction_is_alive_before_targeting(self, estimated: Any) -> None:
+        from cleverly.inference.influence import reduced_correction_parts
+
+        nuisance = estimated.nuisance
+        parts = reduced_correction_parts(
+            nuisance.scaler.scale(estimated.data.outcome),
+            nuisance.outcome,
+            estimated.data.treatment,
+            nuisance.reduced,
+            nuisance.propensity.arm(1.0),
+            bounds=(0.01, 0.99),
+            guard=("Q", "g"),
+        )
+        for arm in (0.0, 1.0):
+            assert float(np.min(np.abs(np.mean(parts.d_g[arm], axis=0)))) > 1e-4
+            assert float(np.min(np.abs(np.mean(parts.d_q[arm], axis=0)))) > 1e-4
+
+    def test_an_unsolved_term_reports_its_own_mean(self) -> None:
+        from cleverly.estimators.tmle import correction_parts
+
+        frame = law_p(2000, LAW_P_SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                law_p_estimator(guard=("Q",))
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+        fluctuation = result.fluctuations["effect_modification"]
+        parts = correction_parts(
+            result.data,
+            result.nuisance,
+            fluctuation,
+            fluctuation.targeted,
+            result.nuisance.scaler.scale(result.data.outcome),
+        )
+        assert parts is not None
+        rows = [row for row in result.diagnostics.corrections().rows if row.equation == "D*_Q"]
+        assert not any(row.solved for row in rows)
+        for row in rows:
+            j = ("(intercept)", "W1").index(row.term)
+            expected = float(np.mean(parts.d_q[row.arm][:, j]))
+            assert abs(expected) > 1e-5
+            assert row.reported == pytest.approx(expected, rel=1e-12)
+            assert row.label.endswith(f"[{row.term}]")
+
+
+class TestTheCurve:
+    """An effect curve of a DR-TMLE projection: its corrections and truncation rows route to
+    the producing fit, and the five held-out rows refuse (R-dr-tools)."""
+
+    def test_the_rows(self, known_fit: Any) -> None:
+        from cleverly.assessment import CURVE_OPERATIONS
+        from cleverly.effect_modification import DRTMLE_CURVE_TOOLS_REFUSAL
+
+        curve = known_fit.effect_curve()
+        assert curve.fitted_method == "drtmle"
+        rows = {row.operation: row for row in curve.diagnostics.capabilities}
+        for name in CURVE_OPERATIONS:
+            assert rows[name].refusal == DRTMLE_CURVE_TOOLS_REFUSAL
+        with pytest.raises(CapabilityError) as caught:
+            curve.diagnostics.calibration(n_folds=2)
+        assert caught.value.refusal.condition.endswith(DRTMLE_CURVE_TOOLS_REFUSAL.condition)
+        assert rows["corrections"].available and rows["truncation_curve"].available
+        routed = curve.diagnostics.corrections()
+        assert routed.rows == known_fit.diagnostics.corrections().rows
+        assert len(routed.rows) == 8
+
+    def test_the_tmle_curve_keeps_its_corrections_text(self, law_g: Law) -> None:
+        dgp = Misspecified(G_TIED, Q_WRONG_ARM1)
+        plain = fit(
+            law_g.frame,
+            TMLE(
+                outcome_learner=OracleOutcome(dgp),
+                treatment_learner=OracleTreatment(dgp),
+                cross_fit=False,
+                effect_modification=projection(),
+            ),
+            known=G_TIED,
+        )
+        rows = {row.operation: row for row in plain.effect_curve().diagnostics.capabilities}
+        assert not rows["corrections"].available
+        assert (
+            "solve no doubly-robust correction equations" in rows["corrections"].refusal.condition
+        )
