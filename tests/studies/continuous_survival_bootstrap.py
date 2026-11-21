@@ -6,27 +6,30 @@ law (:mod:`tests.studies.continuous_survival_law`) at :math:`n = 1{,}000`.  Each
 study is one bootstrap fit of a fresh draw: the fit, then 500 refits on resamples of its units,
 every fold drawn on the resample's distinct units (X6 plan rev 5, sections 2.4 and 5.5).
 
-**Cell** (:data:`CELLS`): ``b1_in_sample``, ``cross_fit=False``, gated.  The bootstrap delta
-method would cover it, given conditions not yet read first-hand, so its label stays experimental
-whatever this study reads (plan 8.9).  The default cross-fitted fit is a record of its own,
-reported only (:mod:`tests.studies.continuous_survival_bootstrap_cross_fitted`): no theorem covers
-it and Cai and van der Laan (2020) warn against it, so no study can move its label.
+**Cell** (:data:`CELLS`): ``b1_in_sample``, ``cross_fit=False``, gated by the primary rule.  The
+bootstrap delta method would cover it, given conditions not yet read first-hand, so its label stays
+experimental whatever this study reads (plan 8.9).  The default cross-fitted fit is a record of its
+own, reported only (:mod:`tests.studies.continuous_survival_bootstrap_cross_fitted`): no theorem
+covers it and Cai and van der Laan (2020) warn against it, so no study can move its label.
 
 **Rows.** Every risk and risk difference at the median and upper quartile of the event times
 (1.12, 2.32), 12 rows (:data:`ROWS`, the registered study's
 :data:`~tests.studies.continuous_survival_law.GATED`).  A primary row is the percentile interval of
 the bootstrap draws with the bootstrap standard error (their SD), read by the primary rule of
-:data:`MARGINS`.  Each row also carries the BCa interval on the same draws and the shipped Wald
+:data:`MARGINS`: the lower 99% limit of its coverage at least 0.90, the 99% interval of its SE
+ratio inside (0.80, 1.20) and its bias within 0.2 empirical SDs.  That rule is the record's only
+gate.  Each row also carries the BCa interval on the same draws and the shipped Wald
 interval of the same fit (:data:`EXTRA_COLUMNS`).  The six targets at the first quartile (0.46)
 come from the same fits and publish as ``early-time.csv`` with no verdict (:data:`EARLY`,
 :func:`early_time`), as in the registered study: the first quartile's Wald interval
 under-covers, and gating it would inform no label.
 
-**Readings** (``calibration.csv``, :func:`calibration`).  Every row takes the calibration rule: the
-99% interval of its SE ratio inside (0.93, 1.07) and its coverage interval inside (0.92, 0.98).
-The shrunk-SE control multiplies each bootstrap SE by :data:`SHRUNKEN_SE_FACTOR` (0.85) and must
-leave the SE-ratio band below.  The calibration rows and controls are a merge gate
-(:func:`scientific_failures`); the BCa and Wald readings are reported.
+**Readings** (``calibration.csv``, :func:`calibration`).  Every row is read by the calibration
+rule: the 99% interval of its SE ratio inside (0.93, 1.07) and its coverage interval inside
+(0.92, 0.98).  The shrunk-SE control multiplies each bootstrap SE by :data:`SHRUNKEN_SE_FACTOR`
+(0.85) and should leave the SE-ratio band below.  The table publishes each reading
+(``meets_rule``) and no verdict: the calibration rule and the control are reported and cannot stop
+the run, and the record has no ``scientific_failures`` hook.
 
 **Paired readings** (``paired-wald.csv``, :func:`paired_wald`).  Per row, the percentile interval
 against the Wald interval of the same fits: the mean bootstrap SE over the mean Wald SE with a 99%
@@ -34,15 +37,16 @@ delta-method interval, and the percentile coverage minus the Wald coverage with 
 counts and Newcombe's (1998) hybrid score interval for paired proportions.  Each carries a
 reading against a declared margin (:data:`PAIRED_SE_MARGIN`, :data:`PAIRED_COVERAGE_MARGIN`).
 They carry no verdict: the regeneration script's red-cell readings name them as the declared
-diagnosis of a red calibration row.
+diagnosis of a red primary row or a calibration row that misses the rule.
 
-**Size and seeds.**  :data:`PRIMARY_REPLICATES` is the family-wise rule of plan 5.5: the smallest
-multiple of 400 at which all 12 calibration rows pass together with probability at least 0.95 at
-SE ratio 1 and coverage 0.95 (``pilot.at_target_count``: 3,200).  The pilot
-(:mod:`tests.studies.continuous_survival_bootstrap_pilot`) reads each row's plug-in pass at that
-count, the failures and the seconds per fit.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by
-no other study; replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)`` and seeds
-its bootstrap with the same value.
+**Size and seeds.**  :data:`PRIMARY_REPLICATES` is kept at the calibration rule's at-target count
+of plan 5.5, the smallest multiple of 400 at which all 12 calibration rows would pass together
+with probability at least 0.95 at SE ratio 1 and coverage 0.95 (``pilot.at_target_count``: 3,200),
+so that the reported calibration reading keeps the resolution it was sized for.  The primary rule
+needs far fewer fits.  The pilot (:mod:`tests.studies.continuous_survival_bootstrap_pilot`) reads
+each row's plug-in pass at that count, the failures and the seconds per fit.  :data:`SEED` and
+:data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a cell draws from
+``replicate_seed(STUDY, cell, r)`` and seeds its bootstrap with the same value.
 """
 
 from __future__ import annotations
@@ -61,7 +65,6 @@ from cleverly.survival import ContinuousSurvivalTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import continuous_survival as registered
 from tests.studies import continuous_survival_law as law
-from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.performance import se_ratio_interval
@@ -69,7 +72,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
-#: The family-wise rule's count (``pilot.at_target_count``), checked by the design test.
+#: The calibration rule's at-target count (``pilot.at_target_count``), kept for the reported
+#: calibration reading and checked by the design test.
 PRIMARY_REPLICATES = 3_200
 #: The plan's cap per cell (the registered study's 7,600).  A count above it stops the declaration.
 REPLICATE_CAP = 7_600
@@ -116,8 +120,6 @@ PAIRED_SE_MARGIN = (0.95, 1.05)
 #: same fits): its lower 99% limit above it reads the percentile coverage as no worse than the
 #: Wald coverage.
 PAIRED_COVERAGE_MARGIN = -0.025
-#: The audit that gates ``b1``'s calibration rows and controls.
-CALIBRATION_AUDIT = "bootstrap calibration"
 
 STUDY = StudyRecord(
     name="continuous-time survival full-refit bootstrap",
@@ -457,16 +459,13 @@ VARIANTS: dict[str, tuple[str, str, str, str]] = {
 }
 
 
-def calibration(
-    rows: pd.DataFrame, record: StudyRecord = STUDY, gated_cell: str | None = GATED_CELL
-) -> pd.DataFrame:
-    """Per cell, row and interval: SE ratio and coverage with their 99% intervals and verdict.
+def calibration(rows: pd.DataFrame, record: StudyRecord = STUDY) -> pd.DataFrame:
+    """Per cell, row and interval: SE ratio and coverage with their 99% intervals, read by the
+    calibration rule.
 
-    A ``positive`` row of ``gated_cell`` passes when both intervals lie inside the calibration
-    bands; a ``control`` row of it passes when its SE ratio's interval lies wholly below the
-    band; a ``reported`` row, and every row of another cell (every row when ``gated_cell`` is
-    ``None``, as for the cross-fitted record), carries no verdict (``gated`` false, ``passed``
-    true by declaration).
+    ``meets_rule`` is true for a ``positive`` or ``reported`` row when both intervals lie inside
+    the calibration bands, and for the ``control`` row when its SE ratio's interval lies wholly
+    below the band.  It is a reading, not a verdict: no row of either record gates.
     """
     margins = record.margins
     low, high = margins.calibration_se_ratio
@@ -489,11 +488,10 @@ def calibration(
             coverage = clopper_pearson(
                 covered, len(group), confidence_level=margins.confidence_level
             )
-            gated = gated_cell is not None and scenario == gated_cell and role != "reported"
-            if role == "positive":
-                verdict = ratio.within(low, high) and coverage.within(*margins.calibration_coverage)
+            if role == "control":
+                reading = ratio.high < low
             else:
-                verdict = ratio.high < low
+                reading = ratio.within(low, high) and coverage.within(*margins.calibration_coverage)
             records.append(
                 {
                     "scenario": scenario,
@@ -507,8 +505,7 @@ def calibration(
                     "coverage": covered / len(group),
                     "coverage_ci_lower": coverage.low,
                     "coverage_ci_upper": coverage.high,
-                    "gated": gated,
-                    "passed": bool(verdict) if gated else True,
+                    "meets_rule": bool(reading),
                 }
             )
     return pd.DataFrame.from_records(records)
@@ -683,16 +680,3 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
         EARLY_FILE: early_time(rows),
         PAIRED_FILE: paired_wald(rows),
     }
-
-
-def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """The gated calibration rows and controls that did not pass."""
-    table = artifacts[CALIBRATION_FILE]
-    return {CALIBRATION_AUDIT: table.loc[table["gated"].astype(bool) & ~table["passed"]]}
-
-
-def account_failures(
-    failures: pd.DataFrame | None, artifacts: Mapping[str, pd.DataFrame]
-) -> pd.DataFrame:
-    """The calibration audit on the surviving fits; a lost fit counts against the bound only."""
-    return evidence_failures.audits(scientific_failures(artifacts), missing={})

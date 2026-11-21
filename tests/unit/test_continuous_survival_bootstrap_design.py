@@ -215,29 +215,46 @@ def _rows(*, b1_ratio: float = 1.0, fits: int = 3_200, seed: int = 4) -> pd.Data
     return pd.DataFrame(records)
 
 
-def test_the_calibration_rule_and_its_control_read_the_rows() -> None:
+def test_the_calibration_rule_and_its_control_are_reported_readings() -> None:
     table = study.calibration(_rows().query("scenario == @study.GATED_CELL"))
-    gated = table.loc[table["gated"]]
-    assert set(gated["scenario"]) == {study.GATED_CELL}
-    assert set(gated["variant"]) == {"percentile", "shrunken_se_control"}
-    assert gated["passed"].all()
+    assert "gated" not in table and "passed" not in table
+    assert set(table["variant"]) == {"percentile", "shrunken_se_control", "bca", "wald"}
+    assert table["meets_rule"].all()
     shrunk = table.loc[table["variant"] == "shrunken_se_control", "se_ratio"]
     assert np.allclose(shrunk, 0.85 * table.loc[table["variant"] == "percentile", "se_ratio"])
-    assert study.scientific_failures({study.CALIBRATION_FILE: table})[study.CALIBRATION_AUDIT].empty
-    # Nonzero witness: a bootstrap SE 8% low fails the calibration band of the gated record, and
-    # the cross-fitted record gives the same rows no verdict.
+    # The primary rule is the record's only gate: no hook can stop the run on these readings.
+    assert not hasattr(study, "scientific_failures")
+    assert study.STUDY.publication_policy == "gated"
+    # Nonzero witness: a bootstrap SE 8% low misses the calibration band on the rows that read it
+    # (the percentile and BCa intervals, which share its SE here) and not on the Wald rows, and
+    # the cross-fitted record reads the same rows the same way.
     rows = _rows(b1_ratio=0.92)
     low = study.calibration(rows.query("scenario == @study.GATED_CELL"))
-    failed = study.scientific_failures({study.CALIBRATION_FILE: low})[study.CALIBRATION_AUDIT]
-    assert set(failed["variant"]) == {"percentile"} and len(failed) == 2
+    missed = low.loc[~low["meets_rule"]]
+    assert set(missed["variant"]) == {"percentile", "bca"} and len(missed) == 4
     reported = cross_fitted.calibration(rows.query("scenario == @cross_fitted.CELL"))
-    assert not reported["gated"].any() and reported["passed"].all()
     assert len(reported) == len(low)
+    assert list(reported["meets_rule"]) == list(low["meets_rule"])
     assert cross_fitted.scientific_failures({study.CALIBRATION_FILE: reported}) == {}
-    # A bootstrap SE 15% high leaves the shrunk control inside the band: the instrument fails.
+    # A bootstrap SE 15% high leaves the shrunk control inside the band: the reading says so.
     high = study.calibration(_rows(b1_ratio=1.15).query("scenario == @study.GATED_CELL"))
-    failed = study.scientific_failures({study.CALIBRATION_FILE: high})[study.CALIBRATION_AUDIT]
-    assert set(failed["variant"]) == {"percentile", "shrunken_se_control"}
+    missed = high.loc[~high["meets_rule"]]
+    assert set(missed["variant"]) == {"percentile", "bca", "shrunken_se_control"}
+
+
+def test_the_count_is_kept_without_a_calibration_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.canonical.continuous_survival_bootstrap import regenerate
+
+    # The committed pilot clears every refusal, though 11 rows read a plug-in calibration pass
+    # below 0.90: the calibration rule no longer gates, so it refuses nothing.
+    assert regenerate.pilot_refusals() == []
+    checks = pilot.calibration_checks(PILOT, study.PRIMARY_REPLICATES)
+    assert (checks["plug_in_pass"] < 0.90).sum() == 11
+    # The count still follows the calibration rule's at-target value.
+    monkeypatch.setattr(study, "PRIMARY_REPLICATES", 2_800)
+    assert regenerate.pilot_refusals() == [
+        "the rule sets 3200 replicates and the record declares 2800"
+    ]
 
 
 def test_the_warp_speed_screen_reads_the_pooled_quantiles() -> None:

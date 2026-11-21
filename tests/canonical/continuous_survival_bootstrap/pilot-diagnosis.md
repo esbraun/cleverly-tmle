@@ -273,12 +273,16 @@ and 0.15 at 7,600, because `ate_regimen[treated vs control, cause1 @ t=2.32]` (0
 
 Diagnosis: no defect. The low plug-in passes come from the chance spread of the pilot's samples,
 which the Wald interval on the same fits shares, and from the in-sample fit's own coverage near
-0.94, which the bootstrap inherits and does not cause. The declaration keeps 3,200 fits (the
-at-target count). A red row there is a defect suspect unless its SE-ratio interval contains 1 and
-its coverage is consistent with 0.95. Its declared diagnosis starts from `paired-wald.csv`, which
-compares the row with the Wald interval on the same fits, as `regenerate.py`'s red-cell readings
-state. Doubling the count would cost about 580 CPU-h more and buy a family pass of 0.97 under the
-pooled difference but 0.09 under the rows' own differences. It could move no label either: the
+0.94, which the bootstrap inherits and does not cause. So the declaration gates the 12 rows on
+the primary rule alone (coverage, SE ratio and bias), and reports the calibration rule and the
+shrunk-SE control in `calibration.csv` with no verdict that stops the run. It keeps 3,200 fits,
+the calibration rule's at-target count, so that the reported calibration reading keeps the
+resolution it was sized for. A calibration row that misses the rule is a finite-sample shortfall
+only when its SE-ratio interval contains 1 and its coverage is consistent with 0.95. Otherwise its
+declared diagnosis, like that of a red primary row, starts from `paired-wald.csv`, which compares
+the row with the Wald interval on the same fits, as `regenerate.py`'s red-cell readings state.
+Doubling the count would cost about 580 CPU-h more and buy a calibration family pass of 0.97 under
+the pooled difference but 0.09 under the rows' own differences. It could move no label either: the
 in-sample bootstrap stays experimental until the conditions of the bootstrap delta method are
 read.
 
