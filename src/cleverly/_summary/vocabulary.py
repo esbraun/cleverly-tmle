@@ -5034,6 +5034,21 @@ PLANNED_UNPREVIEWED_LEAD: Final = (
 PLANNED_NO_NOTES: Final = (
     "The correction step that follows the model fits fits no learner and is not counted."
 )
+# ----------------------------------------------------------------- planned refits (X106 G2)
+
+PLANNED_REFITS_TITLE: Final = "Planned refutation refits"
+PLANNED_REFITS_TOTAL: Final = "Refits"
+PLANNED_REFITS_ESTIMAND: Final = "Estimand"
+PLANNED_REFITS_SEED: Final = "Seed"
+PLANNED_REFITS_DRAWN_SEED: Final = "drawn at the call"
+PLANNED_REFIT_TESTS_TITLE: Final = "Refits by test"
+PLANNED_REFIT_TEST_COLUMNS: Final = ("test", "draws", "refits", "model fits", "candidate fits")
+SECTION_PLANNED_REFIT_TESTS: Final = "What each test's counts assume"
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_REFITS_TOTAL,
+    PLANNED_REFITS_ESTIMAND,
+    PLANNED_REFITS_SEED,
+}
 HEADER_LABELS = HEADER_LABELS | {
     PLANNED_FITS_TOTAL,
     PLANNED_CANDIDATE_TOTAL,

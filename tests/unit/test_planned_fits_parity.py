@@ -261,7 +261,7 @@ def test_the_replay_patches_every_fit_entry_both_ways() -> None:
     ``plan_`` sibling.
     """
     owners = support.engine_entry_owners()
-    engines = support.engine_classes()
+    engines = support.engine_classes() | support.standalone_engines()
     assert {cls for cls, name in owners if name == "fit"} == {
         cls for cls in engines if "fit" in vars(cls)
     }

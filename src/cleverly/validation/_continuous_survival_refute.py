@@ -26,6 +26,7 @@ reading is descriptive: ``passed`` is ``None``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -34,6 +35,7 @@ import numpy as np
 from .._refusal import Refusal, RefusalReason
 from ..exceptions import CapabilityError, CleverlyError
 from ..inference.influence import spread_name
+from ..utils.random import generator_state, replay
 from ._readings import paired_shift, placebo_reading
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -167,15 +169,16 @@ def continuous_survival_rules(result: Any, request: _RefuteRequest) -> Refusal |
     return None
 
 
-def _guard_subset(
-    estimator: Any, data: Any, draws: list[np.ndarray], count: int
-) -> CapabilityError | None:
-    """The refusal of the first subset draw that fails one of the engine's two guards.
+def _subset_guard(
+    estimator: Any, data: Any, count: int
+) -> Callable[[int, np.ndarray], CapabilityError | None]:
+    """A check of one subset draw against the engine's two guards.
 
     The engine refuses a fit whose arm has no event of some cause by the first target time,
-    or whose arm is followed only to before the last target time. Every draw is read here
-    before the first subset refit, so a draw that would stop the test part way through
-    refuses it first.
+    or whose arm is followed only to before the last target time. Every draw is checked in
+    draw order before the first subset refit, so a draw that would stop the test part way
+    through refuses it first. The check returns the refusal of draw ``k`` of ``count``, or
+    ``None``.
     """
     arm_labels, A = estimator._arms(data.treatment)
     declared = estimator.causes if estimator.causes is not None else data.causes
@@ -184,7 +187,8 @@ def _guard_subset(
     D = np.asarray(data.event, dtype=int)
     first, last = estimator.horizons[0], estimator.horizons[-1]
     alternative = "Raise subset_fraction, or drop subset from tests=."
-    for k, rows in enumerate(draws, start=1):
+
+    def check(k: int, rows: np.ndarray) -> CapabilityError | None:
         t, d, a_ = T[rows], D[rows], A[rows]
         for a in (0, 1):
             for code, label in causes.items():
@@ -205,7 +209,9 @@ def _guard_subset(
                     reason=RefusalReason.INVALID_DECLARATION,
                     alternative=alternative,
                 )
-    return None
+        return None
+
+    return check
 
 
 def _frozen_folds(estimator: Any, rows: np.ndarray) -> np.ndarray:
@@ -318,17 +324,27 @@ def continuous_survival_refute(
 
     # Draw and check the subsets before any refit, so a draw the engine cannot fit is refused
     # before the placebo and noise refits spend their time.
-    subset_draws: list[np.ndarray] = []
+    # Each draw is checked and dropped, and the generator state before it is kept, so the subset
+    # test regenerates the draw at its refit and holds one at a time (X106 part G1). ``rng`` is
+    # consumed exactly as by keeping every draw, so the placebo and noise draws are unchanged.
+    subset_states: list[dict[str, Any]] = []
     subset_size = 0
+
+    def subset_draw(source: np.random.Generator) -> np.ndarray:
+        return np.sort(source.choice(n, size=subset_size, replace=False))
+
     if "subset" in request.tests:
         subset_count = replicates("subset")
         subset_size = min(n, max(20, int(subset_fraction * n)))
-        subset_draws = [
-            np.sort(rng.choice(n, size=subset_size, replace=False)) for _ in range(subset_count)
-        ]
-        refused = _guard_subset(estimator, data, subset_draws, subset_count)
-        if refused is not None:
-            raise refused
+        guard = _subset_guard(estimator, data, subset_count)
+        for k in range(1, subset_count + 1):
+            subset_states.append(generator_state(rng))
+            refused = guard(k, subset_draw(rng))
+            if refused is not None:
+                raise refused
+        # The guard holds per-row copies of the time, event and arm columns; drop them
+        # before the refits.
+        del guard
 
     for name in request.tests:
         count = replicates(name)
@@ -433,15 +449,18 @@ def continuous_survival_refute(
                 )
             )
         else:  # subset; the rules admit no other test
-            draws, size = subset_draws, subset_size
-            fits = [
-                refit(
-                    _rows(data, rows),
-                    f"on subset refit {index} of {count}",
-                    folds=_frozen_folds(estimator, rows),
+            size = subset_size
+            fits = []
+            for index, state in enumerate(subset_states, start=1):
+                rows = subset_draw(replay(state))
+                fits.append(
+                    refit(
+                        _rows(data, rows),
+                        f"on subset refit {index} of {count}",
+                        folds=_frozen_folds(estimator, rows),
+                    )
                 )
-                for index, rows in enumerate(draws, start=1)
-            ]
+                del rows
             outcomes.append(
                 _subset_record(
                     estimand=estimand,

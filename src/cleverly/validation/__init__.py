@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ._planned_refits import PlannedRefits, PlannedRefitTest, planned_refits
 from .drtmle import (
     IDENTITY_TOLERANCE,
     MARGIN_ACTIVE,
@@ -74,6 +75,8 @@ __all__ = [
     "MultinomialHazardOutcome",
     "NuisanceDiagnostics",
     "NuisanceModelReport",
+    "PlannedRefitTest",
+    "PlannedRefits",
     "RefutationResult",
     "RefutationTest",
     "RelativeGaussianNoise",
@@ -86,6 +89,7 @@ __all__ = [
     "StudyResult",
     "correction_check",
     "nuisance_diagnostics",
+    "planned_refits",
     "refute",
     "score_check",
     "summarize_replications",

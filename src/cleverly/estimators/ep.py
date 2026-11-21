@@ -1711,7 +1711,7 @@ class EPEstimator:
         )
         return EPFit(data, outer, self, curve, debiased, record)
 
-    def _planned_fits(self, data: CausalData) -> PlannedFits:
+    def _planned_fits(self, data: CausalData, *, nominal: bool = False) -> PlannedFits:
         """The learner fits :meth:`fit` would make on ``data``, counted unfitted.
 
         The outer nuisances are the point TMLE's preview.  Under ``size="cv"`` each outer
@@ -1723,6 +1723,10 @@ class EPEstimator:
         ----------
         data : CausalData
             The prepared data.
+        nominal : bool
+            Count every fit at the learners' nominal counts, with no constant-fold skip, so
+            the counts bound a fit of any data drawn like ``data``; the point TMLE's
+            previews take the same switch.
 
         Returns
         -------
@@ -1735,7 +1739,12 @@ class EPEstimator:
 
         self.check(data)
         engine = TMLE(**self._nuisance_kwargs())
-        outer = engine._planned_fits(data)
+        outer = engine._planned_refit(data, nominal=True) if nominal else engine._planned_fits(data)
+        why = (
+            "drawn-data refits are counted at the final learner's nominal counts"
+            if nominal
+            else None
+        )
         builder = PlanBuilder()
         builder.absorb(outer, lambda scope: scope)
         for name, value in outer.multipliers:
@@ -1757,8 +1766,12 @@ class EPEstimator:
                 # The doubled data: labels 1 then 0, each row's pair in one group.
                 target = np.concatenate([np.ones(n), np.zeros(n)])
                 groups = np.concatenate([np.arange(n), np.arange(n)])
-                return count_learner(final, target, groups=groups, seed_fixed=fixed).scaled(times)
-            return count_learner(final, np.linspace(0.0, 1.0, n), seed_fixed=fixed).scaled(times)
+                return count_learner(
+                    final, target, groups=groups, seed_fixed=fixed, nominal=nominal
+                ).scaled(times)
+            return count_learner(
+                final, np.linspace(0.0, 1.0, n), seed_fixed=fixed, nominal=nominal
+            ).scaled(times)
 
         selection = 0
         if self.mode == "cv":
@@ -1767,13 +1780,19 @@ class EPEstimator:
             base = self.tmle_kwargs.get("random_state")
             for fold in np.unique(assignment):
                 train = np.flatnonzero(assignment != fold)
-                inner = TMLE(
+                inner_engine = TMLE(
                     **self._nuisance_kwargs(
                         n_folds=INNER_FOLDS,
                         random_state=refit_seed(base, int(fold)),
                         split_plan=None,
                     )
-                )._planned_fits(data.subset(train))
+                )
+                rows = data.subset(train)
+                inner = (
+                    inner_engine._planned_refit(rows, nominal=True)
+                    if nominal
+                    else inner_engine._planned_fits(rows)
+                )
                 builder.absorb(
                     inner, lambda scope: f"{scope}, EP size step's inner TMLE, per outer fold"
                 )
@@ -1784,12 +1803,17 @@ class EPEstimator:
                     "EP final learner at each size, per outer fold",
                     label,
                     count,
+                    upper=why,
                 )
                 selection += count.fits
             builder.multiply("sieve sizes", len(sizes))
             builder.search("EP sieve sizes", len(sizes), False, selection)
         builder.add(
-            "final_learner", "EP final learner at the chosen size", label, curves(data.n, 1)
+            "final_learner",
+            "EP final learner at the chosen size",
+            label,
+            curves(data.n, 1),
+            upper=why,
         )
         return builder.build(outer.folds)
 
@@ -1810,9 +1834,14 @@ class EPEstimator:
         """
         return self._refit_estimator(random_state).fit(data)
 
-    def _planned_refit(self, data: CausalData, *, random_state: int | None = None) -> PlannedFits:
-        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted."""
-        return self._refit_estimator(random_state)._planned_fits(data)
+    def _planned_refit(
+        self, data: CausalData, *, random_state: int | None = None, nominal: bool = False
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        ``nominal`` counts at the learners' nominal counts, as :meth:`_planned_fits` does.
+        """
+        return self._refit_estimator(random_state)._planned_fits(data, nominal=nominal)
 
     def _refit_estimator(self, random_state: int | None) -> EPEstimator:
         """The configured copy :meth:`refit` fits."""

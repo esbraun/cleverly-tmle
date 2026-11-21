@@ -6806,6 +6806,7 @@ class _SequentialEstimator:
         mechanism_law: MechanismLaw | None = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
         eliminate: Sequence[str] = (),
+        nominal: bool = False,
         **refused: Any,
     ) -> PlannedFits:
         """The learner fits :meth:`fit` would make on the same arguments, counted unfitted.
@@ -6816,7 +6817,9 @@ class _SequentialEstimator:
         cross-fitted SDR or IPSI fit, and the regressions of every regimen, cause and
         horizon.  A tuner whose boundary is a learner is counted, not fitted, and the checks
         that read the tuned plans are left to the fit and named in
-        :attr:`~cleverly.PlannedFits.unpreviewed`.
+        :attr:`~cleverly.PlannedFits.unpreviewed`.  ``nominal`` counts every draw at the
+        learners' nominal counts with no constant-fold skip, as a bootstrap replicate is
+        counted, so the record bounds a fit of any panel drawn like ``data`` (X106 part G2).
         """
         refuse_unsupported(refused, where=f"{type(self).__name__}.fit")
         state = self._preflight(
@@ -6839,7 +6842,7 @@ class _SequentialEstimator:
             eliminate=eliminate,
             preview=True,
         )
-        return self._plan_state(state)
+        return self._plan_state(state, nominal=nominal)
 
     def _plan_fold_state(self) -> Literal["realized", "outer realized", "one draw"]:
         """What the counted folds describe: see :attr:`~cleverly.PlannedFits.folds`."""
@@ -6962,7 +6965,7 @@ class _SequentialEstimator:
             checks.append(refuse_pooled_designs)
         return qualified_names(*checks)
 
-    def _plan_state(self, state: _Preflight) -> PlannedFits:
+    def _plan_state(self, state: _Preflight, *, nominal: bool = False) -> PlannedFits:
         """The record of :meth:`_planned_fits` from the resolved preflight."""
         prepared = state.prepared
         if state.learned is not None:
@@ -7000,7 +7003,10 @@ class _SequentialEstimator:
         repeated = len(draws) > 1
         for folds, seed in draws:
             counter = FitCounter(
-                weights=prepared.weights, groups=prepared.cluster, seed_fixed=seed_fixed
+                weights=prepared.weights,
+                groups=prepared.cluster,
+                seed_fixed=seed_fixed and not nominal,
+                nominal=nominal,
             )
             self._plan_draw(
                 state,
@@ -7010,8 +7016,21 @@ class _SequentialEstimator:
                 self._plan_learners(prepared, seed if repeated else self.random_state),
                 counter,
                 builder,
+                replicates=int(nominal),
+                label="drawn-data refit",
             )
-        if state.tuned_folds is not None:
+        if state.tuned_folds is not None and nominal:
+            folds = state.tuned_folds
+            per = 0 if folds.is_single else folds.n_folds
+            builder.add(
+                "tuner",
+                "tuned cap fitted on every row at risk and per fold, per drawn-data refit",
+                _tuner_label(state.regimens),
+                plan_tuned_fits(state.regimens, prepared, folds, nominal_folds=per),
+                upper="drawn-data refits are counted at their nominal folds",
+                min_fits=0,
+            )
+        elif state.tuned_folds is not None:
             count = plan_tuned_fits(state.regimens, prepared, state.tuned_folds)
             builder.add(
                 "tuner",
@@ -7087,12 +7106,13 @@ class _SequentialEstimator:
         builder: PlanBuilder,
         *,
         replicates: int = 0,
+        label: str = "bootstrap replicate",
         jackknife: bool = False,
     ) -> None:
         """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` resampled draws.
 
-        The replicates are bootstrap replicates, or with ``jackknife=True`` the
-        leave-one-cluster-out refits of :meth:`_jackknife`.
+        ``label`` names what each of ``replicates`` counted draws is. With ``jackknife=True``
+        the replicates are the leave-one-cluster-out refits of :meth:`_jackknife`.
         """
         prepared = state.prepared
         roles = self._plan_roles()
@@ -7104,12 +7124,10 @@ class _SequentialEstimator:
                 "interval"
             )
         else:
-            suffix = (
-                "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
-            )
+            suffix = f"per {label}, fold and repeat" if replicates else "per fold and repeat"
             why = (
-                "bootstrap replicates are counted at their nominal folds, with no fold of a "
-                "binary target fitted as a constant and no replicate dropped"
+                f"{label}s are counted at their nominal folds, with no fold of a binary "
+                "target fitted as a constant and no replicate dropped"
             )
 
         def add(
@@ -8261,16 +8279,18 @@ class _SequentialEstimator:
         random_state: int | None = None,
         frozen_folds: Sequence[Folds] | None = None,
         frozen_seeds: Sequence[int | None] | None = None,
+        nominal: bool = False,
     ) -> PlannedFits:
         """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
 
         :func:`cleverly._planned_fits.refit_plan` reads it.  It refuses what :meth:`refit`
-        refuses and previews the fit of the same configured copy.
+        refuses and previews the fit of the same configured copy.  ``nominal`` counts at the
+        learners' nominal counts, as :meth:`_planned_fits` does.
         """
         estimator = self._refit_estimator(
             random_state=random_state, frozen_folds=frozen_folds, frozen_seeds=frozen_seeds
         )
-        return estimator._planned_fits(data)
+        return estimator._planned_fits(data, nominal=nominal)
 
     def _refit_estimator(
         self,

@@ -3926,6 +3926,39 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("refute", kwargs)
         return self._invoke("refute", (), kwargs)
 
+    def planned_refits(self, **kwargs: Any) -> Any:
+        """Count the refits and model fits :meth:`refute` would make, without fitting.
+
+        Takes exactly :meth:`refute`'s keywords and raises what :meth:`refute` raises before
+        its first refit. Nothing is cached, so a later :meth:`refute` call runs as usual.
+
+        Parameters
+        ----------
+        **kwargs
+            Options forwarded to :func:`cleverly.validation.planned_refits`.
+
+        Returns
+        -------
+        PlannedRefits
+            One record per requested test.
+
+        Raises
+        ------
+        TypeError
+            If an argument is not one :func:`cleverly.validation.refute` takes.
+        ValueError
+            If an argument is malformed, as :meth:`refute` raises it.
+        CapabilityError
+            If :meth:`refute` would refuse this request.
+        """
+        from .validation._planned_refits import planned_refits
+
+        _, kwargs = _single_pass((), kwargs)
+        bound = self._bind_arguments("refute", kwargs, partial=False)
+        _validate_refute_arguments(bound)
+        self._require("refute", kwargs)
+        return planned_refits(self._result, **kwargs)
+
     def run_all(
         self,
         *,

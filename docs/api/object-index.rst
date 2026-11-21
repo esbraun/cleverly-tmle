@@ -262,6 +262,8 @@ categorized API tables.
    cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
+   cleverly.validation.PlannedRefits
+   cleverly.validation.PlannedRefitTest
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
@@ -271,6 +273,7 @@ categorized API tables.
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute
+   cleverly.validation.planned_refits
    cleverly.inference.BootstrapResult
    cleverly.inference.SimultaneousBands
    cleverly.inference.Transform
