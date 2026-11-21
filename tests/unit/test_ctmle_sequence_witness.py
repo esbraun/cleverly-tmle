@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -36,29 +35,6 @@ from tests.canonical.ctmle_sequence_witness.regenerate import (
 
 MANIFEST = HERE / "manifest.json"
 
-
-def _has_glmstar() -> bool:
-    from cleverly.learners import _glmstar
-
-    try:
-        _glmstar.load()
-    except ImportError:
-        return False
-    return True
-
-
-#: The solvers the glmnet rows run on: the built-in one always, and the optional glmstar
-#: accelerator where it is installed (X106 K2c-2).
-SOLVERS = [
-    "builtin",
-    pytest.param(
-        "glmstar",
-        marks=pytest.mark.skipif(
-            not (_has_glmstar() or os.environ.get("CLEVERLY_REQUIRE_GLMSTAR")),
-            reason="glmstar is not installed",
-        ),
-    ),
-]
 
 pytestmark = pytest.mark.skipif(
     not MANIFEST.exists(),
@@ -151,7 +127,6 @@ def _glmnet_fit(row: pd.Series, x: np.ndarray, w: np.ndarray | None) -> l1.L1Fit
 
 
 class TestTheSolver:
-    @pytest.mark.parametrize("solver", SOLVERS)
     @pytest.mark.parametrize("weighted", [False, True], ids=["unweighted", "weighted"])
     def test_binary(
         self,
@@ -160,12 +135,11 @@ class TestTheSolver:
         grid: np.ndarray,
         manifest: dict[str, Any],
         weighted: bool,
-        solver: str,
     ) -> None:
         a = inputs["A"].to_numpy(float)
         w = inputs["w"].to_numpy(float) if weighted else None
         name = "weighted" if weighted else "tight"
-        fits = l1.penalty_path(x, a, w, grid, solver=solver)
+        fits = l1.penalty_path(x, a, w, grid)
         # (a) The package meets its own tolerance.
         assert max(fit.kkt for fit in fits) <= l1.KKT_TOLERANCE
         # (b) The package residual reads glmnet's coefficients as near-optimal on the
@@ -180,17 +154,15 @@ class TestTheSolver:
         tolerance = manifest["prediction_tolerance"]["weighted" if weighted else "binary"]
         assert np.max(np.abs(package - matrix(HERE, f"g_{name}.csv"))) <= tolerance
 
-    @pytest.mark.parametrize("solver", SOLVERS)
     def test_multinomial(
         self,
         inputs: pd.DataFrame,
         x: np.ndarray,
         grid: np.ndarray,
         manifest: dict[str, Any],
-        solver: str,
     ) -> None:
         a3 = inputs["A3"].to_numpy()
-        fits = l1.penalty_path(x, a3, None, grid, solver=solver)
+        fits = l1.penalty_path(x, a3, None, grid)
         assert max(fit.kkt for fit in fits) <= l1.KKT_TOLERANCE
         r = read(HERE / "g_multinomial.csv")
         classes = np.unique(a3)

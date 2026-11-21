@@ -17,18 +17,10 @@ sklearn-compatible objects directly:
 python -m pip install "cleverly[all]"
 ```
 
-The `glmstar` extra installs a compiled solver for the lasso paths of collaborative TMLE, used
-with `l1_solver="glmstar"`. It is licensed GPL-2.0-only and adds about 390 MB of dependencies, so
-`all` leaves it out:
+Pin the complete version you analysed with, for example 0.2.7:
 
 ```bash
-python -m pip install "cleverly[glmstar]"
-```
-
-Pin the complete version you analysed with, for example 0.2.6:
-
-```bash
-python -m pip install "cleverly[all]==0.2.6"
+python -m pip install "cleverly[all]==0.2.7"
 ```
 
 A later release can still contain a public API change. A result that one release saves loads in another release with a warning, and

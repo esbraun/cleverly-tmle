@@ -87,6 +87,7 @@ from .cluster import (
     influence_variance,
     stacked_second_moment_variance,
 )
+from .cluster_jackknife import JackknifeCovariance, JackknifeVariance
 from .delta import (
     Transform,
     implied_correlation,
@@ -723,7 +724,7 @@ class ClusterReference:
 
 def stamp_inference(
     estimates: Mapping[str, ParameterEstimate],
-    status: InferenceStatus,
+    status: InferenceStatus | Mapping[str, InferenceStatus],
     reference: ClusterReference | None = None,
     classification: Classification | None = None,
 ) -> dict[str, ParameterEstimate]:
@@ -745,8 +746,10 @@ def stamp_inference(
     ----------
     estimates : mapping of str to ParameterEstimate
         The report, keyed by estimand.
-    status : str
-        One of :data:`InferenceStatus`.
+    status : str or mapping of str to str
+        One of :data:`InferenceStatus`, or one per estimand when the estimates of one fit take
+        different statuses: a floor family's floor holds for its measured contrast alone
+        (:func:`~cleverly.inference.cluster.unmeasured_estimand_status`).
     reference : ClusterReference or None, default=None
         The rows each estimate reads, on a clustered fit. ``None`` keeps every
         :attr:`ParameterEstimate.reference_df` as built.
@@ -759,21 +762,18 @@ def stamp_inference(
     dict of str to ParameterEstimate
         ``estimates`` in the same order. Every array and number is unchanged.
     """
-    stamped: dict[str, ParameterEstimate]
-    if not supplies_inference(status):
-        stamped = {
-            name: replace(estimate, inference=status, reference_df=None)
-            for name, estimate in estimates.items()
-        }
-    else:
-        stamped = {}
-        for name, estimate in estimates.items():
-            changes: dict[str, Any] = {}
-            if is_labelled(status) and estimate.inference == "influence_curve":
-                changes["inference"] = status
-            if reference is not None:
-                changes["reference_df"] = reference.reference_df(name)
-            stamped[name] = replace(estimate, **changes) if changes else estimate
+    stamped: dict[str, ParameterEstimate] = {}
+    for name, estimate in estimates.items():
+        own = status if isinstance(status, str) else status[name]
+        if not supplies_inference(own):
+            stamped[name] = replace(estimate, inference=own, reference_df=None)
+            continue
+        changes: dict[str, Any] = {}
+        if is_labelled(own) and estimate.inference == "influence_curve":
+            changes["inference"] = own
+        if reference is not None:
+            changes["reference_df"] = reference.reference_df(name)
+        stamped[name] = replace(estimate, **changes) if changes else estimate
     if classification is None:
         return stamped
     return {
@@ -1189,6 +1189,14 @@ class ParameterEstimate:
         node supplement with the fit's shared per-unit loadings
         (:class:`~cleverly.inference.node_variance.NodeVariance`). :attr:`variance` is then
         their sum, and the interval and test read it. ``None`` on every other estimate.
+    jackknife : JackknifeVariance or None
+        On an estimate of a fit with ``cluster_variance="jackknife"``, the delete-one-cluster
+        jackknife record: the fit's shared covariance of its reported estimates, this
+        estimate's gradient over them, its influence-curve variance and the clusters whose
+        refit failed (:class:`~cleverly.inference.cluster_jackknife.JackknifeVariance`).
+        :attr:`variance` is then the jackknife variance, plus the boundary-node supplement
+        when :attr:`node` is set, and the interval and test read it on the curve's own scale
+        and reference. ``None`` on every other estimate.
 
     Attributes
     ----------
@@ -1287,6 +1295,7 @@ class ParameterEstimate:
     bounds: tuple[float, float] | None = None
     policy: PolicyVariance | None = None
     node: NodeVariance | None = None
+    jackknife: JackknifeVariance | None = None
     rule_widened: bool = False
     outcome_family: OutcomeFamily | None = None
     components: tuple[ParameterEstimate, ParameterEstimate] | None = field(
@@ -1305,9 +1314,12 @@ class ParameterEstimate:
         is usable and larger than the influence-curve variance. ``"predictable_variation"``
         only under ``variance="switched"``, when the curve is sparse and its predictable
         variation is usable and larger than its centred variance. ``"boundary_node"`` when the
-        estimate carries the boundary-node supplement (:attr:`node`). ``"influence_curve"``
-        otherwise.
+        estimate carries the boundary-node supplement (:attr:`node`). ``"jackknife"`` when it
+        carries a jackknife record (:attr:`jackknife`), with or without the supplement.
+        ``"influence_curve"`` otherwise.
         """
+        if self.jackknife is not None:
+            return "jackknife"
         if self.node is not None:
             return "boundary_node"
         if self.policy is not None:
@@ -2093,7 +2105,9 @@ class ParameterEstimate:
         is not used), on the outcome's scale before any interval map. An estimate with the
         boundary-node supplement adds ``variance_source`` (``"boundary_node"``),
         ``influence_curve_std_err`` and ``boundary_node_std_err``, the square root of the
-        supplement alone.
+        supplement alone. An estimate with a jackknife record adds ``variance_source``
+        (``"jackknife"``), ``influence_curve_std_err`` and ``jackknife_std_err`` (``nan`` when
+        a refit failed), and ``jackknife_failed_refits``, the count of failed refits.
 
         Returns
         -------
@@ -2126,6 +2140,15 @@ class ParameterEstimate:
             row["variance_source"] = self.variance_source
             row["influence_curve_std_err"] = float(np.sqrt(max(self.node.influence_variance, 0.0)))
             row["boundary_node_std_err"] = float(np.sqrt(self.node.node_variance))
+        if self.jackknife is not None:
+            row["variance_source"] = self.variance_source
+            row["influence_curve_std_err"] = float(
+                np.sqrt(max(self.jackknife.influence_variance, 0.0))
+            )
+            jackknife = self.jackknife.jackknife_variance
+            usable = bool(np.isfinite(jackknife) and jackknife >= 0)
+            row["jackknife_std_err"] = float(np.sqrt(jackknife)) if usable else float("nan")
+            row["jackknife_failed_refits"] = len(self.jackknife.failed_refits)
         if self.rule_widened:
             row["rule_widened"] = True
             row["residual_margin"] = self.residual_margin
@@ -2749,6 +2772,9 @@ def make_estimate(
     gradient: FloatArray | None = None,
     node: NodeLoadings | None = None,
     node_gradient: FloatArray | None = None,
+    jackknife: JackknifeCovariance | None = None,
+    jackknife_gradient: FloatArray | None = None,
+    jackknife_failed: Sequence[int] = (),
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -2828,6 +2854,17 @@ def make_estimate(
     node_gradient : ndarray or None, default=None
         ``(L,)`` the estimate's gradient on its inference scale with respect to the levels
         of ``node``, given with ``node``.
+    jackknife : JackknifeCovariance or None, default=None
+        The fit's jackknife covariance of its reported estimates, for an estimate derived from
+        estimates of a ``cluster_variance="jackknife"`` fit. The stored variance is then
+        ``jackknife.quadratic(jackknife_gradient)``, plus the node supplement with ``node``.
+        Only the ``"centered"`` rule takes it.
+    jackknife_gradient : ndarray or None, default=None
+        ``(k,)`` the estimate's gradient on its inference scale with respect to the reported
+        estimates of ``jackknife``, given with ``jackknife``.
+    jackknife_failed : sequence of int, default=()
+        The clusters whose refit failed for an input; the estimate then keeps its curve
+        variance and the inputs' withheld status.
 
     Returns
     -------
@@ -2841,6 +2878,24 @@ def make_estimate(
     record: PolicyVariance | None = None
     switched: SwitchedVariance | None = None
     supplement: NodeVariance | None = None
+    jackknife_record: JackknifeVariance | None = None
+    if jackknife is not None or jackknife_gradient is not None:
+        if jackknife is None or jackknife_gradient is None:
+            raise ValueError("a jackknife variance needs jackknife and jackknife_gradient")
+        if covariance_rule != "centered":
+            raise ValueError(
+                "the jackknife variance replaces the centred curve variance only; got "
+                f"covariance_rule={covariance_rule!r}"
+            )
+        lam = np.asarray(jackknife_gradient, dtype=float).reshape(-1)
+        if lam.size != len(jackknife.names):
+            raise ValueError(
+                f"jackknife_gradient has {lam.size} entries and the jackknife covariance has "
+                f"{len(jackknife.names)} estimates"
+            )
+        jackknife_record = JackknifeVariance(
+            jackknife, lam, influence_variance(ic, cluster), tuple(jackknife_failed)
+        )
     if covariance_rule == "switched" and predictable_variance is None:
         # A copy of a switched estimate that does not carry its predictable variation.
         raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
@@ -2896,6 +2951,10 @@ def make_estimate(
             f"'switched'; got "
             f"{covariance_rule!r}"
         )
+    if jackknife_record is not None and not jackknife_record.failed_refits:
+        variance = jackknife_record.jackknife_variance + (
+            0.0 if supplement is None else supplement.node_variance
+        )
     n_clusters = n if cluster is None else int(np.unique(cluster).size)
     inference = bounded_status(inference, float(psi), bounds)
     return ParameterEstimate(
@@ -2915,6 +2974,7 @@ def make_estimate(
         bounds=bounds,
         policy=record,
         node=supplement,
+        jackknife=jackknife_record,
         rule_widened=rule_widened,
         outcome_family=outcome_family,
         range_interval=range_interval,

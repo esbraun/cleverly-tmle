@@ -10,7 +10,7 @@ inputs:
   extra:
     description: >-
       Which optional-dependency groups to install, space-separated; "dev" for anything running
-      pytest. `glmstar` is not in `dev` (it is GPL-2.0-only), so its job asks for "dev glmstar".
+      pytest.
     required: false
     default: dev
   resolution:

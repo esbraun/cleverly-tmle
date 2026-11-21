@@ -49,9 +49,6 @@ pandas = ["pandas>=1.5"]
 polars = ["polars>=0.20"]
 plot = ["matplotlib>=3.7"]
 all = ["cleverly[pandas,polars,plot]"]
-# The optional glmstar accelerator of the C-TMLE L1 path (`CTMLE(l1_solver="glmstar")`). Not in
-# `all`: glmstar is GPL-2.0-only and pulls in statsmodels and matplotlib.
-glmstar = ["glmstar>=0.7.1"]
 # Floors only. `uv.lock` holds the versions CI builds the site with; an upper bound goes here only
 # when a release is known to break the build, with the failure named beside it.
 docs = [

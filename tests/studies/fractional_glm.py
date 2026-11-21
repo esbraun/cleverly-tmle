@@ -44,7 +44,9 @@ from 0 or 1 in that pilot was ``2.5e-6``, and the tolerance is ``1e-4``. With
 (:func:`numerically_separated`), the fit keeps its last iterate with the same warning. The
 branch is reached only where the learner raised or already kept the last iterate, so no fit
 that converged, and no last iterate it kept, changes. It is opt-in, and only
-``boundary-node-ltmle`` opts in: the long-horizon studies refit this learner inside a
+``boundary-node-ltmle`` and the two few-cluster floor studies (``few-cluster-floor-tmle``'s
+in-sample LTMLE and ``few-cluster-floor-cross-fitted-ltmle``, whose first pilot stopped on a
+cross-fitted node regression at 4 clusters) opt in: the long-horizon studies refit this learner inside a
 bootstrap, which drops a replicate that raises, so turning it on for every study could move a
 committed bootstrap interval.
 

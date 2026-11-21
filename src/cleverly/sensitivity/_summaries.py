@@ -229,6 +229,8 @@ def _limits_withheld(refusal: MechanismRefusal | None) -> Note:
         key = "limits_withheld_learned_rule"
     elif refusal.key == "optimal_rule":
         key = "limits_withheld_optimal_rule"
+    elif refusal.key == "jackknife":
+        key = "limits_withheld_jackknife"
     elif refusal.key == "configuration":
         key = "limits_withheld_configuration"
     elif refusal.key in _CORRECTION_KEYS:

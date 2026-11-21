@@ -80,6 +80,41 @@ def _check_source_matches_checkout() -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     _check_source_matches_checkout()
+    config.pluginmanager.register(_GroupSuffix(), "cleverly-xdist-group-suffix")
+
+
+class _GroupSuffix:
+    """Give each ``xdist_group`` test the ``@group`` id that ``--dist loadgroup`` schedules by.
+
+    pytest-xdist marks a grouped test by writing ``<id>@<group>`` to ``item._nodeid``. pytest 9.2
+    reads the id from ``item._id``, so that write no longer reached the id: every test was
+    scheduled alone, a study's evidence checks spread over every worker, and each worker read
+    the study's rows and recomputed its summary at once. This hook runs after xdist's and
+    writes the suffix where the installed pytest reads it, the same id xdist means to give.
+    """
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(
+        self, config: pytest.Config, items: list[pytest.Item]
+    ) -> None:
+        """Suffix every grouped test that has no group in its id yet (workers only)."""
+        if not getattr(config.option, "loadgroup", False):
+            return
+        for item in items:
+            names = {
+                str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+                for mark in item.iter_markers("xdist_group")
+            }
+            nodeid = item.nodeid
+            if not names or nodeid.rfind("@") > nodeid.rfind("]"):
+                continue
+            suffixed = f"{nodeid}@{'_'.join(sorted(names))}"
+            if hasattr(item, "_id"):
+                from _pytest.nodeid import coerce_node_id
+
+                item._id = coerce_node_id(suffixed)
+            else:
+                item._nodeid = suffixed
 
 
 @pytest.hookimpl(tryfirst=True)

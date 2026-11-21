@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS
 from cleverly._support import (
     KEY_AXES,
     REGIMEN_KINDS,
@@ -257,7 +258,8 @@ class TestControls:
 
     def test_a_cluster_count_below_the_floor_leaves_the_row(self) -> None:
         estimator, _, _ = self.case("T11.in_sample").build()
-        _, data, _ = _build(estimator, frame(clusters=8, n=240), ("ate",))
+        clusters = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 1
+        _, data, _ = _build(estimator, frame(clusters=clusters, n=30 * clusters), ("ate",))
         small = classify(estimator, data, ("ate",))
         assert small.row is None
         assert small.nearest is not None and "dependence" in small.nearest[1]
