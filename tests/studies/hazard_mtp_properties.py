@@ -13,13 +13,10 @@ an exact sum or a quadrature to ``1e-10`` and every efficiency bound is exact
 ==============================  ===========================================================
 family                          cells, replications and size
 ==============================  ===========================================================
-``interval_calibration``        the contrast and the risk of each of the five fit labels,
+``interval_calibration``        the contrast and the risk of each of the six fit labels,
                                 with the shrunken-SE and noise controls on
                                 ``levels_contrast`` and ``gaussian_density_contrast``; the
-                                calibration count of fits per fit label at n = 2,000.  Beside
-                                them, reported with no verdict, the ``untruncated_density``
-                                rows: the density route on the untruncated Gaussian law,
-                                whose tail bins are wider than the shift; 800 at n = 2,000
+                                calibration count of fits per fit label at n = 2,000
 ``double_robustness``           ``levels_contrast`` in four nuisance configurations, and the
                                 contrast of each continuous fit label (both Gaussian ratio
                                 routes, the cross-fitted variant and the mixed node) with
@@ -119,7 +116,7 @@ NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = study.RATE_SIZES
 CALIBRATION_N = 2_000
-#: The arm-pooled rule over the ten calibration arms, read at the committed calibration pilot
+#: The arm-pooled rule over the twelve calibration arms, read at the committed calibration pilot
 #: (``tests/unit/test_hazard_mtp_study_design.py``).
 CALIBRATION_REPLICATES = 4_400
 POWER_REPLICATES = 800
@@ -150,11 +147,8 @@ CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_
 DIFFERENCE_FAMILY = "iterated_mean_difference"
 MECHANISM_DIFFERENCE = "mechanism_correct_difference"
 CONTRAST = study.CONTRAST_LABEL
-FITS = study.ALL_FITS
+FITS = study.FITS
 ARMS = ("contrast", "risk")
-REPORTED_REPLICATES = study.REPORTED_REPLICATES
-REPORTED_FITS = tuple(study.REPORTED_FITS)
-REPORTED_ARM = "reported"
 #: The per-row record of each fit, and the summary columns that count it
 #: (:func:`convergence_reading`).  No verdict reads them.
 CONVERGENCE_COLUMNS = ("converged", "final_score", "unexpected_warnings")
@@ -372,10 +366,6 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
         for fit in CALIBRATION_FITS
     ),
     *(
-        ("interval_calibration", fit, "both_correct", CALIBRATION_N, REPORTED_REPLICATES, fit)
-        for fit in REPORTED_FITS
-    ),
-    *(
         ("double_robustness", c, c, DOUBLE_ROBUST_N, DOUBLE_ROBUST_REPLICATES, "levels")
         for c in CONFIGURATIONS
     ),
@@ -487,19 +477,6 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     CALIBRATION_REPLICATES,
                     fit,
                 )
-    for fit in REPORTED_FITS:
-        dgp = DeclaredEstimates(fit)
-        for label, name in COEFFICIENTS[fit]:
-            add(
-                "interval_calibration",
-                f"{label}__{REPORTED_ARM}",
-                DIAGNOSTIC_ROLE,
-                dgp,
-                name,
-                CALIBRATION_N,
-                REPORTED_REPLICATES,
-                fit,
-            )
     levels = DeclaredEstimates("levels")
     for configuration in CONFIGURATIONS:
         add(
@@ -626,8 +603,6 @@ def _draw(key: _Key) -> pd.DataFrame:
 def cells_of(key: _Key) -> list[str]:
     """The ``family/cell`` names the fit set's rows and derived controls fill."""
     family, _, configuration, _, n, _, label = key[0]
-    if family == "interval_calibration" and label in REPORTED_FITS:
-        return [f"{family}/{cell_label}__{REPORTED_ARM}" for cell_label, _ in COEFFICIENTS[label]]
     if family == "interval_calibration":
         names: list[str] = []
         for cell_label, _ in COEFFICIENTS[label]:
@@ -847,12 +822,6 @@ def _fit_drawn(payload: _Payload, frame: pd.DataFrame, records: FitRecords) -> l
 
     if family == DIFFERENCE_FAMILY:
         return _difference_rows(frame, common_row, shared, label, records)
-    if family == "interval_calibration" and label in REPORTED_FITS:
-        result = records.hazard(label, frame)
-        return [
-            row(cell_label, f"{cell_label}__{REPORTED_ARM}", DIAGNOSTIC_ROLE, result[name])
-            for cell_label, name in COEFFICIENTS[label]
-        ]
     if family == "interval_calibration":
         joint = f"{label}_curve"
         banded = joint in JOINT_LABELS
@@ -1066,20 +1035,8 @@ def convergence_reading(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             summary.loc[index, "passed"] = False
 
 
-def reported_calibration(summary: pd.DataFrame) -> pd.Series:
-    """The reported, ungated ``interval_calibration`` rows (:data:`REPORTED_FITS`)."""
-    return (summary["property"] == "interval_calibration") & summary["cell"].astype(
-        str
-    ).str.endswith(f"__{REPORTED_ARM}")
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared verdicts, the study's declared rules, and the reported rows.
-
-    The reported calibration rows of :data:`REPORTED_FITS` keep every interval the summary
-    computes and state no verdict: their ``diagnostic`` role says so, and ``passed`` reads true
-    as on every reported row.
-    """
+    """The shared verdicts, the study's declared rules, and the reported rows."""
     summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
@@ -1087,12 +1044,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         rate_labels=study.LADDER_LABELS,
         efficiency_bounds=EFFICIENCY_SD,
     )
-    reported = reported_calibration(summary)
-    gated = summary.loc[~reported].copy()
-    calibration_verdicts(gated, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    summary.loc[gated.index, "passed"] = gated["passed"]
-    summary.loc[reported, "passed"] = True
-    summary.loc[reported, "property_passed"] = True
+    calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     difference_readings(summary)

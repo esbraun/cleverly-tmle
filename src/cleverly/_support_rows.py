@@ -6309,9 +6309,10 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
                 "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
                 "primary rows read coverage 0.944 to 0.956 over 2,400 draws, the calibration "
                 "cells SE ratio 0.997 and 1.000 over 4,400, and the band joint coverage 0.950. "
-                "On an unbounded dose the tail bins are wider than the shift and the influence "
-                "curve misses the efficient one by about a quarter of an efficiency SD at "
-                "n = 20,000; its reported rows carry no verdict.",
+                "On an untruncated dose with an uncapped shift the quantile tail bins are wider "
+                "than the shift; the route splits them, and the influence curve's gap from the "
+                "efficient one halves from n = 2,000 to n = 20,000 (0.12, then 0.03 efficiency "
+                "SDs on the contrast), so the study gates those cells from its next run.",
                 shared,
             ],
             **common,

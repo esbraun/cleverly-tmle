@@ -468,8 +468,8 @@ class TestTheInfluenceCurveGap:
     is at most half its median at n = 2,000, close to the root-n factor of 0.32.  The absolute
     bounds of :data:`~tests.studies.hazard_mtp_properties.IC_GAP_BOUND` (0.30 and 0.10) are
     loose sanity bounds, set after the scratch pilot.  The density route on the untruncated
-    Gaussian law is the witness: its quantile tail bins are wider than the shift, so its gap
-    does not halve; that law is reported, not gated.
+    Gaussian law, whose quantile tail bins are wider than the shift, did not halve before the
+    density route split those bins and read the density across them; it halves now and is gated.
     """
 
     def test_the_vectorized_curve_is_the_unit_curve(self) -> None:
@@ -510,12 +510,22 @@ class TestTheInfluenceCurveGap:
             assert large <= properties.IC_GAP_BOUND[large_n], (arm, large)
             assert large <= properties.IC_GAP_FALL * median, (arm, median, large)
 
-    @pytest.mark.parametrize("fit_label", study.REPORTED_FITS)
-    def test_the_untruncated_density_route_does_not(self, fit_label: str) -> None:
-        _, large_n = properties.IC_GAP_SIZES
-        small, large = _ic_gaps(fit_label)["contrast"]
-        assert large > properties.IC_GAP_BOUND[large_n]
-        assert large > properties.IC_GAP_FALL * float(np.median(small))
+    def test_the_untruncated_density_route_halves(self) -> None:
+        """The untruncated density route meets the halving rule, which its old reading failed.
+
+        The reading before the density route split the tail bins (median 0.313 at n = 2,000,
+        0.260 at n = 20,000 on the contrast) is the witness that the rule can fail on this fit.
+        """
+        assert "untruncated_density" in study.CALIBRATION_FITS
+        small_n, large_n = properties.IC_GAP_SIZES
+        for arm, (small, large) in _ic_gaps("untruncated_density").items():
+            median = float(np.median(small))
+            assert median <= properties.IC_GAP_BOUND[small_n], (arm, small)
+            assert large <= properties.IC_GAP_FALL * median, (arm, median, large)
+            assert large <= properties.IC_GAP_BOUND[large_n], (arm, large)
+        old_median, old_large = 0.313, 0.260
+        assert old_large > properties.IC_GAP_FALL * old_median
+        assert old_large > properties.IC_GAP_BOUND[large_n]
 
     def test_the_pilot_lost_no_fit(self) -> None:
         rows = _ic_rows()
@@ -905,7 +915,7 @@ class TestTheSizes:
         replaces this reading once it exists, and this test then skips.
         """
         arms = sum(len(properties.COEFFICIENTS[label]) for label in properties.CALIBRATION_FITS)
-        assert arms == 10
+        assert arms == 12
         replicates, cell, family = mtp_study_tools.smallest_replicates(
             1.0, sizing.CALIBRATION_PILOT_DRAWS, arms
         )

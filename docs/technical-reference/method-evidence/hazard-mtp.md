@@ -9,8 +9,10 @@ of the targeted hazards at each unit's shifted dose. The section on
 states the estimand, the influence curve and the exact-law evidence.
 
 The declared run passed every gated verdict, with no failed fit: 48 of 48 primary rows and 39
-of 39 property cells with a verdict. The `iterated_mean_difference` rows and the reported
-`untruncated_density` rows carry no verdict.
+of 39 property cells with a verdict. The `iterated_mean_difference` rows carry no verdict. That
+run reported the `untruncated_density` rows with no verdict. The study now gates them, because
+their influence-curve gap halves on the corrected density route, and the next declared run
+reads them.
 
 ## The estimand and the laws
 
@@ -66,7 +68,7 @@ design test reads it from the committed pilot.
 | `gaussian_classifier` | `gaussian` | logistic classifier on `W1`, `W2`, the dose and the policy's step column at the edge of the training doses | 1 |
 | `gaussian_crossfit` | `gaussian` | the same classifier | 5 |
 | `vector` | `vector` | logistic classifier on `W1`, `W2`, the arm and the dose, and a logistic arm model | 1 |
-| `untruncated_density` (reported) | `gaussian` | binned density, a fitted Gaussian location model at `oracle_bins(n)` bins | 1 |
+| `untruncated_density` | `gaussian` | binned density, a fitted Gaussian location model at `oracle_bins(n)` bins | 1 |
 
 | nuisance | correct learner | wrong learner |
 | --- | --- | --- |
@@ -80,10 +82,10 @@ coincide, so no cell could see the hazard fit. The design test keeps that witnes
 fits a two-branch randomized policy on the exact `levels` sample with the wrong hazard learner,
 which returns the policy's exact risk while the initial hazards miss it.
 
-The density route is gated on `truncated` only. On `gaussian` the policy ratio grows
-exponentially in the dose, and the top quantile bins of the shipped binned density are wider
-than the shift. A dose and its pre-image then share a bin, and the binned ratio reads one where
-the true ratio is 5 to 8. The `ic_gap` pilot label measures each fit's influence-curve gap, the
+The density route is gated on `truncated` and on `gaussian`. On `gaussian` the policy ratio
+grows exponentially in the dose, and the top quantile bins at `oracle_bins(n)` are wider than
+the shift. Read flat inside a bin, a dose and its pre-image would share a bin, and the ratio
+would read one where the true ratio is 5 to 8. The `ic_gap` pilot label measures each fit's influence-curve gap, the
 standard deviation of its influence curve minus the exact efficient influence function, in
 units of the efficiency bound, and the design test checks the committed readings:
 
@@ -94,14 +96,14 @@ units of the efficiency bound, and the design test checks the committed readings
 | `gaussian_classifier` | 0.08 | 0.03 |
 | `gaussian_crossfit` | 0.10 | 0.04 |
 | `vector` | 0.08 | 0.03 |
-| `untruncated_density` | 0.31 | 0.26 |
+| `untruncated_density` | 0.12 | 0.03 |
 
 The figures are for the contrast. The claim is that every gated fit's gap at least halves from
 n = 2,000 to n = 20,000, close to the root-n factor of 0.32. Each also stays within 0.30 and
-0.10, loose sanity bounds set after the scratch pilot. The untruncated density route's gap does
-not halve, so
-its rows are reported with no verdict. The cause is the shipped route's tail binning, not the
-hazard walk, and the shipped route's limitation is tracked apart from this study.
+0.10, loose sanity bounds set after the scratch pilot. On the untruncated dose the earlier
+density route read 0.31 and then 0.26, because a dose and its pre-image shared a wide tail bin.
+The corrected route splits those bins and reads each row's density across them, so the gap
+halves there too and `untruncated_density` is gated with its calibration cells.
 
 The cross-fitted variant exercises the cross-fitting of the shifted-dose predictions, which
 does not depend on the ratio route, so one route covers it. The study's density learner is
@@ -240,7 +242,6 @@ calibration pilots of these fit labels.
 | family | cells | replicates and n | what fails it |
 | --- | --- | --- | --- |
 | `interval_calibration` | the contrast and the policy's risk of each gated fit label, with the shrunken-SE and noise controls on the `levels` and `gaussian_density` contrasts | 4,400 at n = 2,000 | an SE ratio or coverage interval outside its band, or an efficiency ratio outside 0.90 to 1.10 |
-| `interval_calibration`, reported | the contrast and the policy's risk of `untruncated_density` | 800 at n = 2,000 | nothing: the rows are reported with no verdict |
 | `simultaneous_coverage` | the band over every estimate of the `levels` and `gaussian_density` fits, and its pointwise control | 4,400 at n = 2,000 | joint coverage outside the calibration band |
 | `double_robustness` | the `levels` contrast with both, one or neither nuisance correct; the contrast of `gaussian_density`, `gaussian_classifier`, `gaussian_crossfit` and `vector` with the wrong hazard learner and the correct mechanism | 1,200 at n = 2,000; 1,600 for `gaussian_crossfit` | a positive bias interval outside the margin, or a `both_wrong` interval inside it |
 | `targeting_necessity` | the `levels` contrast from the wrong hazard learner, targeted and plug-in | 1,200 at n = 2,000 | the targeted bias outside the margin, or a displacement below 0.25 |
@@ -359,7 +360,7 @@ from the committed results and checked at the precision printed.
 | one baseline decision | a policy at several visits is part (a) of plan X70 |
 | a vector treatment at one visit | the data container does not hold a vector over several visits |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic and Gaussian learners. A flexible learner is outside it |
-| the density route on a bounded dose | the gated density cells use a truncated dose with a capped shift. On an unbounded Gaussian dose the shipped route's tail bins are wider than the shift, and its reported rows show the miss |
+| the density route on a Gaussian dose | the density cells cover a truncated dose with a capped shift and an untruncated dose with an uncapped shift. On the untruncated dose the quantile tail bins are wider than the shift; the route splits them, and its influence-curve gap halves from n = 2,000 to n = 20,000 (0.12, then 0.03). Other dose laws and policy ratios are outside this evidence |
 | held cells | every policy here is deterministic and no level is empty at n = 2,000, so no fit holds a cell out. Held cells rest on `tests/unit/test_hazard_mtp.py` |
 | no comparator | no external implementation targets these hazards under a policy |
 
