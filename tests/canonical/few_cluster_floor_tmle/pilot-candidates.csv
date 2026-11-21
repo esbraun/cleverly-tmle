@@ -1,0 +1,4 @@
+family,cells,discordance,admissibility_probability,shortfall
+ltmle_in_sample,38,0.017368421052631578,0.9999999999994558,False
+tmle_in_sample,44,0.04732954545454546,0.9927817462244052,False
+tmle_stacked,30,0.009916666666666667,1.0,False

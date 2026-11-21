@@ -730,8 +730,8 @@ gives both reasons and the study planned to measure it.
 The registered study covers an in-sample, single-cause survival fit on the wide layout with one
 treatment decision at each time point, static plans, and no weights, measured with correctly
 specified cell-mean models on finite binary laws at $n = 1000$. A `TimeToEvent` fit, whose one
-treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer than 20 clusters (groups such as care teams whose members' outcomes move
-together) prints its bootstrap standard deviation and percentile range as diagnostics.
+treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer clusters than its floor (groups such as care teams whose members' outcomes move
+together; the floor is 20 for most longitudinal fits) prints its bootstrap standard deviation and percentile range as diagnostics.
 [The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each resample redraws and refits, and
 [Bootstrap for sparse regimens](longitudinal.md#bootstrap-for-sparse-regimens) covers the BCa

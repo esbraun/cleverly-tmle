@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -50,7 +51,13 @@ from tests.studies.evidence.document import (
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
-from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
+from tests.studies.evidence.manifest import (
+    COMPACT_BYTES,
+    comparator_findings,
+    csv_text,
+    read_rows,
+    write_rows,
+)
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS
@@ -270,14 +277,18 @@ def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
 
 @_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
-    """Load immutable primary rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("replicates.parquet"))
+    """Load immutable primary rows once per study and worker.
+
+    The frame :func:`_artifacts` read: a second read held a second copy, which on a study of
+    millions of rows cost a CI worker gigabytes.
+    """
+    return _artifacts(slug)["replicates"]
 
 
 @_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
-    """Load immutable property rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("property-replicates.parquet"))
+    """Load immutable property rows once per study and worker, as :func:`_artifacts` read them."""
+    return _artifacts(slug)["property_replicates"]
 
 
 def _property_records(study: StudyRecord) -> pd.DataFrame | None:
@@ -455,16 +466,37 @@ class TestArtifacts:
         for name in names:
             path = study.artifact(name)
             assert path.read_bytes()[:4] == b"PAR1", f"{name} is not Parquet"
-            committed = pq.read_table(path)
-            assert committed.schema.metadata is None, f"{name} carries pandas schema metadata"
+            schema = pq.read_schema(path)
+            assert schema.metadata is None, f"{name} carries pandas schema metadata"
             groups = pq.read_metadata(path)
             codecs = {
                 groups.row_group(group).column(index).compression
                 for group in range(groups.num_row_groups)
-                for index in range(committed.num_columns)
+                for index in range(len(schema))
             }
             assert codecs <= {"ZSTD"}, f"{name} uses {codecs}"
             dtype = property_failures.WITNESS_DTYPE if witnesses.name == name else None
+            if path.stat().st_size > COMPACT_BYTES:
+                # A file this large holds millions of rows, and one rewrite holds the frame,
+                # its CSV text and the table at once, several gigabytes. The CSV reader infers
+                # each column alone, so the rewrite of one column at a time decodes to the same
+                # table column by column.
+                for field in schema:
+                    column = read_rows(path, columns=[field.name])
+                    kept = (
+                        None
+                        if dtype is None
+                        else {key: value for key, value in dtype.items() if key == field.name}
+                    )
+                    rows = pd.read_csv(
+                        io.BytesIO(csv_text(column)), float_precision="round_trip", dtype=kept
+                    )
+                    again = pa.Table.from_pandas(rows, preserve_index=False)
+                    assert again.schema.field(field.name).equals(field), (name, field.name)
+                    stored = pq.read_table(path, columns=[field.name]).column(0)
+                    assert again.column(0).equals(stored), (name, field.name)
+                continue
+            committed = pq.read_table(path)
             rewritten = tmp_path / name
             write_rows(read_rows(path), rewritten, dtype=dtype)
             assert pq.read_table(rewritten).equals(committed, check_metadata=True), name
@@ -1648,6 +1680,32 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
 
+        # ``few-cluster-floor-tmle`` part (c), restated from the declaration in ``regenerate.py``.
+        # A candidate row's own verdict holds unless its cell's draws exceed the failure bound
+        # (``property-failure-accounting.csv``); the paired gain against (A) is the joint
+        # clause in ``property_passed``. A pooled row passes when its gain's lower end lies
+        # above the pooled margin.
+        candidate = published.loc[published["property"] == "few_cluster_candidate"]
+        if not candidate.empty:
+            accounting = _property_accounting(study)
+            exceeded = set(
+                accounting.loc[
+                    (accounting["property"] == "few_cluster_candidate")
+                    & (accounting["reason"] == property_failures.BOUND_EXCEEDED),
+                    "cell",
+                ].astype(str)
+            )
+            for row in candidate.itertuples():
+                assert bool(row.passed) is (str(row.cell) not in exceeded), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        pooled = published.loc[published["property"] == "few_cluster_candidate_pooled"]
+        for row in pooled.itertuples():
+            margin = study.properties().floor.POOLED_MARGIN
+            assert bool(row.passed) is bool(row.coverage_gain_ci_lower > margin), (
+                f"{row.cell} publishes passed={row.passed} against its pooled gain"
+            )
+
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
@@ -2035,6 +2093,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # and the variance-ratio lower end; a deflated control must fail that rule; the IID
         # control to its median ratio's upper end. Checked row by row below.
         "fold_variance_calibration",
+        # ``few-cluster-floor-tmle`` part (c): a candidate pair's rows each hold their own
+        # verdict, lost only when the pair's draws exceed the failure bound; the paired gain is
+        # the joint clause. A pooled row answers to its pooled gain's lower end. Checked row by
+        # row below.
+        "few_cluster_candidate",
+        "few_cluster_candidate_pooled",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
@@ -2209,6 +2273,14 @@ SAME_DRAW_FAMILIES = {
         frozenset({"double_robustness", "targeting_necessity"}),
     ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # X54 part (c): each ``few_cluster_candidate`` pair refits a candidate interval on the draws
+    # of the ``few_cluster_reference`` cell at that count and files (A)'s copy beside it, so the
+    # paired coverage gain compares the two on the same draws. The floor verdicts read the
+    # reference family alone, and the part (c) decision reads the pairs.
+    "few-cluster-floor-tmle": (frozenset({"few_cluster_candidate", "few_cluster_reference"}),),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        frozenset({"few_cluster_candidate", "few_cluster_reference"}),
+    ),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
     # the fit that the bias row reads.

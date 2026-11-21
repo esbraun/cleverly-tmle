@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "study": "the clustered interval floor of cross-fitted LTMLE",
+  "slug": "few-cluster-floor-cross-fitted-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "a28732b76e3a366065aba449132650c9d89df78b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 400,
+    "seed": 20265421,
+    "resampling_seed": 20265422,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "floor_equal40_j10": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat then continue if l2 positive]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat then continue if l2 positive vs never]"
+      ]
+    },
+    "law": "make_longitudinal end-of-study law, cluster component on the final outcome, delta = 0.95, scaled latent",
+    "size_laws": [
+      "equal40",
+      "unequal40"
+    ],
+    "ladder": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      30,
+      39
+    ],
+    "cross_fit": true,
+    "outer_folds": "min(5, J) whole-cluster folds",
+    "learners": "study quasibinomial GLM node regressions (numerical_separation=True); the law's own mechanisms",
+    "package_glm": "the same draw with cleverly.learners.GLM node regressions (reported)",
+    "regimens": [
+      "never",
+      "always",
+      "treat then continue if l2 positive"
+    ],
+    "target": "ate_regimen[always vs never]",
+    "candidate_draws": 2000,
+    "references": {
+      "A": "cluster IC variance on t(J-2)",
+      "B": "J/(J-2) times the IC variance on t(J-2), p = 2",
+      "C": "cluster_variance='jackknife' on t(J-2), J >= 10"
+    },
+    "primary": "floor_equal40_j10: 10 clusters of equal40",
+    "property_failure_bound": 0.05,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/few_cluster_floor_ltmle.py": "0e84094a62cd940d376d382636e0587e6d294c5717b33ed3233e7a55f9e969c0",
+    "tests/studies/few_cluster_floor_ltmle_properties.py": "e6716bd11b6ba4cbafe5e6ce70e619c4181318c4ff73ca16db8e720e54d10f47",
+    "tests/studies/few_cluster_floor.py": "e20fc94f6d52b4c7e2727ae724f4712b399b89e490221877a1fc2f322726c53d",
+    "tests/studies/few_cluster_floor_pilot.py": "be91185d929ea50a3b146cc57ecede4294f4e97682106be2dbdf202e03283018",
+    "tests/studies/clustered_longitudinal_laws.py": "f9ffea2dcb0b7f38bf1dd1c3fe9401fe1b120d4904878ad23cab18259c90bb53",
+    "tests/studies/clustered_crossfit_ltmle.py": "bc7736740732f144578495e448b6f102aa6ba8c03ff3ce10b0b282414891524d",
+    "tests/studies/clustered_few_cluster_tmle.py": "4aee84bbac75fde57a27b48b3b68a4dd8c03a3e1595399786a680fffa1c3082b",
+    "tests/studies/canonical_ltmle_crossfit.py": "8b32f833532193c4b71956c9d2cb4454ed663dd46b0debcd982229145f2e3839",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/canonical_cvtmle.py": "1967aa13254ebc671e7ec655dfcb9040a69e931de85c525d4723cc9a80b10330",
+    "tests/studies/fractional_glm.py": "bf472ab47f16649394a61c846367f76861760ee21d6075d55fa19f8eb1bd7eb2",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "1109a9666f1b12d96343280af260ee21b796f78467a5d9a288dd3fa309061425",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "dbe43782d82fa0ce728b9e341edb726a82d532daaf53a5c208e1981ec4095b08",
+    "summary.csv": "7f0b3e9da04bf39d5032503478a68711ff3c74e45bfe4fbfdfa4c7d2db0a427c",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "50dbde08d0ac9d583db9c35cea930c9cc3004a48e9a30a35ee214a6419b1098c",
+    "property-replicates.parquet": "2d8391e012cac207ecc0afcec11450bbf6144a6e24cf58caad150040c8bca343",
+    "properties.csv": "b6e69e7920659139ce0f611378e0482c403dfec16b4b58e8d99fb7d565cdc0a8",
+    "property-failures.csv": "069d67abaaaff9e774b2b4d372b1852f8496375e5d2be7ea2a4b542d7a2c1eda",
+    "property-failure-accounting.csv": "79b355b5cd212540678e1347f3784ae883efb4280ef8cce5485ca00b141fdf92",
+    "property-failure-witnesses.parquet": "f6e061c7a0f5a6108573741449d67628d795dc311e38d52a96ebd4e274d99831"
+  }
+}

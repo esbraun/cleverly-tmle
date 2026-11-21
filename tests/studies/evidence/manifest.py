@@ -69,13 +69,19 @@ def write_csv(frame: Any, path: Path, **options: Any) -> None:
     frame.to_csv(path, index=False, lineterminator=NEWLINE, **options)
 
 
+#: A row file larger than this is rewritten in the compact form of :func:`write_rows`
+#: (GitHub refuses files over 100 MB; ``few-cluster-floor-tmle`` wrote 105 MB plainly).
+COMPACT_BYTES = 90_000_000
+
+
 def write_rows(frame: pd.DataFrame, path: Path, dtype: Mapping[str, Any] | None = None) -> None:
     """Write one published row file as Parquet, as a function of the rows' CSV text.
 
     The writer reads the CSV text of ``frame`` back with ``float_precision="round_trip"``
     before it writes.  Two frames with one CSV text therefore give one table and one schema,
     whatever their in-memory dtypes.  The file holds no index and no pandas schema metadata,
-    and zstd compresses it.  :func:`read_rows` returns the rows, and :func:`csv_text` returns
+    and zstd compresses it.  A file above :data:`COMPACT_BYTES` is rewritten in a compact
+    form that decodes to the same table.  :func:`read_rows` returns the rows, and :func:`csv_text` returns
     their CSV text.
 
     Parameters
@@ -91,6 +97,19 @@ def write_rows(frame: pd.DataFrame, path: Path, dtype: Mapping[str, Any] | None 
     rows = pd.read_csv(io.BytesIO(csv_text(frame)), float_precision="round_trip", dtype=dtype)
     table = pa.Table.from_pandas(rows, preserve_index=False).replace_schema_metadata(None)
     pq.write_table(table, path, compression="zstd")
+    if path.stat().st_size > COMPACT_BYTES:
+        # GitHub refuses a file over 100 MB. The compact form stores the same table: floats
+        # byte-stream split, one row group, zstd at its highest level.
+        floats = [field.name for field in table.schema if pa.types.is_floating(field.type)]
+        pq.write_table(
+            table,
+            path,
+            compression="zstd",
+            compression_level=19,
+            use_dictionary=[field.name for field in table.schema if field.name not in floats],
+            column_encoding=dict.fromkeys(floats, "BYTE_STREAM_SPLIT"),
+            row_group_size=max(table.num_rows, 1),
+        )
 
 
 def read_rows(path: Path | IO[bytes], columns: list[str] | None = None) -> pd.DataFrame:
@@ -108,7 +127,21 @@ def read_rows(path: Path | IO[bytes], columns: list[str] | None = None) -> pd.Da
     pandas.DataFrame
         The rows, with a default index.
     """
-    return pq.read_table(path, columns=columns).to_pandas()
+    table = pq.read_table(path, columns=columns)
+    for position, field in enumerate(table.schema):
+        column = table.column(position)
+        if column.num_chunks > 1 and (
+            pa.types.is_string(field.type) or pa.types.is_large_string(field.type)
+        ):
+            # pandas keeps a string column as Arrow chunks, and taking rows across dozens of
+            # chunks cost a tenth of a second per cell on a study of millions of rows.
+            table = table.set_column(position, field, pa.chunked_array([column.combine_chunks()]))
+    frame = table.to_pandas()
+    del table
+    # Arrow's allocator keeps the freed table for reuse, about the frame's size again on a
+    # study of millions of rows, and the evidence tests hold the frame for a whole study.
+    pa.default_memory_pool().release_unused()
+    return frame
 
 
 def csv_text(frame: pd.DataFrame) -> bytes:
