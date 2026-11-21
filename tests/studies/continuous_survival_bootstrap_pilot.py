@@ -19,12 +19,15 @@ Every row holds all 18 targets; the in-sample record gates the 12 at the median 
 The committed rows give these readings of X6 plan rev 5, section 5.5, which each record's
 regeneration script checks before a declared run (``regenerate.pilot_refusals``):
 
-* **the count** (:func:`at_target_count`): the family-wise rule at the design point, the smallest
-  multiple of 400 at which every gated calibration row of ``b1`` passes together with probability at
-  least 0.95 at SE ratio 1 and coverage 0.95.  A pilot of 400 leaves each row's SE ratio with a
-  predictive SD near half the band, so the rule takes ``guide/studies.md``'s at-target branch;
-* **each gated row's plug-in pass** (:func:`calibration_checks`) at the declared count, from its pilot
-  SE ratio and coverage: a row below 0.90 asks for a committed diagnosis before the declaration;
+* **the count** (:func:`at_target_count`): the calibration rule's at-target count, the smallest
+  multiple of 400 at which the calibration rule passes all 12 of ``b1``'s primary rows together
+  with probability at least 0.95 at SE ratio 1 and coverage 0.95.  A pilot of 400 leaves each
+  row's SE ratio with a predictive SD near half the band, so the rule takes
+  ``guide/studies.md``'s at-target branch.  The calibration rule is reported, not gated, and the
+  declared count is kept at this value so that its reading keeps the resolution it was sized for;
+* **each row's plug-in pass** (:func:`calibration_checks`) at the declared count, from its pilot
+  SE ratio and coverage: a reading of how likely the reported calibration row is to meet the rule,
+  which refuses nothing since the rule does not gate;
 * **the failures** (:func:`failure_refusal`): the posterior predictive probability, under a
   Jeffreys prior, that a declared cell loses more fits than its bound allows, at most 0.10 for the
   gated in-sample cell; the cross-fitted record publishes its reading;
@@ -74,11 +77,8 @@ RECORDS: dict[str, tuple[Any, int]] = {
 #: published, not a refusal.
 FAILURES_REFUSE: dict[str, bool] = {"in_sample": True, "cross_fitted": False}
 BLOCK = 20
-#: The plug-in pass probability below which ``guide/studies.md`` asks for a committed diagnosis.
-PLUG_IN_PASS = 0.90
 #: The largest posterior predictive probability of exceeding a failure bound that may proceed.
 FAILURE_EXCEEDANCE = 0.10
-DIAGNOSIS = study.STUDY.artifacts / "pilot-diagnosis.md"
 
 
 def pilot_seed(kind: str, replicate: int) -> int:
@@ -259,7 +259,8 @@ def coverage_table(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def calibration_checks(rows: pd.DataFrame, replicates: int) -> pd.DataFrame:
-    """Each gated ``b1`` row's pilot SE ratio and coverage, and its plug-in pass at ``replicates``."""
+    """Each primary ``b1`` row's pilot SE ratio and coverage, and its plug-in pass at
+    ``replicates``."""
     table = coverage_table(rows)
     table = table.loc[(table["kind"] == "in_sample") & table["estimand"].isin(study.ROWS)]
     passes = [
