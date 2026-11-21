@@ -55,7 +55,9 @@ methods](../technical-reference/validation-methods.md) states the conditions of 
 
 `refute()` reads the outcome laws below (`GaussianAdjustmentOutcome` and the rest) for its
 generated-outcome tests, and judges each reading against its `EquivalenceBands`.
-`planned_refits()` counts the refits and model fits a `refute()` call would make, before it runs. `CoverageStudy`
+`planned_refits()` counts the refits and model fits a `refute()` call would make, before it runs.
+`RefutationCheckpoint` keeps each finished draw of the long tests, so a stopped call resumes.
+A `progress=` callback receives a `RefutationProgress` after each draw. `CoverageStudy`
 measures bias and coverage over repeated draws from a law you declare.
 
 ```{eval-rst}
@@ -85,6 +87,8 @@ measures bias and coverage over repeated draws from a law you declare.
    cleverly.validation.RefutationResult
    cleverly.validation.PlannedRefits
    cleverly.validation.PlannedRefitTest
+   cleverly.validation.RefutationCheckpoint
+   cleverly.validation.RefutationProgress
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord

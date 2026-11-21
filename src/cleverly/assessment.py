@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
@@ -2991,7 +2991,10 @@ class _CapabilityFacade:
             {
                 "include_refits": include_refits,
                 "include_retargets": include_retargets,
-                "arguments": supplied,
+                "arguments": {
+                    operation: _cache_arguments(operation, dict(values))
+                    for operation, values in supplied.items()
+                },
                 "random_state": random_state,
             },
             compute,
@@ -3076,7 +3079,7 @@ class _CapabilityFacade:
         args: tuple[Any, ...] = (),
     ) -> dict[str, Any]:
         bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
-        effective = _bound_arguments(bound, report)
+        effective = _cache_arguments(operation, _bound_arguments(bound, report))
         if operation == "evalue" and effective.get("estimand") is None:
             # Explicit OR requests choose the approximation; keep None replayable there.
             source = getattr(report, "source_estimand", None)
@@ -3097,7 +3100,7 @@ class _CapabilityFacade:
     def _invoke(self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Any:
         function, _ = self._routed_callable(operation)
         bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
-        effective = _bound_arguments(bound)
+        effective = _cache_arguments(operation, _bound_arguments(bound))
 
         def compute() -> Any:
             return function(*bound.args, **bound.kwargs)
@@ -3112,7 +3115,7 @@ class _CapabilityFacade:
 
         name = f"{self._attribute}.{operation}"
         report = _cached(self._result, name, (), effective, compute)
-        resolved = _bound_arguments(bound, report)
+        resolved = _cache_arguments(operation, _bound_arguments(bound, report))
         if _normalize(resolved) != _normalize(effective):
             # The alias is pinned when the answer it repeats is kept and pinned. An answer the
             # budget did not keep leaves an evictable alias, which the budget drops as well.
@@ -3125,6 +3128,19 @@ class _CapabilityFacade:
                 evictable=primary not in cache or _is_evictable(cache, primary),
             )
         return report
+
+
+#: Keywords that change where an operation keeps its work, or what it reports while it runs,
+#: and never its answer. The cache key and the alias filing leave them out, so a call with them
+#: and one without share one answer (X106 G3).
+_UNKEYED_ARGUMENTS: Final[dict[str, tuple[str, ...]]] = {"refute": ("checkpoint", "progress")}
+
+
+def _cache_arguments(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """``arguments`` without the keywords that never change ``operation``'s answer."""
+    for name in _UNKEYED_ARGUMENTS.get(operation, ()):
+        arguments.pop(name, None)
+    return arguments
 
 
 def _arm_source_target(result: Any, source: str) -> str:
@@ -3180,9 +3196,10 @@ def _single_pass(
 
 def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
     """Check a bound refutation request before a facade starts any operation."""
-    from .validation.refute import _validated_tests
+    from .validation.refute import _validated_checkpoint, _validated_tests
 
     bound.apply_defaults()
+    _validated_checkpoint(bound.arguments["checkpoint"], bound.arguments["progress"])
     _validated_tests(
         bound.arguments["tests"],
         bound.arguments["n_replicates"],
@@ -3894,7 +3911,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         Parameters
         ----------
         **kwargs
-            Options forwarded to :func:`cleverly.validation.refute`.
+            Options forwarded to :func:`cleverly.validation.refute`. The answer is cached
+            without ``checkpoint`` and ``progress``, so a repeated request returns the cached
+            answer without reading the checkpoint's draws or calling ``progress``. A
+            variable-importance run still records its candidates' names in the directory.
 
         Returns
         -------

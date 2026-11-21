@@ -3115,6 +3115,62 @@ whose own preview is an upper bound, such as a DR-TMLE or an LTMLE fit, gives up
 throughout. `tests/unit/test_planned_refits.py` runs each test
 on each adapter and checks the realized fits against the record.
 
+#### Checkpoints and progress
+
+`refute(..., checkpoint=RefutationCheckpoint(directory), progress=callback)` stores each finished
+draw of `dummy_outcome`, `simulated_outcome`, `plasmode`, `bootstrap_stability` and
+`bootstrap_measurement_error` as one JSON file, written under a temporary name and renamed with
+`os.replace`, so an interrupted write never leaves a partial file under the draw's name. These
+five tests run each draw from its own seed (the generated tests from
+`_generated_child_seeds(root, test, R)`, the bootstrap tests from the spawned sequence of
+`_bootstrap_design`), and never from the call's shared generator. A draw's record is therefore a
+function of the fit, the request, the library versions and its seed, so a resume that loads the
+stored draws and refits the missing ones in order returns the uninterrupted report bit for bit.
+The placebo, noise and subset tests draw from the shared generator and are not stored.
+
+The directory's `request.json` records, on first use:
+
+| part | what is recorded |
+| --- | --- |
+| estimator | class and, for each constructor parameter, the attribute of that name, keyed by content: a learner by class and `get_params(deep=True)`, a dataclass by its fields, a function by module and qualname |
+| data | the provenance data fingerprint, plus the weights and cluster ids by content |
+| seeds | the resolved root seed and the fit's repeat seeds (a structural fit's fit seeds) |
+| estimates | every estimate and plug-in standard error, as `float.hex` |
+| request | the estimand |
+| per test | draw count; process and bands (generated tests); resolved resampling, and the declaration and rule (measurement error) |
+| library versions | `cleverly`, NumPy, SciPy and scikit-learn |
+
+A call whose request differs in any part refuses with `INVALID_DECLARATION`, naming the part, and
+so does a stored draw whose seed differs from the one the call derives. No part is keyed by a
+`repr` that holds a memory address: a lambda or local function refuses the checkpoint by name,
+and so does an object whose only description holds an address. A bound method keys by its name
+alone and an object with neither `get_params` nor dataclass fields by its `repr`; the estimates
+part separates fits that differ only there.
+
+The version check does not separate two development
+commits with one `cleverly` version, so give each commit its own directory. A directory that
+holds no draw yet takes a new request, and the request file is not locked, so run one call per
+directory at a time. An unseeded fit draws its root seed at the first call; the directory
+records it, and the refusal of a later call names it as the `random_state=` to pass. Each stored
+draw is the raw record or retained failure, before the ratio filter, so the filter runs on the
+merged draws as it does on an uninterrupted call.
+
+`progress` receives a `RefutationProgress(test, completed, requested, failed, resumed,
+candidate)` in the calling process after each draw's file is in place. It is called outside the
+blocks that retain a refit failure, so an exception it raises stops the call and is never
+recorded as a failed draw. Loading a stored draw marks the call as having fitted learners, so the
+facade keeps the answer as it keeps a refitted one.
+
+The facade's cache keys, `run_all`'s included, leave out `checkpoint` and `progress`, so a
+repeated request returns the cached answer without reading the stored draws. A
+variable-importance run gives each candidate a subdirectory named by a digest of its name.
+`planned_refits(..., checkpoint=...)` reads the directory without writing, refuses as `refute()`
+would, and reports `stored` draws per test, counting only the rest; it ignores `progress`.
+`tests/unit/test_refute_checkpoint.py` holds the witnesses: resume equals uninterrupted for every
+stored test and family, including a stop and resume in fresh processes; stored draws are never
+refit, with a mutation control; each mismatch refuses; and the calls without the keywords equal a
+copy of the loop they replaced.
+
 #### Generated point outcomes
 
 A point process declares a mean `m(a, W)` and an arm term `c(a)`. The scalar `effect` gives

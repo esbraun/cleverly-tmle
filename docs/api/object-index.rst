@@ -264,6 +264,8 @@ categorized API tables.
    cleverly.validation.RefutationResult
    cleverly.validation.PlannedRefits
    cleverly.validation.PlannedRefitTest
+   cleverly.validation.RefutationCheckpoint
+   cleverly.validation.RefutationProgress
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
