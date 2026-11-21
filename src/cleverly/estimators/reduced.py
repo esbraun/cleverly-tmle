@@ -195,7 +195,10 @@ class ReducedSet:
     qr:
         ``(n, K)``, :math:`Q_r(a, W_i)` with columns in :attr:`arms` order.  On the
         ``[0, 1]`` **scaled** outcome, because it is a residual of
-        :class:`~cleverly.fluctuation.iterative.InitialFit`, which is.
+        :class:`~cleverly.fluctuation.iterative.InitialFit`, which is.  A projection's set
+        is ``(n, K, p)``: entry ``[:, k, j]`` is :math:`Q_{r,j}(a_k, W_i)`, the regression
+        of :math:`\varphi_j(V)\{Y - \hat{\bar Q}(a, W)\}` (:func:`fit_reduced`'s
+        ``basis``).
     gr1:
         ``(n, K)``, :math:`g_{r,1}(a | W_i)`.  A probability, and the only array here
         with a denominator role -- stored **untruncated** and bounded at read time by
@@ -207,6 +210,8 @@ class ReducedSet:
         it into ``[0, 1]`` would floor every negative value at zero and return a perfectly
         plausible array.  This regression exists only for ``reduction="univariate"``;
         the bivariate construction stores ``NaN`` here so accidental use fails loudly.
+        ``(n, K, p)`` on a projection's set, like :attr:`qr`: the regression of
+        :math:`\varphi_j(V)\{1_a - \hat g(a|W)\}/\hat g(a|W)`.
     arms:
         The arm codes every column above is keyed by, in column order.  The same tuple
         :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.arms` reports.
@@ -234,11 +239,18 @@ class ReducedSet:
             name: np.asarray(getattr(self, name), dtype=float).shape
             for name in ("qr", "gr1", "gr2")
         }
+        # A projection's set carries one term axis on the two weighted families (P1 PR 3);
+        # g_{r,1} is unweighted and stays (n, K).
+        terms = shapes["qr"][2:] if len(shapes["qr"]) == 3 else ()
         for name, shape in shapes.items():
-            if len(shape) != 2 or shape[1] != k:
+            expected = (k, *terms) if name != "gr1" else (k,)
+            if len(shape) != 1 + len(expected) or shape[1:] != expected:
                 raise ValueError(
-                    f"{name} must be (n, {k}) for arms {list(self.arms)}; got shape {shape}"
+                    f"{name} must be (n, {', '.join(str(e) for e in expected)}) for arms "
+                    f"{list(self.arms)}; got shape {shape}"
                 )
+        if terms and self.reduction != "univariate":
+            raise ValueError("a projection's reduced set exists for reduction='univariate' only")
         if len({shape[0] for shape in shapes.values()}) != 1:
             raise ValueError(f"the three reduced regressions disagree about n: {shapes}")
         if not np.all(np.isfinite(self.qr)) or not np.all(np.isfinite(self.gr1)):
@@ -252,6 +264,12 @@ class ReducedSet:
     @property
     def n(self) -> int:
         return int(np.asarray(self.qr).shape[0])
+
+    @property
+    def n_terms(self) -> int | None:
+        """The basis terms of a projection's set, or ``None`` for the arm-mean set."""
+        shape = np.asarray(self.qr).shape
+        return int(shape[2]) if len(shape) == 3 else None
 
     def column_for(self, arm: float) -> int:
         """Index of the column holding the regressions for ``arm``."""
@@ -452,6 +470,7 @@ def fit_reduced(
     families: Sequence[ReducedFamily] | None = None,
     companion: CompanionEstimates | None = None,
     n_jobs: int = 1,
+    basis: FloatArray | None = None,
 ) -> tuple[
     ReducedSet,
     dict[str, list[SuperLearnerDiagnostics]],
@@ -501,6 +520,21 @@ def fit_reduced(
         companion primary arrays imply -- which is the pairing that makes the returned sets
         fold-conditional functions rather than a mixture of folds.  ``None`` on every fit
         that declared no ``evaluation=``, and that path is bit for bit what it was.
+    n_jobs : int
+        Workers for the per-fold fits.
+    basis : ndarray or None
+        ``(n, p)``, the known weights :math:`\varphi(V)` of a conditional contrast's
+        projection, or ``None`` for the arm means.  Given it, :math:`Q_r` and
+        :math:`g_{r,2}` fit one regression per arm and term, on the targets
+        :math:`\varphi_j(V)\{Y - \hat{\bar Q}(a, W)\}` and
+        :math:`\varphi_j(V)\{1_a - \hat g(a|W)\}/\hat g(a|W)`, and
+        :math:`g_{r,1}` stays one regression per arm: the weight multiplies each
+        target and enters no design.  Each :math:`\psi_{j,a} = E[\varphi_j(V)\bar Q(a, W)]`
+        is a known-weight mean of an arm regression, so Benkeser et al. (2017) Theorem 1
+        holds term by term with the weight carried through every display; the mechanism
+        branch's residual is orthogonal to every function of :math:`\bar Q_0`, which is why
+        :math:`g_{r,1}` carries no weight (P1 PR 3 plan, 2.1).  The univariate reduction
+        only, with no companion.
 
     Returns
     -------
@@ -594,6 +628,17 @@ def fit_reduced(
         )
     if len(set(selected)) != len(selected):
         raise ValueError(f"families names a reduced-regression family twice: {list(selected)}")
+    terms: FloatArray | None = None
+    if basis is not None:
+        terms = np.asarray(basis, dtype=float)
+        if terms.ndim != 2 or terms.shape[0] != data.n:
+            raise ValueError(f"basis must be (n, p) with n = {data.n}; got {terms.shape}")
+        if reduction != "univariate":
+            raise ValueError(
+                "a projection's reduced regressions exist for the univariate reduction"
+            )
+        if companion is not None:
+            raise ValueError("a projection's reduced regressions take no evaluation companion")
     partial = set(selected) != set(available)
     base = nuisance.reduced if isinstance(nuisance.reduced, ReducedSet) else None
     if partial and (base is None or base.reduction != reduction):
@@ -745,27 +790,51 @@ def fit_reduced(
                         for there, here in zip(stacked, slab, strict=True)
                     ]
                 )
-            values, at_companion = _reduced_column(
-                learner,
-                design=design,
-                target=target,
-                training=None if training is None else [each[name] for each in training],
-                companion=stacked,
-                fit_mask=fit_mask,
-                data=data,
-                nuisance=nuisance,
-                task=spec.task,
-                clip=spec.clip,
-                n_jobs=n_jobs,
-                diagnostics=diagnostics[name],
-                companion_strata=companion_strata,
+            # A projection weights the targets of Q_r and g_{r,2} by each basis term, and the
+            # foldwise training targets by the same term: phi(V) is data, so every slab
+            # carries the production weight. g_{r,1} stays one unweighted regression.
+            weighted = terms is not None and name != "gr1"
+            term_weights: list[FloatArray | None] = (
+                [terms[:, j] for j in range(terms.shape[1])]
+                if weighted and terms is not None
+                else [None]
             )
-            columns[name].append(values)
-            if at_companion is not None:
-                if companion is not None:
-                    companion_columns[name].append(at_companion[:, :m])
-                if training is not None:
-                    slab_columns[name].append(at_companion[:, m:])
+            term_values: list[FloatArray] = []
+            term_slabs: list[FloatArray] = []
+            for weight in term_weights:
+                values, at_companion = _reduced_column(
+                    learner,
+                    design=design,
+                    target=target if weight is None else target * weight,
+                    training=(
+                        None
+                        if training is None
+                        else [
+                            each[name]
+                            if weight is None
+                            else (each[name][0], each[name][1] * weight)
+                            for each in training
+                        ]
+                    ),
+                    companion=stacked,
+                    fit_mask=fit_mask,
+                    data=data,
+                    nuisance=nuisance,
+                    task=spec.task,
+                    clip=spec.clip,
+                    n_jobs=n_jobs,
+                    diagnostics=diagnostics[name],
+                    companion_strata=companion_strata,
+                )
+                term_values.append(values)
+                if at_companion is not None:
+                    if companion is not None:
+                        companion_columns[name].append(at_companion[:, :m])
+                    if training is not None:
+                        term_slabs.append(at_companion[:, m:])
+            columns[name].append(np.stack(term_values, 1) if weighted else term_values[0])
+            if term_slabs:
+                slab_columns[name].append(np.stack(term_slabs, -1) if weighted else term_slabs[0])
 
     at_folds: tuple[ReducedSet, ...] = ()
     if companion is not None:
@@ -798,7 +867,7 @@ def fit_reduced(
         slabs: list[ReducedSet] = []
         for fold in range(inner.n_folds):
             fresh_slab = {
-                name: np.column_stack([column[fold] for column in slab_columns[name]])
+                name: np.stack([column[fold] for column in slab_columns[name]], axis=1)
                 for name in names
             }
             if partial:
@@ -821,7 +890,8 @@ def fit_reduced(
                 )
         at_slabs = tuple(slabs)
 
-    fresh = {name: np.column_stack(columns[name]) for name in names}
+    # Arms on axis 1: ``(n, K)``, or ``(n, K, p)`` for a projection's weighted families.
+    fresh = {name: np.stack(columns[name], axis=1) for name in names}
     if partial:
         assert base is not None  # validated above; narrows the type for static checking
         evaluated = _replace_families(base, fresh)
