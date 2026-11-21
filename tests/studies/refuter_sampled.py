@@ -128,7 +128,7 @@ STRONG_CONTROL_DELTA = point.CONTROL_DELTA["gaussian"]
 #: The weak defects, each sized for per-trial power near 0.5 at ``m = 2,000``.
 WEAK_STALE_SHARE = 0.025
 WEAK_SE_FACTORS = (0.75, 1.43)
-WEAK_CONTROL_DELTA = 0.20
+WEAK_CONTROL_DELTA = 0.15
 
 #: Members per cluster, and the SD of each cluster effect.
 CLUSTER_SIZE = 5
@@ -291,16 +291,38 @@ def draw_law(cell: Cell, seed: int) -> pd.DataFrame:
 
 
 def confounded_control(frame: pd.DataFrame, delta: float) -> np.ndarray:
-    """``NCU`` at strength ``delta`` instead of the drawn :data:`STRONG_CONTROL_DELTA`.
+    """The confounded control at strength ``delta`` instead of the drawn :data:`STRONG_CONTROL_DELTA`.
 
-    ``NCU - NC`` is ``delta_0 U + e' - e``, so the control at ``delta`` is rebuilt as
-    ``NC + (delta / delta_0) (NCU - NC)``. That scales the noise difference too, which keeps
-    the control's law Gaussian with the same mean shift ``delta U``; the design test sizes the
-    weak level on that law.
+    ``NCU - NC`` is ``delta_0 U + e' - e``, so ``NC + c (NCU - NC)`` with ``c = delta / delta_0``
+    is ``L(W) + delta U + (1 - c) e + c e'``: the shift ``delta U`` with Gaussian noise of
+    variance ``(1 - c)^2 + c^2``. :func:`rebuilt_control_shift` sizes the weak level on that law.
     """
     nc = frame["NC"].to_numpy(dtype=float)
     ncu = frame["NCU"].to_numpy(dtype=float)
     return nc + (delta / STRONG_CONTROL_DELTA) * (ncu - nc)
+
+
+def rebuilt_control_shift(delta: float, n: int, law: Any = None) -> float:
+    """The rebuilt control's adjusted contrast in units of its efficiency SD at ``n``.
+
+    :func:`tests.studies.refuter_calibration_point.control_shift` for the Gaussian law, with the
+    noise variance of :func:`confounded_control` in place of 1.
+    """
+    law = point.quadrature() if law is None else law
+    c = delta / STRONG_CONTROL_DELTA
+    noise = (1.0 - c) ** 2 + c**2
+    nodes = law.posterior[-1]
+    g = law.g
+
+    def moments(arm: int) -> tuple[np.ndarray, np.ndarray]:
+        first = (law.posterior[arm] * nodes).sum(axis=1)
+        second = (law.posterior[arm] * nodes**2).sum(axis=1)
+        return law.index + delta * first, noise + delta**2 * (second - first**2)
+
+    (m1, v1), (m0, v0) = moments(1), moments(0)
+    contrast = law.mean(m1 - m0)
+    efficiency = law.mean(v1 / g + v0 / (1.0 - g)) + law.mean((m1 - m0) ** 2) - contrast**2
+    return contrast / math.sqrt(efficiency / n)
 
 
 # ---- the fits -----------------------------------------------------------------------------

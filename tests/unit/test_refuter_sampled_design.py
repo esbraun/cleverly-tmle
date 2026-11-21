@@ -65,6 +65,11 @@ class TestLaw:
         # Var of a cluster mean of five: 0.25 + 1 / 5 under the declared law.
         assert means.var() == pytest.approx(study.CLUSTER_SD**2 + 1 / study.CLUSTER_SIZE, rel=0.1)
 
+    def test_the_rebuilt_control_at_the_strong_level_is_the_drawn_control(self) -> None:
+        shift = study.rebuilt_control_shift(study.STRONG_CONTROL_DELTA, 2_000, LAW)
+        expected = point.control_shift("gaussian", study.STRONG_CONTROL_DELTA, n=2_000, law=LAW)
+        assert shift == pytest.approx(expected, rel=1e-12)
+
     def test_the_weak_control_is_the_strong_one_scaled(self) -> None:
         frame = point.draw_law("gaussian", 10, seed=6)
         rebuilt = study.confounded_control(frame, study.STRONG_CONTROL_DELTA)
@@ -82,8 +87,7 @@ class TestDefectSizing:
     def test_the_weak_defects_have_power_near_one_half_at_m_2000(self) -> None:
         placebo = point.placebo_shift("gaussian", study.WEAK_STALE_SHARE, n=2_000, law=LAW)
         assert 0.4 <= _placebo_power(placebo) <= 0.6
-        # The rebuilt control's noise is scaled with its U term; its SD grows by at most 1%.
-        control = point.control_shift("gaussian", study.WEAK_CONTROL_DELTA, n=2_000, law=LAW)
+        control = study.rebuilt_control_shift(study.WEAK_CONTROL_DELTA, 2_000, LAW)
         assert 0.4 <= _control_power(control) <= 0.6
         for factor in study.WEAK_SE_FACTORS:
             assert 0.4 <= _subset_power(factor) <= 0.6
