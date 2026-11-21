@@ -226,7 +226,7 @@ instruments and what each one cannot see.
 | --- | --- | --- |
 | `tests/unit/test_clustered_cross_fitted_ltmle.py` | whole-cluster folds, grouped inner folds, a held-out cluster unseen by a site-memorizing learner, the cluster-summed variance of every reported and derived estimate, the size term, the $t$ reference, the band and the bootstrap kind. Each check has a mutation control that fails it | coverage, and clustering of a competing-risk fit beyond the exact variance identity |
 | `tests/unit/test_clustered_longitudinal_laws.py` | the study law keeps the unclustered truths exactly and carries a within-cluster correlation | an informative cluster size, which the law does not carry |
-| the `clustered-cross-fitted-ltmle` and `few-cluster-cross-fitted-ltmle` studies | coverage, SE calibration and an IID control at 100 clusters, paired with R `lmtp`, and the $t$ reference at 20 and 30 clusters | an informative cluster size, a competing-risk fit, and 4 to 19 clusters |
+| the `clustered-cross-fitted-ltmle` and `few-cluster-cross-fitted-ltmle` studies | coverage, SE calibration and an IID control at 100 clusters, paired with R `lmtp`, and the $t$ reference at 20 and 30 clusters | an informative cluster size and a competing-risk fit. `few-cluster-floor-cross-fitted-ltmle` measures always against never at 4 to 19 clusters, and no study measures an arm mean there |
 
 Repeated stacked point-treatment CV-TMLE likewise has a separate registered
 [reporting-policy study](method-evidence/repeated-cross-fitting.md). It reuses the shared CV-TMLE

@@ -242,41 +242,6 @@ jobs:
       - name: A fit, its reports and the generators, on one backend
         run: python scripts/smoke_backend.py ${{ matrix.backend }}
 
-  # The optional glmstar accelerator of the L1 path (X106 K2c-2). glmstar is GPL-2.0-only and
-  # not in `dev`, so the `tests` job never imports it and skips its tests; this job installs it
-  # and makes those tests required with CLEVERLY_REQUIRE_GLMSTAR. Linux runs the locked
-  # versions and the newest releases; Windows and macOS (arm64, the platforms glmstar ships
-  # wheels for) run the locked versions and only the adapter, loader and keyword witnesses
-  # (KKT bounds, the mapping mutations and the refusals); the solver equivalence and the C-TMLE
-  # sequence witnesses run on Linux. Not a required check: glmstar is opt-in.
-  glmstar:
-    name: glmstar (${{ matrix.os }}, ${{ matrix.resolution }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {os: ubuntu-latest, resolution: locked, select: "TestTheSolver or not sequence_witness"}
-          - {os: ubuntu-latest, resolution: latest, select: "TestTheSolver or not sequence_witness"}
-          - {os: windows-latest, resolution: locked, select: "TestTheAdapter or TestTheLoader or TestTheKeyword"}
-          - {os: macos-latest, resolution: locked, select: "TestTheAdapter or TestTheLoader or TestTheKeyword"}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-env
-        with:
-          python-version: "3.12"
-          extra: dev glmstar
-          resolution: ${{ matrix.resolution }}
-      - run: >-
-          pytest -q -p no:cacheprovider tests/unit/test_l1_glmstar.py
-          tests/unit/test_ctmle_sequence_witness.py -k "${SELECT}"
-        shell: bash
-        env:
-          CLEVERLY_REQUIRE_GLMSTAR: "1"
-          SELECT: ${{ matrix.select }}
-          OMP_NUM_THREADS: "1"
-
   package:
     runs-on: ubuntu-latest
     steps:

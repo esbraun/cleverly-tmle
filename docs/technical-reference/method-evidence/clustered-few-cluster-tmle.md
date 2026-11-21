@@ -35,12 +35,12 @@ checks that its household standard error equals `ltmle`'s own to $10^{-10}$.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | `cleverly` | 0.0031 to 0.0242 | 0.9410 | 0.9388 | pass |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | R `ltmle` | 0.0031 to 0.0242 | 0.9400 | 0.9388 | pass |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat at both times | `cleverly` | -0.000256 to 0.0137 | 0.9340 | 0.9537 | pass |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat at both times | R `ltmle` | -0.000256 to 0.0137 | 0.9330 | 0.9537 | pass |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan treat at neither time | `cleverly` | -0.0130 to -0.000978 | 0.9320 | 0.9288 | pass |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan treat at neither time | R `ltmle` | -0.0130 to -0.000978 | 0.9310 | 0.9288 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat" against "do not treat" | `cleverly` | 0.0031 to 0.0242 | 0.9410 | 0.9388 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat" against "do not treat" | R `ltmle` | 0.0031 to 0.0242 | 0.9400 | 0.9388 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat | `cleverly` | -0.000256 to 0.0137 | 0.9340 | 0.9537 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat | R `ltmle` | -0.000256 to 0.0137 | 0.9330 | 0.9537 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan do not treat | `cleverly` | -0.0130 to -0.000978 | 0.9320 | 0.9288 | pass |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan do not treat | R `ltmle` | -0.0130 to -0.000978 | 0.9310 | 0.9288 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
@@ -50,9 +50,9 @@ Comparator-backed: a paired comparison with `ltmle` on the same samples. Each ro
 
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -6.790e-11 | 3.501e-09 | 1.0000 | 0.0010 | matching implementation | 1.276e-10 vs 0.0500 | equivalent |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat at both times | -4.716e-11 | 3.687e-09 | 1.0000 | 0.0010 | matching implementation | 1.021e-10 vs 0.0500 | equivalent |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 2.074e-11 | 1.885e-09 | 1.0000 | 0.0010 | matching implementation | 2.356e-10 vs 0.0500 | equivalent |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat" against "do not treat" | -6.790e-11 | 3.501e-09 | 1.0000 | 0.0010 | matching implementation | 1.276e-10 vs 0.0500 | equivalent |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat | -4.716e-11 | 3.687e-09 | 1.0000 | 0.0010 | matching implementation | 1.021e-10 vs 0.0500 | equivalent |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan do not treat | 2.074e-11 | 1.885e-09 | 1.0000 | 0.0010 | matching implementation | 2.356e-10 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

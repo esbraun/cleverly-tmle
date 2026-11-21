@@ -498,7 +498,7 @@ class TestLeaveTwoOutSuperLearner:
         _fixed_split(monkeypatch, assignment, K_DRTMLE)
         fitted: list[object] = []
         _wrap_cross_fit(monkeypatch, fitted.append)
-        with pytest.raises(ValueError, match=LONE_PAIR):
+        with pytest.raises(DataError, match=LONE_PAIR):
             _super_learner_drtmle().fit(_lone_pair_frame(), outcome="Y", treatment="A")
         assert fitted == []
 
@@ -548,14 +548,18 @@ def _arm_pair_frame(n: int = 160) -> tuple[pd.DataFrame, np.ndarray]:
     return frame, assignment
 
 
-def _mechanism_refusal(monkeypatch: pytest.MonkeyPatch, *, preflight: bool) -> str:
+def _mechanism_error(monkeypatch: pytest.MonkeyPatch, *, preflight: bool) -> ValueError:
     frame, assignment = _arm_pair_frame()
     _fixed_split(monkeypatch, assignment, K_DRTMLE)
     if not preflight:
         monkeypatch.setattr(drtmle_module, "refuse_untrainable_leave_two_out", lambda *a, **k: None)
     with pytest.raises(ValueError) as raised:
         _drtmle().fit(frame, outcome="Y", treatment="A")
-    return str(raised.value)
+    return raised.value
+
+
+def _mechanism_refusal(monkeypatch: pytest.MonkeyPatch, *, preflight: bool) -> str:
+    return str(_mechanism_error(monkeypatch, preflight=preflight))
 
 
 class TestNeverTheMechanism:
@@ -568,6 +572,13 @@ class TestNeverTheMechanism:
             "leave-two-out primary regressions of reduced_crossfit='foldwise' cannot be fitted."
         )
         assert "reduced_crossfit='pooled'" in message
+
+    def test_the_refusal_is_a_data_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A split the data leaves untrainable is a data refusal, which a study records as a
+        lost draw; a bare ``ValueError`` from the package would stop it."""
+        assert isinstance(_mechanism_error(monkeypatch, preflight=True), DataError)
+        # Mutation control: past the preflight the classifier's own error is not one.
+        assert not isinstance(_mechanism_error(monkeypatch, preflight=False), DataError)
 
     def test_past_the_preflight_the_mechanism_fold_still_raises(
         self, monkeypatch: pytest.MonkeyPatch

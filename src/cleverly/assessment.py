@@ -6163,10 +6163,12 @@ class SensitivityFacade(_CapabilityFacade):
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
-    #: ``benchmark`` resolves ``covariates``, ``simulated_confounding`` resolves
-    #: ``estimand``, and ``tipping_gamma`` resolves ``use_ci``.
+    #: ``benchmark`` resolves ``covariates``, ``marginal_bounds`` and
+    #: ``simulated_confounding`` resolve ``estimand``, and ``tipping_gamma`` resolves
+    #: ``use_ci``.
     _request_gates: ClassVar[Mapping[str, str]] = {
         "benchmark": "_benchmark_gated",
+        "marginal_bounds": "_marginal_estimand_gated",
         "simulated_confounding": "_simulated_confounding_gated",
         "tipping_gamma": "_tipping_interval_gated",
     }
@@ -6238,6 +6240,24 @@ class SensitivityFacade(_CapabilityFacade):
             lambda covariates: benchmark_refusal(self._result, covariates),
             tuple((name,) for name in _benchmark_covariates(self._result.data)),
         )
+
+    def _marginal_estimand_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``marginal_bounds`` row for a named estimand from the call's predicate.
+
+        The bare row already reads the default estimand (:func:`_marginal_row`). A request
+        that names one reads
+        :func:`~cleverly.sensitivity.marginal.marginal_estimand_refusal` at it, which the call
+        raises from: an estimate whose status withholds the interval, or that carries
+        ``"few_cluster_estimand_plugin"``, reads ``unavailable`` with the call's sentence.
+        """
+        from .sensitivity.marginal import marginal_estimand_refusal
+
+        def declared(estimand: str | None) -> Refusal | None:
+            return None if estimand is None else marginal_estimand_refusal(self._result, estimand)
+
+        return _argument_resolved(capability, "estimand", arguments.get("estimand"), declared, ())
 
     def _simulated_confounding_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]

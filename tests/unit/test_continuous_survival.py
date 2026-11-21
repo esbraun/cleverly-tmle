@@ -921,20 +921,40 @@ def test_a_target_past_one_arms_follow_up_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("jump", "match"), [(0.5, "combined jump of one or more"), (0.45, "survival falls below")]
+    ("jump", "bounded", "match"),
+    [
+        (0.5, True, "survival falls below"),
+        (0.45, False, "survival falls below"),
+        (np.inf, False, "infinite hazard jump"),
+    ],
 )
 def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
-    jump: float, match: str, monkeypatch: pytest.MonkeyPatch
+    jump: float, bounded: bool, match: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Both checks read the fitted hazards of one draw, so they raise DataError, which a study
-    # records as a failed replicate; a CapabilityError would stop the whole run.
+    # records as a failed replicate; a CapabilityError would stop the whole run.  Two causes at
+    # 0.5 each sum to one at every cell: the jump bound scales every cell to 1 - 1e-8, and the
+    # survival then underflows, as it does unbounded at 0.45 each.  An infinite jump has no
+    # share to keep, so it is refused before any survival.
     from cleverly.survival import _chunked
 
+    acted: list[bool] = []
+    bound = _chunked.bound_jumps
+
+    def recording(dlam: np.ndarray) -> np.ndarray | None:
+        scaled = bound(dlam)
+        acted.append(scaled is not None)
+        return scaled
+
     monkeypatch.setattr(_chunked, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
-    with pytest.raises(DataError, match=match):
+    monkeypatch.setattr(_chunked, "bound_jumps", recording)
+    with pytest.raises(DataError, match=match) as caught:
         ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
             _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
         )
+    assert acted and all(value == bounded for value in acted)
+    # An underflow after the bound names the bound and the extrapolation.
+    assert ("The hazard model also put a combined jump" in str(caught.value)) is bounded
 
 
 def test_a_declared_cause_with_no_event_is_refused() -> None:

@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from scipy.stats import beta, binom, norm
 
-from cleverly._inference_status import MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+from cleverly._inference_status import DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
 from tests.studies import clustered_crossfit_ltmle as gated
 from tests.studies import clustered_crossfit_ltmle_properties as gated_properties
 from tests.studies import clustered_few_cluster_tmle as x24_few
@@ -205,7 +205,7 @@ class TestTheFewClusterStudy:
         # The declared probe dropped both 10-cluster cells.
         assert few.CLUSTER_COUNTS == (20, 30)
         # The package floor of a clustered LTMLE is the smallest measured count.
-        assert min(few.CLUSTER_COUNTS) == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        assert min(few.CLUSTER_COUNTS) == DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
 
     def test_the_grid_is_every_cell_the_probe_found_without_failure(self) -> None:
         assert few.FAILURE_PROBE == FAILURE_PROBE

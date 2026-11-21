@@ -1288,7 +1288,7 @@ class _Replicates:
 
 def _from_summary(name: str, estimate: Any) -> _Replicates:
     """The fit's own bootstrap summary, under the names its printed summary uses."""
-    from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
+    from .._inference_status import DEFAULT_POINT_INTERVAL_CLUSTERS
     from .._summary._estimates import plain_support_reason
     from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
     from ..inference.influence import (
@@ -1304,7 +1304,7 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     found: list[str] = []
     if bootstrap_is_diagnostic(estimate):
         reason = bootstrap_diagnostic_reason(estimate)
-        floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
+        floor = summary.cluster_floor or DEFAULT_POINT_INTERVAL_CLUSTERS
         found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
         spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"
     else:
@@ -1951,6 +1951,12 @@ def influence(
             "This estimate's recursion read a node with no event (or only events), whose term "
             "the influence curve leaves out; the reported variance adds a bound on that term, "
             "so this curve is not the reported variance."
+        )
+    if getattr(estimate, "jackknife", None) is not None:
+        found.append(
+            "This fit reports the delete-one-cluster jackknife variance "
+            "(cluster_variance='jackknife'), which refits every model once per cluster, so "
+            "this curve is not the reported variance."
         )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")

@@ -30,7 +30,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import (
-    MINIMUM_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     STATUS_RECORDS,
     supplies_inference,
 )
@@ -349,7 +349,7 @@ def stamp_headline_only(monkeypatch: pytest.MonkeyPatch) -> None:
 def at_or_below(cluster: Any, **settings: Any) -> str:
     """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
     status = cluster_inference_status(cluster, **settings)
-    floor = settings.get("minimum") or MINIMUM_INTERVAL_CLUSTERS
+    floor = settings.get("minimum") or DEFAULT_POINT_INTERVAL_CLUSTERS
     at_threshold = np.unique(cluster).size == floor
     return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
 

@@ -175,9 +175,13 @@ Report the parameter definition, population, identification assumptions, learner
 configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
 version or commit. This page's fit is weighted and clustered by household, every fold keeps a
 household whole, and the households differ in size. The rule below counts households with
-positive weight, and this page's 40 keep the normal reference. From 3 to 39 households the interval uses a
-Student t reference. From 3 to 9 households the fit still reports the interval, labelled
-experimental, and `result.inference_status` is `"few_cluster_plugin"`. Below 3 households it
+positive weight, and this page's 40 keep the normal reference.
+
+From 3 to 39 households the interval uses a Student t reference. Below a floor, 10 households
+for this page's cross-fitted fit, the fit still reports the interval, labelled experimental, and
+`result.inference_status` is `"few_cluster_plugin"`. A few fits have a lower floor for the average
+treatment effect only (for longitudinal TMLE, the difference between always treating and never
+treating), and [few clusters](technical-reference/inference.md#few-clusters) lists them. Below 3 households it
 withholds the interval: report the point estimate and the reason the status gives in its place
 ([few clusters](technical-reference/inference.md#few-clusters)).
 

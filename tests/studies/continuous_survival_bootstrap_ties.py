@@ -9,6 +9,11 @@ are written in ``tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.m
 Each fit is stopped right after the engine's checks of the initial hazards (the walk never runs),
 so a screened fit costs its nuisance fits only.  ``python -m
 tests.studies.continuous_survival_bootstrap_ties --jobs N`` prints every reading.
+
+The engine now bounds such a jump instead of refusing it (the owner's decision of 2026-11-20),
+so the readings read the jumps before the bound (``InitialHazards.raw_jumps``), and a refit
+whose jump reached one fits.  ``--whole`` refits the named draws with their whole bootstraps and
+prints how many refits failed and in how many the bound acted.
 """
 
 from __future__ import annotations
@@ -48,12 +53,13 @@ def _instrumented(*, stop_main: bool) -> Iterator[dict[str, Any]]:
     ``stop_main`` stops every fit after its checks; otherwise only bootstrap replicates stop,
     so the fit itself runs whole and spawns its replicates.
     """
-    original_jumps = _chunked.InitialHazards.jumps
+    original_jumps = _chunked.InitialHazards.raw_jumps
     original_select = engine_module.select_hazard
     original_walk = engine_module.walk_grid
     original_replicate = engine_module._replicate
 
     def jumps(self: Any, lo: int, hi: int) -> np.ndarray:
+        # The jumps as the models give them, before the engine's jump bound scales them.
         out = original_jumps(self, lo, hi)
         total = out.sum(axis=1)  # (2, units, M): every cause at each arm, unit and time
         fit = _STATE["fit"]
@@ -83,19 +89,20 @@ def _instrumented(*, stop_main: bool) -> Iterator[dict[str, Any]]:
         _STATE["in_replicate"] = True
         _STATE["fit"] = _new_fit()
         try:
-            values, reason = original_replicate(estimator, data, index, seed)
+            values, reason, bounded = original_replicate(estimator, data, index, seed)
         finally:
             _STATE["in_replicate"] = False
         record = _STATE["fit"]
         record["reason"] = reason
+        record["bounded"] = bounded
         offending = record.get("offending")
         if offending is not None:
             record["reading"] = _reading(engine_module.resample(data, index), index, record)
         record.pop("offending", None)
         _STATE["replicates"].append(record)
-        return values, reason
+        return values, reason, bounded
 
-    _chunked.InitialHazards.jumps = jumps  # type: ignore[method-assign]
+    _chunked.InitialHazards.raw_jumps = jumps  # type: ignore[method-assign]
     engine_module.select_hazard = select
     engine_module.walk_grid = walk
     engine_module._replicate = replicate
@@ -103,7 +110,7 @@ def _instrumented(*, stop_main: bool) -> Iterator[dict[str, Any]]:
     try:
         yield _STATE
     finally:
-        _chunked.InitialHazards.jumps = original_jumps  # type: ignore[method-assign]
+        _chunked.InitialHazards.raw_jumps = original_jumps  # type: ignore[method-assign]
         engine_module.select_hazard = original_select
         engine_module.walk_grid = original_walk
         engine_module._replicate = original_replicate
@@ -183,11 +190,31 @@ def bootstrap_readings(replicate: int, n_bootstrap: int = study.PILOT_BOOTSTRAP)
     return {
         "draw": replicate,
         "max_jumps": [r["max_jump"] for r in records],
+        "bounded": sum(bool(r.get("bounded")) for r in records),
         "failures": [
             {"replicate": b, "reason": r["reason"], **r.get("reading", {})}
             for b, r in enumerate(records)
             if r["reason"] is not None and not r["reason"].startswith("_Stop")
         ],
+    }
+
+
+def whole_bootstrap(replicate: int, n_bootstrap: int = study.PILOT_BOOTSTRAP) -> dict[str, Any]:
+    """Refit one pilot in-sample draw and its whole bootstrap, with no instrumentation: how many
+    refits failed and in how many the engine's jump bound acted."""
+    seed = pilot.pilot_seed("in_sample", replicate)
+    frame = registered.sample(study.PRIMARY_N, seed)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = registered.fit_with(
+            frame, study.engine(cross_fit=False, n_bootstrap=n_bootstrap, seed=seed)
+        )
+    return {
+        "draw": replicate,
+        "status": result.bootstrap_status,
+        "failed": int(result.bootstrap.n_failed),
+        "jump_bounded": int(result.bootstrap_jump_bounded),
+        "failures": list(result.bootstrap_failures),
     }
 
 
@@ -227,13 +254,23 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--draws", type=int, default=400)
     parser.add_argument("--bootstrap", type=int, nargs="*", default=list(WITHHELD_DRAWS))
+    parser.add_argument(
+        "--whole",
+        action="store_true",
+        help="refit the --bootstrap draws and their whole bootstraps, and print only that",
+    )
     args = parser.parse_args(argv)
     pd.set_option("display.width", 200)
+    if args.whole:
+        for whole in map(whole_bootstrap, args.bootstrap):
+            print(whole)
+        return
     readings = map_parallel(bootstrap_readings, list(args.bootstrap), n_jobs=args.jobs)
     for reading in readings:
         jumps = np.asarray(reading["max_jumps"])
         print(
-            f"draw {reading['draw']}: {len(reading['failures'])} of {jumps.size} refits failed; "
+            f"draw {reading['draw']}: {len(reading['failures'])} of {jumps.size} refits failed, "
+            f"the jump bound acted in {reading['bounded']}; "
             f"largest combined jump quantiles 50/90/99/max "
             f"{np.round(np.quantile(jumps, [0.5, 0.9, 0.99, 1.0]), 3).tolist()}"
         )

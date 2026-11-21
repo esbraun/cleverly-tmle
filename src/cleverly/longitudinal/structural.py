@@ -41,7 +41,7 @@ from scipy import stats
 from .._assessment_cache import AssessmentCache
 from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     InferenceStatus,
     precedent_status,
     status_record,
@@ -2182,7 +2182,7 @@ def _status(data: LongitudinalData, folds: Folds, *, parametric: bool) -> Infere
     cluster = cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
-        minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+        minimum=DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     )
     adaptive = (
         "influence_curve" if (not folds.is_single or parametric) else ADAPTIVE_BASELINE_STATUS
