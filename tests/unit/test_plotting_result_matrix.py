@@ -454,6 +454,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "projection_intermediate": sweep.fit_projection_intermediate,
     "projection_intermediate_log_ratio": sweep.fit_projection_intermediate_crr,
     "ep_curve_log_ratio_learner": _ep_curve_log_ratio_learner,
+    # P1 PR 3: the per-arm outcome-adaptive C-TMLE projection, points only.
+    "projection_ctmle_oat": sweep.fit_projection_ctmle_oat,
     # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
     # plot answers as it does on an estimated-mechanism fit of the same kind.
     "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
@@ -916,6 +918,20 @@ EXPECTED: dict[str, dict[str, str]] = {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    # The interval is withheld (generated_design_plugin): forest and curve draw the points,
+    # and influence names the withheld interval.
+    "projection_ctmle_oat": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "ValueError: cate_projection[(intercept)]: this estimate's interval is",
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: the fit reports no estimand",

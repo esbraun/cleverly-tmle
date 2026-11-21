@@ -651,7 +651,11 @@ class CurveDiagnostics(DiagnosticsFacade):
 
     def _pieces(self) -> tuple[Any, Any, Any, tuple[FloatArray, ...]]:
         from .effect_curves import _pseudo_outcomes
+        from .effect_modification import CTMLE_CURVE_TOOLS_REFUSAL
 
+        if getattr(self.curve, "fitted_method", None) == "collaborative_tmle":
+            # The row's fit-wide rule reads the same predicate (P1 PR 3).
+            raise CapabilityError(refusal=CTMLE_CURVE_TOOLS_REFUSAL)
         fit = self._fit()
         data = fit.data
         spec = fit.nuisance.effect_modification

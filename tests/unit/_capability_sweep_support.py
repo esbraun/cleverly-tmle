@@ -455,6 +455,39 @@ def fit_projection_intermediate_crr() -> Any:
     return _projection_intermediate("log_ratio")
 
 
+def _projection_ctmle_oat(scale: str) -> Any:
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return (
+        CTMLE(
+            strategy="oat",
+            oat_design="per_arm",
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+            effect_modification=_projection(scale),
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_ctmle_oat() -> Any:
+    """The per-arm outcome-adaptive C-TMLE projection, points only (P1 PR 3)."""
+    return _projection_ctmle_oat("difference")
+
+
+def fit_projection_ctmle_oat_crr() -> Any:
+    """The per-arm outcome-adaptive C-TMLE log-ratio projection, points only (P1 PR 3)."""
+    return _projection_ctmle_oat("log_ratio")
+
+
+def fit_curve_projection_ctmle_oat() -> Any:
+    """The curve of :func:`fit_projection_ctmle_oat`: the five held-out rows refuse."""
+    return fit_projection_ctmle_oat().effect_curve()
+
+
 def fit_projection_bootstrap() -> Any:
     """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
     return (
@@ -2630,6 +2663,11 @@ KINDS: dict[str, Kind] = {
     # which tests/unit/test_projection_composition_operations.py pins.
     "projection+intermediate": _kind(fit_projection_intermediate, *_READ, *_POINT, *_PLUGIN_BOUND),
     "projection+intermediate+log_ratio": _kind(fit_projection_intermediate_crr, *_READ, *_POINT),
+    # The per-arm outcome-adaptive C-TMLE projection (P1 PR 3) reports points only: refute and
+    # the truncation curve run, and the omitted-variable rows keep the bound's premise
+    # refusal of a selecting C-TMLE fit.
+    "projection+ctmle_oat": _kind(fit_projection_ctmle_oat, *_READ, *_POINT),
+    "projection+ctmle_oat+log_ratio": _kind(fit_projection_ctmle_oat_crr, *_READ, *_POINT),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),
@@ -2886,6 +2924,14 @@ KINDS: dict[str, Kind] = {
         "calibration",
         "risk_comparison",
         "targeting_curve",
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # A per-arm C-TMLE projection's curve (P1 PR 3): the rows that read the producing fit
+    # answer, and the five held-out rows refuse with CTMLE_CURVE_TOOLS_REFUSAL.
+    "curve_projection+ctmle_oat": _kind(
+        fit_curve_projection_ctmle_oat,
+        *_READ,
+        "truncation_curve",
         arguments=_CURVE_ARGUMENTS,
     ),
     # No producing fit: the replay gate refuses every row.
@@ -3444,8 +3490,15 @@ MUTATIONS: dict[str, Mutation] = {
     "M-curve-rules": Mutation(
         "the curve rows skip the fit-wide rules, which the calls still apply",
         lambda patch: patch.setattr(assessment, "_curve_fit_wide_rules", _rules_unapplied),
-        frozenset({"curve_ep", "curve_projection_one_modifier", "curve_projection_repeated"}),
-        r"(modifier_stability|stability|targeting_curve) declined: ",
+        frozenset(
+            {
+                "curve_ep",
+                "curve_projection_one_modifier",
+                "curve_projection_repeated",
+                "curve_projection+ctmle_oat",
+            }
+        ),
+        r"(calibration|risk_comparison|modifier_stability|stability|targeting_curve) declined: ",
     ),
     "M-vi-compose": Mutation(
         "the variable-importance rows read only the first candidate's row",

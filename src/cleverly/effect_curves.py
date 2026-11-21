@@ -675,7 +675,7 @@ class EffectCurveResult:
         The producing fit, which the curve's assessment reads and refits: a
         :class:`~cleverly.estimators.TMLEResult`, or an
         :class:`~cleverly.estimators.ep.EPFit`.
-    fitted_method : {"tmle", "ep"}
+    fitted_method : {"tmle", "collaborative_tmle", "ep"}
         The method that produced the curve.
     sieve : SieveRecord or None
         How an EP fit set its sieve size, and what its cross-validation read; ``None`` for a
@@ -727,7 +727,9 @@ class EffectCurveResult:
         so a curve that keeps neither refuses them through its replay gate.
         ``diagnostics.capabilities`` lists the rows.  A controlled direct effect projection
         refuses before any refit (``CDE_CURVE_TOOLS_REFUSAL``): the held-out checks build the
-        total effect's pseudo-outcome.
+        total effect's pseudo-outcome.  On a curve of a per-arm C-TMLE projection the five
+        held-out rows refuse (``CTMLE_CURVE_TOOLS_REFUSAL``), because its estimate reads the
+        outcome-adaptive design; the rows that read the producing fit still answer.
         """
         from ._curve_assessment import CurveDiagnostics
         from .effect_modification import refuse_cde_curve_tools

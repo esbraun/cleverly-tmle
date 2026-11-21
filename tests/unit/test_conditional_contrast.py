@@ -24,10 +24,10 @@ from sklearn.pipeline import Pipeline
 
 import cleverly
 from cleverly import ATE, CausalStudy, ConditionalContrast, PointTreatment, sensitivity
+from cleverly.assessment import EVALUE_PROJECTION_REFUSAL, PROJECTION_R9_SENSITIVITY
 from cleverly.bases import Constant, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.effect_curves import EffectCurveResult
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
-from cleverly.validation import refute
 from tests import discrete_law as law
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
@@ -88,11 +88,15 @@ class TestTheStudyFit:
         assert linear_contrast("log_ratio").name == "log_crr"
         assert "projection" in linear_contrast().definition
 
-    def test_tmle_and_ep_are_available(self) -> None:
+    def test_tmle_ep_and_the_per_arm_ctmle_are_available(self) -> None:
         methods = {m.name: m for m in law_study().identify(linear_contrast()).available_methods()}
         assert methods["tmle"].available
         assert methods["ep"].available
-        assert not any(m.available for name, m in methods.items() if name not in ("tmle", "ep"))
+        # The per-arm outcome-adaptive C-TMLE, points only (P1 PR 3,
+        # tests/unit/test_ctmle_projection.py).
+        assert methods["collaborative_tmle"].available
+        admitted = ("tmle", "ep", "collaborative_tmle")
+        assert not any(m.available for name, m in methods.items() if name not in admitted)
 
     def test_other_estimands_read_the_ep_record(self) -> None:
         methods = {m.name: m for m in law_study().identify(ATE()).available_methods()}
@@ -161,17 +165,18 @@ class TestRefusalsBeforeAnyLearner:
         with pytest.raises(DataError, match=r"inside baseline stratum W=0\.0: the working model"):
             law_study(strata=("W",)).identify(linear_contrast())
 
-    def test_r9_sensitivity_and_refutation_refuse_on_the_projection(
+    def test_r9_rows_without_a_projection_derivation_refuse_and_the_bound_rows_ask_for_a_term(
         self, projection_fit: Any
     ) -> None:
-        rows = projection_fit.sensitivity.capabilities
-        assert rows and not any(row.available for row in rows)
-        for row in rows:
-            assert row.refusal.condition.startswith(f"{row.operation} is defined for a mean")
-            assert row.refusal.alternative == "Run it on ATE() or RiskRatio() on the same study."
-        refute = projection_fit.diagnostics.capability("refute")
-        assert not refute.available and refute.refusal.roadmap == "P1"
-        with pytest.raises(CapabilityError, match="working-model coefficient"):
+        """The four R9 rows keep the mean-only refusal; the bound rows need one named term."""
+        rows = {row.operation: row for row in projection_fit.sensitivity.capabilities}
+        for name in PROJECTION_R9_SENSITIVITY:
+            assert not rows[name].available
+            assert rows[name].refusal.condition.startswith(f"{name} is defined for a mean")
+            assert rows[name].refusal.roadmap == "P1"
+        for name in ("omitted_confounding", "robustness_value", "elements", "benchmark"):
+            assert "choose an explicit estimand" in rows[name].refusal.condition
+        with pytest.raises(CapabilityError, match="other than the constant term"):
             projection_fit.sensitivity.evalue()
 
     def test_r9_the_evalue_row_a_request_resolves_is_the_declared_row(
@@ -181,7 +186,7 @@ class TestRefusalsBeforeAnyLearner:
         facade = projection_fit.sensitivity
         resolved = facade._capability_for_arguments("evalue", {})
         assert resolved.refusal == facade.capability("evalue").refusal
-        assert resolved.refusal.roadmap == "P1"
+        assert resolved.refusal == EVALUE_PROJECTION_REFUSAL
 
     def test_r9_an_evalue_naming_the_estimand_raises_the_declared_row(
         self, projection_fit: Any
@@ -190,31 +195,51 @@ class TestRefusalsBeforeAnyLearner:
         name = next(iter(projection_fit.estimates))
         with pytest.raises(CapabilityError) as caught:
             projection_fit.sensitivity.evalue(estimand=name)
-        assert caught.value.refusal.roadmap == "P1"
+        assert caught.value.refusal.condition.endswith(EVALUE_PROJECTION_REFUSAL.condition)
 
 
-#: Every free sensitivity or refutation function, called the way a user would on a fit.
-FREE_FUNCTIONS = {
-    "omitted_variable_bounds": lambda fit: sensitivity.omitted_variable_bounds(fit),
-    "robustness_value": lambda fit: sensitivity.robustness_value(fit),
-    "sensitivity_elements": lambda fit: sensitivity.sensitivity_elements(fit),
-    "contour_data": lambda fit: sensitivity.contour_data(fit),
-    "benchmark": lambda fit: sensitivity.benchmark(fit, ["W"]),
-    "simulated_confounding": lambda fit: sensitivity.simulated_confounding(
-        fit,
-        grid=sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
-        random_state=0,
-    ),
-    "refute": lambda fit: refute(fit, random_state=0),
+#: The slope of the fixture's basis, the coefficient a user names to bound.
+SLOPE = "cate_projection[W]"
+
+#: Every free omitted-variable function, called on one named coefficient.
+NAMED_BOUND_FUNCTIONS = {
+    "omitted_variable_bounds": lambda fit: sensitivity.omitted_variable_bounds(fit, estimand=SLOPE),
+    "robustness_value": lambda fit: sensitivity.robustness_value(fit, estimand=SLOPE),
+    "sensitivity_elements": lambda fit: sensitivity.sensitivity_elements(fit, estimand=SLOPE),
+    "contour_data": lambda fit: sensitivity.contour_data(fit, estimand=SLOPE),
 }
 
 
-@pytest.mark.parametrize("name", sorted(FREE_FUNCTIONS))
-def test_r9_each_free_function_refuses_the_projection(projection_fit: Any, name: str) -> None:
+@pytest.mark.parametrize("name", sorted(NAMED_BOUND_FUNCTIONS))
+def test_each_free_bound_function_reads_a_named_projection_coefficient(
+    projection_fit: Any, name: str
+) -> None:
     """Each one read an axis-keyed map that omitted the axis and raised ``KeyError``."""
+    assert NAMED_BOUND_FUNCTIONS[name](projection_fit) is not None
+
+
+@pytest.mark.parametrize("name", sorted(NAMED_BOUND_FUNCTIONS))
+def test_each_free_bound_function_without_a_term_names_the_coefficients(
+    projection_fit: Any, name: str
+) -> None:
+    function = getattr(sensitivity, name)
+    with pytest.raises(CapabilityError, match=r"cate_projection\[W\]"):
+        function(projection_fit)
+
+
+def test_simulated_confounding_refuses_the_projection(projection_fit: Any) -> None:
     with pytest.raises(CapabilityError, match="working-model coefficient") as caught:
-        FREE_FUNCTIONS[name](projection_fit)
+        sensitivity.simulated_confounding(
+            projection_fit,
+            grid=sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
+            random_state=0,
+        )
     assert caught.value.refusal.roadmap == "P1"
+
+
+def test_benchmark_refuses_a_covariate_the_basis_reads(projection_fit: Any) -> None:
+    with pytest.raises(CapabilityError, match="declared basis of the modifiers reads them"):
+        sensitivity.benchmark(projection_fit, ["W"], estimand=SLOPE)
 
 
 class TestTheHeterogeneityTest:

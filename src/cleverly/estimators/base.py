@@ -1774,6 +1774,7 @@ class TMLEResult:
             identified_effect=self.identified_effect,
             provenance=self.provenance,
             fit=self,
+            fitted_method=self.fitted_method,
         )
         register = getattr(self.identified_effect, "_register_curve", None)
         if register is not None:

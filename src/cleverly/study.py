@@ -6207,7 +6207,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ``tmle`` needs a fixed basis: with ``model=None`` the target is not pathwise
         differentiable (R2), and a sieve sized by cross-validation makes it data-adaptive
         (R4).  ``ep`` fits the curve, with or without a model, but not a model whose size
-        cross-validation chooses.  Every other method has no projection target.
+        cross-validation chooses.  ``collaborative_tmle`` fits the same fixed basis by the
+        per-arm outcome-adaptive design, as a point estimate (P1 PR 3).  Every other method
+        has no projection target.
         """
         estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
@@ -6231,6 +6233,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
                     ep_refusal = EP_CV_MODEL_REFUSAL
                 out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
+            elif record.name == "collaborative_tmle" and tmle_refusal is None:
+                out.append(self._collaborative_projection_record())
             else:
                 out.append(
                     MethodAvailability(
@@ -6245,6 +6249,27 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     )
                 )
         return tuple(out)
+
+    def _collaborative_projection_record(self) -> MethodAvailability:
+        """The per-arm outcome-adaptive C-TMLE of a projection, points only (P1 PR 3).
+
+        The record reads the data: R-ct-data on strata or a missing outcome or treatment,
+        and the shipped refusal of a declared mechanism, which leaves the design nothing to
+        adapt. The strategy is an option of the method, so the fit raises R-ct-strategy
+        before any learner for every strategy but ``strategy="oat"`` with
+        ``oat_design="per_arm"``.
+        """
+        from .estimators.ctmle import PROJECTION_DATA_REFUSAL
+
+        data = None if self._study is None else self._study.data
+        design = getattr(self._study, "design", None)
+        if getattr(design, "treatment_probabilities", None) is not None:
+            return MethodAvailability("collaborative_tmle", False, KNOWN_CTMLE_REFUSAL)
+        if isinstance(data, CausalData) and (
+            data.has_strata or data.has_missing_outcome or data.has_missing_treatment
+        ):
+            return MethodAvailability("collaborative_tmle", False, PROJECTION_DATA_REFUSAL)
+        return MethodAvailability("collaborative_tmle", True, None)
 
     def _estimated_declaration(self) -> bool:
         """Whether the study's declared mechanism is read in the sample beside weights.

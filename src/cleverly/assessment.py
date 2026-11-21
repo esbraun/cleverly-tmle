@@ -345,7 +345,8 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
-    "effect_modification": ("tmle", "ep"),
+    # The per-arm outcome-adaptive C-TMLE fits a projection as a point estimate (P1 PR 3).
+    "effect_modification": ("tmle", "collaborative_tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
     "dose_response": ("tmle",),
     # Every candidate of a variable-importance run is a point fit by one shared estimator,
@@ -1147,6 +1148,9 @@ def _curve_fit_wide_rules(
         "stability": stability_refusal,
         "targeting_curve": targeting_curve_refusal,
     }
+    from .effect_modification import CTMLE_CURVE_TOOLS_REFUSAL
+
+    collaborative = getattr(result, "fitted_method", None) == "collaborative_tmle"
     resolved = []
     for row in rows:
         if row.operation == "truncation_curve" and not _is_ep_curve(result):
@@ -1155,6 +1159,10 @@ def _curve_fit_wide_rules(
             continue
         rule = rules.get(row.operation)
         refusal = None if rule is None or not row.available else rule(result)
+        if collaborative and row.available and row.operation in CURVE_OPERATIONS:
+            # The held-out rows rebuild the TMLE pseudo-outcome, which a per-arm C-TMLE
+            # projection's estimate does not solve (P1 PR 3).
+            refusal = CTMLE_CURVE_TOOLS_REFUSAL
         resolved.append(
             row
             if refusal is None
