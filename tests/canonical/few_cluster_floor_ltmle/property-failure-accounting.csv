@@ -1,0 +1,9 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__iid_t_control,control,4000,1,0.00025,0.05,1000,failure bound,5.0,1000.0,,True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__iid_t_control,control,4000,1,0.00025,0.05,1000,paired iid/cluster se ratio under its ceiling,0.08529895325582493,0.08465764996878844,"range: lost control SE at max, lost positive SE at min",True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__iid_t_control,control,4000,1,0.00025,0.05,1000,paired positive se ratio at most the sanity ceiling,0.2834588761441542,0.2822547641319012,"range: SE at max, estimates at mean",True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__iid_t_control,control,4000,1,0.00025,0.05,1000,informative-failure witness,4.1885819360434775,0.9049762440610153,replicate 2174: largest absolute standardized value,True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__t_reference,positive,4000,1,0.00025,0.05,200,failure bound,1.0,200.0,,True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__t_reference,positive,4000,1,0.00025,0.05,200,coverage floor,0.017874719018339147,0.0176284809490459,support: j=0 covered,True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__t_reference,positive,4000,1,0.00025,0.05,200,bias equivalent,0.03023009330773849,0.030104357253468272,range: j=1 at min,True,True,within bound
+few_cluster_reference,ltmle_cross_fitted__unequal40__j6__t_reference,positive,4000,1,0.00025,0.05,200,informative-failure witness,4.1885819360434775,0.9049762440610153,replicate 2174: largest absolute standardized value,True,True,within bound

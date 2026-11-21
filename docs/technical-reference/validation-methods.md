@@ -792,7 +792,9 @@ resolves the deferral for each request, so a supplied `estimand` makes the row a
 `ASSESSMENT_CAPABILITIES` in
 [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py)
 declares, for each operation and each result family, the answer, the required artifacts, the cost,
-and the execution class. The two costly classes are disjoint and are named separately.
+and the execution class. The two costly classes are disjoint and are named separately. A
+variable-importance run declares no rows of its own: its facades compose each candidate's rows,
+as [variable importance](#variable-importance) states.
 
 A **refit**
 operation fits new nuisance models. A **retarget** operation re-solves the fluctuation against
@@ -3029,7 +3031,11 @@ exactly 0. A support with constant bounds keeps the plain permutation, bit for b
 The placebo dose depends on the covariates through the band, so the reading adds one sentence. A
 rejection can also show a treatment model that cannot follow the band. `refute()` draws every
 placebo data set first and runs the refit's own declaration checks on each. A draw that a check
-refuses stops the call before any refit, with the check's reason code.
+refuses stops the call before any refit, with the check's reason code. Each checked data set is
+then dropped and drawn again, identically, from the recorded generator state at its refit, so
+the test holds one data set at a time. A declared support must therefore be a function of the
+frame it reads: a bound that kept state between calls would give the refit a different placebo
+data set from the one the checks passed.
 
 The support check also runs with every row at the smallest and the largest pooled position. On a panel with up to four banded
 nodes, it runs at each combination of the two extremes across the nodes. A tuned regimen gets the
@@ -3079,6 +3085,91 @@ no truth changes. The plasmode refuses weights, because rows drawn from the unwe
 empirical law that keep their weights describe a mixed law. It also refuses a fit with two of the
 three observation processes, because each frozen model reads `(W, A)` only.
 `tests/unit/test_plasmode_refutation.py` holds the witness and a mutation that keeps `W` fixed.
+
+#### Counting the refits before they run
+
+`cleverly.validation.planned_refits(result, **refute_keywords)` and
+`result.diagnostics.planned_refits(**refute_keywords)` return a `PlannedRefits` record: for each
+requested test, its draws, its refits, and the learner fits and base-estimator fits those refits
+make. The call takes exactly `refute()`'s keywords and runs the same preflight function
+(`_refute_preflight`), so a request that `refute()` refuses before its first refit raises the same
+record. It fits no learner and caches nothing. Each refit is counted by the estimator's own refit
+preview, the one `refit_plan` uses
+([`validation/_planned_refits.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_planned_refits.py)).
+
+| test | refits | count |
+| --- | --- | --- |
+| `random_common_cause` | `R`, plus `R` at child seeds with `seed_spread=True` | as exact as the estimator's own refit preview (`refit_plan`) where the fit's seed is known; the noise column changes no fold |
+| `negative_control_outcome`, `future_treatment` | 1 | as above, plus the two least-squares fits of the control's residual check where it runs |
+| `placebo`, `subset`, `bootstrap_stability`, `bootstrap_measurement_error` | `R` | upper bound: each draw is counted at the learners' nominal folds, with no fold of a binary target fitted as a constant |
+| `dummy_outcome`, `simulated_outcome`, `plasmode` | `R` | upper bound, as above; a plasmode adds the models of its frozen law |
+
+An upper row also carries `min_fits`, the fewest fits the test makes when no draw fails. A
+continuous-time survival fit is counted on the estimator its refits use, which drops the fit's
+bootstrap. A draw that a check refuses part way through, such as a subset that loses an arm or a
+band-rank placebo draw on a fit whose seed is drawn at the call, can still stop `refute()` after a
+preview that accepted the request. The check that a pre-treatment control is not nearly a function
+of the adjustment set fits two least-squares regressions in the shared preflight, so the preview
+makes those two fits too and counts them as the test's preparation. A seeded fit of an engine
+whose own preview is an upper bound, such as a DR-TMLE or an LTMLE fit, gives upper rows
+throughout. `tests/unit/test_planned_refits.py` runs each test
+on each adapter and checks the realized fits against the record.
+
+#### Checkpoints and progress
+
+`refute(..., checkpoint=RefutationCheckpoint(directory), progress=callback)` stores each finished
+draw of `dummy_outcome`, `simulated_outcome`, `plasmode`, `bootstrap_stability` and
+`bootstrap_measurement_error` as one JSON file, written under a temporary name and renamed with
+`os.replace`, so an interrupted write never leaves a partial file under the draw's name. These
+five tests run each draw from its own seed (the generated tests from
+`_generated_child_seeds(root, test, R)`, the bootstrap tests from the spawned sequence of
+`_bootstrap_design`), and never from the call's shared generator. A draw's record is therefore a
+function of the fit, the request, the library versions and its seed, so a resume that loads the
+stored draws and refits the missing ones in order returns the uninterrupted report bit for bit.
+The placebo, noise and subset tests draw from the shared generator and are not stored.
+
+The directory's `request.json` records, on first use:
+
+| part | what is recorded |
+| --- | --- |
+| estimator | class and, for each constructor parameter, the attribute of that name, keyed by content: a learner by class and `get_params(deep=True)`, a dataclass by its fields, a function by module and qualname |
+| data | the provenance data fingerprint, plus the weights and cluster ids by content |
+| seeds | the resolved root seed and the fit's repeat seeds (a structural fit's fit seeds) |
+| estimates | every estimate and plug-in standard error, as `float.hex` |
+| request | the estimand |
+| per test | draw count; process and bands (generated tests); resolved resampling, and the declaration and rule (measurement error) |
+| library versions | `cleverly`, NumPy, SciPy and scikit-learn |
+
+A call whose request differs in any part refuses with `INVALID_DECLARATION`, naming the part, and
+so does a stored draw whose seed differs from the one the call derives. No part is keyed by a
+`repr` that holds a memory address: a lambda or local function refuses the checkpoint by name,
+and so does an object whose only description holds an address. A bound method keys by its name
+alone and an object with neither `get_params` nor dataclass fields by its `repr`; the estimates
+part separates fits that differ only there.
+
+The version check does not separate two development
+commits with one `cleverly` version, so give each commit its own directory. A directory that
+holds no draw yet takes a new request, and the request file is not locked, so run one call per
+directory at a time. An unseeded fit draws its root seed at the first call; the directory
+records it, and the refusal of a later call names it as the `random_state=` to pass. Each stored
+draw is the raw record or retained failure, before the ratio filter, so the filter runs on the
+merged draws as it does on an uninterrupted call.
+
+`progress` receives a `RefutationProgress(test, completed, requested, failed, resumed,
+candidate)` in the calling process after each draw's file is in place. It is called outside the
+blocks that retain a refit failure, so an exception it raises stops the call and is never
+recorded as a failed draw. Loading a stored draw marks the call as having fitted learners, so the
+facade keeps the answer as it keeps a refitted one.
+
+The facade's cache keys, `run_all`'s included, leave out `checkpoint` and `progress`, so a
+repeated request returns the cached answer without reading the stored draws. A
+variable-importance run gives each candidate a subdirectory named by a digest of its name.
+`planned_refits(..., checkpoint=...)` reads the directory without writing, refuses as `refute()`
+would, and reports `stored` draws per test, counting only the rest; it ignores `progress`.
+`tests/unit/test_refute_checkpoint.py` holds the witnesses: resume equals uninterrupted for every
+stored test and family, including a stop and resume in fresh processes; stored draws are never
+refit, with a mutation control; each mismatch refuses; and the calls without the keywords equal a
+copy of the loop they replaced.
 
 #### Generated point outcomes
 
@@ -3308,8 +3399,12 @@ fold label of each row recorded, and its data as a `ContinuousSurvivalData`.
 `result.estimator.refit(result.data, random_state=result.estimator.random_state)` reproduces the fit
 bit for bit in one process. Every learner reads that seed: the folds, the lasso members, an unseeded
 user treatment learner or sklearn hazard member (through `seed_unset`), the off-grid draws and the
-band. `refute()` refits the stored estimator on a perturbed copy of the data. No study calibrates
-these readings yet, so every one is descriptive: `passed` is `None`.
+band. `refute()` refits the stored estimator on a perturbed copy of the data. The
+[continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)
+calibrates the placebo `t` and the subset `rho` on a risk difference, and a fit inside its scope
+gets a verdict. The subset rule's measured false-alarm rate there is 0.080 to 0.095, above the
+nominal 0.05, inside the study's declared tolerance of 68 rejections in 600 trials. Every other
+reading is descriptive: `passed` is `None`.
 
 | test | draw | reference |
 | --- | --- | --- |
@@ -3516,6 +3611,12 @@ declares `q_bounds`. This is the usual TMLE choice (Gruber and van der Laan 2010
 prints the bounds. A continuous control on a fit with a classifier outcome learner uses the
 pseudo-outcome learner of the fit.
 
+The detail of the negative-control and future-treatment tests names the control fit's outcome
+learner and family, and says when the pseudo-outcome learner stood in. No refutation reads a
+simultaneous band, so the future-treatment control fit builds none, and neither does any refit of
+a point fit that built one; a fit that built no band refits unchanged
+(`tests/unit/test_refuter_input_reuse.py`).
+
 `negative_control_kind="pre_treatment"` declares a control that precedes the first treatment. The
 form applies to point and longitudinal fits. `refute()` refuses the control in two cases.
 
@@ -3648,6 +3749,7 @@ raises `TypeError` for `None`, so a descriptive report never reads as a pass.
 | `placebo` on a point fit | t | `L2` on the six configurations of the [point refutation study](method-evidence/refuter-calibration-point.md): `TMLE` with GLM nuisances on a Gaussian and a binary outcome, `TMLE` with a depth-2 booster, greedy `CTMLE`, and `DRTMLE` with a declared and an estimated mechanism. Each covers the ATE of two arms, five folds and $n \ge 2000$ |
 | `subset`, `negative_control_outcome` on a point fit | rho, z | `L2` on the T1, T2 and D1 configurations of the same study: `TMLE` with GLM nuisances on either outcome, and `DRTMLE` with a declared mechanism |
 | `placebo` with the band-rank draw | t | `L2` on the PJ1 and LJ1 configurations of the [band-rank placebo study](method-evidence/refuter-calibration-band.md): `TMLE` of the policy `up` on a covariate band, and `LTMLE` with three banded nodes. Each covers a classifier density ratio, five folds and $n \ge 2000$ |
+| `placebo`, `subset` on a continuous-time survival fit | t, rho | `L2` on a risk difference of the [continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)'s configuration: the default `ContinuousSurvivalTMLE` with two causes, its switched variance, ten folds, $n \ge 1000$, and a target time holding 43% to 79% of the observed events. Its size rule allows 68 rejections in 600 trials, a looser tolerance than the other rows, and the subset rule's measured false-alarm rate is 0.080 to 0.095 |
 | `placebo`, `subset`, `random_common_cause`, `negative_control_outcome`, `future_treatment` on any other fit | t, rho, paired shift, z | descriptive until a registered study adds a row |
 
 The equivalence bands are `|bias| <= 0.20` standard deviations of the draws, a standard-error ratio
@@ -3999,6 +4101,19 @@ are the same under both settings, and so is the summary, except that a fit warni
 in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
+
+`result.diagnostics`, `result.sensitivity`, `result.validate()` and `result.assess()` run each
+operation on every candidate's own fit, through that fit's facade, and return a
+`CandidateReports`: one report per candidate. A bound, a benchmark or a refutation of one
+candidate reads that candidate's own estimate and unadjusted interval, never the
+Benjamini-Hochberg adjusted test. A row is available when every candidate's row is, deferred when
+none refuses and some defers, and otherwise carries the first refusing candidate's refusal, named
+after it. A combined report reads each candidate's report with its own interpreter and takes the
+first status of failed, warning, passed and completed that any candidate reached, naming each
+candidate that needs attention. `diagnostics.influence()` redirects to
+`result.fits[candidate].diagnostics.influence()`. A `keep_fits=False` run keeps no fit, so every
+row refuses with `KEEP_FITS_REFUSAL`, the record `result.fits` raises
+(`tests/unit/test_variable_importance.py`).
 
 `variable_importance_plan` takes the same arguments without `keep_fits` and returns the
 `PlannedFits` record of the run without fitting a learner. It runs the same refusal checks in the

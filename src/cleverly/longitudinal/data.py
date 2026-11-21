@@ -123,6 +123,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from ._fit_cache import cached
 from .panel import PanelLayout
 
 __all__ = [
@@ -3561,6 +3562,49 @@ class LongitudinalData:
             columns.append(arm_indicators(codes, len(self.treatment_levels[t - 1])))
         return np.hstack(columns)
 
+    def history_width(self, time: int, *, include_current: bool = False) -> int:
+        """The column count of :meth:`history_design`, from the block sizes alone.
+
+        Counts what :meth:`history_design` would stack without building it, so the memory
+        guard can read the width of an ``n``-row design in time independent of ``n``:
+        the window's covariate columns, then for each decision node in the arm range
+        ``K - 1`` columns for a ``K``-level node, ``1 + a`` for a continuous node with
+        ``a`` declared atoms, and the sum of its components' blocks for a mixed node.
+        A held node adds nothing.
+
+        Parameters
+        ----------
+        time : int
+            The node, counted from one.
+        include_current : bool
+            Count the block of the node's own decision, as :meth:`history_design` does.
+
+        Returns
+        -------
+        int
+            The width of ``history_design(time, include_current=include_current)``.
+        """
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        start = self.window_start(time)
+        width = self.baseline.shape[1] + sum(
+            block.shape[1] for block in self.time_varying[start - 1 : time]
+        )
+        last = time if include_current else time - 1
+        for t in range(self.window_arm_start(time), last + 1):
+            if self.is_held_node(t):
+                continue
+            if self.node_kind(t) == "mixed":
+                atoms = self.component_atoms(t)
+                names = self.component_names(t)
+                for index, levels in enumerate(self.component_levels[t - 1]):
+                    width += len(levels) - 1 if levels else 1 + len(atoms.get(names[index], ()))
+            elif self.is_continuous_node(t):
+                width += 1 + len(self.node_atoms(t))
+            else:
+                width += len(self.treatment_levels[t - 1]) - 1
+        return width
+
     def encode_assignment(self, assignment: Any, label: str) -> FloatArray:
         """Encode one regimen's raw labels against each treatment node's level set.
 
@@ -3985,8 +4029,13 @@ class RegimenMasks:
     def at_risk(self, time: int) -> BoolArray:
         """:math:`H_t` observed, regimen-consistent and event-free: reads ``time - 1``."""
         index = max(0, time - 1)
-        return np.asarray(
-            self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+        return cached(
+            "at_risk",
+            (self,),
+            index,
+            lambda: np.asarray(
+                self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+            ),
         )
 
     def following(self, time: int) -> BoolArray:
@@ -3999,8 +4048,15 @@ class RegimenMasks:
         generalises rather than breaks.  Tidying the asymmetry away is the single easiest
         mistake to make here.
         """
-        return np.asarray(
-            self.uncensored[:, time] & self.followed[:, time] & self.event_free[:, max(0, time - 1)]
+        return cached(
+            "following",
+            (self,),
+            time,
+            lambda: np.asarray(
+                self.uncensored[:, time]
+                & self.followed[:, time]
+                & self.event_free[:, max(0, time - 1)]
+            ),
         )
 
 

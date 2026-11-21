@@ -261,6 +261,14 @@ as [Weight trimming, shorter histories, and node bounds](#weight-trimming-shorte
 describes. `times=` cannot coarsen a grid. To model fewer decisions, aggregate the frame to the
 coarser decision times before you read it.
 
+Long panels, many regimens and parallel workers also need memory. Before it fits any model,
+`LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
+if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
+yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
+is checked unless you pass it. The estimate counts the arrays the package holds with simple
+regression learners, so a fit that passes the check can still run out of memory with heavier
+learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
+
 ## Declare a dynamic rule
 
 Write each plan that holds a rule as a `DynamicRegimen`, and declare `rule_kind="known"`. The
@@ -386,8 +394,16 @@ percentile interval beside its influence-curve interval.
 [The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each replicate resamples and refits. The percentile interval carries the support
 label of the fit, so a fit no registered study covers says under its summary that the bootstrap
-interval is experimental. A fit with fewer than 20 clusters prints a `bootstrap SD (diagnostic)`
-column and a percentile range, both diagnostics.
+interval is experimental.
+
+An estimate with fewer clusters than its interval floor prints a `bootstrap SD (diagnostic)`
+column and a percentile range, both diagnostics. The floor is 20 clusters for most longitudinal
+estimates. The always-treat versus never-treat difference of an `LTMLE` fit has a lower floor,
+6 in sample or 4 cross-fitted, but only on the panel design its study used
+([clusters](../technical-reference/inference.md#clusters)). That lower floor was measured for the
+influence-curve interval, not for the bootstrap. Between it and 20 the bootstrap prints a
+percentile interval under the experimental label because it follows the interval's floor, and no
+study has checked its coverage there.
 
 
 Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).

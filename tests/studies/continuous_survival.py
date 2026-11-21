@@ -159,7 +159,7 @@ CONFIGURATION = {
         "censoring_wrong": "CoxHazard('treatment') on the dependent-censoring law",
     },
     "sizes": {name: n for name, (_, n) in SCENARIOS.items()},
-    "variance_method": "influence curve",
+    "variance_method": "switched (influence curve raised to predictable variation)",
 }
 
 
@@ -276,6 +276,8 @@ EXTRA_COLUMNS = (
     "converged",
     "bounded_share",
     "last_time_floor_share",
+    "jump_bound_share",
+    "jump_bound_at_risk_share",
     "frozen_share",
     "off_grid_share",
     *EARLY_COLUMNS,
@@ -304,6 +306,8 @@ def readings(result: Any) -> dict[str, float]:
         "converged": float(record.converged),
         "bounded_share": float(record.bounded_share),
         "last_time_floor_share": float(record.last_time_floor_share),
+        "jump_bound_share": float(record.jump_bound_share),
+        "jump_bound_at_risk_share": float(record.jump_bound_at_risk_share),
         "frozen_share": float(record.frozen_share),
         "off_grid_share": float(record.off_grid_share),
     }
@@ -370,6 +374,8 @@ def targeting_readings(rows: pd.DataFrame) -> pd.DataFrame:
             converged_share=("converged", "mean"),
             mean_bounded_share=("bounded_share", "mean"),
             mean_last_time_floor_share=("last_time_floor_share", "mean"),
+            mean_jump_bound_share=("jump_bound_share", "mean"),
+            mean_jump_bound_at_risk_share=("jump_bound_at_risk_share", "mean"),
             mean_frozen_share=("frozen_share", "mean"),
             mean_off_grid_share=("off_grid_share", "mean"),
             mean_seconds=("seconds", "mean"),

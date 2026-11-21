@@ -1,0 +1,21 @@
+=== projection-evidence declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/projection_evidence/regenerate.py --output /root/pe-run-1 --jobs 4
+commit: f60abdf71c8b7c8497702b57b03ed6b26a7c856f; upstream f60abdf71c8b7c8497702b57b03ed6b26a7c856f
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 680366ca30977edc092be1d2b704dc4217c63c06bbda73221c5fea7c86e051ee
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-20T17:07:35+00:00
+finished: 2026-11-20T18:57:04+00:00
+wall seconds: 6569.1
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 22e2166a99e43a44bbd7a1c162a02ea616db8caeb633fc7c6bfeb283e9d9d2ec
+sha256 performance-tests.csv: a429e08d03d769c4eb6730cb6989abfb8b018e1dcd879fecaae4ee7f4a18cef3
+sha256 properties.csv: b1289efb5f943b7ecf6b75a59837993c7193b827061acc0934c79c97a99b38b6
+sha256 property-replicates.parquet: 8d188aa085fecde58816f471dbf1ba7946232c22af63bd1e3837f25c7c68a573
+sha256 replicates.parquet: 46abab81ba2865042239b7550781b2600760a609cb73f5315d9184943ecb51c4
+sha256 summary.csv: b9856db20404ef849fed868361fd31403520c9cd7d502a0e9d4dcfd79b75fb64
+

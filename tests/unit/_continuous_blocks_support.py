@@ -2,8 +2,10 @@
 
 Every fixture is a fit through the public estimator only, so :func:`golden_records` runs the
 same fits on the engine before blocks.  ``tests/unit/_continuous_dense_golden.py`` holds what
-it printed there; regenerate it only from that engine:
-``python -c "from tests.unit._continuous_blocks_support import golden_records as g; g()"``.
+it printed there; regenerate it only from that engine (X6 part A's at ``d2b949e5``), with its
+``src`` first on the path, from the repository root:
+``PYTHONPATH=<checkout of d2b949e5>/src:. python -c "from tests.unit._continuous_blocks_support
+import golden_records as g; g()"``.
 """
 
 from __future__ import annotations

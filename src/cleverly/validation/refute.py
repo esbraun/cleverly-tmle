@@ -96,7 +96,7 @@ from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
-from ..utils.random import resolve_assessment_seed
+from ..utils.random import generator_state, note_learner_fit, replay, resolve_assessment_seed
 from . import _interpretation
 from ._band_placebo import (
     BAND_SENTENCE,
@@ -127,6 +127,13 @@ from ._readings import (
     paired_shift,
     placebo_reading,
     subset_reading,
+)
+from ._refute_checkpoint import (
+    CHECKPOINTED_TESTS,
+    CheckpointSession,
+    RefutationCheckpoint,
+    RefutationProgress,
+    request_parts,
 )
 from ._structural_refute import (
     is_structural,
@@ -1787,12 +1794,14 @@ def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -
     """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
 
     The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
-    that check rather than copying it, and :func:`refute` calls it again to read the
-    contrast direction it returns.
+    that check rather than copying it, with ``build=False`` so it fits no longitudinal
+    plasmode law, and :func:`refute` calls it again to build the target it returns.
     """
     for name in request.generated:
         try:
-            _validate_generated_eligibility(result, request.estimand, request.process(name), name)
+            _validate_generated_eligibility(
+                result, request.estimand, request.process(name), name, build=False
+            )
         except CapabilityError as error:
             return error.refusal
     return None
@@ -2297,9 +2306,14 @@ class _LongitudinalPlasmode:
 
 
 def _longitudinal_plasmode_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalPlasmode:
-    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalPlasmode | None:
+    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth.
+
+    Every refusal comes before the law is fitted. With ``build=False`` the function stops
+    there and returns ``None``, so the request rules, the capability row and the refit preview
+    fit nothing, and :func:`refute` builds the law once (X106 part G2).
+    """
     from ..longitudinal.regimen import declares_tilt, declares_tuned
     from ._longitudinal_plasmode import (
         MAX_DRAWS,
@@ -2327,6 +2341,8 @@ def _longitudinal_plasmode_target(
         if present:
             _refuse_longitudinal_plasmode(name, structure)
     label, cause, horizon = _held_parameter(result, estimand, name)
+    if not build:
+        return None
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
@@ -2432,9 +2448,13 @@ def _held_shares(uncensored: Any) -> tuple[float, ...]:
 
 
 def _longitudinal_generated_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
-    """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
+    """Refuse a generated outcome a longitudinal fit cannot read, else build its target.
+
+    ``build=False`` returns ``None`` for a plasmode request after its refusals, before its
+    law is fitted.
+    """
     data = result.data
     if data.eliminated:
         raise CapabilityError(
@@ -2457,7 +2477,7 @@ def _longitudinal_generated_target(
     if data.is_survival:
         if name == "plasmode":
             _validate_hazard_process(data, process, name)
-            return _longitudinal_plasmode_target(result, estimand, process, name)
+            return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
@@ -2506,7 +2526,7 @@ def _longitudinal_generated_target(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if name == "plasmode":
-        return _longitudinal_plasmode_target(result, estimand, process, name)
+        return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
     if getattr(process, "history_effect", 0.0):
         raise CapabilityError(
             f"{name} keeps the held covariate history, whose law under a regimen is unknown, "
@@ -2698,8 +2718,8 @@ def _survival_generated_target(
 
 
 def _validate_generated_eligibility(
-    result: Any, estimand: str, process: Any, name: str
-) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
     """Refuse an ineligible generated-outcome request and resolve its target.
 
     Parameters
@@ -2712,10 +2732,13 @@ def _validate_generated_eligibility(
         Registered outcome-process declaration.
     name : str
         Refutation name, named in every refusal.
+    build : bool
+        Whether to fit a longitudinal plasmode law and its truth. ``False`` runs every
+        refusal and fits nothing; a longitudinal plasmode request then returns ``None``.
 
     Returns
     -------
-    PointTarget, _LongitudinalGenerated or _SurvivalGenerated
+    PointTarget, _LongitudinalGenerated, _SurvivalGenerated, _LongitudinalPlasmode or None
         The point target with its arm codes and population. A longitudinal fit returns its
         held-history target instead.
 
@@ -2725,7 +2748,7 @@ def _validate_generated_eligibility(
         If the fit, the estimand, or the process has no registered effect derivation.
     """
     if _is_longitudinal(result):
-        return _longitudinal_generated_target(result, estimand, process, name)
+        return _longitudinal_generated_target(result, estimand, process, name, build=build)
     _validate_generated_process(process, name)
     if name == "plasmode":
         _validate_plasmode_eligibility(result)
@@ -3363,6 +3386,8 @@ def _run_empirical_refits(
     retain_preparation_failures: bool = False,
     refit_options: Callable[[int], dict[str, Any]] | None = None,
     refit_estimator: Callable[[int], Any] | None = None,
+    session: CheckpointSession | None = None,
+    test: str = "",
 ) -> tuple[tuple[EmpiricalRefitRecord, ...], tuple[ReplicationFailure, ...]]:
     """Run, validate, and retain empirical refits through one failure contract.
 
@@ -3392,78 +3417,148 @@ def _run_empirical_refits(
         Maps a replicate index to the estimator that refits it, for example the frozen
         rules of a learned-rule fit on the rows of a resample. ``None`` refits with
         ``result.estimator``.
+    session : CheckpointSession or None
+        The call's checkpoint and progress callback. A draw the checkpoint stores is loaded
+        and never refit; a missing one runs and is stored once it finishes.
+    test : str
+        The test's name, under which the session stores its draws.
 
     Returns
     -------
     tuple of tuple
         Successful records, then the retained failures.
     """
-    records: list[EmpiricalRefitRecord] = []
-    failures: list[ReplicationFailure] = []
+    outcomes: list[EmpiricalRefitRecord | ReplicationFailure] = []
+    resumed = 0
     for replicate, child_seed in draws:
-        try:
-            prepared = replacement(replicate, child_seed)
-        except Exception as error:
-            if not retain_preparation_failures:
-                raise
-            # A bootstrap sample this draw cannot build, or a perturbation the sample
-            # refuses, is one failed draw among many. Raising would discard every draw
-            # that already succeeded, so record it with the fields a refit failure carries.
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-            )
-            continue
-        try:
-            estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
-            refitted = estimator.refit(
-                prepared,
-                **_intermediate_option(result),
-                random_state=child_seed,
-                **({} if refit_options is None else refit_options(replicate)),
-            )
-        except Exception as error:  # an estimator failure belongs in the report
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-            )
-            continue
-        fitted_family = str(refitted.data.family)
-        if fitted_family != expected_family:
-            raise RuntimeError(
-                f"empirical refit reported authoritative family={fitted_family!r}; expected "
-                f"{expected_family!r}"
-            )
-        estimate = refitted[estimand]
-        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
-            failures.append(
-                ReplicationFailure(
-                    replicate=replicate,
-                    seed=child_seed,
-                    error_type="ValueError",
-                    message="refitted estimate or standard error is non-finite",
-                )
-            )
-            continue
-        records.append(
-            EmpiricalRefitRecord(
-                replicate=replicate,
-                seed=child_seed,
+        stored = None if session is None else session.load(test, replicate, child_seed)
+        if stored is not None:
+            # The stored draw replaces a refit, so the answer depends on a learner fit as
+            # much as a refitted one does, and the assessment cache must not pin it.
+            note_learner_fit()
+            outcome = stored
+            resumed += 1
+        else:
+            outcome = _empirical_draw(
+                result,
                 estimand=estimand,
-                estimate=float(estimate.psi),
-                std_error=float(estimate.plugin_std_error),
-                family=fitted_family,
+                replicate=replicate,
+                child_seed=child_seed,
+                replacement=replacement,
+                expected_family=expected_family,
+                retain_preparation_failures=retain_preparation_failures,
+                refit_options=refit_options,
+                refit_estimator=refit_estimator,
             )
+            if session is not None:
+                session.save(test, replicate, outcome)
+        outcomes.append(outcome)
+        if session is not None:
+            session.report(
+                RefutationProgress(
+                    test=test,
+                    completed=len(outcomes),
+                    requested=len(draws),
+                    failed=sum(isinstance(item, ReplicationFailure) for item in outcomes),
+                    resumed=resumed,
+                )
+            )
+    records = tuple(item for item in outcomes if isinstance(item, EmpiricalRefitRecord))
+    failures = tuple(item for item in outcomes if isinstance(item, ReplicationFailure))
+    return records, failures
+
+
+def _empirical_draw(
+    result: Any,
+    *,
+    estimand: str,
+    replicate: int,
+    child_seed: int,
+    replacement: Callable[[int, int], Any],
+    expected_family: str,
+    retain_preparation_failures: bool,
+    refit_options: Callable[[int], dict[str, Any]] | None,
+    refit_estimator: Callable[[int], Any] | None,
+) -> EmpiricalRefitRecord | ReplicationFailure:
+    """Run one draw of :func:`_run_empirical_refits`: its record, or its retained failure.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        Fitted result.
+    estimand : str
+        Structured result alias read off the refit.
+    replicate : int
+        The draw's index.
+    child_seed : int
+        The draw's seed.
+    replacement : callable
+        Builds the draw's data.
+    expected_family : str
+        Outcome family the refit must report.
+    retain_preparation_failures : bool
+        Whether a failure inside ``replacement`` is retained rather than raised.
+    refit_options : callable or None
+        Extra keyword arguments of the refit.
+    refit_estimator : callable or None
+        The estimator that refits the draw.
+
+    Returns
+    -------
+    EmpiricalRefitRecord or ReplicationFailure
+        What the draw returned.
+    """
+    try:
+        prepared = replacement(replicate, child_seed)
+    except Exception as error:
+        if not retain_preparation_failures:
+            raise
+        # A bootstrap sample this draw cannot build, or a perturbation the sample
+        # refuses, is one failed draw among many. Raising would discard every draw
+        # that already succeeded, so record it with the fields a refit failure carries.
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type=type(error).__name__,
+            message=str(error),
         )
-    return tuple(records), tuple(failures)
+    try:
+        estimator = _bandless(result) if refit_estimator is None else refit_estimator(replicate)
+        refitted = estimator.refit(
+            prepared,
+            **_intermediate_option(result),
+            random_state=child_seed,
+            **({} if refit_options is None else refit_options(replicate)),
+        )
+    except Exception as error:  # an estimator failure belongs in the report
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type=type(error).__name__,
+            message=str(error),
+        )
+    fitted_family = str(refitted.data.family)
+    if fitted_family != expected_family:
+        raise RuntimeError(
+            f"empirical refit reported authoritative family={fitted_family!r}; expected "
+            f"{expected_family!r}"
+        )
+    estimate = refitted[estimand]
+    if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
+        return ReplicationFailure(
+            replicate=replicate,
+            seed=child_seed,
+            error_type="ValueError",
+            message="refitted estimate or standard error is non-finite",
+        )
+    return EmpiricalRefitRecord(
+        replicate=replicate,
+        seed=child_seed,
+        estimand=estimand,
+        estimate=float(estimate.psi),
+        std_error=float(estimate.plugin_std_error),
+        family=fitted_family,
+    )
 
 
 def _measurement_encodings(data: Any) -> dict[str, Any]:
@@ -3781,6 +3876,7 @@ def _bootstrap_stability_test(
     n_replicates: int,
     root_seed: int,
     is_ratio: bool = False,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     """Refit on bootstrap resamples that keep each unit's fold, and describe the spread.
 
@@ -3806,17 +3902,23 @@ def _bootstrap_stability_test(
     from ..interventions.learned import frozen_rule_replay
 
     frozen = _frozen_rule(result)
+    if session is not None:
+        session.test(
+            "bootstrap_stability", _bootstrap_parts(n_replicates, design.resampling, None, None)
+        )
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        session=session,
+        test="bootstrap_stability",
         replacement=lambda replicate, seed: folds.sample(replicate),
         refit_options=folds.options,
         refit_estimator=(
             None
             if frozen is None
             else lambda replicate: frozen_rule_replay(
-                result.estimator, frozen, folds.rows(replicate)
+                _bandless(result), frozen, folds.rows(replicate)
             )
         ),
         expected_family=data.family,
@@ -3871,6 +3973,7 @@ def _bootstrap_measurement_error_test(
     rule: EmpiricalInclusionRule,
     n_replicates: int,
     root_seed: int,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     data = _validate_measurement_error_eligibility(result, declaration, n_replicates)
     design = _bootstrap_design(
@@ -3886,10 +3989,17 @@ def _bootstrap_measurement_error_test(
     # A learned-rule fit holds each source unit's realized rule, the rule at its true
     # covariates, so every refit targets the value of the fit's own rules (X82 part F4).
     frozen = _frozen_rule(result)
+    if session is not None:
+        session.test(
+            "bootstrap_measurement_error",
+            _bootstrap_parts(n_replicates, design.resampling, declaration, rule),
+        )
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple((draw.replicate, draw.seed) for draw in design.draws),
+        session=session,
+        test="bootstrap_measurement_error",
         replacement=lambda replicate, seed: _perturb_measurement_error(
             folds.sample(replicate), declaration, seed=seed
         ),
@@ -3898,7 +4008,7 @@ def _bootstrap_measurement_error_test(
             None
             if frozen is None
             else lambda replicate: frozen_rule_replay(
-                result.estimator, frozen, folds.rows(replicate)
+                _bandless(result), frozen, folds.rows(replicate)
             )
         ),
         expected_family=data.family,
@@ -4026,6 +4136,7 @@ def _generated_outcome_test(
     root_seed: int,
     fit: FitConfiguration | None,
     target: PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode,
+    session: CheckpointSession | None = None,
 ) -> RefutationTest:
     data = result.data
     seeds = _generated_child_seeds(root_seed, name, n_replicates)
@@ -4094,12 +4205,16 @@ def _generated_outcome_test(
         declared_effect = target.truth(means, weights, mixture)
         covariate_part = target.covariate_part_vanishes(means, weights, mixture)
 
+    if session is not None:
+        session.test(name, _generated_parts(n_replicates, process, bands))
     records, failures = _run_empirical_refits(
         result,
         estimand=estimand,
         draws=tuple(enumerate(seeds)),
         replacement=replacement,
         expected_family=process.family,
+        session=session,
+        test=name,
     )
     if ratio:
         # A ratio reads on the log scale, where its standard error is reported. A refit with
@@ -4577,6 +4692,17 @@ def _subset_record(
     )
 
 
+#: The folds of the cross-fitted residual check, one least-squares fit each.
+_RESIDUAL_FOLDS = 2
+
+
+def _residual_check_fits(values: np.ndarray, features: np.ndarray) -> int:
+    """The least-squares fits :func:`_control_residual_reason` makes on these arrays."""
+    if float(np.var(values)) <= 0.0 or not features.shape[1] or values.size < 4:
+        return 0
+    return _RESIDUAL_FOLDS
+
+
 def _control_residual_reason(
     values: np.ndarray,
     features: np.ndarray,
@@ -4599,10 +4725,11 @@ def _control_residual_reason(
     total = float(np.var(values))
     if total <= 0.0:
         return f"{noun} is constant on the analysis rows, so its estimate is 0 by construction"
-    if not features.shape[1] or values.size < 4:
+    if not _residual_check_fits(values, features):
         return None
     residual = np.empty_like(values)
-    for train, test in KFold(n_splits=2, shuffle=True, random_state=0).split(features):
+    folds = KFold(n_splits=_RESIDUAL_FOLDS, shuffle=True, random_state=0)
+    for train, test in folds.split(features):
         model = LinearRegression().fit(features[train], values[train])
         residual[test] = values[test] - model.predict(features[test])
     share = float(np.mean(residual**2)) / total
@@ -4624,6 +4751,32 @@ def _control_values(data: Any, longitudinal: bool) -> np.ndarray:
         )
         return values[np.isfinite(values)]
     return np.asarray(data.outcome, dtype=float)[np.asarray(data.observed, dtype=bool)]
+
+
+def _bandless(result: Any) -> Any:
+    """The estimator that refits ``result``, with no simultaneous band when the fit built one.
+
+    No refutation reads a refit's band (X106 G5g). A point TMLE-family fit that built one
+    passed every gate the band has, on the same repeats and estimands, so turning the band
+    off on its refits skips only work and checks that would pass, and every number a refit
+    reports is unchanged: the band is drawn after the estimates from its own seed. A fit that
+    built no band refits as it is, so a refit that would band and refuse still refuses.
+    """
+    from ..estimators.tmle import TMLE
+
+    estimator = result.estimator
+    if not isinstance(estimator, TMLE) or getattr(result, "simultaneous", None) is None:
+        return estimator
+    copied = copy.copy(estimator)
+    copied.simultaneous = False
+    return copied
+
+
+def _control_swaps(estimator: Any, family: str) -> bool:
+    """Whether a control of ``family`` regresses with the fit's pseudo-outcome learner, because
+    the fit's outcome learner is a classifier (:func:`_control_estimator`)."""
+    learner = getattr(estimator, "outcome_learner", None)
+    return family != "binomial" and _classification_only_learner(learner) is not None
 
 
 def _control_estimator(
@@ -4652,7 +4805,7 @@ def _control_estimator(
     if family != "binomial" and values.size and (cross_fitted or declared is not None):
         bounds = (float(np.min(values)), float(np.max(values)))
     learner = getattr(estimator, "outcome_learner", None)
-    swap = family != "binomial" and _classification_only_learner(learner) is not None
+    swap = _control_swaps(estimator, family)
     if bounds == declared and not swap:
         return estimator, bounds
     copied = copy.copy(estimator)
@@ -4665,6 +4818,48 @@ def _control_estimator(
     return copied, bounds
 
 
+def _learner_clause(learner: Any, family: str, *, swapped: bool) -> str:
+    """The report clause that names a control fit's outcome learner and family (X106 G5).
+
+    ``swapped`` says the fit's own outcome learner is a classifier, so the control, which is
+    continuous, regresses with the fit's pseudo-outcome learner.
+    """
+    from .._summary._learners import learner_name
+
+    name = learner_name(learner)
+    if swapped:
+        return (
+            f"; the control fit regresses its {family} outcome with the fit's pseudo-outcome "
+            f"learner, {name}, because the fit's outcome learner is a classifier"
+        )
+    return f"; the control fit models its {family} outcome with {name}"
+
+
+def _control_learner_clause(
+    estimator: Any, control: Any, replacement: Any, *, structural: bool
+) -> str:
+    """The learner clause of a negative-control refit, or ``""`` for a fit with no outcome
+    model (an :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control).
+
+    ``estimator`` refits the primary outcome and ``control`` the control, as
+    :func:`_control_estimator` returns it. A structural fit regresses a target outside
+    {0, 1} with its ``regression_learner``, or its outcome learner when that is ``None``.
+    """
+    from ..estimators.iptw import AdaptiveIPTW
+
+    if isinstance(control, AdaptiveIPTW) or not hasattr(control, "outcome_learner"):
+        return ""
+    family = str(replacement.family)
+    if structural:
+        learner = control.outcome_learner
+        if family != "binomial" and getattr(control, "regression_learner", None) is not None:
+            learner = control.regression_learner
+        return _learner_clause(learner, family, swapped=False)
+    # The swap ``_control_estimator`` made from the fit's own estimator.
+    swapped = _control_swaps(estimator, family)
+    return _learner_clause(control.outcome_learner, family, swapped=swapped)
+
+
 def _bounds_clause(bounds: tuple[float, float] | None) -> str:
     """The report clause that names the outcome bounds a control fit used."""
     if bounds is None:
@@ -4675,15 +4870,19 @@ def _bounds_clause(bounds: tuple[float, float] | None) -> str:
     )
 
 
-def _future_treatment_test(
-    result: Any, *, estimand: str, original: float, control: Any, node: int, seed: int
-) -> RefutationTest:
-    """Regress the control on the treatment at ``node``, adjusted for its declared history.
+def _future_treatment_fit(
+    result: Any, *, control: Any, node: int, seed: int
+) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int, bool]:
+    """The point TMLE of the future-treatment test and the data it fits, unfitted.
 
-    The fit is a point-treatment TMLE of the control on the binary treatment at ``node``,
-    adjusted for the history the longitudinal fit declares for that treatment, on the units
-    at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
-    count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
+    :func:`_future_treatment_test` fits it, and the refit preview counts its fits.
+
+    Returns
+    -------
+    tuple
+        The estimator, the point data, the rows at risk at ``node``, the history's column
+        names, the control's outcome bounds, the fold count, and whether the fit's
+        pseudo-outcome learner stands in for its classifier outcome learner.
     """
     from ..data import CausalData
     from ..estimators.tmle import TMLE
@@ -4710,18 +4909,41 @@ def _future_treatment_test(
     # A continuous control on a cross-fitted fit takes its observed range as its bounds.
     bounds = None if binary or not cross_fit else (float(np.min(values)), float(np.max(values)))
     outcome_learner = getattr(template, "outcome_learner", None)
-    if not binary and _classification_only_learner(outcome_learner) is not None:
+    swapped = not binary and _classification_only_learner(outcome_learner) is not None
+    if swapped:
         # A classifier cannot regress a continuous control. The fit's regression learner
         # for its pseudo-outcomes can, and the default library stands in without one.
         outcome_learner = getattr(template, "pseudo_learner", None)
-    fitted = TMLE(
+    fitter = TMLE(
         outcome_learner=outcome_learner,
         treatment_learner=getattr(template, "treatment_learner", None),
         cross_fit=cross_fit,
         n_folds=folds,
         q_bounds=bounds,
         random_state=seed,
-    ).fit(point)
+        # The test reads the control's ``ate`` alone, and a band over the default estimands
+        # would cost most of the call (X106 G5c). The band is drawn after the estimates, so
+        # every number the test reports is unchanged.
+        simultaneous=False,
+    )
+    return fitter, point, rows, names, bounds, folds, swapped
+
+
+def _future_treatment_test(
+    result: Any, *, estimand: str, original: float, control: Any, node: int, seed: int
+) -> RefutationTest:
+    """Regress the control on the treatment at ``node``, adjusted for its declared history.
+
+    The fit is a point-treatment TMLE of the control on the binary treatment at ``node``,
+    adjusted for the history the longitudinal fit declares for that treatment, on the units
+    at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
+    count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
+    """
+    fitter, point, rows, names, bounds, folds, swapped = _future_treatment_fit(
+        result, control=control, node=node, seed=seed
+    )
+    cross_fit = folds > 1
+    fitted = fitter.fit(point)
     estimate = fitted.single()["ate"]
     value = float(estimate.psi)
     std_error = float(estimate.plugin_std_error)
@@ -4742,6 +4964,7 @@ def _future_treatment_test(
             f"{z:+.3g} standard errors from 0), adjusted for the {len(names)} column(s) of "
             f"that treatment's declared history on {int(rows.sum())} units at risk, "
             f"{'cross-fitted in ' + str(folds) + ' folds' if cross_fit else 'fitted in sample'}"
+            + _learner_clause(fitter.outcome_learner, str(point.family), swapped=swapped)
             + _bounds_clause(bounds)
         ),
         standard_errors=(std_error,),
@@ -4834,14 +5057,26 @@ def _on_draw(error: CleverlyError, label: str) -> CleverlyError:
     return type(error)(refusal=refusal)
 
 
-def _band_placebo_sets(
+def _band_placebo_draw(
+    data: Any, bands: PointBands | PanelBands, rng: np.random.Generator, mode: str | None
+) -> Any:
+    """One band-rank placebo data set, drawn from ``rng``."""
+    if isinstance(bands, PanelBands):
+        doses, drawn = bands.placebo(data, rng)
+        return data.with_treatment(
+            doses, known_mechanisms=placebo_known_mechanisms(data, bands.kernel, drawn)
+        )
+    return data.with_treatment(bands.draw(data, rng, mode))
+
+
+def _band_placebo_states(
     result: Any,
     bands: PointBands | PanelBands,
     rng: np.random.Generator,
     mode: str | None,
     count: int,
-) -> list[Any]:
-    """Draw every band-rank placebo data set, each through the refit's preflight.
+) -> list[dict[str, Any]]:
+    """Check every band-rank placebo draw through the refit's preflight; return their states.
 
     The refit of each data set would run the estimator's declaration checks before any
     learner: the declared support (an assertion here, since every placebo dose lies in its
@@ -4851,30 +5086,27 @@ def _band_placebo_sets(
     draw refuses the call before any refit, with its own reason code. The pooled extreme
     positions are checked as well, which makes the support check independent of the seed for
     a monotone policy (``X82-J-plan.md`` section 3.3).
+
+    Each draw is dropped once checked, and the generator state before it is kept, so the
+    placebo test regenerates the same data set at its refit through :func:`replay` and holds
+    one data set at a time (X106 part G1). ``rng`` ends where drawing every set leaves it.
     """
     data = result.data
-    sets: list[Any] = []
+    states: list[dict[str, Any]] = []
     for draw in range(1, count + 1):
         label = f"on placebo draw {draw} of the band-rank placebo"
+        states.append(generator_state(rng))
         try:
-            if isinstance(bands, PanelBands):
-                doses, drawn = bands.placebo(data, rng)
-                replacement = data.with_treatment(
-                    doses, known_mechanisms=placebo_known_mechanisms(data, bands.kernel, drawn)
-                )
-            else:
-                replacement = data.with_treatment(bands.draw(data, rng, mode))
-            _placebo_preflight(result, replacement)
+            _placebo_preflight(result, _band_placebo_draw(data, bands, rng, mode))
         except CleverlyError as error:
             raise _on_draw(error, label) from error
-        sets.append(replacement)
     try:
         _band_extremes_check(result, bands)
     except CleverlyError as error:
         raise _on_draw(
             error, "at a pooled extreme position of the band-rank placebo, on every row"
         ) from error
-    return sets
+    return states
 
 
 def _placebo_preflight(result: Any, replacement: Any) -> None:
@@ -4899,7 +5131,7 @@ def _band_extremes_check(result: Any, bands: PointBands | PanelBands) -> None:
     position on every row. On a panel it maps each corner of :meth:`PanelBands.extremes`, so a
     band that reads an earlier dose is checked with that dose low and high. A tuned point policy
     is checked at its in-sample cap. A tuned regimen is not checked here: its cap is fitted on the
-    refit's split, so it relies on the per-draw preflight of :func:`_band_placebo_sets`.
+    refit's split, so it relies on the per-draw preflight of :func:`_band_placebo_states`.
     """
     from ..interventions.policy import (
         ModifiedPolicy,
@@ -5083,6 +5315,236 @@ def _sliced_folds(result: Any, index: np.ndarray) -> tuple[Any, ...] | None:
     return tuple(sliced)
 
 
+def _refute_preflight(
+    result: Any,
+    *,
+    estimand: str,
+    tests: Sequence[str],
+    n_replicates: int | None,
+    placebo_mode: str | None,
+    noise_nodes: bool,
+    negative_control_outcome: Any,
+    negative_control_kind: str | None,
+    negative_control_floor: float,
+    future_treatment_control: Any,
+    future_treatment_node: int,
+    dummy_outcome: Any,
+    simulated_outcome: Any,
+    outcome_bands: EquivalenceBands,
+    bootstrap_measurement_error: BootstrapMeasurementError | None,
+    measurement_error_rule: EmpiricalInclusionRule,
+) -> _RefuteRequest:
+    """Every check :func:`refute` runs before its first draw, in order; the parsed request.
+
+    :func:`refute` and :func:`~cleverly.validation.planned_refits` both call it, so a check
+    added here reaches both (X106 part G2). It fits nothing: a longitudinal plasmode request
+    meets its refusals without its law being fitted.
+
+    Raises
+    ------
+    ValueError
+        If an argument is malformed (:func:`_validated_tests`).
+    CapabilityError
+        If a request rule refuses the request.
+    """
+    refuse_augmented_trial(result, "refute", "refutation")
+    # The malformed arguments first, and the refusals of a well-formed request after them.
+    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
+    # fits and only then discover that its outcome process has no effect derivation. The
+    # ``refute`` capability row reads the same table, so a row that reads available is a
+    # request this line admits.
+    request = _RefuteRequest(
+        estimand,
+        _validated_tests(
+            tests,
+            n_replicates,
+            negative_control_outcome,
+            placebo_mode,
+            negative_control_kind,
+            negative_control_floor,
+            future_treatment_control,
+            future_treatment_node,
+        ),
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_bands,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+        placebo_mode,
+        bool(noise_nodes),
+        negative_control_outcome=negative_control_outcome,
+        negative_control_kind=negative_control_kind,
+        future_treatment_control=future_treatment_control,
+        future_treatment_node=int(future_treatment_node),
+        negative_control_floor=float(negative_control_floor),
+    )
+    if is_continuous_survival(result):
+        # A continuous-time fit has its own request rules, which never read ``result.data``
+        # as point-treatment data (X101).
+        from ._continuous_survival_refute import continuous_survival_rules
+
+        refusal = continuous_survival_rules(result, request)
+    else:
+        refusal = _first_refusal(result, request)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    return request
+
+
+def _generated_parts(n_replicates: int, process: Any, bands: Any) -> dict[str, Any]:
+    """The parts of a generated test's request a checkpoint records."""
+    return {"draws": n_replicates, "process": process, "bands": bands}
+
+
+def _bootstrap_parts(
+    n_replicates: int, resampling: str, declaration: Any, rule: Any
+) -> dict[str, Any]:
+    """The parts of a bootstrap test's request a checkpoint records."""
+    parts: dict[str, Any] = {"draws": n_replicates, "resampling": resampling}
+    if declaration is not None:
+        parts.update(declaration=declaration, rule=rule)
+    return parts
+
+
+def stored_draws(
+    session: CheckpointSession,
+    result: Any,
+    name: str,
+    *,
+    n_replicates: int,
+    root_seed: int,
+    process: Any,
+    bands: Any,
+    declaration: Any,
+    rule: Any,
+) -> int:
+    """How many draws of a stored test a resume would load rather than refit.
+
+    It checks the test's request and each stored draw's seed the way the test does, so a
+    directory the test would refuse refuses here.
+
+    Parameters
+    ----------
+    session : CheckpointSession
+        The call's session.
+    result : TMLEResult
+        The fit.
+    name : str
+        The test.
+    n_replicates : int
+        Its draw count.
+    root_seed : int
+        The call's root seed.
+    process : Any
+        A generated test's process.
+    bands : Any
+        A generated test's bands.
+    declaration : Any
+        The measurement-error declaration.
+    rule : Any
+        The measurement-error rule.
+
+    Returns
+    -------
+    int
+        The stored draws.
+    """
+    if name in _GENERATED_TESTS:
+        parts = _generated_parts(n_replicates, process, bands)
+        draws = tuple(enumerate(_generated_child_seeds(root_seed, name, n_replicates)))
+    else:
+        measurement = name == "bootstrap_measurement_error"
+        data = (
+            _validate_measurement_error_eligibility(result, declaration, n_replicates)
+            if measurement
+            else _validate_stability_eligibility(result, n_replicates)
+        )
+        design = _bootstrap_design(
+            data,
+            n_replicates=n_replicates,
+            resampling=declaration.resampling if measurement else "auto",
+            random_state=root_seed,
+        )
+        parts = _bootstrap_parts(
+            n_replicates,
+            design.resampling,
+            declaration if measurement else None,
+            rule if measurement else None,
+        )
+        draws = tuple((draw.replicate, draw.seed) for draw in design.draws)
+    session.test(name, parts)
+    return sum(session.load(name, replicate, seed) is not None for replicate, seed in draws)
+
+
+def _validated_checkpoint(checkpoint: Any, progress: Any) -> None:
+    """Refuse a ``checkpoint`` or ``progress`` of the wrong kind, before any other check."""
+    if checkpoint is not None and not isinstance(checkpoint, RefutationCheckpoint):
+        raise TypeError(
+            "checkpoint must be a RefutationCheckpoint or None; got "
+            f"{type(checkpoint).__name__}. Pass RefutationCheckpoint(directory)."
+        )
+    if progress is not None and not callable(progress):
+        raise TypeError(f"progress must be callable or None; got {type(progress).__name__}")
+
+
+def _fit_repeat_seeds(result: Any) -> Any:
+    """The seeds a refit reuses: a structural fit's fit seeds, else the repeats' seeds."""
+    if is_structural(result):
+        return structural_fit_seeds(result)
+    repeats = getattr(result, "repeats", None)
+    return [item.seed for item in repeats] if repeats else None
+
+
+def checkpoint_session(
+    result: Any,
+    *,
+    estimand: str,
+    seed: int | None,
+    tests: Sequence[str],
+    checkpoint: RefutationCheckpoint | None,
+    progress: Callable[[RefutationProgress], Any] | None,
+    read_only: bool = False,
+    drawn: bool = False,
+) -> CheckpointSession | None:
+    """Open a call's checkpoint, checking its request, when it requests a stored test.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fit.
+    estimand : str
+        The estimand the call refits.
+    seed : int or None
+        The call's resolved root seed; ``None`` only for the preview of a call that draws one.
+    tests : sequence of str
+        The requested tests.
+    checkpoint : RefutationCheckpoint or None
+        The directory.
+    progress : callable or None
+        The progress callback.
+    read_only : bool
+        Whether the session only reads, as the preview does.
+    drawn : bool
+        Whether the call draws its root seed with fresh entropy, which a refusal names.
+
+    Returns
+    -------
+    CheckpointSession or None
+        ``None`` when there is neither a checkpoint nor a callback, or no stored test runs.
+    """
+    if checkpoint is None and progress is None:
+        return None
+    if not any(name in CHECKPOINTED_TESTS for name in tests):
+        return None
+    parts = (
+        request_parts(result, estimand=estimand, seed=seed, repeat_seeds=_fit_repeat_seeds(result))
+        if checkpoint is not None
+        else {}
+    )
+    return CheckpointSession(checkpoint, parts, progress, read_only=read_only, drawn=drawn)
+
+
 def refute(
     result: TMLEResult,
     *,
@@ -5108,6 +5570,8 @@ def refute(
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     random_state: int | None = None,
+    checkpoint: RefutationCheckpoint | None = None,
+    progress: Callable[[RefutationProgress], Any] | None = None,
 ) -> RefutationResult:
     """Run refutation tests against a fitted model.
 
@@ -5216,6 +5680,16 @@ def refute(
         ``random_state``, and passing that value back repeats the report.  On a fit with a
         band-rank placebo the placebo sets are drawn first, so the draws of the other tests
         depend on whether ``tests`` holds ``"placebo"``.
+    checkpoint : RefutationCheckpoint or None
+        Directory that keeps each finished draw of ``dummy_outcome``, ``simulated_outcome``,
+        ``plasmode``, ``bootstrap_stability`` and ``bootstrap_measurement_error``. Run the
+        same call again with it and the stored draws are loaded rather than refitted, so an
+        interrupted call resumes and returns the report an uninterrupted call returns. The
+        other tests are not stored. :class:`RefutationCheckpoint` says what the directory
+        records and when it refuses.
+    progress : callable or None
+        Called after every draw of those five tests with a :class:`RefutationProgress`. An
+        exception it raises stops the call; the draws already stored stay.
 
     Returns
     -------
@@ -5229,52 +5703,36 @@ def refute(
         If no test is named, a test name is unknown, ``n_replicates`` is not a positive
         integer, or the negative-control test has no outcome. These checks precede every
         refusal and refit.
+    TypeError
+        If ``checkpoint`` is not a :class:`RefutationCheckpoint` or ``progress`` is not
+        callable. This check precedes the others.
     CapabilityError
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
-    refuse_augmented_trial(result, "refute", "refutation")
-    # The malformed arguments first, and the refusals of a well-formed request after them.
-    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
-    # fits and only then discover that its outcome process has no effect derivation. The
-    # ``refute`` capability row reads the same table, so a row that reads available is a
-    # request this line admits.
-    request = _RefuteRequest(
-        estimand,
-        _validated_tests(
-            tests,
-            n_replicates,
-            negative_control_outcome,
-            placebo_mode,
-            negative_control_kind,
-            negative_control_floor,
-            future_treatment_control,
-            future_treatment_node,
-        ),
-        n_replicates,
-        dummy_outcome,
-        simulated_outcome,
-        outcome_bands,
-        bootstrap_measurement_error,
-        measurement_error_rule,
-        placebo_mode,
-        bool(noise_nodes),
+    _validated_checkpoint(checkpoint, progress)
+    request = _refute_preflight(
+        result,
+        estimand=estimand,
+        tests=tests,
+        n_replicates=n_replicates,
+        placebo_mode=placebo_mode,
+        noise_nodes=noise_nodes,
         negative_control_outcome=negative_control_outcome,
         negative_control_kind=negative_control_kind,
+        negative_control_floor=negative_control_floor,
         future_treatment_control=future_treatment_control,
-        future_treatment_node=int(future_treatment_node),
-        negative_control_floor=float(negative_control_floor),
+        future_treatment_node=future_treatment_node,
+        dummy_outcome=dummy_outcome,
+        simulated_outcome=simulated_outcome,
+        outcome_bands=outcome_bands,
+        bootstrap_measurement_error=bootstrap_measurement_error,
+        measurement_error_rule=measurement_error_rule,
     )
     if is_continuous_survival(result):
         # A continuous-time fit has its own request rules, which never read ``result.data``
         # as point-treatment data, and its own refits (X101).
-        from ._continuous_survival_refute import (
-            continuous_survival_refute,
-            continuous_survival_rules,
-        )
+        from ._continuous_survival_refute import continuous_survival_refute
 
-        refusal = continuous_survival_rules(result, request)
-        if refusal is not None:
-            raise CapabilityError.from_refusal(refusal)
         return continuous_survival_refute(
             result,
             request,
@@ -5282,18 +5740,16 @@ def refute(
             subset_fraction=subset_fraction,
             seed_spread=seed_spread,
         )
-    refusal = _first_refusal(result, request)
-    if refusal is not None:
-        raise CapabilityError.from_refusal(refusal)
     requested = request.tests
-    estimator = result.estimator
+    estimator = _bandless(result)
     processes = {name: request.process(name) for name in _GENERATED_TESTS}
-    # The table admitted each generated test, so this reads the contrast direction and
-    # refuses nothing.
-    contrasts = {
-        name: _validate_generated_eligibility(result, estimand, processes[name], name)
-        for name in request.generated
-    }
+    # The table admitted each generated test, so this refuses nothing. It reads the contrast
+    # direction and builds a longitudinal plasmode's law and truth, once per call.
+    contrasts = {}
+    for name in request.generated:
+        target = _validate_generated_eligibility(result, estimand, processes[name], name)
+        assert target is not None
+        contrasts[name] = target
 
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)
@@ -5321,6 +5777,15 @@ def refute(
     # nuisances, and an estimator with no ``random_state`` redraws its folds every time, so
     # seeding the draws alone would leave the report unrepeatable.
     seed = resolve_assessment_seed(result, random_state)
+    session = checkpoint_session(
+        result,
+        estimand=estimand,
+        seed=seed,
+        tests=requested,
+        checkpoint=checkpoint,
+        progress=progress,
+        drawn=random_state is None and getattr(estimator, "random_state", None) is None,
+    )
     rng = np.random.default_rng(seed)
     data = result.data
     outcomes: list[RefutationTest] = []
@@ -5341,10 +5806,10 @@ def refute(
         else None
     )
     placebo_draw: str = "markov" if panel else (placebo_mode or "permute")
-    banded_sets: list[Any] | None = None
+    banded_states: list[dict[str, Any]] | None = None
     if bands is not None:
         placebo_draw = f"band_{placebo_draw}"
-        banded_sets = _band_placebo_sets(
+        banded_states = _band_placebo_states(
             result,
             bands,
             rng,
@@ -5436,8 +5901,11 @@ def refute(
                 )
                 continue
             fits = (
-                [refit(replacement) for replacement in banded_sets]
-                if banded_sets is not None
+                [
+                    refit(_band_placebo_draw(data, bands, replay(state), placebo_mode))
+                    for state in banded_states
+                ]
+                if banded_states is not None and bands is not None
                 else [
                     refit(_placebo_data(data, rng, placebo_mode, kernel))
                     for _ in range(replicate_count)
@@ -5597,22 +6065,36 @@ def refute(
             )
 
         elif name == "subset":
-            drawn = [_subset_draw(data, rng, subset_fraction) for _ in range(replicate_count)]
-            thin = structural_subset_refusal(result, [d[0] for d in drawn]) if structural else None
-            if thin is not None:
-                # Every draw is read before the first subset refit, so a draw that would stop
-                # at the Jacobian floor part way through the test refuses it first.
-                raise CapabilityError.from_refusal(thin)
-            fits = [
-                refit(
+            # Each draw is refitted and dropped before the next, so the test holds one draw at a
+            # time (X106 part G1). A structural fit checks every draw before the first refit, so
+            # it keeps the generator state before each draw and regenerates the draw at its
+            # refit; ``rng`` is consumed exactly as by drawing every subset up front.
+            def subset_fit(index: np.ndarray) -> tuple[float, float]:
+                return refit(
                     data.subset(index),
                     frozen_folds=_sliced_folds(result, index),
                     rule_rows=index,
                     hold_rule=True,
                 )
-                for index, _, _ in drawn
-            ]
-            units, size = drawn[0][1], drawn[0][2]
+
+            fits = []
+            subset_states: list[dict[str, Any]] = []
+            units = size = 0
+            for _ in range(replicate_count):
+                if structural:
+                    subset_states.append(generator_state(rng))
+                index, units, size = _subset_draw(data, rng, subset_fraction)
+                if structural:
+                    thin = structural_subset_refusal(result, [index])
+                    if thin is not None:
+                        # A draw that would stop at the Jacobian floor part way through the
+                        # test refuses it before the first refit.
+                        raise CapabilityError.from_refusal(thin)
+                else:
+                    fits.append(subset_fit(index))
+                del index
+            for state in subset_states:
+                fits.append(subset_fit(_subset_draw(data, replay(state), subset_fraction)[0]))
             outcomes.append(
                 _subset_record(
                     estimand=estimand,
@@ -5643,6 +6125,7 @@ def refute(
                     frozen_seeds=structural_fit_seeds(result),
                 )
                 control_bounds = None
+                control_estimator = estimator
             else:
                 control_estimator, control_bounds = _control_estimator(
                     estimator, str(replacement.family), _control_values(replacement, longitudinal)
@@ -5687,6 +6170,9 @@ def refute(
                     detail=(
                         f"the negative-control outcome shows an estimate of {value:+.5g} "
                         f"(z = {z:+.3g} {unit} from the no-effect value {no_effect_null:g})"
+                        + _control_learner_clause(
+                            estimator, control_estimator, replacement, structural=structural
+                        )
                         + _bounds_clause(control_bounds)
                     ),
                     rung=resolution.rung,
@@ -5739,6 +6225,7 @@ def refute(
                     root_seed=seed,
                     fit=fit,
                     target=contrasts[name],
+                    session=session,
                 )
             )
         elif name == "bootstrap_stability":
@@ -5750,6 +6237,7 @@ def refute(
                     n_replicates=replicate_count,
                     root_seed=seed,
                     is_ratio=is_ratio,
+                    session=session,
                 )
             )
         else:
@@ -5764,6 +6252,7 @@ def refute(
                     rule=measurement_error_rule,
                     n_replicates=replicate_count,
                     root_seed=seed,
+                    session=session,
                 )
             )
 

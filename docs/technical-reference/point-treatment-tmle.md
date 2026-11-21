@@ -267,7 +267,9 @@ strata and the bootstrap are admitted, with the rules of the next section.
 For a declared intermediate $Z$, `ControlledDirectEffect(intermediate=z)` targets the treatment
 contrast with $Z$ fixed at $z$. Its clever covariate composes the treatment, intermediate, and
 observation mechanisms. This is a controlled direct effect at a specified level. It is not a
-mediation decomposition.
+mediation decomposition. Its projection onto a basis of baseline modifiers,
+`ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, is in
+[Conditional effects](conditional-effects.md#controlled-direct-effects).
 
 **Double robustness differs between these targets.** The natural-course mean is consistent if
 $m$ is right or if $\pi$ is right. An arm-indexed target with missingness is consistent if $Q$ is

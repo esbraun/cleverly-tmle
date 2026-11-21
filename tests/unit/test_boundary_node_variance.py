@@ -139,7 +139,7 @@ def _loading(result: Any, key: str, time: int) -> np.ndarray:
     else:
         step = next(step for step in fit.steps if step.time == time)
         coefficient = weights * step.clever
-        rows = np.asarray(step.trained_on, dtype=bool)
+        rows = np.array(step.trained_on, dtype=bool)  # a copy: the record's array is shared
     rows &= weights > 0.0
     units = _units(data)
     m = np.unique(units[rows]).size

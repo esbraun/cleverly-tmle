@@ -24,7 +24,15 @@ import pytest
 
 from cleverly import CausalStudy, RegimeContrast, TimeToEvent
 from cleverly.exceptions import DataError, MethodConfigurationError
-from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, _chunked, _memory, engine
+from cleverly.survival import (
+    ContinuousSurvivalTMLE,
+    CoxHazard,
+    _chunked,
+    _memory,
+    _targeting,
+    engine,
+)
+from cleverly.survival._targeting import predictable_rows
 from cleverly.survival.data import ContinuousSurvivalData
 from cleverly.survival.diagnostics import continuous_truncation_curve
 from cleverly.validation import refute
@@ -97,6 +105,11 @@ WINDOWS = {
 }
 
 
+def _windows(measured: Measured) -> list[tuple[str, str]]:
+    """The windows a fit opened, with their phases."""
+    return [(window, phase) for window, phase in WINDOWS.items() if window in measured.peaks]
+
+
 def _measure(
     estimator: ContinuousSurvivalTMLE,
     data: Any,
@@ -153,6 +166,7 @@ def _measure(
         resident: int | None,
         final: Any,
         n_jobs: int,
+        own_floor: Any,
     ) -> Any:
         kept = resident if forced is None else round(forced * len(plan.bounds))
         rows = sum(hi - lo for lo, hi in plan.bounds[:kept])
@@ -179,6 +193,7 @@ def _measure(
                 resident=kept,
                 final=traced_final if final is not None else None,
                 n_jobs=n_jobs,
+                own_floor=own_floor,
             )
         finally:
             switch("walk", None)
@@ -228,6 +243,10 @@ def _terms(measured: Measured) -> dict[str, int]:
     flags = {"factual": shape["factual_tilt"], "restricted": shape["restricted"]}
     resident = _memory.slot_bytes(min(measured.resident * c, n), J, G)
     spread = 8 * n * 2 * J * _memory.OFF_GRID
+    if shape["switched"]:
+        # The switched variance's predictable variation: its buffer of targeted jumps on the
+        # full grid, (2, J, b, M), which outweighs the spread.
+        spread = 16 * J * min(n, predictable_rows(J, shape["rows"], M)) * M
     return {
         # The hazard fits' (n_train, d, d) arrays.
         "nuisance": _memory.COX_FIT * shape["train_size"] * shape["design_width"] ** 2,
@@ -237,7 +256,8 @@ def _terms(measured: Measured) -> dict[str, int]:
         "walk": resident
         if measured.resident
         else _memory.slot_bytes(c, J, G) + _memory._trial(c, J, M, G, **flags),
-        # The kept blocks, or with none kept the off-grid diagnostic's (n, 2J x 100) spread.
+        # The kept blocks, or with none kept the off-grid diagnostic's (n, 2J x 100) spread or
+        # the predictable variation's buffer.
         "final": resident if measured.resident else spread,
     }
 
@@ -252,6 +272,22 @@ FIXTURES: dict[str, tuple[int, dict[str, Any], float | None]] = {
         0.0,
     ),
     "factual tilt, half the blocks kept": (2, {"tilt": "factual"}, 0.5),
+    "two causes, influence-curve variance, no block kept": (
+        2,
+        {"variance": "influence_curve"},
+        0.0,
+    ),
+    # Four weight rows of each cause: the predictable moment's covariates grow with J J Q.
+    "two causes, two restricted means, factual, every block kept": (
+        2,
+        {"restricted_horizons": (1.5, 2.0), "tilt": "factual"},
+        1.0,
+    ),
+    "three causes, restricted mean, cross-fitted, no block kept": (
+        3,
+        {"cross_fit": True, "restricted_horizons": (2.0,)},
+        0.0,
+    ),
 }
 
 
@@ -270,7 +306,7 @@ def test_each_phase_stays_below_its_prediction_and_the_walk_within_ten_percent(
     assert measured.result.record.steps >= 2, "the fixture must run a trial after an acceptance"
     assert measured.blocks >= 4
     assert measured.resident == round((resident or 0.0) * measured.blocks)
-    for window, phase in WINDOWS.items():
+    for window, phase in _windows(measured):
         assert measured.peaks[window] <= measured.predicted[phase], window
     # The walk and the final pass bind; each prediction stays within ten percent of its peak.
     for window in ("walk", "final"):
@@ -354,16 +390,29 @@ def test_a_stratified_learner_s_cell_tables_are_counted() -> None:
     )
     measured = _measure(estimator, data, resident=0.0)
     assert len(np.unique(w)) == 40 and measured.block >= 40
-    for window, phase in WINDOWS.items():
+    for window, phase in _windows(measured):
         assert measured.peaks[window] <= measured.predicted[phase], window
 
 
-def test_the_traced_peak_grows_with_n_not_with_n_times_the_grid() -> None:
-    """DR17: with no block kept, doubling n about doubles the peak (the dense walk's is 4x)."""
+def test_the_traced_peak_grows_with_n_not_with_n_times_the_grid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DR17: with no block kept, doubling n about doubles the peak (the dense walk's is 4x).
+
+    The default switched variance, with its predictable variation's buffer held to a few MB as
+    the walk's blocks are, so that at these sizes it holds fewer units than ``n`` (a buffer of
+    every unit grows as ``n M``).
+    """
+    monkeypatch.setattr(_targeting, "_PV_BLOCK_CELLS", 2**17)
     peaks = []
     for n in (1_000, 2_000):
         measured = _measure(_estimator(), _data(n, 1), resident=0.0)
         assert measured.blocks >= 4
+        assert measured.shape["switched"]
+        J, Q, M = (measured.shape[key] for key in ("causes", "rows", "times"))
+        assert predictable_rows(J, Q, M) < measured.block < n
+        for window, phase in _windows(measured):
+            assert measured.peaks[window] <= measured.predicted[phase], window
         peaks.append(max(measured.peaks.values()))
     assert peaks[1] <= 2.5 * peaks[0]
 
@@ -380,6 +429,7 @@ def test_the_guard_reads_the_full_grid_with_no_block_kept() -> None:
         "design_width": 4,
         "simultaneous": False,
         "n_multiplier": 1_000,
+        "switched": True,
     }
     full = _memory.peak_bytes(**shape)
     reduced = _memory.peak_bytes(**shape, kept=1_000)
@@ -404,6 +454,7 @@ def test_kept_blocks_leave_the_allocator_margin_within_an_explicit_budget(
         "simultaneous": False,
         "n_multiplier": 1_000,
         "kept": 2_000,
+        "switched": True,
     }
     from cleverly.survival._chunked import blocks, chunk_size
 
@@ -458,9 +509,9 @@ def _small() -> ContinuousSurvivalData:
     return _data(300, 1)
 
 
-def _refused_prediction(**extra: Any) -> int:
+def _refused_prediction(data: ContinuousSurvivalData | None = None, **extra: Any) -> int:
     with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
-        _estimator(max_memory_bytes=1, **extra).fit_data(_small())
+        _estimator(max_memory_bytes=1, **extra).fit_data(_small() if data is None else data)
     assert caught.value.predicted is not None
     return caught.value.predicted
 
@@ -477,12 +528,45 @@ def test_the_budget_refuses_one_byte_below_the_prediction_and_fits_at_it() -> No
         "max_memory_bytes=",
         "Nothing was fitted",
         "keeps no block between passes",
+        "No budget lowers that with these settings",
     ):
         assert part in text
     for budget in (predicted, predicted + 1):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             assert _estimator(max_memory_bytes=budget).fit_data(_small())
+
+
+def test_a_refusal_names_the_phase_and_the_lower_memory_variance() -> None:
+    """S4-2: the switched variance's final pass binds; the refusal names it and the way out.
+
+    Two causes, whose predictable moment grows with J J Q, so the variation's buffer binds
+    beside one block's working arrays.
+    """
+    data = _data(300, 2)
+    switched = _refused_prediction(data)
+    plain = _refused_prediction(data, variance="influence_curve")
+    assert plain < switched
+    with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
+        _estimator(max_memory_bytes=switched - 1).fit_data(data)
+    text = str(caught.value)
+    assert (
+        "in the final pass (the off-grid diagnostic and the switched variance's predictable "
+        in (text)
+    )
+    assert (
+        f'With variance="influence_curve" the fit needs less, a predicted {_memory._gib(plain)}'
+        in text
+    )
+    # The influence-curve variance fits within the budget the switched one is refused at, and
+    # its own refusal names neither the variation nor itself.
+    assert _quiet(
+        lambda: _estimator(max_memory_bytes=switched - 1, variance="influence_curve").fit_data(data)
+    )
+    with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
+        _estimator(max_memory_bytes=plain - 1, variance="influence_curve").fit_data(data)
+    text = str(caught.value)
+    assert "predictable variation" not in text and "influence_curve" not in text
 
 
 class _Spy(CoxHazard):
@@ -604,6 +688,7 @@ def test_a_study_refusal_spells_the_estimator_call_that_reproduces_it(
     text = str(caught.value)
     assert "cleverly.survival.ContinuousSurvivalTMLE((1.0, 2.0), " in text
     assert "simultaneous=True" in text and "max_memory_bytes=..." in text
+    assert "variance='switched'" in text
     assert "With this seed it returns the result this study would." in text
     call = text.split("cleverly.survival.ContinuousSurvivalTMLE(", 1)[1].split(".fit_data(", 1)[0]
     call = call[: call.rindex(")")].replace("max_memory_bytes=...", "max_memory_bytes=2**62")

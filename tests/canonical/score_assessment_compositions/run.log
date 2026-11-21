@@ -1,0 +1,21 @@
+=== score-assessment-compositions declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/score_assessment_compositions/regenerate.py --output /root/sac-run-1 --jobs 4
+commit: 0635530bf9f6f4b6429d944b3130a065be36e4f0; upstream 0635530bf9f6f4b6429d944b3130a065be36e4f0
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 680366ca30977edc092be1d2b704dc4217c63c06bbda73221c5fea7c86e051ee
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-20T18:57:29+00:00
+finished: 2026-11-20T19:27:22+00:00
+wall seconds: 1792.3
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: b7926d2b79453f4b3a94ddc6551931f3102d8923fa949e7053d0b79395984083
+sha256 performance-tests.csv: c9f6024a2aafd7b60ec7fca2e76b5f81583bf142ee1cde5e38bc87b7c35a9f96
+sha256 properties.csv: b7553338e5a198e9e8a1a868758c594ca7b8a1af719d3113d051bd29ba61dbdd
+sha256 property-replicates.parquet: 6e4a564741b02e275394edd99b2534b28beb54d20f577722e53af044ec3e826d
+sha256 replicates.parquet: bb9740666b5808f5702f6011b55e349775acf5473b7fd661eae424d837d4cca2
+sha256 summary.csv: dc871c726d074ab6ff068f2e7ed79e4348bbbf7213a39c6a8d250b1b287b1ae6
+

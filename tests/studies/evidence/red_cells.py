@@ -597,6 +597,101 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "fold_variance_calibration/equal10__v2_j4__t_reference",
         "fold_variance_calibration/equal10__v2_j4__known_propensity",
     ),
+    # The few-cluster floor studies (X54 parts (a) to (c)): every red of
+    # ``few-cluster-floor-tmle`` below its family's floor, under the reading ``declared_route``
+    # or ``candidate_owners`` returns from the committed summary (``few_cluster_floor.red_owners``;
+    # the design test recomputes it), and the primary's arm-mean truth row below the arm-mean
+    # floor of 20 (``few_cluster_floor.primary_owners``; post-run ruling 2, R3).
+    # ``few-cluster-floor-cross-fitted-ltmle`` has no red row.
+    "X54-cluster-floor": _keys(
+        "few-cluster-floor-tmle",
+        "truth",
+        "cleverly/floor_unequal_informative_j10/ey_regimen[never]",
+    )
+    + _keys(
+        "few-cluster-floor-tmle",
+        "property",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j6__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j6__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j6__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j6__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j4__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j4__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j5__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j5__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j4__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j4__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j5__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j5__wang_inflated",
+        "few_cluster_reference/drtmle_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j5__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j6__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j7__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j4__t_reference",
+        "few_cluster_reference/drtmle_known__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/ltmle_in_sample__equal10__j4__t_reference",
+        "few_cluster_reference/ltmle_in_sample__equal10__j5__t_reference",
+        "few_cluster_reference/ltmle_in_sample__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j7__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j7__iid_t_control",
+        "few_cluster_reference/tmle_in_sample_estimated__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_in_sample_estimated__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_in_sample_known__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_in_sample_known__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j5__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j6__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j7__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j8__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j9__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_known__equal10__j4__t_reference",
+    ),
+    # The one red no declared reading holds: the five-covariate estimated stacked IID control at
+    # 10 clusters, which sends stacked TMLE to a redeclaration (``few_cluster_floor.REDECLARED_REDS``).
+    "X54-stacked-d5-redeclaration": _keys(
+        "few-cluster-floor-tmle",
+        "property",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control",
+    ),
     "X41-negative-control": _keys(
         "sequential-baselines",
         "property",
@@ -631,6 +726,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-refute-band/point/ate",
         ),
+    ),
+    # The sanity phase of the continuous-time survival refutation study (X101): 200
+    # replications of the default fit on the size law. Two rows cannot resolve the coverage
+    # floor or the SE-ratio screen at that size; the cause-2 rows read a small bias.
+    "X101-short-study-sanity": _keys(
+        "refuter-calibration-continuous-survival",
+        "truth",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=2.32]",
     ),
     # X92 part 5. The paired TOC(0.1) difference of two correlated scores, the one declared
     # reporting row of ``targeting-curves``: the oracle computation read its bootstrap SE ratio
@@ -952,7 +1057,12 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     TypeError
         If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
-    tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    tables = {
+        name: pd.read_csv(record.artifact(filename))
+        for name, filename in FRAMES.items()
+        if name != "properties"
+    }
+    tables["properties"] = property_verdicts.read_property_table(record)
     if record.paired_role == "descriptive":
         # A descriptive paired row states no verdict, so the ledger reads none of them and
         # counts none of them.  The study page publishes the rows themselves.

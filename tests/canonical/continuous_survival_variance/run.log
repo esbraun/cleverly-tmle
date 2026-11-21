@@ -1,0 +1,28 @@
+=== continuous-survival-variance declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/continuous_survival_variance/regenerate.py --output /home/user/scratch-x6var5 --jobs 4
+commit: 4a9504a7dd9156a9b466f3f2f1028a398a7b4e15; upstream 4a9504a7dd9156a9b466f3f2f1028a398a7b4e15
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 125, sha256 697c9041cae88c535c224900ff5974e569c002cf45ec811c4ebd9a231e94a6b1
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-20T16:47:28+00:00
+finished: 2026-11-20T17:45:41+00:00
+wall seconds: 3492.7
+exit code: 0
+sha256 candidate-readings.csv: 675bd710718712d33eea00cad93293bf43667d4fe054bea3f370e69482e7e1f5
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 failure-accounting.csv: 739c1de89f8a26bff3541d32f6726cf24c1de9b66a6ead4435fe5fbadcb57ad8
+sha256 failures.csv: 364224ed42e262bc196d059fce33b23de973eb6d27c11270ef2ec181ed6f9af0
+sha256 floors.csv: f3f92b337e1439efd4bc91bab6f995e1e8a5cd573537cf9464c9757ac7af219e
+sha256 manifest.json: d731b17b2581de0f15e7e7825a632dcc4ffbffb666f829580bb689e2ec16c92c
+sha256 performance-tests.csv: bed45978327e54f8d82c1945bdd7b9abdf82e81434b8f4aec14aecae7dccb15f
+sha256 properties.csv: f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a
+sha256 property-replicates.parquet: dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8
+sha256 replicates.parquet: 5d124da4ea40f18212fac85c50c36a1c0e1a596fbc42d163b92c99645ad33b22
+sha256 ship-rule.csv: cd75a9b03696d6f93674e1f789ce162be35c0dcb010166c38a68ac8b00e79c95
+sha256 summary.csv: 8ca76b6393a313019878ca9213a184ded37cde8e7e955c6df4c36e1911b08a08
+sha256 targeting-readings.csv: 934b81cff1c3a58283bf59a3f3d13126f0b1ddcf7d0dc21ce2f1ee989c793c31
+sha256 variance-rows.csv.gz: aaa639e271d57b4890614bd78203cf654c4f71e83fcbd6752d9dcfda1888b1e7
+

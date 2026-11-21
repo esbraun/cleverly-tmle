@@ -1,0 +1,4 @@
+pilot_2 arms: ()
+band R: {'band_obs_4k': 2400, 'band_crr_4k': 2400, 'band_clustered_4k': 2400, 'band_rep3_4k': 2400}
+primary R: 2400
+calibration R: (12000, 'x32a')

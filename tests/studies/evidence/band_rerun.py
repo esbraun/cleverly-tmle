@@ -110,7 +110,14 @@ from scipy.stats import binom
 
 from tests.canonical.regenerate import ARTIFACT_NAMES as REGENERATION_ARTIFACTS
 from tests.canonical.regenerate import PROPERTY_FAILURE_FILES
-from tests.studies.evidence import failures, property_failures, replication, seeds, simultaneous
+from tests.studies.evidence import (
+    failures,
+    property_failures,
+    property_verdicts,
+    replication,
+    seeds,
+    simultaneous,
+)
 from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -152,9 +159,11 @@ EXCLUDED = {
     ),
 }
 #: Studies registered after the flip, whose committed run already measured its band cells under
-#: :data:`DEFAULT_BAND`, so the wave has nothing to rerun: slug to the ``cleverly_commit`` its
-#: manifest records (a descendant of :data:`FLIP_COMMIT`) and why.  :func:`validate_plan` holds
-#: each entry to its manifest.
+#: the shipped band (:data:`DEFAULT_BAND`, or a curve's own default that the flip never
+#: changed), so the wave has nothing to rerun: slug to the ``cleverly_commit`` its manifest
+#: records (a descendant of :data:`FLIP_COMMIT`) and why.  :func:`validate_plan` holds each
+#: entry to its manifest.  An entry leaves the committed plan, whose digest a complete rerun
+#: records, unchanged.
 POST_FLIP = {
     "hazard-msm": (
         "1f52ba733f0c64946c875f67b83c2d45bf9207e8",
@@ -177,6 +186,12 @@ POST_FLIP = {
         "6fe1bac59025fe460078e82410bd2f0881b3d2da",
         "X70 part (b2), first registered 2026-11-15 from a run at 10d19ab, after the flip; "
         "regenerated at 6fe1bac under the shipped intervals (Fix-3 PR 3)",
+    ),
+    "projection-evidence": (
+        "f60abdf71c8b7c8497702b57b03ed6b26a7c856f",
+        "P1 PR 2, first registered 2026-11-20 from a run at f60abdf, after the flip; its bands "
+        "are projection curves' bands from effect_curve(grid=, n_replicates=1000), whose own "
+        "default (the Rademacher multiplier, identity scale) the flip did not change",
     ),
 }
 #: Planned studies regenerated in full after the wave installed: slug to the
@@ -375,7 +390,7 @@ def candidate_records() -> list[StudyRecord]:
         if record.slug in POST_FLIP:
             continue
         path = record.artifacts / "properties.csv"
-        if path.exists() and not band_cells(pd.read_csv(path)).empty:
+        if path.exists() and not band_cells(property_verdicts.read_property_table(record)).empty:
             out.append(record)
     return out
 

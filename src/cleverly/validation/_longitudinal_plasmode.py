@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from ..data.validate import MIN_OBSERVATIONS
 from .outcome_processes import GaussianAdjustmentOutcome, standardized_sum
 
 #: The largest number of histories per support point that the truth enumerates. A law with
@@ -548,13 +549,29 @@ def _policy_density(
     A label, a rule and a stochastic node read the plan that the package resolves on the
     simulated histories.
     """
-    from ..longitudinal.regimen import resolve_plans
+    from ..longitudinal.regimen import Regimen, resolve_plans
 
     time = node + 1
+    if type(regimen) is Regimen and law.support.n >= _STATIC_PANEL_ROWS:
+        # A static regimen assigns one arm per node on every reachable history, so one
+        # resolution on a panel where every row is reachable gives the whole column (X106
+        # G5e). The panel cannot be the law's support: there ``encode_assignment`` writes 0
+        # at a node a row cannot reach, which would change the truth.
+        index = np.arange(_STATIC_PANEL_ROWS)
+        zeros = [np.zeros((index.size, block.shape[1])) for block in blocks]
+        panel = _reachable(law, index, zeros, np.zeros((index.size, treatment.shape[1])))
+        (plan,) = resolve_plans((regimen,), panel)
+        return np.full(rows.size, float(plan.values[0, node] == 1.0))
     (plan,) = resolve_plans((regimen,), _histories(law, rows, blocks, treatment))
     if plan.is_policy_node(time):
         return np.asarray(plan.policy_at(time)[:, 1], dtype=float)
     return np.asarray(plan.values[:, node] == 1.0, dtype=float)
+
+
+#: Rows of the all-reachable panel a static regimen is resolved on: the fewest a panel holds
+#: (``LongitudinalData.subset`` refuses fewer). A validated support always has as many, so the
+#: guard in :func:`_policy_density` is defensive.
+_STATIC_PANEL_ROWS = MIN_OBSERVATIONS
 
 
 def _histories(
@@ -568,6 +585,16 @@ def _histories(
     The nodes after the current one hold zeros. A rule reads its own node's history only,
     and the truth reads the current node's column of the plan alone.
     """
+    return _reachable(law, rows, blocks, treatment)
+
+
+def _reachable(
+    law: LongitudinalPlasmodeLaw,
+    rows: np.ndarray,
+    blocks: list[np.ndarray],
+    treatment: np.ndarray,
+) -> Any:
+    """The panel of :func:`_histories`: every row uncensored and with no event."""
     data = law.support
     nodes = int(data.n_times)
     done = len(blocks)

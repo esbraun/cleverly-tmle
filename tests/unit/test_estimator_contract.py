@@ -507,6 +507,8 @@ BACKEND_ROUTES: dict[str, str] = {
     "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
     "PlannedFits": "argument",
+    # X106 G2: the refutation refit preview has no fit data of its own.
+    "PlannedRefits": "argument",
     "SurvivalSelection": "argument",
     "DriftRecord": "argument",
     "StudyResult": "argument",
@@ -544,6 +546,11 @@ BACKEND_ROUTES: dict[str, str] = {
     "ScoreAssessment": "field",
     # The EP learner's debiasing-score report (P1 part b).
     "DebiasingScores": "field",
+    # X104: the dose-response assessment reports carry the fit's backend name, and a
+    # variable-importance run's per-candidate reports carry the run's.
+    "DoseResponseSupportReport": "field",
+    "DoseResponseScoreReport": "field",
+    "CandidateReports": "field",
 }
 
 

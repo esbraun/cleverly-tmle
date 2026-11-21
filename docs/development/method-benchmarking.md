@@ -203,6 +203,7 @@ rule never infers a pair from a cell name.
 | `simultaneous_coverage` | S2 in the band, or at the ceiling for the control | `row` |
 | `crossfit_overfitting`, `clustered_inference` | S5 and S2 on each cell, S7 gain on the pair | `pair` |
 | `few_cluster_reference` | S1 equivalent, S2 floor, S5 ceiling | `row` |
+| `few_cluster_candidate`, `few_cluster_candidate_pooled` | S7 gain on the candidate and reference pair. The pooled row recomputes its gain over the configuration's pairs it names, with the same S7 fill | `pair`, and `row` for the pooled row |
 | the 16 displacement families | S1 on each cell, S12 minimum over the labels | `family` |
 | `selector_necessity` | S1 on each arm, S13 maximum over the paths | `family` |
 | `generated_design` | S5 and S2 on each cell, then every cell passes | `family`, or `label` in `ctmle_oat_per_arm` |
@@ -259,6 +260,15 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
+
+A study with thousands of cells would cost more than the job's time limit, because every
+extra-column kind of every cell summarizes every row. Its property module declares a subset
+instead: `DIFFERENTIAL_BUDGET` caps each cell's replicates, and `differential_cells()` names the
+`family/cell` cells to read, in whole groups of the module's rule.
+`property_differential.declared_subset` applies it to committed and synthetic rows alike, and the
+module's clause bindings are found on that subset. The two few-cluster floor modules declare 200
+replicates on six groups and four groups. Measured on one core, the whole differential of each
+takes 300 and 190 CPU-seconds.
 
 The job ran 5,892 cases in about 7,600 CPU-seconds when measured, about 35 minutes on four
 workers, so it does not run in the fast tier. Its timeout is 180 minutes, because later studies

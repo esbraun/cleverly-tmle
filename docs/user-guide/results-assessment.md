@@ -200,11 +200,16 @@ covers the `"greedy"` default, `"ordered"`, `"discrete"`, `"lasso"`,
 conditions in
 [parametric per-arm intervals](../technical-reference/collaborative-tmle.md#parametric-per-arm-intervals);
 and a fit that selects nothing, such as `"discrete"` whose one candidate is the full adjustment set.
+
 A `DRTMLE` fit with a `guard` and varying weights declared estimated
 (`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
 below 3 clusters with positive weight mass, and reports them under the experimental label from 3
-to 9 clusters, or to 19 for longitudinal TMLE. The property `result.inference_status` gives the status of the fit, and
-`point.supplies_inference` gives it for one estimate.
+clusters up to the fit's floor. The floor is 10 clusters for most fits and 20 for longitudinal TMLE.
+A few fits have a lower floor for the average treatment effect only (for longitudinal TMLE, the
+difference between always treating and never treating)
+([clusters](../technical-reference/inference.md#clusters)). The property
+`result.inference_status` gives the status of the fit, and `point.supplies_inference` gives it for
+one estimate.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.
@@ -661,6 +666,27 @@ draws, and a budget below 400 prints its readings without a verdict. A budget be
 [The technical reference](../technical-reference/validation-methods.md#refutation-operations)
 states the bands and the evidence ladder. Generated outcomes apply only to identified additive
 contrasts for binary point treatments.
+
+To see what a refutation will cost before you run it, call
+`ate_result.diagnostics.planned_refits(...)` with the same arguments you would pass to
+`refute()`. It fits nothing. It returns one row per test with the number of refits and the model
+fits they make, and it raises the same error `refute()` would raise before its first refit. Tests
+that refit drawn data, such as `placebo`, `subset` and the generated outcomes, show an upper
+bound, because a drawn fold where a binary target has one class needs no model.
+[The technical reference](../technical-reference/validation-methods.md#refutation-operations)
+says which counts are exact.
+
+A 400-draw generated-outcome test refits 400 times, which takes tens of minutes on a large fit. Pass
+`checkpoint=RefutationCheckpoint("refute-draws")` (from `cleverly.validation`) and each finished
+draw is saved as a file in that folder. If the call stops, run the same call again with the same
+folder: it loads the saved draws, refits only the rest, and returns the report an uninterrupted
+call returns. This covers `dummy_outcome`, `simulated_outcome`, `plasmode`, `bootstrap_stability`
+and `bootstrap_measurement_error`, the tests with long draw counts.
+
+A call that changes the fit, the data, the seed or the test's settings refuses the folder and
+names what changed. A fit with no seed draws one at the first call, and the refusal of a second
+call names it, so pass it as `random_state=` to resume. Pass `progress=print`, or any function,
+to see each draw as it finishes.
 
 `score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
 lives on. A point-treatment fit compares the score in the outcome’s own units against

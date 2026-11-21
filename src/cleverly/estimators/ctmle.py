@@ -746,6 +746,11 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
         "a positive integer repeats; each draw is a V-fold stack, and the fit reports their median",
     ),
+    "cluster_variance": (
+        lambda v: v == "influence_curve",
+        "cluster_variance='influence_curve'. The cluster jackknife of the stacked interval "
+        "is not implemented",
+    ),
     "stratify_folds": (
         _anything,
         "any value; the engine admits only 'none' with cross_fit=True, so the fold labels "
@@ -3525,12 +3530,25 @@ default="greedy"
                         random_state=seed_value,
                     )
                     index, risk = cv_penalty(
-                        x, a, w, grid, inner.assignment, classes=arms, layer=layer
+                        x,
+                        a,
+                        w,
+                        grid,
+                        inner.assignment,
+                        classes=arms,
+                        layer=layer,
                     )
                     pair = (float(grid[index]), float(grid[nearest_neighbour(grid, index)]))
                     cv_risks.append(risk)
                     chosen_risks.append(float(risk[index]))
-                fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
+                fits = penalty_path(
+                    x,
+                    a,
+                    w,
+                    sorted(pair, reverse=True),
+                    classes=arms,
+                    layer=layer,
+                )
                 by_penalty = {fit.penalty: fit for fit in fits}
                 mechanism[test] = by_penalty[pair[0]].predict_proba(design[test])
                 partner[test] = by_penalty[pair[1]].predict_proba(design[test])

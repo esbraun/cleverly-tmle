@@ -20,6 +20,7 @@ import numpy as np
 
 from .._inference_status import (
     NO_CONSTANT_ARM_BANDS,
+    NO_JACKKNIFE_BANDS,
     NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
@@ -51,6 +52,7 @@ from ..estimators._point_summary import (
     _warning_notes,
 )
 from ..inference.cluster import fewest_clusters, positive_mass_clause
+from ..inference.cluster_jackknife import jackknife_summary_line
 from ..inference.multiplier import band_member, constant_arm_members, out_of_range
 from .estimator import HORIZON_INFIX
 from .regimen import DynamicRegimen, Regimen, _is_mtp, _is_tilt
@@ -1058,6 +1060,9 @@ def _settings(result: LongitudinalResult) -> SummarySection:
     if config.n_folds > 1:
         repeats = f", in each of {result.n_repeats} splits" if result.n_repeats > 1 else ""
         lines.append(f"Folds: {config.n_folds}{repeats}.")
+    jackknife = jackknife_summary_line(result.estimates)
+    if jackknife is not None:
+        lines.append(jackknife)
     if config.variance == "policy_weighted":
         lifted = [
             name
@@ -1115,6 +1120,8 @@ def _settings(result: LongitudinalResult) -> SummarySection:
             lines.append(NO_SIMULTANEOUS_BANDS)
         elif t_reference:
             lines.append(NO_T_REFERENCE_BANDS)
+        elif any(value.jackknife is not None for value in estimates.values()):
+            lines.append(NO_JACKKNIFE_BANDS)
         elif constant := constant_arm_members(estimates):
             lines.append(NO_CONSTANT_ARM_BANDS.format(names=", ".join(constant)))
         # The kept estimator is the refit template, whose ``simultaneous`` is always False, so

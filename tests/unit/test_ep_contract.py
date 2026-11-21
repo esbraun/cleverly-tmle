@@ -705,10 +705,13 @@ class TestRefusalsBeforeAnyLearner:
         error = self.refuses(effect, "projection onto that model", final_learner=LinearRegression())
         assert error.refusal.reason is RefusalReason.INVALID_DECLARATION
 
-    def test_a_final_learner_on_the_log_ratio(self) -> None:
+    def test_a_regressor_as_the_log_ratio_final_learner(self) -> None:
         effect = law_study().identify(ConditionalContrast(MODIFIERS, scale="log_ratio"))
-        error = self.refuses(effect, "no seam passes that loss", final_learner=LinearRegression())
-        assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        error = self.refuses(
+            effect, "weighted log loss on two labels", final_learner=LinearRegression()
+        )
+        assert error.refusal == ep.EP_RATIO_LEARNER_API_REFUSAL
+        assert error.refusal.reason is RefusalReason.INVALID_DECLARATION
 
     @pytest.mark.parametrize(
         "setting",

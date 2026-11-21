@@ -196,6 +196,23 @@ def supports_sample_weight(estimator: Learner) -> bool:
     )
 
 
+def names_sample_weight(estimator: Learner) -> bool:
+    """Whether ``estimator.fit`` (or its pipeline's final step) names ``sample_weight``.
+
+    Stricter than :func:`supports_sample_weight`: a ``fit(**kwargs)`` may drop the weights,
+    which is harmless where they only buy efficiency and wrong where they carry the targets.
+    """
+    target, _ = _final_estimator(estimator)
+    fit = getattr(target, "fit", None)
+    if fit is None:
+        return False
+    try:
+        signature = inspect.signature(fit)
+    except (TypeError, ValueError):  # pragma: no cover - exotic callables
+        return False
+    return "sample_weight" in signature.parameters
+
+
 def accepts_groups(estimator: Learner) -> bool:
     """Whether ``estimator.fit`` (or its pipeline's final step) takes cluster codes.
 

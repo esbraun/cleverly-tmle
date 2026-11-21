@@ -812,6 +812,7 @@ def solve_with_projection(
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
     stop: StopContext | None = None,
+    intermediate_value: float | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target ``Qbar`` and solve a log-ratio contrast's projection, alternating until both settle.
 
@@ -853,6 +854,10 @@ def solve_with_projection(
     ``stop`` is the context of a declared stopping rule over **all** the rows, and a fold's
     solves receive ``stop.restrict(rows)``.  The loop's own exit tests the shift in ``beta``
     and does not read the rule.
+
+    ``intermediate_value`` is the level of a controlled direct effect projection: every
+    covariate the loop builds carries the intermediate's selection and density at it
+    (:func:`~cleverly.estimators.direct_effect.clever_covariate_inputs`).
     """
     contrast = nuisance.effect_modification
     if contrast is None:  # pragma: no cover - guarded by needs_projection
@@ -892,7 +897,14 @@ def solve_with_projection(
 
     def submodel_at(coefficients: FloatArray) -> Submodel:
         return _projection_submodel(
-            data, nuisance, group, bounds, nuisance_bound, coefficients, index
+            data,
+            nuisance,
+            group,
+            bounds,
+            nuisance_bound,
+            coefficients,
+            index,
+            intermediate_value=intermediate_value,
         )
 
     beta = project(initial)
@@ -937,10 +949,18 @@ def _projection_submodel(
     nuisance_bound: float,
     beta: FloatArray,
     index: IntArray | None,
+    *,
+    intermediate_value: float | None = None,
 ) -> Submodel:
     """The clever covariate at ``beta``, on the whole sample or on one fold's rows."""
     submodel = build_submodel(
-        data, nuisance, group, bounds=bounds, nuisance_bound=nuisance_bound, msm_beta=beta
+        data,
+        nuisance,
+        group,
+        bounds=bounds,
+        nuisance_bound=nuisance_bound,
+        intermediate_value=intermediate_value,
+        msm_beta=beta,
     )
     return submodel if index is None else restrict(submodel, index)
 

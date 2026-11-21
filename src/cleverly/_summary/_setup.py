@@ -52,6 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..protocol import StudyProtocol
     from ..study import CausalStudy, IdentifiedEffect
     from ..utils.phases import PhaseProfile
+    from ..validation._planned_refits import PlannedRefits
     from ..validation.simulation import StudyResult
 
 #: The most distinct messages one warning note quotes before it counts the rest.
@@ -1454,6 +1455,76 @@ def planned_fits_summary(plan: PlannedFits, detail: Detail) -> Summary:
             )
     return Summary.build(
         title=vocabulary.PLANNED_FITS_TITLE,
+        header=header,
+        tables=tables,
+        sections=sections,
+    )
+
+
+def planned_refits_summary(plan: PlannedRefits, detail: Detail) -> Summary:
+    """The summary of the refits and learner fits a ``refute`` call would make.
+
+    Parameters
+    ----------
+    plan : PlannedRefits
+        The record.
+    detail : {"short", "full"}
+        ``"full"`` adds each test's notes and the record's notes.
+
+    Returns
+    -------
+    Summary
+        The summary.
+    """
+    check_detail(detail)
+    header = [
+        (vocabulary.PLANNED_REFITS_ESTIMAND, plan.estimand),
+        (vocabulary.PLANNED_REFITS_TOTAL, count_text(plan.total_refits)),
+        (vocabulary.PLANNED_FITS_TOTAL, count_text(plan.total_learner_fits)),
+        (vocabulary.PLANNED_CANDIDATE_TOTAL, count_text(plan.total_candidate_fits)),
+        (
+            vocabulary.PLANNED_BOUND,
+            vocabulary.PLANNED_BOUND_TEXT[plan.exact].format(low=count_text(plan.min_fits)),
+        ),
+        (
+            vocabulary.PLANNED_REFITS_SEED,
+            vocabulary.PLANNED_REFITS_DRAWN_SEED
+            if plan.random_state is None
+            else str(plan.random_state),
+        ),
+    ]
+    stored = sum(test.stored for test in plan.tests)
+    if stored:
+        # A checkpoint's stored draws are loaded rather than refitted, so the counts exclude
+        # them (X106 G3).
+        header.append((vocabulary.PLANNED_REFITS_STORED, count_text(stored)))
+    rows = []
+    for test in plan.tests:
+        exact = test.bound == "exact"
+        rows.append(
+            (
+                Cell(test.name, test.name),
+                Cell(test.draws, count_text(test.draws)),
+                Cell(test.refits, count_text(test.refits)),
+                Cell(test.learner_fits, _bounded(test.learner_fits, exact)),
+                Cell(test.candidate_fits, _bounded(test.candidate_fits, exact)),
+            )
+        )
+    tables = [
+        SummaryTable(
+            vocabulary.PLANNED_REFIT_TEST_COLUMNS,
+            tuple(rows),
+            title=vocabulary.PLANNED_REFIT_TESTS_TITLE,
+        )
+    ]
+    sections = []
+    if detail == "full":
+        lines = tuple(f"{test.name}: {note}" for test in plan.tests for note in test.notes)
+        if lines:
+            sections.append(SummarySection(vocabulary.SECTION_PLANNED_REFIT_TESTS, lines))
+        sections.append(SummarySection(vocabulary.SECTION_PLANNED_NOTES, plan.notes))
+    return Summary.build(
+        title=vocabulary.PLANNED_REFITS_TITLE,
         header=header,
         tables=tables,
         sections=sections,

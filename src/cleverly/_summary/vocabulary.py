@@ -369,6 +369,19 @@ QUESTION_PHRASES: Final[Mapping[str, str]] = MappingProxyType(
 SEVERAL_ROWS_QUESTION: Final = "effect of {A} on {Y}; each row is defined below"
 #: The Question fact of a controlled direct effect.
 DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for every unit"
+#: The meaning of a projection coefficient of a controlled direct effect (P1 PR 2), which the
+#: target registry's level-free description would misstate as the total conditional effect.
+CDE_PROJECTION_MEANINGS: Final = {
+    "cate_projection": (
+        "coefficients of the best linear projection of the controlled direct effect "
+        "E[Y(t, {z}) - Y(r, {z}) | V], with {Z} held at {z}, onto a declared basis phi(V)"
+    ),
+    "log_crr_projection": (
+        "coefficients of the projection of the conditional log risk ratio "
+        "log E[Y(t, {z}) | V] - log E[Y(r, {z}) | V], with {Z} held at {z}, onto a declared "
+        "basis phi(V)"
+    ),
+}
 #: The Question fact of a learned-rule fit, whose target the data chose.
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
 #: The Question fact of a fit of the value of the optimal rule (X11 (f)), a fixed parameter.
@@ -4346,6 +4359,11 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "error, and its lower side is the point bound of the learned rules' value. "
             "{alternative}"
         ),
+        "limits_withheld_jackknife": (
+            "No one-sided limits or limit robustness value: the fit reports the "
+            "delete-one-cluster jackknife variance, and the limits would read the influence "
+            "curves, which do not carry it. {alternative}"
+        ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "
             "fit, and a zero scale has no standard error."
@@ -4557,8 +4575,7 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "curve_band": (
             "The band holds jointly at {level} over the {points} declared grid points, with "
-            "critical value {critical}. No registered study measures its joint coverage, so "
-            "the status above covers the coefficients and not the band."
+            "critical value {critical}. {coverage}"
         ),
         "curve_experimental": (
             "{reason} Its intervals are computed as for a validated fit; read them with more "
@@ -4600,6 +4617,20 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
+
+#: The ``{coverage}`` sentence of the ``curve_band`` note when the band reads ``supported``: a
+#: registered study measured its joint coverage in this configuration.
+CURVE_BAND_MEASURED: Final = (
+    "A registered study measures its joint coverage in this kind of fit, with {kind} "
+    "multipliers and {draws} draws."
+)
+
+#: The ``{coverage}`` sentence when it does not, naming the band's configuration.
+CURVE_BAND_UNMEASURED: Final = (
+    "No registered study measures its joint coverage in this kind of fit with {kind} "
+    "multipliers and {draws} draws, so the status above covers the coefficients and not the "
+    "band."
+)
 
 # ------------------------------------------------------------ targeting curves (X92 PR-5)
 
@@ -4927,9 +4958,29 @@ CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (
 CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "continuous_not_converged": "warning",
+        "continuous_switched_variance": "note",
+        "continuous_bootstrap": "note",
+        "continuous_bootstrap_withheld": "warning",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
+
+#: The bootstrap note's clause for a fit that also holds a simultaneous bootstrap band.
+CONTINUOUS_BOOTSTRAP_BAND: Final = (
+    ", and the simultaneous band over the risks (result.bootstrap_band) reads the same refits"
+)
+#: The interval named in the bootstrap note, by ``BootstrapSummary.interval``.
+CONTINUOUS_BOOTSTRAP_INTERVAL: Final[Mapping[str, str]] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
+)
+#: The bootstrap note's sentence when its intervals read experimental.
+CONTINUOUS_BOOTSTRAP_EXPERIMENTAL: Final = (
+    " Every bootstrap interval is experimental, and the full summary gives the reason."
+)
+#: The full summary's line on why the bootstrap intervals are experimental.
+CONTINUOUS_BOOTSTRAP_WHY: Final = "Why the bootstrap intervals are experimental: {reason}"
+#: The full summary's line on why the simultaneous bootstrap band is experimental.
+CONTINUOUS_BOOTSTRAP_BAND_WHY: Final = "Why the bootstrap band is experimental: {reason}"
 
 CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -4937,6 +4988,22 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The update stopped after {steps} steps before every mean score fell below "
             "its stopping rule; the largest is {worst} times the rule. The intervals may be "
             "too narrow. result.record.standardized_score lists every target."
+        ),
+        "continuous_switched_variance": (
+            "The standard error of {names} comes from the model-based variance of the event "
+            "process, because few events carry its usual variance and the model-based one is "
+            "larger. estimate.variance_source names the variance of each estimate."
+        ),
+        "continuous_bootstrap": (
+            "The {interval} bootstrap intervals read the {kept} of {requested} refits on "
+            "resampled units that fit{band}.{label} result.to_frame() lists them in the "
+            "bootstrap_ci_lower and bootstrap_ci_upper columns, and "
+            "result.bootstrap_failures says why any refit failed."
+        ),
+        "continuous_bootstrap_withheld": (
+            "{failed} of {requested} bootstrap refits failed, more than {share}, so the fit "
+            "dropped every bootstrap interval and kept the usual ones. "
+            "result.bootstrap_failures says why the refits failed."
         ),
     }
 )
@@ -4975,6 +5042,23 @@ PLANNED_UNPREVIEWED_LEAD: Final = (
 PLANNED_NO_NOTES: Final = (
     "The correction step that follows the model fits fits no learner and is not counted."
 )
+# ----------------------------------------------------------------- planned refits (X106 G2)
+
+PLANNED_REFITS_TITLE: Final = "Planned refutation refits"
+PLANNED_REFITS_TOTAL: Final = "Refits"
+PLANNED_REFITS_ESTIMAND: Final = "Estimand"
+PLANNED_REFITS_SEED: Final = "Seed"
+PLANNED_REFITS_DRAWN_SEED: Final = "drawn at the call"
+PLANNED_REFITS_STORED: Final = "Draws already stored"
+PLANNED_REFIT_TESTS_TITLE: Final = "Refits by test"
+PLANNED_REFIT_TEST_COLUMNS: Final = ("test", "draws", "refits", "model fits", "candidate fits")
+SECTION_PLANNED_REFIT_TESTS: Final = "What each test's counts assume"
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_REFITS_TOTAL,
+    PLANNED_REFITS_ESTIMAND,
+    PLANNED_REFITS_SEED,
+    PLANNED_REFITS_STORED,
+}
 HEADER_LABELS = HEADER_LABELS | {
     PLANNED_FITS_TOTAL,
     PLANNED_CANDIDATE_TOTAL,

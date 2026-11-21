@@ -1418,8 +1418,17 @@ class EPMethod(TMLEMethod):
         fixed size or a declared schedule ``n -> size`` skips the cross-validation.  With
         ``model=`` declared on the estimand, the model is the sieve and this stays ``None``.
     final_learner : Any
-        A regressor fitted to the adjusted contrast on the modifier columns, in place of the
-        default least squares on the sieve basis.  Difference scale and ``model=None`` only.
+        A learner of the curve on the modifier columns, in place of the default final stage
+        on the sieve basis; ``model=None`` only.  On the difference scale it is a regressor
+        fitted to the adjusted contrast.  On the log-ratio scale it is a classifier with
+        ``predict_proba`` whose ``fit`` accepts ``sample_weight``: each row becomes a pair,
+        label 1 weighted by the row weight times the adjusted treated mean and label 0 by
+        the row weight times the adjusted reference mean, and the curve is the logit of the
+        class-1 probability, clipped to the range of the fitted shares.  The two rows of a
+        pair share a ``groups`` code.  ``HistGradientBoostingClassifier`` turns on early
+        stopping above 10,000 rows, which the doubled data reach above 5,000 rows, and then
+        validates on a random split that separates pairs; declare ``early_stopping=False``
+        to keep every pair in the fit.
 
     See Also
     --------

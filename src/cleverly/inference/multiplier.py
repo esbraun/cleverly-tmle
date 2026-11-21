@@ -245,6 +245,20 @@ BOUNDARY_NODE_BAND_REFUSAL = Refusal(
     ),
 )
 
+#: Why no band covers an estimate whose variance is the cluster jackknife's (X54 part (c)).
+JACKKNIFE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "simultaneous_bands() draws its multiplier process from the influence curves, and an "
+    "estimate of a cluster_variance='jackknife' fit reports the leave-one-cluster-out "
+    "variance, which the curves do not carry, so the band's critical value would not match "
+    "the pointwise intervals.",
+    alternative=(
+        "Report the pointwise intervals, or refit with cluster_variance='influence_curve' for "
+        "a band."
+    ),
+    roadmap="F28",
+)
+
 #: Why no band covers the known-regime values or contrasts of a learned-rule fit (X11 (c2)).
 KNOWN_REGIME_BAND_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
@@ -809,7 +823,7 @@ def simultaneous_bands(
     _refuse_out_of_range(items, band_scale)
     n = items[0][1].n
     ic = np.column_stack([estimate.influence_curve for _, estimate in items])
-    se = np.array([_band_std_error(estimate) for _, estimate in items])
+    se = np.array([_critical_std_error(estimate) for _, estimate in items])
     critical = multiplier_critical_value(
         ic,
         se,
@@ -1003,6 +1017,22 @@ def _band_std_error(estimate: ParameterEstimate) -> float:
     return estimate._plugin_std_error()
 
 
+def _critical_std_error(estimate: ParameterEstimate) -> float:
+    """The standard error the max-t statistic standardizes each curve by.
+
+    The curve's own: :func:`_band_std_error`, except under ``variance="switched"``, where the
+    reported standard error can exceed the curve's.  The critical value then reads the
+    correlation of the curves standardized by their own standard errors, and each half-width
+    takes the reported one, so the band is at least the influence-curve band
+    (X6 plan, 2.1.5).
+    """
+    record = estimate.switched
+    if record is None:
+        return _band_std_error(estimate)
+    variance = record.influence_variance
+    return float(np.sqrt(variance)) if np.isfinite(variance) and variance >= 0 else float("nan")
+
+
 def _checked_items(
     estimates: Mapping[str, ParameterEstimate] | Sequence[ParameterEstimate],
 ) -> list[tuple[str, ParameterEstimate]]:
@@ -1035,6 +1065,8 @@ def _checked_items(
         raise CapabilityError.from_refusal(POLICY_VARIANCE_BAND_REFUSAL)
     if any(estimate.node is not None for _, estimate in items):
         raise CapabilityError.from_refusal(BOUNDARY_NODE_BAND_REFUSAL)
+    if any(estimate.jackknife is not None for _, estimate in items):
+        raise CapabilityError.from_refusal(JACKKNIFE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

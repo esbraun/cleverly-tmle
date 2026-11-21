@@ -22,7 +22,7 @@ inside the repository.
 * The primary performance tests (`performance-tests.csv`): bias leg, coverage floor, SE sanity
   band for each scenario and its gated estimand. `b1y` is a reported stress row
   (`reported_scenarios`): its three legs are published with `reported = True` and pass by
-  declaration. Only the failure bound still gates it.
+  declaration. Its failure bound is published in the failure accounting and gates nothing.
 * `controls.csv` through `scientific_failures`: the efficiency contrast (upper bound of
   RMSE(A-TMLE) / RMSE(trial-only TMLE) below 1 on `a0`; reported on `a1a`, `a1b`), K1, K2, K3,
   K5. The K4 ladder is a reporting row.

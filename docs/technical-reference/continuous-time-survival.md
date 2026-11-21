@@ -41,9 +41,63 @@ finite-dimensional model.
 An event and a censoring at one time are ordered event first, so the censoring hazard leaves the
 event out of its risk set. The weight $1 / \{\pi(a \mid L)\, S_c(u^- \mid a, L)\}$ is bounded by
 raising its denominator to `g_bounds`, by default $5 / (\sqrt n \log n)$. Two checks read the
-initial fits and raise a `DataError`, which a study records as a failed fit: a combined hazard jump
-of one or more, and an initial survival that reaches zero before the grid's end, the last target
-time or restricted horizon.
+initial fits and raise a `DataError`, which a study records as a failed fit: an infinite cause
+hazard jump, and an initial survival below $10^{-250}$ before the grid's end, the last target
+time or restricted horizon, where double precision no longer holds the clever covariate.
+
+### The jump bound
+
+Where the cause jumps of a unit at one arm and time sum to $s \ge 1$, the cells the engine
+used to refuse, it multiplies each by $(1 - \delta) / s$, with $\delta = 10^{-8}$
+(`cleverly.survival._chunked.JUMP_BOUND`). The cell then sums to $1 - \delta$, each cause keeps
+its share $d\Lambda_j / s$, and the product-limit survival falls to $\delta$ there rather than
+to zero or below. A cell below one, however close, is not touched, so every fit that ran before
+the bound computes the same arrays. At $s = 1$ the survival factor steps from 0 to $\delta$,
+below the walk's floor, which moves $\psi$ by at most $\delta / n$ per pair. The bound acts in every fit, the original and each bootstrap refit, in the one place every
+reader of the initial hazards takes them from, so the checks and the walk read the same jumps.
+
+A Cox jump is $s_i\, d / \sum_{R} s$, unit $i$'s risk score times the tied events over the risk
+set's summed scores. With one event at a time it stays below one for a unit at risk at its
+received arm, so on data with distinct times the bound acts only on extrapolated cells: a unit
+read at its counterfactual arm, with covariates outside that arm's range, whose score exceeds the
+risk set's sum, or a time after the unit left follow-up. Tied events, as in a bootstrap resample,
+multiply the atom and can reach a unit at risk. In refitted cases from the switched-variance study
+and the bootstrap pilot, the offending unit had one of the sample's most extreme covariate values
+and was read at the arm that does not cover it, at times with 140 to 350 units at risk. The
+bound is therefore mainly a positivity signal
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+
+The bound changes the initial estimator only on an event whose probability tends to zero at a
+fixed law: with finite coefficients the Breslow atom is $O_p(1/n)$, and the largest risk score and
+tie count grow slowly enough that the bound is inactive with probability tending to one. The
+estimand, the initial fit's consistency, the score equation the walk solves and the efficient
+influence curve are unchanged. At a bounded counterfactual cell the factual score is untouched,
+and only the plug-in $F_j(t \mid a, L_i)$ moves, by at most $k / n$ for $k$ copies. The kink sits
+where the true law never is, so the bootstrap delta method's differentiability is not affected;
+a bound applied to the refits alone would bootstrap a different estimator.
+
+A NaN jump is walked as before, and an infinite one has no share to keep, so it is refused. A
+pair whose jumps reach
+the bound at $k$ grid times has survival near $\delta^k$, so a pair the model extrapolates at
+many times still meets the underflow refusal, whose message then names the bound and the
+extrapolation. Of the ten fits the registered studies had lost to the old refusal, seven fit
+under the bound and three, with one pair bounded at 27 to 1,141 times, raise on underflow; so
+does the refuter-calibration study's lost size trial
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`).
+
+A bounded pair's survival at the grid's end is $\delta$ or less, below the walk's floor of
+$10^{-8}$. Each bounded pair therefore takes its own floor, the lower of the others' floor and its
+own initial survival, and the other pairs' floor is read over the other pairs only, so the bound
+lowers no other pair's floor (`run_walk(own_floor=...)`). A bounded pair still enters the score,
+the direction and the step search, so it does move the other pairs' path. A fit where the bound acted emits one
+`PositivityWarning` that names the arm, the causes and the number of pairs, and every estimate
+reads experimental with a reason that names the extrapolation, because no registered study gates
+such a fit. `result.record.jump_bound_share` is the share of (unit, arm) pairs with a bounded
+cell, and `jump_bound_at_risk_share` the share with one at the received arm while at risk. A
+bootstrap refit warns of nothing; `result.bootstrap_jump_bounded` counts the refits where the
+bound acted, and every bootstrap interval's reason names that count when it is nonzero. The
+witnesses are in `tests/unit/test_continuous_survival_jump_bound.py` and
+`tests/unit/test_continuous_survival_blocks.py`.
 
 ## The one-step walk
 
@@ -57,8 +111,17 @@ D_{a,j,t} = \frac{1\{A = a\}}{\pi(a \mid L)} \sum_{l=1}^J \int_0^t
 c_l(u) = 1\{l = j\} - \frac{F_j(t \mid a, L) - F_j(u \mid a, L)}{S(u \mid a, L)},
 $$
 
-with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The walk moves every
-cause hazard of both arms, for every unit, along the multinomial logistic path
+with $N_l$ the counting process of cause $l$ and $Y$ the at-risk indicator. The quotient in $c_l$
+is the conditional risk of a cause-$j$ event in $(u, t]$ given survival past $u$,
+$\sum_{u < s \le t} S(s^- \mid a, L)\, \Lambda_j(ds \mid a, L) / S(u \mid a, L)$. The engine
+computes it in that form: it sums the incidence increments after $u$, each no larger than
+$S(u)$, and divides by $S(u)$. The difference of two incidences near one loses every digit where
+an extrapolating hazard fit takes the survival to $10^{-20}$; the sum keeps them, which
+`test_the_conditional_risk_holds_every_digit_where_the_survival_is_tiny` in
+`tests/unit/test_continuous_survival.py` checks against exact rational arithmetic.
+
+The walk moves every cause hazard of both arms, for every unit, along the multinomial logistic
+path
 
 $$
 \Lambda_l^{\varepsilon}(du) = \frac{\Lambda_l(du)\, e^{\varepsilon x_l(u)}}
@@ -79,19 +142,99 @@ accepted steps, at `2 * max_iter` rejected ones, or at a step below $10^{-8}$, w
 Two departures from `concrete` 1.0.5 are deliberate. Each arm's hazard is tilted for every unit,
 as the source's submodel tilts the hazard function; `concrete` tilts only the units whose received
 arm is the target's arm, which a mutation test shows is not doubly robust. And a step that would
-take some unit's survival at the grid's end below $10^{-8}$ holds that (unit, arm) pair
+take some unit's survival at the grid's end below $10^{-8}$, or below the initial fit's smallest
+survival there when that is lower, holds that (unit, arm) pair
 still for that step and tries the step again; the pair moves on the next step. The record's
 `frozen_share` counts the pairs ever held.
 
 ## Inference
 
-Each interval is a Wald interval with the empirical variance of the influence curve. A risk is
-a mean bounded by 0 and 1, so its interval is formed on the logit scale and mapped back, as for
-every unclustered bounded mean ([small-sample scale](inference.md#small-sample-scale)). A risk
-difference uses the difference of the two curves on its own scale, and a risk ratio is built on
-the log scale. The study's committed rows were written under the identity interval of a risk. On
-the same estimates and standard errors the logit interval moves no group's coverage by more than
-0.008 and changes no verdict (`tests/canonical/interval-audit-screen.csv`).
+Each interval is a Wald interval. A risk is a mean bounded by 0 and 1, so its interval is formed
+on the logit scale and mapped back, as for every unclustered bounded mean ([small-sample
+scale](inference.md#small-sample-scale)). A risk difference uses the difference of the two curves
+on its own scale, and a risk ratio is built on the log scale. The study's committed rows were
+written under the identity interval of a risk. On the same estimates and standard errors the logit
+interval moves no group's coverage by more than 0.008 and changes no verdict
+(`tests/canonical/interval-audit-screen.csv`).
+
+### The switched variance
+
+The default, `variance="switched"`, reports the influence-curve variance $\hat\sigma^2_{IC}$
+unless the curve is sparse, and then the larger of it and the predictable variation
+$\hat\sigma^2_{pv}$ of the curve's martingale part:
+
+$$
+\hat\sigma^2 =
+\begin{cases}
+  \max(\hat\sigma^2_{IC},\, g^\top \hat\Sigma_{pv}\, g) & \text{if } r > 0.125,\\
+  \hat\sigma^2_{IC} & \text{otherwise,}
+\end{cases}
+$$
+
+where $r = \sqrt{(\hat\kappa - 1)/n}$ is the relative standard deviation of the estimate's own
+influence-curve variance (`variance_rel_sd` of `cleverly.inference.sparse.influence_row`) and $g$
+is the estimate's gradient over the targeted levels. The influence-curve variance squares the
+realized martingale increments $\int c(u)\,dM(u)$. The predictable variation integrates their
+conditional variance under the fitted law instead:
+
+$$
+\hat\Sigma_{pv} = \widehat{\mathrm{Cov}}_n(\hat F) + P_n \sum_a \sum_{u_m}
+  S(u_m^-)\, \pi_a S_c(u_m^-)\, w_a(u_m)^2\, V_a(u_m),
+\qquad
+V_{pq} = \sum_l c_{lp} c_{lq}\, d\Lambda_l - \Big(\sum_l c_{lp}\, d\Lambda_l\Big)\Big(\sum_l c_{lq}\, d\Lambda_l\Big),
+$$
+
+with $c_{lp}$ the clever covariate of target $p$ for cause $l$, $w_a = 1/\max(\pi_a S_c, \text{floor})$
+and $V$ the covariance of one multinomial jump of the causes. The martingale block is zero
+across arms. `predictable_covariance` in `cleverly.survival._targeting` computes the whole matrix
+in one pass, and the result stores it as `result.predictable` on the scale of the influence-curve
+variance (divided by $n - 1$). At the true nuisances $\hat\Sigma_{pv}$ and the influence curve's
+covariance have the same expectation; `tests/unit/test_continuous_survival_variance.py` checks
+the identity on an exact law to $10^{-10}$, with a mutation control for the multinomial square,
+the left limit $S(u^-)$, one arm's martingale block, the floored weight and the off-diagonal
+entries. A fit with $\tau = 1.5$ and a binding positivity floor checks that each stored variance
+reads the walk's matrix in time units, over $n - 1$, with the floored weight.
+
+Three properties follow. The switched variance is never below the influence-curve variance, so
+its interval at the same centre contains the influence-curve interval and keeps its double
+robustness. Because $r$ falls like $1/\sqrt n$, it equals the influence-curve variance with
+probability tending to one. The threshold 0.125, close to a Kish count of 64, was chosen after
+the X39 truth pilots were read (`cleverly.inference.sparse`); here it selects an estimator, and it
+was not tuned on these laws. `variance="influence_curve"` reports the influence-curve variance
+alone. Each estimate keeps both variances in `estimate.switched` and names the one it reports in
+`estimate.variance_source`.
+
+`contrast()`, `ratio()`, `rmtl()` and `rmst()` take the switched variance of a derived estimate
+from the stored matrix, with the switch read on that estimate's own influence curve. A generic
+`cleverly.inference.smooth_contrast` or `ratio_contrast` of switched estimates refuses, because it
+holds no matrix; the refusal names `ContinuousSurvivalResult.contrast` and
+`variance="influence_curve"`. The sup-t band takes its critical value from the curves
+standardized by their influence-curve standard errors and its half-widths from the reported ones.
+
+### Why the early-time interval under-covered
+
+In the registered study's record written under the influence-curve variance, at the first
+quartile ($t = 0.46$, n = 1,000, 7,586 fits), the estimates had the efficient spread, but treated
+cause 2, with about 16 expected events, covered 0.881 with a mean standard error 8% below its
+spread. Two mechanisms are at work. In a
+sparse cell a few squared increments carry the influence-curve variance: its standard error varied
+by 30% between draws and moved with the estimate, so the misses were one-sided. A smaller excess
+spread appears at control cause 1, whose weights are heaviest.
+
+The predictable variation repairs
+the first: it varies less between draws and does not hinge on whether the few events occurred. Its
+level is biased low by the fitted hazards in sparse cells (11% for treated cause 2 at the median in
+1,040 exploratory fits), and for that reason the switched variance raises the influence-curve
+variance and never replaces it with a smaller one. On exploratory fits its gain over the influence
+curve came mostly from a wider interval in the rows where the curve is sparse, not from per-draw
+information at matched width. The study
+[continuous-time survival switched variance](method-evidence/continuous-survival-variance.md)
+decided on five fresh laws that the switched variance stays the default; the floors it set are
+stated under [evidence](#evidence). The registered study's record regenerated under the switched
+default reads, at the first quartile, an SE ratio of 0.997 and coverage 0.932 for treated cause 2,
+and SE ratios 0.990 to 1.038 and coverage 0.932 to 0.961 over the six targets (`early-time.csv`).
+The first quartile still reads experimental, because 8 of the 30 first-quartile rows of the
+switched-variance study fail its calibration rule.
 
 With `simultaneous=True` the fit adds a sup-t band over every risk and risk difference. The record
 reports the selected models, the steps, whether the stopping rule held, each target's final
@@ -110,6 +253,73 @@ The weights bound the product $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ for bo
 never $\hat\pi$ alone, and `weight_floor` records that bound as resolved. `arm` holds each row's
 received arm, `0` for the reference arm and `1` for the treated arm. No estimate reads these
 arrays.
+
+### The full-refit bootstrap
+
+`n_bootstrap=B` on `ContinuousSurvivalTMLE` (at least 2), or on the study route, refits the whole
+estimator on $B$ resamples of the units: initial fits, library selection, the walk and the
+variance. Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
+draws for the fit's `random_state` and refits at the seed spawned beside it. Every fold is drawn
+on the resample's distinct units and then copied to their rows (`replicate_plan` in
+`cleverly.survival.engine`): a unit drawn several times has all its copies in one cross-fitting
+fold and in one learner-selection fold, so no copy predicts or validates another. The outer folds
+are stratified on the event, as the fit's own are. A replicate keeps the fit's causes, so a
+resample that loses every event of a cause fails rather than reporting fewer risks.
+
+Each estimate then carries `estimate.bootstrap`, a percentile interval by default or, with
+`bootstrap_interval="bca"`, the BCa interval with its acceleration from the estimate's influence
+curve, both through `cleverly.inference.BootstrapResult.interval`. The percentile interval is
+read on the estimate's own scale; percentiles respect a monotone map, so it equals the interval
+read on the range-logit scale up to the quantiles' interpolation. With `simultaneous=True` the fit
+adds the studentized bootstrap band over every risk and risk difference
+(`result.bootstrap_band`, from `cleverly.inference.bootstrap.bootstrap_band` on each replicate's
+estimates and standard errors). The band is $\hat\psi \pm c^* \widehat{\mathrm{SE}}$ on the
+identity scale, where $c^*$ is the $1-\alpha$ quantile over replicates of the largest deviation
+from $\hat\psi$, each replicate studentized by its own standard error. It is not formed on the
+logit scale, so a small risk's band can cross 0, and it ignores `band_scale`, which shapes only the
+multiplier band. The Wald intervals above are unchanged, and `to_frame()` and `to_dict()` add the
+bootstrap's.
+
+A replicate whose refit raises a `CleverlyError` (the engine's refusals on the drawn data, such
+as a lost cause, an infinite jump, an underflow or a memory refusal), `numpy.linalg.LinAlgError` or
+`FloatingPointError` is counted with its reason and never redrawn. Any other exception propagates,
+including one a learner raises, because counting a defect as a failed refit would hide it below
+the failure share. When more than 1% of the
+$B$ refits fail (`BOOTSTRAP_FAILURE_SHARE`), the fit warns with `ConvergenceWarning`, names each
+reason with its count, withholds every bootstrap interval and the band, and keeps the Wald
+intervals; `result.bootstrap_status` reads `"bootstrap_unstable"` and `result.bootstrap_failures`
+lists the reasons. Kept replicates alone would condition on the resamples that fit. At or below
+1%, every bootstrap interval and the band read the refits that fit, with no warning;
+`result.bootstrap.n_failed` and `result.bootstrap_failures` say how many did not and why. The
+summary's bootstrap note gives the same counts, and `to_dict()` records `n_requested`, `n_failed`
+and `n_kept`, also when every refit failed.
+
+No bootstrap interval of this engine reads `supported`
+(`cleverly.survival.result.continuous_bootstrap_support`):
+
+| fit | label | reason |
+| --- | --- | --- |
+| in sample (`cross_fit=False`) | experimental | the bootstrap delta method for a Hadamard-differentiable map (van der Vaart and Wellner 1996, Theorems 3.9.11 and 3.9.13, relayed through Beutner and Zähle) would cover it, and its conditions are not yet read first-hand |
+| cross-fitted, the default | experimental | no theorem covers a bootstrap of a cross-fitted fit with a selected library. Cai and van der Laan (2020) warn that a cross-validation selector rerun on each resample makes the nonparametric bootstrap generally inconsistent and can make its intervals too narrow |
+| the studentized band | experimental | the reason of its fit, and no study measures the band |
+
+Two declared studies measure the two fits on the registered law at n = 1,000 with $B = 500$.
+`continuous-survival-bootstrap` (`tests/studies/continuous_survival_bootstrap.py`) gates the
+in-sample fit's percentile interval on the 12 risks and risk differences at the median and upper
+quartile, at 3,200 fits, beside a calibration rule on the bootstrap standard error with a control
+that shrinks it by 0.85. It reports the BCa interval, the Wald interval on the same fits and the six
+first-quartile targets, as the registered `continuous-survival` study does.
+
+`continuous-survival-bootstrap-cross-fitted`
+(`tests/studies/continuous_survival_bootstrap_cross_fitted.py`) reports the cross-fitted fit on all
+18 targets at 1,000 fits and gates nothing. Neither has run. The in-sample run stays refused until
+its pilot of 400 draws reads clean ([roadmap X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)). A pass would not set either
+label alone: the in-sample label also waits on the reading of the theorem's conditions, and the
+cross-fitted label on a theorem.
+`tests/unit/test_continuous_survival_bootstrap.py` checks the shared folds of a unit's copies
+against a witness of more than 1,000 shared training copies, that a replicate equals the fit
+refitted on its resample and plan, the 1% boundary and the refusal's text, and the percentile and
+BCa limits against the shared bootstrap's, with mutation controls on each.
 
 ## Restricted means, ratios and the curve
 
@@ -183,7 +393,7 @@ refutation, the truncation curve and the simulated common cause refit that copy.
 | `diagnostics.nuisance_models()` | runs, `completed` | each cause hazard's, the censoring hazard's and the treatment model's candidates, cross-validated losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | runs, a direct call | the Kish count, skewness and kurtosis of each estimate's influence curve (`cleverly.inference.sparse`) |
 | `diagnostics.corrections()` | `not_applicable` | the engine uses no correction system |
-| `diagnostics.refute()` | runs, descriptive (`passed=None`) | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
+| `diagnostics.refute()` | runs; a verdict on a risk difference inside the calibrated scope, descriptive (`passed=None`) elsewhere | the placebo on `ate_regimen` (null 0) and `rr_regimen` (null 1), `random_common_cause` and `subset` on any estimate, each refitting the stored estimator on a perturbed copy of the data; the continuous-time survival part of [refutation operations](validation-methods.md#refutation-operations) states the draws, nulls, limits and refusals |
 | `diagnostics.truncation_curve()` | runs, descriptive | the walk rerun at each floor on $\hat\pi(a \mid L) \hat S_c(u^- \mid a, L)$ from refitted initial hazards, after an exact replay of the fit at its own floor; [truncation stability](validation-methods.md#truncation-stability) states the grid and columns |
 | `sensitivity.simulated_confounding(estimand=..., grid=...)` | runs, descriptive; deferred without a grid and an estimand | refits the stored estimator once per cell on event and censoring times redrawn from the replay's own Cox fits, with each cause-specific log-hazard shifted by $\gamma U$ and censoring redrawn where the flip changed the treatment; the fit's fold plan is reused under its own seed. A cell that drives the initial survival to zero is a recorded failure. [Continuous-time survival replay](validation-methods.md#simulated-common-cause-stress-surface) states the law and its checks |
 | `sensitivity.omitted_confounding()`, `robustness_value()`, `elements()`, `contour()`, `benchmark()` | refused, [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) | the point-treatment bound reads the Riesz representer of a mean of one outcome regression, and none is derived for a cause-specific risk under censoring |
@@ -205,8 +415,16 @@ A refute with the default tests and replicates costs 60 refits of the fit (40 on
 of the nuisances plus one walk per floor. A simulated common-cause surface costs one refit per cell
 other than the anchor, so a 3 by 3 grid costs 8 refits. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
-jumps and the weight product, about 600 MB, while it runs. No registered study calibrates the refutation readings on this
-fit, so each prints its numbers without a verdict.
+jumps and the weight product, about 600 MB, while it runs.
+
+The [continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)
+calibrates the placebo `t` and the subset `rho` on a risk difference, so each prints a verdict on a
+fit inside its scope: two causes, n of at least 1,000, the default hazard libraries and treatment
+learner, the switched variance, ten-fold cross-fitting, 20 refits, at least 17 events in every arm
+and cause by the target time, and a target time holding 43% to 79% of the observed events. The
+study's size rule tolerates more than the X82 rule does (no more than 68 rejections in 600
+trials), and the subset rule's measured false-alarm rate is 0.080 to 0.095, against a nominal 0.05.
+Every other reading, and every reading on another fit, prints its numbers without a verdict.
 
 The test's witnesses are a failed walk that fails the score row, a binding floor that warns on the
 support row, and a censoring model that depends on the arm. Under that model each arm's stored
@@ -266,6 +484,27 @@ rebuilds most blocks on every pass. A block rebuilt in the pass after accepted s
 $s$ steps, so a walk of $S$ accepted steps replays about $S (S + 1) / 2$ steps per block not kept,
 and a larger `max_iter` lengthens a long walk quadratically.
 
+The switched variance (`variance="switched"`, the default) adds its predictable variation in the
+final pass. Each block's targeted jumps are copied onto the full grid into a buffer of
+$b = \max(1, \lfloor 6 \times 10^6 / (J^2 Q M) \rfloor)$ units, the blocks over which
+`cleverly.survival._targeting.predictable_covariance` sums. When the buffer fills, its units'
+survival, incidences, bounded weight and floored ratio $\min(1, \hat\pi \hat S_c / g_{\min})$
+are built and its martingale term is added, and every unit's plug-ins, $(n, P)$, are kept for
+the centred plug-in covariance. The pass holds $16 J b M$ bytes for the buffer and about
+$8 b M (J^2 Q + 3 J Q + 8)$ more while a buffer's term is formed: at most about 0.4 GB with one
+cause and two targets, whatever $n$. So the default's peak grows with $n P$ too, plus that bounded
+term: about 0.7 GB at $n = 100{,}000$ with one cause, two target times and $M = 59{,}980$.
+`variance="influence_curve"` skips the pass and needs the 0.3 GB above. A refusal whose peak is
+this pass's names the final pass and `variance="influence_curve"` with its own prediction.
+
+The buffer is cut where the sum's blocks are, so the
+pass adds the same blocks whatever the walk's block size or the blocks kept, and the martingale
+term equals the one-pass computation's bit for bit. The plug-ins' matrix products run over a
+buffer's rows rather than all $n$, so for a restricted mean the plug-in covariance can differ in
+the last bit. Over 61 study fits refitted both ways, every standard error, both variances and
+every choice between them matched a pass over all units at once bit for bit, and one matrix entry
+pair of one restricted-mean fit differed by $1.5 \times 10^{-16}$ relative.
+
 Before fitting any nuisance, the fit predicts each phase's peak with no block kept and the walk on
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
 `MethodConfigurationError` when that prediction exceeds the budget. The budget is the memory
@@ -291,6 +530,25 @@ called by one thread at a time, and the threads leave the BLAS thread settings a
 holds one block's working arrays, which the prediction and the budget count. `-1` takes the CPUs
 the process may use, capped by a control group's quota.
 
+With `n_bootstrap=` the replicates run on $W$ worker processes, the smaller of `n_jobs` and
+$B$, each walking on one thread, so the walk's threads do not multiply a replicate's arrays. The
+prediction adds a `bootstrap` phase: the fit's result, about $8 n (E + 2Q + p + 9) + 16 B E$ bytes
+for $E$ estimates (`bootstrap_held`), beside $W$ times one replicate's peak, predicted as a fit of
+$n$ training rows on the fit's grid with no band. A resample has at most $n$ distinct units and
+no more distinct times than the fit, so no replicate's peak exceeds it. At the study's design
+($n = 1{,}000$, two causes, three target times, $M = 719$) that reads about 0.18 GB with one worker
+and 0.72 GB with four, against 0.18 GB for the fit alone.
+
+The $16 B E$ term is the replicates'
+estimates and standard errors; a replicate's row index is drawn inside its worker from its seed,
+so the $B$ indices are never held together. With an explicit `max_memory_bytes`, each replicate's
+budget is that budget less the result, divided by $W$, so a fit that passes the check never refuses
+inside a replicate. Under the default budget each replicate takes $1/W$ of the memory free when
+the bootstrap starts, which already excludes the result the parent holds, so a replicate can still
+refuse if other processes take memory meanwhile. A refusal whose peak is this phase says so and
+suggests a smaller `n_jobs`. The worker interpreters and their imported libraries are outside the
+prediction.
+
 Rebuilding a block calls the hazard learner again, so a learner's `cumulative_hazard` must return
 the same values for the same rows on every call, each row predicted from that row alone. The fit
 predicts the first block's cause and censoring hazards twice and refuses a user learner whose
@@ -313,11 +571,12 @@ The prediction counts NumPy arrays the engine and the shipped hazard learners al
 not count a user learner's own allocations, which can only make the check miss a refusal.
 `tests/unit/test_continuous_survival_memory.py` checks that each phase's `tracemalloc` peak stays at
 or below its prediction in fits that keep every block, none or half, with one to three causes, a
-restricted mean, cross-fitting and the factual tilt. The walk's and the final pass's predictions
-stay within 10% of their peaks, and the nuisance phase's within 25% for an interaction Cox model on
-eight covariates. Dropping one term from a phase's prediction falls below its peak, and doubling
-$n$ with no block kept at most multiplies the peak by 2.5. Coarsening the time grid would lower $M$
-but changes the analysis, so the engine never does it.
+restricted mean or two, cross-fitting, the factual tilt and both variances. The walk's and the final
+pass's predictions stay within 10% of their peaks, and the nuisance phase's within 25% for an
+interaction Cox model on eight covariates. Dropping one term from a phase's prediction falls below
+its peak, and doubling $n$ with no block kept, under the default with a predictable-variation
+buffer smaller than a block, at most multiplies the peak by 2.5. Coarsening the time grid would
+lower $M$ but changes the analysis, so the engine never does it.
 
 ## What is refused
 
@@ -336,28 +595,41 @@ but changes the analysis, so the engine never does it.
 | `scale="survival"` or `view="survival"` on a fit with several causes | event-free survival is one minus the sum of the incidences |
 | a fit whose predicted peak memory with no block kept exceeds the memory available or `max_memory_bytes=` | the fit would not fit even rebuilding every block; see [Memory](#memory) |
 | a user hazard learner whose predictions change between calls | a block's hazards are rebuilt from the model on every pass; see [Memory](#memory) |
+| an initial hazard fit with an infinite cause jump | the product-limit survival is not defined there, and the [jump bound](#the-jump-bound) has no share of each cause to keep |
+| the bootstrap intervals and band of a fit where more than 1% of the `n_bootstrap=` refits fail | the kept replicates would condition on the resamples that fit; the fit warns, keeps its Wald intervals and sets `bootstrap_status="bootstrap_unstable"`; see [The full-refit bootstrap](#the-full-refit-bootstrap) |
+| `bootstrap_interval="bca"` without `n_bootstrap=` | there are no replicates to read |
+
+The rows on an arm's first event of a cause, on an arm's follow-up and on an infinite jump read the
+drawn data, not the request, so they raise `DataError`, and a repeated-sampling study records such
+a draw as a lost replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or
+`bootstrap_interval=` set wrongly raises `ValueError` at construction. The other rows raise
+`CapabilityError`.
 
 ## Evidence
 
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, at least 1,000 units, two
-causes, a risk or a risk difference, at a time by which 40% to 85% of the observed events of any
-cause have happened
-(`cleverly.survival.result.continuous_survival_support`). At the lower quartile the standard error
-ran up to 8% below the sampling spread and coverage fell to 0.88, so an estimate at a time that
-early reads experimental. The time condition is calibrated on this one law and does not read
-how many events each arm and cause has.
+that configuration: cross-fitted, the default libraries and settings, two causes (see below for
+one and three), a risk or a
+risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
+(`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
+study below. Its record was regenerated under the switched default: all 12 primary rows pass, with
+coverage 0.942 to 0.952 and SE ratio 0.991 to 1.032 over 7,600 fits, and the six property cells
+pass. At the lower quartile it covered 0.932 to 0.961, but an estimate at a time that early reads
+experimental because the switched-variance study's first-quartile rows do not all pass. The time
+condition is calibrated on this one law and does not read how many events each arm and cause has.
 
 The registered study [continuous-time survival restricted means and risk
 ratios](method-evidence/continuous-survival-functionals.md) gates the same configuration with
 `restricted_horizons=(2.32,)`, the upper quartile and last target time: the risks and risk
 differences of that fit, whose extra targets move them, the log risk ratios at the median and
 upper quartile, and the RMTL of each arm and cause, the RMST of each arm and their differences
-at $\tau$. All 25 rows pass, with coverage 0.919 to 0.954, and the RMST difference meets the
-calibration bands (coverage 0.945, SE ratio 0.997). A fit with one restricted horizon at or before
-its last target time reads `supported` under the conditions above, and its restricted means read
+at $\tau$. Its record was regenerated under the switched default interval. All 25 rows pass,
+with coverage 0.939 to 0.954, and the RMST difference meets the calibration bands (coverage 0.945,
+SE ratio 0.996). A fit with one restricted horizon at or before
+its last target time reads `supported` under the conditions above with at least 1,000 units
+(`FUNCTIONALS_N`), the one size that study ran, and its restricted means read
 `supported` only at a $\tau$ by which 67% to 85% of the observed events have happened
 (`RESTRICTED_EVENT_SHARE`). The measured $\tau$ sits at about 75%, and a restricted mean at an
 earlier $\tau$ weights the sparse early times, where the risks' standard error ran low, more
@@ -370,6 +642,36 @@ survival view, a smooth contrast and the band read experimental. A risk-only wal
 study's draws left the RMTL score above the cutoff in 25% to 51% of fits but was unbiased on
 this law, so the claim that a restricted mean must be targeted rests on the score test below.
 
+The registered study [continuous-time survival switched
+variance](method-evidence/continuous-survival-variance.md) ships the switched variance as the
+default: it passes its ship rule with 20 rows improved and none harmed, and every gated row of its
+four gated cells passes at 6,000 replicates.
+
+The switched-variance study sets three floors. A risk or risk difference whose `variance_rel_sd`
+lies above 0.246 (`MEASURED_REL_SD`) reads experimental. The share floor stays at 0.40, because
+not every first-quartile row passed. The study's gated 500-unit cell, which fits no restricted
+horizon, passed every row, so a risk or risk difference of a fit without restricted horizons
+needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit with restricted
+horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
+the study that measured its configuration.
+
+The registered study [continuous-time survival with one and three
+causes](method-evidence/continuous-survival-causes.md) fits the default cross-fitted
+configuration at n = 1,000 on two laws built from the registered one: one cause, its cause-2
+hazard removed, and three causes, with a third hazard
+$h_3 = \exp(-2.5 + 0.5 X_1 + 0.5 X_3 + 0.5 Z)$, constant in time, added. It gates every risk and
+risk difference at each law's median and upper quartile. All 24 rows pass over 7,200 fits per
+law, with coverage 0.950 to 0.955 for one cause and 0.930 to 0.958 for three. Its 15 property
+cells pass: a calibration cell per law with the shrunk-SE and noise controls, and per law, on
+1,600 draws, the doubly robust cell with wrong hazards and the right propensity beside two
+controls on the same draws, the initial plug-in and the factual tilt, each of which stays biased.
+
+A fit with one cause or with three (`MEASURED_CAUSES`) therefore reads `supported` under the
+conditions above with at least 1,000 units (`CAUSES_N`), since the 500-unit floor was measured
+with two causes, and names that study in place of the two-cause one. A fit with one or three
+causes and a restricted horizon reads experimental, because the functionals study measures two
+causes only. No study measures four or more causes, so such a fit always reads experimental.
+
 `tests/unit/test_continuous_survival.py` checks the influence curve
 against the Gateaux derivative of an exact law, the path and the stopping rule, and a mutation
 control for each censoring, survival and tilting term. `tests/unit/test_continuous_survival_functionals.py`
@@ -377,3 +679,21 @@ checks the restricted mean's curve against the Gateaux derivative of the same la
 direction against a sum over grid points, with the term $W(u) F_j(u)$ dropped as a mutation. It
 also checks that the walk removes the bias of a restricted mean under a wrong hazard, and that a
 restricted mean left out of the direction stays unsolved and biased.
+`tests/unit/test_continuous_survival_variance.py` checks the predictable-variation covariance
+against the influence curve's on an exact law, the switch on both sides of its threshold, and the
+derived estimates against the stored ones.
+`tests/unit/test_continuous_survival_causes.py` builds an exact law with any number of causes and
+checks, with one cause and with three, the influence curve against the Gateaux derivative, the
+predictable-variation covariance against the influence curve's, and that the walk from hazards
+that ignore the covariate reaches the truth with the incidences and the survival adding to one.
+It also checks that the log-likelihood's path derivative along the walk's direction equals the
+score norm. With three causes the exact law's all-cause hazard varies with the covariate, so the
+fit that ignores the covariate has the wrong survival and the term of the direction that every
+cause shares does not vanish from the score. Its mutations freeze the third cause's tilt,
+drop the third cause from the survival, from the multinomial cross term or from the term of the
+direction that every cause shares, drop the one-cause square $d\Lambda^2$, and tilt only the
+received arm; each breaks its identity or keeps the bias. Reading the targets in cause-major
+order moves the curve off the Gateaux derivative.
+
+No study has run on the full-refit bootstrap. Its percentile, BCa and band read experimental for
+the reasons and the declared study given in [The full-refit bootstrap](#the-full-refit-bootstrap).

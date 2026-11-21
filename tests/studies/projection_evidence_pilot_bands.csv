@@ -1,0 +1,12 @@
+cell,group,replicates,coverage
+cde_4k_z0__simultaneous_band,cde_4k,3200,0.94375
+cde_4k_z1__simultaneous_band,cde_4k,3200,0.944063
+pooled_4k__simultaneous_band,pooled_4k,3200,0.948125
+band_obs_4k__simultaneous_band,band_obs_4k,2400,0.955
+band_obs_4k__pointwise_joint_control,band_obs_4k,2400,0.774167
+band_crr_4k__simultaneous_band,band_crr_4k,2400,0.943333
+band_crr_4k__pointwise_joint_control,band_crr_4k,2400,0.770833
+band_clustered_4k__simultaneous_band,band_clustered_4k,2400,0.952917
+band_clustered_4k__pointwise_joint_control,band_clustered_4k,2400,0.784583
+band_rep3_4k__simultaneous_band,band_rep3_4k,2400,0.945417
+band_rep3_4k__pointwise_joint_control,band_rep3_4k,2400,0.7675

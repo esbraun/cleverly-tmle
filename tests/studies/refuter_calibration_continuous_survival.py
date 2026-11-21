@@ -38,15 +38,23 @@ and the cause-2 arm coefficient :data:`POWER_CAUSE2_ARM`. The plan names the arm
 alone. Raising :math:`\beta` alone reaches 4 SE on the cause-2 difference at the median only at
 :math:`\beta = 3.5`, where the true treated survival at the last target time falls to
 :math:`5 \times 10^{-13}` for units with :math:`X_1 = 1` and :math:`X_3` just below 1, below
-the engine's floor of :math:`10^{-12}`, so almost every fit would raise. The design test checks
-both facts from the exact law.
+the survival floor of :math:`10^{-12}` the engine refused at when this design was set, so almost
+every fit would have raised. The engine now refuses only below
+:data:`~cleverly.survival.engine.SURVIVAL_UNDERFLOW` (:math:`10^{-250}`), since X6 part A
+computes the clever covariate without cancellation, so that reason no longer binds; the
+registered coefficients stand until the design is revisited. The design test checks both facts
+from the exact law.
 
-**Size cells** (``refuter_size``, 8 cells). 200 trials on the size law. Each trial draws one
+**Size cells** (``refuter_size``, 8 cells). 600 trials on the size law. Each trial draws one
 sample, fits it once, and runs one placebo test and one subset test of 20 refits each. All eight
-readings of a trial come from those 41 fits: the four :func:`~cleverly.validation.refute` calls
-of a trial share one seed, so they draw the same permutations and subsets, and
-:func:`shared_refits` fits each perturbed sample once. A reading passes when it rejects in at
-most 17 trials.
+readings of a trial come from those 41 fits: the four :func:`~cleverly.validation.refute` calls of
+a trial share one seed, so they draw the same permutations and subsets, and :func:`shared_refits`
+fits each perturbed sample once. A reading passes when it rejects in at most 68 trials, the largest
+count whose 99% Clopper-Pearson upper endpoint (0.1506) stays under the ceiling of the X82 rule's
+17 of 200 (0.1517, midway between the endpoints at 17 and 18 of 200). The
+tolerated size is larger than the X82 count's: at a true rejection rate of 0.10 a cell passes with
+probability 0.875 (0.285 at 17 of 200). The 200-trial pilot sized the count: its predictive family
+pass reads 0.39 at 200 trials, 0.82 at 400 and 0.92 at 600.
 
 **Power cells** (``refuter_power``, 12 cells). A power reading passes when it detects its
 defect in at least 38 of 50 trials.
@@ -81,8 +89,9 @@ varies across a cell's trials. ``cells.csv`` records the one configuration of ea
 law, and the ranges of its event count and event share; a registry row licensed by this study
 covers that configuration and that event-share range.
 
-**Pending.** :data:`DECLARATION_PENDING` names the pre-run gates the pilot left short; a
-declared run is refused until it is empty.
+**Pending.** :data:`DECLARATION_PENDING` names any pre-run gate the pilot leaves short; a
+declared run is refused until it is empty. It is empty: the 200-trial pilot after X6 part A
+lost no trial and reads a family pass of 0.92 at 600 trials.
 
 **Red reading** (declared before the run). A size red is a defect suspect until diagnosed. A red
 with no defect goes to reporting with an owner, and the rule's registry row stays descriptive.
@@ -131,12 +140,12 @@ SUBSET_FRACTION = 0.7
 #: The placebo draw every placebo reading of this study ran: ``refute``'s default, which
 #: permutes the recorded treatment column. The registry rows cover this draw only.
 PLACEBO_DRAW: Final = "permute"
-SIZE_TRIALS = 200
+SIZE_TRIALS = 600
 POWER_TRIALS = 50
 #: Trials per reporting cell.
 REPORTING_TRIALS = 100
 #: A size reading passes at no more than this many rejections in :data:`SIZE_TRIALS`.
-SIZE_MAX_REJECTIONS = 17
+SIZE_MAX_REJECTIONS = 68
 #: A power reading passes at no fewer than this many detections in :data:`POWER_TRIALS`.
 POWER_MIN_DETECTIONS = 38
 #: The level every rule reads.
@@ -162,14 +171,7 @@ STALE_SHARE = 0.35
 #: ``regenerate.py`` refuses a declared run while it is set, and the design test requires it
 #: exactly while a gate is short (plan 5: the family pass must read 0.90 before the
 #: declaration).
-DECLARATION_PENDING = (
-    "the 57-trial pilot's predictive family pass of the eight size cells reads 0.12 at 200 "
-    "trials, short of 0.90, and no multiple of 200 up to 800 reaches it (0.47 at 800); and 3 "
-    "of 60 pilot size trials lost a subset refit to the 'initial survival reaches zero' "
-    "DataError, against the failure bound of 0.01. X6 PR A removes that DataError and changes "
-    "the fit's default SE, which the subset cells read. Rerun the pilot after X6 PR A, on more "
-    "trials, and resize"
-)
+DECLARATION_PENDING = ""
 #: The treated share of the ``imbalanced`` reporting cell.
 IMBALANCED_SHARE = 0.25
 

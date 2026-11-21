@@ -29,6 +29,17 @@ def _modifier_text(modifiers: Any) -> str:
     return "; ".join(parts)
 
 
+def _band_coverage(band: Any) -> str:
+    """The ``curve_band`` note's sentence on the band's joint coverage, from its own support.
+
+    A band built outside a fit carries no support and reads as unmeasured.
+    """
+    support = band.support
+    measured = support is not None and support.label == "supported"
+    template = vocabulary.CURVE_BAND_MEASURED if measured else vocabulary.CURVE_BAND_UNMEASURED
+    return template.format(kind=band.kind, draws=count_text(int(band.n_replicates)))
+
+
 def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
     """Build the summary of an effect curve.
 
@@ -118,6 +129,7 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
                     level=share_text(1.0 - band.alpha),
                     points=count_text(int(band.estimate.size)),
                     critical=f"{band.critical_value:.3f}",
+                    coverage=_band_coverage(band),
                 ),
             )
         )

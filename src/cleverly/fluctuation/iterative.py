@@ -209,9 +209,20 @@ class InitialFit:
         check_arms(self.observed, self.arms, "initial fit")
 
     def map_arms(self, fn: Callable[[FloatArray], FloatArray]) -> InitialFit:
-        """Apply ``fn`` to the observed predictions and to every arm's, keys preserved."""
+        """Apply ``fn`` to the observed predictions and to every arm's, keys preserved.
+
+        An arm held as the observed array itself, as a longitudinal node's regimen arm is,
+        gets the observed result rather than a second call of ``fn`` on the same array, so the
+        two stay one array.  ``fn`` must therefore be a function of its argument alone, with no
+        state between calls; every caller passes such a function.
+        """
+        observed = fn(self.observed)
         return InitialFit(
-            fn(self.observed), {level: fn(values) for level, values in self.arms.items()}
+            observed,
+            {
+                level: observed if values is self.observed else fn(values)
+                for level, values in self.arms.items()
+            },
         )
 
     def shrunk(self, alpha: float) -> InitialFit:
@@ -1351,10 +1362,15 @@ def apply_logistic(
 ) -> InitialFit:
     """Move the predictions along the logistic submodel by ``epsilon``."""
     check_matching_arms(fit, submodel)
+    observed = expit(logit(fit.observed) + submodel.observed @ epsilon)
     return InitialFit(
-        expit(logit(fit.observed) + submodel.observed @ epsilon),
+        observed,
         {
-            level: expit(logit(values) + submodel.arms[level] @ epsilon)
+            # An arm whose predictions and covariate are the observed arrays themselves moves
+            # exactly as the observed predictions do, so it shares their result.
+            level: observed
+            if values is fit.observed and submodel.arms[level] is submodel.observed
+            else expit(logit(values) + submodel.arms[level] @ epsilon)
             for level, values in fit.arms.items()
         },
     ).shrunk(alpha)
@@ -1481,9 +1497,15 @@ def _solve_linear(
     epsilon = np.zeros(submodel.dim) if step is None else step
 
     def moved(fit: InitialFit, along: Submodel) -> InitialFit:
+        observed = fit.observed + along.observed @ epsilon
         return InitialFit(
-            fit.observed + along.observed @ epsilon,
-            {level: values + along.arms[level] @ epsilon for level, values in fit.arms.items()},
+            observed,
+            {
+                level: observed
+                if values is fit.observed and along.arms[level] is along.observed
+                else values + along.arms[level] @ epsilon
+                for level, values in fit.arms.items()
+            },
         )
 
     targeted = moved(initial, submodel)

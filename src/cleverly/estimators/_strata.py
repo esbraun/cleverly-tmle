@@ -332,7 +332,7 @@ def refuse_untrainable_leave_two_out(
 
     Raises
     ------
-    ValueError
+    DataError
         If some arm and pair of folds leave no trainable row outside the pair, or if a
         Super Learner role keeps one row of a class there (or no row, except a binary
         outcome class).
@@ -355,7 +355,7 @@ def refuse_untrainable_leave_two_out(
             outside = (assignment != first) & (assignment != second)
             if np.any(trainable & outside):
                 continue
-            raise ValueError(
+            raise DataError(
                 f"folds {first} and {second} together hold every trainable row of arm "
                 f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
                 "regressions of reduced_crossfit='foldwise' cannot be fitted. "
@@ -375,7 +375,7 @@ def refuse_untrainable_leave_two_out(
                 count = int(np.count_nonzero(values == value))
                 if count >= 2 or (count == 0 and role == "outcome" and binary):
                     continue
-                raise ValueError(
+                raise DataError(
                     f"folds {first} and {second} leave {count} {label(float(value))} "
                     f"outside them, so the leave-two-out {role} regression of "
                     "reduced_crossfit='foldwise' cannot be fitted: its learner is a package "

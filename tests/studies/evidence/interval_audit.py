@@ -480,6 +480,18 @@ SCREEN_REASONS: dict[str, str] = {
         "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this "
         "screen does not model; asymmetric_audit reads it under MOVER"
     ),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        "the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every "
+        "fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the "
+        "identity interval on its t reference; the range-logit scale applies to an unclustered "
+        "mean only (ParameterEstimate.interval_scale)"
+    ),
+    "few-cluster-floor-tmle": (
+        "the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every "
+        "fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the "
+        "identity interval on its t reference; the range-logit scale applies to an unclustered "
+        "mean only (ParameterEstimate.interval_scale)"
+    ),
     "few-cluster-fold-variance": (
         "the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is "
         "clustered (id=), and a clustered mean keeps the identity interval on its t reference; "
@@ -492,6 +504,9 @@ SCREEN_REASONS: dict[str, str] = {
     ),
     "score-assessment": (
         "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
+    ),
+    "score-assessment-compositions": (
+        "the flagged cells are calibration slopes of a CATE score, not package intervals of a mean"
     ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "

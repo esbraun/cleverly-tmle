@@ -72,6 +72,7 @@ from ..inference.multiplier import (
 from ..learners.crossfit import Folds, make_folds
 from ..learners.glm import _active_columns
 from ..utils.bounds import bound
+from ._fit_cache import frozen
 from .data import LongitudinalData
 from .estimator import (
     DEFAULT_LTMLE_G_BOUNDS,
@@ -1614,7 +1615,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     :mod:`cleverly.longitudinal.collaborative` states the search, the loss and the penalty.
     Every estimate is a point: ``std_error``, ``ci`` and ``pvalue`` raise, and
     ``plugin_std_error`` and ``plugin_interval`` keep the hazard influence curve at the
-    selected state as a diagnostic.
+    selected state as a diagnostic.  The memory guard of :class:`LTMLE` does not check this
+    fit: its memory is outside that guard's calibration.
 
     Parameters
     ----------
@@ -1709,6 +1711,8 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: A constant node keeps the constant-node status: the mechanism is selected along the
     #: fit, and no study measures the boundary-node supplement with that selection.
     _boundary_kind: ClassVar[str | None] = "collaborative"
+    #: Not guarded: its memory is its own (X106 J1), outside the J2d calibration.
+    _retention_guard: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -2352,8 +2356,13 @@ def _regimen_fit(
     unbounded = np.stack(candidate.unbounded, axis=2)[rows, :, observed]
     bounded = np.stack(candidate.cumulative, axis=2)[rows, :, observed]
     q = inputs.q_observed()
-    clever = np.where(inputs.at_risk, q[0][:, None] * inputs.inverse_observed(), 0.0)
-    clever[:, horizon:] = 0.0
+    clever = frozen(
+        np.where(
+            inputs.at_risk[:, :horizon],
+            q[0][:, None] * inputs.inverse_observed()[:, :horizon],
+            0.0,
+        )
+    )
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=float(levels[0, 0, 0]),

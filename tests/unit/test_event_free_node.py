@@ -372,8 +372,8 @@ def test_dropping_base_from_the_stamp_leaves_the_reference_contrast_inferential(
         "_estimates",
         [
             (
-                "level_of[id(fit)].inference,\n                    level_of[id(base)].inference,",
-                "",
+                "levels = (level_of[id(fit)].inference, level_of[id(base)].inference)",
+                "levels = ()",
             )
         ],
     )

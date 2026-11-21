@@ -1,0 +1,27 @@
+=== refuter-calibration-continuous-survival declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/refuter_calibration_continuous_survival/regenerate.py --output /tmp/x101-refuter-run-1 --jobs 4
+commit: 927379cf53c3c649743e080ea84007b5e21cb091; upstream 927379cf53c3c649743e080ea84007b5e21cb091
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 195, sha256 77d5e0364e5e946e92a28aea1897281e961aafaf8ab95bf17494c334935030f1
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-19T16:24:08+00:00
+finished: 2026-11-19T23:32:28+00:00
+wall seconds: 25699.8
+exit code: 0
+sha256 cells.csv: 0e486a521f0939007958a7d2e68cde8276a4bf808ae86f6a6b5a8e75ad36ab16
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 35a21b41c8b74b4d158fa6041ab9e8773846911e4d8aec7ee9fd19c3f7ebf39e
+sha256 performance-tests.csv: 98552c2a88c1347d75c024868b7adb6a17eb6d97fed92ca2447a55164a4a170b
+sha256 properties.csv: dff1a7360428389f31706757dce24caa911126ace5f47b5e89596d55e8867490
+sha256 property-failure-accounting.csv: 514f30a068994af1eb54995b61b722f5ec76b8bc52c31cc4821668b6b0c25e99
+sha256 property-failure-witnesses.parquet: 637748e0eb48a9a820df21bd521e8830734c6feefff0fa53fe7bcbe0d24989e2
+sha256 property-failures.csv: 53bc30afb3cd3091d5cbb9854c9ee0e3c907731bc595aaf37d5af89a59f96e69
+sha256 property-replicates.parquet: a66d40286813943b3893f98b3a3489063257e5411ef4736ef4d37ae69a955860
+sha256 replicates.parquet: 97c2ce274038e5be4874b2b763314b5dde6c19b40b3b5ade5365e58d8e5b1e46
+sha256 reporting-cells.csv: db2ab7a72ee0ef2653c799dba0b2e6594b9b2e5dcc48e49d810624a0fd903a8b
+sha256 reporting-replicates.csv: 9aa0fb5cbb6d4dab4edabb94b2f560f53908e9c79ffdf30e36e1d4a7740c8de9
+sha256 summary.csv: 9a9edd35baea2f55ae913e049b832c6d1234d3a5073ce8d5d92de5da3571e8a6
+

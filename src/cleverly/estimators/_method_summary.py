@@ -688,7 +688,10 @@ def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
             )
         )
     return Summary.build(
-        title=vocabulary.DERIVATIVE_TITLE, header=header, tables=tables, sections=sections
+        title=vocabulary.DERIVATIVE_TITLE,
+        header=header,
+        tables=tables,
+        sections=sections,
     )
 
 

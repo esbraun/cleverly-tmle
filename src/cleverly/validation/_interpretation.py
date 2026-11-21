@@ -177,6 +177,10 @@ class FitConfiguration:
     causes : int or None
         The number of event types of a continuous-time survival fit. ``None`` on every other
         family.
+    variance : str or None
+        The variance rule of a continuous-time survival fit, ``"switched"`` or
+        ``"influence_curve"`` (``ContinuousSurvivalTMLE(variance=...)``). ``None`` on every other
+        family.
     """
 
     method: str
@@ -197,6 +201,7 @@ class FitConfiguration:
     placebo_draw: str | None = None
     event_share: float | None = None
     causes: int | None = None
+    variance: str | None = None
 
 
 def event_count(data: Any) -> int | None:
@@ -450,13 +455,44 @@ def _longitudinal_configuration(result: Any, estimand: str) -> FitConfiguration:
     )
 
 
+def continuous_survival_learners(estimator: Any, n: int) -> tuple[str, str, str]:
+    """Name a continuous-time survival estimator's three learners, each library as one.
+
+    A library is named whole, as ``hazard=[...]`` and ``censoring=[...]`` over its members'
+    ``repr`` in order, so a scope that lists the default library does not cover a subset of
+    it. A hazard member's ``repr`` tells ``CoxHazard`` settings apart where
+    :func:`learner_fingerprint` reads a class with no ``get_params`` by its name alone.
+
+    Parameters
+    ----------
+    estimator : ContinuousSurvivalTMLE
+        The estimator, fitted or not.
+    n : int
+        The sample size, which :func:`learner_fingerprint` reads for the treatment learner.
+
+    Returns
+    -------
+    tuple of str
+        The hazard library, the censoring library and the treatment learner.
+    """
+    treatment = (
+        "default"
+        if estimator.treatment_learner is None
+        else learner_fingerprint(estimator.treatment_learner, n)
+    )
+    return (
+        "hazard=[" + ", ".join(repr(member) for member in estimator.hazard_library) + "]",
+        "censoring=[" + ", ".join(repr(member) for member in estimator.censoring_library) + "]",
+        f"treatment={treatment}",
+    )
+
+
 def continuous_survival_configuration(result: Any, estimand: str) -> FitConfiguration:
     """Read the scope axes of a continuous-time survival fit for one estimand.
 
     The estimand kind is ``"continuous:"`` and the parameter stem (``risk``, ``ate_regimen``
-    or ``rr_regimen``), since an arm or cause label is the user's own text. A hazard member
-    is named by its ``repr``, which tells ``CoxHazard`` settings apart where
-    :func:`learner_fingerprint` reads a class with no ``get_params`` by its name alone. The
+    or ``rr_regimen``), since an arm or cause label is the user's own text. The learners are
+    named by :func:`continuous_survival_learners`, each library as one learner. The
     event count is the fewest events of any arm and cause at or before the estimand's time,
     and the event share is the share of observed events, of any cause, by that time.
 
@@ -494,13 +530,7 @@ def continuous_survival_configuration(result: Any, estimand: str) -> FitConfigur
         for code in codes
     ]
     observed = T[D > 0]
-    learners = (
-        *(repr(member) for member in estimator.hazard_library),
-        *(repr(member) for member in estimator.censoring_library),
-        learner_fingerprint(estimator.treatment_learner, n)
-        if estimator.treatment_learner is not None
-        else "default",
-    )
+    learners = continuous_survival_learners(estimator, n)
     return FitConfiguration(
         method="ContinuousSurvivalTMLE",
         estimand_kind=f"continuous:{kind}",
@@ -518,6 +548,7 @@ def continuous_survival_configuration(result: Any, estimand: str) -> FitConfigur
         nodes=None,
         event_share=float(np.mean(observed <= time)),
         causes=len(result.causes),
+        variance=str(estimator.variance),
     )
 
 
@@ -577,6 +608,9 @@ class CalibrationScope:
     event_share_range : tuple of float or None
         The covered range ``(low, high)`` of :attr:`FitConfiguration.event_share`, both ends
         included. A fit that records no event share lies outside a restricted range.
+    variances : frozenset of str or None
+        The covered variance rules of a continuous-time survival fit
+        (:attr:`FitConfiguration.variance`).
     """
 
     methods: frozenset[str] | None = None
@@ -598,6 +632,7 @@ class CalibrationScope:
     placebo_draws: frozenset[str] | None = None
     causes: frozenset[int] | None = None
     event_share_range: tuple[float, float] | None = None
+    variances: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -614,6 +649,7 @@ class CalibrationScope:
             "nodes",
             "placebo_draws",
             "causes",
+            "variances",
         ):
             object.__setattr__(self, name, _frozen(getattr(self, name)))
 
@@ -657,7 +693,6 @@ class CalibrationScope:
             ("replicate count", self.replicates, fit.replicates),
             ("node count", self.nodes, fit.nodes),
             ("placebo draw", self.placebo_draws, fit.placebo_draw),
-            ("cause count", self.causes, fit.causes),
         )
         for axis, covered, value in pairs:
             if covered is not None and value not in covered:
@@ -684,6 +719,17 @@ class CalibrationScope:
             self.clusters_min is None or fit.clusters < self.clusters_min
         ):
             found.append(f"cluster count {fit.clusters}")
+        # The order follows plain_mismatches, which names the same axes in plain words.
+        if self.causes is not None and fit.causes not in self.causes:
+            found.append(f"cause count {fit.causes!r}")
+        # A fit with no variance rule (any method but ContinuousSurvivalTMLE) differs on its
+        # method already, so the variance axis does not name it again.
+        if (
+            self.variances is not None
+            and fit.variance is not None
+            and fit.variance not in self.variances
+        ):
+            found.append(f"variance rule {fit.variance!r}")
         if self.event_share_range is not None and not _within(
             fit.event_share, self.event_share_range
         ):
@@ -1251,6 +1297,111 @@ def _band_rows() -> tuple[VerdictEvidence, ...]:
     return tuple(rows)
 
 
+#: The registered study that calibrated the continuous-time survival refutation rules (X101).
+_CONTINUOUS_SURVIVAL_STUDY = "refuter-calibration-continuous-survival"
+
+#: Its declared thresholds (X101 plan rev 2, section 5, amended 2026-11-19 to 600 trials: the
+#: largest count under the 99% Clopper-Pearson ceiling of the X82 rule's 17 of 200).
+_CONTINUOUS_SURVIVAL_MISCALIBRATION = (
+    "Checked against gross miscalibration only: 600 trials, pass at no more than 68 "
+    "rejections. True size 0.05 passes with probability 1.000, 0.08 with 0.998, 0.10 with "
+    "0.875, and 0.15 with 0.006, a looser tolerance than the X82 rule's 17 of 200. Power: 50 "
+    "trials under {defect}, pass at no fewer than 38 detections."
+)
+
+#: The four calibrated estimands: the risk difference of each cause at the median and upper
+#: quartile of the observed event times.
+_CONTINUOUS_SURVIVAL_ESTIMANDS: Final[tuple[str, ...]] = (
+    "c1_t1.12",
+    "c1_t2.32",
+    "c2_t1.12",
+    "c2_t2.32",
+)
+
+#: The default hazard and censoring libraries and treatment learner of
+#: ``ContinuousSurvivalTMLE``, each named whole by :func:`continuous_survival_learners`, so a
+#: fit with a subset of a default library is outside the scope.
+_CONTINUOUS_SURVIVAL_LEARNERS: Final[tuple[str, ...]] = (
+    "hazard=[CoxHazard('treatment'), CoxHazard('main'), CoxHazard('interaction')]",
+    "censoring=[CoxHazard('treatment'), CoxHazard('main'), CoxHazard('interaction')]",
+    "treatment=default",
+)
+
+#: Each instrument: rule, size reading, power readings, the defect, and the measured size
+#: over the four estimands' size cells.
+_CONTINUOUS_SURVIVAL_READINGS: Final[dict[str, tuple[str, str, tuple[str, ...], str, str]]] = {
+    "placebo": (
+        "t",
+        "placebo",
+        ("placebo_stale_rows",),
+        "a stale-row placebo that keeps 35% of recorded treatments",
+        "The study measured its false-alarm rate at 0.045 to 0.055.",
+    ),
+    "subset": (
+        "rho",
+        "subset",
+        ("subset_half_se", "subset_double_se"),
+        "a reported standard error halved and doubled",
+        "The study measured its false-alarm rate at 0.080 to 0.095, above the nominal 0.05, "
+        "so about one fit in eleven fails this check with nothing wrong.",
+    ),
+}
+
+
+def _continuous_survival_rows() -> tuple[VerdictEvidence, ...]:
+    """The rows that the X101 study's passing size and power cells license."""
+    rows: list[VerdictEvidence] = []
+    for instrument, (rule, size, powers, defect, measured) in _CONTINUOUS_SURVIVAL_READINGS.items():
+        rows.append(
+            VerdictEvidence(
+                instrument=instrument,
+                rule=rule,
+                rung="L2",
+                theory=(
+                    "X101 plan rev 2, section 5. "
+                    + _CONTINUOUS_SURVIVAL_MISCALIBRATION.format(defect=defect)
+                ),
+                scope=CalibrationScope(
+                    methods=frozenset({"ContinuousSurvivalTMLE"}),
+                    estimand_kinds=frozenset({"continuous:ate_regimen"}),
+                    outcome_families=frozenset({"competing_risks"}),
+                    treatment_kinds=frozenset({"discrete"}),
+                    learners=frozenset(_CONTINUOUS_SURVIVAL_LEARNERS),
+                    cross_fitting=frozenset({"folds=10"}),
+                    inference=frozenset({"influence_curve"}),
+                    known_mechanism=frozenset({False}),
+                    arms=frozenset({2}),
+                    replicates=frozenset({20}),
+                    nodes=frozenset({None}),
+                    placebo_draws=(frozenset({"permute"}) if instrument == "placebo" else None),
+                    n_min=1000,
+                    covariates_per_row_max=0.004,
+                    min_event_count_min=17,
+                    causes=frozenset({2}),
+                    event_share_range=(0.4336, 0.7946),
+                    variances=frozenset({"switched"}),
+                ),
+                sentence=(
+                    "Calibrated against gross miscalibration on the registered two-cause "
+                    "continuous-time survival law at n = 1,000: the default "
+                    "ContinuousSurvivalTMLE with its switched variance, ten-fold "
+                    f"cross-fitting, risk differences at target times holding 43% to 79% of "
+                    f"the observed events. {measured}"
+                ),
+                study=(
+                    _CONTINUOUS_SURVIVAL_STUDY,
+                    *(f"refuter_size/{e}__{size}" for e in _CONTINUOUS_SURVIVAL_ESTIMANDS),
+                    *(
+                        f"refuter_power/{e}__{power}"
+                        for e in _CONTINUOUS_SURVIVAL_ESTIMANDS
+                        for power in powers
+                    ),
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 #: The saturated logistic learner of the X82 SG omitted-variable cells: a logistic regression on
 #: every pairwise product of its inputs, practically unpenalized.
 _SG_SATURATED = (
@@ -1705,6 +1856,7 @@ VERDICT_EVIDENCE: tuple[VerdictEvidence, ...] = (
     *_longitudinal_rows(),
     *_point_rows(),
     *_band_rows(),
+    *_continuous_survival_rows(),
     *_sg_rows(),
     *_sh_rows(),
     *_tilt_rows(),
@@ -1930,6 +2082,12 @@ def plain_mismatches(scope: CalibrationScope, fit: FitConfiguration | None) -> l
         found.append(f"{fit.clusters} clusters")
     if scope.causes is not None and fit.causes not in scope.causes:
         found.append(f"{fit.causes} event types")
+    if (
+        scope.variances is not None
+        and fit.variance is not None
+        and fit.variance not in scope.variances
+    ):
+        found.append(f"another standard-error rule ({fit.variance})")
     if scope.event_share_range is not None and not _within(
         fit.event_share, scope.event_share_range
     ):
@@ -1949,11 +2107,24 @@ class CalibrationCell:
         Whether the cell passed its declared threshold.
     configuration : FitConfiguration
         The configuration the fit recorded, read off the fitted result.
+    event_shares : tuple of float, optional
+        The smallest and largest event share the cell's trials recorded, for a cell whose
+        trials draw their event share. ``None`` when the cell records none.
     """
 
     kind: Literal["size", "power"]
     passed: bool
     configuration: FitConfiguration = field(repr=False)
+    event_shares: tuple[float, float] | None = None
+
+
+#: The grid a row's event-share range is printed on. A row rounds its range outward to it, so
+#: containment allows the range to pass the size trials' shares by less than one step.
+EVENT_SHARE_STEP: Final[float] = 1e-4
+
+#: Methods whose rows must restrict the variance rule, the cause count and the event share,
+#: since each moves the reading's size (X101, design review M2).
+_SHARE_METHODS: Final[frozenset[str]] = frozenset({"ContinuousSurvivalTMLE"})
 
 
 def check_scope_containment(
@@ -2074,4 +2245,46 @@ def check_scope_containment(
         clusters = [c.configuration.clusters for c in passing if c.configuration.clusters]
         if scope.clusters_min is not None and (not clusters or scope.clusters_min < min(clusters)):
             problems.append(f"{row.instrument}/{row.rule}: cluster bound below the {kind} cells")
+        problems.extend(_share_axis_problems(row, kind, passing))
+    return problems
+
+
+def _share_axis_problems(
+    row: VerdictEvidence, kind: str, passing: list[CalibrationCell]
+) -> list[str]:
+    """The variance-rule, cause-count and event-share violations of one kind's cells.
+
+    A row whose methods include a :data:`_SHARE_METHODS` method must restrict all three. The
+    variance rules and cause counts must each be ones a passing cell ran. The event-share range
+    is read against the size cells alone: the size cells fix the false-alarm rate across the
+    shares a fit can have, while a power cell may run a law of its own (the X101 placebo power
+    law), whose shares its page states as a limitation.
+    """
+    scope = row.scope
+    label = f"{row.instrument}/{row.rule}"
+    problems: list[str] = []
+    if scope.methods is not None and scope.methods & _SHARE_METHODS:
+        for axis, covered in (
+            ("variances", scope.variances),
+            ("causes", scope.causes),
+            ("event_share_range", scope.event_share_range),
+        ):
+            if covered is None:
+                problems.append(f"{label}: axis {axis} is unrestricted")
+    for axis, covered, ran in (
+        ("variances", scope.variances, {c.configuration.variance for c in passing}),
+        ("causes", scope.causes, {c.configuration.causes for c in passing}),
+    ):
+        if covered is not None and not covered <= ran:
+            problems.append(f"{label}: axis {axis} has a value no passing {kind} cell ran")
+    if kind == "size" and scope.event_share_range is not None:
+        shares = [c.event_shares for c in passing if c.event_shares is not None]
+        if len(shares) < len(passing):
+            problems.append(f"{label}: a passing size cell records no event shares")
+        elif shares:
+            low, high = scope.event_share_range
+            if low <= min(s[0] for s in shares) - EVENT_SHARE_STEP or (
+                high >= max(s[1] for s in shares) + EVENT_SHARE_STEP
+            ):
+                problems.append(f"{label}: event-share range outside the size cells' shares")
     return problems

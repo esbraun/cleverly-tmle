@@ -208,21 +208,31 @@ about ten seconds at 1,000 people.
 
 The fit works through the people in small groups, so its memory grows with the number of people
 and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
-people and two horizons, it needs about 0.3 GB. Before fitting anything, it checks that the
-machine has that much free and stops with an error when it does not; on macOS, which does not
-report free memory, it checks only a limit you set. Between passes it keeps as many groups as the
-free memory holds and recomputes the rest, so a larger limit makes a large fit faster and never
-changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
+people and two horizons, it needs about 0.7 GB. About 0.4 GB of that is working space for the
+default standard errors (`variance="switched"` on `ContinuousSurvivalTMLE`), which does not grow
+with the number of people; `variance="influence_curve"` skips that step and needs about 0.3 GB.
+Before fitting anything, the fit checks that the machine has the memory it needs free and stops
+with an error when it does not; on macOS, which does not report free memory, it checks only a
+limit you set. Between passes it keeps as many groups as the free memory holds and recomputes the
+rest, so a larger limit makes a large fit faster and never changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
 whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
-competing events at 1,000 people found the risks unbiased and their 95% intervals covering 92% to
+competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
-time by which a quarter had happened the intervals were too narrow, and some covered only 88% of
-the time. So an estimate reads `supported` only at a time by which 40% to 85% of the events of
-any cause have happened, not counting people who left follow-up. By time 0.5 about a fifth had,
+time by which a quarter had happened its intervals covered 93% to 96%, but in a
+[second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
+other data-generating setups some intervals at that early time were still too narrow. So an
+estimate reads `supported` only at a time by which 40% to 85% of the events of any cause have
+happened, not counting people who left follow-up. By time 0.5 about a fifth had,
 so the first line reads `experimental`. The other conditions of the label are in the study's
 [limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
+
+A [third study](../technical-reference/method-evidence/continuous-survival-causes.md) ran the same
+fit at 1,000 people with one kind of event and with three competing ones, and its intervals
+covered 93% to 96% of the time at the same two times. So those fits can read `supported` too, but
+only from 1,000 people. With four or more kinds of event every estimate reads `experimental`,
+because no study has checked such a fit.
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
@@ -258,6 +268,17 @@ Each box holds everyone given that arm, whether or not they were still followed 
 
 When some people had almost no chance of one treatment, the intervals of a study cell at 4,000 people
 covered as little as 37% of the time.
+
+Such people can also push the event-rate model past what it can predict. A person whose covariates
+lie outside the range seen in one treatment group can get, under that treatment, a predicted chance
+of an event at a single time of one or more. The fit then caps that chance just below one, keeping
+each event type's share of it, and goes on. It warns with `PositivityWarning`, naming the treatment
+and how many people it capped, and marks every estimate `experimental`, because no study measured a
+fit where this happened. `result.record.jump_bound_share` gives the share of person and treatment
+pairs it capped; check `overlap` and consider a model without the treatment interaction.
+When the cap acts at many times for one person, that person's predicted chance of staying free
+of every event shrinks past what the computer can hold, and the fit still stops with a
+`DataError` that names the cap.
 [Continuous-time survival and competing risks](../technical-reference/continuous-time-survival.md)
 gives the method, its conditions and what it refuses.
 
@@ -293,7 +314,7 @@ is the ratio of the two risks of relapse by time 2. Each has an interval in `.ci
 
 The ratio reads `supported`. A [simulation study](../technical-reference/method-evidence/continuous-survival-functionals.md)
 with one cut-off at the last target time found the restricted means unbiased and their 95%
-intervals covering 93% to 95% of the time. It measured a cut-off by which three quarters of the
+intervals covering 94% to 95% of the time. It measured a cut-off by which three quarters of the
 events had happened, and a mean up to an earlier cut-off leans more on the early times, where
 intervals ran narrow. So `rmst` and `rmtl` read `supported` only at a cut-off by which 67% to 85%
 of the events have happened. By time 2 here 62% had, so the first two read `experimental`. The
@@ -569,7 +590,8 @@ is measured after baseline. A plan can fix the treatment at each time point, fol
 reads the baseline covariates, or draw the treatment with known probabilities that may depend on
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
-memory use passes 2 GiB is refused before any model is fitted.
+memory use passes 2 GiB is refused before any model is fitted. On a machine with more memory,
+`LTMLE(..., max_memory_bytes=...)` sets a different limit, higher or lower.
 
 If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
@@ -687,12 +709,29 @@ a note under the summary says the bootstrap interval is experimental. Report the
 as the main result. When the fit warns with `SparseInfluenceWarning` that an estimate rests on
 few people, show the bootstrap interval beside it.
 
+A fit with exact times, `grid="continuous"`, takes `n_bootstrap=` too. Each resample refits every
+model and the risks, so it costs about as long as the fit itself. A person drawn twice into a
+resample stays in one group when the fit splits the rows to fit predictions on the other rows, so
+a copy never predicts its twin. The bootstrap interval of each risk sits in `estimate.bootstrap`
+and in the `bootstrap_ci_lower` and `bootstrap_ci_upper` columns of `result.to_frame()`;
+`bootstrap_interval="bca"` on `ContinuousSurvivalTMLE` gives the BCa interval, which corrects the
+percentile interval for skew. If more than 1% of the refits fail, the fit warns, drops every
+bootstrap interval and keeps the usual ones. Below that share the bootstrap intervals use only the
+refits that worked, without a warning; the summary's bootstrap note gives the count, and
+`result.bootstrap_failures` says why the others failed.
+
+On these fits the bootstrap interval always reads
+`experimental`. With the default cross-fitting no theory yet shows that the bootstrap is valid,
+and for a fit without cross-fitting the conditions of the theory that would cover it have not
+yet been checked. [The full-refit bootstrap](../technical-reference/continuous-time-survival.md#the-full-refit-bootstrap)
+gives both reasons and the study planned to measure it.
+
 :::{dropdown} Details: which bootstrap fits a study covers
 The registered study covers an in-sample, single-cause survival fit on the wide layout with one
 treatment decision at each time point, static plans, and no weights, measured with correctly
 specified cell-mean models on finite binary laws at $n = 1000$. A `TimeToEvent` fit, whose one
-treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer than 20 clusters (groups such as care teams whose members' outcomes move
-together) prints its bootstrap standard deviation and percentile range as diagnostics.
+treatment is held over the time points, and a competing-risk fit print an experimental bootstrap. A fit with fewer clusters than its floor (groups such as care teams whose members' outcomes move
+together; the floor is 20 for most longitudinal fits) prints its bootstrap standard deviation and percentile range as diagnostics.
 [The full-refit bootstrap](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each resample redraws and refits, and
 [Bootstrap for sparse regimens](longitudinal.md#bootstrap-for-sparse-regimens) covers the BCa

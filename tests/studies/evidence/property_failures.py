@@ -26,6 +26,7 @@ import itertools
 import json
 import math
 import re
+import weakref
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -444,7 +445,8 @@ class Context:
     def cell(self, family: str, cell: str) -> pd.DataFrame:
         """The surviving rows of one cell, in the order the rows hold them."""
         rows = self.rows
-        return rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
+        frame = cell_frame(rows, family, cell)
+        return rows.iloc[:0] if frame is None else frame
 
     def k(self, row: pd.Series) -> int:
         """The replicates the summary row's verdict lost."""
@@ -1603,16 +1605,49 @@ def spread_ratio_clause(
     return Clause(name, "S9", applies, read, candidates, target=target, reads=reads)
 
 
-def _completed_se(group: pd.DataFrame, fill: float) -> pd.DataFrame:
-    """One arm's ``replicate`` and ``std_error`` with every lost replicate at ``fill``."""
+def shown_mask(rows: pd.DataFrame) -> np.ndarray:
+    """The rows whose interval is shown: ``withheld == 0`` and a finite positive SE.
+
+    A withheld row may keep the SE it computed (a constant arm, an out-of-range estimate), so
+    the SE alone does not mark a shown draw. ``rows`` must carry the ``withheld`` column.
+    """
+    if "withheld" not in rows:
+        raise ValueError("a shown-only reading needs the rows' withheld column")
+    se = rows["std_error"].to_numpy(dtype=float)
+    withheld = pd.to_numeric(rows["withheld"], errors="coerce").fillna(1).to_numpy()
+    return np.asarray((withheld == 0) & np.isfinite(se) & (se > 0.0), dtype=bool)
+
+
+#: The candidate label of a shown-only clause on a cell with fewer than two shown draws, where
+#: the complete-case reading (the verdict's own) is returned instead of a fill.
+SHOWN_TOO_FEW = "fewer than two shown draws: the complete-case reading"
+
+
+def _shown_rows(group: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """An arm's shown rows and its lost count, read off the unfiltered arm.
+
+    The lost replicates are those the arm's key never returned; a withheld row is a kept row,
+    so it never counts as lost, and it is dropped only after the count is taken.
+    """
+    k = _requested(group) - len(group)
+    return group.loc[shown_mask(group)], k
+
+
+def _completed_se(group: pd.DataFrame, fill: float, *, shown_only: bool = False) -> pd.DataFrame:
+    """One arm's ``replicate`` and ``std_error`` with every lost replicate at ``fill``.
+
+    With ``shown_only`` the lost ids are read off the unfiltered arm, then the withheld rows are
+    dropped (:func:`shown_mask`), so a withheld draw is neither filled nor read.
+    """
     requested = _requested(group)
-    survived = [int(value) for value in group["replicate"]]
-    missing = sorted(set(range(requested)) - set(survived))
+    lost = sorted(set(range(requested)) - {int(value) for value in group["replicate"]})
+    kept = group.loc[shown_mask(group)] if shown_only else group
+    survived = [int(value) for value in kept["replicate"]]
     return pd.DataFrame(
         {
-            "replicate": survived + missing,
+            "replicate": survived + lost,
             "std_error": np.concatenate(
-                [group["std_error"].to_numpy(dtype=float), np.full(len(missing), fill)]
+                [kept["std_error"].to_numpy(dtype=float), np.full(len(lost), fill)]
             ),
         }
     ).sort_values("replicate", ignore_index=True)
@@ -1626,6 +1661,7 @@ def paired_se_ratio_clause(
     applies: Applies,
     group: str = "pair",
     columns: tuple[str, str] = ("paired_se_ratio_ci_lower", "paired_se_ratio_ci_upper"),
+    shown_only: bool = False,
 ) -> Clause:
     """S9m: the control's mean SE over its paired positive arm's mean SE, pushed upward.
 
@@ -1651,6 +1687,10 @@ def paired_se_ratio_clause(
         The rule's group, which says which cells form the pair.
     columns : tuple of str
         The summary columns of the published interval.
+    shown_only : bool, default False
+        The verdict reads the shown draws (``few_cluster_reference_verdicts``): the lost ids
+        are read off the unfiltered arms, then the withheld rows are dropped, and the arms pair
+        on the replicates both keep.
 
     Returns
     -------
@@ -1668,8 +1708,29 @@ def paired_se_ratio_clause(
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         positive, control = _pair_arms(ctx, row, group)
-        numerator = _completed_se(control, float(control["std_error"].max()))
-        denominator = _completed_se(positive, float(positive["std_error"].min()))
+        if shown_only:
+            shown_control, shown_positive = (
+                control.loc[shown_mask(control)],
+                positive.loc[shown_mask(positive)],
+            )
+            shown_both = np.intersect1d(shown_control["replicate"], shown_positive["replicate"])
+            if len(shown_both) < 2:
+                # The verdict fails a control with fewer than two shown draws in both arms; no
+                # fill of the lost draws can read a clause there, so the complete-case reading
+                # is the only one (it fails, as the verdict does).
+                return [(SHOWN_TOO_FEW, read(ctx, row))]
+            numerator = _completed_se(
+                control, float(shown_control["std_error"].max()), shown_only=True
+            )
+            denominator = _completed_se(
+                positive, float(shown_positive["std_error"].min()), shown_only=True
+            )
+            both = np.intersect1d(numerator["replicate"], denominator["replicate"])
+            numerator = numerator.loc[numerator["replicate"].isin(both)]
+            denominator = denominator.loc[denominator["replicate"].isin(both)]
+        else:
+            numerator = _completed_se(control, float(control["std_error"].max()))
+            denominator = _completed_se(positive, float(positive["std_error"].min()))
         interval = paired_se_ratio_interval(
             numerator,
             denominator,
@@ -1691,6 +1752,7 @@ def paired_positive_se_clause(
     truth_varies: Callable[[Context], bool] | None = None,
     group: str = "pair",
     column: str = "paired_positive_se_ratio_ci_upper",
+    shown_only: bool = False,
 ) -> Clause:
     """S5 on the paired positive arm: its SE-ratio interval, judged on the control's row.
 
@@ -1714,6 +1776,9 @@ def paired_positive_se_clause(
         The rule's group, which says which cells form the pair.
     column : str
         The control-row column that publishes the positive arm's upper endpoint.
+    shown_only : bool, default False
+        The verdict reads the positive's shown draws: the S4 set fills the lost count of the
+        unfiltered arm onto its shown rows (:func:`_shown_rows`).
 
     Returns
     -------
@@ -1742,7 +1807,13 @@ def paired_positive_se_clause(
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         positive, _ = _pair_arms(ctx, row, group)
-        k = _requested(positive) - len(positive)
+        if shown_only:
+            positive, k = _shown_rows(positive)
+            if len(positive) < 2:
+                # Fewer than two shown draws publish no SE ratio: the complete-case reading.
+                return [(SHOWN_TOO_FEW, read(ctx, row))]
+        else:
+            k = _requested(positive) - len(positive)
         resampling = seed(ctx, positive_row(ctx, row))
         out = []
         for label, frame in se_ratio_sets(positive, k, truth_varies=varies(ctx)):
@@ -2378,6 +2449,81 @@ def unaccountable_clause(
 # ---- the summary rows a verdict reads -------------------------------------------------------
 
 
+#: Each live row frame's :func:`cell_positions`, by ``id``, with a reference that drops the
+#: entry when the frame goes.
+_CELL_POSITIONS: dict[int, tuple[Any, int, dict[tuple[str, str], np.ndarray]]] = {}
+
+
+def cell_positions(rows: pd.DataFrame) -> dict[tuple[str, str], np.ndarray]:
+    """The row positions of every ``(property, cell)`` of ``rows``, computed once per frame.
+
+    Every summary row's accounting reads its cells, and a boolean scan of every row per read
+    cost most of the accounting of a study of millions of rows. The positions are ascending,
+    so ``rows.iloc[positions]`` holds a cell's rows in the order and with the index the scan
+    gave. A row frame is immutable once read, which the cache relies on.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+
+    Returns
+    -------
+    dict
+        The positions of each ``(property, cell)``, keyed in sorted order.
+    """
+    key = id(rows)
+    held = _CELL_POSITIONS.get(key)
+    if held is not None and held[0]() is rows and held[1] == len(rows):
+        return held[2]
+    grouped = rows.groupby(["property", "cell"], sort=True).indices
+    positions = {(str(family), str(cell)): grouped[family, cell] for family, cell in grouped}
+    reference = weakref.ref(rows, lambda _, key=key: _CELL_POSITIONS.pop(key, None))
+    _CELL_POSITIONS[key] = (reference, len(rows), positions)
+    return positions
+
+
+def present_cells(rows: pd.DataFrame, family: str) -> list[str]:
+    """The cells of ``family`` that ``rows`` holds, in sorted order.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+    family : str
+        The ``property``.
+
+    Returns
+    -------
+    list of str
+        The cells.
+    """
+    return [cell for kind, cell in cell_positions(rows) if kind == family]
+
+
+def cell_frame(rows: pd.DataFrame, family: str, cell: str) -> pd.DataFrame | None:
+    """One cell's rows by :func:`cell_positions`, or ``None`` when ``rows`` holds none.
+
+    A copy of the one cell, where a family's ``groupby`` held a copy of every cell at once.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+    family : str
+        The ``property``.
+    cell : str
+        The cell.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        The cell's rows, in the order and with the index ``rows`` gives them.
+    """
+    positions = cell_positions(rows).get((family, cell))
+    return None if positions is None else rows.iloc[positions]
+
+
 def sources(row: pd.Series, rows: pd.DataFrame) -> list[tuple[str, str]]:
     """The replication cells a summary row's verdict reads.
 
@@ -2400,13 +2546,13 @@ def sources(row: pd.Series, rows: pd.DataFrame) -> list[tuple[str, str]]:
     from tests.studies.evidence import property_verdicts
 
     family, cell = str(row["property"]), str(row["cell"])
-    present = rows.loc[rows["property"] == family, "cell"].astype(str)
-    if (present == cell).any():
+    present = present_cells(rows, family)
+    if cell in present:
         return [(family, cell)]
     if family == "root_n_rate":
         label = cell.rsplit("__", 1)[0] if "__" in cell else ""
         prefix = f"{label}__" if label else ""
-        ladder = rows.loc[rows["property"] == "root_n_and_efficiency", "cell"].astype(str)
+        ladder = present_cells(rows, "root_n_and_efficiency")
         return [
             ("root_n_and_efficiency", name)
             for name in sorted(set(ladder))
@@ -2907,9 +3053,9 @@ def property_accounting(
         raise ValueError(f"FAILURE_BOUND {bound} is outside [0, {MAXIMUM_BOUND}]")
     lost = counts(records)
     ctx = module_context(record, rows, summary, lost, module)
+    requested_column = rows["requested_replicates"].to_numpy()
     requested = {
-        (str(family), str(cell)): int(group["requested_replicates"].iloc[0])
-        for (family, cell), group in rows.groupby(["property", "cell"], sort=True)
+        key: int(requested_column[positions[0]]) for key, positions in cell_positions(rows).items()
     }
     scored = summary.loc[summary["role"] != property_verdicts.DIAGNOSTIC_ROLE]
     items: list[_Accounted] = []

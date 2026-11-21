@@ -23,6 +23,7 @@ __all__ = [
     "read_methods",
     "read_phases",
     "read_planned_fits",
+    "read_planned_refits",
     "read_protocol",
     "read_question",
     "read_simulation",
@@ -566,3 +567,20 @@ def read_planned_fits(plan: Any, text: str) -> None:
     expected += [value for row in plan.rows for value in (row.fits, row.candidate_fits)]
     expected += [value for _, fits, folds in plan.candidates for value in (fits, folds or 0)]
     _check_accounted(text, learners, expected)
+
+
+def read_planned_refits(plan: Any, text: str) -> None:
+    """The header totals and each test's draws, refits and fits equal the record."""
+    assert header_value(text, vocabulary.PLANNED_REFITS_TOTAL) == f"{plan.total_refits:,}"
+    assert header_value(text, vocabulary.PLANNED_FITS_TOTAL) == f"{plan.total_learner_fits:,}"
+    assert header_value(text, vocabulary.PLANNED_CANDIDATE_TOTAL) == (
+        f"{plan.total_candidate_fits:,}"
+    )
+    rows = table_rows(text, vocabulary.PLANNED_REFIT_TESTS_TITLE)
+    assert [row[0] for row in rows] == [test.name for test in plan.tests]
+    for cells, test in zip(rows, plan.tests, strict=True):
+        assert _close(cells[1], test.draws), (cells, test)
+        assert _close(cells[2], test.refits), (cells, test)
+        assert _close(_bound_number(cells[3]), test.learner_fits), (cells, test)
+        assert _close(_bound_number(cells[4]), test.candidate_fits), (cells, test)
+        assert cells[3].startswith("at most") == (test.bound != "exact"), (cells, test)

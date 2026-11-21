@@ -436,6 +436,7 @@ def settings(rows: pd.DataFrame, **overrides: Any) -> Any:
         "step_bound": 0.5,
         "step_search": False,
         "iterate": "best",
+        "max_memory_bytes": 2**31,
         **overrides,
     }
     return LTMLE(REGIMENS, reference=REFERENCE, **_settings(chosen)).fit(

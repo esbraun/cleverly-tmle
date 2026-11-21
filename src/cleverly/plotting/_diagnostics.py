@@ -1009,10 +1009,23 @@ def _selectors_unused(regimen: str | None, horizon: int | None, cause: str | Non
 def _refuse_unread(source: Any, plot: str) -> None:
     """Refuse the fits and reports whose nuisance models this plot cannot or does not draw."""
     from .._refusal import RefusalReason
+    from ..assessment import CandidateReports
     from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
     from ..exceptions import CapabilityError
     from ..survival.result import ContinuousSurvivalResult
+    from ..variable_importance import VariableImportanceResult
 
+    if isinstance(source, VariableImportanceResult) and not source.keep_fits:
+        from ..variable_importance import KEEP_FITS_REFUSAL
+
+        raise CapabilityError(refusal=KEEP_FITS_REFUSAL)
+    if isinstance(source, (VariableImportanceResult, CandidateReports)):
+        raise CapabilityError(
+            f"{plot}() draws the nuisance models of one fit, and a variable-importance run "
+            "holds one fit per candidate.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=f"Call cleverly.plotting.{plot}(result.fits[candidate]) for one candidate.",
+        )
     if isinstance(source, ContinuousSurvivalResult) and plot == "calibration":
         raise CapabilityError(
             "calibration() draws a nuisance report's calibration table; a continuous-time "
@@ -1275,7 +1288,7 @@ class _Replicates:
 
 def _from_summary(name: str, estimate: Any) -> _Replicates:
     """The fit's own bootstrap summary, under the names its printed summary uses."""
-    from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
+    from .._inference_status import DEFAULT_POINT_INTERVAL_CLUSTERS
     from .._summary._estimates import plain_support_reason
     from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
     from ..inference.influence import (
@@ -1291,7 +1304,7 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     found: list[str] = []
     if bootstrap_is_diagnostic(estimate):
         reason = bootstrap_diagnostic_reason(estimate)
-        floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
+        floor = summary.cluster_floor or DEFAULT_POINT_INTERVAL_CLUSTERS
         found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
         spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"
     else:
@@ -1420,8 +1433,8 @@ def bootstrap(
     Raises
     ------
     ValueError
-        When a fit holds no bootstrap, the estimand has no replicates, fewer than two
-        replicates are finite, or every replicate is equal.
+        When a fit holds no bootstrap or withheld its bootstrap intervals, the estimand has
+        no replicates, fewer than two replicates are finite, or every replicate is equal.
 
     See Also
     --------
@@ -1482,11 +1495,22 @@ def bootstrap(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     estimate = result.estimates.get(name) if result is not None else None
+    if getattr(result, "bootstrap_status", None) == "bootstrap_unstable":
+        # A continuous-time fit withholds every bootstrap interval when more than 1% of its
+        # refits failed; limits read from the replicates that fit would condition on them.
+        raise ValueError(
+            f"this fit withheld its bootstrap intervals: {replicates.n_failed} of "
+            f"{replicates.n_requested} refits failed (result.bootstrap_failures says why), "
+            "and limits read from the replicates that fit would condition on them"
+        )
     if estimate is not None and estimate.bootstrap is not None:
         read = _from_summary(name, estimate)
     else:
         if result is not None:
-            level = 1.0 - float(result.config.alpha_sig)
+            config = getattr(result, "config", None)
+            alpha = config.alpha_sig if config is not None else getattr(estimate, "alpha", None)
+            if alpha is not None:
+                level = 1.0 - float(alpha)
         bare = replicates.interval(name, 1.0 - level)
         low, high = (float(value) for value in bare.ci)
         read = _Replicates(
@@ -1927,6 +1951,12 @@ def influence(
             "This estimate's recursion read a node with no event (or only events), whose term "
             "the influence curve leaves out; the reported variance adds a bound on that term, "
             "so this curve is not the reported variance."
+        )
+    if getattr(estimate, "jackknife", None) is not None:
+        found.append(
+            "This fit reports the delete-one-cluster jackknife variance "
+            "(cluster_variance='jackknife'), which refits every model once per cluster, so "
+            "this curve is not the reported variance."
         )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")
