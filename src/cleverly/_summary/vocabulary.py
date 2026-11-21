@@ -3808,7 +3808,6 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "left_out": "note",
         "search_stopped": "note",
         "risk_order": "warning",
-        "l1_fallback": "note",
         "stacked_interval": "note",
         "ordinary_tmle": "note",
         "multiple_testing": "note",
@@ -3895,10 +3894,6 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The declared learners are not ordered from least to most adaptive: the "
             "treatment-model risk rises at candidate {names}. The search assumes that order."
         ),
-        "l1_fallback": (
-            "glmstar did not solve {paths} ({reasons}), so the built-in solver solved "
-            "{them} instead, at the built-in speed."
-        ),
         "ordinary_tmle": (
             "No extra regressions were fitted (an empty guard), so the estimate is the "
             "ordinary TMLE."
@@ -3984,7 +3979,6 @@ RESTATED_WARNINGS = MappingProxyType(
         **RESTATED_WARNINGS,
         "rounds_capped": ("before the relative score reached tol=",),
         "risk_order": ("strategy='learners' needs treatment_candidates= ordered",),
-        "l1_fallback": ("glmstar did not solve the lasso path",),
     }
 )
 
