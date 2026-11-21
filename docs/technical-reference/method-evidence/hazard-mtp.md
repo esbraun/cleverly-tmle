@@ -8,11 +8,12 @@ of the targeted hazards at each unit's shifted dose. The section on
 [hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting)
 states the estimand, the influence curve and the exact-law evidence.
 
-The declared run passed every gated verdict, with no failed fit: 48 of 48 primary rows and 39
-of 39 property cells with a verdict. The `iterated_mean_difference` rows carry no verdict. That
-run reported the `untruncated_density` rows with no verdict. The study now gates them, because
-their influence-curve gap halves on the corrected density route, and the next declared run
-reads them.
+The declared run passed every gated verdict, with no failed fit: 48 of 48 primary rows and 41
+of 41 property cells with a verdict. The `iterated_mean_difference` rows carry no verdict. The
+`untruncated_density` calibration cells are gated, because their influence-curve gap halves on
+the corrected density route. They read a stream of their own that no earlier run drew, and on
+4,400 draws each the contrast's SE ratio is 1.006 with coverage 0.950 and the risk's 0.976 with
+0.944.
 
 ## The estimand and the laws
 
@@ -196,8 +197,8 @@ calibration pilots of these fit labels.
 | `interval_calibration` | `levels_contrast__noise_control` | control | the six-level dose law under one level up, the risk difference against the natural course at the last visit: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8175 to 0.8467, SE ratio 0.6940 to 0.7324, empirical efficiency ratio 1.3883 to 1.4654, reported efficiency ratio 1.0151 to 1.0186 | pass |
 | `interval_calibration` | `levels_contrast__shrunken_se_control` | control | the six-level dose law under one level up, the risk difference against the natural course at the last visit: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8185 to 0.8476, SE ratio 0.6850 to 0.7232, empirical efficiency ratio 0.9843 to 1.0392, reported efficiency ratio 0.7106 to 0.7131 | pass |
 | `interval_calibration` | `levels_risk__correctly_specified` | positive | the six-level dose law under one level up, the policy's risk by the last visit: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9473 to 0.9635, SE ratio 0.9908 to 1.0471, empirical efficiency ratio 0.9596 to 1.0141, reported efficiency ratio 1.0041 to 1.0055 | pass |
-| `interval_calibration` | `untruncated_density_contrast__reported` | diagnostic | the untruncated Gaussian dose law under a shift of one, binned density ratio, whose tail bins are wider than the shift, the risk difference against the natural course at the last visit: the density route's interval on the untruncated Gaussian law, whose quantile tail bins are wider than the shift | no verdict; coverage, SE ratio and efficiency ratio are reported | coverage 0.9297 to 0.9698, SE ratio 0.9741 to 1.1062, empirical efficiency ratio 0.8839 to 1.0021, reported efficiency ratio 0.9717 to 0.9827 | reported |
-| `interval_calibration` | `untruncated_density_risk__reported` | diagnostic | the untruncated Gaussian dose law under a shift of one, binned density ratio, whose tail bins are wider than the shift, the policy's risk by the last visit: the density route's interval on the untruncated Gaussian law, whose quantile tail bins are wider than the shift | no verdict; coverage, SE ratio and efficiency ratio are reported | coverage 0.9341 to 0.9727, SE ratio 0.9390 to 1.0610, empirical efficiency ratio 0.9344 to 1.0558, reported efficiency ratio 0.9890 to 0.9938 | reported |
+| `interval_calibration` | `untruncated_density_contrast__correctly_specified` | positive | the untruncated Gaussian dose law under a shift of one, binned density ratio, the risk difference against the natural course at the last visit: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9412 to 0.9583, SE ratio 0.9797 to 1.0350, empirical efficiency ratio 0.9421 to 0.9951, reported efficiency ratio 0.9727 to 0.9775 | pass |
+| `interval_calibration` | `untruncated_density_risk__correctly_specified` | positive | the untruncated Gaussian dose law under a shift of one, binned density ratio, the policy's risk by the last visit: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9343 to 0.9524, SE ratio 0.9503 to 1.0037, empirical efficiency ratio 0.9871 to 1.0426, reported efficiency ratio 0.9896 to 0.9917 | pass |
 | `interval_calibration` | `vector_contrast__correctly_specified` | positive | the one-visit arm-and-dose law under a joint shift of the dose by one, classifier ratio, the risk difference against the natural course at the last visit: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9329 to 0.9512, SE ratio 0.9529 to 1.0071, empirical efficiency ratio 0.9877 to 1.0445, reported efficiency ratio 0.9916 to 0.9990 | pass |
 | `interval_calibration` | `vector_risk__correctly_specified` | positive | the one-visit arm-and-dose law under a joint shift of the dose by one, classifier ratio, the policy's risk by the last visit: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9395 to 0.9568, SE ratio 0.9690 to 1.0234, empirical efficiency ratio 0.9753 to 1.0306, reported efficiency ratio 0.9966 to 1.0006 | pass |
 | `iterated_mean_difference` | `gaussian_density__iterated_curve_decrease` | diagnostic | the Gaussian dose law truncated to [0, 5.5] under a shift of one capped at 5.5, binned density ratio, the iterated-mean fit of the same plans, n = 2,000: the largest decrease of the iterated-mean risk curve of either arm between consecutive visits | no verdict; the share of draws whose curve decreases somewhere is reported | decreasing share 0, 99% interval 0 to 0.0066 | reported |
@@ -302,15 +303,18 @@ from the committed results and checked at the precision printed.
 | `n` | 2000 | observations per replication of the record's reference size |
 | `independent_tests_passed` | 48 | truth tests passing |
 | `independent_tests_total` | 48 | truth tests reported |
-| `property_cells_passed` | 39 | property cells passing |
-| `property_cells_total` | 39 | property cells reported |
+| `property_cells_passed` | 41 | property cells passing |
+| `property_cells_total` | 41 | property cells reported |
 | `max_standardized_bias` | 0.0418 | largest primary standardized bias |
 | `min_coverage` | 0.9404 | lowest primary coverage |
 | `properties[interval_calibration/levels_contrast__correctly_specified]:se_ratio` | 1.0046 | SE ratio of the `levels` contrast's calibration cell |
 | `properties[interval_calibration/levels_contrast__correctly_specified]:coverage` | 0.9480 | coverage of the `levels` contrast's calibration cell |
 | `properties[interval_calibration/gaussian_density_contrast__correctly_specified]:se_ratio` | 0.9971 | SE ratio of the density route's contrast calibration cell |
 | `properties[interval_calibration/gaussian_crossfit_contrast__correctly_specified]:se_ratio` | 0.9977 | SE ratio of the cross-fitted contrast calibration cell |
-| `properties[interval_calibration/untruncated_density_contrast__reported]:coverage` | 0.9525 | coverage of the reported untruncated density route's contrast |
+| `properties[interval_calibration/untruncated_density_contrast__correctly_specified]:se_ratio` | 1.0064 | SE ratio of the untruncated density route's contrast calibration cell |
+| `properties[interval_calibration/untruncated_density_contrast__correctly_specified]:coverage` | 0.9502 | coverage of the untruncated density route's contrast calibration cell |
+| `properties[interval_calibration/untruncated_density_risk__correctly_specified]:se_ratio` | 0.9765 | SE ratio of the untruncated density route's risk calibration cell |
+| `properties[interval_calibration/untruncated_density_risk__correctly_specified]:coverage` | 0.9439 | coverage of the untruncated density route's risk calibration cell |
 | `properties[double_robustness/levels_contrast__both_wrong]:standardized_bias` | 3.3688 | standardized bias of the both-wrong control |
 | `properties[double_robustness/gaussian_crossfit_contrast__mechanism_correct]:standardized_bias` | -0.0659 | standardized bias of the cross-fitted wrong-hazard cell |
 | `properties[targeting_necessity/levels_contrast__untargeted]:standardized_bias` | 3.8846 | standardized bias of the plug-in control |

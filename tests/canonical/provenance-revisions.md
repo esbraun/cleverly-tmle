@@ -787,3 +787,20 @@ Its edits are to the planned-fit counts (a `nominal` flag and the counted label)
 reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
 `85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
 control values, bit for bit.
+
+## Main merged into `hazard-mtp` after its gated run (Fix-9)
+
+The declared run ran at `336bac14`. Landing it merges main through `cb17f08f`, which changes four
+modules the manifest records: `src/cleverly/longitudinal/hazard.py`,
+`tests/studies/evidence/properties.py`, `tests/studies/evidence/property_verdicts.py` and
+`tests/studies/fractional_glm.py`. Each is identical at `1231ef9c`, `58538bfa` and `336bac14`, so
+main's edits since `1231ef9c` are the whole difference. The hazard edits (X106 J2c, J2e, J2g)
+free each horizon's state, share one read-only clever weight per regimen and count held cells
+by key, and the counts are the same cells. The evidence modules gather bootstrap indices from the
+same stream and add the `shown_only` few-cluster readings, which this study does not declare.
+`fractional_glm.py` changes only its docstring. The evidence: two primary replicates of each
+scenario and one replicate of every property fit set (96 primary and 57 property rows, the
+untruncated density fit included), refit at `58538bfa` and at the merged tree, are bitwise
+equal in every column. `tests/unit/test_method_evidence.py` re-summarizes the committed
+`property-replicates.parquet` with the merged modules and reads the committed `passed` and
+`property_passed` on every row of `properties.csv`.

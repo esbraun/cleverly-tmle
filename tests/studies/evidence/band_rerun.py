@@ -170,9 +170,10 @@ POST_FLIP = {
         "X70 part (d), first registered 2026-11-13 from a run at 1f52ba7, after the flip",
     ),
     "hazard-mtp": (
-        "58538bfa7ce7a5395afa2137aa447db1b707e81e",
+        "336bac14303ac013267fa74db01d99da1c1e5f22",
         "X70 part (c), first registered 2026-11-14 from a run at 7c81ba6, after the flip; "
-        "regenerated at 58538bf under the shipped intervals and the refined density (Fix-9)",
+        "regenerated at 58538bf under the shipped intervals and the refined density (Fix-9), "
+        "and at 336bac1 with the untruncated density cells gated",
     ),
     "hazard-multinode": (
         "5ba870d8200548344f558399a1deb53c8a466312",

@@ -6403,7 +6403,7 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
     ``LTMLE`` with a modified treatment policy at the baseline decision, ``survival_model=
     "hazard"`` and ``targeting="one_step"`` keys ``mtp`` on the hazard ``LTMLE`` key, with the
     baseline treatment held over the visits (a vector treatment has one visit).  The rows were
-    added because every declared verdict passed: 48 of 48 primary tests and 39 of 39 property
+    added because every declared verdict passed: 48 of 48 primary tests and 41 of 41 property
     cells with a verdict (calibration with its controls on every ratio route, the simultaneous
     band on two laws, robustness on every route, targeting necessity, the root-n rate and
     power), with no failed fit.  The numbers are the committed results
@@ -6449,7 +6449,7 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
             held=True,
             treatment=continuous,
             kinds=_LONG_BAND,
-            cells=["gaussian_density"],
+            cells=["gaussian_density", "untruncated_density"],
             limits=[
                 "A Gaussian dose over five visits, truncated to [0, 5.5] and shifted by one with "
                 "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
@@ -6458,7 +6458,8 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
                 "On an untruncated dose with an uncapped shift the quantile tail bins are wider "
                 "than the shift; the route splits them, and the influence curve's gap from the "
                 "efficient one halves from n = 2,000 to n = 20,000 (0.12, then 0.03 efficiency "
-                "SDs on the contrast), so the study gates those cells from its next run.",
+                "SDs on the contrast). Its calibration cells read SE ratio 1.006 and 0.976 with "
+                "coverage 0.950 and 0.944 over 4,400 draws.",
                 shared,
             ],
             **common,
