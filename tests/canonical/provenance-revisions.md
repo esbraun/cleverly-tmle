@@ -770,3 +770,12 @@ two studies' clustered groups (`band_clustered_4k`, `assess_clustered_4k`) have 
 (critical value, limits) and control values, bit for bit, with the same support labels. The
 same 375 numbers equal those of `30a15543`, the commit before registration, so the earlier
 merge at `9956b496`, which changed no recorded module, moved nothing either.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` with X106 G1 and G2
+
+Merging main at `c5ed4083` (X106 parts G1 and G2: one placebo draw at a time in `refute()`, and
+`planned_refits()`) changed one module both manifests record, `src/cleverly/estimators/tmle.py`.
+Its edits are to the planned-fit counts (a `nominal` flag and the counted label), which no fit
+reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
+`85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
+control values, bit for bit.
