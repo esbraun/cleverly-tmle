@@ -606,7 +606,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "after _held_parameter refuses a mixed node"
     ),
     ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
-    ("validation/refute.py", "_future_treatment_test"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_future_treatment_fit"): "after _refuse_future_treatment",
     ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
 }
 
