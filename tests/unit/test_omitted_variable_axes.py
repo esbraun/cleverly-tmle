@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.sensitivity.omitted_variable as ov
 import tests.discrete_law_shift as shift_law
@@ -391,3 +391,346 @@ class TestTheBenchmarkKeepsTheTarget:
             ov.benchmark(result, ["W1"], estimand="ey_regime[w1]")
         record = ov.benchmark(result, ["W2"], estimand="ey_regime[w1]")
         assert record.features == ("regime",)
+
+
+# --------------------------------------------------- a conditional contrast's projection
+
+
+def _projection(basis: Any, modifiers: tuple[str, ...], scale: str = "difference") -> Any:
+    from cleverly.bases import Modifiers
+    from cleverly.effect_modification import EffectModification
+
+    return EffectModification(basis, Modifiers(list(modifiers)), scale)  # type: ignore[arg-type]
+
+
+def _linear(scale: str = "difference") -> Any:
+    from cleverly.bases import Linear
+
+    return _projection(Linear(["W"]), ("W",), scale)
+
+
+def _indicators(*, intercept: bool) -> Any:
+    from cleverly.bases import Indicators
+
+    return _projection(Indicators("V", levels=(0.0, 1.0), intercept=intercept), ("V",))
+
+
+def projection_fit(
+    projection: Any, *, oracle: bool = False, covariates: tuple[str, ...] = ("W",), **extra: Any
+) -> Any:
+    from tests.unit.test_omitted_variable_part_g import oracle_learners
+
+    settings = oracle_learners() if oracle else learners()
+    settings.pop("intermediate_learner")
+    return (
+        TMLE(**settings, effect_modification=projection, **extra)
+        .fit(
+            exact_frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=list(covariates),
+            delta="D",
+            weights="weight",
+        )
+        .single()
+    )
+
+
+def projection_intermediate_fits(*, oracle: bool = False) -> Any:
+    from tests.unit.test_omitted_variable_part_g import oracle_learners
+
+    settings = oracle_learners() if oracle else learners()
+    return TMLE(**settings, effect_modification=_linear()).fit(
+        exact_frame(intermediate=True),
+        outcome="Y",
+        treatment="A",
+        covariates=["W"],
+        delta="D",
+        intermediate="Z",
+        weights="weight",
+    )
+
+
+def projection_composite_fit() -> Any:
+    from tests.unit.test_omitted_variable_part_g import composite_law
+
+    return (
+        TMLE(
+            outcome_learner=LogisticRegression(max_iter=2000),
+            treatment_learner=LogisticRegression(max_iter=2000),
+            missingness_learner=LogisticRegression(max_iter=2000),
+            g_bounds=(0.01, 0.99),
+            nuisance_bound=0.01,
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+            effect_modification=_linear(),
+        )
+        .fit(
+            composite_law.TWO.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+        )
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def projections() -> dict[str, Any]:
+    """The difference-scale projection on ``Linear(W)``: complete, CDE at each level, composite."""
+    levels = projection_intermediate_fits()
+    return {
+        "response": projection_fit(_linear()),
+        "intermediate_0": levels[0.0],
+        "intermediate_1": levels[1.0],
+        "composite": projection_composite_fit(),
+    }
+
+
+def _gram_rows(basis: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """``M^{-1} phi(V)`` at each row, with ``M = P_w[phi phi']`` over every row."""
+    gram = np.einsum("ip,iq,i->pq", basis, basis, weights) / float(weights.sum())
+    return np.asarray(basis @ np.linalg.inv(gram))
+
+
+def projection_representers(name: str) -> dict[str, np.ndarray]:
+    r""":math:`\alpha_0 = e_j^\top M^{-1} \varphi(W)\, \alpha_{0,\mathrm{ate}}` of each coefficient."""
+    from tests.unit.test_omitted_variable_part_g import (
+        composite_law,
+        composite_representers,
+        intermediate_representers,
+        response_representers,
+    )
+
+    if name == "composite":
+        frame = composite_law.TWO.frame()
+        weights = np.ones(len(frame))
+        ate = composite_representers()["ate"]
+    elif name.startswith("intermediate"):
+        frame = exact_frame(intermediate=True)
+        weights = frame["weight"].to_numpy()
+        ate = intermediate_representers(frame, float(name[-1]), weights)["ate"]
+    else:
+        frame = exact_frame()
+        weights = frame["weight"].to_numpy()
+        ate = response_representers(frame, weights)["ate"]
+    w = frame["W"].to_numpy().astype(float)
+    rows = _gram_rows(np.column_stack([np.ones_like(w), w]), weights)
+    return {
+        "cate_projection[(intercept)]": rows[:, 0] * ate,
+        "cate_projection[W]": rows[:, 1] * ate,
+    }
+
+
+#: The features of each projection fit's bound.
+PROJECTION_FEATURES = {
+    "response": ("response", "projection"),
+    "intermediate_0": ("response", "intermediate", "projection"),
+    "intermediate_1": ("response", "intermediate", "projection"),
+    "composite": ("response", "missing_treatment", "projection"),
+}
+
+
+class TestTheProjectionAxis:
+    r"""The bound of a difference-scale projection coefficient (P1 PR 3, d3).
+
+    The coefficient :math:`e_j^\top M^{-1} E[\varphi(V)\{\bar Q(t, W) - \bar Q(r, W)\}]` is
+    linear in the outcome regression for the fixed :math:`M = E[\varphi\varphi^\top]`, and
+    its representer is :math:`e_j^\top M^{-1} \varphi(V) s(A) / g`, read off the fit's own
+    clever covariate.
+    """
+
+    @pytest.mark.parametrize("name", sorted(PROJECTION_FEATURES))
+    def test_the_riesz_identity(self, projections: dict[str, Any], name: str) -> None:
+        result = projections[name]
+        truths = projection_representers(name)
+        assert set(truths) == set(result.estimates)
+        for estimand, alpha0 in truths.items():
+            gap, error = identity_gap(result, estimand, alpha0)
+            assert error > 1e-3, (name, estimand)  # the nonzero witness: wrong mechanisms
+            assert gap < RTOL, (name, estimand)
+            assert ov.sensitivity_elements(result, estimand).features == PROJECTION_FEATURES[name]
+
+    def test_the_oracle_representer_and_its_mutants(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """At the law's mechanisms the representer is the truth; each mutant departs."""
+        result = projection_fit(_linear(), oracle=True)
+        truths = projection_representers("response")
+        for estimand, alpha0 in truths.items():
+            alpha = ov.sensitivity_elements(result, estimand).riesz_representer
+            np.testing.assert_allclose(alpha, alpha0, atol=1e-10, err_msg=estimand)
+        build = ov._AxisInputs.build.__func__  # type: ignore[attr-defined]
+
+        def mutant(change: Any) -> Any:
+            def built(cls: Any, parameter: Any, nuisance: Any, weights: Any) -> Any:
+                axis = build(cls, parameter, nuisance, weights)
+                if axis is None or axis.basis is None:
+                    return axis
+                return replace(axis, gram_inverse=change(axis.gram_inverse))
+
+            return classmethod(built)
+
+        mutants = {
+            # M^{-1} dropped: the coefficient reads e_j.
+            "no_inverse": lambda inverse: np.eye(inverse.shape[0]),
+            # M doubled: the MSM Gram path fed the arm numerators sums phi phi' twice.
+            "doubled": lambda inverse: inverse / 2.0,
+            # the other coefficient's row: a representer that reads the wrong phi_j.
+            "other_term": lambda inverse: inverse[:, ::-1],
+        }
+        for label, change in mutants.items():
+            with monkeypatch.context() as patch:
+                patch.setattr(ov._AxisInputs, "build", mutant(change))
+                for estimand, alpha0 in truths.items():
+                    alpha = ov.sensitivity_elements(result, estimand).riesz_representer
+                    departure = float(np.max(np.abs(alpha - alpha0)))
+                    assert departure > 0.1, (label, estimand, departure)
+
+    def test_the_gram_term_is_the_gateaux_derivative(self, projections: dict[str, Any]) -> None:
+        result = projections["response"]
+        for name in result.estimates:
+            parameter = ov.resolve_parameter(result, name)
+            elements = ov.sensitivity_elements(result, name)
+            assert elements.psi_nu2 is not None
+            expected = _gateaux(result, parameter) * result.data.weights
+            np.testing.assert_allclose(elements.psi_nu2, expected, atol=1e-5, err_msg=name)
+
+    def test_dropping_the_gram_term_departs(
+        self, projections: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nonzero because each row's ``phi phi'`` differs from ``M``."""
+        result = projections["response"]
+        name = "cate_projection[W]"
+        expected = _gateaux(result, ov.resolve_parameter(result, name)) * result.data.weights
+        monkeypatch.setattr(ov, "_gram_influence", lambda *args: 0.0)
+        psi = ov.sensitivity_elements(result, name).psi_nu2
+        assert psi is not None
+        assert float(np.max(np.abs(psi - expected))) > 0.1
+
+    def test_the_residual_is_masked_to_the_coefficient_s_rows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = projection_fit(_indicators(intercept=False), covariates=("W", "V"))
+        data, repeat = result.data, result.repeats[0]
+        residual = np.where(
+            np.asarray(data.observed, dtype=bool),
+            data.outcome - repeat.fluctuations["effect_modification"].targeted.observed,
+            0.0,
+        )
+        v = exact_frame()["V"].to_numpy()
+        names = sorted(result.estimates)
+        assert len(names) == 2
+        for name, level in zip(names, (0.0, 1.0), strict=True):
+            masked = np.where(v == level, residual, 0.0)
+            expected = float(np.average(masked**2, weights=data.weights))
+            assert ov.sensitivity_elements(result, name).sigma2 == pytest.approx(
+                expected, rel=1e-12
+            )
+            unmasked = float(np.average(residual**2, weights=data.weights))
+            assert abs(unmasked - expected) > 0.01, name
+
+    def test_the_stratum_bridge(self) -> None:
+        """``Indicators(V, intercept=False)`` reads the stratum ATE's representer and curve.
+
+        Its ``nu^2`` and the curve of ``nu^2`` equal those of ``ATE()`` with ``strata=V``:
+        the projection's Gram term is the stratum share's term. Under ``intercept=True``
+        the intercept is the reference stratum's.
+        """
+        from cleverly import ATE
+        from tests.unit.test_omitted_variable_part_g import stratum_fit, stratum_names
+
+        stratum = stratum_fit(ATE())
+        by_level = {
+            stratum.parameter_keys[name].stratum[0]: name for name in stratum_names(stratum, "ate")
+        }
+        free = projection_fit(_indicators(intercept=False), covariates=("W", "V"))
+        anchored = projection_fit(_indicators(intercept=True), covariates=("W", "V"))
+        cases = [
+            (free, sorted(free.estimates)[0], by_level[0.0]),
+            (free, sorted(free.estimates)[1], by_level[1.0]),
+            (anchored, "cate_projection[(intercept)]", by_level[0.0]),
+        ]
+        for result, coefficient, ate in cases:
+            mine = ov.sensitivity_elements(result, coefficient)
+            theirs = ov.sensitivity_elements(stratum, ate)
+            assert mine.nu2 == pytest.approx(theirs.nu2, rel=1e-10), coefficient
+            assert mine.psi_nu2 is not None and theirs.psi_nu2 is not None
+            np.testing.assert_allclose(mine.psi_nu2, theirs.psi_nu2, atol=1e-10)
+
+    def test_the_log_ratio_and_strata_refuse(self) -> None:
+        from cleverly.exceptions import RefusalReason
+
+        ratio = projection_fit(_linear("log_ratio"))
+        refusal = ov.fit_wide_bound_refusal(ratio)
+        assert refusal is not None
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP and refusal.roadmap == "X82"
+        assert refusal.condition == (
+            "the omitted-variable bound covers a projection coefficient only in its basic "
+            "form, and a log-ratio coefficient is not linear in the outcome regression, so "
+            "the linearized bound it would need is not derived."
+        )
+        with pytest.raises(CapabilityError, match="not linear in the outcome regression"):
+            ov.omitted_variable_bounds(ratio, "log_crr_projection[W]", cf_y=0.02, cf_d=0.02)
+
+    def test_the_evalue_refuses(self) -> None:
+        from cleverly.assessment import (
+            EVALUE_PROJECTION_CONSTANT_REFUSAL,
+            EVALUE_PROJECTION_REFUSAL,
+        )
+        from cleverly.bases import Constant
+
+        for scale in ("difference", "log_ratio"):
+            row = projection_fit(_linear(scale)).sensitivity.capability("evalue")
+            assert row.refusal == EVALUE_PROJECTION_REFUSAL, scale
+        constant = projection_fit(_projection(Constant(), ("W",), "log_ratio"))
+        assert list(constant.estimates) == ["log_crr_projection[(intercept)]"]
+        row = constant.sensitivity.capability("evalue")
+        assert row.refusal == EVALUE_PROJECTION_CONSTANT_REFUSAL
+        with pytest.raises(CapabilityError, match="marginal log risk ratio"):
+            constant.sensitivity.evalue()
+
+    def test_target_weights_on_disjoint_indicators_reads_the_same_bound(self) -> None:
+        """``Indicators(V, intercept=False)`` loads one column per row, so it admits
+        ``target_weights=True``. The weighted form solves the same score equations along
+        another submodel, so the estimates and ``sigma^2`` agree to second order. The bound
+        reads the same representer, so ``nu^2`` and its curve are equal.
+        """
+        plain = projection_fit(_indicators(intercept=False), covariates=("W", "V"))
+        weighted = projection_fit(
+            _indicators(intercept=False), covariates=("W", "V"), target_weights=True
+        )
+        assert set(plain.estimates) == set(weighted.estimates)
+        for name in plain.estimates:
+            assert weighted.estimates[name].psi == pytest.approx(
+                plain.estimates[name].psi, abs=1e-3
+            )
+            mine = ov.sensitivity_elements(weighted, name)
+            theirs = ov.sensitivity_elements(plain, name)
+            assert mine.nu2 == pytest.approx(theirs.nu2, rel=1e-12), name
+            assert mine.psi_nu2 is not None and theirs.psi_nu2 is not None
+            np.testing.assert_allclose(mine.psi_nu2, theirs.psi_nu2, atol=1e-10)
+            assert mine.sigma2 == pytest.approx(theirs.sigma2, rel=1e-3), name
+
+    def test_target_weights_refuses_on_an_overlapping_basis(self) -> None:
+        """A ``Linear`` basis loads both columns on every row, which the weighted form refuses."""
+        with pytest.raises(ValueError, match="at most one clever-covariate column"):
+            projection_fit(_linear(), target_weights=True)
+
+    def test_the_benchmark_keeps_the_basis(self) -> None:
+        result = projection_fit(_indicators(intercept=False), covariates=("W", "V"))
+        with pytest.raises(CapabilityError, match="basis of the modifiers"):
+            ov.benchmark(result, ["V"], estimand=sorted(result.estimates)[0])
+
+    def test_the_target_moved_branch(self, projections: dict[str, Any]) -> None:
+        result = projections["response"]
+        assert not ov._axis_target_moved(result, result)
+        nuisance = result.repeats[0].nuisance
+        spec = nuisance.effect_modification
+        moved_spec = replace(spec, design=spec.design * 2.0)
+        moved_repeat = replace(
+            result.repeats[0], nuisance=replace(nuisance, effect_modification=moved_spec)
+        )
+        moved = replace(result, repeats=(moved_repeat, *result.repeats[1:]))
+        assert ov._axis_target_moved(result, moved)

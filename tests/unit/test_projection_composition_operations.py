@@ -35,21 +35,14 @@ PROJECTION_KINDS = (
 CDE_KINDS = ("projection+intermediate", "projection+intermediate+log_ratio")
 EP_KINDS = ("learned_rule_ep_sieve", "learned_rule_ep_learner")
 
-#: The rows that refuse a working-model coefficient of a conditional contrast, by name.
+#: The rows that keep R9 on a working-model coefficient of a conditional contrast, by name.
 #: ``refute`` runs on a named coefficient since P1 PR 3 and prints no verdict
-#: (tests/unit/test_projection_refutations.py).
-WORKING_MODEL_REFUSED = (
-    "omitted_confounding",
-    "robustness_value",
-    "elements",
-    "benchmark",
-    "contour",
-    "evalue",
-    "missingness",
-    "tipping_gamma",
-    "simulated_confounding",
-    "marginal_bounds",
-)
+#: (tests/unit/test_projection_refutations.py), the omitted-variable rows answer on the
+#: difference scale (tests/unit/test_omitted_variable_axes.py), and ``evalue`` refuses with
+#: its own texts.
+WORKING_MODEL_REFUSED = ("missingness", "tipping_gamma", "simulated_confounding", "marginal_bounds")
+#: The omitted-variable rows, which read the bound's own fit-wide refusals.
+BOUND_ROWS = ("omitted_confounding", "robustness_value", "elements", "benchmark", "contour")
 
 
 def _rows(result: Any) -> dict[str, Any]:
@@ -70,6 +63,25 @@ def test_sensitivity_refuses_a_projection_coefficient_by_name(kind: str) -> None
         assert row.refusal.condition.startswith(f"{operation} is defined for a mean")
         assert "working-model coefficient of a conditional contrast" in row.refusal.condition
         assert row.refusal.alternative == "Run it on ATE() or RiskRatio() on the same study."
+    from cleverly.assessment import EVALUE_PROJECTION_REFUSAL
+
+    assert rows["evalue"].refusal == EVALUE_PROJECTION_REFUSAL, kind
+    named_bound = {
+        operation: result.sensitivity._capability_for_arguments(
+            operation, {"estimand": next(iter(result.estimates)), "covariates": ["W2"]}
+        )
+        for operation in BOUND_ROWS
+    }
+    for operation, row in named_bound.items():
+        if "log_ratio" in kind:
+            assert "a log-ratio coefficient is not linear" in row.refusal.condition, operation
+        elif "strata" in kind:
+            assert row.refusal.condition.startswith(
+                "the omitted-variable bound of a projection coefficient is not built for a "
+                "stratified projection"
+            ), operation
+        else:
+            assert row.available, (kind, operation, row.refusal)
     for operation in ("nuisance_models", "score_equations", "support", "truncation_curve"):
         assert rows[operation].available, (kind, operation)
     # refute asks for one coefficient by name, and answers once it has one.

@@ -2614,18 +2614,21 @@ KINDS: dict[str, Kind] = {
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
     # The projection of a conditional contrast and its P1 PR 1 compositions. The summarize
-    # rows, the truncation curve and refute run (refute with no verdict, P1 PR 3); every
-    # sensitivity row refuses a working-model coefficient by name.
-    "projection": _kind(fit_projection, *_READ, *_POINT),
-    "projection+missing_treatment": _kind(fit_projection_missing_treatment, *_READ, *_POINT),
+    # rows, the truncation curve and refute run (refute with no verdict, P1 PR 3). The
+    # omitted-variable rows answer on the difference scale without strata; the E-value and
+    # the other sensitivity rows refuse a working-model coefficient by name.
+    "projection": _kind(fit_projection, *_READ, *_POINT, *_PLUGIN_BOUND),
+    "projection+missing_treatment": _kind(
+        fit_projection_missing_treatment, *_READ, *_POINT, *_PLUGIN_BOUND
+    ),
     "projection+strata": _kind(fit_projection_strata, *_READ, *_POINT),
     "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, *_POINT),
-    "projection+repeats": _kind(fit_projection_repeated, *_READ, *_POINT),
-    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, *_POINT),
+    "projection+repeats": _kind(fit_projection_repeated, *_READ, *_POINT, *_PLUGIN_BOUND),
+    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, *_POINT, *_PLUGIN_BOUND),
     # The CDE projection (P1 PR 2) answers as the projection does; its pseudo-outcome tools
     # (curve diagnostics, assess_score, targeting_curve) refuse with CDE_CURVE_TOOLS_REFUSAL,
     # which tests/unit/test_projection_composition_operations.py pins.
-    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, *_POINT),
+    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, *_POINT, *_PLUGIN_BOUND),
     "projection+intermediate+log_ratio": _kind(fit_projection_intermediate_crr, *_READ, *_POINT),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
@@ -2794,9 +2797,9 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
-    # A projection coefficient runs refute with no verdict (P1 PR 3); the sensitivity rows
-    # keep R9 here and are opened in the plan's next step.
-    "cate_projection": _kind(fit_cate_projection, *_READ, *_POINT),
+    # A projection coefficient runs refute with no verdict, and the omitted-variable rows
+    # bound a difference-scale coefficient (P1 PR 3).
+    "cate_projection": _kind(fit_cate_projection, *_READ, *_POINT, *_PLUGIN_BOUND),
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, *_POINT),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
@@ -3393,6 +3396,14 @@ MUTATIONS: dict[str, Mutation] = {
                 # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
                 # available and its call refuses; the run's call refuses with it.
                 "variable_importance_mixed",
+                # P1 PR 3: the sweep's benchmark drops the modifier W1, which the basis
+                # reads, so the short model would project onto another basis.
+                "projection",
+                "projection+missing_treatment",
+                "projection+repeats",
+                "projection+bootstrap",
+                "projection+intermediate",
+                "cate_projection",
             }
         ),
         "("
@@ -3400,7 +3411,8 @@ MUTATIONS: dict[str, Mutation] = {
         + "(candidate X2: )?benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
         + "|benchmark declined: .*would still divide by the declared mechanism"
-        + "|benchmark declined: .*this fit's data declares the mechanism known)",
+        + "|benchmark declined: .*this fit's data declares the mechanism known"
+        + "|benchmark declined: .*the declared basis of the modifiers reads them)",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",

@@ -411,6 +411,57 @@ def projection_sensitivity_refusal(operation: str) -> Refusal:
     )
 
 
+#: R-evalue-slope of the P1 PR 3 plan: an E-value of a working-model coefficient.
+EVALUE_PROJECTION_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "An E-value maps a risk ratio, and a working-model coefficient of a conditional contrast "
+    "other than the constant term on the log-ratio scale is not one.",
+    alternative="Bound the CATE projection with omitted_confounding() on scale='difference'.",
+)
+
+#: R-evalue-constant: the constant of a log-ratio projection on the constant basis.
+EVALUE_PROJECTION_CONSTANT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "The constant term of a log-ratio projection on the constant basis is the marginal log "
+    "risk ratio.",
+    alternative="Identify RiskRatio() on the same study and run the E-value there.",
+)
+
+#: The sensitivity rows of a projection fit that keep R9: no derivation for a coefficient
+#: has been read (P1 PR 3 plan, 1.4).
+PROJECTION_R9_SENSITIVITY = (
+    "missingness",
+    "tipping_gamma",
+    "simulated_confounding",
+    "marginal_bounds",
+)
+
+
+def projection_evalue_refusal(result: Any) -> Refusal:
+    """The E-value refusal of a projection fit: R-evalue-constant or R-evalue-slope.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fit of a conditional contrast's projection.
+
+    Returns
+    -------
+    Refusal
+        R-evalue-constant for a log-ratio fit on the constant basis alone, and
+        R-evalue-slope otherwise.
+    """
+    spec = getattr(getattr(result, "nuisance", None), "effect_modification", None)
+    if (
+        spec is not None
+        and str(spec.scale) == "log_ratio"
+        and len(spec.terms) == 1
+        and tuple(spec.intercept_columns) == (0,)
+    ):
+        return EVALUE_PROJECTION_CONSTANT_REFUSAL
+    return EVALUE_PROJECTION_REFUSAL
+
+
 #: The fitted methods that declare a point-treatment operation by default, and the same
 #: methods with AdaptiveIPTW, which declares the operations it supports one by one.
 POINT_METHODS = ("tmle", "collaborative_tmle", "drtmle")
@@ -5877,20 +5928,7 @@ class SensitivityFacade(_CapabilityFacade):
                 self._evalue_row(),
             )
         if family == "point" and _is_projection(self._result):
-            # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
-            # axis it has no entry for.
-            return tuple(
-                _capability(
-                    operation,
-                    family,
-                    artifacts=(),
-                    interpretation="not defined for a projection coefficient",
-                    available=False,
-                    status=AssessmentStatus.UNAVAILABLE,
-                    refusal=projection_sensitivity_refusal(operation),
-                )
-                for operation in SENSITIVITY_ROUTES
-            )
+            return self._projection_rows()
         longitudinal = family == "longitudinal"
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
@@ -6073,6 +6111,89 @@ class SensitivityFacade(_CapabilityFacade):
             _marginal_row(self._result, family),
         )
         return rows
+
+    def _projection_rows(self) -> tuple[AssessmentCapability, ...]:
+        """The rows of a projection fit (P1 PR 3).
+
+        The five omitted-variable rows read the bound's own fit-wide refusals, which admit a
+        difference-scale coefficient and refuse the log ratio and strata. ``evalue`` refuses
+        with R-evalue-slope or R-evalue-constant, and the other four rows keep R9, before
+        any of their fit-wide rules reads an axis it has no entry for.
+        """
+        from .sensitivity.omitted_variable import fit_wide_bound_refusal
+
+        family = _family(self._result)
+        bound_refusal = fit_wide_bound_refusal(self._result)
+        available = bound_refusal is None
+        status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
+        bound = {
+            "omitted_confounding": (
+                "omitted-confounder bias for the fitted orthogonal score",
+                "cheap",
+            ),
+            "robustness_value": (
+                "confounding strength needed to move the estimate to its null",
+                "cheap",
+            ),
+            "elements": ("raw components of the omitted-confounder bias bound", "cheap"),
+            "contour": ("bias bounds over a grid of confounding strengths", "moderate"),
+        }
+        rows = []
+        for operation in SENSITIVITY_ROUTES:
+            if operation in bound:
+                interpretation, cost = bound[operation]
+                repeats = int(getattr(self._result, "n_repeats", 1)) > 1
+                rows.append(
+                    _capability(
+                        operation,
+                        family,
+                        artifacts=("fitted representer", "outcome residuals"),
+                        interpretation=interpretation,
+                        cost=cost,  # type: ignore[arg-type]
+                        available=available,
+                        status=status,
+                        refusal=bound_refusal,
+                        requires_arguments=(
+                            ("repeat",) if operation == "elements" and repeats else ()
+                        ),
+                    )
+                )
+            elif operation == "benchmark":
+                rows.append(
+                    _capability(
+                        "benchmark",
+                        artifacts=("fitted estimator configuration",),
+                        execution="refit",
+                        deterministic=False,
+                        cost="expensive",
+                        interpretation="calibration against named observed covariates",
+                        available=available,
+                        status=status,
+                        refusal=bound_refusal,
+                        requires_arguments=("covariates",),
+                        accepts_random_state=True,
+                        requires_replay="refit_nuisances",
+                        family=family,
+                    )
+                )
+            else:
+                refusal = (
+                    projection_evalue_refusal(self._result)
+                    if operation == "evalue"
+                    else projection_sensitivity_refusal(operation)
+                )
+                rows.append(
+                    _capability(
+                        operation,
+                        family,
+                        artifacts=(),
+                        interpretation="not defined for a projection coefficient",
+                        available=False,
+                        status=AssessmentStatus.UNAVAILABLE,
+                        refusal=refusal,
+                    )
+                )
+        return tuple(rows)
 
     @cached_property
     def _evalue_selections(self) -> dict[str | None, Any]:

@@ -135,7 +135,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
-from ..assessment import SENSITIVITY_ROUTES, projection_sensitivity_refusal
+from ..assessment import SENSITIVITY_ROUTES
 from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..estimators.composite import composite_state
 from ..estimators.ctmle import (
@@ -215,6 +215,7 @@ AXIS_ESTIMANDS: frozenset[str] = frozenset(
         "ey_learned_rule",
         "ey_optimal_rule",
         "ey_known_regime",
+        "cate_projection",
     }
 )
 
@@ -238,6 +239,7 @@ _AXIS_GROUPS: dict[str, tuple[str, str]] = {
     "regime": ("regime", "regime"),
     "policy": ("mtp", "shift"),
     "msm": ("msm", "msm"),
+    "effect_modification": ("effect_modification", "projection"),
 }
 
 #: The two ratio scales an E-value answers for, and the pointer a refusal appends when a
@@ -418,8 +420,6 @@ def _refuse_non_arm_axis(result: Any) -> Refusal | None:
         return None
     if axis == "learned_rule":
         return _refuse_learned_rule_bound(result)
-    if axis == "effect_modification":
-        return projection_sensitivity_refusal("the omitted-variable bound")
     if axis == "ipsi":
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
@@ -647,6 +647,8 @@ def _refuse_axis_configuration(result: Any, axis: str) -> Refusal | None:
     in a way that no derivation here covers.
     """
     nuisance = result.repeats[0].nuisance
+    if axis == "effect_modification":
+        return _refuse_projection_configuration(result)
     if axis == "msm":
         msm = nuisance.msm
         if msm is not None and msm.continuous:
@@ -679,6 +681,38 @@ def _refuse_axis_configuration(result: Any, axis: str) -> Refusal | None:
                 "bound has no derived Riesz representer or nu^2 guarantee for it; declare "
                 "dose_atoms that hold every observed and shifted dose",
             )
+    return None
+
+
+#: R-ovb-strata of the P1 PR 3 plan: a stratified projection reports stratum and marginal
+#: coefficients, whose representers the bound does not rebuild.
+PROJECTION_STRATA_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "the omitted-variable bound of a projection coefficient is not built for a stratified "
+    "projection, whose stratum and marginal coefficients read different representers.",
+    alternative="Fit the projection without strata=, with the stratum in the basis.",
+    roadmap="P1",
+)
+
+
+def _refuse_projection_configuration(result: Any) -> Refusal | None:
+    r"""Refuse the projections whose coefficient the bound has no representer for (P1 PR 3).
+
+    A difference-scale coefficient :math:`e_j^\top M^{-1} E[\varphi(V)\{\bar Q(t, W) -
+    \bar Q(r, W)\}]` is linear in the outcome regression for the fixed Gram matrix
+    :math:`M = E[\varphi \varphi^\top]`, which reads only ``V``. A log-ratio coefficient is
+    not linear in it (R-ovb-ratio), and a stratified projection's coefficients read other
+    representers (R-ovb-strata).
+    """
+    spec = result.repeats[0].nuisance.effect_modification
+    if spec is not None and str(spec.scale) != "difference":
+        return _axis_gap(
+            "projection coefficient",
+            "a log-ratio coefficient is not linear in the outcome regression, so the "
+            "linearized bound it would need is not derived",
+        )
+    if bool(getattr(result.data, "has_strata", False)):
+        return PROJECTION_STRATA_BOUND_REFUSAL
     return None
 
 
@@ -751,6 +785,15 @@ def axis_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
             name = parameter_name("msm", arm=msm.labels[code])
             if name in estimates:
                 out[name] = ArmParameter(name, "msm", group, code)
+        return out
+    if axis == "effect_modification":
+        spec = nuisance.effect_modification
+        if spec is None or str(spec.scale) != "difference":
+            return {}
+        for code in spec.codes:
+            name = parameter_name("cate_projection", arm=spec.labels[code])
+            if name in estimates:
+                out[name] = ArmParameter(name, "cate_projection", group, code)
         return out
     codes = nuisance.regimes if axis == "regime" else nuisance.policies
     if codes is None:
@@ -1554,6 +1597,7 @@ _FEATURE_MECHANISMS: dict[str, str | None] = {
     "learned_rule": None,
     "shift": None,
     "msm": None,
+    "projection": None,
     "stratum": None,
     "fold_evaluated_strata": None,
     "repeats": None,
@@ -1589,6 +1633,7 @@ def bound_features(result: TMLEResult, parameter: ArmParameter) -> tuple[str, ..
         "learned_rule": parameter.stem in _RULE_VALUE_STEMS,
         "shift": parameter.group == "mtp",
         "msm": parameter.group == "msm",
+        "projection": parameter.group == "effect_modification",
         "stratum": parameter.stratum is not None,
         # A fold-evaluated stratified fit (X28) reports the share mixture of fold-evaluated
         # stratum estimates, which no registered limit study measured.
@@ -1732,6 +1777,11 @@ def _elements_for(
         conditioning_indicator = np.asarray(data.treatment == conditioning, dtype=float)
         conditioning_share = float(data.arm_fractions[nuisance.arms.index(conditioning)])
 
+    axis = _AxisInputs.build(parameter, nuisance, weights)
+    if axis is not None and axis.basis is not None:
+        # A projection coefficient's representer reads the rows where e_j' M^{-1} phi(V) is
+        # nonzero: every row for a Linear basis, the coefficient's strata for Indicators.
+        support = support * (axis.basis @ axis.coefficient_rows(parameter) != 0.0)
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.
     scaled = scaler.scale(data.outcome)
@@ -1742,7 +1792,6 @@ def _elements_for(
     sigma2 = float(np.average(sigma2_element, weights=weights))
     psi_sigma2 = (sigma2_element - sigma2) * weights
 
-    axis = _AxisInputs.build(parameter, nuisance, weights)
     representer = _riesz_representer(parameter, submodel, axis) * _representer_rows(data)
 
     m_alpha: FloatArray | None = None
@@ -2012,6 +2061,7 @@ def _configuration_phrase(features: tuple[str, ...]) -> str:
         "regime": "is the clever covariate of a declared regime",
         "shift": "is the clever covariate of a modified treatment policy",
         "msm": "is projected through the working model's Gram matrix",
+        "projection": "is projected through the basis's Gram matrix",
     }
     parts.extend(phrase for name, phrase in axes.items() if name in features)
     if "stratum" in features:
@@ -2076,12 +2126,21 @@ class _AxisInputs:
     gram_inverse : ndarray or None
         ``(p, p)`` inverse of the observation-weighted Gram matrix
         :math:`M = P_n \sum_a h \varphi \varphi^\top`, which the coefficient inverts.
+        For a conditional contrast's projection it is :math:`M = P_n \varphi \varphi^\top`.
+    basis : ndarray or None
+        ``(n, p)`` basis :math:`\varphi(V)` of a conditional contrast's projection, which
+        its Gram matrix reads. :attr:`design` then holds the ``(n, K, p)`` arm numerators
+        :math:`c_a(V) = s(a) \varphi(V)` and :attr:`model_weights` is one, so ``K b`` and
+        :math:`m(O, \alpha)` read the numerators and the Gram matrix reads the basis.
+        Feeding the numerators to the MSM Gram path would sum :math:`\varphi\varphi^\top`
+        over both arms of the pair and give :math:`2M` (P1 PR 3 plan, 3.5).
     """
 
     regimes: FloatArray | None = None
     design: FloatArray | None = None
     model_weights: FloatArray | None = None
     gram_inverse: FloatArray | None = None
+    basis: FloatArray | None = None
 
     @classmethod
     def build(
@@ -2091,6 +2150,19 @@ class _AxisInputs:
         if parameter.group == "regime":
             assert nuisance.regimes is not None
             return cls(regimes=np.asarray(nuisance.regimes.values, dtype=float))
+        if parameter.group == "effect_modification":
+            spec = nuisance.effect_modification
+            assert spec is not None
+            basis = np.asarray(spec.design, dtype=float)
+            numerators = np.asarray(spec.coefficients_at(None), dtype=float)
+            w = np.asarray(weights, dtype=float)
+            gram = np.einsum("ip,iq,i->pq", basis, basis, w) / float(w.sum())
+            return cls(
+                design=numerators,
+                model_weights=np.ones(numerators.shape[:2]),
+                gram_inverse=np.linalg.inv(gram),
+                basis=basis,
+            )
         if parameter.group != "msm":
             return None
         msm = nuisance.msm
@@ -2126,7 +2198,9 @@ def _riesz_representer(
     coefficient ``j`` reads :math:`e_j^\top M^{-1} H(A, W)`, the row of the coefficient's
     residual term in :func:`~cleverly.inference.influence.msm_coefficients`.
     """
-    if parameter.group == "msm":
+    if parameter.group in ("msm", "effect_modification"):
+        # A projection's observed covariate is phi(V) s(A) / g, so its coefficient j reads
+        # the same row of the inverse Gram matrix as an MSM coefficient (P1 PR 3).
         assert axis is not None
         return np.asarray(submodel.observed @ axis.coefficient_rows(parameter), dtype=float)
     if parameter.group == "regime":
@@ -2182,7 +2256,7 @@ def _m_alpha(
     population.  They are ``None`` for a mean or an unconditional contrast, which
     reweight nobody.
     """
-    if parameter.group in ("regime", "msm"):
+    if parameter.group in ("regime", "msm", "effect_modification"):
         assert axis is not None
         return _axis_m_alpha(parameter, submodel, axis)
     # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
@@ -2227,7 +2301,8 @@ def _axis_m_alpha(parameter: ArmParameter, submodel: Any, axis: _AxisInputs) -> 
     counterfactual blocks ``submodel.arms[a]`` hold the clever covariate at arm ``a``.
     """
     total = np.zeros(submodel.n, dtype=float)
-    if parameter.group == "msm":
+    if parameter.group in ("msm", "effect_modification"):
+        # A projection coefficient has c = e_j' M^{-1} c_a(V), the arm numerator with h = 1.
         assert axis.design is not None and axis.model_weights is not None
         b = axis.coefficient_rows(parameter)
         for index, level in enumerate(submodel.levels):
@@ -2286,6 +2361,10 @@ def _gram_influence(
         kb += 2.0 * np.einsum("i,ip,i->p", w, u, submodel.arms[level] @ b) / mass
     assert axis.gram_inverse is not None
     z = axis.gram_inverse @ kb
+    if axis.basis is not None:
+        # A conditional contrast's projection: each row's Gram contribution is
+        # phi(V) phi(V)', which differs from M row by row, so the term is nonzero.
+        return np.asarray(-2.0 * w * ((axis.basis @ z) * (axis.basis @ b) - nu2), dtype=float)
     bracket = np.zeros(submodel.n, dtype=float)
     for index in range(len(submodel.levels)):
         phi = axis.design[:, index, :]
@@ -3312,6 +3391,16 @@ class BenchmarkResult:
         return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
 
+def _projection_modifiers(result: Any) -> frozenset[str]:
+    """The modifier columns a conditional contrast's projection reads, as covariate names."""
+    spec = getattr(result.repeats[0].nuisance.effect_modification, "spec", None)
+    if spec is None:
+        return frozenset()
+    columns = set(spec.modifiers.columns)
+    sources = result.data.indicator_sources
+    return frozenset(sources.get(name, name) for name in columns)
+
+
 def _benchmark_covariates(data: Any) -> tuple[str, ...]:
     """The covariates a benchmark can name, in fit order, with an encoded covariate once.
 
@@ -3427,6 +3516,13 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
         dropped = set(fitted[:1] if covariates is None else _benchmark_names(result, covariates))
     except DataError:
         return None
+    if getattr(result.config, "parameter_axis", None) == "effect_modification":
+        # The basis reads the modifiers, so a short model without one would project onto
+        # another basis and estimate another target (P1 PR 3).
+        modifiers = _projection_modifiers(result)
+        named = tuple(name for name in fitted if name in dropped and name in modifiers)
+        if named:
+            return _axis_benchmark_refusal("effect_modification", named)
     if any(name not in dropped for name in fitted):
         return None
     return Refusal(
@@ -3471,6 +3567,16 @@ def _axis_target_moved(result: TMLEResult, short: TMLEResult) -> bool:
         )
     if axis == "policy" and long.policies is not None and other.policies is not None:
         return not np.array_equal(long.policies.shifted, other.policies.shifted)
+    if (
+        axis == "effect_modification"
+        and long.effect_modification is not None
+        and other.effect_modification is not None
+    ):
+        # The basis reads only modifiers, so this is false in every admitted case (P1 PR 3).
+        return not (
+            np.array_equal(long.effect_modification.design, other.effect_modification.design)
+            and np.array_equal(result.data.weights, short.data.weights)
+        )
     return False
 
 
