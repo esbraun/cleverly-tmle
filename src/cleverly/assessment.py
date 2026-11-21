@@ -345,8 +345,9 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
-    # The per-arm outcome-adaptive C-TMLE fits a projection as a point estimate (P1 PR 3).
-    "effect_modification": ("tmle", "collaborative_tmle", "ep"),
+    # DR-TMLE fits a difference-scale projection, and the per-arm outcome-adaptive C-TMLE a
+    # point estimate of one (P1 PR 3).
+    "effect_modification": ("tmle", "drtmle", "collaborative_tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
     "dose_response": ("tmle",),
     # Every candidate of a variable-importance run is a point fit by one shared estimator,

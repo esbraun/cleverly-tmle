@@ -88,14 +88,16 @@ class TestTheStudyFit:
         assert linear_contrast("log_ratio").name == "log_crr"
         assert "projection" in linear_contrast().definition
 
-    def test_tmle_ep_and_the_per_arm_ctmle_are_available(self) -> None:
+    def test_tmle_ep_drtmle_and_the_per_arm_ctmle_are_available(self) -> None:
         methods = {m.name: m for m in law_study().identify(linear_contrast()).available_methods()}
         assert methods["tmle"].available
         assert methods["ep"].available
-        # The per-arm outcome-adaptive C-TMLE, points only (P1 PR 3,
-        # tests/unit/test_ctmle_projection.py).
+        # The per-arm outcome-adaptive C-TMLE, points only, and the DR-TMLE projection on the
+        # difference scale (P1 PR 3, tests/unit/test_ctmle_projection.py and
+        # tests/unit/test_drtmle_projection.py).
         assert methods["collaborative_tmle"].available
-        admitted = ("tmle", "ep", "collaborative_tmle")
+        assert methods["drtmle"].available
+        admitted = ("tmle", "ep", "collaborative_tmle", "drtmle")
         assert not any(m.available for name, m in methods.items() if name not in admitted)
 
     def test_other_estimands_read_the_ep_record(self) -> None:

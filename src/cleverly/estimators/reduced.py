@@ -250,7 +250,9 @@ class ReducedSet:
                     f"{list(self.arms)}; got shape {shape}"
                 )
         if terms and self.reduction != "univariate":
-            raise ValueError("a projection's reduced set exists for reduction='univariate' only")
+            raise ValueError(
+                f"an (n, K, p) reduced set must be univariate; got reduction={self.reduction!r}"
+            )
         if len({shape[0] for shape in shapes.values()}) != 1:
             raise ValueError(f"the three reduced regressions disagree about n: {shapes}")
         if not np.all(np.isfinite(self.qr)) or not np.all(np.isfinite(self.gr1)):

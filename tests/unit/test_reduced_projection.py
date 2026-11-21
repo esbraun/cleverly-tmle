@@ -17,7 +17,7 @@ the same array. The base law of :mod:`tests.discrete_law` separates every cell i
 ``w = 0`` and ``w = 1``, and law L-Q ties :math:`\bar Q_0(1, \cdot)` across the same two cells,
 each with every cell count integral at ``N = 1000``.
 
-On L-g with the arm-1 outcome error ``Q + 0.1 w`` the slope's :math:`Q_r` is ``-0.0375`` on
+On L-g with the arm-1 outcome error ``+0.1`` at ``w = 1, 2`` the slope's :math:`Q_r` is ``-0.0375`` on
 the tied rows. The weight-after mutant gives 0 on the ``w = 0`` rows. The drop-weight mutant
 gives ``-0.0375`` there too (``w^2 = w`` on ``{0, 1}``) and departs only on ``w = 2``. On L-Q
 with arm 1's mechanism ``G + (0.05, -0.05, 0)`` the slope's :math:`g_{r,2}` is ``0.0341`` on
@@ -47,8 +47,10 @@ INERT = (1e-6, 1.0 - 1e-6)
 
 #: Law L-g: the propensity ties ``w = 0`` and ``w = 1``.
 G_TIED = np.array([0.40, 0.40, 0.25])
-#: Its arm-specific wrong outcome regression, ``Q + 0.1 w`` on arm 1 only.
-Q_WRONG_ARM1 = law.Q + np.array([[0.0, 0.0], [0.0, 0.1], [0.0, 0.2]])
+#: Its arm-specific wrong outcome regression on arm 1 only: ``Q + 0.1`` at ``w = 1`` and
+#: ``w = 2``. The plan's ``Q + 0.1 w`` would put ``Qbar(1, 2)`` at 1.0, where no logistic
+#: fluctuation moves it; the tied cells, and so the 0.0375 figure, are unchanged.
+Q_WRONG_ARM1 = law.Q + np.array([[0.0, 0.0], [0.0, 0.1], [0.0, 0.1]])
 
 #: Law L-Q: ``Qbar_0(1, .) = (0.70, 0.70, 0.80)`` ties ``w = 0`` and ``w = 1`` on arm 1.
 Q_TIED = law.Q.copy()
@@ -180,14 +182,14 @@ class TestLawLg:
         cell = {k: float(slope[w == k][0]) for k in range(3)}
         assert cell[0] == pytest.approx(-0.0375, abs=EXACT)
         assert cell[1] == pytest.approx(-0.0375, abs=EXACT)
-        assert cell[2] == pytest.approx(-0.4, abs=EXACT)
+        assert cell[2] == pytest.approx(-0.2, abs=EXACT)
         intercept = reduced.qr[:, 1, 0]
         # The weight-after mutant phi_j E[D | g] departs on the w = 0 rows.
         weight_after = w * intercept
         assert float(np.max(np.abs(slope - weight_after)[w == 0])) == pytest.approx(0.0375)
         # The drop-weight mutant E[D | g] departs on the w = 2 rows only.
         np.testing.assert_allclose(slope[w <= 1], intercept[w <= 1], atol=EXACT)
-        assert float(np.max(np.abs(slope - intercept)[w == 2])) == pytest.approx(0.2)
+        assert float(np.max(np.abs(slope - intercept)[w == 2])) == pytest.approx(0.1)
 
     def test_the_right_arm_regression_vanishes(self, law_g: tuple) -> None:
         _, _, reduced = law_g
