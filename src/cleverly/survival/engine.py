@@ -853,13 +853,17 @@ class ContinuousSurvivalTMLE:
         random_state: int | None,
         _frozen_folds: Any = None,
         _frozen_plan: FoldPlan | None = None,
+        nominal: bool = False,
     ) -> PlannedFits:
         """The model fits :meth:`refit` would make on the same arguments, counted unfitted.
 
-        :func:`cleverly._planned_fits.refit_plan` reads it.
+        :func:`cleverly._planned_fits.refit_plan` reads it.  ``nominal`` counts at the
+        libraries' nominal inner folds, as :meth:`_planned_fit_data` does.
         """
         folds, plan = self._refit_split(data, _frozen_folds, _frozen_plan)
-        return self._copy(random_state)._planned_fit_data(data, folds=folds, plan=plan)
+        return self._copy(random_state)._planned_fit_data(
+            data, folds=folds, plan=plan, nominal=nominal
+        )
 
     def _refit_split(
         self, data: Any, frozen: Any, frozen_plan: FoldPlan | None
@@ -1117,7 +1121,12 @@ class ContinuousSurvivalTMLE:
         }
 
     def _planned_fit_data(
-        self, data: Any, *, folds: Any = None, plan: FoldPlan | None = None
+        self,
+        data: Any,
+        *,
+        folds: Any = None,
+        plan: FoldPlan | None = None,
+        nominal: bool = False,
     ) -> PlannedFits:
         """The model fits :meth:`fit_data` would make, counted without fitting.
 
@@ -1138,6 +1147,11 @@ class ContinuousSurvivalTMLE:
             One outer label per row in place of a fresh draw, as :meth:`_fit_data` takes it.
         plan : FoldPlan or None
             A recorded fold plan in place of every fold draw, as :meth:`_fit_data` takes it.
+        nominal : bool
+            Count each selection at :attr:`learner_folds` inner folds, whatever the fold's
+            event counts allow, and a user treatment learner at its nominal counts, so the
+            record bounds a fit of any data drawn like ``data`` (X106 part G2).  Each
+            bootstrap replicate is then counted as one such fit.
 
         Returns
         -------
@@ -1165,31 +1179,44 @@ class ContinuousSurvivalTMLE:
             return count
 
         builder = PlanBuilder()
+        why = (
+            "drawn-data refits are counted at the nominal inner folds, whatever a fold's "
+            "event counts allow"
+            if nominal
+            else None
+        )
         names = ", ".join(learner_name(member) for member in hazard_library)
         for fold in np.unique(folds):
             train = folds != fold if self.cross_fit else np.ones(n, dtype=bool)
             observed = np.unique(D[train], return_counts=True)[1]
-            inner = min(self.learner_folds, int(observed.max()))
+            inner = (
+                int(self.learner_folds) if nominal else min(self.learner_folds, int(observed.max()))
+            )
             for _ in codes:
                 builder.add(
                     "hazard_library",
                     "cause-specific hazard selection, per cause and fold",
                     names,
                     selection(hazard_library, inner),
+                    upper=why,
                 )
             builder.add(
                 "censoring_library",
                 "censoring hazard selection, per fold",
                 ", ".join(learner_name(member) for member in censoring_library),
                 selection(censoring_library, inner),
+                upper=why,
             )
             if self.treatment_learner is not None:
-                count = count_learner(seed_unset(self.treatment_learner, seed), A[train])
+                count = count_learner(
+                    seed_unset(self.treatment_learner, seed), A[train], nominal=nominal
+                )
                 builder.add(
                     "treatment_learner",
                     "treatment model, per fold",
                     learner_name(self.treatment_learner),
                     count,
+                    upper=why,
                 )
                 continue
             candidates = _logistic_candidates(seed)
@@ -1202,8 +1229,16 @@ class ContinuousSurvivalTMLE:
                 "treatment model selection over the default logistic models, per fold",
                 "default logistic selection",
                 count,
+                upper=why,
             )
-        if self.n_bootstrap:
+        if self.n_bootstrap and nominal:
+            unit = self._copy(seed)
+            unit.n_bootstrap = 0
+            counted = unit._planned_fit_data(data, folds=folds, nominal=True)
+            for _ in range(int(self.n_bootstrap)):
+                builder.absorb(counted, lambda scope: f"{scope}, per bootstrap replicate")
+            builder.multiply("bootstrap replicates", self.n_bootstrap)
+        elif self.n_bootstrap:
             self._plan_bootstrap(builder, data, seed, inputs[2])
         if len(hazard_library) > 1 or len(censoring_library) > 1:
             builder.note(

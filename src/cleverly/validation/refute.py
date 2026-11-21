@@ -1787,12 +1787,14 @@ def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -
     """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
 
     The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
-    that check rather than copying it, and :func:`refute` calls it again to read the
-    contrast direction it returns.
+    that check rather than copying it, with ``build=False`` so it fits no longitudinal
+    plasmode law, and :func:`refute` calls it again to build the target it returns.
     """
     for name in request.generated:
         try:
-            _validate_generated_eligibility(result, request.estimand, request.process(name), name)
+            _validate_generated_eligibility(
+                result, request.estimand, request.process(name), name, build=False
+            )
         except CapabilityError as error:
             return error.refusal
     return None
@@ -2297,9 +2299,14 @@ class _LongitudinalPlasmode:
 
 
 def _longitudinal_plasmode_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalPlasmode:
-    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalPlasmode | None:
+    """Refuse a panel the longitudinal plasmode cannot draw, else freeze its law and truth.
+
+    Every refusal comes before the law is fitted. With ``build=False`` the function stops
+    there and returns ``None``, so the request rules, the capability row and the refit preview
+    fit nothing, and :func:`refute` builds the law once (X106 part G2).
+    """
     from ..longitudinal.regimen import declares_tilt, declares_tuned
     from ._longitudinal_plasmode import (
         MAX_DRAWS,
@@ -2327,6 +2334,8 @@ def _longitudinal_plasmode_target(
         if present:
             _refuse_longitudinal_plasmode(name, structure)
     label, cause, horizon = _held_parameter(result, estimand, name)
+    if not build:
+        return None
     regimens = {regimen.label: regimen for regimen in result.config.regimens}
     parts = label.split(" vs ") if " vs " in label else [label]
     law = LongitudinalPlasmodeLaw.fit(result)
@@ -2432,9 +2441,13 @@ def _held_shares(uncensored: Any) -> tuple[float, ...]:
 
 
 def _longitudinal_generated_target(
-    result: Any, estimand: str, process: Any, name: str
-) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
-    """Refuse a generated outcome a longitudinal fit cannot read, else build its target."""
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
+    """Refuse a generated outcome a longitudinal fit cannot read, else build its target.
+
+    ``build=False`` returns ``None`` for a plasmode request after its refusals, before its
+    law is fitted.
+    """
     data = result.data
     if data.eliminated:
         raise CapabilityError(
@@ -2457,7 +2470,7 @@ def _longitudinal_generated_target(
     if data.is_survival:
         if name == "plasmode":
             _validate_hazard_process(data, process, name)
-            return _longitudinal_plasmode_target(result, estimand, process, name)
+            return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
         return _survival_generated_target(result, estimand, process, name)
     _validate_generated_process(process, name)
     if not isinstance(process, (GaussianIndependentOutcome, GaussianAdjustmentOutcome)):
@@ -2506,7 +2519,7 @@ def _longitudinal_generated_target(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     if name == "plasmode":
-        return _longitudinal_plasmode_target(result, estimand, process, name)
+        return _longitudinal_plasmode_target(result, estimand, process, name, build=build)
     if getattr(process, "history_effect", 0.0):
         raise CapabilityError(
             f"{name} keeps the held covariate history, whose law under a regimen is unknown, "
@@ -2698,8 +2711,8 @@ def _survival_generated_target(
 
 
 def _validate_generated_eligibility(
-    result: Any, estimand: str, process: Any, name: str
-) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode:
+    result: Any, estimand: str, process: Any, name: str, *, build: bool = True
+) -> PointTarget | _LongitudinalGenerated | _SurvivalGenerated | _LongitudinalPlasmode | None:
     """Refuse an ineligible generated-outcome request and resolve its target.
 
     Parameters
@@ -2712,10 +2725,13 @@ def _validate_generated_eligibility(
         Registered outcome-process declaration.
     name : str
         Refutation name, named in every refusal.
+    build : bool
+        Whether to fit a longitudinal plasmode law and its truth. ``False`` runs every
+        refusal and fits nothing; a longitudinal plasmode request then returns ``None``.
 
     Returns
     -------
-    PointTarget, _LongitudinalGenerated or _SurvivalGenerated
+    PointTarget, _LongitudinalGenerated, _SurvivalGenerated, _LongitudinalPlasmode or None
         The point target with its arm codes and population. A longitudinal fit returns its
         held-history target instead.
 
@@ -2725,7 +2741,7 @@ def _validate_generated_eligibility(
         If the fit, the estimand, or the process has no registered effect derivation.
     """
     if _is_longitudinal(result):
-        return _longitudinal_generated_target(result, estimand, process, name)
+        return _longitudinal_generated_target(result, estimand, process, name, build=build)
     _validate_generated_process(process, name)
     if name == "plasmode":
         _validate_plasmode_eligibility(result)
@@ -4577,6 +4593,17 @@ def _subset_record(
     )
 
 
+#: The folds of the cross-fitted residual check, one least-squares fit each.
+_RESIDUAL_FOLDS = 2
+
+
+def _residual_check_fits(values: np.ndarray, features: np.ndarray) -> int:
+    """The least-squares fits :func:`_control_residual_reason` makes on these arrays."""
+    if float(np.var(values)) <= 0.0 or not features.shape[1] or values.size < 4:
+        return 0
+    return _RESIDUAL_FOLDS
+
+
 def _control_residual_reason(
     values: np.ndarray,
     features: np.ndarray,
@@ -4599,10 +4626,11 @@ def _control_residual_reason(
     total = float(np.var(values))
     if total <= 0.0:
         return f"{noun} is constant on the analysis rows, so its estimate is 0 by construction"
-    if not features.shape[1] or values.size < 4:
+    if not _residual_check_fits(values, features):
         return None
     residual = np.empty_like(values)
-    for train, test in KFold(n_splits=2, shuffle=True, random_state=0).split(features):
+    folds = KFold(n_splits=_RESIDUAL_FOLDS, shuffle=True, random_state=0)
+    for train, test in folds.split(features):
         model = LinearRegression().fit(features[train], values[train])
         residual[test] = values[test] - model.predict(features[test])
     share = float(np.mean(residual**2)) / total
@@ -4675,15 +4703,18 @@ def _bounds_clause(bounds: tuple[float, float] | None) -> str:
     )
 
 
-def _future_treatment_test(
-    result: Any, *, estimand: str, original: float, control: Any, node: int, seed: int
-) -> RefutationTest:
-    """Regress the control on the treatment at ``node``, adjusted for its declared history.
+def _future_treatment_fit(
+    result: Any, *, control: Any, node: int, seed: int
+) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int]:
+    """The point TMLE of the future-treatment test and the data it fits, unfitted.
 
-    The fit is a point-treatment TMLE of the control on the binary treatment at ``node``,
-    adjusted for the history the longitudinal fit declares for that treatment, on the units
-    at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
-    count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
+    :func:`_future_treatment_test` fits it, and the refit preview counts its fits.
+
+    Returns
+    -------
+    tuple
+        The estimator, the point data, the rows at risk at ``node``, the history's column
+        names, the control's outcome bounds and the fold count.
     """
     from ..data import CausalData
     from ..estimators.tmle import TMLE
@@ -4714,14 +4745,32 @@ def _future_treatment_test(
         # A classifier cannot regress a continuous control. The fit's regression learner
         # for its pseudo-outcomes can, and the default library stands in without one.
         outcome_learner = getattr(template, "pseudo_learner", None)
-    fitted = TMLE(
+    fitter = TMLE(
         outcome_learner=outcome_learner,
         treatment_learner=getattr(template, "treatment_learner", None),
         cross_fit=cross_fit,
         n_folds=folds,
         q_bounds=bounds,
         random_state=seed,
-    ).fit(point)
+    )
+    return fitter, point, rows, names, bounds, folds
+
+
+def _future_treatment_test(
+    result: Any, *, estimand: str, original: float, control: Any, node: int, seed: int
+) -> RefutationTest:
+    """Regress the control on the treatment at ``node``, adjusted for its declared history.
+
+    The fit is a point-treatment TMLE of the control on the binary treatment at ``node``,
+    adjusted for the history the longitudinal fit declares for that treatment, on the units
+    at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
+    count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
+    """
+    fitter, point, rows, names, bounds, folds = _future_treatment_fit(
+        result, control=control, node=node, seed=seed
+    )
+    cross_fit = folds > 1
+    fitted = fitter.fit(point)
     estimate = fitted.single()["ate"]
     value = float(estimate.psi)
     std_error = float(estimate.plugin_std_error)
@@ -5092,6 +5141,83 @@ def _sliced_folds(result: Any, index: np.ndarray) -> tuple[Any, ...] | None:
     return tuple(sliced)
 
 
+def _refute_preflight(
+    result: Any,
+    *,
+    estimand: str,
+    tests: Sequence[str],
+    n_replicates: int | None,
+    placebo_mode: str | None,
+    noise_nodes: bool,
+    negative_control_outcome: Any,
+    negative_control_kind: str | None,
+    negative_control_floor: float,
+    future_treatment_control: Any,
+    future_treatment_node: int,
+    dummy_outcome: Any,
+    simulated_outcome: Any,
+    outcome_bands: EquivalenceBands,
+    bootstrap_measurement_error: BootstrapMeasurementError | None,
+    measurement_error_rule: EmpiricalInclusionRule,
+) -> _RefuteRequest:
+    """Every check :func:`refute` runs before its first draw, in order; the parsed request.
+
+    :func:`refute` and :func:`~cleverly.validation.planned_refits` both call it, so a check
+    added here reaches both (X106 part G2). It fits nothing: a longitudinal plasmode request
+    meets its refusals without its law being fitted.
+
+    Raises
+    ------
+    ValueError
+        If an argument is malformed (:func:`_validated_tests`).
+    CapabilityError
+        If a request rule refuses the request.
+    """
+    refuse_augmented_trial(result, "refute", "refutation")
+    # The malformed arguments first, and the refusals of a well-formed request after them.
+    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
+    # fits and only then discover that its outcome process has no effect derivation. The
+    # ``refute`` capability row reads the same table, so a row that reads available is a
+    # request this line admits.
+    request = _RefuteRequest(
+        estimand,
+        _validated_tests(
+            tests,
+            n_replicates,
+            negative_control_outcome,
+            placebo_mode,
+            negative_control_kind,
+            negative_control_floor,
+            future_treatment_control,
+            future_treatment_node,
+        ),
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_bands,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+        placebo_mode,
+        bool(noise_nodes),
+        negative_control_outcome=negative_control_outcome,
+        negative_control_kind=negative_control_kind,
+        future_treatment_control=future_treatment_control,
+        future_treatment_node=int(future_treatment_node),
+        negative_control_floor=float(negative_control_floor),
+    )
+    if is_continuous_survival(result):
+        # A continuous-time fit has its own request rules, which never read ``result.data``
+        # as point-treatment data (X101).
+        from ._continuous_survival_refute import continuous_survival_rules
+
+        refusal = continuous_survival_rules(result, request)
+    else:
+        refusal = _first_refusal(result, request)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+    return request
+
+
 def refute(
     result: TMLEResult,
     *,
@@ -5241,49 +5367,29 @@ def refute(
     CapabilityError
         If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
-    refuse_augmented_trial(result, "refute", "refutation")
-    # The malformed arguments first, and the refusals of a well-formed request after them.
-    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
-    # fits and only then discover that its outcome process has no effect derivation. The
-    # ``refute`` capability row reads the same table, so a row that reads available is a
-    # request this line admits.
-    request = _RefuteRequest(
-        estimand,
-        _validated_tests(
-            tests,
-            n_replicates,
-            negative_control_outcome,
-            placebo_mode,
-            negative_control_kind,
-            negative_control_floor,
-            future_treatment_control,
-            future_treatment_node,
-        ),
-        n_replicates,
-        dummy_outcome,
-        simulated_outcome,
-        outcome_bands,
-        bootstrap_measurement_error,
-        measurement_error_rule,
-        placebo_mode,
-        bool(noise_nodes),
+    request = _refute_preflight(
+        result,
+        estimand=estimand,
+        tests=tests,
+        n_replicates=n_replicates,
+        placebo_mode=placebo_mode,
+        noise_nodes=noise_nodes,
         negative_control_outcome=negative_control_outcome,
         negative_control_kind=negative_control_kind,
+        negative_control_floor=negative_control_floor,
         future_treatment_control=future_treatment_control,
-        future_treatment_node=int(future_treatment_node),
-        negative_control_floor=float(negative_control_floor),
+        future_treatment_node=future_treatment_node,
+        dummy_outcome=dummy_outcome,
+        simulated_outcome=simulated_outcome,
+        outcome_bands=outcome_bands,
+        bootstrap_measurement_error=bootstrap_measurement_error,
+        measurement_error_rule=measurement_error_rule,
     )
     if is_continuous_survival(result):
         # A continuous-time fit has its own request rules, which never read ``result.data``
         # as point-treatment data, and its own refits (X101).
-        from ._continuous_survival_refute import (
-            continuous_survival_refute,
-            continuous_survival_rules,
-        )
+        from ._continuous_survival_refute import continuous_survival_refute
 
-        refusal = continuous_survival_rules(result, request)
-        if refusal is not None:
-            raise CapabilityError.from_refusal(refusal)
         return continuous_survival_refute(
             result,
             request,
@@ -5291,18 +5397,16 @@ def refute(
             subset_fraction=subset_fraction,
             seed_spread=seed_spread,
         )
-    refusal = _first_refusal(result, request)
-    if refusal is not None:
-        raise CapabilityError.from_refusal(refusal)
     requested = request.tests
     estimator = result.estimator
     processes = {name: request.process(name) for name in _GENERATED_TESTS}
-    # The table admitted each generated test, so this reads the contrast direction and
-    # refuses nothing.
-    contrasts = {
-        name: _validate_generated_eligibility(result, estimand, processes[name], name)
-        for name in request.generated
-    }
+    # The table admitted each generated test, so this refuses nothing. It reads the contrast
+    # direction and builds a longitudinal plasmode's law and truth, once per call.
+    contrasts = {}
+    for name in request.generated:
+        target = _validate_generated_eligibility(result, estimand, processes[name], name)
+        assert target is not None
+        contrasts[name] = target
 
     original = result[estimand].psi
     no_effect_null = _no_effect_null(result, estimand)

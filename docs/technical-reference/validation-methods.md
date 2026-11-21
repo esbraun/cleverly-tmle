@@ -3086,6 +3086,35 @@ empirical law that keep their weights describe a mixed law. It also refuses a fi
 three observation processes, because each frozen model reads `(W, A)` only.
 `tests/unit/test_plasmode_refutation.py` holds the witness and a mutation that keeps `W` fixed.
 
+#### Counting the refits before they run
+
+`cleverly.validation.planned_refits(result, **refute_keywords)` and
+`result.diagnostics.planned_refits(**refute_keywords)` return a `PlannedRefits` record: for each
+requested test, its draws, its refits, and the learner fits and base-estimator fits those refits
+make. The call takes exactly `refute()`'s keywords and runs the same preflight function
+(`_refute_preflight`), so a request that `refute()` refuses before its first refit raises the same
+record. It fits no learner and caches nothing. Each refit is counted by the estimator's own refit
+preview, the one `refit_plan` uses
+([`validation/_planned_refits.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/_planned_refits.py)).
+
+| test | refits | count |
+| --- | --- | --- |
+| `random_common_cause` | `R`, plus `R` at child seeds with `seed_spread=True` | as exact as the estimator's own refit preview (`refit_plan`) where the fit's seed is known; the noise column changes no fold |
+| `negative_control_outcome`, `future_treatment` | 1 | as above, plus the two least-squares fits of the control's residual check where it runs |
+| `placebo`, `subset`, `bootstrap_stability`, `bootstrap_measurement_error` | `R` | upper bound: each draw is counted at the learners' nominal folds, with no fold of a binary target fitted as a constant |
+| `dummy_outcome`, `simulated_outcome`, `plasmode` | `R` | upper bound, as above; a plasmode adds the models of its frozen law |
+
+An upper row also carries `min_fits`, the fewest fits the test makes when no draw fails. A
+continuous-time survival fit is counted on the estimator its refits use, which drops the fit's
+bootstrap. A draw that a check refuses part way through, such as a subset that loses an arm or a
+band-rank placebo draw on a fit whose seed is drawn at the call, can still stop `refute()` after a
+preview that accepted the request. The check that a pre-treatment control is not nearly a function
+of the adjustment set fits two least-squares regressions in the shared preflight, so the preview
+makes those two fits too and counts them as the test's preparation. A seeded fit of an engine
+whose own preview is an upper bound, such as a DR-TMLE or an LTMLE fit, gives upper rows
+throughout. `tests/unit/test_planned_refits.py` runs each test
+on each adapter and checks the realized fits against the record.
+
 #### Generated point outcomes
 
 A point process declares a mean `m(a, W)` and an arm term `c(a)`. The scalar `effect` gives

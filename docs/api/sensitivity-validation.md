@@ -54,7 +54,8 @@ methods](../technical-reference/validation-methods.md) states the conditions of 
 ## Validation
 
 `refute()` reads the outcome laws below (`GaussianAdjustmentOutcome` and the rest) for its
-generated-outcome tests, and judges each reading against its `EquivalenceBands`. `CoverageStudy`
+generated-outcome tests, and judges each reading against its `EquivalenceBands`.
+`planned_refits()` counts the refits and model fits a `refute()` call would make, before it runs. `CoverageStudy`
 measures bias and coverage over repeated draws from a law you declare.
 
 ```{eval-rst}
@@ -82,6 +83,8 @@ measures bias and coverage over repeated draws from a law you declare.
    cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
+   cleverly.validation.PlannedRefits
+   cleverly.validation.PlannedRefitTest
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
@@ -91,6 +94,7 @@ measures bias and coverage over repeated draws from a law you declare.
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute
+   cleverly.validation.planned_refits
 ```
 
 ## Inference primitives

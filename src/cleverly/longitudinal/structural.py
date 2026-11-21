@@ -33,7 +33,7 @@ import copy
 import itertools
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 from scipy import stats
@@ -114,6 +114,9 @@ from ..provenance import build as provenance_build
 from .data import LongitudinalData, Repeated
 from .estimator import LTMLE, _reference_df, refuse_unsupported
 from .regimen import DynamicRegimen, Regimen, _same_label, resolve_regimens
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._planned_fits import PlannedFits
 
 __all__ = [
     "SNMM_LABEL",
@@ -1773,6 +1776,18 @@ class StructuralNestedMean:
             When ``frozen_folds`` or ``frozen_seeds`` holds other than one entry, or a frozen
             split labels another number of rows than ``data`` holds.
         """
+        settings = self._refit_settings(random_state, frozen_folds, frozen_seeds)
+        with _suppressed():
+            # A refit on a perturbed panel repeats the original fit's status warnings.
+            return settings.fit(data)
+
+    def _refit_settings(
+        self,
+        random_state: int | None,
+        frozen_folds: Sequence[Folds] | None,
+        frozen_seeds: Sequence[int | None] | None,
+    ) -> StructuralNestedMean:
+        """The configured copy :meth:`refit` fits."""
         settings = copy.copy(self)
         settings.simultaneous = False
         if random_state is not None:
@@ -1791,9 +1806,194 @@ class StructuralNestedMean:
                     f"a structural fit draws one split; frozen_seeds holds {len(seeds)}"
                 )
             settings._frozen_seed = None if seeds[0] is None else int(seeds[0])
-        with _suppressed():
-            # A refit on a perturbed panel repeats the original fit's status warnings.
-            return settings.fit(data)
+        return settings
+
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None = None,
+        treatment: str | Sequence[str] | None = None,
+        baseline: Sequence[str] | None = None,
+        time_varying: Sequence[Sequence[str]] | None = None,
+        censoring: Sequence[str] | None = None,
+        id: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
+        family: str = "auto",
+        continuous_treatment: Sequence[str] = (),
+        nominal: bool = False,
+        **refused: Any,
+    ) -> PlannedFits:
+        """The learner fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Takes :meth:`fit`'s arguments and runs its checks before the first learner. Per node
+        ``t`` the fit cross-fits one outcome regression and one regression for each distinct
+        target of the treatment means :math:`m_{j,t}`, ``j >= t``, on the outer folds; a
+        classification fold whose training rows hold one class is fitted as a constant.
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            As :meth:`fit`.
+        outcome : str or None
+            As :meth:`fit`.
+        treatment : str, sequence of str, or None
+            As :meth:`fit`.
+        baseline : sequence of str or None
+            As :meth:`fit`.
+        time_varying : sequence of sequence of str or None
+            As :meth:`fit`.
+        censoring : sequence of str or None
+            As :meth:`fit`.
+        id : str or None
+            As :meth:`fit`.
+        weights : str or None
+            As :meth:`fit`.
+        weights_type : str
+            As :meth:`fit`.
+        weights_estimated : bool
+            As :meth:`fit`.
+        family : {"auto", "binomial", "gaussian"}
+            As :meth:`fit`.
+        continuous_treatment : sequence of str
+            As :meth:`fit`.
+        nominal : bool
+            Count every regression at its learner's nominal counts with no constant-fold
+            skip, so the record bounds a fit of any panel drawn like ``data``.
+        **refused : Any
+            As :meth:`fit`.
+
+        Returns
+        -------
+        PlannedFits
+            The record.
+        """
+        if refused.pop("eliminate", None):
+            raise CapabilityError.from_refusal(_SURVIVAL_REFUSAL)
+        refuse_unsupported(refused, where="StructuralNestedMean.fit")
+        from .estimator import _SequentialEstimator
+
+        prepared = _SequentialEstimator._prepare(
+            data,
+            outcome=outcome,
+            treatment=treatment,
+            baseline=baseline,
+            time_varying=time_varying,
+            censoring=censoring,
+            id=id,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            family=family,
+            continuous_treatment=continuous_treatment,
+        )
+        return self._plan_prepared(prepared, nominal=nominal)
+
+    def _planned_refit(
+        self,
+        data: LongitudinalData,
+        *,
+        random_state: int | None = None,
+        frozen_folds: Sequence[Folds] | None = None,
+        frozen_seeds: Sequence[int | None] | None = None,
+        nominal: bool = False,
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        :func:`cleverly._planned_fits.refit_plan` reads it.  ``nominal`` counts at the
+        learners' nominal counts, as :meth:`_planned_fits` does.
+        """
+        settings = self._refit_settings(random_state, frozen_folds, frozen_seeds)
+        return settings._plan_prepared(data, nominal=nominal)
+
+    def _plan_prepared(self, prepared: LongitudinalData, *, nominal: bool) -> PlannedFits:
+        """The record of :meth:`_planned_fits` on a prepared panel."""
+        from .._planned_fits import FitCounter, PlanBuilder
+        from .._summary._learners import learner_name
+
+        self._refuse_design(prepared)
+        nodes = _parse_blip_features(prepared, self.blip_features)
+        regimens = _static_regimens(self.regimens, prepared)
+        if regimens and _reads_covariate(nodes):
+            raise CapabilityError.from_refusal(_COVARIATE_FEATURE_REFUSAL)
+        self._reference(regimens)
+        self._refuse_reference_dose(prepared)
+        known = self._frozen_seed is not None or self.random_state is not None
+        # An unseeded fit draws its seed when it runs, so the preview counts one draw.
+        seed = self._fit_seed()
+        folds = self._folds(prepared, seed)
+        learners = _Learners(
+            self.outcome_learner,
+            self.treatment_learner,
+            learner_folds=self.learner_folds,
+            random_state=seed,
+            regression=self.regression_learner,
+        )
+        counter = FitCounter(
+            weights=prepared.weights,
+            groups=prepared.cluster,
+            seed_fixed=known and not nominal,
+            nominal=nominal,
+        )
+        why = (
+            "drawn-data refits are counted at their nominal folds, with no fold of a binary "
+            "target fitted as a constant and no node's split compacted"
+            if nominal
+            else None
+        )
+        builder = PlanBuilder()
+
+        def regress(role: str, what: str, target: FloatArray) -> None:
+            classification = _is_binary(target)
+            task: Literal["classification", "regression"] = (
+                "classification" if classification else "regression"
+            )
+            used = role if classification else "regression"
+            learner = learners.get(used, task)
+            spec = {
+                "outcome": self.outcome_learner,
+                "treatment": self.treatment_learner,
+                "regression": self.regression_learner or self.outcome_learner,
+            }[used]
+            field_name = {"outcome": "outcome_learner", "treatment": "treatment_learner"}.get(
+                used, "regression_learner"
+            )
+            count = counter.cross(learner, target, folds, task=task, constant_skip=classification)
+            builder.add(
+                field_name,
+                f"{what}, per node and fold",
+                learner_name(spec if spec is not None else learner),
+                count,
+                upper=why,
+                # A drawn split can hold fewer folds at a node than the nominal count.
+                min_fits=0 if nominal else None,
+            )
+
+        y = np.asarray(prepared.outcome, dtype=float)
+        codings = {node.time: _coding(prepared, node.time) for node in nodes}
+        for t in range(1, len(nodes) + 1):
+            regress("outcome", "outcome mean q_t", y)
+            seen: set[tuple[int, tuple[_Factor, ...], int]] = set()
+            for j in range(t, len(nodes) + 1):
+                node = nodes[j - 1]
+                for feature in node.features:
+                    rest = tuple(f for f in feature.factors if not f.determined_at(t))
+                    undetermined = _product(prepared, rest)
+                    for level in range(node.d):
+                        key = (j, rest, level)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        regress(
+                            "treatment",
+                            "treatment mean m_jt",
+                            undetermined * codings[j][:, level],
+                        )
+        builder.multiply("outer folds", folds.n_folds)
+        builder.multiply("nodes", len(nodes))
+        return builder.build("realized" if known else "one draw")
 
     def _check_positivity(
         self, nodes: Sequence[_Node], stage: _Stage, data: LongitudinalData

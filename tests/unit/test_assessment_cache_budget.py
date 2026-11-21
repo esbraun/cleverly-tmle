@@ -808,6 +808,12 @@ _SAFE = {
     ("validation/_point_generated.py", "default_rng(seed)"): "child seed",
     ("validation/_longitudinal_plasmode.py", "default_rng(seed)"): "child seed",
     ("validation/refute.py", "SeedSequence([root_seed"): "list seed",
+    ("validation/_planned_refits.py", "np.random.default_rng(root),"): (
+        "refute's resolved root, replayed for the banded preflight"
+    ),
+    ("validation/_planned_refits.py", "np.random.default_rng(0), 0"): (
+        "constant: the noise frame's columns only, for counting"
+    ),
     ("validation/refute.py", "default_rng(seed)"): "child seed from the resolved root",
     ("validation/refute.py", "np.random.default_rng(seed), observed"): "child seed",
     ("longitudinal/structural.py", "SeedSequence([int(random_state)"): "list seed",
@@ -941,6 +947,10 @@ _DIRECT_FITS = {
     "survival/engine.py": (3, "fit time and the refit truncation curve"),
     "validation/_band_placebo.py": (1, "refute, a refit"),
     "validation/_longitudinal_plasmode.py": (6, "refute, a refit"),
+    "validation/_planned_refits.py": (
+        1,
+        "planned_refits: the Markov kernel refute's placebo check reads",
+    ),
     "validation/_point_generated.py": (3, "refute, a refit"),
     "validation/refute.py": (5, "refute, a refit"),
     "validation/simulation.py": (1, "simulation studies, not an assessment"),

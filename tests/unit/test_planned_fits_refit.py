@@ -249,26 +249,29 @@ DISPATCHED: frozenset[type] = frozenset(
 UNPRICED: frozenset[type] = frozenset()
 
 #: Estimator classes of :data:`KINDS` that the study does not dispatch to and that define no
-#: preview yet, each with the roadmap item that owns it.  Pinned both ways.
-UNPREVIEWED: dict[type, str] = {
-    # The structural nested mean model is fitted directly, outside CausalStudy.estimate.
-    StructuralNestedMean: "X106 part (g)",
-}
+#: preview yet, each with the roadmap item that owns it.  Pinned both ways, and empty: X106
+#: part G2 gave the structural nested mean model, fitted outside CausalStudy.estimate, its
+#: preview.
+UNPREVIEWED: dict[type, str] = {}
 
 
 def _priced(cls: type) -> bool:
     """Whether the class that defines ``cls.fit`` defines ``_planned_fits`` beside it, with
-    ``fit``'s parameters, and the class that defines ``refit`` defines ``_planned_refit``."""
+    ``fit``'s parameters, and the class that defines ``refit`` defines ``_planned_refit``
+    with a ``nominal`` switch, which the refit preview of a refutation reads (X106 part G2).
+    ``_planned_fits`` may take ``nominal`` beside ``fit``'s parameters."""
     for entry, preview in (("fit", "_planned_fits"), ("refit", "_planned_refit")):
         owner = next((base for base in cls.__mro__ if entry in vars(base)), None)
         if owner is None:
             continue
         if preview not in vars(owner):
             return False
+        if entry == "refit" and "nominal" not in inspect.signature(vars(owner)[preview]).parameters:
+            return False
     owner = next(base for base in cls.__mro__ if "fit" in vars(base))
     fit = inspect.signature(vars(owner)["fit"]).parameters
     previewed = inspect.signature(vars(owner)["_planned_fits"]).parameters
-    return list(fit) == list(previewed)
+    return list(fit) == [name for name in previewed if name != "nominal"]
 
 
 def _engines() -> set[type]:
@@ -282,8 +285,11 @@ def test_every_engine_defines_a_preview_beside_its_fit() -> None:
         for result in (kind.build() for kind in KINDS.values())
         if getattr(result, "estimator", None) is not None
     }
-    assert kinds - _engines() == set(UNPREVIEWED), kinds - _engines()
+    outside = kinds - _engines()
+    assert StructuralNestedMean in outside
+    assert {cls for cls in outside if not _priced(cls)} == set(UNPREVIEWED), outside
     assert not any(_priced(cls) for cls in UNPREVIEWED)
+    assert UNPREVIEWED == {}
     kinds -= set(UNPREVIEWED)
     unpriced = {cls for cls in _engines() | kinds if not _priced(cls)}
     assert unpriced == UNPRICED
