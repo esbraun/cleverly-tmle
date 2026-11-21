@@ -2961,14 +2961,14 @@ POLICY_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G10.continuous": (
         "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
-        "1.054 to 1.084, coverage 0.965 to 0.972, with the correct or the primary outcome "
+        "1.056 to 1.085, coverage 0.966 to 0.971, with the correct or the primary outcome "
         f"learners and the oracle hazard; {_POLICY_CONDITION}",
     ),
     "G24.mtp.in_sample": (
         "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
-        "1.047 to 1.062, coverage 0.965 to 0.969, with a UnitRangePseudo or LinearRegression "
+        "1.046 to 1.062, coverage 0.966 to 0.969, with a UnitRangePseudo or LinearRegression "
         f"first node; {_POLICY_CONDITION}. With the default SuperLearner pseudo learner the "
-        "option covers 0.969 (reported)",
+        "option covers 0.971 (reported)",
     ),
 }
 
@@ -2995,18 +2995,18 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
     "G10.continuous": (
         "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5 calibration cell are below "
         "the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
-        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.001 (0.972 to 1.032)",
+        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.002 (0.972 to 1.032)",
     ),
     "G24.mtp.in_sample": (
         "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5_sdr calibration cell are "
         "below the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
-        "coverage 0.951 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.024)",
-        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.936 and SE ratio 0.920 (0.891 to "
+        "coverage 0.950 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.023)",
+        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.937 and SE ratio 0.919 (0.891 to "
         "0.950), below its tail size; its 104,400-row twin reads SE ratio 0.990 (0.963 to 1.020) "
         "and coverage 0.946. The p4 rows at n = 5,000 read an RMS ratio interval that "
         "contains 1, so the committed shortfall reads as chance. With the default SuperLearner "
-        "pseudo learner the interval covers 0.944 (0.925 to 0.960), SE ratio 0.948 (0.905 to "
-        "0.996)",
+        "pseudo learner the interval covers 0.948 (0.930 to 0.963), SE ratio 0.946 (0.903 to "
+        "0.994)",
     ),
 }
 
@@ -6872,6 +6872,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "of a point row. cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED and "
         "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
         "licenses."
+    ),
+    "mtp-density-tails": (
+        "It measures the binned conditional-density route of modified treatment policies on "
+        "six dose laws with thin, capped and bounded tails, and the default ratio routes of "
+        "LTMLE and SDR. No support row was declared before the run, so the study licenses none "
+        "and moves no label."
     ),
     "learned-rule-arms": (
         "It registered the plug-in rule over three arms, whose row needed both "

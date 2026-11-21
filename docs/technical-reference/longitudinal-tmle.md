@@ -2819,21 +2819,21 @@ covariance matrix. `contrast()`, `ratio()` and a `transform=` read the maximum f
 **What it was validated against.** In [`mtp-policy-variance`](method-evidence/mtp-policy-variance.md)
 with an exact ratio the option reads conservative on the five-node `price_down` rows (SE ratio
 1.113 to 1.145, coverage 0.980 to 0.983, and 0.953 to 0.958 in the lowest standard-error quartile), and on plan `p4` of law B
-(1.047 to 1.084, coverage 0.965 to 0.972). It reads calibrated at two nodes (0.992 to 1.019), where
+(1.046 to 1.085, coverage 0.966 to 0.971). It reads calibrated at two nodes (0.992 to 1.019), where
 it widens the interval by about 1%. The support rows `G39.*.tau2`, `G39.*.tau5`, `G10.continuous`
 and `G24.mtp.in_sample` license it; at three nodes it stays experimental, because that
 configuration was held out for the screen that chose the regressions.
 
 **The `SDR` interval.** At n = 4,000 under plan `p4`, the `p4_sdr` cell of `mtp-boundaries` reads a
 standard-error ratio of 0.9408 (99% interval 0.9060 to 0.9775) and coverage of 0.9357 with a
-pseudo-outcome learner that projects onto [0, 1]; the re-run in `mtp-policy-variance` reads 0.920
-(0.891 to 0.950) and 0.936. The `LTMLE` cell of the same plan reads 0.9572. The shortfall grows
+pseudo-outcome learner that projects onto [0, 1]; the re-run in `mtp-policy-variance` reads 0.919
+(0.891 to 0.950) and 0.937. The `LTMLE` cell of the same plan reads 0.9572. The shortfall grows
 when the pseudo-outcome regression is not projected. On 240 paired draws a projected rich basis
 gives an SE ratio of 0.982 and coverage of 0.950, and the same basis unprojected gives 0.799 and
 0.904 (`tests/diagnostics/fix5_heavy_ratios/probe4.csv`). The default `SuperLearner` pseudo learner
-covers 0.944 (99% interval 0.925 to 0.960) with an SE ratio of 0.948 (0.905 to 0.996) over 1,200
+covers 0.948 (99% interval 0.930 to 0.963) with an SE ratio of 0.946 (0.903 to 0.994) over 1,200
 draws. The fit support key does not read the plan or the pseudo learner, so `G24.mtp.in_sample`
-carries these numbers as notes, and `variance="policy_weighted"` covers 0.969 on the default
+carries these numbers as notes, and `variance="policy_weighted"` covers 0.971 on the default
 `SuperLearner` cell.
 
 ### Choices that differ from LTMLE

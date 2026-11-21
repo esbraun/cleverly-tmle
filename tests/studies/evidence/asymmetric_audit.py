@@ -175,6 +175,7 @@ CURRENT: dict[str, str] = {
     "cde-tmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
     "hazard-time-varying-multinode": "regenerated under the shipped intervals (Fix-3 PR 3, step 9)",
     "dose-response": "regenerated under the shipped intervals (Fix-9)",
+    "mtp-policy-variance": "regenerated under the shipped intervals (Fix-9)",
     "shift-policies": "regenerated under the shipped intervals (Fix-9)",
     "mtp-density-tails": "its rows were written under the shipped intervals (Fix-9)",
 }
