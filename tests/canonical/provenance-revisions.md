@@ -755,3 +755,18 @@ through `fit_group` at `30a15543` and again at the merge with the registration e
 previous section, gives the same point, standard error and band or control values, 375 numbers
 equal bit for bit. Only the five score groups' support labels moved, from experimental to
 supported, which is the registration and enters no recorded row.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` with X54 part (d)
+
+Merging main at `d5d0d80c` (X54 part (d), the per-estimand few-cluster floors) changed modules
+both manifests record: `src/cleverly/_inference_status.py`, `src/cleverly/_support_rows.py`,
+`src/cleverly/estimators/base.py`, `src/cleverly/estimators/tmle.py`,
+`src/cleverly/inference/influence.py`, `src/cleverly/inference/multiplier.py`,
+`src/cleverly/inference/results.py`, `tests/studies/evidence/properties.py` and
+`tests/studies/evidence/property_verdicts.py`. The floors act on fits with few clusters, and the
+two studies' clustered groups (`band_clustered_4k`, `assess_clustered_4k`) have 800 clusters of
+5 rows. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
+`9956b496` and at the merge `55573892`, gives the same 375 points, standard errors, band values
+(critical value, limits) and control values, bit for bit, with the same support labels. The
+same 375 numbers equal those of `30a15543`, the commit before registration, so the earlier
+merge at `9956b496`, which changed no recorded module, moved nothing either.
