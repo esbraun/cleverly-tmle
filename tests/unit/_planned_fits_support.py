@@ -480,6 +480,17 @@ def engine_classes() -> set[type]:
     return found | {EPEstimator, ContinuousSurvivalTMLE}
 
 
+def standalone_engines() -> set[type]:
+    """Engines with a planned-fit preview that the study layer does not dispatch to.
+
+    ``StructuralNestedMean`` is fitted directly; its preview prices its refits for
+    :func:`cleverly.validation.planned_refits`, so its ``fit`` is a previewed entry too.
+    """
+    from cleverly.longitudinal.structural import StructuralNestedMean
+
+    return {StructuralNestedMean}
+
+
 @functools.cache
 def package_classes() -> tuple[type, ...]:
     """Every class the ``cleverly`` package defines, from every module, in a fixed order."""
