@@ -238,9 +238,17 @@ def test_a_replicate_is_the_fit_of_its_resampled_frame() -> None:
         direct = _engine(causes={1: "1", 2: "2"}).refit(
             _container(resampled), random_state=draw.seed, _frozen_plan=plan
         )
+        # Without the band a replicate reads the influence-curve variance (no reader of its
+        # standard errors needs the switched one), and its estimates stay the switched fit's.
+        plain = _engine(causes={1: "1", 2: "2"}, variance="influence_curve").refit(
+            _container(resampled), random_state=draw.seed, _frozen_plan=plan
+        )
         for name, estimate in direct.items():
             assert fit.bootstrap.draws[name][b] == estimate.psi, (b, name)
-            assert fit.bootstrap.std_errors[name][b] == estimate.std_error, (b, name)
+            assert plain[name].psi == estimate.psi, (b, name)
+            assert fit.bootstrap.std_errors[name][b] == plain[name].std_error, (b, name)
+        # Witness: the two variances differ, so the standard errors tell them apart.
+        assert any(plain[name].std_error != estimate.std_error for name, estimate in direct.items())
     # Witness: the replicates differ from the fit and from each other.
     name = next(iter(fit))
     values = fit.bootstrap.draws[name]
@@ -463,6 +471,14 @@ def test_each_replicate_takes_its_share_of_the_budget() -> None:
     replica = estimator._replica({1: "1", 2: "2"}, 123)
     assert (replica.n_bootstrap, replica.n_jobs, replica.simultaneous) == (0, 1, False)
     assert replica.max_memory_bytes == 123 and replica.causes == {1: "1", 2: "2"}
+
+
+def test_a_replicate_keeps_the_switched_variance_only_for_the_band() -> None:
+    # The studentized band reads each replicate's standard errors; nothing else does.
+    plain = _engine(n_bootstrap=50)._replica({1: "1", 2: "2"}, None)
+    banded = _engine(n_bootstrap=50, simultaneous=True)._replica({1: "1", 2: "2"}, None)
+    assert (plain.variance, banded.variance) == ("influence_curve", "switched")
+    assert not banded.simultaneous
 
 
 def test_under_the_default_budget_a_replicate_takes_its_share_of_what_is_free(

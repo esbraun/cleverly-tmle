@@ -1006,10 +1006,16 @@ class ContinuousSurvivalTMLE:
 
         Its causes are the fit's, so a resample that loses a cause is refused rather than
         reporting fewer risks, and its walk runs on one thread, since the replicates run on
-        :attr:`n_jobs` workers.  ``budget`` is the memory each replicate may use.
+        :attr:`n_jobs` workers.  ``budget`` is the memory each replicate may use.  Only the
+        studentized band reads a replicate's standard errors, so without the band a replicate
+        reads the influence-curve variance: the switched variance's predictable variation never
+        touches the walk, so every replicate estimate is bit for bit the same, at about three
+        quarters of the cost.
         """
         replica = self._without_bootstrap()
         replica.causes = dict(causes)
+        if not self.simultaneous:
+            replica.variance = "influence_curve"
         replica.simultaneous = False
         replica.n_jobs = 1
         replica.max_memory_bytes = budget
