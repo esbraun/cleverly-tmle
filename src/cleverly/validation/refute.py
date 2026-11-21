@@ -3523,7 +3523,7 @@ def _empirical_draw(
             message=str(error),
         )
     try:
-        estimator = result.estimator if refit_estimator is None else refit_estimator(replicate)
+        estimator = _bandless(result) if refit_estimator is None else refit_estimator(replicate)
         refitted = estimator.refit(
             prepared,
             **_intermediate_option(result),
@@ -3918,7 +3918,7 @@ def _bootstrap_stability_test(
             None
             if frozen is None
             else lambda replicate: frozen_rule_replay(
-                result.estimator, frozen, folds.rows(replicate)
+                _bandless(result), frozen, folds.rows(replicate)
             )
         ),
         expected_family=data.family,
@@ -4008,7 +4008,7 @@ def _bootstrap_measurement_error_test(
             None
             if frozen is None
             else lambda replicate: frozen_rule_replay(
-                result.estimator, frozen, folds.rows(replicate)
+                _bandless(result), frozen, folds.rows(replicate)
             )
         ),
         expected_family=data.family,
@@ -4753,6 +4753,32 @@ def _control_values(data: Any, longitudinal: bool) -> np.ndarray:
     return np.asarray(data.outcome, dtype=float)[np.asarray(data.observed, dtype=bool)]
 
 
+def _bandless(result: Any) -> Any:
+    """The estimator that refits ``result``, with no simultaneous band when the fit built one.
+
+    No refutation reads a refit's band (X106 G5g). A point TMLE-family fit that built one
+    passed every gate the band has, on the same repeats and estimands, so turning the band
+    off on its refits skips only work and checks that would pass, and every number a refit
+    reports is unchanged: the band is drawn after the estimates from its own seed. A fit that
+    built no band refits as it is, so a refit that would band and refuse still refuses.
+    """
+    from ..estimators.tmle import TMLE
+
+    estimator = result.estimator
+    if not isinstance(estimator, TMLE) or getattr(result, "simultaneous", None) is None:
+        return estimator
+    copied = copy.copy(estimator)
+    copied.simultaneous = False
+    return copied
+
+
+def _control_swaps(estimator: Any, family: str) -> bool:
+    """Whether a control of ``family`` regresses with the fit's pseudo-outcome learner, because
+    the fit's outcome learner is a classifier (:func:`_control_estimator`)."""
+    learner = getattr(estimator, "outcome_learner", None)
+    return family != "binomial" and _classification_only_learner(learner) is not None
+
+
 def _control_estimator(
     estimator: Any, family: str, values: np.ndarray
 ) -> tuple[Any, tuple[float, float] | None]:
@@ -4779,7 +4805,7 @@ def _control_estimator(
     if family != "binomial" and values.size and (cross_fitted or declared is not None):
         bounds = (float(np.min(values)), float(np.max(values)))
     learner = getattr(estimator, "outcome_learner", None)
-    swap = family != "binomial" and _classification_only_learner(learner) is not None
+    swap = _control_swaps(estimator, family)
     if bounds == declared and not swap:
         return estimator, bounds
     copied = copy.copy(estimator)
@@ -4790,6 +4816,48 @@ def _control_estimator(
         # its learner, whose refit then reports the failure.
         copied.outcome_learner = getattr(estimator, "pseudo_learner", learner)
     return copied, bounds
+
+
+def _learner_clause(learner: Any, family: str, *, swapped: bool) -> str:
+    """The report clause that names a control fit's outcome learner and family (X106 G5).
+
+    ``swapped`` says the fit's own outcome learner is a classifier, so the control, which is
+    continuous, regresses with the fit's pseudo-outcome learner.
+    """
+    from .._summary._learners import learner_name
+
+    name = learner_name(learner)
+    if swapped:
+        return (
+            f"; the control fit regresses its {family} outcome with the fit's pseudo-outcome "
+            f"learner, {name}, because the fit's outcome learner is a classifier"
+        )
+    return f"; the control fit models its {family} outcome with {name}"
+
+
+def _control_learner_clause(
+    estimator: Any, control: Any, replacement: Any, *, structural: bool
+) -> str:
+    """The learner clause of a negative-control refit, or ``""`` for a fit with no outcome
+    model (an :class:`~cleverly.estimators.AdaptiveIPTW` weights the observed control).
+
+    ``estimator`` refits the primary outcome and ``control`` the control, as
+    :func:`_control_estimator` returns it. A structural fit regresses a target outside
+    {0, 1} with its ``regression_learner``, or its outcome learner when that is ``None``.
+    """
+    from ..estimators.iptw import AdaptiveIPTW
+
+    if isinstance(control, AdaptiveIPTW) or not hasattr(control, "outcome_learner"):
+        return ""
+    family = str(replacement.family)
+    if structural:
+        learner = control.outcome_learner
+        if family != "binomial" and getattr(control, "regression_learner", None) is not None:
+            learner = control.regression_learner
+        return _learner_clause(learner, family, swapped=False)
+    # The swap ``_control_estimator`` made from the fit's own estimator.
+    swapped = _control_swaps(estimator, family)
+    return _learner_clause(control.outcome_learner, family, swapped=swapped)
 
 
 def _bounds_clause(bounds: tuple[float, float] | None) -> str:
@@ -4804,7 +4872,7 @@ def _bounds_clause(bounds: tuple[float, float] | None) -> str:
 
 def _future_treatment_fit(
     result: Any, *, control: Any, node: int, seed: int
-) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int]:
+) -> tuple[Any, Any, Any, tuple[str, ...], tuple[float, float] | None, int, bool]:
     """The point TMLE of the future-treatment test and the data it fits, unfitted.
 
     :func:`_future_treatment_test` fits it, and the refit preview counts its fits.
@@ -4813,7 +4881,8 @@ def _future_treatment_fit(
     -------
     tuple
         The estimator, the point data, the rows at risk at ``node``, the history's column
-        names, the control's outcome bounds and the fold count.
+        names, the control's outcome bounds, the fold count, and whether the fit's
+        pseudo-outcome learner stands in for its classifier outcome learner.
     """
     from ..data import CausalData
     from ..estimators.tmle import TMLE
@@ -4840,7 +4909,8 @@ def _future_treatment_fit(
     # A continuous control on a cross-fitted fit takes its observed range as its bounds.
     bounds = None if binary or not cross_fit else (float(np.min(values)), float(np.max(values)))
     outcome_learner = getattr(template, "outcome_learner", None)
-    if not binary and _classification_only_learner(outcome_learner) is not None:
+    swapped = not binary and _classification_only_learner(outcome_learner) is not None
+    if swapped:
         # A classifier cannot regress a continuous control. The fit's regression learner
         # for its pseudo-outcomes can, and the default library stands in without one.
         outcome_learner = getattr(template, "pseudo_learner", None)
@@ -4851,8 +4921,12 @@ def _future_treatment_fit(
         n_folds=folds,
         q_bounds=bounds,
         random_state=seed,
+        # The test reads the control's ``ate`` alone, and a band over the default estimands
+        # would cost most of the call (X106 G5c). The band is drawn after the estimates, so
+        # every number the test reports is unchanged.
+        simultaneous=False,
     )
-    return fitter, point, rows, names, bounds, folds
+    return fitter, point, rows, names, bounds, folds, swapped
 
 
 def _future_treatment_test(
@@ -4865,7 +4939,7 @@ def _future_treatment_test(
     at risk at ``node``. It reuses the fit's outcome and treatment learners and its fold
     count. The reference is 0 (X82 plan 5.7.2), and the reading is descriptive.
     """
-    fitter, point, rows, names, bounds, folds = _future_treatment_fit(
+    fitter, point, rows, names, bounds, folds, swapped = _future_treatment_fit(
         result, control=control, node=node, seed=seed
     )
     cross_fit = folds > 1
@@ -4890,6 +4964,7 @@ def _future_treatment_test(
             f"{z:+.3g} standard errors from 0), adjusted for the {len(names)} column(s) of "
             f"that treatment's declared history on {int(rows.sum())} units at risk, "
             f"{'cross-fitted in ' + str(folds) + ' folds' if cross_fit else 'fitted in sample'}"
+            + _learner_clause(fitter.outcome_learner, str(point.family), swapped=swapped)
             + _bounds_clause(bounds)
         ),
         standard_errors=(std_error,),
@@ -5666,7 +5741,7 @@ def refute(
             seed_spread=seed_spread,
         )
     requested = request.tests
-    estimator = result.estimator
+    estimator = _bandless(result)
     processes = {name: request.process(name) for name in _GENERATED_TESTS}
     # The table admitted each generated test, so this refuses nothing. It reads the contrast
     # direction and builds a longitudinal plasmode's law and truth, once per call.
@@ -6050,6 +6125,7 @@ def refute(
                     frozen_seeds=structural_fit_seeds(result),
                 )
                 control_bounds = None
+                control_estimator = estimator
             else:
                 control_estimator, control_bounds = _control_estimator(
                     estimator, str(replacement.family), _control_values(replacement, longitudinal)
@@ -6094,6 +6170,9 @@ def refute(
                     detail=(
                         f"the negative-control outcome shows an estimate of {value:+.5g} "
                         f"(z = {z:+.3g} {unit} from the no-effect value {no_effect_null:g})"
+                        + _control_learner_clause(
+                            estimator, control_estimator, replacement, structural=structural
+                        )
                         + _bounds_clause(control_bounds)
                     ),
                     rung=resolution.rung,

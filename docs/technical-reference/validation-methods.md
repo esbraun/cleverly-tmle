@@ -3611,6 +3611,12 @@ declares `q_bounds`. This is the usual TMLE choice (Gruber and van der Laan 2010
 prints the bounds. A continuous control on a fit with a classifier outcome learner uses the
 pseudo-outcome learner of the fit.
 
+The detail of the negative-control and future-treatment tests names the control fit's outcome
+learner and family, and says when the pseudo-outcome learner stood in. No refutation reads a
+simultaneous band, so the future-treatment control fit builds none, and neither does any refit of
+a point fit that built one; a fit that built no band refits unchanged
+(`tests/unit/test_refuter_input_reuse.py`).
+
 `negative_control_kind="pre_treatment"` declares a control that precedes the first treatment. The
 form applies to point and longitudinal fits. `refute()` refuses the control in two cases.
 
