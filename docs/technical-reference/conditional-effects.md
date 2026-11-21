@@ -640,8 +640,13 @@ $\tilde D = D_t - D_r$ of the producing fit's cross-fitted nuisances, which neve
   intervals. A cosine basis is also refitted as a B-spline of the same size, and the reverse.
 - `modifier_stability()`: the out-of-fold risk with each modifier dropped from the basis.
 
-`corrections`, `truncation_curve` and `refute` are declared unavailable, the last with R9.
-`tests/unit/test_curve_assessment.py` checks the rows, that a held-out fold's predictions do
+`truncation_curve` reads the producing fit's truncation curve: the coefficients retargeted at
+each bound from the cached nuisances, so each row equals a refit at that bound with the same
+learners. An EP curve keeps the refusal, since its debiasing regression has no clever covariate
+to retarget. `corrections` is declared unavailable, and `refute` redirects to the producing fit,
+because a curve reports no estimand of its own. `tests/unit/test_projection_refutations.py`
+checks the truncation rows against refits on both scales. `tests/unit/test_curve_assessment.py`
+checks the other rows, that a held-out fold's predictions do
 not move when its own outcomes are flipped (and that a refit on every row does move them), and
 each reading against its formula.
 
@@ -655,8 +660,8 @@ producing fit with `repeats` above 1. `n_folds`, `split` and `compare` resolve t
 request, as the call reads them.
 
 `EffectCurveResult.sensitivity` declares every sensitivity route and refuses each one as an
-`implementation_gap` naming P1, because no sensitivity analysis is derived for a conditional
-contrast curve or its working-model coefficients. `assess()` composes `validate()` (the producing
+`implementation_gap` naming P1: a curve is computed from a fit, and each analysis runs on that
+fit's coefficients (below). `assess()` composes `validate()` (the producing
 fit's support, nuisance and score checks), the diagnostics and those refusals. The five curve
 operations refit, so they run only with `include_refits=True`. An EP curve's `score_equations` row
 reads `completed`, with the largest weighted debiasing score after the debiasing regression as a
@@ -668,6 +673,51 @@ neither, such as `dataclasses.replace(curve, fit=None)`, refuses each row it can
 its replay gate, and the call raises the same record. `diagnostics.influence()` redirects to
 `curve.fit.diagnostics.influence()` on a projection, whose coefficients carry the influence
 curves, and refuses on an EP curve, which has none.
+
+## Assessing a projection fit
+
+`refute` refits the producing estimator and compares a named coefficient with its reference.
+No evidence row licenses a verdict for a projection, so every reading prints `passed = None`.
+The placebo reference is 0 on both scales. The generated truth of `plasmode`, `dummy_outcome`
+and `simulated_outcome` is the projection of the simulated contrast
+$\tau_{sim}(W) = \bar Q_{sim}(t, W) - \bar Q_{sim}(r, W)$ over the held rows or the plasmode
+support: $M_n^{-1} P_n[w \varphi \tau_{sim}]$ on the difference scale, and the root of the
+empirical log-CRR equation on the log ratio. A stratum coefficient sums over its stratum, and a
+controlled direct effect holds the intermediate at its declared level. A Gaussian process on the
+log ratio refuses under the shipped outcome rule, and a plasmode with two observation mechanisms
+refuses as it does for an arm mean. `tests/unit/test_projection_refutations.py` checks each truth
+against an independent finite sum to $10^{-12}$.
+
+The omitted-variable bound covers a difference-scale coefficient
+$\beta_j = e_j^\top M^{-1} E[\varphi(V)\{\bar Q(t, W) - \bar Q(r, W)\}]$. For the fixed
+$M = E[\varphi\varphi^\top]$, which reads only $V$, the map $\bar Q \mapsto \beta_j$ is
+linear, with Riesz representer $\alpha_j = e_j^\top M^{-1} \varphi(V) s(A) / g(A \mid W)$ (the
+fit's own clever covariate, so a response, recording or intermediate mechanism composes as it
+does for the arm bound). Theorem 2 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis covers
+it, by the argument of the identity-link MSM axis. Each row's Gram contribution
+$\varphi\varphi^\top$ differs from $M$, so the curve of $\hat\nu^2$ carries the $\hat M$
+term, and the residual is masked to the rows where $e_j^\top M^{-1}\varphi(V) \ne 0$. The limits
+are descriptive, since no `ovb_limit` row covers the `projection` feature. On
+`Indicators(V, intercept=False)` the bound equals the stratum-conditional bound of `ATE()` with
+`strata=["V"]`, curve included. `tests/unit/test_omitted_variable_axes.py` checks the Riesz
+identity per feature, the oracle representer, the $\hat M$ term against a Gateaux derivative,
+the mask and that bridge.
+
+## Per-arm C-TMLE points
+
+`CollaborativeTMLEMethod(strategy="oat")`, whose design is `oat_design="per_arm"`, fits the
+projection as a point estimate. Each arm's mechanism is $G_n(a \mid \bar Q_n(a, W))$, and the
+projection's covariate reads $\varphi(V) s(a) / G_n(a)$. The point is the plug-in of the
+fluctuated regression, so it is consistent when $\bar Q_n$ is, whatever $G_n$ converges to; a
+correct treatment model alone does not make it consistent. No interval is reported
+(`generated_design_plugin`): condition (v) of Benkeser, Cai and van der Laan (2020) fails for an
+estimated outcome regression, and the fluctuated regression reads $\varphi(V)$ as well as the
+outcome prediction, so their measurability step does not apply. The plug-in curve
+$M^{-1}[\varphi(\tau - \varphi^\top\beta) + \varphi \sum_a s(a) 1\{A = a\}(Y - \bar Q^*_a) / G_n(a)]$
+stays as a diagnostic. `tests/unit/test_ctmle_projection.py` checks the point at the oracle
+regression on both scales, the curve row by row on a law where the per-arm design differs from
+$g_0$, and that an arm-specific wrong regression moves the point. No study measures this
+composition, so it reads `experimental`.
 
 ## Refusals
 
@@ -688,7 +738,16 @@ curves, and refuses on an EP curve, which has none.
 | `method="ep"` with a missing treatment | the EP learner cross-fits its nuisances, and the cross-fitted composite is not built | `implementation_gap`, roadmap X53 |
 | `method="ep"` with `strata=` | a baseline stratum is one more modifier; declare the stratum column as a modifier, with an `Indicators` basis of it in the sieve | `api_redirection` |
 | `assess_score` with a missing treatment or `strata=` | the score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its composite and stratified forms are not built | `implementation_gap`, roadmap X98 |
-| a sensitivity analysis or refutation of a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
+| `missingness`, `tipping_gamma`, `simulated_confounding` or `marginal_bounds` on a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
+| the omitted-variable bound of a log-ratio coefficient | the coefficient is not linear in the outcome regression, so the linearized bound it would need is not derived | `implementation_gap`, roadmap X82 |
+| the omitted-variable bound of a stratified projection | its stratum and marginal coefficients read different representers | `implementation_gap`, roadmap P1 |
+| `benchmark` naming a modifier | the short model would project onto another basis | `invalid_declaration` |
+| `evalue` on a projection fit | an E-value maps a risk ratio, and a working-model coefficient is not one; on the log ratio with the constant basis alone, the constant is the marginal log risk ratio, so the refusal redirects to `RiskRatio()` | `invalid_declaration`; `api_redirection` for the constant |
+| `refute` on a curve | a curve is computed from a fit and reports no estimand of its own; run it on the producing fit | `api_redirection` |
+| `truncation_curve` on an EP curve | no retargeting of the EP curve's coefficients across bounds is built | `implementation_gap`, roadmap P1 |
+| `method="collaborative_tmle"` with a strategy other than `"oat"` with `oat_design="per_arm"` | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target | `implementation_gap`, roadmap P1 |
+| the per-arm C-TMLE projection with `strata=`, a missing outcome or a missing treatment | its point contract for strata and missing data covers the arm means | `implementation_gap`, roadmap P1 |
+| the five held-out curve checks on a curve of a per-arm C-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also reads the per-arm design. The support, nuisance, score and truncation rows still answer | `implementation_gap`, roadmap P1 |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
 | `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |
