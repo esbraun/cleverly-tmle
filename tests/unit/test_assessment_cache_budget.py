@@ -787,6 +787,10 @@ _SAFE = {
     ("_curve_assessment.py", "default_rng(seed)"): "seed from _seed(), an int",
     ("survival/engine.py", "default_rng(seed)"): "seed resolved by _resolved_seed",
     ("survival/engine.py", "default_rng()"): "state set from the stored rng_state next line",
+    (
+        "utils/random.py",
+        "twin = np.random.default_rng()",
+    ): "state set from a recorded state next line (replay)",
     ("sensitivity/_simulated_confounding_survival.py", "SeedSequence([root_seed"): "list seed",
     ("sensitivity/_simulated_confounding_survival.py", "default_rng(seed)"): "spawned int",
     ("sensitivity/_simulated_confounding_continuous.py", "default_rng(seed)"): "coupling int",

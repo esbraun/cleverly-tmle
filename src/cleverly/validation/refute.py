@@ -96,7 +96,7 @@ from ..exceptions import NO_ALTERNATIVE, CapabilityError, CleverlyError, Refusal
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
-from ..utils.random import resolve_assessment_seed
+from ..utils.random import generator_state, replay, resolve_assessment_seed
 from . import _interpretation
 from ._band_placebo import (
     BAND_SENTENCE,
@@ -4834,14 +4834,26 @@ def _on_draw(error: CleverlyError, label: str) -> CleverlyError:
     return type(error)(refusal=refusal)
 
 
-def _band_placebo_sets(
+def _band_placebo_draw(
+    data: Any, bands: PointBands | PanelBands, rng: np.random.Generator, mode: str | None
+) -> Any:
+    """One band-rank placebo data set, drawn from ``rng``."""
+    if isinstance(bands, PanelBands):
+        doses, drawn = bands.placebo(data, rng)
+        return data.with_treatment(
+            doses, known_mechanisms=placebo_known_mechanisms(data, bands.kernel, drawn)
+        )
+    return data.with_treatment(bands.draw(data, rng, mode))
+
+
+def _band_placebo_states(
     result: Any,
     bands: PointBands | PanelBands,
     rng: np.random.Generator,
     mode: str | None,
     count: int,
-) -> list[Any]:
-    """Draw every band-rank placebo data set, each through the refit's preflight.
+) -> list[dict[str, Any]]:
+    """Check every band-rank placebo draw through the refit's preflight; return their states.
 
     The refit of each data set would run the estimator's declaration checks before any
     learner: the declared support (an assertion here, since every placebo dose lies in its
@@ -4851,30 +4863,27 @@ def _band_placebo_sets(
     draw refuses the call before any refit, with its own reason code. The pooled extreme
     positions are checked as well, which makes the support check independent of the seed for
     a monotone policy (``X82-J-plan.md`` section 3.3).
+
+    Each draw is dropped once checked, and the generator state before it is kept, so the
+    placebo test regenerates the same data set at its refit through :func:`replay` and holds
+    one data set at a time (X106 part G1). ``rng`` ends where drawing every set leaves it.
     """
     data = result.data
-    sets: list[Any] = []
+    states: list[dict[str, Any]] = []
     for draw in range(1, count + 1):
         label = f"on placebo draw {draw} of the band-rank placebo"
+        states.append(generator_state(rng))
         try:
-            if isinstance(bands, PanelBands):
-                doses, drawn = bands.placebo(data, rng)
-                replacement = data.with_treatment(
-                    doses, known_mechanisms=placebo_known_mechanisms(data, bands.kernel, drawn)
-                )
-            else:
-                replacement = data.with_treatment(bands.draw(data, rng, mode))
-            _placebo_preflight(result, replacement)
+            _placebo_preflight(result, _band_placebo_draw(data, bands, rng, mode))
         except CleverlyError as error:
             raise _on_draw(error, label) from error
-        sets.append(replacement)
     try:
         _band_extremes_check(result, bands)
     except CleverlyError as error:
         raise _on_draw(
             error, "at a pooled extreme position of the band-rank placebo, on every row"
         ) from error
-    return sets
+    return states
 
 
 def _placebo_preflight(result: Any, replacement: Any) -> None:
@@ -4899,7 +4908,7 @@ def _band_extremes_check(result: Any, bands: PointBands | PanelBands) -> None:
     position on every row. On a panel it maps each corner of :meth:`PanelBands.extremes`, so a
     band that reads an earlier dose is checked with that dose low and high. A tuned point policy
     is checked at its in-sample cap. A tuned regimen is not checked here: its cap is fitted on the
-    refit's split, so it relies on the per-draw preflight of :func:`_band_placebo_sets`.
+    refit's split, so it relies on the per-draw preflight of :func:`_band_placebo_states`.
     """
     from ..interventions.policy import (
         ModifiedPolicy,
@@ -5341,10 +5350,10 @@ def refute(
         else None
     )
     placebo_draw: str = "markov" if panel else (placebo_mode or "permute")
-    banded_sets: list[Any] | None = None
+    banded_states: list[dict[str, Any]] | None = None
     if bands is not None:
         placebo_draw = f"band_{placebo_draw}"
-        banded_sets = _band_placebo_sets(
+        banded_states = _band_placebo_states(
             result,
             bands,
             rng,
@@ -5436,8 +5445,11 @@ def refute(
                 )
                 continue
             fits = (
-                [refit(replacement) for replacement in banded_sets]
-                if banded_sets is not None
+                [
+                    refit(_band_placebo_draw(data, bands, replay(state), placebo_mode))
+                    for state in banded_states
+                ]
+                if banded_states is not None and bands is not None
                 else [
                     refit(_placebo_data(data, rng, placebo_mode, kernel))
                     for _ in range(replicate_count)
@@ -5597,22 +5609,36 @@ def refute(
             )
 
         elif name == "subset":
-            drawn = [_subset_draw(data, rng, subset_fraction) for _ in range(replicate_count)]
-            thin = structural_subset_refusal(result, [d[0] for d in drawn]) if structural else None
-            if thin is not None:
-                # Every draw is read before the first subset refit, so a draw that would stop
-                # at the Jacobian floor part way through the test refuses it first.
-                raise CapabilityError.from_refusal(thin)
-            fits = [
-                refit(
+            # Each draw is refitted and dropped before the next, so the test holds one draw at a
+            # time (X106 part G1). A structural fit checks every draw before the first refit, so
+            # it keeps the generator state before each draw and regenerates the draw at its
+            # refit; ``rng`` is consumed exactly as by drawing every subset up front.
+            def subset_fit(index: np.ndarray) -> tuple[float, float]:
+                return refit(
                     data.subset(index),
                     frozen_folds=_sliced_folds(result, index),
                     rule_rows=index,
                     hold_rule=True,
                 )
-                for index, _, _ in drawn
-            ]
-            units, size = drawn[0][1], drawn[0][2]
+
+            fits = []
+            subset_states: list[dict[str, Any]] = []
+            units = size = 0
+            for _ in range(replicate_count):
+                if structural:
+                    subset_states.append(generator_state(rng))
+                index, units, size = _subset_draw(data, rng, subset_fraction)
+                if structural:
+                    thin = structural_subset_refusal(result, [index])
+                    if thin is not None:
+                        # A draw that would stop at the Jacobian floor part way through the
+                        # test refuses it before the first refit.
+                        raise CapabilityError.from_refusal(thin)
+                else:
+                    fits.append(subset_fit(index))
+                del index
+            for state in subset_states:
+                fits.append(subset_fit(_subset_draw(data, replay(state), subset_fraction)[0]))
             outcomes.append(
                 _subset_record(
                     estimand=estimand,
