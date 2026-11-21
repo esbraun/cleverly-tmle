@@ -177,6 +177,7 @@ CURRENT: dict[str, str] = {
     # First run after the intervals shipped (X101 declared run at 927379cf).
     "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "
     "declared run)",
+    "refuter-sampled": "run under the shipped intervals (X106 H declared run)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row

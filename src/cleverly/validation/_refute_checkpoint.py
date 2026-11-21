@@ -398,7 +398,12 @@ def _digest(value: Any) -> str:
 
 
 def request_parts(
-    result: Any, *, estimand: str, seed: int | None, repeat_seeds: Any
+    result: Any,
+    *,
+    estimand: str,
+    seed: int | None,
+    repeat_seeds: Any,
+    sampling: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The parts of a call's request that every stored test shares.
 
@@ -412,6 +417,10 @@ def request_parts(
         The call's resolved root seed, or ``None`` for the preview of a call that draws one.
     repeat_seeds : Any
         The fit's repeat seeds, or the structural fit seeds.
+    sampling : mapping or None
+        The limit, rule, unit count and seed of a sampled call (X106 part H), or ``None`` for
+        a call on the full data. A sampled call's draws are refits of the sampled baseline, so a
+        directory of one never serves the other.
 
     Returns
     -------
@@ -428,6 +437,7 @@ def request_parts(
         "estimates": _estimates_key(result),
         "estimand": estimand,
         "library versions": _versions(),
+        "sampling": None if sampling is None else dict(sampling),
     }
 
 
@@ -438,6 +448,7 @@ _PART_NAMES = {
     "estimates": "estimates",
     "estimand": "request",
     "library versions": "library versions",
+    "sampling": "sampling",
 }
 
 
@@ -518,8 +529,23 @@ class CheckpointSession:
         self.read_only = read_only
         self.drawn = drawn
         self.parts = parts
+        self.reference: dict[str, Any] | None = None
         if checkpoint is not None:
             self._check_common()
+
+    def bind_reference(self, reference: dict[str, Any]) -> None:
+        """Key every stored test on a sampled call's baseline as well (X106 part H).
+
+        A sampled call refits its baseline on each call, and every stored draw is compared
+        with it. The baseline is not in the common request, which the preview opens before any
+        fit, so it enters each test's parts here: a resume whose baseline moved refuses.
+
+        Parameters
+        ----------
+        reference : dict
+            The baseline's estimate and standard error.
+        """
+        self.reference = dict(reference)
 
     def _request(self) -> dict[str, Any] | None:
         assert self.checkpoint is not None
@@ -572,6 +598,8 @@ class CheckpointSession:
         """
         if self.checkpoint is None:
             return
+        if self.reference is not None:
+            parts = {**parts, "sampled baseline": self.reference}
         keyed = {key: config_key(value, path=f"{name}.{key}") for key, value in parts.items()}
         stored = self._request() or {"common": self.parts, "tests": {}}
         previous = stored.setdefault("tests", {}).get(name)

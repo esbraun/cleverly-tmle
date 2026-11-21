@@ -867,7 +867,14 @@ RESULT: Final = "Result"
 ESTIMATE_TESTED: Final = "Estimate tested"
 TESTS_RUN: Final = "Tests run"
 REPEATS_PER_TEST: Final = "Repeats per test"
-HEADER_LABELS = HEADER_LABELS | {RESULT, ESTIMATE_TESTED, TESTS_RUN, REPEATS_PER_TEST}
+UNITS_REFUTED: Final = "Units refuted"
+HEADER_LABELS = HEADER_LABELS | {
+    RESULT,
+    ESTIMATE_TESTED,
+    TESTS_RUN,
+    REPEATS_PER_TEST,
+    UNITS_REFUTED,
+}
 
 #: The notes of a refutation report: one per test, a warning when that test failed.
 T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
@@ -885,6 +892,7 @@ T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "refit_failures": "warning",
         "refit_spread_diagnostic": "warning",
         "ratio_scale": "note",
+        "sampled_refutation": "warning",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_NOTE_CODES})
@@ -1091,6 +1099,7 @@ REFIT_RESAMPLING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: Section titles of a refutation report's full detail.
 SECTION_COMPARED: Final = "What each test was compared with"
 SECTION_DRAWS: Final = "Repeats"
+SECTION_SAMPLE: Final = "Sampled analysis"
 REFUTATION_TITLE: Final = "Refutation tests"
 STATISTICS_TITLE: Final = "Test statistics"
 READINGS_TITLE: Final = "Readings against their allowed bands"
