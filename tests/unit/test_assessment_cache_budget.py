@@ -806,6 +806,7 @@ _SAFE = {
     ("validation/_continuous_survival_refute.py", "default_rng(seed)"): "resolved seed",
     ("validation/outcome_processes.py", "default_rng(seed)"): "child seed",
     ("validation/_point_generated.py", "default_rng(seed)"): "child seed",
+    ("validation/_sampled_refute.py", "default_rng(seed)"): "the sample's child seed",
     ("validation/_longitudinal_plasmode.py", "default_rng(seed)"): "child seed",
     ("validation/refute.py", "SeedSequence([root_seed"): "list seed",
     ("validation/_planned_refits.py", "np.random.default_rng(root),"): (

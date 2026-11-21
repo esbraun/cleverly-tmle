@@ -178,6 +178,24 @@ def refute_future_treatment() -> Any:
         )
 
 
+@functools.cache
+def refute_sampled() -> Any:
+    """A point fit refuted on a sample of 150 of its 300 units: the sampled note fires."""
+    import warnings
+
+    from cleverly.validation import refute
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return refute(
+            point_tmle.single_ate(),
+            tests=("placebo",),
+            n_replicates=5,
+            sample_limit=150,
+            random_state=2,
+        )
+
+
 def _quiet(build: Any) -> Any:
     """Build without the warnings a compact fit raises."""
 
@@ -373,6 +391,9 @@ FIXTURES = {
         refute_future_treatment,
         names=("W", "U", "A1", "A2", "L2", "Y1", "Y2"),
         fidelity=read_refutation,
+    ),
+    "refute_sampled": Case(
+        refute_sampled, names=("Y", "A", "W1", "W2", "W3", "W4"), fidelity=read_refutation
     ),
     "diagnostics_facade": Case(
         diagnostics_facade,
