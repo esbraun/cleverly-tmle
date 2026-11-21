@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.2.6",
-      "cleverly_commit": "58538bfa7ce7a5395afa2137aa447db1b707e81e",
+      "cleverly_commit": "336bac14303ac013267fa74db01d99da1c1e5f22",
       "cleverly_worktree_clean": true,
       "python": "3.13.18",
       "numpy": "2.5.5",
@@ -114,10 +114,15 @@
         "vector",
         "classifier",
         1
+      ],
+      "untruncated_density": [
+        "gaussian",
+        "density",
+        1
       ]
     },
     "outcome_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
-    "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location density by maximum likelihood, read through the binned hazards (density route, truncated law; least squares on the reported untruncated row); logistic classifier on W1, W2, (F,) A (classifier route)",
+    "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location density by maximum likelihood, read through the binned hazards (density route, truncated law; least squares on the untruncated law); logistic classifier on W1, W2, (F,) A (classifier route)",
     "censoring_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
     "regimens": {
       "shift": "one level up (levels); A + 1 (gaussian, vector); A + 1 capped at 5.5 (truncated)",
@@ -151,8 +156,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_hazard_mtp.py": "ecd6c26af4bfccd33b23608255003e3bd1f83d7aaa92d014e4682cefabc81d13",
-    "tests/studies/hazard_mtp_properties.py": "caadabf51f9b5be21c5f7cfd4745ef1c3f92a7de6a6f96c57d959ce953048961",
+    "tests/studies/canonical_hazard_mtp.py": "a52311926b7980783758636ba8ccd3f207685e8832503c50573a6f175d41ca17",
+    "tests/studies/hazard_mtp_properties.py": "69d4bbb134591a42db56083feae71487ae8c04ff476fee95587d4e349e6282bc",
     "tests/studies/hazard_mtp_law.py": "2efdd0502d02d0c412d6841518d079b4256cbd482b99daa266cfd0ed38197a4d",
     "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
     "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
@@ -171,7 +176,7 @@
     "summary.csv": "466634a22c677e2b0d9de89a634c4eac0bd612091414848a5dd0adc227cb1321",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "dab20f7c6b92b183e4c63ccc78265de35857eb1caee4b612f15164015aca99b3",
-    "property-replicates.parquet": "85e4d677d1cebfc1a22547df9a8e46f13ac8df44b23432e02fec4abb9730c340",
-    "properties.csv": "ea4bf82db719443c5d39ae2a0316fdb73a7b5a6ffd40d6dd0ac86348fd1de1be"
+    "property-replicates.parquet": "2643114e615b103f408dd5e0ea4309845e618c42c691e60b91f5da127366dcde",
+    "properties.csv": "c1bc2de9ea7209b661c9da890fe6e353392cdb91ee5687aa3e5442e14cec6212"
   }
 }
