@@ -1400,8 +1400,8 @@ class TestPublishedVerdicts:
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
                 if row.role == property_verdicts.DIAGNOSTIC_ROLE:
-                    # A reported row of the family (``hazard-mtp``'s untruncated density
-                    # route) carries no claim, so it must not publish a red verdict.
+                    # A reported row of the family carries no claim, so it must not publish
+                    # a red verdict.
                     assert bool(row.passed) and bool(row.property_passed), (
                         f"{row.cell} is a diagnostic row and publishes a verdict"
                     )

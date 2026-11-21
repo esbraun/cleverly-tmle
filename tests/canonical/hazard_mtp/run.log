@@ -1,21 +1,21 @@
 === hazard-mtp declared run
 command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/hazard_mtp/regenerate.py --output /home/user/fix9-hazard-mtp/declared --jobs 4
-commit: 58538bfa7ce7a5395afa2137aa447db1b707e81e; upstream 58538bfa7ce7a5395afa2137aa447db1b707e81e
+commit: 336bac14303ac013267fa74db01d99da1c1e5f22; upstream 336bac14303ac013267fa74db01d99da1c1e5f22
 clean tree: True
 cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
 python 3.13.18; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 118, sha256 7aa7dbb011a0e45ca4e42c681fd6e5ea2e2f30831ecd708f9c0afb6ac646c927
+installed distributions: 118, sha256 9daf8d941d409a7934bd4504d30b0605d72e1b609d2165878d3165a2be523677
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 cores: 4
-started: 2026-11-19T01:12:12+00:00
-finished: 2026-11-19T05:28:13+00:00
-wall seconds: 15361.1
+started: 2026-11-21T12:47:56+00:00
+finished: 2026-11-21T18:36:49+00:00
+wall seconds: 20932.6
 exit code: 0
 sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
-sha256 manifest.json: ca7fc13f90040625b6b00aa5600efbaff625b4c6332b4611ee8fd5c1c2489e17
+sha256 manifest.json: df4737d6472f67d35b06f830c56918bdae6c244a4e26aee1756e811b5795142e
 sha256 performance-tests.csv: dab20f7c6b92b183e4c63ccc78265de35857eb1caee4b612f15164015aca99b3
-sha256 properties.csv: ea4bf82db719443c5d39ae2a0316fdb73a7b5a6ffd40d6dd0ac86348fd1de1be
-sha256 property-replicates.parquet: 85e4d677d1cebfc1a22547df9a8e46f13ac8df44b23432e02fec4abb9730c340
+sha256 properties.csv: c1bc2de9ea7209b661c9da890fe6e353392cdb91ee5687aa3e5442e14cec6212
+sha256 property-replicates.parquet: 2643114e615b103f408dd5e0ea4309845e618c42c691e60b91f5da127366dcde
 sha256 replicates.parquet: 5f4e632a2d383abe036903e6586199b6ccf3dcdc86e5c7ff143f88690863fc68
 sha256 summary.csv: 466634a22c677e2b0d9de89a634c4eac0bd612091414848a5dd0adc227cb1321
 

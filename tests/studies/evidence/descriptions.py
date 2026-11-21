@@ -1837,10 +1837,7 @@ _HAZARD_MTP_FITS = {
     "vector": (
         "the one-visit arm-and-dose law under a joint shift of the dose by one, classifier ratio"
     ),
-    "untruncated_density": (
-        "the untruncated Gaussian dose law under a shift of one, binned density ratio, whose "
-        "tail bins are wider than the shift"
-    ),
+    "untruncated_density": "the untruncated Gaussian dose law under a shift of one, binned density ratio",
 }
 ARMS.update(
     {
@@ -11495,16 +11492,6 @@ _HAZARD_MTP_DIFFERENCE_CELLS = {
         "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
     ),
 }
-STUDY_ARM_CELLS.update(
-    {
-        (_HAZARD_MTP_SLUG, "interval_calibration", f"untruncated_density_{arm}", "reported"): (
-            "the density route's interval on the untruncated Gaussian law, whose quantile tail "
-            "bins are wider than the shift",
-            "no verdict; coverage, SE ratio and efficiency ratio are reported",
-        )
-        for arm in ("contrast", "risk")
-    }
-)
 STUDY_ARM_CELLS.update(
     {
         (_HAZARD_MTP_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
