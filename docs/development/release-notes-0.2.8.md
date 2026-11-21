@@ -98,5 +98,10 @@ optional `glmstar` solver.
   negative-control learner clauses now name the learner each refit uses.
   ([#742](https://github.com/esbraun/cleverly-tmle/pull/742),
   [#740](https://github.com/esbraun/cleverly-tmle/pull/740))
+- `ContinuousSurvivalTMLE(n_bootstrap=...)` without a simultaneous band computes each bootstrap
+  refit's standard error from the influence curve instead of the switched variance, since only the
+  studentized band reads it. Every replicate estimate and every percentile and BCa interval is
+  unchanged, and an in-sample bootstrap runs about 1.2 times as fast.
+  ([#746](https://github.com/esbraun/cleverly-tmle/pull/746))
 
 **Full diff:** [`v0.2.7...v0.2.8`](https://github.com/esbraun/cleverly-tmle/compare/v0.2.7...v0.2.8)
