@@ -200,7 +200,9 @@ def test_a_policy_fit_below_the_cluster_floor_reports_no_interval() -> None:
     ).fit(frame, outcome="Y", id="id", **COLUMNS)
     estimate = result["ey_regimen[mix]"]
     assert estimate.n_clusters == 8
-    assert estimate.inference == "few_cluster_plugin"
+    # Eight clusters clear the in-sample LTMLE floor, which holds only for the always-versus-never
+    # contrast on one binary node; a policy arm mean keeps the default floor under its own label.
+    assert estimate.inference == "few_cluster_estimand_plugin"
 
 
 def test_a_policy_closing_over_a_lambda_saves_as_a_rule_lambda_does(tmp_path: Any) -> None:

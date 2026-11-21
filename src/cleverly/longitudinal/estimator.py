@@ -76,11 +76,13 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
     CONSTANT_NODE_STATUS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    MEASURED_LONGITUDINAL_DESIGNS,
     PARAMETER_STATUSES,
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
+    cluster_interval_floor,
     is_labelled,
+    longitudinal_floor_family,
     precedent_status,
     status_record,
     supplies_inference,
@@ -109,6 +111,7 @@ from .._typing import (
     StoppingRule,
 )
 from .._warnings import FitWarning, records_fit
+from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..data.known_mechanism import (
     MechanismLaw,
@@ -153,6 +156,19 @@ from ..inference.cluster import (
     cluster_reference_df,
     influence_covariance,
     influence_variance,
+    unmeasured_estimand_status,
+)
+from ..inference.cluster_jackknife import (
+    CLUSTER_VARIANCES,
+    JACKKNIFE_TRUNCATION_REFUSAL,
+    jackknife_estimates,
+    jackknife_fit,
+    jackknife_fold_refusal,
+    jackknife_learner,
+    jackknife_learner_refusal,
+    leave_one_cluster_out,
+    positive_mass_clusters,
+    refit_folds,
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
@@ -253,6 +269,7 @@ from ..utils.bounds import (
     policy_scale_refusal,
     resolve_cumulative_g_bounds,
 )
+from ..utils.parallel import map_parallel
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ._fit_cache import in_fit_cache
 from .baselines import (
@@ -331,6 +348,7 @@ from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
     Plan,
+    Regimen,
     RegimenSpec,
     attach_policy_numerators,
     declares_tuned,
@@ -4308,6 +4326,7 @@ def _inference_status(
     *,
     estimator: str = "tmle",
     parametric: bool = True,
+    repeated: bool = False,
 ) -> InferenceStatus:
     """The fit status that every estimate of a longitudinal fit starts from.
 
@@ -4316,11 +4335,11 @@ def _inference_status(
 
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
-    so the count is the number of clusters with positive weight mass in the whole fit, and
-    :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS` is the
-    threshold, in sample and cross-fitted: the registered few-cluster studies measure
-    ``LTMLE`` from 20 clusters, in sample (``clustered-few-cluster-tmle``) and cross-fitted
-    (``few-cluster-cross-fitted-ltmle``).
+    so the count is the number of clusters with positive weight mass in the whole fit. The
+    threshold is the floor of the fit's floor family
+    (:func:`~cleverly._inference_status.longitudinal_floor_family`): ``LTMLE`` in sample and
+    cross-fitted each have their own, and SDR, IPSI, the baselines and a repeated split keep
+    :data:`~cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`.
 
     The targeting pools every follower, so the curve is centred at the pooled estimate and
     the folds do not enter the status or the degrees of freedom.  This status can be
@@ -4346,6 +4365,8 @@ def _inference_status(
         The recursion the fit ran.
     parametric : bool
         On a g-computation or IPW fit, whether every regression it reads is a GLM.
+    repeated : bool
+        Whether the fit combines several fold draws (``repeats`` above 1).
 
     Returns
     -------
@@ -4353,10 +4374,13 @@ def _inference_status(
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
+    family = longitudinal_floor_family(
+        estimator, cross_fitted=not folds.is_single, repeated=repeated
+    )
     cluster = cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
-        minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+        minimum=cluster_interval_floor(family, longitudinal=True),
     )
     if estimator not in _BASELINES:
         return cluster
@@ -4429,6 +4453,7 @@ def _estimates(
     classification: Classification | None = None,
     policy: _PolicyMatrix | None = None,
     boundary_reach: str | None = None,
+    measured: bool = False,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4462,12 +4487,25 @@ def _estimates(
         else the key of :data:`~cleverly._inference_status.BOUNDARY_NODE_OUT_OF_REACH` under
         which it keeps the constant-node status.  Under ``policy`` it is
         ``"policy_weighted"``.
+    measured : bool, default False
+        Whether the fit has its floor family's measured design (:func:`measured_design`).
+        Only then does its always-versus-never contrast read the family's floor; otherwise
+        every estimate keeps the default longitudinal floor.
 
     Returns
     -------
     object
         The estimates, the parameter index, and the fits behind each name.
     """
+    # A floor family's floor holds for the contrast its study measured at every count, the
+    # always-treat versus never-treat difference (measured_contrast). Every other estimate keeps
+    # the default longitudinal floor.
+    general = unmeasured_estimand_status(
+        inference,
+        data.cluster,
+        weights=data.weights if data.is_weighted else None,
+        longitudinal=True,
+    )
     if policy is not None:
         return _policy_estimates(
             data,
@@ -4475,7 +4513,7 @@ def _estimates(
             scaler,
             reference,
             alpha_sig=alpha_sig,
-            inference=inference,
+            inference=general,
             classification=classification,
             policy=policy,
         )
@@ -4537,7 +4575,7 @@ def _estimates(
         level = scaler.unscale_level(fit.psi_scaled)
         bounds = parameter_bounds("mean", data.family)
         status = bounded_status(
-            _parameter_status(inference, fit, supplemented=supplemented), level, bounds
+            _parameter_status(general, fit, supplemented=supplemented), level, bounds
         )
         estimates[name] = make_estimate(
             name,
@@ -4570,13 +4608,27 @@ def _estimates(
         difference = scaler.unscale_difference(fit.psi_scaled - base.psi_scaled)
         bounds = parameter_bounds("difference", data.family)
         # A contrast reads both levels and takes the status of either, an estimate on its
-        # bound included, before its own range check.
+        # bound included, before its own range check. The measured contrast reads its levels
+        # at the family's floor, which holds for it alone.
+        if measured and not curve and measured_contrast(fit.regimen, base.regimen):
+            mean_bounds = parameter_bounds("mean", data.family)
+            levels = tuple(
+                bounded_status(
+                    _parameter_status(inference, read, supplemented=supplemented),
+                    level_of[id(read)].psi,
+                    mean_bounds,
+                )
+                for read in (fit, base)
+            )
+            own = inference
+        else:
+            levels = (level_of[id(fit)].inference, level_of[id(base)].inference)
+            own = general
         status = bounded_status(
             precedent_status(
                 (
-                    _parameter_status(inference, fit, base, supplemented=supplemented),
-                    level_of[id(fit)].inference,
-                    level_of[id(base)].inference,
+                    _parameter_status(own, fit, base, supplemented=supplemented),
+                    *levels,
                 )
             ),
             difference,
@@ -4602,6 +4654,80 @@ def _estimates(
         # curve, so its interval reads them (correlated MOVER on their logit intervals).
         estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def measured_contrast(first: RegimenSpec, second: RegimenSpec) -> bool:
+    """Whether a contrast of two plans is the one the LTMLE floor studies measured.
+
+    ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` measure, at every
+    count, the difference between the static plan that treats at every node and the static plan
+    that treats at none, on an outcome without horizons or causes. A floor family's floor
+    (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) holds for that contrast alone,
+    in either order, since the interval of a negated difference is the negated interval, and
+    only on the design its study measured (:func:`measured_design`).
+
+    Parameters
+    ----------
+    first, second : Regimen or DynamicRegimen
+        The two plans the contrast reads.
+
+    Returns
+    -------
+    bool
+        ``True`` when one plan assigns treatment 1 at every node and the other 0 at every node.
+    """
+    arms = {_static_arm(first), _static_arm(second)}
+    return arms == {0, 1}
+
+
+def measured_design(data: LongitudinalData, family: str | None) -> bool:
+    """Whether a fit's panel has the design its floor family's study measured.
+
+    The in-sample ``LTMLE`` cells fit one binary treatment node without censoring; the
+    cross-fitted cells fit two binary nodes with censoring
+    (:data:`~cleverly._inference_status.MEASURED_LONGITUDINAL_DESIGNS`). A fit of another
+    design keeps the default longitudinal floor for every estimate, its always-versus-never
+    contrast included.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The fit's prepared panel.
+    family : str or None
+        The fit's floor family (:func:`~cleverly._inference_status.longitudinal_floor_family`).
+
+    Returns
+    -------
+    bool
+        ``True`` when the family has a measured design and the panel matches its treatment
+        node count and censoring, with every treatment node categorical and coded 0 or 1.
+    """
+    design = MEASURED_LONGITUDINAL_DESIGNS.get(family) if family is not None else None
+    if design is None:
+        return False
+    nodes, censored = design
+    if data.n_times != nodes or data.treatment_held or data.has_censoring is not censored:
+        return False
+    for time in range(1, data.n_times + 1):
+        if data.node_kind(time) != "categorical":
+            return False
+        values = np.asarray(data.treatment[:, time - 1], dtype=float)
+        if not set(np.unique(values[np.isfinite(values)]).tolist()) <= {0.0, 1.0}:
+            return False
+    return True
+
+
+def _static_arm(regimen: RegimenSpec) -> int | None:
+    """``1`` or ``0`` for a static plan that assigns that arm at every node, else ``None``."""
+    if not isinstance(regimen, Regimen):
+        return None
+    for arm in (0, 1):
+        if all(
+            isinstance(value, (bool, int, float, np.integer, np.floating)) and value == arm
+            for value in regimen.values
+        ):
+            return arm
+    return None
 
 
 def _policy_estimates(
@@ -4862,6 +4988,10 @@ def _warn_parameter_statuses(
     """
     _warn_boundary_nodes(estimates)
     for status in sorted(PARAMETER_STATUSES):
+        if status_record(status).interval == "shown":
+            # A shown parameter status labels its interval, as a fit-level cluster status does,
+            # and the summary says so; it is not a lost interval to warn about.
+            continue
         names = [name for name, estimate in estimates.items() if estimate.inference == status]
         if not names:
             continue
@@ -5007,6 +5137,13 @@ def _msm_estimates(
     estimates: dict[str, ParameterEstimate] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
     reference_df = _reference_df(data, inference)
+    # No floor study measured a working-model coefficient, so each keeps the default floor.
+    inference = unmeasured_estimand_status(
+        inference,
+        data.cluster,
+        weights=data.weights if data.is_weighted else None,
+        longitudinal=True,
+    )
     for msm_fit in msm_fits:
         for column, term in enumerate(msm_fit.model.terms):
             # Composed forward, as every other name here is: a term may contain a
@@ -5057,6 +5194,9 @@ class _SequentialEstimator:
     isotonic: bool = False
     #: The declared node bounds.  Only :class:`LTMLE` takes them.
     node_bounds: Mapping[Any, Any] | None = None
+    #: The variance of a clustered fit, ``"influence_curve"`` or ``"jackknife"``. Only
+    #: :class:`LTMLE` takes it.
+    cluster_variance: str = "influence_curve"
     #: The memory budget of the J2d guard and the traced-memory limit of a multi-node hazard
     #: path fit, ``None`` for the memory available and the fixed limit.  :class:`LTMLE`,
     #: :class:`SDR` and :class:`IPSI` take it.
@@ -5245,6 +5385,16 @@ class _SequentialEstimator:
             step_bound=getattr(self, "step_bound", None),
             ratio_trim=self.ratio_trim,
         )
+        if self.cluster_variance not in CLUSTER_VARIANCES:
+            raise ValueError(
+                f"cluster_variance must be one of {list(CLUSTER_VARIANCES)}; got "
+                f"{self.cluster_variance!r}"
+            )
+        # Before the policy-weighted refusals: two variances for one interval is the first
+        # thing wrong with that request.
+        refusal = self._jackknife_configuration_refusal()
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         self._validate_variance()
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -5255,6 +5405,171 @@ class _SequentialEstimator:
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
             )
+
+    def _jackknife_configuration_refusal(self) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets in the configuration alone.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal, or ``None`` under the default variance and for a configuration the
+            jackknife covers.
+        """
+        if self.cluster_variance != "jackknife":
+            return None
+        engine = getattr(self, "_support_engine", (self._estimator,))[0]
+        if engine != "tmle":
+            names = {
+                "sdr": "the SDR recursion, whose pseudo-outcomes are not a GLM's",
+                "ipsi": "an incremental propensity-score intervention",
+            }
+            return jackknife_learner_refusal(names.get(engine, f"the {engine} construction"))
+        if self.repeats != 1:
+            return jackknife_learner_refusal(
+                "a repeated split, whose median over splits no leave-one-out refit reproduces"
+            )
+        if self.variance != "influence_curve" or self.n_bootstrap:
+            other = "n_bootstrap" if self.n_bootstrap else f"variance={self.variance!r}"
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"cluster_variance='jackknife' and {other} both replace the influence-curve "
+                "variance, so the fit would report two variances for one interval.",
+                alternative=(
+                    "Choose one variance: the default variance= and n_bootstrap=0, or "
+                    "cluster_variance='influence_curve'."
+                ),
+            )
+        return None
+
+    def _jackknife_data_refusal(self, data: LongitudinalData, learned: object) -> Refusal | None:
+        """The R5 refusal ``cluster_variance="jackknife"`` meets on ``data``, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared data.
+        learned : object
+            The learned regimen, or ``None``.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal, or ``None`` when the jackknife covers the fit.
+        """
+        if self.cluster_variance != "jackknife":
+            return None
+        if data.cluster is None:
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "cluster_variance='jackknife' leaves out one cluster at a time, and the data "
+                "declare no clusters.",
+                alternative="Pass id= to the fit, or use the default cluster variance.",
+            )
+        if learned is not None:
+            return jackknife_learner_refusal(
+                "a learned regimen, which every refit would learn again"
+            )
+        if data.has_continuous_node:
+            return jackknife_learner_refusal(
+                "a continuous treatment node, whose density-ratio nuisance is not a GLM"
+            )
+        known = set(_known_factors(data))
+        decisions = [
+            data.decision_name(time)
+            for time in range(1, data.n_times + 1)
+            if not data.is_held_node(time)
+        ]
+        roles: list[tuple[str, Any]] = [("outcome", self.outcome_learner)]
+        if any(name not in known for name in decisions):
+            roles.append(("treatment", self.treatment_learner))
+        if data.censoring_names and any(name not in known for name in data.censoring_names):
+            roles.append(("censoring", self.censoring_learner))
+        if data.is_competing:
+            roles.append(("competing", self.competing_learner))
+        for role, learner in roles:
+            if not jackknife_learner(learner):
+                name = "the default library" if learner is None else type(learner).__name__
+                return jackknife_learner_refusal(f"the {role} learner {name}")
+        return None
+
+    def _jackknife(
+        self,
+        data: LongitudinalData,
+        estimates: dict[str, ParameterEstimate],
+        draw: tuple[Folds, int | None],
+        classification: Classification | None,
+    ) -> dict[str, ParameterEstimate]:
+        """The estimates with the delete-one-cluster jackknife variance.
+
+        Refits once per positive-mass cluster with that cluster's units removed, on the
+        drawn split less those units and with the same seed, so no split is redrawn. A refit
+        that raises is recorded with its error, never ignored, and a
+        :class:`~cleverly.exceptions.DataWarning` names the clusters whose refit failed.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared data of the full fit.
+        estimates : dict of str to ParameterEstimate
+            The full fit's estimates.
+        draw : tuple of Folds and int or None
+            The full fit's split and seed.
+        classification : Classification or None
+            The fit's support classification, read for an estimate a failed refit withholds.
+
+        Returns
+        -------
+        dict of str to ParameterEstimate
+            :func:`~cleverly.inference.cluster_jackknife.jackknife_estimates` of the refits.
+        """
+        assert data.cluster is not None
+        weights = data.weights if data.is_weighted else None
+        codes = positive_mass_clusters(data.cluster, weights)
+        if codes.size < 2 or not any(item.supplies_inference for item in estimates.values()):
+            return estimates
+        folds, seed = draw
+        refitter = copy.copy(self)
+        refitter.cluster_variance = "influence_curve"
+        refitter.n_jobs = 1
+        cluster = data.cluster
+
+        def one(code: int) -> tuple[int, dict[str, ParameterEstimate] | None, str]:
+            keep = leave_one_cluster_out(cluster, code)
+            try:
+                with _suppressed():
+                    result = refitter.refit(
+                        data.subset(keep),
+                        frozen_folds=(refit_folds(folds, keep),),
+                        frozen_seeds=(seed,),
+                    )
+            except Exception as error:  # recorded on the estimate, never ignored
+                return code, None, f"{type(error).__name__}: {str(error)[:80]}"
+            return code, dict(result.estimates), ""
+
+        refits = map_parallel(one, [int(code) for code in codes], n_jobs=self.n_jobs)
+        out = jackknife_estimates(
+            estimates,
+            refits,
+            support_of=lambda status: support_for(classification, status, kind=None),
+        )
+        failed = sorted(
+            {
+                code
+                for item in out.values()
+                if item.jackknife is not None
+                for code in item.jackknife.failed_refits
+            }
+        )
+        if failed:
+            _warn(
+                f"cluster_variance='jackknife': the refit without cluster(s) {failed} raised "
+                "or withheld an estimate, so the estimates that read it withhold their "
+                "interval (status 'jackknife_refit_plugin'). result[name].jackknife.failures "
+                "says what happened.",
+                DataWarning,
+                stacklevel=3,
+            )
+        return out
 
     def _validate_variance(self) -> None:
         """Refuse an unknown ``variance=`` and each setting the policy-weighted variance refuses."""
@@ -5771,11 +6086,12 @@ class _SequentialEstimator:
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
 
         ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
-        with fewer than
-        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`
-        clusters with positive weight mass reports no interval, p-value or standard error:
-        every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
-        does.  From that count up to
+        with fewer clusters with positive weight mass than its interval floor
+        (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS` for ``LTMLE`` in sample
+        and cross-fitted, else
+        :data:`~cleverly._inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS`) shows an
+        experimental interval: every estimate takes the ``"few_cluster_plugin"`` status, as a
+        point-treatment fit does.  From that count up to
         :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
         intervals with ``J - 2`` degrees of freedom, in sample and cross-fitted.
         The point estimate stands.  The inference reference, section *Clusters*, gives
@@ -6028,6 +6344,8 @@ class _SequentialEstimator:
             else median_estimates(with_precedent_status([r.estimates for r in repeats]))
         )
         _warn_parameter_statuses(estimates, repeats[0].replay_recipe.boundary_reach)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            estimates = self._jackknife(prepared, dict(estimates), draws[0], classification)
         if self._estimator in _RANGE_CAUSE and parameter_index is not None:
             # Without a working model every draw files each name under the same
             # (regimen, cause, horizon) index, so draw 0's index gives each level's horizon.
@@ -6037,7 +6355,11 @@ class _SequentialEstimator:
             }
             _warn_parameter_space(estimates, ranges, estimator=self._estimator)
         with phase("inference"):
-            if repeated and self.isotonic:
+            if any(estimate.jackknife is not None for estimate in estimates.values()):
+                # The multiplier draws read the influence curves, which do not carry the
+                # jackknife variance, so no band matches the pointwise intervals.
+                bands = None
+            elif repeated and self.isotonic:
                 # Each draw projects its levels, and the median of non-decreasing curves is
                 # non-decreasing.  The limits of a median band have no projection rule: the
                 # rule of Westling et al. (2020, Theorem 1 (iv)) is for one estimator, and
@@ -6220,6 +6542,9 @@ class _SequentialEstimator:
         refuse_ambiguous_node_declaration(prepared.known_mechanisms, prepared.weights)
         self._refuse_unweighted_tilt(prepared)
         self._refuse_prepared(prepared)
+        refusal = self._jackknife_data_refusal(prepared, learned)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         if learned is not None:
             refuse_learned_regimen_data(prepared)
         if prepared.is_repeated:
@@ -6378,6 +6703,21 @@ class _SequentialEstimator:
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
         if draws is None:
             draws = self._draws(prepared)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            # The jackknife holds the drawn split fixed, after the fold count was reduced to
+            # the cluster count, so every fold must keep a positive-mass cluster after any one
+            # removal. The check reads the drawn labels, before any learner.
+            for folds, _ in draws:
+                if folds.is_single:
+                    continue
+                refusal = jackknife_fold_refusal(
+                    prepared.cluster,
+                    prepared.weights if prepared.is_weighted else None,
+                    folds.assignment,
+                    folds.n_folds,
+                )
+                if refusal is not None:
+                    raise CapabilityError.from_refusal(refusal)
         # One seed for every multiplier draw, fixed before any fold draw.
         multiplier_seed = self._multiplier_seed()
         scaler = self._scaler(prepared)
@@ -6681,9 +7021,60 @@ class _SequentialEstimator:
             )
         if self.n_bootstrap:
             self._plan_bootstrap(state, plans, unresolved, builder)
+        if self.cluster_variance == "jackknife" and prepared.cluster is not None:
+            self._plan_jackknife(state, plans, unresolved, builder)
         if state.memory is not None:
             builder.note(_memory_guard.preview_note(state.memory))
         return builder.build(fold_state)
+
+    def _plan_jackknife(
+        self,
+        state: _Preflight,
+        plans: tuple[Any, ...],
+        unresolved: tuple[Any, ...],
+        builder: PlanBuilder,
+    ) -> None:
+        """The fits of :meth:`_jackknife`, one refit per positive-mass cluster, as an upper bound.
+
+        Each refit leaves one cluster out and refits the whole draw on the full fit's folds
+        restricted to the kept rows. It is counted at the full fit's outer folds, the
+        learners' nominal inner folds and no constant-fold skip, and its minimum is zero
+        because no refit runs when no estimate shows an interval.
+        """
+        prepared = state.prepared
+        assert prepared.cluster is not None
+        weights = prepared.weights if prepared.is_weighted else None
+        clusters = int(positive_mass_clusters(prepared.cluster, weights).size)
+        if clusters < 2:
+            return
+        builder.multiply("left-out clusters", clusters)
+        folds = state.draws[0][0]
+        learners = self._plan_learners(prepared, self.random_state)
+        nominal = FitCounter(
+            weights=prepared.weights, groups=prepared.cluster, seed_fixed=False, nominal=True
+        )
+        self._plan_draw(
+            state,
+            plans,
+            unresolved,
+            folds,
+            learners,
+            nominal,
+            builder,
+            replicates=clusters,
+            jackknife=True,
+        )
+        if state.tuned_folds is not None:
+            per = 0 if folds.is_single else folds.n_folds
+            count = plan_tuned_fits(state.regimens, prepared, folds, nominal_folds=per)
+            builder.add(
+                "tuner",
+                "tuned cap fitted on every row at risk and per fold, per left-out cluster",
+                _tuner_label(state.regimens),
+                count.scaled(clusters),
+                upper="cluster-jackknife refits are counted at their nominal folds",
+                min_fits=0,
+            )
 
     def _plan_draw(
         self,
@@ -6696,15 +7087,30 @@ class _SequentialEstimator:
         builder: PlanBuilder,
         *,
         replicates: int = 0,
+        jackknife: bool = False,
     ) -> None:
-        """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` bootstrap draws."""
+        """The fits of one draw of :meth:`_fit_draw`, or of ``replicates`` resampled draws.
+
+        The replicates are bootstrap replicates, or with ``jackknife=True`` the
+        leave-one-cluster-out refits of :meth:`_jackknife`.
+        """
         prepared = state.prepared
         roles = self._plan_roles()
-        suffix = "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
-        why = (
-            "bootstrap replicates are counted at their nominal folds, with no fold of a binary "
-            "target fitted as a constant and no replicate dropped"
-        )
+        if jackknife:
+            suffix = "per left-out cluster, fold and repeat"
+            why = (
+                "cluster-jackknife refits are counted at their nominal folds, with no fold of a "
+                "binary target fitted as a constant, and none runs when no estimate shows an "
+                "interval"
+            )
+        else:
+            suffix = (
+                "per bootstrap replicate, fold and repeat" if replicates else "per fold and repeat"
+            )
+            why = (
+                "bootstrap replicates are counted at their nominal folds, with no fold of a "
+                "binary target fitted as a constant and no replicate dropped"
+            )
 
         def add(
             key: str,
@@ -7217,7 +7623,13 @@ class _SequentialEstimator:
             :func:`_inference_status`, then :func:`_trimmed_status`.
         """
         return _trimmed_status(
-            _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
+            _inference_status(
+                prepared,
+                folds,
+                estimator=self._estimator,
+                parametric=parametric,
+                repeated=getattr(self, "repeats", 1) != 1,
+            ),
             mechanism,
         )
 
@@ -7461,6 +7873,14 @@ class _SequentialEstimator:
                 )
         parametric = self._simulated_parametric(parametric, fits)
         status = self._draw_status(prepared, folds, parametric, mechanism)
+        measured = measured_design(
+            prepared,
+            longitudinal_floor_family(
+                self._estimator,
+                cross_fitted=not folds.is_single,
+                repeated=getattr(self, "repeats", 1) != 1,
+            ),
+        )
         unprojected_fits = fits
         moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
         if self.isotonic:
@@ -7483,6 +7903,7 @@ class _SequentialEstimator:
                     classification=classification,
                     policy=policy,
                     boundary_reach=boundary_reach,
+                    measured=measured,
                 )
                 if model is None
                 else _msm_estimates(
@@ -7505,6 +7926,7 @@ class _SequentialEstimator:
                     inference=status,
                     classification=classification,
                     boundary_reach=boundary_reach,
+                    measured=measured,
                 ).estimates
                 if moves
                 else None
@@ -8920,6 +9342,21 @@ class LTMLE(_SequentialEstimator):
         needs an exact or known ratio, or, with a learned ratio, a consistent outcome model.
         The registered study ``mtp-policy-variance`` measures it, and an estimate reads
         ``supported`` only where a support row licenses the option.
+    cluster_variance : {"influence_curve", "jackknife"}
+        The variance of a clustered fit's estimates. ``"influence_curve"`` (default) is the
+        cluster-robust variance of the influence curve. ``"jackknife"`` refits the whole
+        estimator once per cluster with that cluster's rows removed, every node's nuisances
+        refitted and the targeting redone, on the drawn split less those rows, and reports the
+        delete-one-cluster jackknife variance with the same Student t reference
+        (:mod:`cleverly.inference.cluster_jackknife`). A boundary-node supplement is added to
+        it. It needs ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
+        :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared mechanism),
+        ``repeats=1``, no bootstrap, the default ``variance``, no learned regimen and no
+        continuous node, and, when cross-fitted, a split whose every fold holds two clusters
+        after the fold count is reduced to the cluster count. Anything else raises
+        :class:`~cleverly.exceptions.CapabilityError` before any learner. The fit costs one
+        refit per cluster and builds no simultaneous band. The option is experimental until
+        its validation study is registered.
     max_memory_bytes : int or None
         The memory budget, in bytes, that two guards read before any learner.  The memory
         guard of ``LTMLE``, ``SDR`` and ``IPSI`` predicts the peak of the whole call from the
@@ -8998,11 +9435,13 @@ class LTMLE(_SequentialEstimator):
         hazard_pooling: str = "node",
         node_bounds: Mapping[Any, Any] | None = None,
         variance: str = "influence_curve",
+        cluster_variance: str = "influence_curve",
         max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
         self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
         self.node_bounds = node_bounds
+        self.cluster_variance = cluster_variance
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
@@ -11070,7 +11509,11 @@ def _refit_bound(
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
     status = _trimmed_status(
         _inference_status(
-            result.data, draw.folds, estimator=recipe.estimator, parametric=recipe.parametric
+            result.data,
+            draw.folds,
+            estimator=recipe.estimator,
+            parametric=recipe.parametric,
+            repeated=result.config.repeats != 1,
         ),
         draw.mechanism,
     )
@@ -11086,6 +11529,14 @@ def _refit_bound(
             alpha_sig=result.config.alpha_sig,
             inference=status,
             boundary_reach=recipe.boundary_reach,
+            measured=measured_design(
+                result.data,
+                longitudinal_floor_family(
+                    recipe.estimator,
+                    cross_fitted=not draw.folds.is_single,
+                    repeated=result.config.repeats != 1,
+                ),
+            ),
             policy=(
                 _policy_matrix(
                     result.data,
@@ -11310,6 +11761,8 @@ def longitudinal_truncation_refusal(result: Any) -> Refusal | None:
 
         return DRIFT_TRUNCATION_REFUSAL
     estimator = getattr(result.config, "estimator", None)
+    if jackknife_fit(result):
+        return JACKKNIFE_TRUNCATION_REFUSAL
     if estimator == "gcomp":
         return GCOMP_TRUNCATION_REFUSAL
     if estimator == "parametric_gformula":

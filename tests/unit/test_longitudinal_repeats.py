@@ -1219,6 +1219,15 @@ def test_repeats_refuse_the_bootstrap(cls: Any) -> None:
     assert _fit("ltmle", repeats=3).bootstrap is None
 
 
+def test_repeats_refuse_the_cluster_jackknife() -> None:
+    """A leave-one-cluster-out refit cannot reproduce the median over fold draws (X54 R5)."""
+    with pytest.raises(CapabilityError) as raised:
+        LTMLE({"always": 1}, repeats=2, cluster_variance="jackknife")
+    assert "a repeated split, whose median over splits no leave-one-out refit reproduces" in (
+        str(raised.value)
+    )
+
+
 def test_a_per_draw_refusal_names_its_draw() -> None:
     """``scale="ratio"`` on a draw whose value is not positive keeps its type (review2 n4)."""
     result = _with_draw_level(_fit("sdr", repeats=3), 2, LEVEL_B, -0.01)
@@ -1582,6 +1591,7 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "n_jobs": _witness(EACH_DRAW, "settings"),
     "max_memory_bytes": _witness(EACH_DRAW, "settings"),
     "n_bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
+    "cluster_variance": _witness("test_repeats_refuse_the_cluster_jackknife"),
     "bootstrap_resampling": _witness(EACH_DRAW, "settings"),
     "bootstrap_interval": _witness("test_repeats_refuse_the_bootstrap"),
     "stopping": _witness(EACH_DRAW, "settings"),

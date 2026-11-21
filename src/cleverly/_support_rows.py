@@ -6986,6 +6986,20 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "floor. No support row was declared before the run, so the study licenses none and "
         "moves no label."
     ),
+    "few-cluster-floor-tmle": (
+        "It measures the clustered interval of point TMLE, DR-TMLE and in-sample LTMLE below the "
+        "old floors to set CLUSTER_INTERVAL_FLOORS for the measured contrast, which the t-tier "
+        "rows read. Its red rows, held by X54-cluster-floor and X54-stacked-d5-redeclaration, are "
+        "cells below a family's floor, the primary's arm mean below the arm-mean floor, and the "
+        "five-covariate stacked control under redeclaration. No support row was declared before "
+        "the run, so the study licenses none and moves no label."
+    ),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        "It measures the clustered interval of cross-fitted LTMLE below the old floor to set "
+        "CLUSTER_INTERVAL_FLOORS for the measured contrast, which the t-tier rows read. It has "
+        "no red row. No support row was declared before the run, so the study licenses none and "
+        "moves no label; the cluster jackknife it compares stays experimental."
+    ),
     "band-t-reference-held-out": (
         "It holds out one t band cell, the strata law at n = 1,000, to test the rule out of "
         "sample. The cell licenses no row: band-t-reference licenses the t band, and this study "

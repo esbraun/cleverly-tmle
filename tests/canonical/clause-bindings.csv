@@ -2053,3 +2053,15 @@ known-mechanism-sample-weights,sample_bias,bias equivalent,bias
 known-mechanism-sample-weights,sample_misspecified,bias equivalent,bias
 known-mechanism-sample-weights,target_reading_control,bias discriminated,shift/0.7
 known-mechanism-sample-weights,tilt_misspecified,bias equivalent,bias
+few-cluster-floor-cross-fitted-ltmle,few_cluster_candidate,candidate coverage gain over the reference,se_low
+few-cluster-floor-cross-fitted-ltmle,few_cluster_candidate_pooled,pooled candidate coverage gain over the reference,none
+few-cluster-floor-cross-fitted-ltmle,few_cluster_reference,bias equivalent,affine
+few-cluster-floor-cross-fitted-ltmle,few_cluster_reference,coverage floor,none
+few-cluster-floor-cross-fitted-ltmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,none
+few-cluster-floor-cross-fitted-ltmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,none
+few-cluster-floor-tmle,few_cluster_candidate,candidate coverage gain over the reference,none
+few-cluster-floor-tmle,few_cluster_candidate_pooled,pooled candidate coverage gain over the reference,none
+few-cluster-floor-tmle,few_cluster_reference,bias equivalent,none
+few-cluster-floor-tmle,few_cluster_reference,coverage floor,none
+few-cluster-floor-tmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
+few-cluster-floor-tmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,none

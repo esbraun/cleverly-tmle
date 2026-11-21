@@ -678,6 +678,19 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "few_cluster_candidate":
+        # X54 part (c): the paired all-draw coverage gain of the candidate over the shipped
+        # interval on the same draws, and the row's own all-draw coverage.
+        return (
+            f"all-draw coverage {render(float(row.coverage))}, paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+        )
+    if family == "few_cluster_candidate_pooled":
+        return (
+            "pooled paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)} over "
+            f"{int(row.pooled_cells)} cells from {int(row.pooled_start)} clusters"
+        )
     if family == "few_cluster_reference":
         if str(row.role) == "control" and pd.notna(getattr(row, "paired_se_ratio_ci_upper", None)):
             # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
@@ -689,6 +702,9 @@ def measured(row: Any) -> str:
                 "paired positive SE-ratio upper endpoint "
                 f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
             )
+        if pd.isna(row.se_ratio_ci_lower) and getattr(row, "shown_draws", 1) == 0:
+            # Wang et al.'s inflation is undefined while J <= p, so no draw shows its interval.
+            return f"no draw of {int(row.replicates):,} shows an interval"
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

@@ -1,11 +1,13 @@
-"""Clustered fits show a labelled t interval below 10 clusters, and withhold it below 3.
+"""Clustered fits show a labelled t interval below their floor, and withhold it below 3.
 
 The status table of ``docs/technical-reference/inference.md`` gives two clustered statuses for
-``TMLE`` and ``DRTMLE``, and X54 and F28 in the roadmap hold the evidence below the floor.
+``TMLE`` and ``DRTMLE``, and F28 in the roadmap records the measured limits below each floor.
 
 ``"few_cluster_plugin"``
-    A fit with 3 to 9 contributing clusters, in sample or cross-fitted, overall or in a
-    stratum. 10 is the smallest count a registered study measures. Every estimate shows its
+    A fit with 3 contributing clusters up to one below its family's floor
+    (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`: 6 for in-sample TMLE, 10 for
+    stacked TMLE and for a fit no floor study measures), in sample or cross-fitted, overall or
+    in a stratum. Every estimate shows its
     interval on a Student t reference with ``J - 2`` degrees of freedom under the
     experimental label. From 10 to 39 such clusters every estimate keeps the same reference
     and the ordinary status, which ``tests/unit/test_few_cluster_reference.py`` checks.
@@ -43,13 +45,21 @@ from cleverly import (
     PointTreatment,
     Runtime,
     TMLEMethod,
+    _inference_status,
 )
-from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, STATUS_RECORDS
+from cleverly._inference_status import (
+    CLUSTER_INTERVAL_FLOORS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
+    FEW_CLUSTER_ESTIMAND_STATUS,
+    STATUS_RECORDS,
+)
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
+from cleverly.sensitivity import marginal as marginal_module
+from cleverly.sensitivity import marginal_sensitivity_bounds
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -141,11 +151,24 @@ def unequal_frame(equal_frame: Any) -> Any:
     return frame
 
 
+#: One below the lowest point-treatment floor the file fits (in-sample TMLE), so every point fit
+#: here reads ``few_cluster_plugin`` on it.
+FEW_CLUSTERS = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 1
+
+
 @pytest.fixture(scope="module")
 def few_frame() -> Any:
-    """9 clusters of 40 rows, one below the floor."""
-    frame = make_clustered(n=360, cluster_size=40, seed=7)[0]
-    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS - 1, 40, 40)
+    """5 clusters of 40 rows, one below the in-sample TMLE floor and below every other."""
+    frame = make_clustered(n=FEW_CLUSTERS * 40, cluster_size=40, seed=7)[0]
+    assert sizes(frame) == (FEW_CLUSTERS, 40, 40)
+    return frame
+
+
+@pytest.fixture(scope="module")
+def in_sample_floor_frame() -> Any:
+    """6 clusters of 40 rows, at the in-sample TMLE floor."""
+    frame = make_clustered(n=(FEW_CLUSTERS + 1) * 40, cluster_size=40, seed=7)[0]
+    assert sizes(frame) == (CLUSTER_INTERVAL_FLOORS["tmle_in_sample"], 40, 40)
     return frame
 
 
@@ -161,7 +184,7 @@ def two_frame() -> Any:
 def floor_frame() -> Any:
     """10 clusters of 40 rows, at the floor."""
     frame = make_clustered(n=400, cluster_size=40, seed=7)[0]
-    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS, 40, 40)
+    assert sizes(frame) == (DEFAULT_POINT_INTERVAL_CLUSTERS, 40, 40)
     return frame
 
 
@@ -255,16 +278,16 @@ class TestFewClustersShowALabelledTInterval:
     def test_the_estimates_show_the_t_interval_of_the_plug_in_curve(
         self, few_frame: Any, estimator: type, settings: dict[str, Any]
     ) -> None:
-        """Nine clusters read t(7): the interval is the plug-in Wald interval on that quantile."""
+        """Five clusters read t(3): the interval is the plug-in Wald interval on that quantile."""
         result = fit(few_frame, estimator=estimator, **settings)
-        assert_shows_interval(result, FEW, MINIMUM_INTERVAL_CLUSTERS - 3)
+        assert_shows_interval(result, FEW, FEW_CLUSTERS - 2)
 
     def test_the_label_and_the_summary_carry_the_reason(self, few_frame: Any) -> None:
         result = fit(few_frame, **IN_SAMPLE)
         support = result["ate"].support
         assert support.label == "experimental"
         assert STATUS_RECORDS[FEW].shown_reason in support.reason
-        assert "X54" in support.evidence
+        assert "F28" in support.evidence
         assert STATUS_RECORDS[FEW].plain_reason in result.summary().note("experimental").text
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, few_frame: Any) -> None:
@@ -394,7 +417,7 @@ class TestAStratumWithFewClustersReadsItsOwnCount:
 
     def test_a_stratum_at_the_floor_keeps_the_interval(self) -> None:
         """The control: 50 clusters split 10 and 40, the small stratum at the floor."""
-        frame = stratified_frame(50, small=MINIMUM_INTERVAL_CLUSTERS)
+        frame = stratified_frame(50, small=DEFAULT_POINT_INTERVAL_CLUSTERS)
         result = fit_stratified(frame)
         assert_keeps_inference(result)
         assert result["ate[S='small']"].reference_df == 8
@@ -453,7 +476,7 @@ class TestThePrecedence:
     def test_estimated_weights_come_before_the_few_cluster_status(self, few_frame: Any) -> None:
         """Both statuses show an interval, so the table order picks the first and names both.
 
-        The label reason carries the reason of each shown status: X50 for the weights and X54
+        The label reason carries the reason of each shown status: X50 for the weights and F28
         for the cluster count.
         """
         frame = few_frame.assign(w=np.random.default_rng(3).uniform(0.5, 2.0, len(few_frame)))
@@ -469,13 +492,13 @@ class TestThePrecedence:
             )
             .single()
         )
-        assert_shows_interval(result, "estimated_weight_plugin", MINIMUM_INTERVAL_CLUSTERS - 3)
+        assert_shows_interval(result, "estimated_weight_plugin", FEW_CLUSTERS - 2)
         # The witness that the few-cluster status applies to this data on its own.
         assert cluster_inference_status(result.data.cluster) == FEW
         support = result["ate"].support
         assert STATUS_RECORDS["estimated_weight_plugin"].shown_reason in support.reason
         assert STATUS_RECORDS[FEW].shown_reason in support.reason
-        assert {"X50", "X54"} <= set(support.evidence)
+        assert {"X50", "F28"} <= set(support.evidence)
 
     def test_a_withheld_status_comes_before_a_shown_one(self, two_frame: Any) -> None:
         """Two clusters with estimated weights keep the withheld status, whatever its place."""
@@ -566,18 +589,93 @@ class TestTheStatusIsTheHooksToWithhold:
     def test_a_floor_of_zero_fails_the_few_cluster_check(
         self, few_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The rule's own module compares against a floor of zero."""
-        monkeypatch.setattr(cluster_module, "MINIMUM_INTERVAL_CLUSTERS", 0)
+        """The fit's family floor read as zero: the in-sample TMLE floor drives the status."""
+        monkeypatch.setattr(
+            _inference_status,
+            "CLUSTER_INTERVAL_FLOORS",
+            {**_inference_status.CLUSTER_INTERVAL_FLOORS, "tmle_in_sample": 0},
+        )
         with pytest.raises((AssertionError, ValueError)):
-            assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, 7)
+            assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, FEW_CLUSTERS - 2)
 
     def test_an_at_or_below_comparison_fails_the_boundary_control(
-        self, few_frame: Any, floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+        self, few_frame: Any, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(tmle_module, "cluster_inference_status", at_or_below)
-        assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, 7)
+        assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, FEW_CLUSTERS - 2)
         with pytest.raises(AssertionError):
-            assert_keeps_inference(fit(floor_frame, **IN_SAMPLE))
+            assert_keeps_inference(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+
+def assert_floor_holds_for_the_ate(result: Any) -> None:
+    """At the in-sample floor the ATE is ordinary and the arm mean shows a labelled interval."""
+    assert result["ate"].inference == "influence_curve"
+    mean = result["ey0"]
+    assert mean.inference == FEW_CLUSTER_ESTIMAND_STATUS
+    assert mean.support.label == "experimental"
+    assert "X54" in mean.support.evidence
+    assert mean.reference_df == CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 2
+    low, high = mean.ci
+    assert low < high
+    assert result.inference_status == "influence_curve"
+
+
+class TestTheFloorHoldsForTheMeasuredAte:
+    """R1 of the X54 post-run ruling: a point family's floor certifies the ATE alone.
+
+    Every cell of ``few-cluster-floor-tmle`` reads the ATE. An arm mean, an ATT, an ATC or a
+    ratio keeps the default floor of 10: from the family's floor up to it, such an estimate shows
+    its interval under :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`.
+    """
+
+    def test_at_the_floor_only_the_ate_is_ordinary(self, in_sample_floor_frame: Any) -> None:
+        assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+    def test_the_default_floor_clears_the_label(self, floor_frame: Any) -> None:
+        result = fit(floor_frame, **IN_SAMPLE)
+        assert {e.inference for e in result.estimates.values()} == {"influence_curve"}
+
+    def test_an_arm_mean_read_at_the_ate_floor_fails(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            tmle_module, "unmeasured_estimand_status", lambda status, *args, **kwargs: status
+        )
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+    def test_the_ate_read_at_the_default_floor_fails(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(tmle_module, "MEASURED_POINT_ESTIMAND", "no estimand")
+        with pytest.raises(AssertionError):
+            assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+
+class TestTheMarginalBoundsReadTheEstimandStatus:
+    """B1 of the X54 implementation review: the marginal bounds refuse an estimate under
+    :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`, by its record's reason,
+    as they refuse a fit under ``few_cluster_plugin``. The measured ATE of the same fit keeps
+    its bounds."""
+
+    def test_the_arm_mean_refuses_and_the_ate_answers(self, in_sample_floor_frame: Any) -> None:
+        result = fit(in_sample_floor_frame, **IN_SAMPLE)
+        with pytest.raises(CapabilityError) as raised:
+            marginal_sensitivity_bounds(result, estimand="ey0")
+        record = STATUS_RECORDS[FEW_CLUSTER_ESTIMAND_STATUS]
+        assert record.reason in str(raised.value)
+        assert raised.value.refusal is not None
+        assert raised.value.refusal.roadmap == record.reopened_by == "X54"
+        bounds = marginal_sensitivity_bounds(result, estimand="ate")
+        assert len(bounds.to_frame()) > 0
+
+    def test_a_check_blind_to_the_estimand_status_serves_a_bound(
+        self, in_sample_floor_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation: without the estimand check the arm mean gets a bound."""
+        monkeypatch.setattr(marginal_module, "FEW_CLUSTER_ESTIMAND_STATUS", "not a status")
+        result = fit(in_sample_floor_frame, **IN_SAMPLE)
+        assert len(marginal_sensitivity_bounds(result, estimand="ey0").to_frame()) > 0
 
 
 class TestTheWorkflowPageRunsOnUnequalClusters:

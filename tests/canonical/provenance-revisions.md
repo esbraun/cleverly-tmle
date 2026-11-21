@@ -147,6 +147,15 @@ no longer imports. Remove the row when you regenerate the study.
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a binary discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal_multivalue.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a categorical discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
 | `score-assessment-compositions` | `tests/studies/targeting_curves.py` | result-neutral: the study imports `tests/studies/score_assessment.py`, whose module scope imports `targeting_curves` for the `score-assessment` laws; the compositions law, scores, learners and fits read none of its names. The module is byte-identical between the run at `0635530b` and this registration, so the bytes that ran are the bytes here, and only the module list missed it |
+| `few-cluster-floor-tmle` | `tests/studies/canonical_tmle.py` | result-neutral: the study imports `fitted_rows` from `tests/studies/canonical_cvtmle.py`, which imports `SCENARIO_ESTIMANDS` and `draw_from_seed` from this module. The study passes its own `draw_scenario` and `cleverly_rows` to `fitted_rows`, so no fit of the study calls a function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-tmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_tmle.py` and `tests/studies/clustered_unequal_cvtmle.py` import `primary_rows` and `initial_estimates` from this module for their own fits. The study calls no function of either module, so no function of this module runs in the study and no result reads it |
+| `few-cluster-floor-tmle` | `tests/studies/clustered_unequal_cvtmle.py` | result-neutral: the study imports `size_law_parameters` from `tests/studies/clustered_few_cluster_properties.py`, which imports `tmle_settings` from this module. `size_law_parameters` reads only constants of `tests/studies/clustered_unequal_laws.py`, and no fit of the study calls `tmle_settings` or any other function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-tmle` | `tests/conftest.py` | result-neutral: `tests/studies/clustered_unequal_cvtmle.py` imports `OracleTreatment` from this module for its own fits. No fit of the study calls a function of that module or constructs `OracleTreatment`, so no result reads this module |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/canonical_tmle.py` | result-neutral: the study imports `fitted_rows` from `tests/studies/canonical_cvtmle.py`, which imports `SCENARIO_ESTIMANDS` and `draw_from_seed` from this module. The study passes its own `draw_scenario` and `cleverly_rows` to `fitted_rows`, so no fit of the study calls a function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/canonical_clustered_tmle.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from this module. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/conftest.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from `tests/studies/canonical_clustered_tmle.py`, which imports this module for its own fits. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_clustered_tmle.py` and `tests/studies/canonical_tmle.py` import this module for their own fits, and the study reaches them only through the constants of `tests/studies/clustered_crossfit_ltmle.py` and through `fitted_rows`, which runs the study's own sampler and fit. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/clustered_unequal_laws.py` | result-neutral: `tests/studies/few_cluster_floor.py` imports `ExactLongitudinalPropensity` from `tests/studies/clustered_few_cluster_tmle.py`, which imports this module, and that class reads `informative_propensity` from it. No fit of the study constructs `ExactLongitudinalPropensity` or its subclass `ParametricExactPropensity`; only `few-cluster-floor-tmle` does. No result of this study reads this module |
 
 ## Descriptive manifest text
 
@@ -660,6 +669,17 @@ estimate or standard error, the run log records no failed replicate, and the stu
 primary `failures.csv`. So no bound decided any primary verdict, and a run at 0.01 would write the
 same rows. The property phase's own bound, `property_failure_bound` 0.05, is a separate key and is
 unchanged.
+
+## The compact encoding of `few-cluster-floor-tmle`'s property rows
+
+The declared run at `a28732b7` wrote `property-replicates.parquet` as 105.4 MB (sha256
+`317f4d4a…7e5a1`, recorded in `run.log`), over GitHub's 100 MB file limit. `write_rows` in
+`tests/studies/evidence/manifest.py` now rewrites a row file above `COMPACT_BYTES` (90 MB) with
+the float columns byte-stream split, one row group and zstd level 19. The committed file is that
+encoding of the run's own file: 93.4 MB, sha256 `01c78004…71b49ed0`, which is what the manifest
+now records. The decoded table equals the run's table (`pyarrow.Table.equals` with metadata),
+and the CSV text of the rows has the same digest before and after (`cedd3489…01800560`). No row,
+verdict or seed changed; only the bytes of the encoding did.
 
 ## Unit weights dropped from the EP final learner
 

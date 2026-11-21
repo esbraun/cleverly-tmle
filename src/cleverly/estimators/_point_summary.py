@@ -20,8 +20,9 @@ import numpy as np
 
 from .._inference_status import (
     BOUNDARY_NODE_BAND_NOTE,
-    MINIMUM_INTERVAL_CLUSTERS,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     NO_CONSTANT_ARM_BANDS,
+    NO_JACKKNIFE_BANDS,
     NO_KNOWN_REGIME_BANDS,
     NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
@@ -54,6 +55,7 @@ from ..inference.cluster import (
     positive_mass_clause,
     unequal_cluster_sizes,
 )
+from ..inference.cluster_jackknife import jackknife_summary_line
 from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
     bootstrap_diagnostic_reason,
@@ -463,7 +465,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
     assert bootstrap is not None
     rows: list[tuple[Cell, ...]] = []
     diagnostic: dict[str, list[str]] = {}
-    floor = MINIMUM_INTERVAL_CLUSTERS
+    floor = DEFAULT_POINT_INTERVAL_CLUSTERS
     experimental: list[str] = []
     interval_name = ""
     for name, estimate in result.estimates.items():
@@ -935,6 +937,9 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         )
     if data.cluster is not None:
         lines.append(f"Clusters: {_cluster_fact(data)}.")
+        jackknife = jackknife_summary_line(result.estimates)
+        if jackknife is not None:
+            lines.append(jackknife)
     if config.treatment_mechanism == "known":
         lines.append("Treatment probabilities are the declared known values; no limit moved one.")
         if getattr(config, "conditional_form", "arm_mean") == "known_score":
@@ -1081,6 +1086,8 @@ def _band_settings(result: TMLEResult) -> list[str]:
         return [NO_SIMULTANEOUS_BANDS]
     if t_reference:
         return [NO_T_REFERENCE_BANDS]
+    if any(getattr(estimate, "jackknife", None) is not None for estimate in estimates.values()):
+        return [NO_JACKKNIFE_BANDS]
     if known_regime_estimates(estimates):
         return [NO_KNOWN_REGIME_BANDS]
     constant = constant_arm_members(estimates)

@@ -387,7 +387,7 @@ class CVTargeting:
 
     def stamped(
         self,
-        status: InferenceStatus,
+        status: InferenceStatus | Mapping[str, InferenceStatus],
         reference: ClusterReference | None = None,
         classification: Classification | None = None,
     ) -> CVTargeting:
@@ -398,8 +398,9 @@ class CVTargeting:
 
         Parameters
         ----------
-        status : str
-            One of :data:`~cleverly.inference.influence.InferenceStatus`.
+        status : str or mapping of str to str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`, or one per estimand
+            (:func:`~cleverly.inference.influence.stamp_inference`).
         reference : ClusterReference or None, default=None
             The rows each estimate reads on a clustered fit, which set the Student t
             reference of an inferential estimate. The fold-evaluated report reads it with
