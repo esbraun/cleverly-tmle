@@ -1596,14 +1596,6 @@ default="greedy"
         score worse than the best so far, as ``patience`` does in R ``ctmle``. ``None`` reads
         the whole path. It applies to ``"greedy"``, ``"ordered"``, ``"discrete"``,
         ``"lasso"`` and ``"learners"``. The fit keeps its ``working_mechanism_plugin`` status.
-    l1_solver : {"builtin", "glmstar"}, default="builtin"
-        The solver of the L1-penalized logistic paths of ``strategy="lasso"`` and of
-        ``strategy="derivative"`` without ``treatment_candidates``. ``"glmstar"`` starts each
-        penalty from the optional glmstar package (``pip install "cleverly[glmstar]"``,
-        GPL-2.0-only) and checks it to the built-in solver's tolerance, so the paths agree
-        with ``"builtin"`` to that tolerance, not bitwise. The selection agrees too, and the
-        estimate to many digits (within 8e-8 in the validation replay), except at a near tie,
-        where the two solvers can choose different candidates. Other strategies refuse it.
 
     See Also
     --------
@@ -1679,7 +1671,6 @@ default="greedy"
     treatment_candidates: tuple[Any, ...] | None = None
     selection_split: tuple[int, ...] | None = None
     patience: int | None = None
-    l1_solver: str = "builtin"
     name: str = "collaborative_tmle"
 
     def __post_init__(self) -> None:
@@ -1745,7 +1736,6 @@ default="greedy"
                 "treatment_candidates": self.treatment_candidates,
                 "selection_split": self.selection_split,
                 "patience": self.patience,
-                "l1_solver": self.l1_solver,
             }
         return {
             **super().estimator_kwargs(),
@@ -1763,7 +1753,6 @@ default="greedy"
             "treatment_candidates": self.treatment_candidates,
             "selection_split": self.selection_split,
             "patience": self.patience,
-            "l1_solver": self.l1_solver,
         }
 
 
