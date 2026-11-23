@@ -72,7 +72,7 @@ tier is the one the legend lists.
 | 2 | survival targets, in this order: X91, X6. Most trial endpoints are times to an event |
 | 3 | gaps in shipped functionality, in this order: X54 parts (h), (j) and (k), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
-| 5 | further estimands and designs, in this order: X5, X2, X7, X99 |
+| 5 | further estimands, designs and nuisance learners, in this order: X5, X2, X7, X99, X94 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
 
 The readiness labels are defined under
@@ -148,6 +148,12 @@ The readiness labels are defined under
 | [X2](#x2-replicate-weight-designs) Replicate-weight designs | 5 | source audit | weighted-law variance construction |
 | [X7](#x7-two-phase-and-outcome-dependent-sampling) Two-phase and outcome-dependent sampling | 5 | published support; pending source read | observed-data likelihood and influence correction |
 | [X63](#x63-missing-data-intermediates-and-designs) Missing data, intermediates and designs | 6 | natural extension for parts (a) and (b); no new theory for parts (c) and (d) | the shipped controlled direct effect and known treatment mechanism |
+
+### Nuisance learners
+
+| item | tier | readiness | depends on |
+| --- | --- | --- | --- |
+| [X94](#x94-pytorch-nuisance-learners) PyTorch nuisance learners | 5 | published support for targeting from a network's initial fit; no theorem that a network meets the rate conditions, so each interval claim needs cross-fitting and a registered study | the shipped learner library, `LTMLE` per-node targeting, and `survival_model="hazard"` |
 
 ### Riesz representers
 
@@ -1418,6 +1424,23 @@ covers a smaller claim, and the contract states which one ships.
 Acceptance: a source audit that names the base result, exact-law checks of the influence curve
 with a nonzero witness for each history feature, a mutation control that drops the later-node
 terms, and a registered study.
+
+### X94. PyTorch nuisance learners
+
+Neural-network learners for the nuisance fits, in the optional extra `cleverly[torch]`. PyTorch is
+imported only when one of these learners is used, and the extra adds no lightning, pycox or optuna.
+The estimators stay TMLE: a network supplies an initial fit, and the shipped targeting step makes
+the estimate.
+
+| part | request | the evidence that accepts it |
+| --- | --- | --- |
+| (a) | a multilayer perceptron learner for any nuisance (outcome regression, treatment mechanism, censoring mechanism), usable alone or as a Super Learner candidate | fixed-seed reproducibility on CPU, and a registered study whose cross-fitted fits with the learner cover at their level on a law where a main-terms learner is misspecified |
+| (b) | a discrete-time cause-specific hazard network for `survival_model="hazard"`, one output per cause and time interval | the same, on a competing-risks law, with the hazard learner beside the shipped hazard fits on the same draws |
+| (c) | the Deep LTMLE joint learner: one decoder-only transformer whose heads give every node's treatment mechanism and sequential mean, trained with a temporal-difference loss. Shirakawa, Li, Wu, Qiu, Li, Zhao, Iso and van der Laan (2024), PMLR 235, Algorithm 1 and equations (11) to (17) | targeting starts from the network's per-node fits with no re-regression, which solves the efficient influence function equation (Lemma 4.4, Algorithm 3), so the shipped per-node step needs no common fluctuation. The paper fits without cross-fitting and states no theorem that the transformer meets the remainder conditions (Theorems C.1 and C.2), and its coverage on the complex survival law falls to 0.78 at 30 periods (Table 1, 100 replications). An interval ships only for cross-fitted fits that pass a registered study at the horizons it claims |
+
+The source covers one cause, discrete time and binary treatment with static or precomputed rules
+(Section 6). Competing risks and a visit process under part (c) are outside it and stay refused. A
+network learner never lifts a refusal that a hard stop or a missing condition imposes.
 
 ### X80. Ratio trimming on the hazard path
 
