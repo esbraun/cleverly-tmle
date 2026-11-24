@@ -1,0 +1,125 @@
+{
+  "schema_version": 2,
+  "study": "few-cluster intervals with the default learner library",
+  "slug": "few-cluster-adaptive-learners",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.5",
+      "cleverly_commit": "516cf0bea7cfb26750b99b34e50d1c9e8bd09f45",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 200,
+    "seed": 20264581,
+    "resampling_seed": 20264582,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "equal10_j20_stacked": [
+        "ate"
+      ]
+    },
+    "construction": "the shipped influence-curve interval on t with J - 2 degrees of freedom below 40 clusters, with the default learner library for every nuisance",
+    "laws": {
+      "equal10": "clustered-few-cluster-tmle's equal10 law, arm-by-latent coefficient 8",
+      "nonlinear10": "tests/studies/clustered_nonlinear_law.py",
+      "equal40": "few-cluster-cross-fitted-ltmle's end-of-study law, scaled latent"
+    },
+    "counts": {
+      "equal10": [
+        10,
+        20,
+        40
+      ],
+      "nonlinear10": [
+        10,
+        20,
+        40
+      ],
+      "equal40": [
+        20
+      ]
+    },
+    "default_library": "cleverly.learners.default_library: histogram gradient boosting, random forest, L1 logistic or lasso; Super Learner with grouped inner folds on the cluster id",
+    "glm_reference": "main-terms unpenalized logistic outcome and propensity (point); the committed quasi-binomial GLM subject (LTMLE)",
+    "controls": "an unpruned tree outcome in sample (reported); an unpruned random forest fitted on the full sample standing in for every out-of-fold prediction of a stacked fit (must fail)",
+    "gated_fits": [
+      "tmle_stacked",
+      "ltmle_crossfit"
+    ],
+    "outer_folds": 5,
+    "random_state": 0,
+    "simultaneous_intervals": false,
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/few_cluster_adaptive_learners.py": "be3e86dcb5535d729674049475b1d973514260c4490b5c86b84b34ca39c7d396",
+    "tests/studies/few_cluster_adaptive_properties.py": "3c7e1e5784a6e703cc02c0b0a53bf930ac0fe35669394e70d2de96c183446a76",
+    "tests/studies/clustered_nonlinear_law.py": "1256452083c12c2bfbe1fe37d04926474a22faea09fec049dc8497255b44b82a",
+    "tests/studies/clustered_unequal_laws.py": "d9546f88f3c58b8ba1ae38b46c9afab473e9a6f227e54cab4bef5edd1df50fc1",
+    "tests/studies/clustered_crossfit_ltmle.py": "bc7736740732f144578495e448b6f102aa6ba8c03ff3ce10b0b282414891524d",
+    "tests/studies/clustered_longitudinal_laws.py": "f9ffea2dcb0b7f38bf1dd1c3fe9401fe1b120d4904878ad23cab18259c90bb53",
+    "tests/studies/few_cluster_crossfit_ltmle.py": "ff428e4f9d0bd8256f9042a78fe475b5f78188f4a90d535d957883ece93bac2c",
+    "tests/studies/canonical_cvtmle.py": "1967aa13254ebc671e7ec655dfcb9040a69e931de85c525d4723cc9a80b10330",
+    "tests/studies/canonical_ltmle.py": "4ecd6073268f685845e439284aa4aab7fc8a1036e72ca38c631e0fc6ebd316c9",
+    "tests/studies/canonical_ltmle_crossfit.py": "8b32f833532193c4b71956c9d2cb4454ed663dd46b0debcd982229145f2e3839",
+    "tests/studies/canonical_clustered_tmle.py": "c374d50c0e32b925442bd16fe042c3fcdec5846ddbf1881af434de02e8289ff4",
+    "tests/studies/canonical_tmle.py": "2e357e185549ac6f83c31b4f981df9350981af3c7026ba5e01a7d3bcedd6a791",
+    "tests/conftest.py": "042611124596f19c3ff7a867233ae4551348956cc6119bcfbbc0aadadde00678",
+    "tests/studies/fractional_glm.py": "fbfde5a3e260047a6007103b977497365af7ec9b0fe6685422bb5f38e4a4d8a1",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "5738a220f7466d3608cb9b5f80c49b5afba489cdade5abea53c114c014ea2c22",
+    "summary.csv": "9190137c235e8232b50d1b075beb8706e791e7f78054b7d64c0f5f0004be32cb",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "c475b44d5435a63c34a37cf87b218e698eacd8d7b2333b068ed9ba85a1de2802",
+    "property-replicates.parquet": "61ac5d855eae7bd75a3742a4e9a4dba788adcfe83a121d5c369d96d573f1e35c",
+    "properties.csv": "7904bb60ef299d429ab65a17fcdb45da70a0ef0fe5d3f646b72ea434892e063d"
+  }
+}
