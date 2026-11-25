@@ -990,6 +990,25 @@ TRIAL_ROLE_REFUSALS: Final[tuple[tuple[str, Refusal], ...]] = (
             "form here.",
         ),
     ),
+    (
+        "treatment_probabilities",
+        Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "Adaptive TMLE for a trial with external data estimates the pooled treatment "
+            "mechanism P(A = 1 | W) and the trial-membership mechanism P(S = 1 | W, A) over "
+            "trial and external rows (doi:10.1515/jci-2024-0025, read as arXiv:2405.07186v2, "
+            "Algorithm 1), and the trial's randomization probability P(A = 1 | W, S = 1) fixes "
+            "neither. When that probability is known, a smaller influence function exists for "
+            "the working-model parameter if the external rows are biased, and no estimator "
+            "that attains it is derived here (docs/technical-reference/adaptive-tmle.md, "
+            "Influence functions).",
+            alternative=(
+                "Fit the trial rows alone with PointTreatment(treatment_probabilities=...), "
+                "which divides by the known probability."
+            ),
+            roadmap="F40",
+        ),
+    ),
 )
 
 
@@ -1037,6 +1056,11 @@ class TrialWithExternalData:
         Refused when set: the design identifies the total effect of the treatment.
     treatment_missingness : str or None, default=None
         Refused when set: the adaptive TMLE reads the treatment of every row.
+    treatment_probabilities : None
+        Refused for any other value. Adaptive TMLE estimates the pooled treatment and
+        trial-membership mechanisms, which a known trial probability does not fix. To use
+        the probability, fit the trial rows alone with
+        ``PointTreatment(treatment_probabilities=...)``.
 
     Raises
     ------
@@ -1074,6 +1098,7 @@ class TrialWithExternalData:
     strata: Sequence[str] = field(default=(), kw_only=True)
     intermediate: str | None = field(default=None, kw_only=True)
     treatment_missingness: str | None = field(default=None, kw_only=True)
+    treatment_probabilities: Any = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         # Every refused role has a plain default; a default_factory would read MISSING here.

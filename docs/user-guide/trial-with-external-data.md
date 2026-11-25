@@ -137,6 +137,15 @@ interval narrows when the external rows differ from the trial by the same amount
 way simple enough for the model to learn, such as a constant offset or a trend in one covariate. If
 the difference itself depends on the arm, the external rows add little.
 
+The pooled fit estimates each patient's chance of treatment from all rows, so it does not take the
+trial's known chance. When you know that chance, give it to the trial-alone fit with
+`PointTreatment(treatment_probabilities=...)`. Its interval then needs no model of who got treated,
+as long as the outcome model is fitted on other rows than it predicts (cross-fitting) or is a fixed
+formula such as `LinearRegression`. Knowing the chance does not make the narrowest possible interval
+for the effect any narrower.
+[Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+gives the conditions.
+
 ## Options
 
 | situation | what to set |
@@ -155,12 +164,15 @@ that have enough rows in both groups to be estimated.
 ## What the method refuses
 
 It estimates a two-valued treatment on the difference scale, and it refuses a treatment with three
-or more levels, a ratio, and a continuous dose, each with a reason. It refuses every other
-estimator on a trial design, because they would treat the pooled rows as one population. It also
-refuses the sensitivity analyses of `cleverly.sensitivity` and the refutation and truncation curve
-of `cleverly.validation`. No bound is derived for this kind of fit, and each refit picks its own
-simple description of the difference, so the refits do not estimate the same thing. The checks that
-run are `result.diagnostics.support()`, `score_equations()`, `nuisance_models()` and
+or more levels, a ratio, and a continuous dose, each with a reason. It refuses a known chance of
+treatment in the trial, `treatment_probabilities=`, because the pooled fit has no form that uses it.
+It refuses every other estimator on a trial design, because they would treat the pooled rows as one
+population.
+
+It also refuses the sensitivity analyses of `cleverly.sensitivity` and the refutation and truncation
+curve of `cleverly.validation`. No bound is derived for this kind of fit, and each refit picks its
+own simple description of the difference, so the refits do not estimate the same thing. The checks
+that run are `result.diagnostics.support()`, `score_equations()`, `nuisance_models()` and
 `corrections()`. [Scope and refusals](../technical-reference/scope-and-refusals.md) lists each one.
 
 :::{dropdown} Details: what the interval covers
