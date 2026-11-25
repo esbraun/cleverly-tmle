@@ -59,7 +59,7 @@ def test_every_future_investigation_has_one_row_and_one_contract() -> None:
 
 
 def test_every_main_row_names_a_tier() -> None:
-    tiers = {"scale", "fix", "2", "3", "4", "5", "6"}
+    tiers = {"docs", "scale", "fix", "2", "3", "4", "5", "6"}
     main = section(ROADMAP.read_text(encoding="utf-8"), "Main roadmap")
     for line in main.splitlines():
         if ROW.match(line):
