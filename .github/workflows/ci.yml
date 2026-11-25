@@ -68,10 +68,14 @@ jobs:
   #
   # Each interpreter's run is split across runners (`tests/conftest.py`), because one runner took
   # 2 hours 1 minute on 3.12 (November 2026) and the repository's rule is a CI run under 1.5
-  # hours. Every interpreter has four shards. With two, 3.11's and 3.13's second shard ran 40 to
-  # 65 minutes, and on 2026-11-18 four of them lost their runner at 50 minutes with no log (main
-  # and three pull requests), while no shorter job did. A shard holds whole `xdist_group`s.
-  # `tests-verdict` below reports them as one check.
+  # hours. 3.12 runs the study evidence checks as well, about twice the work of 3.11 or 3.13, so
+  # it has eight shards and the other two have six. With four, a 3.12 shard ran 44 to 74
+  # minutes, the same shard's time differed by a factor of two between runs, and on 2026-11-25
+  # one lost its runner at about 64 minutes with no log (main and two pull requests). On
+  # 2026-11-18 shards of 50 minutes and more lost their runners the same way, and no shorter
+  # job did. The shards are sized so that a typical one takes about 30 minutes, which leaves
+  # room for that variation. A shard holds whole `xdist_group`s. `tests-verdict` below reports
+  # them as one check.
   tests:
     name: tests (${{ matrix.python-version }}, shard ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-latest
@@ -80,18 +84,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python-version: "3.11", shard: 1, shards: 4}
-          - {python-version: "3.11", shard: 2, shards: 4}
-          - {python-version: "3.11", shard: 3, shards: 4}
-          - {python-version: "3.11", shard: 4, shards: 4}
-          - {python-version: "3.12", shard: 1, shards: 4}
-          - {python-version: "3.12", shard: 2, shards: 4}
-          - {python-version: "3.12", shard: 3, shards: 4}
-          - {python-version: "3.12", shard: 4, shards: 4}
-          - {python-version: "3.13", shard: 1, shards: 4}
-          - {python-version: "3.13", shard: 2, shards: 4}
-          - {python-version: "3.13", shard: 3, shards: 4}
-          - {python-version: "3.13", shard: 4, shards: 4}
+          - {python-version: "3.11", shard: 1, shards: 6}
+          - {python-version: "3.11", shard: 2, shards: 6}
+          - {python-version: "3.11", shard: 3, shards: 6}
+          - {python-version: "3.11", shard: 4, shards: 6}
+          - {python-version: "3.11", shard: 5, shards: 6}
+          - {python-version: "3.11", shard: 6, shards: 6}
+          - {python-version: "3.12", shard: 1, shards: 8}
+          - {python-version: "3.12", shard: 2, shards: 8}
+          - {python-version: "3.12", shard: 3, shards: 8}
+          - {python-version: "3.12", shard: 4, shards: 8}
+          - {python-version: "3.12", shard: 5, shards: 8}
+          - {python-version: "3.12", shard: 6, shards: 8}
+          - {python-version: "3.12", shard: 7, shards: 8}
+          - {python-version: "3.12", shard: 8, shards: 8}
+          - {python-version: "3.13", shard: 1, shards: 6}
+          - {python-version: "3.13", shard: 2, shards: 6}
+          - {python-version: "3.13", shard: 3, shards: 6}
+          - {python-version: "3.13", shard: 4, shards: 6}
+          - {python-version: "3.13", shard: 5, shards: 6}
+          - {python-version: "3.13", shard: 6, shards: 6}
     steps:
       - uses: actions/checkout@v4
       # The matrix version is threaded through to `uv venv --python`; without that, every
@@ -114,6 +126,12 @@ jobs:
         run: |
           echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
           python -m tests.parallel
+      # A runner that runs out of memory or disk dies with no log. These steps print what the
+      # runner has, sample the headroom once a minute, and report the lowest at the end.
+      - name: Describe the runner and start sampling its headroom
+        run: |
+          scripts/ci_resources.sh describe
+          scripts/ci_resources.sh start
       # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
       # static documentation checks -- links resolve, every `python` fence parses. Neither
       # executes an example, and both are cheap, so there is no documentation dispatch.
@@ -126,8 +144,12 @@ jobs:
       - run: >-
           pytest -q -n auto --dist loadgroup --durations=25
           ${{ matrix.python-version != '3.12' && '--ignore=tests/unit/test_method_evidence.py' || '' }}
+          --basetemp="$RUNNER_TEMP/pytest"
         env:
           CLEVERLY_TEST_SHARD: ${{ matrix.shard }}/${{ matrix.shards }}
+      - name: Report the least headroom the runner had
+        if: always()
+        run: scripts/ci_resources.sh report
 
   # One check for branch protection: green only when every shard of every interpreter passed.
   tests-verdict:
@@ -161,21 +183,23 @@ jobs:
   # committed study's property rows are perturbed and summarized by the study's own code, and
   # the declared failure-accounting rules must give the same verdicts. It runs here (the R3-2
   # fallback) and never as a sample. On one four-core runner it reached 2 hours 8 minutes
-  # (about 30,700 CPU-seconds, 9,858 cases, November 2026), so it is split into four parts on
-  # four runners. `PROPERTY_DIFFERENTIAL_PART` selects a part, and `property_differential.parts`
-  # assigns each worker group to exactly one part, balanced by estimated work, so the four
-  # parts run every case between them. Each part has 90 minutes. The fast tier checks that the
+  # (about 30,700 CPU-seconds, 9,858 cases, November 2026), so it is split into parts on
+  # separate runners. With four parts, each ran 54 to 69 minutes on main (2026-11-25), close to
+  # where the `tests` shards lost their runners, so there are six. `PROPERTY_DIFFERENTIAL_PART`
+  # selects a part, and `property_differential.parts` assigns each worker group to exactly one
+  # part, balanced by estimated work, so the parts run every case between them. The part count
+  # is the matrix's `strategy.job-total`. Each part has 90 minutes. The fast tier checks that the
   # parametrization lists every committed study. The job always reports, so it can be a required
   # check: on a pull request that touches none of the paths below its steps are skipped, and
   # `property-differential-verdict` reports the parts as one check named `property-differential`.
   property-differential:
-    name: property-differential (part ${{ matrix.part }} of 4)
+    name: property-differential (part ${{ matrix.part }} of 6)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3, 4]
+        part: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -204,11 +228,19 @@ jobs:
       - name: Size the worker pool from the cores this job may actually use
         if: steps.scope.outputs.run == 'true'
         run: echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+      - name: Describe the runner and start sampling its headroom
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          scripts/ci_resources.sh describe
+          scripts/ci_resources.sh start
       # `--durations` names the slowest cases, so a part that grows shows where.
       - if: steps.scope.outputs.run == 'true'
         env:
           PROPERTY_DIFFERENTIAL_PART: ${{ matrix.part }}/${{ strategy.job-total }}
         run: pytest -q -n auto --dist loadgroup --durations=20 tests/canonical/property_differential.py
+      - name: Report the least headroom the runner had
+        if: always() && steps.scope.outputs.run == 'true'
+        run: scripts/ci_resources.sh report
   # One check for branch protection: green only when every part of the differential succeeded.
   property-differential-verdict:
     name: property-differential
