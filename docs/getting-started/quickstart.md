@@ -80,7 +80,8 @@ real data they can differ.
 ## Describe the data and the question
 
 The code first describes the data: which column is the outcome, which is the treatment, and which
-covariates to adjust for (`PointTreatment`, inside a `CausalStudy`). It then names the question
+covariates to adjust for (`PointTreatment`, a design with one treatment given once, inside a
+`CausalStudy`). It then names the question
 (`ATE(reference=0)`, the offer compared with usual support, coded 0). `study.identify` checks that
 the question fits the data's columns and roles, and lists the conditions the answer will rest on
 and the methods that can estimate it. It fits no model.
@@ -116,11 +117,9 @@ effect = study.identify(ATE(reference=0))
 print(effect.summary())
 ```
 
-In the Conditions table, the `checkable` column says the data cannot check three of the four
-conditions, which is expected. A question the design cannot answer would stop here with an error,
-before any fit. The Methods table lists the default method, TMLE (described under
-[estimate the effect](#estimate-the-effect)), and three related estimators that can answer this
-question ([other methods for the same question](#other-methods-for-the-same-question)
+In the Conditions table, the `checkable` column marks three of the four conditions as uncheckable,
+which is expected. A question the design cannot answer would stop here with an error,
+before any fit. The Methods table lists the default method, TMLE, and three related estimators ([other methods for the same question](#other-methods-for-the-same-question)
 compares them). [Data and study design](../user-guide/data-design.md) gives the rules for each
 column role, including weights, clusters and missing outcomes.
 
@@ -152,11 +151,10 @@ method, fits the outcome model, then adjusts its predictions using the treatment
 weight to patients who got the option that was unlikely for patients like them. When the treatment
 model is close to right, the adjustment removes most of the bias a slightly wrong outcome model
 would leave. Here both models are simple, a linear regression and an unpenalized logistic regression
-(`C=np.inf`), because that is how the data were simulated, and each model is fitted on every row
-(`cross_fit=False`). For a score with no fixed range, like this one, fitting on every row with
-simple models is also the only route the package offers. [Why TMLE with these
-settings](#why-tmle-with-these-settings) gives the reasons, and [on your own
-data](#on-your-own-data) shows what to change.
+(`C=np.inf`), because that is how the data were simulated. Each model is fitted on every row
+(`cross_fit=False`) instead of being cross-fitted, because for a score with no fixed range, like
+this one, that is the only route the package offers. [On your own data](#on-your-own-data)
+explains the alternative and what to change.
 
 ```python
 result = effect.estimate(
@@ -166,14 +164,13 @@ result = effect.estimate(
     random_state=7,
 )
 print(result.summary())
-estimate = result["ate"]
+estimate = result["ate"]  # psi is the estimate, ci its 95% interval
 print(f"TMLE: {estimate.psi:.3f}, 95% CI [{estimate.ci[0]:.3f}, {estimate.ci[1]:.3f}]")
 # Only simulated data has a known truth; drop this line on your own data.
 print(f"population ATE: {truth['ate']:.3f}")
 ```
 
-Read the `ate` row: the estimate is 1.513 points, and the 95% interval runs from 1.422 to 1.603,
-which contains the true 1.5. The header's probability limits are the bounds the package puts on
+The `ate` row's interval contains the true 1.5. The header's probability limits are the bounds the package puts on
 each predicted offer chance, so that no patient whose offer was almost certain or almost
 impossible gets an extreme weight; the defaults suit most data. The interval is widened on the
 side where a skewed score makes a miss more likely, and these data show almost no skew, so it is
@@ -192,7 +189,7 @@ the score to between 0 and 1 for the adjustment step and maps the estimate back.
 
 The `support` column of `result.to_frame()` says whether the package's own simulation studies cover
 a fit set up like this one. `supported` means they do. `experimental` means they do not, or a
-condition the summary's notes name, such as few clusters, applies; the estimate is computed the same
+condition the summary's notes name, such as few clusters (groups of related rows), applies; the estimate is computed the same
 way, but no study backs its interval, so report it with that caveat.
 
 ```python
@@ -222,14 +219,15 @@ helper model is right.
 The overlap row says no patient's offer chance reached a limit, so the
 estimate does not lean on the bounds. The Not run table lists the checks the default call skips;
 for each check deferred because it is slow or needs an argument, the first note gives the call.
-Run them before you report on real data.
+On real data, run at least the refutation tests and the covariate benchmark (shown next) before
+you report.
 [Run the assessment battery](../user-guide/results-assessment.md#run-the-assessment-battery)
 explains the three tables.
 
 The unmeasured-confounding row reports 0.514. A missing confounder has two strengths. On the score
 side, it is the share of the score's variation left after adjustment that the confounder would
-explain. On the offer side, it is how much the confounder would add to explaining who got the offer,
-measured on the average squared weight TMLE gives each patient. A confounder with both strengths at
+explain. On the offer side, it is how much the confounder would add to predicting who got the offer beyond
+the recorded covariates, measured on the average squared weight TMLE gives each patient. A confounder with both strengths at
 0.514 could, at worst, move the estimate to zero; one with both below 0.514 could not.
 [Omitted-variable
 bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
@@ -247,7 +245,8 @@ print(result.sensitivity.omitted_confounding(benchmark=benchmark).summary())
 ```
 
 Leaving out `discharge_risk` would move the estimate from 1.51 to 1.78. It is strong on the score
-side (0.870) but weak on the offer side (0.020), far below 0.514. The bounds show that a missing
+side (0.870) but weak on the offer side (0.020): once the other covariates are known, it adds
+little to predicting who got the offer. The bounds show that a missing
 confounder like it could shift the estimate by at most about 0.28, so it could not erase the
 effect; whether such a variable exists is a question about your data.
 
@@ -280,7 +279,7 @@ If every eligible adult received the navigation offer, the mean 30-day score wou
 1.5 points compared with usual support, with a 95% interval of 1.42 to 1.60. The simulated score
 has no real-world unit; 1.5 points is about 0.8 standard deviations of the score. On real data,
 judge the size against a change that matters for the program. The estimate describes the
-discharged population the sample represents, and the offer, not completed navigation.
+sampled population, and the offer, not completed navigation.
 
 The four conditions hold here because the data were simulated that way; on real data each needs an
 argument from how the program ran. The ATE is an average, so it says nothing about which patients
@@ -303,8 +302,8 @@ models. What else you need depends on the outcome.
   ([fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)).
 - A continuous outcome with no such range, like this page's score, has no cross-fitted route. Fit
   it on every row, as this page does, with simple models such as linear and logistic regressions,
-  because the interval of an in-sample fit is valid only for such models. If the checks above
-  suggest those models fit poorly, report the interval with more caution.
+  because the interval of an in-sample fit is valid only for such models. If the assessment's
+  outcome and treatment models row flags a problem, report the interval with more caution.
 
 A yes/no outcome, such as a successful transition, looks like this:
 
