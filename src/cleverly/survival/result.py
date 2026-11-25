@@ -1758,7 +1758,8 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
                 "registered study.",
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=(
-                    f"Refit ContinuousSurvivalTMLE with restricted_horizons=({_t(tau)},)."
+                    f"Refit ContinuousSurvivalTMLE with restricted_horizons=({_t(tau)},), or "
+                    f"declare restricted_horizons=({_t(tau)},) on RegimeMean or RegimeContrast."
                 ),
             )
         first = self._arm(arm, what)
@@ -1824,7 +1825,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         Raises
         ------
         CapabilityError
-            When ``tau`` is not one of the fit's ``restricted_horizons``.
+            When ``tau`` is not one of the fit's ``restricted_horizons``. The fit declares
+            them on the engine, or as ``restricted_horizons=`` on ``RegimeMean`` or
+            ``RegimeContrast`` in a study.
         ValueError
             When an arm or the cause is unknown, or the cause is missing on a fit with
             several causes.
@@ -1871,7 +1874,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         Raises
         ------
         CapabilityError
-            When ``tau`` is not one of the fit's ``restricted_horizons``.
+            When ``tau`` is not one of the fit's ``restricted_horizons``. The fit declares
+            them on the engine, or as ``restricted_horizons=`` on ``RegimeMean`` or
+            ``RegimeContrast`` in a study.
         ValueError
             When an arm is unknown.
 

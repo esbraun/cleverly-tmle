@@ -628,10 +628,12 @@ class TestRefusals:
         error = _refuses(
             lambda: TMLEMethod().with_overrides(restricted_horizons=(1.0,)),
             MethodConfigurationError,
-            "declares targets, not a method setting",
+            "targets of the estimand, not a method setting",
         )
         assert error.refusal.reason == "api_redirection"
-        assert "result.rmst(regimen, horizon)" in str(error.refusal.alternative)
+        assert "RegimeMean(regimens, horizons=..., restricted_horizons=(tau,))" in str(
+            error.refusal.alternative
+        )
         error = _refuses(
             lambda: TMLEMethod().with_overrides(tilt="factual"),
             MethodConfigurationError,
@@ -640,13 +642,26 @@ class TestRefusals:
         assert error.refusal.reason == "invalid_declaration"
 
     def test_the_restricted_mean_redirect_runs(self) -> None:
-        """The exact-time call the refusal spells runs, and so do the two reads it names."""
+        """The estimand call the refusal spells runs, and equals the engine fit it declares.
+
+        Value, standard error and support of every estimate, so the study passes the field
+        to the walk's targets rather than reading the restricted mean some other way.
+        """
         advice = str(ENGINE_ONLY["restricted_horizons"].alternative)
-        assert "ContinuousSurvivalTMLE(horizons, restricted_horizons=(tau,)" in advice
+        assert "RegimeMean(regimens, horizons=..., restricted_horizons=(tau,))" in advice
         assert "result.rmst(arm, tau)" in advice
-        assert "result.rmtl(arm, tau)" in advice
-        study, effect = _continuous_effect(horizons=(0.5, 1.0))
+        assert "result.rmtl(arm, tau, cause)" in advice
+        t, d, a, w = _law(300, 1)
+        frame = pd.DataFrame({"time": t, "event": d, "Z": a, "W": w[:, 0]})
+        design = TimeToEvent(
+            time="time", event="event", treatment="Z", baseline=["W"], grid="continuous"
+        )
+        study = CausalStudy(frame, design=design)
+        effect = study.identify(
+            RegimeMean({"t": 1, "c": 0}, horizons=(0.5, 1.0), restricted_horizons=(1.0,))
+        )
         method = TMLEMethod().with_overrides(random_state=0, cross_fit=False, n_multiplier=500)
+        result = _quiet(lambda: effect.estimate(method))
         direct = _quiet(
             lambda: ContinuousSurvivalTMLE(
                 (0.5, 1.0),
@@ -656,9 +671,19 @@ class TestRefusals:
                 **continuous_kwargs(method),
             ).fit_data(study.data)
         )
-        arm, tau = effect.functional.reference, 1.0
-        assert np.isfinite(direct.rmst(arm, tau).psi)
-        assert np.isfinite(direct.rmtl(arm, tau).psi)
+        assert list(result.estimates) == list(direct.estimates)
+        for name, estimate in direct.estimates.items():
+            assert result.estimates[name].psi == estimate.psi
+            assert result.estimates[name].std_error == estimate.std_error
+            assert result.estimates[name].support == estimate.support
+        arm, tau = "t", 1.0
+        assert result.rmst(arm, tau).psi == direct.rmst(arm, tau).psi
+        assert np.isfinite(result.rmtl(arm, tau).psi)
+        # R-g10: an undeclared restriction time names the estimand route too.
+        error = _refuses(lambda: result.rmst(arm, 0.5), CapabilityError, "is not one of")
+        assert "declare restricted_horizons=(0.5,) on RegimeMean or RegimeContrast" in str(
+            error.refusal.alternative
+        )
 
     def test_the_curve_keeps_its_own_budget(self) -> None:
         """The curve's own ``max_memory_bytes`` keyword never meets the point route refusal."""
@@ -774,6 +799,8 @@ _STUDY_SET = {
     "incremental",
     "effect_modification",
     "family",
+    # From RegimeMean or RegimeContrast(restricted_horizons=...), part (g).
+    "restricted_horizons",
 }
 
 

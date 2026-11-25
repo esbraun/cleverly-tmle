@@ -1338,14 +1338,12 @@ def memory_budget_refusal(estimator: str, verb: str = "runs") -> Refusal:
 ENGINE_ONLY: Mapping[str, Refusal] = {
     "restricted_horizons": Refusal(
         RefusalReason.API_REDIRECTION,
-        "restricted_horizons= adds the restricted mean time lost to each cause, and its "
-        "differences, to the targets the continuous-time walk solves. It declares targets, not "
-        "a method setting, and no CausalStudy estimand declares a restricted mean yet.",
+        "restricted_horizons= declares restricted means, which are targets of the estimand, not "
+        "a method setting.",
         alternative=(
-            "On a binned grid, read result.rmst(regimen, horizon). With exact times, fit "
-            "cleverly.survival.ContinuousSurvivalTMLE(horizons, restricted_horizons=(tau,), "
-            "arms=..., reference=..., plus the method's settings).fit_data(study.data), and "
-            "read result.rmst(arm, tau) or result.rmtl(arm, tau)."
+            "Declare them on the estimand: RegimeMean(regimens, horizons=..., "
+            "restricted_horizons=(tau,)) or RegimeContrast(..., restricted_horizons=(tau,)), then "
+            "read result.rmst(arm, tau) or result.rmtl(arm, tau, cause)."
         ),
     ),
     "tilt": Refusal(
