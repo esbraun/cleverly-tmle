@@ -248,6 +248,10 @@ def _row(name: str, result: LongitudinalResult) -> tuple[str, str, str | None, s
     its label whose sides are both plans of the fit.
     """
     prefix = name.partition("[")[0].removesuffix("_regimen")
+    restricted = result.restricted_index.get(name)
+    if restricted is not None:
+        regimen, versus, cause, node, measure = restricted
+        return measure, regimen, versus, cause, result._time_of(node)
     key = (result.parameter_index or {}).get(name)
     if key is None:
         inside = name.partition("[")[2].removesuffix("]")
@@ -304,6 +308,10 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
         return text if cause is None else vocabulary.MSM_CAUSE.format(text=text, cause=cause)
     survival = result.config.outcome_kind in ("survival", "competing")
     key = prefix
+    if prefix in ("rmst", "rmtl"):
+        # A stored restricted mean; a difference names the reference plan.
+        key = f"{prefix}_ate" if reference is not None else prefix
+        cause = cause or "the event"
     if prefix == "ate" and survival:
         key = "cif_ate" if cause is not None else "risk_ate"
     if prefix in ("ey", "risk") and survival:
@@ -315,7 +323,8 @@ def meaning(result: LongitudinalResult, name: str, *, question: bool = False) ->
         cause = result.data.outcome_name
     template = templates.get(key)
     contrast = reference is not None
-    if template is None or contrast != (key in ("ate", "risk_ate", "cif_ate")):
+    differences = ("ate", "risk_ate", "cif_ate", "rmst_ate", "rmtl_ate")
+    if template is None or contrast != (key in differences):
         return name
     if survival and time is None:
         return name
