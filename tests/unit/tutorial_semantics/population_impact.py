@@ -31,7 +31,9 @@ from tests.unit.tutorial_semantics import (
 
 #: Decimals the readings write that no stored output prints, each with its reason.
 UNPRINTED_DECIMALS = {
-    "1.0": "intermediate=1.0 in the direct-effect cell, the visit value the effect sets",
+    "direct-heading: 1.0": "intermediate=1.0 in the direct-effect cell, the visit value the effect sets",
+    "assessment-heading: 0.01": "the fit's floor on the chance of answering, which no summary "
+    "prints; check asserts gain_fit.config.missingness_bound == 0.01",
 }
 
 
@@ -40,7 +42,7 @@ UNPRINTED_DECIMALS = {
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "association-reading": {"0.5641": "data"},
     "failure-reading": {"0.0872": "estimates"},
-    "assessment-heading": {"0.0095": "estimate", "0.01": "estimate"},
+    "assessment-heading": {"0.0095": "estimate"},
 }
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
@@ -260,6 +262,8 @@ def check(namespace: dict[str, Any]) -> None:
     _check_setup(namespace)
     _check_estimates(namespace)
     _check_assessment(namespace)
+    # assessment-heading reads this floor; the summary prints only the offer model's limits.
+    assert namespace["gain_fit"].config.missingness_bound == 0.01
     _check_tilt(namespace)
 
 

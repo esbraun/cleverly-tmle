@@ -67,6 +67,7 @@ import importlib.util
 import io
 import ipaddress
 import json
+import os
 import re
 import socket
 import sys
@@ -111,6 +112,7 @@ from tests.unit.tutorial_semantics import (
     refit_bound,
     refit_cells,
     scoped_narration_mismatches,
+    split_unprinted,
     stored_text,
     tutorials,
 )
@@ -616,7 +618,11 @@ def test_every_static_only_notebook_calls_the_current_api(stem: str) -> None:
 
 
 def test_the_static_binding_refuses_a_renamed_keyword_and_a_missing_name() -> None:
-    """The mutation controls: each broken call fails, and the intact one passes."""
+    """The mutation controls: each broken call fails, and the intact one passes.
+
+    They cover a constructor, a module attribute, and methods on a fit result and on its
+    ``diagnostics`` attribute, and on what ``sensitivity`` returns.
+    """
     setup = (
         "setup",
         "from cleverly import CrossFitting, ModelSpec\nimport cleverly\n"
@@ -629,6 +635,30 @@ def test_the_static_binding_refuses_a_renamed_keyword_and_a_missing_name() -> No
     assert len(unbound_calls([setup, missing])) == 1
     spread = ("fit", "options = {'n_splits': 5}\nCrossFitting(**options)\n")
     assert unbound_calls([setup, spread]) == [], "a spread call cannot be bound and is skipped"
+
+    # A fit result: estimate() returns a union of result classes, named only for type checking.
+    fit = (
+        "fit",
+        "from cleverly import ATE, CausalStudy\nstudy = CausalStudy(protocol, design=design)\n"
+        "effect = study.identify(ATE())\nresult = effect.estimate(method=method)\n"
+        "result.summary()\nresult.diagnostics.refute(estimand='ate')\n"
+        "result.sensitivity.evalue(estimand='ate')\n",
+    )
+    assert unbound_calls([fit]) == []
+    # A union member that accepts the call is enough: CurveDiagnostics.refute takes **kwargs, so
+    # refute() cannot fail statically, while truncation_curve() has a fixed signature on both.
+    # The sensitivity facade forwards *args and **kwargs, so its own calls are skipped, and the
+    # class it returns is checked instead.
+    for broken in (
+        "result.summary(no_such_option=1)\n",
+        "result.diagnostics.truncation_curve(no_such_option=1)\n",
+        "result.assess(no_such_option=1)\n",
+        "bound = result.sensitivity.evalue(estimand='ate')\nbound.summary(no_such_option=1)\n",
+        "result.no_such_method()\n",
+    ):
+        assert len(unbound_calls([fit, ("later", broken)])) == 1, broken
+    rebound = ("later", "result = 3\nresult.summary(no_such_option=1)\n")
+    assert unbound_calls([fit, rebound]) == [], "a rebinding forgets the old type"
 
 
 @pytest.mark.parametrize("stem", sorted(STATIC_ONLY))
@@ -843,7 +873,9 @@ def _fresh_kernel_state(monkeypatch: Any) -> None:
 
     Notebooks run one after another in a pytest worker, and a ``pd.set_option`` in one would
     otherwise reach the next.  pandas also reads the terminal width when ``display.width`` allows
-    it, so ``COLUMNS`` is fixed at a kernel's 80.
+    it, so ``COLUMNS`` is fixed at a kernel's 80.  ``reset_option`` alone is not enough: pandas
+    picks its ``max_columns`` default when it is imported, 0 (fit the terminal) in a terminal
+    process and 20 in a kernel, so the kernel's values are set explicitly.
     """
     monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "24")
@@ -855,6 +887,9 @@ def _fresh_kernel_state(monkeypatch: Any) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pandas.reset_option("all")
+        pandas.set_option("display.max_columns", 20)
+        pandas.set_option("display.max_rows", 60)
+        pandas.set_option("display.width", 80)
     import numpy
 
     numpy.set_printoptions(**_NUMPY_PRINT_DEFAULTS)
@@ -876,11 +911,24 @@ def _one_native_thread() -> Any:
     A learner's floating-point reductions then do not depend on the CI machine's core count, so
     the fresh run can print what the stored run printed.  The callback runs under the same cap,
     because a callback that recomputes a value exactly must reduce in the same order.
+    ``threadpool_limits`` caps only the libraries already loaded, so the environment variables
+    the kernel gets are also set here, for a native library a cell loads for the first time.
     """
     from threadpoolctl import threadpool_limits
 
-    with threadpool_limits(limits=1):
-        yield
+    from scripts.execute_notebook import SINGLE_THREAD_ENVIRONMENT
+
+    saved = {name: os.environ.get(name) for name in SINGLE_THREAD_ENVIRONMENT}
+    os.environ.update(SINGLE_THREAD_ENVIRONMENT)
+    try:
+        with threadpool_limits(limits=1):
+            yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _run_notebook(
@@ -1156,15 +1204,18 @@ def test_every_narrated_decimal_matches_a_stored_output(path: Path) -> None:
     It reads committed text only, so a platform difference in a fresh run cannot move it.
     """
     markdown = markdown_text(path)
-    declared = getattr(callback_module(path.stem), "UNPRINTED_DECIMALS", {})
-    unprinted: dict[str, str] = dict(declared)
-    missing = narration_mismatches(markdown, stored_text(path), unprinted)
+    module = callback_module(path.stem)
+    unprinted: dict[str, str] = dict(getattr(module, "UNPRINTED_DECIMALS", {}))
+    derived = getattr(module, "DERIVED_DECIMALS", {})
+    exempt = {**unprinted, **dict.fromkeys(derived, "derived")}
+    missing = narration_mismatches(markdown, stored_text(path), exempt)
     assert not missing, (
         f"{_tutorial_id(path)} narrates {missing}, and no stored output prints a value that "
         "rounds to it. Print the number the prose reads, correct the prose, or give the reason "
         f"in UNPRINTED_DECIMALS in tests/unit/tutorial_semantics/{module_name(path.stem)}.py"
     )
-    stale = sorted(set(unprinted) - set(narrated_decimals(markdown)))
+    page, _ = split_unprinted(unprinted)
+    stale = sorted(page - set(narrated_decimals(markdown)))
     assert not stale, f"UNPRINTED_DECIMALS names {stale}, which the prose no longer writes"
     for literal, reason in unprinted.items():
         assert reason.strip(), f"UNPRINTED_DECIMALS gives no reason for {literal}"
@@ -1187,6 +1238,7 @@ def test_every_narrated_decimal_reads_an_output_in_its_own_section(path: Path) -
         path,
         getattr(module, "UNPRINTED_DECIMALS", {}),
         getattr(module, "NARRATION_SOURCES", {}),
+        getattr(module, "DERIVED_DECIMALS", {}),
     )
     where = f"tests/unit/tutorial_semantics/{module_name(path.stem)}.py"
     assert not missing, (
@@ -1194,7 +1246,7 @@ def test_every_narrated_decimal_reads_an_output_in_its_own_section(path: Path) -
         "prints a value that rounds to it. Correct the reading, move it next to the output it "
         f"reads, or name the code cell that prints it in NARRATION_SOURCES in {where}"
     )
-    assert not stale, f"NARRATION_SOURCES in {where} has stale entries: {stale}"
+    assert not stale, f"{where} has stale or failing entries: {stale}"
 
 
 def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
@@ -1202,7 +1254,9 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
 ) -> None:
     """PL-S3's shape fails, a declared cross-reference passes, and an undeclared one still fails.
 
-    Each kind of stale ``NARRATION_SOURCES`` entry is reported.
+    Each kind of stale ``NARRATION_SOURCES`` entry is reported, a cell-scoped
+    ``UNPRINTED_DECIMALS`` key exempts its own cell only, and a ``DERIVED_DECIMALS`` entry fails
+    once its source number moves.
     """
     import tests.unit.tutorial_semantics as semantics
 
@@ -1256,6 +1310,28 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
     notebook["cells"][5]["source"] = "The policy value is 0.091."
     _, stale = scoped_narration_mismatches(path, declared={"gamma-reading": {"0.091": "policy"}})
     assert stale, "the named cell does not print the literal"
+
+    # A cell-scoped exemption covers its own cell only, and goes stale when the cell drops it.
+    notebook["cells"][5]["source"] = "The limit is 0.088; a band of 0.7 to 1.3 is usual."
+    notebook["cells"][1]["source"] = "## First\n\nThe CI starts at 0.7."
+    missing, stale = scoped_narration_mismatches(
+        path, unprinted={"gamma-reading: 0.7": "band", "1.3": "band"}
+    )
+    assert missing == ["h-one: 0.7"] and not stale, "another cell's 0.7 is still checked"
+    notebook["cells"][1]["source"] = "## First\n"
+    _, stale = scoped_narration_mismatches(path, unprinted={"h-one: 0.7": "gone"})
+    assert stale, "a cell-scoped key whose cell no longer writes the literal is stale"
+
+    # A derived literal holds only while its source prints the number it is derived from.
+    notebook["cells"][5]["source"] = "The limit is 0.088, about 8.8% and a size of 2.3."
+    derived = {"gamma-reading: 8.8": ("gamma", "0.088", "percent")}
+    assert scoped_narration_mismatches(path, derived=derived) == ([], [])
+    notebook["cells"][4]["outputs"][0]["text"] = "lower limit 0.091\nupper 2.337\n"
+    missing, stale = scoped_narration_mismatches(path, derived=derived)
+    assert "gamma-reading: 8.8" in missing and stale, "a moved source number fails"
+    notebook["cells"][4]["outputs"][0]["text"] = "lower limit 0.088\nupper 2.337\n"
+    wrong = {"gamma-reading: 8.8": ("gamma", "0.088", "magnitude")}
+    assert scoped_narration_mismatches(path, derived=wrong)[1], "a derivation that does not round"
 
 
 @pytest.mark.parametrize("path", narrated_notebooks(), ids=_tutorial_id)

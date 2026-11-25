@@ -28,7 +28,7 @@ PARTS = ("whole medicine", "fluid part", "potassium part")
 
 #: Decimals the prose writes that no stored output prints, each with its reason.
 UNPRINTED_DECIMALS = {
-    "0.7": "the lower end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
+    "refute-reading: 0.7": "the lower end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
     "reading aid rather than a result",
     "1.3": "the upper end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
     "reading aid rather than a result; _check_data asserts the ratio lies inside it",

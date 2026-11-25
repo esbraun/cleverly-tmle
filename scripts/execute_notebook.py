@@ -45,7 +45,9 @@ KERNEL_CELL_FILE = re.compile(r"[^\s\"']*ipykernel_\d+[/\\]+\d+\.py")
 
 #: The ``text/plain`` repr a kernel stores beside a figure's image, such as
 #: ``<Figure size 700x450 with 1 Axes>``.  Its pixel size follows ``figure.dpi``, which a
-#: platform's matplotlibrc sets, and the published page shows the image, not this text.
+#: platform's matplotlibrc sets, and the published page shows the image, not this text.  The
+#: fast tier's copy is ``tests.notebook_freshness.FIGURE_REPRS``; this script stays importable
+#: without the test package.
 FIGURE_REPR = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
 
 #: Native thread pools default to every core, which differs between machines.  The kernel runs

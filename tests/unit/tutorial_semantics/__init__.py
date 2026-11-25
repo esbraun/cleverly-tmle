@@ -14,7 +14,12 @@ stored output prints it.  :func:`narration_mismatches` reads that mapping.  A no
 also defines ``REFIT_CELLS``, the tuple of its refit cells in notebook order, which the runtime
 module's pin test compares with :func:`refit_cells`.  The check reads
 fixed-point and scientific decimals in prose, keyed by their written form, such as ``0.26`` or
-``5.114e-04``.  It does not read a decimal inside inline code.
+``5.114e-04``.  It does not read a decimal inside inline code.  A key of the form
+``"<markdown cell>: <literal>"`` exempts the literal in that cell only, which the section-scoped
+check (:func:`scoped_narration_mismatches`) enforces.  ``DERIVED_DECIMALS`` maps such a key to a
+printed number it is computed from, as ``(code cell, printed text, kind)``: ``"percent"`` for a
+share written as a percentage, ``"magnitude"`` for a signed number written as a size.  The check
+then confirms that the code cell prints that text and that the derivation rounds to the literal.
 
 **What is not a tutorial.**  ``index`` is navigation.  The TWINS notebook downloads its data, so
 it cannot run in the offline fast tier.  :data:`NOT_TUTORIALS` names both, and the runtime module
@@ -48,6 +53,7 @@ from types import ModuleType
 from typing import Any
 
 from tests.documents import READER_FACING, ROOT
+from tests.notebook_freshness import FIGURE_REPRS
 from tests.notebooks import code_cells
 from tests.prose import markdown_cells
 
@@ -512,7 +518,7 @@ class RefitNamespace(dict[str, Any]):
 
 
 #: The ``text/plain`` reprs of a matplotlib figure or axes.
-_FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
+_FIGURE_REPRS = FIGURE_REPRS
 
 
 def _output_text(output: Mapping[str, Any]) -> str:
@@ -673,7 +679,7 @@ def narration_mismatches(
     module's ``UNPRINTED_DECIMALS`` with its reason, keyed by its written form.  Printing the
     number is the better repair.
     """
-    allowed = dict(unprinted or {})
+    allowed = {key.rpartition(": ")[2] for key in (unprinted or {})}
     printed = []
     for token in _OUTPUT_NUMBER.findall(outputs):
         try:
@@ -784,17 +790,71 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
     return scopes
 
 
+#: How a ``DERIVED_DECIMALS`` entry computes its literal from the printed number.
+DERIVATIONS = {"percent": lambda value: 100.0 * value, "magnitude": abs}
+
+
+def split_unprinted(unprinted: Mapping[str, str] | None) -> tuple[set[str], dict[str, set[str]]]:
+    """The page-wide literals of ``UNPRINTED_DECIMALS``, and the literals exempt per cell."""
+    page: set[str] = set()
+    by_cell: dict[str, set[str]] = {}
+    for key in unprinted or {}:
+        cell, separator, literal = key.rpartition(": ")
+        if separator:
+            by_cell.setdefault(cell, set()).add(literal)
+        else:
+            page.add(literal)
+    return page, by_cell
+
+
+def derived_mismatches(
+    path: Path, derived: Mapping[str, tuple[str, str, str]] | None
+) -> tuple[dict[str, set[str]], list[str]]:
+    """The literals each cell derives from a printed number, and each entry that does not hold.
+
+    An entry ``"cell: literal": (source, printed, kind)`` holds when the markdown cell writes the
+    literal, the code cell ``source`` prints ``printed`` as one of its numbers, and
+    ``DERIVATIONS[kind]`` of the printed number rounds to the literal.
+    """
+    cells = {cell["id"]: cell for cell in _notebook(path)["cells"]}
+    by_cell: dict[str, set[str]] = {}
+    problems = []
+    for key, (source, printed, kind) in (derived or {}).items():
+        cell, _, literal = key.rpartition(": ")
+        markdown = cells.get(cell)
+        code = cells.get(source)
+        if markdown is None or markdown["cell_type"] != "markdown":
+            problems.append(f"{key}: {cell} is not a markdown cell of the page")
+            continue
+        if literal not in narrated_decimals(_joined(markdown.get("source", ""))):
+            problems.append(f"{key}: the cell no longer writes {literal}")
+            continue
+        output = "" if code is None else "\n".join(map(_output_text, code.get("outputs", ())))
+        if printed not in _OUTPUT_NUMBER.findall(output):
+            problems.append(f"{key}: {source} does not print {printed}")
+            continue
+        value = DERIVATIONS[kind](float(printed))
+        if narration_mismatches(literal, repr(value)):
+            problems.append(f"{key}: {kind} of {printed} is {value!r}, which does not round to it")
+            continue
+        by_cell.setdefault(cell, set()).add(literal)
+    return by_cell, problems
+
+
 def scoped_narration_mismatches(
     path: Path,
     unprinted: Mapping[str, str] | None = None,
     declared: Mapping[str, Mapping[str, str]] | None = None,
+    derived: Mapping[str, tuple[str, str, str]] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Decimals that no output in their own scope prints, and stale declared cross-references.
 
     ``declared`` is a callback module's ``NARRATION_SOURCES``: for a markdown cell id, each
     literal the cell quotes from a code cell outside its scope, mapped to that code cell's id.
     An entry is stale when the markdown cell is gone, the literal is no longer in that cell, the
-    named code cell does not print a match, or the named code cell is already in scope.
+    named code cell does not print a match, or the named code cell is already in scope.  A
+    cell-scoped ``UNPRINTED_DECIMALS`` key is stale when its cell no longer writes the literal, and
+    a ``derived`` (``DERIVED_DECIMALS``) entry when :func:`derived_mismatches` refuses it.
 
     Returns
     -------
@@ -809,11 +869,16 @@ def scoped_narration_mismatches(
     }
     declared = {cell: dict(entries) for cell, entries in (declared or {}).items()}
     scopes = narration_scopes(path)
+    page, by_cell = split_unprinted(unprinted)
+    derived_by_cell, stale = derived_mismatches(path, derived)
     missing = []
     used: set[tuple[str, str]] = set()
+    written: dict[str, set[str]] = {}
     for scope in scopes:
+        written.setdefault(scope.cell, set()).update(narrated_decimals(scope.text))
+        exempt = page | by_cell.get(scope.cell, set()) | derived_by_cell.get(scope.cell, set())
         printed = "\n".join(outputs[cell] for cell in scope.sources)
-        for literal in narration_mismatches(scope.text, printed, unprinted):
+        for literal in narration_mismatches(scope.text, printed, dict.fromkeys(exempt, "")):
             source = declared.get(scope.cell, {}).get(literal)
             if (
                 source is not None
@@ -824,7 +889,11 @@ def scoped_narration_mismatches(
                 used.add((scope.cell, literal))
                 continue
             missing.append(f"{scope.cell}: {literal}")
-    stale = []
+    for cell, literals in by_cell.items():
+        stale.extend(
+            f"UNPRINTED_DECIMALS {cell}: {literal} (the cell no longer writes it)"
+            for literal in sorted(literals - written.get(cell, set()))
+        )
     markdown = {scope.cell for scope in scopes}
     for cell, entries in declared.items():
         for literal, source in entries.items():
