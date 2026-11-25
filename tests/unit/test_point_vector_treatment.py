@@ -20,6 +20,7 @@ outcome regression is misspecified and the fluctuation moves.  The mutation cont
 from __future__ import annotations
 
 import inspect
+import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import replace
@@ -590,6 +591,45 @@ def _same(found: Any, expected: Any, where: str) -> None:
     )
 
 
+def _same_influence(found: Any, expected: Any, vector: Any, scalar: Any) -> None:
+    """``diagnostics.influence`` on both readings, with a rounding tie in ``bca_z0`` allowed.
+
+    ``bca_z0`` counts a bootstrap draw equal to the estimate for half.  A draw of
+    ``ey_policy[natural]`` is the mean of a resample, which can equal the full-sample mean in
+    exact arithmetic, so the draw meets the estimate only up to rounding (5.6e-17 on the
+    density fit) and a reading counts it below or tied by the summation order.  Every other
+    number compares as for any reader.  Where the two ``bca_z0`` differ, a draw of each
+    reading lies within rounding of its estimate, and each ``bca_z0`` is a value that the tie
+    can give.
+    """
+    import dataclasses
+
+    from cleverly.inference.bootstrap import normal_quantile
+
+    assert len(found.rows) == len(expected.rows)
+    for left, right in zip(found.rows, expected.rows, strict=True):
+        assert left.name == right.name
+        _same(
+            dataclasses.replace(left, bca_z0=math.nan),
+            dataclasses.replace(right, bca_z0=math.nan),
+            f"diagnostics.influence {left.name}",
+        )
+        if left.bca_z0 == right.bca_z0 or (math.isnan(left.bca_z0) and math.isnan(right.bca_z0)):
+            continue
+        for result, row in ((vector, left), (scalar, right)):
+            draws = np.asarray(result.bootstrap.draws[row.name], dtype=float)
+            draws = draws[np.isfinite(draws)]
+            psi = float(result.estimates[row.name].psi)
+            near = np.abs(draws - psi) <= 1e-12 * max(1.0, abs(psi))
+            assert near.any(), f"{row.name}: bca_z0 differs with no draw at the estimate"
+            below = int(np.count_nonzero(draws < psi) - np.count_nonzero(near & (draws < psi)))
+            allowed = [
+                normal_quantile((below + 0.5 * step) / draws.size)
+                for step in range(2 * int(near.sum()) + 1)
+            ]
+            assert any(math.isclose(row.bca_z0, value) for value in allowed), (row.name, allowed)
+
+
 def _up(a: Any, h: Any) -> np.ndarray:
     return np.asarray(a, dtype=float) + 1.0
 
@@ -725,7 +765,10 @@ def test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading(
                 assert other_kind == "error", f"{key} refuses the vector only"
                 continue
             assert other_kind == "ok", f"{key} returns on the vector only"
-            if key not in _DECLARED_DIFFERENTLY:
+            if key == "diagnostics.influence":
+                _same_influence(value, other, vector, scalar)
+                compared += 1
+            elif key not in _DECLARED_DIFFERENTLY:
                 _same(value, other, key)
                 compared += 1
     assert compared >= 30
