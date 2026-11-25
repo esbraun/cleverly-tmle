@@ -57,7 +57,8 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 
 Inside each training set, screening runs a cross-validated lasso that asks which covariates
 predict the outcome once the treatment is accounted for, as R's `tmle` does. It keeps those, and
-adds the next strongest until it has `min_retain`. Screening picks the covariates the fit adjusts for from the data, so report it.
+adds the next strongest until it has `min_retain`. Screening picks the covariates the fit adjusts for from the data, so report it
+([covariate screening](../technical-reference/point-treatment-tmle.md#covariate-screening)).
 
 The [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) states
 which `ratio` a fit picks under `None`.
