@@ -18,8 +18,10 @@ baseline indicator interacted with every column (:func:`by_baseline`), so the ba
 and the visit decisions have their own coefficients.  A treatment mechanism at baseline need not
 be the one at a visit, and one fit pooled over both misweights every clever covariate when they
 differ: on law CT the pooled fit's influence curve ran 7 to 8% wider than the exact one at any
-:math:`n` (``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``).  A supplied
-``treatment_learner`` reads the treatment design as it is.
+:math:`n` (``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``).  Training rows
+that are all baseline, as with no visit, or hold no baseline take the design alone, which the
+interaction would only repeat.  A supplied ``treatment_learner`` reads the treatment design as
+it is.
 
 **The visit cap.**  For a regime, :math:`K^*` is the largest :math:`K` at which every outer
 training fold holds at least :data:`VISIT_CAP_MIN_FOLLOWERS` units that followed the regime
@@ -408,8 +410,8 @@ def fit_treatment(
 ) -> tuple[FloatArray, PropensitySelection | None]:
     """``P(A = 1 | x)`` at the prediction rows from a model fitted on the training rows.
 
-    The default selection fits on :func:`by_baseline` of the design; a supplied learner reads
-    the design as it is.
+    The default selection fits on :func:`by_baseline` of the design when the training rows hold
+    both baseline and later visits; a supplied learner reads the design as it is.
 
     Parameters
     ----------
@@ -449,8 +451,11 @@ def fit_treatment(
 
         model = clone(seed_unset(learner, seed)).fit(X[train], At, sample_weight=weight[train])
         return model.predict_proba(X[predict])[:, 1], None
-    design = by_baseline(X, baseline) if learner is None else X
-    return _fit_propensity(learner, design, A, train, predict, folds, seed)
+    b = np.asarray(baseline, dtype=bool)
+    if learner is None and np.any(b[train]) and not np.all(b[train]):
+        # Without both baseline and later training rows the interaction only repeats columns.
+        return _fit_propensity(learner, by_baseline(X, b), A, train, predict, folds, seed)
+    return _fit_propensity(learner, X, A, train, predict, folds, seed)
 
 
 class _SoftLogistic:

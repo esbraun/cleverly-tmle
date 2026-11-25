@@ -142,7 +142,8 @@ one logistic model pooled over baseline and later visits is misspecified wheneve
 differ, and on the study's law CT that made the influence curve 7 to 8% wider than the Monte Carlo
 spread at every $n$ (`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md`). At baseline
 $A(s_{k-1})$, $k$ and $s_k$ are zero, so the unpenalized member equals two separate fits; the L1
-members penalize the baseline's departure from the visit coefficients. A supplied
+members penalize the baseline's departure from the visit coefficients. With no visit among the
+training rows the design is $x_k$ alone, so the fit reduces to the baseline engine's. A supplied
 `treatment_learner` reads $x_k$ as it is.
 
 A visit jump of one or more is kept at one only at a time where every row at risk whose own
