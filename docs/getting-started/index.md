@@ -2,7 +2,8 @@
 
 This section gets from a clean Python environment to a fitted, inspectable causal result. The
 quickstart uses the package's synthetic data only so the column roles and target value are known;
-the same public workflow accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs.
+the same public workflow accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs
+([installation](installation.md) lists the extra each one needs).
 
 ```{toctree}
 :maxdepth: 1
