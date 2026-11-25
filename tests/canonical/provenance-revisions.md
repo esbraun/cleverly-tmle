@@ -831,3 +831,27 @@ evidence: two primary samples of each scenario and one replicate of every proper
 primary and 36 property rows), refit at `58538bfa` and at the merged tree, are bitwise equal in
 every column. `tests/unit/test_method_evidence.py` re-summarizes the committed rows with the
 merged modules and reads the committed verdicts.
+
+## Main merged into the last six Fix-9 regenerations
+
+`mtp-boundaries`, `longitudinal-sdr`, `longitudinal-mtp`, `policy-point-mtp` and
+`dose-response-npcausal` ran at `58538bfa`, and `canonical-stratified-incremental-msm` at
+`9bb2e749`. Landing them on a branch that merged main through `cb17f08f` changes recorded
+modules of five of them: `tests/studies/evidence/properties.py` and
+`tests/studies/evidence/property_verdicts.py` for all five, and `tests/studies/fractional_glm.py`
+for all but `canonical-stratified-incremental-msm`, which does not record it.
+`dose-response-npcausal` records none of the three. Each module is identical at `1231ef9c`,
+`58538bfa` and `9bb2e749`, so main's edits since `1231ef9c` are the whole difference, the edits the
+`hazard-mtp` and `vector-mtp` sections above describe: `ratio_draws` gathers the bootstrap indices
+from the same stream column by column, `property_verdicts` adds the `shown_only` few-cluster
+readings and reads an empty property table from the declaration, and `fractional_glm.py` changes
+only its docstring. None of the six studies declares a few-cluster family, and no fit calls these
+functions: they summarize committed replicate rows. The evidence:
+`tests/unit/test_method_evidence.py`, run with `-k` on each slug, re-summarizes the committed
+replicate rows with the merged modules and reads the committed `passed` and `property_passed` on
+every row; the same edits refit bitwise equal for `hazard-mtp` and `vector-mtp`. The
+`longitudinal-sdr` and `longitudinal-mtp` manifests also record
+`tests/studies/evidence/simultaneous.py`, whose Fix-9 edit the constant-arm section above covers.
+Merging main again at `a5d13ce6` (#743 to #747: sampled refutation, the 0.2.8 release and the
+band-less bootstrap replicate of the continuous-time TMLE) changes no module that any Fix-9
+study's manifest records.

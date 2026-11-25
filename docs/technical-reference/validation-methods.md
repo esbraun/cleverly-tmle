@@ -3139,6 +3139,7 @@ The directory's `request.json` records, on first use:
 | request | the estimand |
 | per test | draw count; process and bands (generated tests); resolved resampling, and the declaration and rule (measurement error) |
 | library versions | `cleverly`, NumPy, SciPy and scikit-learn |
+| sampling | for a sampled call, the limit, the rule, the unit count and the sample seed, and `null` for an unsampled call; each stored test's part also records the sampled baseline's estimate and standard error |
 
 A call whose request differs in any part refuses with `INVALID_DECLARATION`, naming the part, and
 so does a stored draw whose seed differs from the one the call derives. No part is keyed by a
@@ -3170,6 +3171,54 @@ would, and reports `stored` draws per test, counting only the rest; it ignores `
 stored test and family, including a stop and resume in fresh processes; stored draws are never
 refit, with a mutation control; each mismatch refuses; and the calls without the keywords equal a
 copy of the loop they replaced.
+
+#### Refuting a sample of the units
+
+`refute(result, sample_limit=m, sampling=None)` draws a simple random sample `S` of `m` of the
+fit's `N` independent units without replacement: subjects on an unclustered fit, whole clusters
+on a clustered fit (`sampling` may name the rule and must match it), each subject with its whole
+trajectory on a longitudinal, structural or continuous-time survival fit. The draw comes from
+its own child of the root seed (`_generated_child_seeds(root, "sample", 1)`) and reads no data,
+so every unit has inclusion probability `m / N` and no design weight is added; supplied
+observation weights travel with their units and are renormalised to mean one on `S`. The call
+refits the stored estimator on `S` (the sampled baseline) and runs the requested tests on it
+exactly as `refute()` runs them on any fit of `m` units. Every reference a test reads, the
+estimate, its standard error, the subset reference size, the bootstrap's resampling frame, the
+generated-outcome and plasmode laws and the control's residual check, comes from `S` and its
+baseline; nothing from the full fit enters a test. A fit under a `SplitPlan` refits under the
+plan its generator records draw on the sampled units.
+
+Under i.i.d. units (the condition the fit's own inference uses) a data-independent uniform
+subset of an i.i.d. sample is an i.i.d. sample of size `m`, so the sampled verdict has exactly
+the distribution of the full-data verdict at `n = m`, whatever `m / N`. The verdict registry
+therefore reads the sampled baseline's configuration, and a verdict prints only where a
+registered rule covers a fit of `m` units; the `N`-unit verdict is never inherited. The
+statement needs the sampled data to equal a fresh preparation of the sampled rows. The call
+refuses with `DataError` a sample that loses a treatment level at any node or a stratum, and a
+covariate that is constant or duplicates another only on `S` withholds every verdict, named in
+`RefutationSample.departures`. Conditional on the data the verdict is random (another seed
+draws another `S`), and its power is the power at `m`, so a defect whose signal grows with `n`
+can pass on the sample.
+
+`RefutationResult.sample` records the limit, rule, unit and row counts, inclusion probability,
+sample seed, the sampled baseline's estimate and standard error, and the full-data estimate,
+which is printed as information only. A limit of at least `N` binds nothing: the call is the
+full-data call bit for bit and `sample.applied` is false. `sampling="units"` on a clustered fit,
+`sampling="clusters"` on an unclustered fit and an unclustered limit below the ten rows a fit
+needs refuse with `INVALID_DECLARATION` before any refit, after every refusal of the full-data
+request; refusals that depend on the drawn rows come after the one baseline refit.
+`planned_refits` adds a `sampled_baseline` row of one refit and gives the tests upper bounds.
+`tests/unit/test_refute_sampled.py` checks that a sampled call equals `refute()` of the estimator
+fitted on the sampled rows, bit for bit, for each family, with a mutation control that hands the
+tests the full fit.
+
+The [sampled-refutation study](method-evidence/refuter-sampled.md) reads the placebo, subset and
+negative-control rules on the point study's T1 fit at `m` of 2,000 and 1,000 subjects and 400
+clusters of five, with `m / N` of 1, 0.5 and 0.1, 1,000 trials each. Each sampled rejection rate
+lies within 0.05 of the full-data rate at `n = m`, and the nine registered-configuration size
+readings reject in 4.4% to 5.8% of null trials. A subset reading that takes the full fit's
+standard error and unit count in place of the sampled baseline's rejects in 79% to 88% of null
+trials at `m / N = 0.1`, which is why every reference comes from `S`.
 
 #### Generated point outcomes
 

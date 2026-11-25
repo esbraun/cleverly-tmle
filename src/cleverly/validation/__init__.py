@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ._planned_refits import PlannedRefits, PlannedRefitTest, planned_refits
 from ._refute_checkpoint import RefutationCheckpoint, RefutationProgress
+from ._sampled_refute import RefutationSample
 from .drtmle import (
     IDENTITY_TOLERANCE,
     MARGIN_ACTIVE,
@@ -81,6 +82,7 @@ __all__ = [
     "RefutationCheckpoint",
     "RefutationProgress",
     "RefutationResult",
+    "RefutationSample",
     "RefutationTest",
     "RelativeGaussianNoise",
     "RepeatSpreadRow",

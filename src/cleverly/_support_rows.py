@@ -7120,6 +7120,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
         "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
     ),
+    "refuter-sampled": (
+        "It measures the size and power of refutation verdict rules on a sample of the units. A "
+        "verdict is no estimate, and a sampled call reads the existing VERDICT_EVIDENCE rows at "
+        "its sampled baseline's configuration."
+    ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
         # Roadmap: F27.

@@ -258,7 +258,11 @@ arrays.
 
 `n_bootstrap=B` on `ContinuousSurvivalTMLE` (at least 2), or on the study route, refits the whole
 estimator on $B$ resamples of the units: initial fits, library selection, the walk and the
-variance. Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
+variance. Only the studentized band below reads a replicate's standard error, so without the band
+a replicate computes the influence-curve variance instead of the switched one; the switched
+variance never enters the walk, so every replicate estimate is the same to the bit, and a
+replicate costs about 0.8 of a switched one in sample and 0.93 cross-fitted
+(`ContinuousSurvivalTMLE._replica`). Replicate $b$ draws the row index that `cleverly.inference.bootstrap.run_index_bootstrap`
 draws for the fit's `random_state` and refits at the seed spawned beside it. Every fold is drawn
 on the resample's distinct units and then copied to their rows (`replicate_plan` in
 `cleverly.survival.engine`): a unit drawn several times has all its copies in one cross-fitting
@@ -306,14 +310,22 @@ No bootstrap interval of this engine reads `supported`
 Two declared studies measure the two fits on the registered law at n = 1,000 with $B = 500$.
 `continuous-survival-bootstrap` (`tests/studies/continuous_survival_bootstrap.py`) gates the
 in-sample fit's percentile interval on the 12 risks and risk differences at the median and upper
-quartile, at 3,200 fits, beside a calibration rule on the bootstrap standard error with a control
-that shrinks it by 0.85. It reports the BCa interval, the Wald interval on the same fits and the six
-first-quartile targets, as the registered `continuous-survival` study does.
+quartile, at 3,200 fits, by the primary rule: the lower 99% limit of coverage at least 0.90, the 99%
+interval of the SE ratio inside (0.80, 1.20), and bias within 0.2 empirical SDs. It reports, with
+no verdict that stops the run, the calibration rule on the bootstrap standard error (SE-ratio
+interval inside (0.93, 1.07), coverage interval inside (0.92, 0.98)) with a control that shrinks
+the standard error by 0.85. The in-sample fit's Wald interval covers 0.937 to 0.951 on these rows
+in the 6,000 fits of `continuous-survival-variance`'s `v4_in_sample`, and in the pilot the
+percentile coverage differed from the Wald coverage on the same fits by -0.015 to +0.010 per row,
+so 1.2 to 3.1 rows are expected to miss the calibration rule's coverage band
+(`tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md`). It also reports the BCa interval, the
+Wald interval on the same fits with a paired comparison of the two, and the six first-quartile
+targets, as the registered `continuous-survival` study does.
 
 `continuous-survival-bootstrap-cross-fitted`
 (`tests/studies/continuous_survival_bootstrap_cross_fitted.py`) reports the cross-fitted fit on all
-18 targets at 1,000 fits and gates nothing. Neither has run. The in-sample run stays refused until
-its pilot of 400 draws reads clean ([roadmap X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)). A pass would not set either
+18 targets at 1,000 fits and gates nothing. Neither has run; both wait for idle capacity on a local
+machine ([roadmap X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)). A pass would not set either
 label alone: the in-sample label also waits on the reading of the theorem's conditions, and the
 cross-fitted label on a theorem.
 `tests/unit/test_continuous_survival_bootstrap.py` checks the shared folds of a unit's copies

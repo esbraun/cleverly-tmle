@@ -197,6 +197,7 @@ refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
 refuter-calibration-continuous-survival
+refuter-sampled
 default-simultaneous-bands
 band-t-reference
 band-t-reference-held-out

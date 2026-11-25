@@ -1886,6 +1886,11 @@ refuter-calibration-longitudinal,refuter_power,detections at least 38 of 50,se_l
 refuter-calibration-longitudinal,refuter_size,rejections at most 17 of 200,se_low
 refuter-calibration-point,refuter_power,detections at least 38 of 50,se_low
 refuter-calibration-point,refuter_size,rejections at most 17 of 200,se_low
+refuter-sampled,refuter_mutation,absolute count fails,dilate/odd
+refuter-sampled,refuter_mutation,difference of rejection rates outside the margin,rejection/0.1
+refuter-sampled,refuter_power,detections at least 38 of 50,se_low
+refuter-sampled,refuter_size,"rejections at most 73 of 1,000",se_low
+refuter-sampled,refuter_size_relative,difference of rejection rates inside the margin,se_low
 missingness-tilt-inference,interval_calibration,coverage in calibration band,bias
 missingness-tilt-inference,interval_calibration,efficiency above band,pair_collapse
 missingness-tilt-inference,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03

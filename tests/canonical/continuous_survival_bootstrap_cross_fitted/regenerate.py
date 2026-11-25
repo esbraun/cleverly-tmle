@@ -19,14 +19,15 @@ Pilot.  The ``cross_fitted`` kind of ``continuous_survival_bootstrap_pilot.csv.g
 streams, reads this record's failures and seconds.  This script refuses a declared run until the
 pilot holds the declared 50 draws (:func:`pilot_refusals`).
 
-PILOT READINGS.  The committed pilot holds 12 draws, each a fit with 200 refits, and no refit
-failed in 2,400.  Percentile coverage reads 0.833 to 1.000 and the bootstrap SE ratio 0.904 to
-1.466 (mean 1.088), too few fits to read a row.  The failure rule, published rather than gated,
-puts the probability that 1,000 fits lose more than 10 at 0.61, an artifact of 12 draws under a
-Jeffreys prior.
+PILOT READINGS.  The committed pilot, rerun under the jump bound, holds 50 draws, each a fit with
+200 refits.  No refit failed in 10,000, and the bound acted in 17.  Percentile coverage reads 0.90
+to 1.00 and the bootstrap SE ratio 0.999 to 1.211 (mean 1.072), beside Wald SE ratios of 0.995 to
+1.205 on the same fits, too few fits to read a row.  The failure rule, published rather than
+gated, puts the probability that 1,000 fits lose more than 10 at 0.30, an artifact of 50 draws
+under a Jeffreys prior.
 
-Budget.  At the pilot's median 3.68 s per fit on one thread (timed while the machine was shared),
-1,000 replicates of 501 fits cost about 510 CPU-h, local.
+Budget.  At the pilot's median 3.46 s per fit on one thread, 1,000 replicates of 501 fits cost
+about 480 CPU-h, local.
 
 Readings (declared before any run).  Every reading is a diagnostic.  A replication that raises, a
 withheld bootstrap included, is never redrawn; it is published against the bound of 0.01.  No
