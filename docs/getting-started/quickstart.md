@@ -170,10 +170,10 @@ logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 
 
 The note under the table describes the interval. For a continuous outcome without clusters, the
 package uses a t distribution and widens the interval on the side where a skewed outcome makes
-misses more likely, so the interval need not be centred on the estimate. This score is close to
-normal, so the interval is centred to three decimals (0.090 on each side), and with this many rows
-the t distribution is close to the normal one. A yes/no outcome gets a different interval, which
-also stays inside the possible range.
+misses more likely, so the interval need not be centred on the estimate. These data show almost
+no skew, so the two sides differ by less than 0.0001, and with this many rows the t distribution
+is close to the normal one. For a yes/no outcome, the interval of a mean or of the ATE is built
+differently, so that it stays inside the possible range.
 [Small-sample scale](../technical-reference/inference.md#small-sample-scale) gives both
 constructions.
 
