@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +30,7 @@ import cleverly
 from cleverly import _support
 from cleverly._support import REGIMEN_KINDS, SupportKey, registered_rows
 from cleverly._support_rows import FAMILY_THEORY
-from cleverly.assessment import ASSESSMENT_CAPABILITIES
+from cleverly.assessment import _FAMILY_METHODS, ASSESSMENT_CAPABILITIES
 from cleverly.targets import TARGETS
 from tests.unit._capability_sweep_support import KINDS, Kind
 
@@ -71,94 +71,8 @@ ASSESSMENT_OUTPUTS = frozenset(
 )
 
 
-def _exempt(reason: str, owner: str, names: Iterable[str]) -> dict[str, Exemption]:
-    return {name: Exemption(reason, owner) for name in names}
-
-
 #: Each element no kind fits, by its tagged name (see :func:`covered`).
-UNSWEPT: Mapping[str, Exemption] = {
-    **_exempt(
-        "a fit result class with no kind; it needs a kind, or an assessment declaration that "
-        "says why it has none",
-        "Fix-15",
-        (
-            "result:AdaptiveTMLEResult",
-            "result:DoseResponseResult",
-            "result:EffectCurveResult",
-            "result:StructuralNestedMeanResult",
-            "result:VariableImportanceResult",
-        ),
-    ),
-    **_exempt(
-        "a fitted method with no kind",
-        "Fix-15",
-        (
-            "method:augmented_trial/atmle",
-            "method:effect_modification/ep",
-            "method:effect_modification/tmle",
-            "method:longitudinal/sdr",
-            "method:structural/snmm",
-        ),
-    ),
-    **_exempt(
-        "a registered engine with no kind",
-        "Fix-15",
-        (
-            "engine:collaborative_tmle/derivative/None",
-            "engine:collaborative_tmle/discrete/None",
-            "engine:collaborative_tmle/greedy",
-            "engine:collaborative_tmle/greedy/None",
-            "engine:collaborative_tmle/lasso/None",
-            "engine:collaborative_tmle/learners/None",
-            "engine:collaborative_tmle/oat/per_arm/parametric_stack",
-            "engine:drtmle/univariate",
-            "engine:sdr",
-            "engine:snmm",
-        ),
-    ),
-    **_exempt(
-        "a target family with no kind",
-        "Fix-15",
-        (
-            "family:P8",
-            "family:P12",
-            "family:P13",
-            "family:P14",
-            "family:blips",
-            "family:competing",
-            "family:learned",
-            "family:repeated",
-            "family:separable",
-            "family:stochastic",
-        ),
-    ),
-    **_exempt(
-        "a registered point estimand with no kind",
-        "Fix-15",
-        (
-            "estimand:ate_learned_rule",
-            "estimand:ate_rr_tilt",
-            "estimand:cate_projection",
-            "estimand:ey_known_regime",
-            "estimand:ey_optimal_rule",
-            "estimand:ey_rr_tilt",
-            "estimand:log_crr_projection",
-        ),
-    ),
-    **_exempt(
-        "a registered support-key value with no kind",
-        "Fix-15",
-        (
-            "missing:eliminated",
-            "splitting:fold_targeted_evaluated",
-            "splitting:repeated",
-            "treatment:6",
-            "treatment:arms4",
-            "treatment:mixed",
-            "treatment:vector",
-        ),
-    ),
-}
+UNSWEPT: Mapping[str, Exemption] = {}
 
 
 def _engine(engine: tuple[Any, ...]) -> str:
@@ -206,7 +120,9 @@ def universe() -> frozenset[str]:
     -------
     frozenset of str
         Tagged names: ``result:<class>`` for each public fit result class,
-        ``method:<assessment family>/<fitted method>`` from the capability rows,
+        ``method:<assessment family>/<fitted method>`` from the capability rows and, for
+        variable importance, whose facades compose its candidates' rows and declare none of
+        their own, from the family's declared methods,
         ``engine:<engine>`` and ``<axis>:<value>`` from the registered support rows,
         ``family:<id>`` from the target family maps, the theory anchors, the regimen kinds and
         the support rows, and ``estimand:<name>`` from the registered point targets.
@@ -228,6 +144,7 @@ def universe() -> frozenset[str]:
                 for row in ASSESSMENT_CAPABILITIES
                 for method in row.methods
             ),
+            *(f"method:variable_importance/{m}" for m in _FAMILY_METHODS["variable_importance"]),
             *(f"family:{family}" for family in families),
             *(value for row in rows for value in _key_values(row.key)),
             *(f"estimand:{name}" for name in TARGETS),

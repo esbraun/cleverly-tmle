@@ -32,7 +32,9 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
-from ..data.causal_data import CausalData
+from ..data.causal_data import CausalData, RowDesign
+from ..data.known_mechanism import divides_by_declaration
+from ..data.weighting import effective_sample_size
 from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
@@ -60,6 +62,7 @@ from ._mechanism_fit import MechanismFit, describe_mechanism
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
+    from ..inference.influence import ParameterEstimate
     from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
@@ -71,6 +74,7 @@ __all__ = [
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
+    "TiltedPropensity",
     "Truncation",
     "UnfittedOutcome",
     "UnfittedPropensity",
@@ -87,6 +91,10 @@ __all__ = [
 #: predicts at, or one matrix per outer fold.  The second form is what a reduced regression
 #: needs, since fold ``k``'s companion design is fold ``k``'s own primary prediction --
 #: see :func:`~cleverly.estimators.reduced.fit_reduced`.
+#: A design matrix to predict at: an array, or a counterfactual design that builds the rows
+#: asked for (:class:`~cleverly.data.causal_data.RowDesign`).
+Design: TypeAlias = "FloatArray | RowDesign"
+
 CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 
 #: A reduction of one fold's companion predictions, applied inside the fold worker: it takes
@@ -226,6 +234,26 @@ class Propensity:
             raise KeyError(f"arm {float(arm)!r} is not one of {list(self.arms)}")
         return match[0]
 
+    def columns_for(self, levels: Any) -> IntArray:
+        """The column of each of ``levels``, as :meth:`column_for` finds it one at a time.
+
+        One comparison per arm rather than one Python call per row, which is what a
+        candidate search that scores every row's observed arm needs: the per-row form
+        took about a fifth of a greedy C-TMLE fit at 100k rows. With :attr:`arms` held as
+        Python floats or float64, the result equals
+        ``[self.column_for(level) for level in levels]`` element for element: the first
+        matching arm wins, and the first level that matches no arm raises the same
+        ``KeyError``.
+        """
+        values = np.asarray(levels, dtype=float)
+        columns = np.full(values.shape, -1, dtype=int)
+        for j in range(len(self.arms) - 1, -1, -1):
+            columns[values == self.arms[j]] = j
+        unmatched = columns < 0
+        if bool(np.any(unmatched)):
+            raise KeyError(f"arm {float(values[unmatched][0])!r} is not one of {list(self.arms)}")
+        return columns
+
     def arm(self, arm: float) -> FloatArray:
         """``P(A = arm | W)``, untruncated."""
         return np.asarray(self.values, dtype=float)[:, self.column_for(arm)]
@@ -303,6 +331,20 @@ class KnownPropensity(Propensity):
     A DR-TMLE fit with the ``"Q"`` guard fluctuates the mechanism along equation (9).  The
     fluctuated mechanism is a plain :class:`Propensity`, because it is no longer the
     declared one.
+    """
+
+
+@dataclass(frozen=True)
+class TiltedPropensity(Propensity):
+    r"""The weight-tilted mechanism estimated from a declaration read in the sample.
+
+    A marker subclass for ``mechanism_law="sample"`` beside non-constant weights.  The
+    values are :math:`\hat g_w \propto g_0 \hat r`, the declared design mechanism times a
+    classification of the treatment with weights :math:`w / g_0(A \mid W)`, so they are an
+    estimate, and :attr:`NuisanceEstimates.treatment_mechanism` reads ``"estimated"``.  The
+    type records that the declaration entered the estimate, which the constructions that
+    reuse a declared mechanism in every fold must not meet; they refuse it before any
+    learner and assert it where they would read it.
     """
 
 
@@ -962,6 +1004,12 @@ class RepeatFit:
         median.  The per-arm outcome-adaptive :class:`~cleverly.CTMLE` with the stacked
         curve also keeps the draw's curve and its shipped standard error.  Empty only on a
         draw built by hand.
+    projection : mapping of str to ParameterEstimate or None, default=None
+        On a conditional contrast's projection fit, this draw's own estimate of every
+        coefficient name, marginal and stratum, with its influence curve.  The repeated
+        fit's joint quantities read them: :meth:`~cleverly.estimators.base.TMLEResult.covariance`
+        by the matrix rule, the heterogeneity test, and the curve and band computed per draw
+        (P1 plan 2.3).  ``None`` on every other fit.
     """
 
     nuisance: NuisanceEstimates
@@ -969,6 +1017,7 @@ class RepeatFit:
     psi: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
     inference: Mapping[str, DrawInference] = field(default_factory=dict)
+    projection: Mapping[str, ParameterEstimate] | None = None
 
     @property
     def folds(self) -> Folds:
@@ -984,7 +1033,7 @@ def cross_fit_predictions(
     folds: Folds,
     *,
     task: Task,
-    predict_designs: dict[str, FloatArray],
+    predict_designs: Mapping[str, Design],
     fit_mask: BoolArray | None = None,
     groups: IntArray | None = None,
     clip: tuple[float, float] | None = None,
@@ -994,6 +1043,7 @@ def cross_fit_predictions(
     constant_folds: list[int] | None = None,
     models: list[Any] | None = None,
     only: Sequence[int] | None = None,
+    mean_one_weights: bool = False,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -1034,6 +1084,9 @@ def cross_fit_predictions(
         The folds to fit, in any order.  ``None`` fits every fold.  The rows of a fold that
         is not fitted come back ``NaN``.  :func:`fit_inner_designs` passes it so that each
         leave-two-out pair of folds is fitted once.
+    mean_one_weights:
+        Rescale the weights of each fit's training rows to mean one, as
+        :func:`cross_fit_companion` describes.
 
     Returns
     -------
@@ -1058,6 +1111,7 @@ def cross_fit_predictions(
         constant_folds=constant_folds,
         models=models,
         only=only,
+        mean_one_weights=mean_one_weights,
     )
     return predictions, diagnostics
 
@@ -1074,7 +1128,7 @@ def cross_fit_companion(
     folds: Folds,
     *,
     task: Task,
-    predict_designs: dict[str, FloatArray],
+    predict_designs: Mapping[str, Design],
     companion_designs: Mapping[str, CompanionDesign],
     fit_mask: BoolArray | None = None,
     groups: IntArray | None = None,
@@ -1088,6 +1142,7 @@ def cross_fit_companion(
     only: Sequence[int] | None = None,
     companion_reduce: CompanionReduce | None = None,
     stack_predictions: bool = False,
+    mean_one_weights: bool = False,
 ) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -1123,6 +1178,11 @@ def cross_fit_companion(
     reduction that keeps less than the predictions keeps the worker from handing ``K`` full
     float slabs back to the parent.
 
+    ``mean_one_weights=True`` rescales the weights of each fit's training rows to mean one.
+    A penalised learner's loss is not invariant to the weight scale, so weights that are
+    not observation weights (the tilt weights of a declaration read in the sample) keep the
+    regularisation the observation weights get.
+
     Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
     and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
     path is the production one and is bit for bit what it was.
@@ -1156,7 +1216,11 @@ def cross_fit_companion(
         value = one_value(rows)
         if value is not None:
             return ConstantFit(value)
-        return fit_on_rows(learner, design, target, weights, rows, task, groups)
+        row_weights = weights
+        if mean_one_weights:
+            row_weights = np.array(weights, dtype=float, copy=True)
+            row_weights[rows] = row_weights[rows] / float(np.mean(row_weights[rows]))
+        return fit_on_rows(learner, design, target, row_weights, rows, task, groups)
 
     def predict(model: Learner, matrix: FloatArray) -> FloatArray:
         if isinstance(model, ConstantFit):
@@ -1168,7 +1232,7 @@ def cross_fit_companion(
     def predict_all(model: Learner, rows: IntArray | None) -> dict[str, FloatArray]:
         if not stack_predictions:
             return {
-                name: predict(model, matrix if rows is None else matrix[rows])
+                name: predict(model, _design_rows(matrix, rows))
                 for name, matrix in predict_designs.items()
             }
         # Many designs of one shape (a dose-response curve's quadrature doses): one call per
@@ -1180,12 +1244,7 @@ def cross_fit_companion(
         out: dict[str, FloatArray] = {}
         for start in range(0, len(names), per_chunk):
             chunk = names[start : start + per_chunk]
-            stacked = np.vstack(
-                [
-                    predict_designs[name] if rows is None else predict_designs[name][rows]
-                    for name in chunk
-                ]
-            )
+            stacked = np.vstack([_design_rows(predict_designs[name], rows) for name in chunk])
             values = predict(model, stacked)
             for k, name in enumerate(chunk):
                 out[name] = values[k * size : (k + 1) * size]
@@ -1297,6 +1356,17 @@ def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:
     if isinstance(design, np.ndarray):
         return design
     return np.asarray(design[fold], dtype=float)
+
+
+def _design_rows(design: Design, rows: IntArray | None) -> FloatArray:
+    """``design[rows]`` of a matrix or of a :class:`~cleverly.data.causal_data.RowDesign`.
+
+    A ``RowDesign`` builds only those rows, which is the point of it: the counterfactual
+    designs of a fit are never all held at full size.  ``None`` means every row.
+    """
+    if isinstance(design, RowDesign):
+        return design.rows(rows)
+    return design if rows is None else design[rows]
 
 
 def tilt_missingness(nuisance: NuisanceEstimates, lower: float) -> FloatArray | None:
@@ -1953,7 +2023,7 @@ _OBSERVED_KEY = "observed"
 
 def _mechanism_designs(
     data: CausalData, arms: tuple[float, ...], policy_set: PolicySet | None, design: FloatArray
-) -> dict[str, FloatArray]:
+) -> dict[str, Design]:
     r"""Where a per-treatment mechanism -- :math:`\pi` or :math:`q_z` -- must be evaluated.
 
     Both mechanisms divide the clever covariate, and the fluctuation updates
@@ -1970,10 +2040,14 @@ def _mechanism_designs(
     one -- the same trick the outcome regression already uses for its ``"observed"`` key.
     """
     if policy_set is None:
-        return {_arm_key(arm): data.counterfactual_design(arm) for arm in arms}
-    designs = {_OBSERVED_KEY: design}
+        return {_arm_key(arm): data.counterfactual_rows(arm) for arm in arms}
+    designs: dict[str, Design] = {_OBSERVED_KEY: design}
     for index, code in enumerate(policy_set.component_keys):
-        designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
+        if data.treatment_kind == "vector":
+            # A vector treatment keeps its full designs (``CausalData.counterfactual_rows``).
+            designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
+        else:
+            designs[_arm_key(code)] = data.counterfactual_rows(policy_set.shifted[:, index])
     return designs
 
 
@@ -2121,6 +2195,36 @@ def fit_mixed_density(
     }
 
 
+def refuse_nuisance_request(
+    data: CausalData, *, outcome_by_arm: bool, has_policies: bool, fit_treatment: bool
+) -> None:
+    """Refuse a nuisance request :func:`fit_nuisances` cannot fit, before its first learner.
+
+    :func:`fit_nuisances` and :func:`plan_nuisances` both call it: a per-arm outcome
+    regression of a dose, and a vector treatment without policies or a fitted mechanism.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    outcome_by_arm : bool
+        Whether the outcome regression is fitted per arm.
+    has_policies : bool
+        Whether the fit declares policies.
+    fit_treatment : bool
+        Whether the fit estimates the treatment mechanism.
+
+    Raises
+    ------
+    CapabilityError
+        For either request.
+    """
+    if outcome_by_arm:
+        _refuse_by_arm_dose(data)
+    if data.treatment_kind == "vector" and (not has_policies or not fit_treatment):
+        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
+
+
 def fit_nuisances(
     data: CausalData,
     *,
@@ -2224,6 +2328,16 @@ def fit_nuisances(
     declaration and marked known, so that its targeting solves no mechanism equation.  A
     discrete modified treatment policy is evaluated at the declaration, as at a fitted
     mechanism.  A companion's propensity is the companion's own declaration in every fold.
+    A declaration read in the sample (``mechanism_law="sample"``) beside non-constant
+    weights is not divided by.  The treatment learner classifies the treatment on the
+    mechanism covariates with weights :math:`v = w / g_0(A \\mid W)`, normalised to mean one
+    on each training fold, on the same folds and cluster groups as an estimated mechanism.
+    Its out-of-fold prediction :math:`\\hat r` gives the tilted mechanism
+    :math:`\\hat g_w = g_0 \\hat r / \\sum_a g_0 \\hat r`, a :class:`TiltedPropensity`, since
+    :math:`P_v(A = a \\mid W) \\propto E[w \\mid A = a, W]` and Bayes' rule gives
+    :math:`P_w(A = a \\mid W) \\propto g_0(a \\mid W) E[w \\mid A = a, W]`.  An incremental tilt
+    and a discrete policy are then evaluated at :math:`\\hat g_w` as at an estimated
+    mechanism, with the mechanism term.
 
     Two keywords serve a policy with a data-tuned cap (X40 part (e)).  ``policy_by_fold``
     gives, per outer fold, the policies that fold's classifier stacks on the classifier
@@ -2265,8 +2379,12 @@ def fit_nuisances(
             "fit_nuisances was given a composite-indicator view. The view is for targeting "
             "and for the readers of a fitted result; fit the nuisances on the prepared data."
         )
-    if outcome_by_arm:
-        _refuse_by_arm_dose(data)
+    refuse_nuisance_request(
+        data,
+        outcome_by_arm=outcome_by_arm,
+        has_policies=bool(policies),
+        fit_treatment=fit_treatment,
+    )
     diagnostics: dict[str, Any] = {}
     treatment_fits: tuple[MechanismFit, ...] | None = None
     groups = data.cluster
@@ -2275,8 +2393,6 @@ def fit_nuisances(
     if companion is not None:
         _check_companion(data, companion)
     vector = data.treatment_kind == "vector"
-    if vector and (not policies or not fit_treatment):
-        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
     if not fit_treatment and (data.is_continuous_treatment or incremental or companion is not None):
         raise ValueError(
             "fit_treatment=False only supports discrete point-treatment nuisances without "
@@ -2386,6 +2502,44 @@ def fit_nuisances(
         if policies:
             policy_set = PolicySet.evaluate(
                 tuple(policies), data, density, reference=policy_reference
+            )
+    elif fit_treatment and data.known_treatment is not None and not divides_by_declaration(data):
+        # mechanism_law="sample" beside weights: the declaration holds in the rows as drawn,
+        # and the fit divides by the tilted mechanism, estimated from it by Bayes' rule.
+        # The preflight refuses a companion and a missing treatment here.
+        assert companion is None and recorded is None
+        declared = np.asarray(data.known_treatment.values, dtype=float)
+        at_arm = declared[
+            np.arange(data.n), np.searchsorted(np.asarray(arms), np.asarray(data.treatment))
+        ]
+        tilt = np.asarray(data.weights, dtype=float) / at_arm
+        ratio, _, propensity_diagnostics = cross_fit_companion(
+            treatment_model,
+            data.mechanism_covariates,
+            data.treatment,
+            tilt,
+            folds,
+            task="classification",
+            predict_designs={"g": data.mechanism_covariates},
+            companion_designs={},
+            groups=groups,
+            clip=(0.0, 1.0),
+            classes=arms,
+            n_jobs=n_jobs,
+            mean_one_weights=True,
+        )
+        product = declared * ratio["g"]
+        propensity = TiltedPropensity(product / product.sum(axis=1, keepdims=True), arms)
+        if propensity_diagnostics:
+            diagnostics["propensity"] = propensity_diagnostics
+        diagnostics["tilt_effective_n"] = effective_sample_size(tilt)
+        if incremental:
+            ipsi_set = IPSISet.evaluate(
+                tuple(incremental), data, propensity.values, reference=incremental_reference
+            )
+        if policies:
+            policy_set = PolicySet.evaluate(
+                tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     elif fit_treatment and data.known_treatment is not None:
         # The design's mechanism, read from the data.  No learner runs, so there are no
@@ -2609,18 +2763,18 @@ def fit_nuisances(
                 for index, code in enumerate(policy_set.component_keys)
             }
 
-        designs: dict[str, FloatArray] = {"observed": outcome_design}
+        designs: dict[str, Design] = {"observed": outcome_design}
         for key, doses in probes.items():
-            designs[f"probe:{key}"] = data.counterfactual_design(
+            designs[f"probe:{key}"] = data.counterfactual_rows(
                 np.asarray(doses, dtype=float), intermediate_value=levels[0]
             )
         for level in levels:
             for code, value in counterfactual.items():
-                designs[_design_key(code, level)] = data.counterfactual_design(
+                designs[_design_key(code, level)] = data.counterfactual_rows(
                     value, intermediate_value=level
                 )
 
-        companion_designs: dict[str, FloatArray] = {}
+        companion_designs: dict[str, CompanionDesign] = {}
         if companion is not None:
             companion_designs = {"observed": companion.treatment_design()}
             for arm in arms:
@@ -2636,7 +2790,11 @@ def fit_nuisances(
             # With an intermediate, at every level z, from the model at (a, z) (X11 (j)).
             for level in levels:
                 for arm in arms:
-                    companion_designs[_rule_key(arm, level)] = designs[_design_key(arm, level)]
+                    # Built whole once here: every fold reads every row of it, so a
+                    # per-fold build would repeat the copy K times for no saving.
+                    companion_designs[_rule_key(arm, level)] = _design_rows(
+                        designs[_design_key(arm, level)], None
+                    )
             pooled_reduce = functools.partial(
                 _pooled_rule_arm, arms=tuple(arms), levels=tuple(levels)
             )
@@ -2764,6 +2922,466 @@ def fit_nuisances(
     )
 
 
+@dataclass(frozen=True)
+class PlannedRole:
+    """The counted fits of one nuisance of :func:`fit_nuisances`.
+
+    Parameters
+    ----------
+    role : str
+        The method field whose learner fits it.
+    what : str
+        The nuisance, in plain words.
+    count : Count
+        Its fits and candidate fits.
+    continuous : bool
+        Whether its target is continuous, so no fold of it can take a ``ConstantFit``.
+    """
+
+    role: str
+    what: str
+    count: Any
+    continuous: bool
+
+
+def classifier_branches(data: CausalData, policies: Sequence[object]) -> int:
+    """The classifiers per fold of :meth:`PolicySet.evaluate_by_classifier`: one per branch.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    policies : sequence of object
+        The policies the classifier route evaluates, tuned caps expanded.
+
+    Returns
+    -------
+    int
+        The number of policy branches.
+    """
+    from ..interventions.policy import (
+        _point_discrete_assignments,
+        _vector_setup,
+        lazy_frame,
+        policy_branches,
+    )
+
+    if data.treatment_kind == "vector":
+        return len(_vector_setup(tuple(policies), data).owners)
+    if data.is_continuous_treatment:
+        return sum(len(policy_branches(policy)) for policy in policies)
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
+    )
+    levels = tuple(data.arm_label(code) for code in data.arm_codes)
+    everyone = np.ones(data.n, dtype=bool)
+    where = f"treatment {data.treatment_name!r}"
+    return sum(
+        len(_point_discrete_assignments(policy, data, levels, frame, everyone, where=where))
+        for policy in policies
+    )
+
+
+def plan_nuisances(
+    data: CausalData,
+    *,
+    outcome_learner: Learner,
+    treatment_learner: Learner,
+    missingness_learner: Learner | None,
+    intermediate_learner: Learner | None,
+    folds: Folds | None,
+    screen_treatment: bool = False,
+    screen_threshold: float = 0.1,
+    min_retain: int | None = None,
+    has_policies: bool = False,
+    policies: Sequence[object] = (),
+    classifier_fits: int = 0,
+    policy_ratio: str = "density",
+    density_bins: int | None = None,
+    fit_treatment: bool = True,
+    fit_treatment_observation: bool = True,
+    outcome_by_arm: bool = False,
+    fit_outcome: bool = True,
+    seed_fixed: bool = True,
+    nominal_folds: int | None = None,
+    n_jobs: int | None = None,
+) -> list[PlannedRole]:
+    """The fits :func:`fit_nuisances` makes on these arguments, counted without fitting.
+
+    Mirrors the branches of :func:`fit_nuisances` and runs its checks that precede the
+    first learner (the request checks of :func:`refuse_nuisance_request`, declared atoms,
+    and with ``n_jobs`` a dose density's bins and memory refusal).  Each role is counted per
+    fold with :func:`~cleverly._planned_fits.count_cross_fit`, which applies the constant-fold rule
+    where ``fit_nuisances`` passes ``constant_folds``.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    outcome_learner, treatment_learner : Learner
+        The resolved learners, as :func:`fit_nuisances` receives them.
+    missingness_learner, intermediate_learner : Learner or None
+        The resolved learners, or ``None`` where the fit passes none.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    screen_treatment : bool
+        Whether the treatment learner is wrapped in the correlation screener.
+    screen_threshold : float
+        The screener's threshold.
+    min_retain : int or None
+        The screener's floor.
+    has_policies : bool
+        Whether the fit declares policies.
+    policies : sequence of object
+        The policies a vector treatment's density route evaluates, as the fit passes them;
+        empty when their tuned caps are not fitted yet, which the density's count does
+        not read.
+    classifier_fits : int
+        The classifiers per fold of the classifier ratio route: one per policy branch.
+    policy_ratio : str
+        ``"density"`` or ``"classifier"``.
+    density_bins : int or None
+        The bin count of a dose density.
+    fit_treatment : bool
+        As :func:`fit_nuisances`.
+    fit_treatment_observation : bool
+        As :func:`fit_nuisances`.
+    outcome_by_arm : bool
+        As :func:`fit_nuisances`.
+    fit_outcome : bool
+        As :func:`fit_nuisances`.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        Count every role at this many folds and its nominal counts, with no constant-fold
+        skip: a bootstrap replicate's draw.
+    n_jobs : int or None
+        Parallel workers across the folds, as :func:`fit_nuisances` takes it.  ``None``
+        skips a density's memory refusal, for a count of draws the fit makes later.
+
+    Returns
+    -------
+    list of PlannedRole
+        One entry per nuisance the fit makes.
+    """
+    from .._planned_fits import Count, count_cross_fit, count_nominal
+    from ..learners.density import plan_conditional_density
+    from ..learners.density_ratio import plan_classifier_ratio
+
+    vector = data.treatment_kind == "vector"
+    refuse_nuisance_request(
+        data, outcome_by_arm=outcome_by_arm, has_policies=has_policies, fit_treatment=fit_treatment
+    )
+    groups = data.cluster
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+    weights = np.asarray(data.weights, dtype=float)
+    out: list[PlannedRole] = []
+
+    def role(
+        learner: Learner,
+        target: FloatArray,
+        *,
+        task: Task,
+        fit_mask: BoolArray | None = None,
+        constant_skip: bool = False,
+        times: int = 1,
+    ) -> Count:
+        if nominal_folds is not None:
+            return count_nominal(learner, target, nominal_folds * times, task=task)
+        assert folds is not None
+        return count_cross_fit(
+            learner,
+            target,
+            folds,
+            task=task,
+            weights=weights,
+            fit_mask=fit_mask,
+            groups=groups,
+            constant_skip=constant_skip,
+            seed_fixed=seed_fixed,
+        )
+
+    treatment_model = (
+        _screened(treatment_learner, screen_threshold, min_retain)
+        if screen_treatment
+        else treatment_learner
+    )
+    if vector and data.component_atoms and folds is not None:
+        check_component_atoms(
+            np.asarray(data.treatment_components, dtype=float),
+            tuple(
+                JointComponent(name, levels)
+                for name, levels in zip(data.component_names, data.component_levels, strict=True)
+            ),
+            np.ones(data.n, dtype=bool),
+            data.component_atoms,
+            folds,
+            ratio=policy_ratio,
+        )
+    if vector and policy_ratio != "classifier":
+        out.extend(
+            PlannedRole("treatment_learner", what, count, False)
+            for what, count in plan_vector_treatment(
+                data,
+                treatment_model,
+                folds,
+                policies=policies,
+                density_bins=density_bins,
+                seed_fixed=seed_fixed,
+                nominal_folds=nominal_folds,
+                n_jobs=n_jobs,
+            )
+        )
+    elif vector or (data.is_continuous_treatment and has_policies and policy_ratio == "classifier"):
+        if data.dose_atoms and folds is not None and not vector:
+            check_declared_atoms(
+                data.treatment,
+                np.ones(data.n, dtype=bool),
+                data.dose_atoms,
+                folds,
+                node=data.treatment_name,
+            )
+        count = Count()
+        for _ in range(classifier_fits):
+            count.add(
+                plan_classifier_ratio(
+                    treatment_model,
+                    data.n,
+                    folds,
+                    groups=groups,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                )
+            )
+        out.append(PlannedRole("treatment_learner", "policy ratio classifier", count, False))
+    elif data.is_continuous_treatment:
+        if data.dose_atoms:
+            if folds is not None:
+                check_declared_atoms(
+                    data.treatment,
+                    np.ones(data.n, dtype=bool),
+                    data.dose_atoms,
+                    folds,
+                    node=data.treatment_name,
+                )
+            out.extend(
+                plan_mixed_density(
+                    treatment_model,
+                    data,
+                    folds,
+                    density_bins=density_bins,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                    n_jobs=n_jobs,
+                )
+            )
+        else:
+            out.append(
+                PlannedRole(
+                    "treatment_learner",
+                    "dose density",
+                    plan_conditional_density(
+                        treatment_model,
+                        data.treatment,
+                        weights,
+                        folds,
+                        n_bins=density_bins,
+                        groups=groups,
+                        seed_fixed=seed_fixed,
+                        nominal_folds=nominal_folds,
+                        n_covariates=None if n_jobs is None else data.mechanism_covariates.shape[1],
+                        n_jobs=1 if n_jobs is None else n_jobs,
+                    ),
+                    False,
+                )
+            )
+    elif fit_treatment and data.known_treatment is not None and not divides_by_declaration(data):
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "tilted treatment mechanism",
+                role(treatment_model, data.treatment, task="classification"),
+                False,
+            )
+        )
+    elif fit_treatment and data.known_treatment is not None:
+        pass
+    elif fit_treatment:
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "treatment mechanism",
+                role(treatment_model, data.treatment, task="classification", fit_mask=recorded),
+                False,
+            )
+        )
+        if has_policies and policy_ratio == "classifier":
+            count = Count()
+            for _ in range(classifier_fits):
+                count.add(
+                    plan_classifier_ratio(
+                        treatment_model,
+                        data.n,
+                        folds,
+                        groups=groups,
+                        seed_fixed=seed_fixed,
+                        nominal_folds=nominal_folds,
+                    )
+                )
+            out.append(PlannedRole("treatment_learner", "policy ratio classifier", count, False))
+
+    if recorded is not None and fit_treatment_observation:
+        assert missingness_learner is not None
+        out.append(
+            PlannedRole(
+                "missingness_learner",
+                "treatment recorded",
+                role(missingness_learner, recorded.astype(float), task="classification"),
+                False,
+            )
+        )
+    if data.has_missing_outcome:
+        assert missingness_learner is not None
+        out.append(
+            PlannedRole(
+                "missingness_learner",
+                "outcome observed",
+                role(
+                    missingness_learner,
+                    data.observed.astype(float),
+                    task="classification",
+                    fit_mask=recorded,
+                ),
+                False,
+            )
+        )
+    if data.has_intermediate:
+        assert intermediate_learner is not None and data.intermediate is not None
+        out.append(
+            PlannedRole(
+                "intermediate_learner",
+                "intermediate mechanism",
+                role(intermediate_learner, data.intermediate, task="classification"),
+                False,
+            )
+        )
+    if fit_outcome:
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        # Only the fit's binary outcome ever takes a ConstantFit, and the scaler is the
+        # identity there, so the raw outcome reads the same folds as the scaled one.
+        target = np.asarray(data.outcome, dtype=float)
+        fit_mask = data.observed if recorded is None else data.observed & recorded
+        skip = outcome_task == "classification" and (
+            outcome_by_arm or (folds is not None and not folds.is_single)
+        )
+        if outcome_by_arm:
+            treatment = np.asarray(data.treatment, dtype=float)
+            count = Count()
+            for arm in data.arm_codes:
+                count.add(
+                    role(
+                        outcome_learner,
+                        target,
+                        task=outcome_task,
+                        fit_mask=np.asarray(fit_mask, dtype=bool) & (treatment == arm),
+                        constant_skip=skip,
+                    )
+                )
+            what = "outcome regression, one per arm"
+        else:
+            count = role(
+                outcome_learner, target, task=outcome_task, fit_mask=fit_mask, constant_skip=skip
+            )
+            what = "outcome regression"
+        out.append(PlannedRole("outcome_learner", what, count, outcome_task == "regression"))
+    return out
+
+
+def plan_mixed_density(
+    learner: Learner,
+    data: CausalData,
+    folds: Folds | None,
+    *,
+    density_bins: int | None,
+    seed_fixed: bool,
+    nominal_folds: int | None,
+    n_jobs: int | None = None,
+) -> list[PlannedRole]:
+    """The fits :func:`fit_mixed_density` makes, counted without fitting.
+
+    The atom classifier per fold, and the continuous density per fold on the rows that hold
+    no atom when there are any.
+
+    Parameters
+    ----------
+    learner : Learner
+        The resolved treatment learner.
+    data : CausalData
+        The prepared data, with declared atoms.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    density_bins : int or None
+        The bin count of the continuous part.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        As :func:`plan_nuisances`.
+    n_jobs : int or None
+        As :func:`plan_nuisances`.
+
+    Returns
+    -------
+    list of PlannedRole
+        The atom classifier and, when some row holds no atom, the density.
+    """
+    from .._planned_fits import count_cross_fit, count_nominal
+    from ..interventions.policy import _atom_index
+    from ..learners.density import plan_conditional_density
+
+    a = np.asarray(data.treatment, dtype=float).reshape(-1)
+    index = _atom_index(a, tuple(float(atom) for atom in data.dose_atoms))
+    none = index < 0
+    label = np.where(index >= 0, index + 1, 0).astype(float)
+    if nominal_folds is not None:
+        classifier = count_nominal(learner, label, nominal_folds, task="classification")
+    else:
+        assert folds is not None
+        classifier = count_cross_fit(
+            learner,
+            label,
+            folds,
+            task="classification",
+            weights=np.asarray(data.weights, dtype=float),
+            groups=data.cluster,
+            seed_fixed=seed_fixed,
+        )
+    out = [PlannedRole("treatment_learner", "dose atom classifier", classifier, False)]
+    if none.any():
+        out.append(
+            PlannedRole(
+                "treatment_learner",
+                "dose density",
+                plan_conditional_density(
+                    learner,
+                    a,
+                    np.asarray(data.weights, dtype=float),
+                    folds,
+                    n_bins=density_bins,
+                    groups=data.cluster,
+                    fit_mask=none,
+                    seed_fixed=seed_fixed,
+                    nominal_folds=nominal_folds,
+                    n_covariates=None if n_jobs is None else data.mechanism_covariates.shape[1],
+                    n_jobs=1 if n_jobs is None else n_jobs,
+                ),
+                False,
+            )
+        )
+    return out
+
+
 def _check_companion(data: CausalData, companion: CausalData) -> None:
     """Refuse a companion this function cannot evaluate every nuisance at.
 
@@ -2882,14 +3500,17 @@ def fit_inner_designs(
         )
     arms = nuisance.arms
     outcome_design = data.treatment_design()
-    designs: dict[str, FloatArray] = {"observed": outcome_design}
+    designs: dict[str, Design] = {"observed": outcome_design}
     for arm in arms:
-        designs[f"arm{arm}"] = data.counterfactual_design(arm)
+        designs[f"arm{arm}"] = data.counterfactual_rows(arm)
     scaled = nuisance.scaler.scale(data.outcome)
     assignment = np.asarray(folds.assignment)
     observed = np.asarray(data.observed, dtype=bool)
     held = [folds.test_index(fold) for fold in range(folds.n_folds)]
 
+    # A tilted mechanism is an estimate that read the declaration, and DRTMLE refuses it
+    # before any learner (``KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL``), so no slab refits one here.
+    assert not isinstance(nuisance.propensity, TiltedPropensity)
     known = isinstance(nuisance.propensity, KnownPropensity)
     # Every slab starts as a copy of the production arrays, which are its own-fold values.
     # The pair loop below overwrites every other fold's rows.
@@ -2964,7 +3585,9 @@ def fit_inner_designs(
                 folds,
                 task=nuisance.outcome_task,
                 predict_designs=designs,
-                companion_designs={name: matrix[own] for name, matrix in designs.items()},
+                companion_designs={
+                    name: _design_rows(matrix, own) for name, matrix in designs.items()
+                },
                 fit_mask=observed & without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
@@ -3052,6 +3675,9 @@ def fit_fold_mechanisms(
     recorded = data.treatment_recorded if data.has_missing_treatment else None
     fill = data.arm_codes[0] if recorded is not None else None
     eligible = np.ones(data.n, dtype=bool) if recorded is None else np.asarray(recorded, bool)
+    # AdaptiveIPTW refuses a tilted mechanism before any learner
+    # (``KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL``), so no slab refits one here.
+    assert not isinstance(nuisance.propensity, TiltedPropensity)
     estimated_treatment = (
         treatment_learner is not None
         and nuisance.fits_treatment
@@ -3151,3 +3777,91 @@ def _retained_covariates(
         sample_weight=data.weights[rows],
     )
     return tuple(name for name, flag in zip(names, keep, strict=True) if flag)
+
+
+def plan_vector_treatment(
+    data: CausalData,
+    learner: Learner,
+    folds: Folds | None,
+    *,
+    policies: Sequence[object],
+    density_bins: int | None,
+    seed_fixed: bool,
+    nominal_folds: int | None,
+    n_jobs: int | None = None,
+) -> list[tuple[str, Any]]:
+    """The fits of a vector treatment's density route, counted without fitting.
+
+    With the policies, :func:`~cleverly.interventions.policy.plan_vector_density` runs their
+    checks and counts the chain rule's factors.  Without them (a learner-backed tuned cap
+    that the fit resolves first), the factors are counted from the observed treatment
+    alone, which is all their count reads.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, with a vector treatment.
+    learner : Learner
+        The resolved treatment learner.
+    folds : Folds or None
+        The outer split, or ``None`` with ``nominal_folds``.
+    policies : sequence of object
+        The joint policies, or empty.
+    density_bins : int or None
+        The bin count of each dose.
+    seed_fixed : bool
+        As :func:`~cleverly._planned_fits.count_learner`.
+    nominal_folds : int or None
+        As :func:`plan_nuisances`.
+    n_jobs : int or None
+        As :func:`plan_nuisances`.
+
+    Returns
+    -------
+    list of tuple
+        ``(what, Count)`` per factor.
+    """
+    from ..interventions.joint_density import (
+        NodeLayout,
+        joint_density_inputs,
+        plan_joint_density,
+    )
+    from ..interventions.policy import component_atom_layout, plan_vector_density
+
+    if policies:
+        return plan_vector_density(
+            policies,
+            data,
+            learner,
+            folds,
+            n_bins=density_bins,
+            seed_fixed=seed_fixed,
+            nominal_folds=nominal_folds,
+            n_jobs=n_jobs,
+        )
+    components = tuple(
+        JointComponent(name, levels)
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+    )
+    layout = NodeLayout(
+        components,
+        np.asarray(data.treatment_components, dtype=float),
+        np.ones(data.n, dtype=bool),
+        lambda extra: None,
+        np.asarray(data.mechanism_covariates, dtype=float),
+        f"treatment {data.treatment_name!r}",
+        component_atom_layout(components, data.component_atoms),
+    )
+    inputs = joint_density_inputs(layout, (), (), n_bins=density_bins)
+    return plan_joint_density(
+        layout,
+        inputs,
+        learner=learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        seed_fixed=seed_fixed,
+        nominal_folds=nominal_folds,
+        n_jobs=n_jobs,
+    )

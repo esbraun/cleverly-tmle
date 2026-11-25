@@ -16,21 +16,21 @@ inference scales.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | `cleverly` controlled direct-effect TMLE | -0.0034 to 0.0014 | 0.9350 | 0.9726 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | `cleverly` controlled direct-effect TMLE | -0.0034 to 0.0014 | 0.9372 | 0.9726 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | R `tmle` controlled direct-effect path | -0.0034 to 0.0014 | 0.9350 | 0.9726 | pass |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | `cleverly` controlled direct-effect TMLE | -0.000657 to 0.0032 | 0.9216 | 0.9694 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | `cleverly` controlled direct-effect TMLE | -0.000657 to 0.0032 | 0.9353 | 0.9694 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | R `tmle` controlled direct-effect path | -0.000657 to 0.0032 | 0.9216 | 0.9694 | pass |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | `cleverly` controlled direct-effect TMLE | -0.0011 to 0.0017 | 0.9519 | 1.0125 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | `cleverly` controlled direct-effect TMLE | -0.0011 to 0.0017 | 0.9531 | 1.0125 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | R `tmle` controlled direct-effect path | -0.0011 to 0.0017 | 0.9519 | 1.0125 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `or` | marginal odds ratio, reported on the log scale | `cleverly` controlled direct-effect TMLE | -0.0305 to -0.0061 | 0.9331 | 0.9629 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `or` | marginal odds ratio, reported on the log scale | R `tmle` controlled direct-effect path | -0.0305 to -0.0061 | 0.9331 | 0.9629 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `rr` | marginal risk ratio, reported on the log scale | `cleverly` controlled direct-effect TMLE | -0.0046 to 0.0027 | 0.9428 | 0.9802 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `rr` | marginal risk ratio, reported on the log scale | R `tmle` controlled direct-effect path | -0.0046 to 0.0027 | 0.9428 | 0.9802 | pass |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | `cleverly` controlled direct-effect TMLE | -0.0022 to 0.0021 | 0.9397 | 0.9795 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | `cleverly` controlled direct-effect TMLE | -0.0022 to 0.0021 | 0.9387 | 0.9795 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | R `tmle` controlled direct-effect path | -0.0022 to 0.0021 | 0.9397 | 0.9795 | pass |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | `cleverly` controlled direct-effect TMLE | -0.0014 to 0.0012 | 0.9419 | 0.9906 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | `cleverly` controlled direct-effect TMLE | -0.0014 to 0.0012 | 0.9484 | 0.9906 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | R `tmle` controlled direct-effect path | -0.0014 to 0.0012 | 0.9419 | 0.9906 | pass |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | `cleverly` controlled direct-effect TMLE | -0.0018 to 0.0015 | 0.9272 | 0.9779 | pass |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | `cleverly` controlled direct-effect TMLE | -0.0018 to 0.0015 | 0.9303 | 0.9779 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | R `tmle` controlled direct-effect path | -0.0018 to 0.0015 | 0.9272 | 0.9779 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `or` | marginal odds ratio, reported on the log scale | `cleverly` controlled direct-effect TMLE | -0.0032 to 0.0155 | 0.9409 | 0.9797 | pass |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `or` | marginal odds ratio, reported on the log scale | R `tmle` controlled direct-effect path | -0.0032 to 0.0155 | 0.9409 | 0.9797 | pass |
@@ -45,14 +45,14 @@ Comparator-backed: a paired comparison with `tmle-r-cde` on the same samples. Ea
 
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | -3.126e-10 | 3.927e-08 | 1.0000 | 0 | matching implementation | 2.202e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | 3.204e-10 | 4.988e-08 | 1.0000 | 0 | matching implementation | 3.398e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | 7.840e-12 | 1.735e-09 | 1.0000 | 0 | matching implementation | 7.079e-11 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | -3.126e-10 | 3.927e-08 | 1.0000 | 0.0022 | matching implementation | 2.202e-09 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | 3.204e-10 | 4.988e-08 | 1.0000 | 0.0138 | matching implementation | 3.398e-09 vs 0.0500 | superior |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | 7.840e-12 | 1.735e-09 | 1.0000 | 0.0012 | matching implementation | 7.079e-11 vs 0.0500 | equivalent |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `or` | marginal odds ratio, reported on the log scale | -6.157e-10 | 3.543e-08 | 1.0000 | 0 | matching implementation | 3.092e-09 vs 0.0500 | equivalent |
 | binary-outcome MAR observed law, intervention sets the intermediate to zero | `rr` | marginal risk ratio, reported on the log scale | -2.613e-10 | 2.896e-08 | 1.0000 | 0 | matching implementation | 1.672e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | 5.451e-13 | 7.861e-11 | 1.0000 | 0 | matching implementation | 5.265e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | -9.426e-12 | 2.230e-09 | 1.0000 | 0 | matching implementation | 7.966e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | -8.881e-12 | 1.625e-09 | 1.0000 | 0 | matching implementation | 3.178e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | 5.451e-13 | 7.861e-11 | 1.0000 | -0.000938 | matching implementation | 5.265e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | -9.426e-12 | 2.230e-09 | 1.0000 | 0.0066 | matching implementation | 7.966e-10 vs 0.0500 | superior |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | -8.881e-12 | 1.625e-09 | 1.0000 | 0.0031 | matching implementation | 3.178e-10 vs 0.0500 | equivalent |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `or` | marginal odds ratio, reported on the log scale | 8.124e-11 | 6.819e-10 | 1.0000 | 0 | matching implementation | 6.197e-10 vs 0.0500 | equivalent |
 | binary-outcome MAR observed law, intervention sets the intermediate to one | `rr` | marginal risk ratio, reported on the log scale | 6.593e-11 | 1.992e-09 | 1.0000 | 0 | matching implementation | 9.517e-10 vs 0.0500 | equivalent |
 <!-- /generated -->
@@ -86,20 +86,20 @@ above validates the recoded result.
 | `cde_robustness` | `z1__observation_wrong` | control | controlled direct effect at intermediate level one: only the observation mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias -0.1797 to -0.1727, margin 0.0118, SE ratio 1.5008 | pass |
 | `cde_robustness` | `z1__outcome_correct` | positive | controlled direct effect at intermediate level one: the outcome regression is correct and all three mechanisms are wrong | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0025 to 0.0037, margin 0.0105, SE ratio 1.1461 | pass |
 | `cde_robustness` | `z1__treatment_wrong` | control | controlled direct effect at intermediate level one: only the treatment mechanism is wrong beside a wrong outcome regression | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.2137 to 0.2195, margin 0.0099, SE ratio 2.3230 | pass |
-| `interval_calibration` | `z0__correctly_specified` | positive | controlled direct effect at intermediate level zero: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9363 to 0.9474, SE ratio 0.9726 to 1.0056, empirical efficiency ratio 0.9841 to 1.0167, reported efficiency ratio 0.9873 to 0.9910 | pass |
+| `interval_calibration` | `z0__correctly_specified` | positive | controlled direct effect at intermediate level zero: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9397 to 0.9505, SE ratio 0.9726 to 1.0056, empirical efficiency ratio 0.9841 to 1.0167, reported efficiency ratio 0.9873 to 0.9910 | pass |
 | `interval_calibration` | `z0__noise_control` | control | controlled direct effect at intermediate level zero: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8249 to 0.8425, SE ratio 0.6937 to 0.7174, empirical efficiency ratio 1.3788 to 1.4259, reported efficiency ratio 0.9873 to 0.9911 | pass |
 | `interval_calibration` | `z0__shrunken_se_control` | control | controlled direct effect at intermediate level zero: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8099 to 0.8281, SE ratio 0.6810 to 0.7039, empirical efficiency ratio 0.9839 to 1.0167, reported efficiency ratio 0.6911 to 0.6937 | pass |
-| `interval_calibration` | `z1__correctly_specified` | positive | controlled direct effect at intermediate level one: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9352 to 0.9463, SE ratio 0.9789 to 1.0133, empirical efficiency ratio 0.9767 to 1.0102, reported efficiency ratio 0.9876 to 0.9910 | pass |
+| `interval_calibration` | `z1__correctly_specified` | positive | controlled direct effect at intermediate level one: all four required nuisance functions are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9387 to 0.9496, SE ratio 0.9789 to 1.0133, empirical efficiency ratio 0.9767 to 1.0102, reported efficiency ratio 0.9876 to 0.9910 | pass |
 | `interval_calibration` | `z1__noise_control` | control | controlled direct effect at intermediate level one: one efficiency-bound unit of independent noise is added to each estimate | the empirical efficiency ratio must rise above the band | coverage 0.8212 to 0.8389, SE ratio 0.6913 to 0.7147, empirical efficiency ratio 1.3845 to 1.4311, reported efficiency ratio 0.9875 to 0.9910 | pass |
 | `interval_calibration` | `z1__shrunken_se_control` | control | controlled direct effect at intermediate level one: the reported standard errors are multiplied by a declared factor below one | the SE-ratio interval must fall below the calibration band | coverage 0.8174 to 0.8353, SE ratio 0.6856 to 0.7098, empirical efficiency ratio 0.9759 to 1.0099, reported efficiency ratio 0.6913 to 0.6937 | pass |
-| `power` | `z0__alternative` | positive | controlled direct effect at intermediate level zero: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9988, 0.9907 to 1.0000 | pass |
+| `power` | `z0__alternative` | positive | controlled direct effect at intermediate level zero: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9975, 0.9885 to 0.9999 | pass |
 | `power` | `z1__alternative` | positive | controlled direct effect at intermediate level one: the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9934 to 1 | pass |
-| `root_n_and_efficiency` | `z0__n_2000` | positive | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000936, coverage 0.9160 to 0.9431, SE ratio 0.9664 | pass |
-| `root_n_and_efficiency` | `z0__n_500` | control | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0034, coverage 0.8921 to 0.9229, SE ratio 0.9441 | pass |
-| `root_n_and_efficiency` | `z0__n_8000` | positive | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000563, coverage 0.9402 to 0.9630, SE ratio 1.0157 | pass |
-| `root_n_and_efficiency` | `z1__n_2000` | positive | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000763, coverage 0.9196 to 0.9462, SE ratio 0.9613 | pass |
-| `root_n_and_efficiency` | `z1__n_500` | control | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0027, coverage 0.8868 to 0.9183, SE ratio 0.9120 | pass |
-| `root_n_and_efficiency` | `z1__n_8000` | positive | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000502, coverage 0.9462 to 0.9678, SE ratio 1.0324 | pass |
+| `root_n_and_efficiency` | `z0__n_2000` | positive | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000936, coverage 0.9228 to 0.9488, SE ratio 0.9664 | pass |
+| `root_n_and_efficiency` | `z0__n_500` | control | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0034, coverage 0.8944 to 0.9248, SE ratio 0.9441 | pass |
+| `root_n_and_efficiency` | `z0__n_8000` | positive | controlled direct effect at intermediate level zero: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000563, coverage 0.9416 to 0.9641, SE ratio 1.0157 | pass |
+| `root_n_and_efficiency` | `z1__n_2000` | positive | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000763, coverage 0.9241 to 0.9499, SE ratio 0.9613 | pass |
+| `root_n_and_efficiency` | `z1__n_500` | control | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 500 | coverage interval lies below nominal or clears the declared floor | bias 0.0027, coverage 0.8939 to 0.9244, SE ratio 0.9120 | pass |
+| `root_n_and_efficiency` | `z1__n_8000` | positive | controlled direct effect at intermediate level one: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000502, coverage 0.9439 to 0.9659, SE ratio 1.0324 | pass |
 | `root_n_rate` | `z0__empirical_sd` | positive | controlled direct effect at intermediate level zero: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5302 to -0.4933 | pass |
 | `root_n_rate` | `z0__reported_se` | positive | controlled direct effect at intermediate level zero: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4881 to -0.4817 | pass |
 | `root_n_rate` | `z1__empirical_sd` | positive | controlled direct effect at intermediate level one: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5476 to -0.5104 | pass |
@@ -166,6 +166,10 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
 | `margin:efficiency_ratio_upper` | 1.1000 | efficiency-ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
 | `margin:targeting_displacement` | 0.2500 | minimum targeting displacement |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 32 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `tmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 32 | the same bound, in primary replications |
 | `bound:z0_standard_error` | 0.0524 | exact level-zero ATE efficiency bound at n = 2,000 |
 | `bound:z1_standard_error` | 0.0457 | exact level-one ATE efficiency bound at n = 2,000 |
 
@@ -176,10 +180,11 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
   treatment and the intermediate.
 - Exact finite-support nuisances isolate targeting and inference. The study does not validate
   flexible learner wrappers or cross-fitting.
-- The level-zero untreated mean has 0.9216 primary coverage at `n = 2,000`. This matches R
-  and is about six Monte Carlo standard errors below 0.95. The observed
-  `(A=0, Z=0, W=0, Delta=1)` stratum has expected count 31.25 and clever-covariate weight 32.
-  The shared 0.90 coverage floor treats this finite-sample undercoverage as acceptable.
+- The level-zero untreated mean has 0.9353 primary coverage at `n = 2,000` under the shipped
+  logit interval of a bounded mean, about three Monte Carlo standard errors below 0.95. R's
+  identity interval on the same estimates and standard errors covers 0.9216, about six below.
+  The observed `(A=0, Z=0, W=0, Delta=1)` stratum has expected count 31.25 and clever-covariate
+  weight 32. The shared 0.90 coverage floor treats this finite-sample undercoverage as acceptable.
 - The comparator requires level recoding because of the frozen native second-result defect in R
   `tmle` 2.1.1. The registered probe recreates the defect during standard regeneration. The study
   does not claim that the native result is valid with exact `Q.Z1` inputs.
@@ -189,6 +194,9 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
   `tmle` does not report them on its controlled direct-effect path.
 - This is not evidence for natural direct or indirect effects, nor for a general longitudinal
   intervention with treatment-induced intermediate confounding.
+- This is not evidence for the projection of a controlled direct effect onto a basis of
+  baseline modifiers. That fit has its own study, [`projection-evidence`](projection-evidence.md)
+  ([Conditional effects](../conditional-effects.md#controlled-direct-effects)).
 
 ## Reproduction
 

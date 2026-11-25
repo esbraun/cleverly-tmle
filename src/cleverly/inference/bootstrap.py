@@ -53,6 +53,7 @@ from .._typing import FloatArray, IntArray
 from .._warnings import suppressed as _suppressed
 from .._warnings import warn as _warn
 from ..utils.parallel import map_parallel
+from ..utils.random import note_fresh_entropy
 from .delta import normal_cdf, normal_quantile
 from .influence import BootstrapInterval, BootstrapSummary
 
@@ -162,7 +163,9 @@ class BootstrapResult:
         Whether rows or clusters were resampled.
     std_errors : dict of str to ndarray, default={}
         One array of replicate standard errors per estimand alias, aligned with
-        ``draws``. Each entry is the replicate fit's own influence-curve standard error.
+        ``draws``. Each entry is the replicate fit's own standard error: its influence-curve
+        standard error, or the estimator's own variance where it keeps one for a studentized
+        band (the continuous-time TMLE's switched variance).
         Empty for draws derived after the fit, whose replicates carry no curve.
     """
 
@@ -716,6 +719,8 @@ def _bootstrap_design(
     if use_clusters and data.cluster is None:
         raise ValueError("resampling='cluster' requires the data to carry cluster ids")
 
+    if random_state is None:
+        note_fresh_entropy()
     sequences = np.random.SeedSequence(random_state).spawn(n_replicates)
     codes = data.cluster if use_clusters else None
     members = None if codes is None else cluster_members(codes)

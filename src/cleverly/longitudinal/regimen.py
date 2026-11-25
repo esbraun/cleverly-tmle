@@ -106,6 +106,7 @@ from ..interventions.tuning import (
     tuner_influence,
 )
 from ..learners.crossfit import Folds
+from ._fit_cache import cached
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
     from ..interventions.policy import Policy
@@ -509,6 +510,14 @@ class DynamicRegimen:
             If ``time`` is not a policy node, if the density function raises, or if it
             returns other than a probability simplex per reachable row over the levels.
         """
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        values = self._density_on(data, time, data.policy_frame(time), reachable)
+        return np.where(reachable[:, None], values, 0.0)
+
+    def _density_on(
+        self, data: LongitudinalData, time: int, frame: Any, checked: BoolArray
+    ) -> FloatArray:
+        """The policy node at ``time`` evaluated on ``frame``, checked on the rows ``checked``."""
         node = self.plan[time - 1]
         if not isinstance(node, Stochastic):
             raise DataError(f"node {time} of regimen {self.label!r} is not a policy node")
@@ -516,7 +525,6 @@ class DynamicRegimen:
         label = f"the policy at time {time} of regimen {self.label!r}"
         levels = tuple(data.treatment_levels[time - 1])
         name = data.treatment_names[time - 1]
-        frame = data.policy_frame(time)
         try:
             returned = node.density_fn(frame)
         except Exception as error:
@@ -539,9 +547,8 @@ class DynamicRegimen:
                 f"{label} returned shape {values.shape}; expected {expected}. One column per "
                 f"level of treatment column {name!r}, in the order {levels!r}."
             )
-        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-        check_regime_density(values[reachable], label=label)
-        return np.where(reachable[:, None], values, 0.0)
+        check_regime_density(values[checked], label=label)
+        return values
 
     def _evaluate(
         self, rule: Callable[[Any], Any], data: LongitudinalData, time: int, reachable: Any
@@ -1056,6 +1063,10 @@ class Plan:
         """
         if not self.has_policy:
             return None
+        return cached("numerator", (self, data), None, lambda: self._numerator(data))
+
+    def _numerator(self, data: LongitudinalData) -> FloatArray:
+        """:meth:`cumulative_numerator` on a plan with a policy node, computed."""
         density = self.intervention_density(data)
         running = np.ones(data.n)
         columns = []
@@ -1083,6 +1094,10 @@ class Plan:
         RegimenMasks
             The prefix scans every node of the recursion reads.
         """
+        return cached("masks", (self, data), None, lambda: self._masks(data))
+
+    def _masks(self, data: LongitudinalData) -> RegimenMasks:
+        """:meth:`masks`, computed."""
         if not self.has_policy:
             return data.regimen_masks(self.values)
         return data.regimen_masks(self.values, support=self.support(data))
@@ -1243,6 +1258,46 @@ def _resolve_plan(
     )
 
 
+def counterfactual_policy_density(
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, codes: FloatArray
+) -> FloatArray:
+    r"""The known policy at node ``time`` at a counterfactual treatment prefix, on every row.
+
+    The hazard fit of a design with a treatment at several nodes reads the plug-in
+    :math:`\sum_u q_r(u \mid W) F_j(t \mid u, W)` of every unit, so it needs the policy
+    density at each enumerated treatment prefix and for every row, including a row that has
+    left the study.  :meth:`DynamicRegimen.policy_density` reads the observed earlier
+    treatments and sets a row off the risk set to zero.  This evaluator hands the density
+    function :meth:`~cleverly.longitudinal.data.LongitudinalData.policy_frame` with the
+    earlier treatment columns set to the labels of ``codes``, checks the simplex on every
+    row, and sets nothing to zero.  No point mass is collapsed.
+
+    Parameters
+    ----------
+    regimen : DynamicRegimen
+        The regimen whose node ``time`` is a :class:`~cleverly.interventions.Stochastic`
+        node.
+    data : LongitudinalData
+        The validated panel of a design with no covariate after baseline.
+    time : int
+        The policy node, counted from one.
+    codes : FloatArray
+        ``(n, T)`` dense codes of the prefix; the columns before ``time`` are read.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, K)`` policy probabilities over the node's levels.
+
+    Raises
+    ------
+    DataError
+        If the density function raises or returns other than a simplex per row.
+    """
+    frame = data.policy_frame(time, treatment=codes)
+    return regimen._density_on(data, time, frame, np.ones(data.n, dtype=bool))
+
+
 @dataclass(frozen=True)
 class NodeTuning:
     """One tuned node of a plan: the tuner fitted on the at-risk rows, and its curve parts.
@@ -1380,6 +1435,87 @@ def resolve_tuned_plans(
         assert isinstance(regimen, DynamicRegimen)
         plans.append(_resolve_tuned_plan(regimen, data, folds))
     return tuple(plans)
+
+
+def plan_tuned_fits(
+    regimens: Sequence[RegimenSpec],
+    data: LongitudinalData,
+    folds: Folds,
+    *,
+    nominal_folds: int | None = None,
+) -> Any:
+    """The learner fits of the tuned caps :func:`resolve_tuned_plans` fits, counted unfitted.
+
+    Each learner-backed boundary is fitted on the rows at risk at its node and, on a
+    cross-fitted fit, again on each outer fold's training rows of them.  A quantile or a
+    linear-program tuner fits no learner.  The checks before each fit run here as they do
+    there: the target and outcome-column refusals and the fit's input validation.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens, in report order.
+    data : LongitudinalData
+        The validated panel.
+    folds : Folds
+        The outer split.
+    nominal_folds : int or None
+        Count each fit at the learner's nominal counts, with this many fold fits per tuned
+        cap in place of ``folds``: a bootstrap replicate's.
+
+    Returns
+    -------
+    Count
+        The fits and candidate fits.
+    """
+    from .._planned_fits import Count, count_learner, needs_target, sample_weight_attempts
+    from ..interventions.tuning import tuner_fit_inputs
+
+    count = Count()
+    for regimen in regimens:
+        if not _tuned(regimen):
+            continue
+        assert isinstance(regimen, DynamicRegimen)
+        target = _regimen_target(regimen)
+        tuned_nodes = [
+            (time, node, component, tuned)
+            for time, node in enumerate(regimen.plan, start=1)
+            for component, tuned, _ in tuned_maps(node)
+        ]
+        refuse_outcome_tuners(
+            [
+                (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
+                for _, _, _, tuned in tuned_nodes
+            ],
+            _outcome_columns(data),
+        )
+        if target == "fold_average" and folds.is_single:
+            raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+        for time, node, component, tuned in tuned_nodes:
+            cap = tuned.cap
+            if not (isinstance(cap, SupportBoundary) and not cap.finite_dimensional):
+                continue
+            doses, frame = _tuner_source(regimen, data, time, node, component)
+            reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+            attempts = sample_weight_attempts(cap.learner, data.weights)
+            seed_fixed = getattr(cap.learner, "random_state", None) is not None
+            row_sets = [reachable]
+            if nominal_folds is None and not folds.is_single:
+                for train, _ in folds:
+                    rows = np.zeros(data.n, dtype=bool)
+                    rows[train] = True
+                    row_sets.append(reachable & rows)
+            for rows in row_sets:
+                keep, _ = tuner_fit_inputs(cap, frame, rows, data.n)
+                if nominal_folds is not None:
+                    fit = count_learner(cap.learner, doses, nominal=True, attempts=attempts)
+                    count.add(fit, 1 + nominal_folds)
+                    continue
+                dose = doses[keep] if needs_target(cap.learner) else None
+                count.add(
+                    count_learner(cap.learner, dose, seed_fixed=seed_fixed, attempts=attempts)
+                )
+    return count
 
 
 def _outcome_columns(data: LongitudinalData) -> tuple[str, ...]:

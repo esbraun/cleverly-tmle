@@ -17,7 +17,13 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
+from .._inference_status import (
+    FEW_CLUSTER_ESTIMAND_STATUS,
+    PARAMETER_STATUSES,
+    InferenceStatus,
+    cluster_interval_floor,
+    precedent_status,
+)
 from .._support import Classification, Kind, combine_support, interval_floor, support_for
 from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
@@ -36,8 +42,10 @@ from .influence import (
     median_estimates,
     minimum_reference_df,
     spread_name,
+    with_components,
     with_precedent_status,
 )
+from .switched import SWITCHED_REFUSAL
 
 __all__ = [
     "RepeatSpread",
@@ -103,9 +111,14 @@ def covariance_rule(
     """The one covariance rule every selected estimate declares.
 
     A selection that mixes rules is refused. No derivation here supplies the
-    cross-covariance between a centred curve and a raw second moment.
+    cross-covariance between a centred curve and a raw second moment. A selection of
+    ``"switched"`` estimates is refused too: their variance is not the variance of their
+    curves, so a contrast of the curves would report the influence-curve variance beside
+    inputs that report the predictable variation.
     """
     rules = {estimates[name].covariance_rule for name in names}
+    if "switched" in rules:
+        raise CapabilityError.from_refusal(SWITCHED_REFUSAL)
     if len(rules) != 1:
         raise ValueError(
             f"the selected estimates {list(names)} declare different covariance rules "
@@ -202,6 +215,14 @@ POLICY_COVARIANCE_REFUSAL = (
 )
 
 
+#: Why an estimate with the boundary-node supplement has no joint covariance matrix.
+NODE_COVARIANCE_REFUSAL = (
+    "the boundary-node supplement bounds the variance of each functional of the levels by a "
+    "per-unit sum of absolute loadings, which is not a quadratic form, so no covariance "
+    "matrix carries it."
+)
+
+
 def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[str]) -> Any:
     """The one policy-weighted covariance the selected estimates share.
 
@@ -241,26 +262,145 @@ def shared_policy(estimates: Mapping[str, ParameterEstimate], names: Sequence[st
     return first
 
 
-def _reported_stack(estimate: ParameterEstimate) -> FloatArray:
-    """The reported-scale curve, followed by the reported-scale policy gradient.
+def shared_node(estimates: Mapping[str, ParameterEstimate], names: Sequence[str]) -> Any:
+    """The one set of boundary-node loadings the selected estimates share, or ``None``.
 
-    A contrast, a ratio and a transform act linearly on the curve. The policy gradient over
-    the fit's levels moves under the same map, so stacking the two lets one computation
-    carry both. Only the ``"policy_weighted"`` rule reads it.
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The estimates of one fit.
+    names : sequence of str
+        The selected names.
+
+    Returns
+    -------
+    NodeLoadings or None
+        The loadings of the selected estimates that carry the boundary-node supplement, or
+        ``None`` when none does. A selected estimate without one reads no flagged node, so
+        it enters a derived estimate's node gradient with zeros.
+
+    Raises
+    ------
+    CapabilityError
+        When the selected estimates carry loadings of different fits.
     """
-    assert estimate.policy is not None
-    return np.concatenate(
-        [
-            _reported_vector(estimate, estimate.influence_curve),
-            _reported_vector(estimate, estimate.policy.gradient),
-        ]
+    records = [estimates[name].node for name in names if estimates[name].node is not None]
+    if not records:
+        return None
+    first = records[0].loadings  # type: ignore[union-attr]
+    if any(not first.same_as(record.loadings) for record in records[1:]):  # type: ignore[union-attr]
+        raise CapabilityError(
+            f"the selected estimates {list(names)} read the boundary-node loadings of "
+            "different fits, so no joint node bound is defined.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Select estimates of one fit.",
+        )
+    return first
+
+
+def shared_jackknife(estimates: Mapping[str, ParameterEstimate], names: Sequence[str]) -> Any:
+    """The one jackknife covariance the selected estimates share, or ``None``.
+
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The estimates of one fit.
+    names : sequence of str
+        The selected names.
+
+    Returns
+    -------
+    JackknifeCovariance or None
+        The covariance of the selected estimates of a ``cluster_variance="jackknife"`` fit, or
+        ``None`` when none carries a jackknife record.
+
+    Raises
+    ------
+    CapabilityError
+        When some selected estimates carry a jackknife record and others do not, or when they
+        carry the records of different fits: no joint jackknife variance is then defined.
+    """
+    records = [estimates[name].jackknife for name in names]
+    present = [record for record in records if record is not None]
+    if not present:
+        return None
+    if len(present) != len(records):
+        raise CapabilityError(
+            f"the selected estimates {list(names)} mix a cluster jackknife variance with an "
+            "influence-curve variance, so no joint variance is defined.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Select estimates of one cluster_variance='jackknife' fit.",
+        )
+    first = present[0].covariance
+    if any(not first.same_as(record.covariance) for record in present[1:]):
+        raise CapabilityError(
+            f"the selected estimates {list(names)} read the jackknife covariances of "
+            "different fits, so no joint variance is defined.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Select estimates of one fit.",
+        )
+    return first
+
+
+def _reported_stack(
+    estimate: ParameterEstimate, policy: Any = None, node: Any = None, jackknife: Any = None
+) -> FloatArray:
+    """The reported-scale curve, followed by the reported-scale gradients it carries.
+
+    A contrast, a ratio and a transform act linearly on the curve. The policy gradient and the
+    boundary-node gradient over the fit's levels move under the same map, so stacking them
+    below the curve lets one computation carry all of them. An estimate without a node record
+    carries a zero node gradient: it reads no flagged node.
+    """
+    parts = [_reported_vector(estimate, estimate.influence_curve)]
+    if policy is not None:
+        assert estimate.policy is not None
+        parts.append(_reported_vector(estimate, estimate.policy.gradient))
+    if node is not None:
+        if estimate.node is None:
+            parts.append(np.zeros(len(node.levels)))
+        else:
+            parts.append(_reported_vector(estimate, estimate.node.gradient))
+    if jackknife is not None:
+        assert estimate.jackknife is not None
+        parts.append(_reported_vector(estimate, estimate.jackknife.gradient))
+    return np.concatenate(parts)
+
+
+def _split_stack(
+    vector: FloatArray, policy: Any = None, node: Any = None, jackknife: Any = None
+) -> tuple[FloatArray, dict[str, Any]]:
+    """The curve, and the ``make_estimate`` arguments of the gradients, from a stacked vector."""
+    carried: dict[str, Any] = {}
+    if jackknife is not None:
+        k = len(jackknife.names)
+        carried.update(jackknife=jackknife, jackknife_gradient=vector[-k:])
+        vector = vector[:-k]
+    if node is not None:
+        k = len(node.levels)
+        carried.update(node=node, node_gradient=vector[-k:])
+        vector = vector[:-k]
+    if policy is not None:
+        k = len(policy.names)
+        carried.update(policy=policy, gradient=vector[-k:])
+        vector = vector[:-k]
+    return vector, carried
+
+
+def _jackknife_failed(
+    estimates: Mapping[str, ParameterEstimate], names: Sequence[str], jackknife: Any
+) -> dict[str, Any]:
+    """The failed refits a derived estimate inherits from its inputs, as a ``make_estimate`` key."""
+    if jackknife is None:
+        return {}
+    failed = sorted(
+        {
+            code
+            for name in names
+            for code in (estimates[name].jackknife.failed_refits)  # type: ignore[union-attr]
+        }
     )
-
-
-def _split_stack(vector: FloatArray, policy: Any) -> tuple[FloatArray, dict[str, Any]]:
-    """The curve, and the ``make_estimate`` arguments of the gradient, from a stacked vector."""
-    k = len(policy.names)
-    return vector[:-k], {"policy": policy, "gradient": vector[-k:]}
+    return {"jackknife_failed": tuple(failed)}
 
 
 def estimate_covariance(
@@ -286,6 +426,28 @@ def estimate_covariance(
                 "refit with variance='influence_curve' for the covariance matrix."
             ),
         )
+    supplemented = [name for name in chosen if estimates[name].node is not None]
+    if supplemented:
+        raise CapabilityError(
+            f"{supplemented} add a boundary-node variance: " + NODE_COVARIANCE_REFUSAL,
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Call contrast() for the variance of a smooth function of the estimates, or "
+                "report horizons at which the followers hold both outcome values."
+            ),
+        )
+    jackknife = shared_jackknife(estimates, chosen)
+    if jackknife is not None:
+        # The jackknife covariance of the reported estimates, carried to the selection by
+        # each estimate's gradient on its inference scale. A failed refit leaves its entries
+        # undefined.
+        gradients = np.vstack([estimates[name].jackknife.gradient for name in chosen])  # type: ignore[union-attr]
+        covariance = gradients @ jackknife.matrix @ gradients.T
+        for index, name in enumerate(chosen):
+            if estimates[name].jackknife.failed_refits:  # type: ignore[union-attr]
+                covariance[index, :] = np.nan
+                covariance[:, index] = np.nan
+        return np.asarray(covariance, dtype=float)
     curves = np.column_stack([estimates[name].influence_curve for name in chosen])
     if rule == "second_moment":
         return stacked_second_moment_covariance(curves)
@@ -335,12 +497,15 @@ def smooth_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
-    if policy is None:
+    node = shared_node(estimates, chosen)
+    jackknife = shared_jackknife(estimates, chosen)
+    if policy is None and node is None and jackknife is None:
         curves = [_reported_curve(estimates[key]) for key in chosen]
     else:
-        # Under the policy-weighted rule each input's gradient over the fit's levels rides
-        # below its curve, so the delta method's one linear map carries both.
-        curves = [_reported_stack(estimates[key]) for key in chosen]
+        # Under the policy-weighted rule, with a boundary-node supplement, or with a cluster
+        # jackknife, each input's gradient over the fit's levels rides below its curve, so the
+        # delta method's one linear map carries them all.
+        curves = [_reported_stack(estimates[key], policy, node, jackknife) for key in chosen]
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
@@ -358,8 +523,9 @@ def smooth_contrast(
     if transform is not None:
         curve = _transform_slope(value, transform) * curve
     carried: dict[str, Any] = {}
-    if policy is not None:
-        curve, carried = _split_stack(curve, policy)
+    if policy is not None or node is not None or jackknife is not None:
+        curve, carried = _split_stack(curve, policy, node, jackknife)
+        carried.update(_jackknife_failed(estimates, chosen, jackknife))
     estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
@@ -377,7 +543,37 @@ def smooth_contrast(
         outcome_family=shared_family([estimates[key] for key in chosen]),
         rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
-    return estimate if transform is None else replace(estimate, transform=transform)
+    if transform is not None:
+        return replace(estimate, transform=transform)
+    return _difference_of_means(estimate, [estimates[key] for key in chosen])
+
+
+def _difference_of_means(
+    estimate: ParameterEstimate, inputs: Sequence[ParameterEstimate]
+) -> ParameterEstimate:
+    """A contrast that is the difference of two bounded means of one fit, with its components.
+
+    Such a contrast lies in ``(-1, 1)`` and gets those bounds and the two means as
+    :attr:`~cleverly.inference.ParameterEstimate.components`, so its interval is correlated
+    MOVER on the means' logit intervals. :func:`~cleverly.inference.with_components` checks
+    that the contrast is the difference of the two in its estimate and its curve. Any other
+    contrast, and every clustered one, is returned unchanged.
+    """
+    if (
+        estimate.scale != "difference"
+        or estimate.n_clusters < estimate.n
+        or estimate.reference_df is not None
+        or len(inputs) != 2
+        or any(part.bounds != (0.0, 1.0) or part.scale != "level" for part in inputs)
+    ):
+        return estimate
+    bounded = replace(estimate, bounds=(-1.0, 1.0))
+    first, second = inputs
+    for minuend, subtrahend in ((first, second), (second, first)):
+        recorded = with_components(bounded, minuend, subtrahend)
+        if recorded.components is not None:
+            return recorded
+    return estimate
 
 
 def check_transform_scale(scale: Scale, transform: Transform | None) -> None:
@@ -429,9 +625,11 @@ def transform_estimate(
 
     The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
     by the transform's slope at the value, and the variance is read off that curve under the
-    estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
-    ``smooth_contrast(..., transform=T)`` bit for bit, support record included: a change of
-    inference scale does not change where the estimate came from.
+    estimate's covariance rule; a switched estimate's predictable variation is multiplied by
+    the slope squared, and the switch is read on the mapped curve.  So
+    ``transform_estimate(smooth_contrast(...), T)`` equals ``smooth_contrast(..., transform=T)``
+    bit for bit, support record included: a change of inference scale does not change where
+    the estimate came from.
 
     Parameters
     ----------
@@ -461,6 +659,14 @@ def transform_estimate(
             "gradient": slope * estimate.policy.gradient,
         }
     )
+    if estimate.node is not None:
+        carried.update(node=estimate.node.loadings, node_gradient=slope * estimate.node.gradient)
+    if estimate.jackknife is not None:
+        carried.update(
+            jackknife=estimate.jackknife.covariance,
+            jackknife_gradient=slope * estimate.jackknife.gradient,
+            jackknife_failed=estimate.jackknife.failed_refits,
+        )
     mapped = make_estimate(
         estimate.name,
         estimate.psi,
@@ -477,6 +683,10 @@ def transform_estimate(
         support=estimate.support,
         outcome_family=estimate.outcome_family,
         rule_widened=estimate.rule_widened,
+        # The delta method carries the predictable variation by the same slope as the curve.
+        predictable_variance=None
+        if estimate.switched is None
+        else slope**2 * estimate.switched.predictable_variance,
     )
     return replace(mapped, transform=transform)
 
@@ -1007,15 +1217,17 @@ def ratio_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     policy = shared_policy(estimates, chosen) if rule == "policy_weighted" else None
+    node = shared_node(estimates, chosen)
+    jackknife = shared_jackknife(estimates, chosen)
     top, bottom = estimates[numerator], estimates[denominator]
-    if policy is None:
+    if policy is None and node is None and jackknife is None:
         psi_a, ic_a = top.psi, _reported_curve(top)
         psi_b, ic_b = bottom.psi, _reported_curve(bottom)
     else:
-        # The log-ratio curves are linear in the input curves, so the policy gradients ride
-        # along.
-        psi_a, ic_a = top.psi, _reported_stack(top)
-        psi_b, ic_b = bottom.psi, _reported_stack(bottom)
+        # The log-ratio curves are linear in the input curves, so the policy, node and
+        # jackknife gradients ride along.
+        psi_a, ic_a = top.psi, _reported_stack(top, policy, node, jackknife)
+        psi_b, ic_b = bottom.psi, _reported_stack(bottom, policy, node, jackknife)
     if complement:
         psi_a, ic_a = 1.0 - psi_a, -ic_a
         psi_b, ic_b = 1.0 - psi_b, -ic_b
@@ -1034,8 +1246,9 @@ def ratio_contrast(
             f"{view}{numerator}={psi_a:.6g} and {view}{denominator}={psi_b:.6g}"
         ) from None
     carried: dict[str, Any] = {}
-    if policy is not None:
-        curve, carried = _split_stack(curve, policy)
+    if policy is not None or node is not None or jackknife is not None:
+        curve, carried = _split_stack(curve, policy, node, jackknife)
+        carried.update(_jackknife_failed(estimates, chosen, jackknife))
     return make_estimate(
         name,
         float(np.exp(log_psi)),
@@ -1147,6 +1360,7 @@ def derived_bootstrap(
     return replace(
         summary,
         diagnostic=any(item.diagnostic for item in kept),
+        boundary_node=any(item.boundary_node for item in kept),
         below_floor=any(item.below_floor for item in kept),
         cluster_floor=next((item.cluster_floor for item in kept if item.below_floor), None),
         support=combine_support([item.support for item in kept], kind="derived"),
@@ -1314,6 +1528,7 @@ def attach_bootstrap(
     diagnostic: bool = False,
     classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
+    experimental_reason: str | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -1328,16 +1543,26 @@ def attach_bootstrap(
         The replicate draws.
     diagnostic : bool, default=False
         Whether the fit declares its bootstrap interval a diagnostic. Stored on each
-        :class:`~cleverly.inference.BootstrapSummary`.
+        :class:`~cleverly.inference.BootstrapSummary`. An estimate that adds the boundary-node
+        supplement (:attr:`~cleverly.inference.ParameterEstimate.node`) is a diagnostic
+        whatever this says: every row resample keeps the node's one value.
     classification : Classification or None, default=None
         The fit's classification. Each summary takes the support that
         :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
-        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. ``None``
-        leaves it unclassified.
+        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. A summary reads
+        below the cluster floor when the key's dependence is ``"below_floor"``, or when its
+        estimate carries ``"few_cluster_estimand_plugin"``, which keeps the default floor of the
+        fit's kind. ``None`` leaves it unclassified.
     interval : {"percentile", "bca"}, default="percentile"
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
         clusters when the bootstrap resamples clusters.
+    experimental_reason : str or None, default=None
+        The sentence a summary whose support reads experimental gives as its reason, in place
+        of the generic one.  When the estimate itself reads experimental, the summary keeps
+        the generic reason, which names why, and adds this sentence after it.  The
+        point-treatment TMLE passes the reason of a cross-fitted bootstrap (roadmap F2);
+        ``None`` keeps the generic reason.
 
     Returns
     -------
@@ -1348,6 +1573,13 @@ def attach_bootstrap(
     below_floor = classification is not None and classification.key.dependence == "below_floor"
     cluster_floor = (
         interval_floor(classification.key) if classification is not None and below_floor else None
+    )
+    # An estimate no floor study measured keeps the default floor of its kind, so a fit at or
+    # above its family's floor still reads such an estimate's bootstrap below that default.
+    default_floor = (
+        cluster_interval_floor(None, longitudinal=classification.key.kind != "point")
+        if classification is not None
+        else None
     )
     kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
     # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
@@ -1368,14 +1600,30 @@ def attach_bootstrap(
             )
         else:
             drawn = bootstrap.interval(name, alpha)
+        # A row resample keeps a flagged node's one value, so the bootstrap spread leaves out
+        # the variance the boundary-node supplement bounds; that interval is a diagnostic.
+        unmeasured = (
+            not below_floor
+            and default_floor is not None
+            and estimate.inference == FEW_CLUSTER_ESTIMAND_STATUS
+        )
+        support = support_for(classification, estimate.inference, estimate.reference_df, kind=kind)
+        # An estimate that is itself experimental keeps the generic reason, which names why
+        # its own fit reads experimental, and adds the given one after it.
+        if experimental_reason is not None and support.label == "experimental":
+            reason = (
+                f"{support.reason} {experimental_reason}"
+                if estimate.support.label == "experimental" and support.reason
+                else experimental_reason
+            )
+            support = replace(support, reason=reason)
         return replace(
             drawn,
-            diagnostic=diagnostic,
-            below_floor=below_floor,
-            cluster_floor=cluster_floor,
-            support=support_for(
-                classification, estimate.inference, estimate.reference_df, kind=kind
-            ),
+            diagnostic=diagnostic or estimate.node is not None,
+            boundary_node=estimate.node is not None,
+            below_floor=below_floor or unmeasured,
+            cluster_floor=default_floor if unmeasured else cluster_floor,
+            support=support,
         )
 
     estimates = {

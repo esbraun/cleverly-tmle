@@ -152,14 +152,30 @@ from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 from sklearn.base import is_classifier
 
 from .._inference_status import InferenceStatus, precedent_status
+from .._planned_fits import Count, FitCounter, PlanBuilder, PlanItem
+from .._summary._learners import learner_name
 from .._support import Preflight
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
-from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
+from ..data.known_mechanism import (
+    KNOWN_EVALUATION_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL,
+    KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL,
+    divides_by_declaration,
+    known_score_engine_refusal,
+)
+from ..exceptions import (
+    CapabilityError,
+    CleverlyError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
+from ..learners._fitting import Task
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -171,6 +187,7 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
     COMPOSITE_EVALUATION_REFUSAL,
     composite_state,
+    composite_view,
     missing_data_route,
     unidentified_targets,
 )
@@ -641,6 +658,8 @@ class DRTMLE(TMLE):
         _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
         _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
         _validate_learner(reduced_mechanism_residual_learner, "reduced_mechanism_residual_learner")
+        if kwargs.get("conditional_form", "arm_mean") != "arm_mean":
+            raise MethodConfigurationError.from_refusal(known_score_engine_refusal("DRTMLE"))
         super().__init__(**kwargs)
         self.max_outer = int(max_outer)
         self.guard = tuple(guard)
@@ -1042,6 +1061,231 @@ class DRTMLE(TMLE):
             },
         )
 
+    # ------------------------------------------------------------ planned fits
+
+    def _plan_flags(self, data: CausalData, estimands: Sequence[str]) -> dict[str, bool]:
+        """The flags :meth:`_nuisances` passes: every nuisance, the treatment mechanism too."""
+        del data, estimands
+        return {"fit_treatment": True}
+
+    def _plan_extras(
+        self,
+        data: CausalData,
+        folds: Folds,
+        seed: int | None,
+        *,
+        counter: FitCounter,
+        builder: PlanBuilder,
+        config: TMLEConfig,
+        level: float | None,
+    ) -> list[PlanItem]:
+        """The fits :meth:`_nuisances` and the reduction rounds make beyond the nuisances.
+
+        The foldwise construction fits each primary learner once per pair of outer folds.
+        A guarded fit fits every reduced regression once, then refits the families its
+        guards solve in every round of the alternation, up to ``max_outer`` rounds: the
+        rows are upper bounds whose minimum is the initial fit and one round.
+        """
+        del config, level
+        if not counter.nominal:
+            self._check_drtmle(data)
+            if self.guard:
+                refuse_untrainable_stratum_folds(data, folds)
+            if self._foldwise():
+                refuse_untrainable_leave_two_out(
+                    data, folds, super_learner_roles=self._leave_two_out_super_learner_roles(data)
+                )
+        route = missing_data_route(self, data)
+        items: list[PlanItem] = []
+        if self._foldwise() and route == "complete":
+            items.extend(self._plan_inner_designs(data, folds, seed, counter))
+        if not self.guard:
+            return items
+        fields = {
+            "regression": (
+                ("reduced_outcome_learner", self.reduced_outcome_learner)
+                if self.reduced_outcome_learner is not None
+                else ("outcome_learner", self.outcome_learner)
+            ),
+            "classification": (
+                ("reduced_treatment_learner", self.reduced_treatment_learner)
+                if self.reduced_treatment_learner is not None
+                else ("treatment_learner", self.treatment_learner)
+            ),
+            "mechanism_residual": (
+                ("reduced_mechanism_residual_learner", self.reduced_mechanism_residual_learner)
+                if self.reduced_mechanism_residual_learner is not None
+                else ("outcome_learner", self.outcome_learner)
+            ),
+        }
+        learners = {
+            "regression": self._resolve_learner(
+                self.reduced_outcome_learner, task="regression", fallback=self.outcome_learner
+            ),
+            "classification": self._resolve_learner(
+                self.reduced_treatment_learner,
+                task="classification",
+                fallback=self.treatment_learner,
+            ),
+            "mechanism_residual": self._resolve_learner(
+                self.reduced_mechanism_residual_learner,
+                task="regression",
+                fallback=self.outcome_learner,
+            ),
+        }
+        view = composite_view(data) if route == "composite" else data
+
+        def column(slot: str, target: FloatArray, task: Task, fit_mask: BoolArray | None) -> Count:
+            """One reduced regression out of fold, inside each stratum (``_reduced_column``)."""
+            mask = (
+                np.ones(view.n, dtype=bool)
+                if fit_mask is None
+                else np.asarray(fit_mask, dtype=bool)
+            )
+            regions = (
+                [mask]
+                if view.strata is None
+                else [mask & (np.asarray(view.strata) == code) for code in range(view.n_strata)]
+            )
+            out = Count()
+            for rows in regions:
+                out.add(counter.cross(learners[slot], target, folds, task=task, fit_mask=rows))
+            return out
+
+        def one_pass(families: tuple[str, ...]) -> dict[str, Count]:
+            """Each slot's fits in one ``_fit_reduced`` call fitting ``families``."""
+            out: dict[str, Count] = {slot: Count() for slot in learners}
+            treatment = np.asarray(view.treatment, dtype=float)
+            observed = np.asarray(view.observed, dtype=bool)
+            continuous = np.asarray(view.outcome, dtype=float)
+            for arm in data.arm_codes:
+                indicator = (treatment == float(arm)).astype(float)
+                at_arm = indicator == 1.0
+                if route == "randomized_missing_outcome":
+                    seen = observed.astype(float)
+                    out["classification"].add(
+                        column("classification", indicator, "classification", None)
+                    )
+                    out["classification"].add(
+                        column("classification", seen, "classification", at_arm)
+                    )
+                    out["mechanism_residual"].add(
+                        column("mechanism_residual", continuous, "regression", None)
+                    )
+                    out["mechanism_residual"].add(
+                        column("mechanism_residual", continuous, "regression", at_arm)
+                    )
+                    out["regression"].add(
+                        column("regression", continuous, "regression", at_arm & observed)
+                    )
+                    continue
+                if "qr" in families:
+                    out["regression"].add(
+                        column("regression", continuous, "regression", at_arm & observed)
+                    )
+                if "gr1" in families:
+                    out["classification"].add(
+                        column("classification", indicator, "classification", None)
+                    )
+                if "gr2" in families:
+                    out["mechanism_residual"].add(
+                        column("mechanism_residual", continuous, "regression", None)
+                    )
+            return out
+
+        every: tuple[str, ...] = (
+            ("qr", "gr1", "gr2") if self.reduction == "univariate" else ("qr", "gr1")
+        )
+        rounds: tuple[str, ...] = ()
+        if "g" in self.guard:
+            rounds += ("gr1", "gr2") if self.reduction == "univariate" else ("gr1",)
+        if "Q" in self.guard:
+            rounds += ("qr",)
+        initial = one_pass(every)
+        each_round = one_pass(rounds)
+        cap = int(self.max_outer)
+        why = (
+            "the alternation refits the reduced regressions once per round and can stop "
+            f"before max_outer={cap} rounds"
+        )
+        fits = 0
+        by_role: dict[str, tuple[str, Count, int]] = {}
+        for slot, (field_name, declared) in fields.items():
+            total = initial[slot].scaled(1)
+            total.add(each_round[slot], cap)
+            low = initial[slot].fits + each_round[slot].fits
+            name, count, least = by_role.get(field_name, (learner_name(declared), Count(), 0))
+            count.add(total)
+            by_role[field_name] = (name, count, least + low)
+            fits += total.fits
+        for field_name, (name, count, least) in by_role.items():
+            items.append(
+                PlanItem(
+                    field_name,
+                    "reduced regressions, initial fit and every reduction round",
+                    name,
+                    count,
+                    upper=why,
+                    min_fits=least,
+                )
+            )
+        builder.search("DR-TMLE reduction rounds", cap, True, fits)
+        return items
+
+    def _plan_inner_designs(
+        self, data: CausalData, folds: Folds, seed: int | None, counter: FitCounter
+    ) -> list[PlanItem]:
+        """The fits of :func:`fit_inner_designs`: one per unordered pair of outer folds."""
+        assignment = np.asarray(folds.assignment)
+        observed = np.asarray(data.observed, dtype=bool)
+        treatment_values = np.asarray(data.treatment, dtype=float)
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        outcome = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
+        mechanism = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+        if self.screen_treatment:
+            mechanism = _screened(mechanism, self.screen_threshold, self.min_retain)
+        weights = np.asarray(data.weights, dtype=float)
+        target = np.asarray(data.outcome, dtype=float)
+        known = data.known_treatment is not None
+        treatment_count = Count()
+        outcome_count = Count()
+        for first in range(folds.n_folds - 1):
+            for second in range(first + 1, folds.n_folds):
+                rows = (assignment != first) & (assignment != second)
+                if not known:
+                    treatment_count.add(
+                        counter.one(
+                            mechanism, data.treatment, np.flatnonzero(rows), task="classification"
+                        )
+                    )
+                arms = data.arm_codes if self.outcome_by_arm else (None,)
+                for arm in arms:
+                    fit = rows & observed
+                    if arm is not None:
+                        fit &= treatment_values == arm
+                    index = np.flatnonzero(fit)
+                    if (
+                        outcome_task == "classification"
+                        and not counter.nominal
+                        and np.unique(target[index[weights[index] > 0.0]]).size == 1
+                    ):
+                        continue
+                    outcome_count.add(counter.one(outcome, target, index, task=outcome_task))
+        return [
+            PlanItem(
+                "treatment_learner",
+                "leave-two-out treatment mechanism, per pair of outer folds",
+                learner_name(self.treatment_learner),
+                treatment_count,
+            ),
+            PlanItem(
+                "outcome_learner",
+                "leave-two-out outcome regression, per pair of outer folds",
+                learner_name(self.outcome_learner),
+                outcome_count,
+            ),
+        ]
+
     def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
         """The closure the alternation refits with, and the guards it solves.
 
@@ -1127,6 +1371,11 @@ class DRTMLE(TMLE):
             treatment_kind="discrete",
             treatment_probabilities=(
                 dict(data.known_treatment.columns)
+                if data.known_treatment is not None and data.known_treatment.columns
+                else None
+            ),
+            mechanism_law=(
+                data.known_treatment.law
                 if data.known_treatment is not None and data.known_treatment.columns
                 else None
             ),
@@ -1340,6 +1589,13 @@ class DRTMLE(TMLE):
                     "Use reduction='univariate' (the setting is replaced by that construction)."
                 ),
             )
+        # Under mechanism_law="sample" beside weights the mechanism is estimated, and the
+        # reduced regressions, fold slabs and companion slabs read a declared one as fixed.
+        if data.known_treatment is not None and not divides_by_declaration(data):
+            if self.guard:
+                raise CapabilityError.from_refusal(KNOWN_SAMPLE_DRTMLE_GUARD_REFUSAL)
+            if self.evaluation is not None:
+                raise CapabilityError.from_refusal(KNOWN_SAMPLE_DRTMLE_EVALUATION_REFUSAL)
         # The companion's mechanism must be its own declaration: no model is fitted to
         # predict it there.
         if (

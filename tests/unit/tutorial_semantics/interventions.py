@@ -479,7 +479,7 @@ def _check_generated_limits(namespace: dict[str, Any]) -> None:
 def _check_benchmarks(namespace: dict[str, Any]) -> None:
     """The bound: robustness values, benchmarks, and the tipping strength the reading compares."""
     regimes = namespace["regime_result"]
-    for name, rv, rva in ((SCREEN, 0.3938, 0.3647), (OFFER_ALL, 0.4050, 0.3777)):
+    for name, rv, rva in ((SCREEN, 0.3938, 0.3638), (OFFER_ALL, 0.4050, 0.3766)):
         robustness = regimes.sensitivity.robustness_value(estimand=name)
         assert round(robustness["rv"], 4) == rv and round(robustness["rva"], 4) == rva
         assert robustness["limit_licensed"] is False
@@ -487,9 +487,9 @@ def _check_benchmarks(namespace: dict[str, Any]) -> None:
     benchmarks = namespace["benchmarks"]
     assert list(benchmarks) == ["prior_utilization", "medication_burden", "age"]
     strongest, bound = benchmarks["prior_utilization"]
-    # "a confounder like it would leave the lower limit at 0.0439": a nonzero witness, the
+    # "a confounder like it would leave the lower limit at 0.0438": a nonzero witness, the
     # bound moves the estimate, but not to zero.
-    assert round(bound.ci_lower, 4) == 0.0439
+    assert round(bound.ci_lower, 4) == 0.0438
     assert 0.0 < bound.bias < regimes[SCREEN].psi
     # prior_utilization is the strongest on both sides.
     for record, _ in benchmarks.values():
@@ -519,8 +519,8 @@ def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
     """Step 16: the regime bound, its refusals, and the stress surfaces of the other two."""
     regimes = namespace["regime_result"]
     text = stored_output(NOTEBOOK, "bound")
-    assert "robustness value, screen: 0.394 (0.365 at the 95% limit)" in text
-    assert "robustness value, offer to all: 0.405 (0.378 at the 95% limit)" in text
+    assert "robustness value, screen: 0.394 (0.364 at the 95% limit)" in text
+    assert "robustness value, offer to all: 0.405 (0.377 at the 95% limit)" in text
     assert "every shift above assumes rho = 1" in text
     assert "pulls the screen's lower limit to zero at cf_y = 1: 0.17" in text
     for call, reason in (

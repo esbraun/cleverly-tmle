@@ -325,6 +325,21 @@ ARMS: dict[str, str] = {
         "the mean purchase under the 12% price rise at 3 nodes, SDR cross-fitted over five folds"
     ),
     "up_tau3": "the mean purchase under the 12% price rise at 3 nodes",
+    **{
+        f"censored_crossfit_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds with a learned classifier "
+            "and a learned censoring model"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"up_{estimator}_tau3": (
+            "the mean purchase under the 12% price rise at 3 nodes with dropout after each "
+            f"price, {estimator.upper()} cross-fitted over five folds"
+        )
+        for estimator in ("ltmle", "sdr")
+    },
     "up_tau5": "the mean purchase under the 12% price rise at 5 nodes",
     "population_dose_quantile_tau2": "the population target of the dose-quantile cap, one fold",
     "population_quantile_regression_tau2": (
@@ -1097,6 +1112,54 @@ ARMS.update(
     }
 )
 
+#: The labels of ``learned-rule-optimal-compositions`` (X11 (f3)): one per reported parameter of
+#: each setting. Mirrored from ``tests.studies.learned_rule_optimal_compositions``, which this
+#: module cannot import. A label another study already names keeps its shared words here, and
+#: the study's own words come from :data:`STUDY_ARMS`.
+_OPTIMAL_COMPOSITION_LABELS = {
+    "weighted": (
+        "the optimal value of the population the weight 1 + A Y describes, 0.690108, at the "
+        "learned-rule law with the blip 0.1 + W1, with the weighted population's own treatment "
+        "mechanism, n = 2,000"
+    ),
+    "strata_all": (
+        "the marginal optimal value of the fit with strata of W2, 0.577115, at the learned-rule "
+        "law with the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "strata_s0": (
+        "the optimal value within W2 = 0, 0.610609, at the learned-rule law with the blip "
+        "0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "strata_s1": (
+        "the optimal value within W2 = 1, 0.543621, at the learned-rule law with the blip "
+        "0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "contrast_1": (
+        "the optimal value minus the value of Static(1), 0.045499, at the learned-rule law with "
+        "the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "contrast_0": (
+        "the optimal value minus the value of Static(0), 0.064936, at the learned-rule law with "
+        "the blip 0.1 + W1 and the known treatment mechanism, n = 2,000"
+    ),
+    "in_sample": (
+        "the optimal value from the in-sample fit, 0.577115, at the learned-rule law with the "
+        "blip 0.1 + W1, a parametric outcome learner and the known treatment mechanism, "
+        "n = 2,000"
+    ),
+    "intermediate_z0": (
+        "the optimal value with the intermediate held at 0, 0.577115, at the learned-rule "
+        "intermediate law with the known treatment mechanism, n = 2,000"
+    ),
+    "intermediate_z1": (
+        "the optimal value with the intermediate held at 1, 0.597071, at the learned-rule "
+        "intermediate law with the known treatment mechanism, n = 2,000"
+    ),
+}
+ARMS.update(
+    {label: words for label, words in _OPTIMAL_COMPOSITION_LABELS.items() if label not in ARMS}
+)
+
 #: The labels of ``learned-rule-intermediate`` (X11 PR J, X11 (j)): the learned rule and the
 #: known rule ``1{W1 > 0}`` at each level of the binary intermediate, and the necessity learner
 #: at each level. Mirrored from ``tests.studies.learned_rule_intermediate``, which this module
@@ -1197,6 +1260,70 @@ ARMS.update(
         ),
     }
 )
+
+#: ``projection-compositions`` (P1 PR 1): the projection TMLE of ``conditional-projection``
+#: with a missing treatment in sample, ``strata=``, ``repeats=3`` and the full-refit bootstrap.
+#: The groups and cell names are those of ``tests/studies/projection_compositions.py``, which
+#: this module cannot import; ``tests/unit/test_projection_pc_design.py`` pins the
+#: two equal.
+_PC_SLUG = "projection-compositions"
+_PC_GROUPS = {
+    "insample_2k": "the observational law, in-sample fit, n = 2,000",
+    "insample_crr_2k": "the observational law on the log-ratio scale, in-sample fit, n = 2,000",
+    "boot_stacked_2k": (
+        "the observational law, stacked cross-fitting with the full-refit bootstrap, n = 2,000"
+    ),
+    "mtreat_4k": (
+        "the missing-treatment law, treatment recorded with P = expit(1 + 2 W3 - 0.5 A), "
+        "in-sample composite fit, n = 4,000"
+    ),
+    "mtreat_both_4k": (
+        "the missing-treatment law with outcomes also missing at random, in-sample composite "
+        "fit, n = 4,000"
+    ),
+    "mtreat_crr_4k": (
+        "the missing-treatment law on the log-ratio scale, in-sample composite fit, n = 4,000"
+    ),
+    "strata_4k": (
+        "the two-stratum law, S ~ Bernoulli(0.4) with a stratum-specific CATE, strata=('S',), "
+        "stacked cross-fitting, n = 4,000"
+    ),
+    "strata_crr_4k": (
+        "the two-stratum law on the log-ratio scale, strata=('S',), stacked cross-fitting, "
+        "n = 4,000"
+    ),
+    "rep3_obs_4k": "the observational law, stacked cross-fitting with repeats=3, n = 4,000",
+    "rep3_crr_4k": (
+        "the observational law on the log-ratio scale, stacked cross-fitting with repeats=3, "
+        "n = 4,000"
+    ),
+}
+#: The basis terms of each group's projection: ``(1, W1)`` on the missing-treatment law.
+_PC_TERMS = {
+    group: (("intercept", "W1") if group.startswith("mtreat") else tuple(_PROJECTION_TERMS))
+    for group in _PC_GROUPS
+}
+_PC_STRATA = {"": "", "_S0": " in stratum S = 0", "_S1": " in stratum S = 1"}
+
+
+def _pc_basis(group: str) -> str:
+    return "(1, W1)" if group.startswith("mtreat") else "(1, W1, W3)"
+
+
+def _pc_arms(group: str) -> dict[str, str]:
+    """The ``label`` of each calibration row of ``group``: ``<group>_<term>[_S<s>]``."""
+    strata = _PC_STRATA if group.startswith("strata") else {"": ""}
+    return {
+        f"{group}_{term}{suffix}": (
+            f"{_PC_GROUPS[group]}: the {_PROJECTION_TERMS[term]} of the projection "
+            f"on {_pc_basis(group)}{where}"
+        )
+        for term in _PC_TERMS[group]
+        for suffix, where in strata.items()
+    }
+
+
+ARMS.update({label: words for group in _PC_GROUPS for label, words in _pc_arms(group).items()})
 
 #: The laws and groups of the EP studies (P1 part (b)): ``ep-cate``, ``ep-crr`` and
 #: ``ep-assessment``.  Mirrored from ``tests.studies.ep_cate``, ``ep_crr`` and
@@ -1605,6 +1732,19 @@ ARMS.update(
     }
 )
 
+#: The property labels of ``continuous-survival-causes`` (X6 part (b)), mirrored from
+#: ``tests.studies.continuous_survival_causes_properties``; :data:`STUDY_ARMS` gives the study's
+#: own words.
+ARMS.update(
+    {
+        "l1_rd": "the one-cause law's risk difference at its median event time",
+        "l3_rd": "the three-cause law's cause-3 risk difference at its median event time",
+        "l1_c1": "the one-cause law's treated risk at its median event time",
+        "l3_c1": "the three-cause law's treated risk of cause 1 at its median event time",
+        "l3_c3": "the three-cause law's treated risk of cause 3 at its median event time",
+    }
+)
+
 
 #: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
 #: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
@@ -1625,6 +1765,9 @@ ARMS.update(
 #: The calibration label of ``isotonic-binding`` (X76 part (g)), mirrored from its properties
 #: module; :data:`STUDY_ARMS` gives the study's own words.
 ARMS["projected_t1"] = "the never regimen's horizon-1 interval at the projected level"
+ARMS["rmst_rd"] = (
+    "the difference in the restricted mean survival time between treatment and no treatment"
+)
 
 #: The fit labels of the stopping-rule studies (``option-stopping-point``,
 #: ``option-stopping-ltmle``): law, rule and walk.  :data:`STUDY_ARMS` gives each study's words.
@@ -1652,6 +1795,29 @@ ARMS.update(
         "l4_mc_contrast": "law L4, mechanism-correct learners, the risk difference",
         "l4_sv_one_step_risk": "law L4, scaled_var, one-step, the arm-1 risk",
         "l4_ss_one_step_risk": "law L4, sample_size, one-step, the arm-1 risk",
+    }
+)
+
+#: The cell labels of ``known-score-att`` (X35), mirrored from its properties module, which this
+#: module cannot import; :data:`STUDY_ARMS` gives the study's own words.
+ARMS.update(
+    {
+        "att_known_score_in_sample": "the known-score ATT, in sample",
+        "atc_known_score_in_sample": "the known-score ATC, in sample",
+        "att_known_score_stacked": "the known-score ATT, stacked over five folds",
+        "atc_known_score_stacked": "the known-score ATC, stacked over five folds",
+        "att_arm_mean_in_sample": "the arm-mean ATT, in sample",
+        "atc_arm_mean_in_sample": "the arm-mean ATC, in sample",
+        "att_zero_gain": "the ATT on the zero-gain law",
+        "atc_zero_gain": "the ATC on the zero-gain law",
+        "s_att": "the ATT on law S",
+        "s_atc": "the ATC on law S",
+        "b2_att": "the ATT on two-arm law B",
+        "b2_atc": "the ATC on two-arm law B",
+        "b3_att_1": "the ATT of arm 1 against arm 0 on three-arm law B",
+        "b3_att_2": "the ATT of arm 2 against arm 0 on three-arm law B",
+        "b3_atc_1": "the ATC of arm 1 against arm 0 on three-arm law B",
+        "b3_atc_2": "the ATC of arm 2 against arm 0 on three-arm law B",
     }
 )
 
@@ -1699,6 +1865,158 @@ ARMS.update(
             fit: f"{_HAZARD_MTP_FITS[fit]}, the iterated-mean fit of the same plans, n = 2,000"
             for fit in ("levels", "gaussian_density")
         },
+    }
+)
+
+#: The labels of ``known-mechanism-sample-weights`` (Fix-16): one draw stream per law and size.
+#: Mirrored from ``tests.studies.canonical_known_sample_weights``, which this module cannot
+#: import.
+_KSW_LABELS = {
+    **{f"sw_n{n}": f"law SW at n = {n:,}, the ATE" for n in (1_000, 4_000, 16_000)},
+    "lw_n4000": "law LW at n = 4,000, the always-versus-never contrast",
+}
+ARMS.update({label: f"{words}, mechanism_law='sample'" for label, words in _KSW_LABELS.items()})
+#: The labels of ``hazard-time-varying``: the contrast or the risk at the last visit of one fit
+#: label, a fit label's band over every estimate, and a fit label's own draws.  Mirrored from
+#: ``tests.studies.hazard_time_varying_properties``, which this module cannot import.
+_HAZARD_TIME_VARYING_FITS = {
+    "one_cause": "the one-cause law under always against never treating, n = 2,000",
+    "competing": "the two-cause law under always against never treating, n = 2,000",
+    "three_arm": (
+        "the three-level treatment law under one level up, capped at the top level, against the "
+        "natural course, n = 2,000"
+    ),
+    "crossfit": (
+        "the one-cause law under always against never treating, five outer folds, n = 2,000"
+    ),
+}
+_HAZARD_TIME_VARYING_CONTRASTS = {
+    "one_cause": "the risk difference at the last visit",
+    "competing": "the relapse incidence difference at the last visit",
+    "three_arm": "the risk difference against the natural course at the last visit",
+    "crossfit": "the risk difference at the last visit",
+}
+_HAZARD_TIME_VARYING_RISKS = {
+    "one_cause": "the risk under always treating by the last visit",
+    "competing": "the relapse incidence under always treating by the last visit",
+    "three_arm": "the policy's risk by the last visit",
+    "crossfit": "the risk under always treating by the last visit",
+}
+ARMS.update(
+    {
+        **{
+            f"{fit}_contrast": f"{words}, {_HAZARD_TIME_VARYING_CONTRASTS[fit]}"
+            for fit, words in _HAZARD_TIME_VARYING_FITS.items()
+        },
+        **{
+            f"{fit}_risk": f"{words}, {_HAZARD_TIME_VARYING_RISKS[fit]}"
+            for fit, words in _HAZARD_TIME_VARYING_FITS.items()
+        },
+        **{
+            f"{fit}_curve": (
+                f"{_HAZARD_TIME_VARYING_FITS[fit]}, every risk and difference of both plans "
+                "read as one joint set"
+            )
+            for fit in ("one_cause", "competing")
+        },
+        **{
+            fit: (
+                f"{_HAZARD_TIME_VARYING_FITS[fit]}, beside the iterated-mean fit of the same "
+                "plans on the same draw"
+            )
+            for fit in ("one_cause", "competing")
+        },
+    }
+)
+
+#: The labels of ``hazard-multinode``: one estimate of one fit label, a fit label's band over
+#: every estimate, and a fit label's own draws.  Mirrored from
+#: ``tests.studies.canonical_hazard_multinode``, which this module cannot import.
+_HAZARD_MULTINODE_FITS = {
+    "base": "the three-node law, n = 2,000",
+    "four": "the four-node law, n = 2,000",
+    "msm": "the logit working model over the eight static paths of the three-node law, n = 2,000",
+    "onestep": "the three-node law fitted with the one-step walk, n = 2,000",
+}
+_HAZARD_MULTINODE_ARMS = {
+    "contrast": "the risk difference of treating at every node against never by the last node",
+    "rule": "the risk under the known rule by the last node",
+    "policy": "the risk under the known policy by the last node",
+    "stay": "the risk under a draw at node 1 then kept, by the last node",
+    "dose": "the cumulative-dose coefficient",
+    "dose_W1": "the cumulative-dose by W1 coefficient",
+}
+ARMS.update(
+    {
+        **{
+            f"{fit}_{arm}": f"{_HAZARD_MULTINODE_FITS[fit]}, {_HAZARD_MULTINODE_ARMS[arm]}"
+            for fit, fit_arms in (
+                ("base", ("contrast", "rule", "policy", "stay")),
+                ("four", ("contrast", "policy")),
+                ("msm", ("dose", "dose_W1")),
+                ("onestep", ("contrast", "policy")),
+            )
+            for arm in fit_arms
+        },
+        **{
+            f"{fit}_curve": (
+                f"{_HAZARD_MULTINODE_FITS[fit]}, every risk and risk difference of every regimen "
+                "read as one joint set"
+            )
+            for fit in ("base", "four")
+        },
+        **{
+            fit: (
+                f"{_HAZARD_MULTINODE_FITS[fit]}, beside the iterated-mean fit of the same "
+                "regimens on the same draw"
+            )
+            for fit in ("base", "four")
+        },
+    }
+)
+
+#: The labels of ``hazard-time-varying-multinode``: one estimate of one fit label, the band over
+#: every estimate, and the ``multinode`` fit label's own draws.  Mirrored from
+#: ``tests.studies.hazard_time_varying_multinode_properties``, which this module cannot import.
+_HAZARD_TV_MULTINODE_FITS = {
+    "multinode": (
+        "the three-node law with a binary covariate before the treatment at nodes 2 and 3, "
+        "n = 2,000"
+    ),
+    "crossfit": (
+        "the three-node law with a binary covariate before the treatment at nodes 2 and 3, five "
+        "outer folds, n = 2,000"
+    ),
+}
+_HAZARD_TV_MULTINODE_ARMS = {
+    "contrast": "the risk difference of treating at every node against never by node 3",
+    "rule": "the risk difference of the known rule against never by node 3",
+    "policy": "the risk difference of the known policy against never by node 3",
+    "risk": "the risk under treatment at every node by node 3",
+}
+#: ``crossfit_contrast`` is also a label of ``hazard-time-varying``, so :data:`STUDY_ARMS` scopes
+#: the cross-fitted labels' words to this study, beside its scenario below.
+_HAZARD_TV_MULTINODE_CROSSFIT = {
+    f"crossfit_{arm}": f"{_HAZARD_TV_MULTINODE_FITS['crossfit']}, {_HAZARD_TV_MULTINODE_ARMS[arm]}"
+    for arm in ("contrast", "policy")
+}
+ARMS.update(
+    {
+        **{
+            f"multinode_{arm}": (
+                f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, {_HAZARD_TV_MULTINODE_ARMS[arm]}"
+            )
+            for arm in ("contrast", "rule", "policy", "risk")
+        },
+        "crossfit_policy": _HAZARD_TV_MULTINODE_CROSSFIT["crossfit_policy"],
+        "multinode_curve": (
+            f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, every risk and risk difference of every "
+            "regimen read as one joint set"
+        ),
+        "multinode": (
+            f"{_HAZARD_TV_MULTINODE_FITS['multinode']}, beside the iterated-mean fit of the same "
+            "regimens on the same draw"
+        ),
     }
 )
 
@@ -1800,6 +2118,9 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` LTMLE and SDR under price policies that bind at a declared support"
     ),
     "cleverly-mtp-tuning": "`cleverly` LTMLE and SDR under a shift with a tuned cap",
+    "cleverly-mtp-pricing-censored": (
+        "`cleverly` LTMLE and SDR under a continuous-treatment modified policy with censoring"
+    ),
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -2037,6 +2358,13 @@ SCENARIOS: dict[str, str] = {
             f"{estimator.upper()}"
         )
         for t in (2, 3, 5)
+        for estimator in ("ltmle", "sdr")
+    },
+    **{
+        f"censored_{estimator}_tau3": (
+            "3-node pricing law with engagement feedback and informative dropout after each "
+            f"price, {estimator.upper()}"
+        )
         for estimator in ("ltmle", "sdr")
     },
     "population_quantile_ltmle": "two-node law Q with a dose-quantile cap, LTMLE",
@@ -2463,6 +2791,9 @@ PROPERTIES: dict[str, str] = {
         "three fold draws reduce the ATE's sensitivity to the realized fold assignment"
     ),
     "ratio_necessity": "the modified-policy density ratio is evaluated in the declared direction",
+    "censoring_necessity": (
+        "the censoring factor reaches the weights: without it a wrong outcome model is biased"
+    ),
     "robustness_contract": (
         "the estimator stays consistent under the one nuisance the method's source paper claims"
     ),
@@ -2530,6 +2861,11 @@ PROPERTIES: dict[str, str] = {
     "optimal_target_control": (
         "whether the interval misses the value of the optimal rule when the outcome learner's "
         "limit rule is not the optimal rule, at n = 2,500"
+    ),
+    "weighted_target_control": (
+        "whether the weighted interval misses the unweighted optimal value and the weighted value "
+        "of the unweighted optimal rule, the targets of a fit that dropped the weights or learned "
+        "its rule without them"
     ),
     "estimated_g_report": (
         "the bias, SE ratio and coverage of the value of the optimal rule with the treatment "
@@ -3476,6 +3812,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the declared classifier estimates the density ratio, with the outcome misspecified",
         "bias interval inside the equivalence margin",
     ),
+    ("censoring_necessity", "learned_censoring"): (
+        "a learned censoring model enters the weights, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("censoring_necessity", "prior_censoring_control"): (
+        "the same fit replaces the censoring model with the marginal retention rate, with the "
+        "outcome misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("double_robustness", "outcome_wrong_learned_classifier"): (
         "the outcome is misspecified and the declared classifier estimates the density ratio",
         "bias interval inside the equivalence margin, with the reported standard error on the "
@@ -3907,6 +4252,10 @@ STUDY_ARMS: dict[tuple[str, str], str] = {
         "without L_t"
     ),
 }
+#: Cells described for one study only, keyed by ``(slug, family, cell)``, for a study whose
+#: family and cell names coincide with another study's but whose cells differ.
+STUDY_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {}
+
 STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
     ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
         "the cluster-robust interval from the cluster-level influence curve of a single-fold "
@@ -5061,6 +5410,8 @@ def cell(
     if size is not None:
         base = size.group("cell")
     scoped = STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None
+    if slug is not None and (slug, family, key) in STUDY_CELLS:
+        return STUDY_CELLS[slug, family, key]
     try:
         tested, required = (
             scoped
@@ -6273,6 +6624,159 @@ def _refuter_band_cells() -> None:
 
 
 _refuter_band_cells()
+
+
+def _refuter_continuous_survival_cells() -> None:
+    """The continuous-time survival refutation study (X101): eight size and twelve power cells."""
+    slug = "refuter-calibration-continuous-survival"
+    STUDY_SCENARIOS[(slug, "size")] = (
+        "the registered two-cause continuous-time survival law at n = 1,000; the default "
+        "ContinuousSurvivalTMLE at ten folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-continuous-survival"] = (
+        "`cleverly` fit that the continuous-time survival refutation rules read"
+    )
+    estimands = {
+        f"c{cause}_t{time}": f"the cause-{cause} risk difference at t = {time}"
+        for cause in (1, 2)
+        for time in ("1.12", "2.32")
+    }
+    for cause in (1, 2):
+        for time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[(slug, f"ate_regimen[treated vs control, cause{cause} @ t={time}]")] = (
+                f"difference in the risk of cause {cause} by t = {time} between treatment and no "
+                "treatment"
+            )
+    size = "no more than 68 rejections in 600 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": (
+            "the placebo t rule against the exact null 0",
+            {
+                "placebo_stale_rows": "the placebo t rule, with 35% of rows keeping their treatment",
+            },
+        ),
+        "subset": (
+            "the subset rho rule against the fit's standard error",
+            {
+                "subset_half_se": "the subset rho rule, at the reported SE halved",
+                "subset_double_se": "the subset rho rule, at the reported SE doubled",
+            },
+        ),
+    }
+    for key, estimand in estimands.items():
+        for reading, (words, defects) in readings.items():
+            table = {("refuter_size", f"{key}__{reading}"): (f"{estimand}: {words}", size)}
+            for defect, text in defects.items():
+                table[("refuter_power", f"{key}__{defect}")] = (f"{estimand}: {text}", power)
+            for cell, value in table.items():
+                if cell in CELLS:
+                    raise ValueError(f"{cell} is already described")
+                CELLS[cell] = value
+
+
+_refuter_continuous_survival_cells()
+
+
+def _refuter_sampled_cells() -> None:
+    """The sampled-refutation study (X106 H): size, relative size, power and the mutation."""
+    slug = "refuter-sampled"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point refutation study's linear Gaussian law at n = 2,000; TMLE at five folds, "
+        "refuted on its whole data"
+    )
+    IMPLEMENTATIONS["cleverly-refute-sampled"] = (
+        "`cleverly` fit that the sampled refutation rules read"
+    )
+    PROPERTIES["refuter_size_relative"] = (
+        "a refutation rule on a sample of m units rejects at the rate of the same rule on a fit "
+        "of m units, within 0.05"
+    )
+    PROPERTIES["refuter_mutation"] = (
+        "a subset reading that takes the full fit's SE and unit count fails both size gates"
+    )
+    PROPERTIES["refuter_reported"] = "a refutation rate reported with no verdict"
+    cells = {
+        "I2-F": "independent rows, n = 2,000 and m = 2,000 (a limit that does not bind)",
+        "I2-H": "independent rows, n = 4,000 and a sample of m = 2,000",
+        "I2-T": "independent rows, n = 20,000 and a sample of m = 2,000",
+        "I1-F": "independent rows, n = 1,000 and m = 1,000 (a limit that does not bind)",
+        "I1-T": "independent rows, n = 10,000 and a sample of m = 1,000",
+        "C-F": "400 clusters of five, with m = 400 clusters (a limit that does not bind)",
+        "C-H": "800 clusters of five and a sample of m = 400 whole clusters",
+        "C-T": "4,000 clusters of five and a sample of m = 400 whole clusters",
+        "P-4k": "independent rows, n = 4,000, refuted in full",
+        "P-20k": "independent rows, n = 20,000, refuted in full",
+    }
+    readings = {
+        "placebo": "the placebo t rule against the exact null 0",
+        "subset": "the subset rho rule against the sampled baseline",
+        "negative_control": "the negative-control rule on an outcome the treatment does not move",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo rule, with 5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE halved",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE doubled",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.45",
+    }
+    weak = {
+        "placebo_stale_rows": "the placebo rule, with 2.5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE times 0.75",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE times 1.43",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.15",
+    }
+    size = "no more than 73 rejections in 1,000 trials"
+    power = "at least 38 detections in 50 trials"
+    relative = (
+        "the 90% interval of the sampled rate minus the full-data rate lies inside -0.05 to 0.05"
+    )
+    diagnostic = "none. The row is a diagnostic and states no verdict"
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, words in cells.items():
+        for reading, text in readings.items():
+            row = (f"{words}: {text}", size)
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_size", f"{cell}__{reading}")] = row
+            else:
+                table[("refuter_reported", f"{cell}__{reading}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            if cell.endswith(("-H", "-T")):
+                table[("refuter_size_relative", f"{cell}__{reading}")] = (
+                    f"{words}: {text}, beside its full-data partner",
+                    relative,
+                )
+                table[("refuter_size_relative", f"{cell}__{reading}__partner")] = (
+                    f"the full-data partner of {words}: {text}",
+                    diagnostic,
+                )
+        for defect, text in defects.items():
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{words}: {text}", power)
+            else:
+                table[("refuter_reported", f"{cell}__{defect}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            table[("refuter_reported", f"{cell}__{defect}_weak")] = (
+                f"{words}: the rejection rate of {weak[defect]}",
+                diagnostic,
+            )
+    for cell in ("I2-T", "I1-T", "C-T"):
+        table[("refuter_mutation", f"{cell}__subset_full_reference")] = (
+            f"{cells[cell]}: the subset rule read against the full-data fit, the mutation that "
+            "skips the sampled baseline",
+            "the rejection count exceeds 73 of 1,000, and the 90% interval of its rate minus "
+            "the full cell's subset rate lies wholly outside -0.05 to 0.05",
+        )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_sampled_cells()
 
 
 # ------------------------------------------------------------------ X82 SH limit coverage
@@ -7535,6 +8039,125 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``learned-rule-optimal-compositions`` (X11 (f3)): the value of the optimal rule under the
+#: five compositions X11 PR 2 admits, each with the known treatment mechanism and RM30's
+#: interaction logistic outcome learner, read against fixed truths by quadrature. The laws are
+#: those of ``tests/studies/_learned_rule_optimal_compositions_law.py``; the labels and cells are
+#: those of ``tests/studies/learned_rule_optimal_compositions.py``.
+_OPTIMAL_COMPOSITIONS_SLUG = "learned-rule-optimal-compositions"
+IMPLEMENTATIONS["cleverly-learned-rule-optimal-compositions"] = (
+    "`cleverly` cross-validated TMLE of the value of the optimal rule under a composition: the "
+    "learned-rule fit with the same setting, the plug-in rule, one pooled fluctuation and the "
+    "known treatment mechanism, read against the fixed optimal value of the setting"
+)
+_RM30_NON_EXCEPTIONAL = (
+    "the learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner "
+    "and the known treatment mechanism"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, "weighted"): (
+            "the learned-rule law with the blip 0.1 + W1 and the observation weight 1 + A Y, a "
+            "correct interaction logistic outcome learner and the weighted population's own "
+            "treatment mechanism, fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "strata"): (
+            f"{_RM30_NON_EXCEPTIONAL}, strata of W2, fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "known_regimes"): (
+            f"{_RM30_NON_EXCEPTIONAL}, beside Static(1) and Static(0), fold-evaluated report"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "in_sample"): (
+            f"{_RM30_NON_EXCEPTIONAL}, the outcome learner marked parametric, in-sample fit"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "intermediate"): (
+            "the learned-rule law with a binary intermediate Z after A and the level blips "
+            "0.1 + W1 - 0.6 z, correct interaction logistic outcome and intermediate learners and "
+            "the known treatment mechanism, intermediate held at each level, fold-evaluated report"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule]"): (
+            "value of the optimal rule of the setting, a fixed parameter: under weights the "
+            "optimal value of the weighted population, otherwise E Qbar0(d0(W), W)"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][W2=0.0]"): (
+            "value of the optimal rule within the stratum W2 = 0, E[Qbar0(d0(W), W) given W2 = 0]"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][W2=1.0]"): (
+            "value of the optimal rule within the stratum W2 = 1, E[Qbar0(d0(W), W) given W2 = 1]"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ate_optimal_rule[learned rule vs always 1]"): (
+            "value of the optimal rule minus the mean outcome when everyone is treated"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ate_optimal_rule[learned rule vs always 0]"): (
+            "value of the optimal rule minus the mean outcome when no one is treated"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][Z=0]"): (
+            "value of the optimal rule with the intermediate held at 0, "
+            "E Qbar0(d0^0(W), 0, W) with d0^0(w) = argmax_a Qbar0(a, 0, w)"
+        ),
+        (_OPTIMAL_COMPOSITIONS_SLUG, "ey_optimal_rule[learned rule][Z=1]"): (
+            "value of the optimal rule with the intermediate held at 1, "
+            "E Qbar0(d0^1(W), 1, W) with d0^1(w) = argmax_a Qbar0(a, 1, w)"
+        ),
+    }
+)
+STUDY_ARMS.update(
+    {
+        (_OPTIMAL_COMPOSITIONS_SLUG, label): words
+        for label, words in _OPTIMAL_COMPOSITION_LABELS.items()
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_OPTIMAL_COMPOSITIONS_SLUG, "interval_calibration", label, "declared"): (
+                "the declared fit of the setting with the known treatment mechanism",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for label in _OPTIMAL_COMPOSITION_LABELS
+        },
+        **{
+            (
+                _OPTIMAL_COMPOSITIONS_SLUG,
+                "interval_calibration",
+                label,
+                "unnormalised_curve_control",
+            ): (
+                "the same fit with each fold's stratum curve not divided by the fold's own "
+                "stratum share, so its SE is about the stratum share times the reported one",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for label in ("strata_s0", "strata_s1")
+        },
+        (
+            _OPTIMAL_COMPOSITIONS_SLUG,
+            "weighted_target_control",
+            "weighted",
+            "target_gap_control",
+        ): (
+            "the weighted fit's own estimate and SE, read against the unweighted optimal value "
+            "0.577115, 0.1130 below the target, which a fit that dropped the weights would cover",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+        (
+            _OPTIMAL_COMPOSITIONS_SLUG,
+            "weighted_target_control",
+            "weighted",
+            "unweighted_rule_control",
+        ): (
+            "the weighted fit's own estimate and SE, read against the weighted value of the "
+            "unweighted optimal rule 0.662385, 0.0277 below the target, which a fit that learned "
+            "its rule without the weights would cover",
+            "the coverage interval must lie wholly below 0.92",
+        ),
+    }
+)
+
+
 #: ``learned-rule-ep`` (P1 part (c)): the learned-rule value when the sign of the EP curve of
 #: the effect given (W1, W2) sets each fold's rule. The laws and learners are those of
 #: ``tests/studies/_learned_rule_ep_law.py``; the cell names are those of
@@ -7854,6 +8477,398 @@ CELLS.update(
             )
             for control, (group, words) in _PROJECTION_BIAS_CONTROLS.items()
             for term in _PROJECTION_CONTROL_TERMS[control.rsplit("_", 1)[0]]
+        },
+    }
+)
+
+
+#: Each calibration arm's reading of the group's fit.
+_PC_KINDS = {
+    "wald_diff": "the influence-curve Wald interval",
+    "boot_diff": "the full-refit bootstrap percentile interval, 200 replicates",
+    "wald_crr": "the influence-curve Wald interval",
+    "boot_crr": "the full-refit bootstrap percentile interval, 200 replicates",
+    "boot_stacked": (
+        "the bootstrap percentile interval of the cross-fitted fit, 200 replicates; diagnostic, "
+        "no verdict"
+    ),
+    "mtreat": "the Wald interval of the composite route",
+    "mtreat_both": "the Wald interval of the composite route",
+    "mtreat_crr": "the Wald interval of the composite route",
+    "strata": "the Wald interval, marginal and stratum coefficients targeted jointly",
+    "strata_crr": (
+        "the Wald interval; the stratum coefficients from the stratified fluctuation and the "
+        "marginal ones from the unstratified log-ratio group"
+    ),
+    "rep3": "the median-rule Wald interval over three fold draws",
+    "rep3_crr": "the median-rule Wald interval over three fold draws",
+}
+_PC_ARM_OF = {
+    "insample_2k": ("wald_diff", "boot_diff"),
+    "insample_crr_2k": ("wald_crr", "boot_crr"),
+    "boot_stacked_2k": ("boot_stacked",),
+    "mtreat_4k": ("mtreat",),
+    "mtreat_both_4k": ("mtreat_both",),
+    "mtreat_crr_4k": ("mtreat_crr",),
+    "strata_4k": ("strata",),
+    "strata_crr_4k": ("strata_crr",),
+    "rep3_obs_4k": ("rep3",),
+    "rep3_crr_4k": ("rep3_crr",),
+}
+_PC_CALIBRATION_CONTROLS = {
+    "insample_2k": (
+        "shrunken_se_control",
+        "the percentile interval shrunk by 0.70 about the replicates' median",
+    ),
+    "rep3_obs_4k": (
+        "independent_splits_control",
+        "the reported SE divided by sqrt(3), as if the three fold draws were independent samples",
+    ),
+}
+STUDY_SCENARIOS[(_PC_SLUG, "mtreat_4k")] = _PC_GROUPS["mtreat_4k"]
+STUDY_ESTIMANDS.update(
+    {
+        (_PC_SLUG, f"cate_projection[{term}]"): (
+            f"the {words} of the least-squares projection of the CATE on (1, W1)"
+        )
+        for term, words in (("(intercept)", "intercept"), ("W1", "W1 slope"))
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_PC_SLUG, "interval_calibration", label, kind): (
+                _PC_KINDS[kind],
+                (
+                    "publishes its coverage and SE-ratio intervals; no verdict"
+                    if kind == "boot_stacked"
+                    else "SE ratio and coverage intervals both inside their calibration bands"
+                ),
+            )
+            for group, kinds in _PC_ARM_OF.items()
+            for label in _pc_arms(group)
+            for kind in kinds
+        },
+        **{
+            (_PC_SLUG, "interval_calibration", f"{group}_{term}", kind): (
+                words,
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for group, (kind, words) in _PC_CALIBRATION_CONTROLS.items()
+            for term in _PC_TERMS[group]
+        },
+        (_PC_SLUG, "type_i_error", "heterogeneity", "rep3_sharp_null"): (
+            "slope s = 0, so the effect does not vary, repeats=3, n = 2,000",
+            "the 99% upper end of the rejection rate at most 0.10",
+        ),
+        (_PC_SLUG, "power", "heterogeneity", "rep3_slope_0.10"): (
+            "slope s = 0.10, repeats=3, n = 4,000",
+            "the rejection rate's lower end at least 0.80",
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("bias", f"mtreat_dr_4k_{term}"): (
+                "the missing-treatment law with a declared wrong outcome regression, n = 4,000: "
+                f"the composite TMLE's {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias inside +-0.25",
+            )
+            for term in ("intercept", "W1")
+        },
+        ("bias", "complete_case_4k_intercept"): (
+            "the missing-treatment law, n = 4,000: the projection fitted on the rows with a "
+            "recorded treatment, with the same learners, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        ("bias", "no_treatment_observation_4k_intercept"): (
+            "the missing-treatment law with a declared wrong outcome regression, n = 4,000: the "
+            "one-step with the treatment-recording probability replaced by 1, intercept",
+            "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+        ),
+        **{
+            ("bias", f"marginal_as_stratum_4k_{term}"): (
+                "the two-stratum law, n = 4,000: the marginal coefficient read against the "
+                f"stratum S = 1 truth, {_PROJECTION_TERMS[term]}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for term in ("intercept", "W1")
+        },
+    }
+)
+
+
+#: ``projection-evidence`` (P1 PR 2): the projection of a controlled direct effect at each level
+#: of a binary intermediate, the pooled outcome regression and the simultaneous band.  The groups
+#: and cell names are those of ``tests/studies/projection_evidence.py``, which this module cannot
+#: import; ``tests/unit/test_projection_evidence_design.py`` pins the two equal.
+_PE_SLUG = "projection-evidence"
+_PE_CDE_LAW = (
+    "the cde_obs law, a binary intermediate Z between the treatment and the binary outcome, "
+    "with P(Z = 1) = expit(-0.2 + 0.8 A + 1.2 W3 - 0.4 W1) given A and W"
+)
+_PE_GROUPS = {
+    "cde_4k": (
+        f"{_PE_CDE_LAW}, a spline GLM per arm with the raw Z and logistic treatment and "
+        "intermediate models, five outer folds, n = 4,000"
+    ),
+    "cde_crr_4k": (
+        f"{_PE_CDE_LAW}, on the log-ratio scale, a spline GLM per arm with the raw Z, five outer "
+        "folds, n = 4,000"
+    ),
+    "cde_dr_4k": (
+        f"{_PE_CDE_LAW}, with a declared wrong outcome regression and the true treatment and "
+        "intermediate mechanisms, five outer folds, n = 4,000"
+    ),
+    "cde_total_4k": f"{_PE_CDE_LAW}, fitted without the intermediate, n = 4,000",
+    "pooled_4k": (
+        "the observational law, one pooled outcome regression (a spline GLM in W with A and "
+        "A x spline(W)), n = 4,000"
+    ),
+    "pooled_crr_4k": (
+        "the observational law on the log-ratio scale, one pooled outcome regression (a spline "
+        "GLM in W with A and A x spline(W)), n = 4,000"
+    ),
+    "band_obs_4k": "the observational law, a spline GLM per arm, n = 4,000",
+    "band_crr_4k": "the observational law on the log-ratio scale, a spline GLM per arm, n = 4,000",
+    "band_clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level, "
+        "a spline GLM per arm, n = 4,000"
+    ),
+    "band_rep3_4k": (
+        "the observational law, a spline GLM per arm with repeats=3 and the median rule, n = 4,000"
+    ),
+}
+_PE_CDE_GROUPS = ("cde_4k", "cde_crr_4k", "cde_dr_4k", "cde_total_4k")
+_PE_LEVELS = {0: "with Z held at 0", 1: "with Z held at 1"}
+_PE_TERMS = {"intercept": "intercept", "W1": "W1 slope", "W3": "W3 slope"}
+
+
+def _pe_target(group: str, term: str, level: int | None) -> str:
+    """The coefficient a ``projection-evidence`` row reads, in words."""
+    if group in _PE_CDE_GROUPS:
+        scale = "log CRR" if "crr" in group else "CDE"
+        return (
+            f"the {_PE_TERMS[term]} of the projection of the {scale} {_PE_LEVELS[level]} on (1, W1)"
+        )
+    effect = "log CRR" if "crr" in group else "CATE"
+    return f"the {_PE_TERMS[term]} of the projection of the {effect} on (1, W1, W3)"
+
+
+_PE_CALIBRATION = {
+    ("cde_4k", "__cde_z0", 0): ("intercept", "W1"),
+    ("cde_4k", "__cde_z1", 1): ("intercept", "W1"),
+    ("cde_crr_4k", "__cde_crr_z0", 0): ("intercept", "W1"),
+    ("cde_crr_4k", "__cde_crr_z1", 1): ("intercept", "W1"),
+    ("pooled_4k", "__pooled", None): ("intercept", "W1", "W3"),
+    ("pooled_crr_4k", "__pooled_crr", None): ("intercept", "W1", "W3"),
+}
+_PE_BIAS_POSITIVE = "the 99% interval of the standardized bias inside +-0.25"
+_PE_BIAS_CONTROL = "the 99% interval of the standardized bias must lie wholly outside +-0.25"
+_PE_CONTROLS = {
+    "plugin_stratum": (
+        "cde_4k",
+        "the targeted contrast projected over the Z = z rows only, read against the CDE truth",
+    ),
+    "no_selection": (
+        "cde_dr_4k",
+        "the TMLE with the selection 1{Z = z} dropped from the observed clever covariate",
+    ),
+    "no_intermediate_weight": (
+        "cde_dr_4k",
+        "the TMLE with the intermediate density q_z omitted from the clever covariate",
+    ),
+    "plugin_wrong": (
+        "cde_dr_4k",
+        "the plug-in of the declared wrong outcome regression, with no targeting",
+    ),
+    "total_effect": (
+        "cde_total_4k",
+        "the total-effect projection, fitted without the intermediate, read against the CDE truth",
+    ),
+}
+_PE_CONTROL_TERMS = {
+    "plugin_stratum": "intercept",
+    "no_selection": "intercept",
+    "no_intermediate_weight": "intercept",
+    "plugin_wrong": "W1",
+    "total_effect": "intercept",
+}
+_PE_BANDS = {
+    "band_obs_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_crr_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_clustered_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_rep3_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+}
+_PE_DIAGNOSTIC_BANDS = {
+    "cde_4k_z0": ("cde_4k", "five points W1 in [-0.8, 0.8], with Z held at 0"),
+    "cde_4k_z1": ("cde_4k", "five points W1 in [-0.8, 0.8], with Z held at 1"),
+    "pooled_4k": ("pooled_4k", "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}"),
+}
+_PE_BAND = (
+    "the Rademacher multiplier band of effect_curve(grid=) with 1,000 draws, on the identity "
+    "scale with the normal reference"
+)
+_PE_NO_VERDICT = "none. The row is a diagnostic and states no verdict"
+
+
+def _pe_level_suffix(level: int | None) -> str:
+    return "" if level is None else f"_z{level}"
+
+
+STUDY_SCENARIOS[(_PE_SLUG, "cde_4k")] = _PE_GROUPS["cde_4k"]
+STUDY_ESTIMANDS.update(
+    {
+        (_PE_SLUG, f"z{level}:cate_projection[(intercept)]"): (
+            f"the intercept of the least-squares projection of the CDE {_PE_LEVELS[level]} on "
+            "(1, W1)"
+        )
+        for level in (0, 1)
+    }
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (
+                _PE_SLUG,
+                "interval_calibration",
+                f"{group}{_pe_level_suffix(level)}_{term}{arm}",
+            ): (
+                f"{_PE_GROUPS[group]}: the influence-curve Wald interval of "
+                f"{_pe_target(group, term, level)}",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for (group, arm, level), terms in _PE_CALIBRATION.items()
+            for term in terms
+        },
+        (_PE_SLUG, "interval_calibration", "cde_4k_z0_intercept__shrunken_se_control"): (
+            f"{_PE_GROUPS['cde_4k']}: the reported SE of {_pe_target('cde_4k', 'intercept', 0)} "
+            "times 0.70",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            (_PE_SLUG, "bias", f"cde_dr_4k_z{level}_{term}"): (
+                f"{_PE_GROUPS['cde_dr_4k']}: the TMLE of {_pe_target('cde_dr_4k', term, level)}",
+                _PE_BIAS_POSITIVE,
+            )
+            for level in (0, 1)
+            for term in ("intercept", "W1")
+        },
+        **{
+            (_PE_SLUG, "bias", f"{control}_4k_z{level}_{_PE_CONTROL_TERMS[control]}"): (
+                f"{_PE_GROUPS[group]}: {words}, "
+                f"{_pe_target('cde_4k', _PE_CONTROL_TERMS[control], level)}",
+                _PE_BIAS_CONTROL,
+            )
+            for control, (group, words) in _PE_CONTROLS.items()
+            for level in (0, 1)
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{group}__simultaneous_band"): (
+                f"{_PE_GROUPS[group]}: {_PE_BAND}, over {grid}",
+                "joint coverage interval inside the calibration coverage band",
+            )
+            for group, grid in _PE_BANDS.items()
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{group}__pointwise_joint_control"): (
+                f"{_PE_GROUPS[group]}: the pointwise 95% intervals over {grid}, read jointly",
+                "joint coverage upper endpoint must fall below the nominal rate",
+            )
+            for group, grid in _PE_BANDS.items()
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{label}__simultaneous_band"): (
+                f"{_PE_GROUPS[group]}: {_PE_BAND}, over {grid}",
+                _PE_NO_VERDICT,
+            )
+            for label, (group, grid) in _PE_DIAGNOSTIC_BANDS.items()
+        },
+    }
+)
+
+#: ``score-assessment-compositions`` (P1 PR 2): the paired score assessment of
+#: ``score-assessment`` in five compositions.  The groups and cell names are those of
+#: ``tests/studies/score_assessment_compositions.py``, which this module cannot import;
+#: ``tests/unit/test_score_assessment_compositions_design.py`` pins the two equal.
+_SAC_SLUG = "score-assessment-compositions"
+IMPLEMENTATIONS["cleverly-score-assessment"] = (
+    "`cleverly` score assessment in a composition: one pooled TMLE fluctuation of the ATE fit "
+    "along the span of the scores' features, with substitution estimates of each score's risk "
+    "difference, calibration and the paired risk difference, and influence-curve Wald intervals"
+)
+_SAC_SCORES = "S = 0.2 + 0.3 W1 against SB = S + 0.15 sin(pi W3), difference scale"
+_SAC_GROUPS = {
+    "assess_weighted_2k": (
+        "the observational law with sampling weights 0.25 + 1.75 expit(6 W3), "
+        f"{_SAC_SCORES}, n = 2,000"
+    ),
+    "assess_clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level, "
+        f"{_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_missing_4k": (
+        f"the observational law with outcomes missing at random, {_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_arms3_4k": (
+        f"the three-arm law, the pair (2, 0) of the ATE fit, {_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_insample_2k": (
+        f"the observational law, an ATE fit that is not cross-fitted, {_SAC_SCORES}, n = 2,000"
+    ),
+}
+_SAC_ARMS = {
+    "assess_weighted_2k": ("__w_risk", "__w_cal"),
+    "assess_clustered_4k": ("__cl_risk", "__cl_cal"),
+    "assess_missing_4k": ("__mis_risk", "__mis_cal"),
+    "assess_arms3_4k": ("__k3_risk", "__k3_cal"),
+    "assess_insample_2k": ("__in_risk", "__in_cal"),
+}
+_SAC_RISK_ROWS = {
+    "S_risk_difference": "S's MSE for the CATE minus the best constant's",
+    "SB_risk_difference": "SB's MSE for the CATE minus the best constant's",
+    "paired": "the paired risk difference, S's MSE for the CATE minus SB's",
+}
+_SAC_CALIBRATION_ROWS = {
+    "S_calibration_intercept": "the intercept of the calibration line from S to the CATE",
+    "S_calibration_slope": "the slope of the calibration line from S to the CATE",
+    "SB_calibration_intercept": "the intercept of the calibration line from SB to the CATE",
+    "SB_calibration_slope": "the slope of the calibration line from SB to the CATE",
+}
+_SAC_CONTROLS = {
+    ("assess_weighted_2k", "S_risk_difference", "shrunken_se_control"): (
+        "the reported SE times 0.70"
+    ),
+    ("assess_clustered_4k", "S_risk_difference", "row_variance_control"): (
+        "the row-level SE that ignores the clusters, sd(IC) / sqrt(n)"
+    ),
+    ("assess_clustered_4k", "S_calibration_slope", "row_variance_control"): (
+        "the row-level SE that ignores the clusters, sd(IC) / sqrt(n)"
+    ),
+}
+STUDY_SCENARIOS[(_SAC_SLUG, "assess_weighted_2k")] = _SAC_GROUPS["assess_weighted_2k"]
+STUDY_ESTIMANDS[(_SAC_SLUG, "risk_difference[S - SB]")] = (
+    "the paired risk difference: S's mean squared error for the CATE minus SB's"
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (_SAC_SLUG, "interval_calibration", f"{group}_{row}{arm}"): (
+                f"{_SAC_GROUPS[group]}: the influence-curve Wald interval of {words}",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for group, (risk, calibration) in _SAC_ARMS.items()
+            for arm, rows in ((risk, _SAC_RISK_ROWS), (calibration, _SAC_CALIBRATION_ROWS))
+            for row, words in rows.items()
+        },
+        **{
+            (_SAC_SLUG, "interval_calibration", f"{group}_{row}__{kind}"): (
+                f"{_SAC_GROUPS[group]}: {words}, for "
+                f"{_SAC_RISK_ROWS.get(row) or _SAC_CALIBRATION_ROWS[row]}",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for (group, row, kind), words in _SAC_CONTROLS.items()
         },
     }
 )
@@ -8466,7 +9481,14 @@ PROPERTIES.update(
         ),
         "control": "the gated cells' fits read under the rejected candidate intervals",
         "reported": "the rule's interval at other sizes, fits and owner laws, with no verdict",
-        "witness": "the plug-in interval misses on the constant-cell fits the rule withholds",
+        "witness": (
+            "a deliberately broken interval, or the plug-in interval the rule withholds, misses "
+            "where it should, so the instrument can tell"
+        ),
+        "owner_coverage": (
+            "the corrected interval repairs the owner cells it targets, with a paired gain over "
+            "today's interval"
+        ),
     }
 )
 _SSW_BOUNDARY = "the stratified law of `canonical-stratified-tmle`, stratified TMLE"
@@ -8501,11 +9523,11 @@ _SSW_CELLS = {
     ),
     "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, n = 2,000",
     "lognormal06_ey1": (
-        "a continuous outcome with a lognormal error of skewness 2.0, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 2.3, treated mean in V = 2, "
         "n = 2,000"
     ),
     "lognormal_ey1": (
-        "a continuous outcome with a lognormal error of skewness 6.2, treated mean in V = 2, "
+        "a continuous outcome with a lognormal error of skewness 11.2, treated mean in V = 2, "
         "n = 2,000"
     ),
     "leverage_crossfit_ey1": (
@@ -8698,6 +9720,202 @@ CELLS.update(
             "the fits of boundary_mean_n500_ey1 whose treated V = 2 cell holds one outcome "
             "value: the plug-in interval on the range-logit scale, the point itself on a bound",
             "reported: its coverage's 99% upper end below 0.50 shows why the interval is withheld",
+        ),
+    }
+)
+
+
+#: ``asymmetric-wald`` (Fix-3 PR 3): correlated MOVER for a bounded difference and the
+#: skew-widened t for a continuous target.  Mirrored from ``tests.studies.asymmetric_wald``,
+#: which this module cannot import; ``tests/unit/test_asymmetric_wald_design.py`` pins the
+#: cells described here to the study's.  Its family and some cell names coincide with
+#: ``small-sample-wald``'s, so its cells are described per study (:data:`STUDY_CELLS`).
+_AW_SLUG = "asymmetric-wald"
+IMPLEMENTATIONS["cleverly-asymmetric-wald"] = (
+    "`cleverly` stratified TMLE with the PR 3 interval rule: correlated MOVER on the two arms' "
+    "range-logit intervals for a bounded difference, the range-logit normal interval for a "
+    "bounded mean, and the skew-widened t at max(df, 5) for a continuous outcome, with no "
+    "interval when an arm's stratum holds one outcome value or an estimate sits on a bound"
+)
+STUDY_SCENARIOS[(_AW_SLUG, "boundary_v2")] = STUDY_SCENARIOS[(_SSW_SLUG, "boundary_v2")]
+STUDY_ESTIMANDS[(_AW_SLUG, "ate[V=2]")] = (
+    "average treatment effect in stratum V = 2, with MOVER's interval (a withheld one counts as "
+    "a miss)"
+)
+_AW_CELLS = {
+    "d1_ey1": "held-out law D1, a sparse treated arm near 0 in a small stratum, treated mean in "
+    "V = 2, n = 3,000",
+    "d1_ate": "held-out law D1, a sparse treated arm near 0 in a small stratum, effect in V = 2, "
+    "n = 3,000",
+    "d1_ey0": "held-out law D1, untreated mean in V = 2, n = 3,000",
+    "d1_ate_v0": "held-out law D1, effect in the large stratum V = 0, n = 3,000",
+    "d2_ey0": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "untreated mean, n = 2,000",
+    "d2_ate": "held-out law D2, a sparse untreated arm near 1 with a continuous covariate, "
+    "effect, n = 2,000",
+    "d2_ey1": "held-out law D2, treated mean, n = 2,000",
+    "c1_ey1": "held-out law C1, right-skewed gamma errors scaled by arm, treated mean in V = 2, "
+    "n = 2,500",
+    "c1_ate": "held-out law C1, right-skewed gamma errors scaled by arm, effect in V = 2, "
+    "n = 2,500",
+    "c1_ey0": "held-out law C1, untreated mean in V = 2, n = 2,500",
+    "c2_ey1": "held-out law C2, a left-skewed Beta outcome with a coarse covariate, treated mean "
+    "in V = 2, n = 2,000",
+    "c2_ate": "held-out law C2, effect in V = 2, n = 2,000",
+    "c2_ey0": "held-out law C2, untreated mean in V = 2, n = 2,000",
+    "c3_ey1": "held-out law C3, symmetric Laplace errors (the no-harm control), treated mean in "
+    "V = 2, n = 2,500",
+    "c3_ate": "held-out law C3, symmetric Laplace errors (the no-harm control), effect in V = 2, "
+    "n = 2,500",
+    "c3_ey0": "held-out law C3, untreated mean in V = 2, n = 2,500",
+    "ho_sparse_treat_ate": "study 1's held-out law H1, a sparse treated arm near 1 with no "
+    "strata, effect, n = 2,000",
+    "ho_hurdle_ey1": "study 1's held-out law H2, a point mass at 0 and a gamma part, saturated "
+    "cell-mean outcome model, treated mean in V = 2, n = 2,000",
+    "ho_hurdle_ate": "study 1's held-out law H2, effect in V = 2, n = 2,000",
+    "ho_hurdle_ey0": "study 1's held-out law H2, untreated mean in V = 2, n = 2,000",
+    "lognormal06_ey1": "a continuous outcome with a lognormal error of skewness 2.3, treated mean "
+    "in V = 2, n = 2,000",
+    "student_ey1": "a continuous outcome with a Student t error on 3 df, treated mean in V = 2, "
+    "n = 2,000",
+    "student_ate": "a continuous outcome with a Student t error on 3 df, effect in V = 2, "
+    "n = 2,000",
+    "lognormal_ey1": "a continuous outcome with a lognormal error of skewness 11.2 (the stated "
+    "limit), treated mean in V = 2, n = 2,000",
+    "boundary_2000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 2,000",
+    "boundary_1000_ate": "the stratified law of `canonical-stratified-tmle`, effect in V = 2, "
+    "n = 1,000",
+    "rare_ate": "a rare binary outcome, three strata, effect in V = 2, n = 2,000",
+    "identity_msm_v2_w": "the alternating Beta-outcome law, identity working MSM, W coefficient "
+    "in V = 2, n = 2,000",
+}
+_AW_BINARY = ("d1", "d2", "ho_sparse_treat", "boundary", "rare")
+
+
+def _aw_kind(name: str) -> str:
+    """``difference``, ``mean`` or ``continuous``, as the study's ``kind_of`` reads a cell."""
+    if not name.startswith(_AW_BINARY):
+        return "continuous"
+    return "difference" if "_ate" in name else "mean"
+
+
+def _aw_rule(name: str) -> str:
+    kind = _aw_kind(name)
+    return {
+        "difference": "MOVER's interval",
+        "mean": "the range-logit normal interval",
+        "continuous": "the skew-widened t",
+    }[kind]
+
+
+def _aw_controls(name: str) -> tuple[str, ...]:
+    """The controls a gated cell is re-read under, as the study's ``controls_of`` picks them."""
+    kind = _aw_kind(name)
+    if kind == "difference":
+        return (
+            "normal_reference_control",
+            "range_logit_control",
+            "logit_t_control",
+            "cf_shift_control",
+        )
+    if kind == "mean":
+        return ("normal_reference_control", "logit_t_control")
+    return ("normal_reference_control", "capped_t_control", "cf_shift_control")
+
+
+_AW_GATED = {
+    "heldout_coverage": (
+        "d1_ey1",
+        "d1_ate",
+        "d2_ey0",
+        "d2_ate",
+        "c1_ey1",
+        "c1_ate",
+        "c2_ey1",
+        "c3_ey1",
+        "c3_ate",
+    ),
+    "owner_coverage": ("ho_sparse_treat_ate", "ho_hurdle_ey1", "lognormal06_ey1"),
+}
+_AW_REPORTED = (
+    "d1_ey0",
+    "d1_ate_v0",
+    "d2_ey1",
+    "c1_ey0",
+    "c2_ate",
+    "c2_ey0",
+    "c3_ey0",
+    "ho_hurdle_ate",
+    "ho_hurdle_ey0",
+    "student_ey1",
+    "student_ate",
+    "lognormal_ey1",
+    "boundary_2000_ate",
+    "boundary_1000_ate",
+    "rare_ate",
+    "identity_msm_v2_w",
+)
+_AW_GAINS = {
+    "ho_sparse_treat_ate": "the identity normal interval",
+    "ho_hurdle_ey1": "the t interval at max(df, 5)",
+    "lognormal06_ey1": "the t interval at max(df, 5)",
+}
+_AW_LEGS = (
+    "on the first 2,000 fits, the lower leg's 99% lower end at least 0.92, lost and withheld "
+    "fits as misses, and the shown fits' 99% upper end at most 0.98; on all 4,000, each side's "
+    "one-sided miss rate with a 99% lower end at most 0.040"
+)
+_AW_CONTROLS = {
+    "normal_reference_control": "the normal interval on the identity scale",
+    "range_logit_control": "the normal interval on the difference's own range-logit scale",
+    "logit_t_control": "a Student t interval on the range-logit scale at max(df, 5)",
+    "capped_t_control": "a Student t interval at max(df, 5), without the skew widening",
+    "cf_shift_control": "the two-sided Cornish-Fisher shift by the curve's acceleration",
+}
+STUDY_CELLS.update(
+    {
+        **{
+            (_AW_SLUG, family, name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                _AW_LEGS
+                + (
+                    f", and the exact 99.5% lower bound of the paired gain over {_AW_GAINS[name]} "
+                    "above 1/2"
+                    if name in _AW_GAINS
+                    else ""
+                ),
+            )
+            for family, names in _AW_GATED.items()
+            for name in names
+        },
+        **{
+            (_AW_SLUG, "control", f"{name}__{control}"): (
+                f"{_AW_CELLS[name]}: the same fits read under {_AW_CONTROLS[control]}",
+                "reported with no verdict; a falsifier may read it",
+            )
+            for names in _AW_GATED.values()
+            for name in names
+            for control in _aw_controls(name)
+        },
+        **{
+            (_AW_SLUG, "reported", name): (
+                f"{_AW_CELLS[name]}: {_aw_rule(name)}",
+                "reported with no verdict: both legs and both tails",
+            )
+            for name in _AW_REPORTED
+        },
+        (_AW_SLUG, "witness", "sign_flip_witness"): (
+            "the fits of ho_hurdle_ey1 read under the skew-widened t with the acceleration's sign "
+            "flipped, a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong sign",
+        ),
+        (_AW_SLUG, "witness", "mover_swap_witness"): (
+            "the fits of ho_sparse_treat_ate read under MOVER with each arm's two sides swapped, "
+            "a deliberate mutation",
+            "reported: it must fail its heavy-side tail clause, which shows the clause sees a "
+            "wrong pairing",
         ),
     }
 )
@@ -9298,6 +10516,104 @@ CELLS.update(
             _DIAGNOSTIC_REQUIRED,
         )
         for label, words in _BY_ARM_LAWS.items()
+    }
+)
+
+
+#: ``known-score-att`` (X35): point TMLE with conditional_form="known_score" on a declared
+#: treatment mechanism.  The laws, settings and cells are those of
+#: ``tests/studies/known_score_att_law.py`` and its properties module.
+_KS_SLUG = "known-score-att"
+_KS_LAW_S = (
+    "law S (W1 uniform on (-sqrt 3, sqrt 3), W2 binary, g0 = expit(-0.3 + W1 + 0.5 W2), effect "
+    "1 + 1.5 W1, uniform unit-variance noise), n = 2,000"
+)
+STUDY_SCENARIOS[(_KS_SLUG, "S")] = (
+    f"{_KS_LAW_S}: the declared mechanism, least squares on (1, A, W1, W2, A W1) (correct), "
+    "in sample; the known-score ATT and ATC"
+)
+STUDY_ARMS.update(
+    {
+        (_KS_SLUG, "att_known_score_in_sample"): f"{_KS_LAW_S}, the known-score ATT, in sample",
+        (_KS_SLUG, "atc_known_score_in_sample"): f"{_KS_LAW_S}, the known-score ATC, in sample",
+        (_KS_SLUG, "att_known_score_stacked"): (
+            f"{_KS_LAW_S}, the known-score ATT, stacked over five folds with q_bounds (-8, 8)"
+        ),
+        (_KS_SLUG, "atc_known_score_stacked"): (
+            f"{_KS_LAW_S}, the known-score ATC, stacked over five folds with q_bounds (-8, 8)"
+        ),
+        (_KS_SLUG, "att_arm_mean_in_sample"): (
+            f"{_KS_LAW_S}, the arm-mean ATT on the same draws, in sample"
+        ),
+        (_KS_SLUG, "atc_arm_mean_in_sample"): (
+            f"{_KS_LAW_S}, the arm-mean ATC on the same draws, in sample"
+        ),
+        (_KS_SLUG, "att"): f"{_KS_LAW_S}, the ATT",
+        (_KS_SLUG, "atc"): f"{_KS_LAW_S}, the ATC",
+        (_KS_SLUG, "att_zero_gain"): "law S with a constant effect (law S0), n = 2,000, the ATT",
+        (_KS_SLUG, "atc_zero_gain"): "law S with a constant effect (law S0), n = 2,000, the ATC",
+        (_KS_SLUG, "s_att"): f"{_KS_LAW_S}, the known-score ATT",
+        (_KS_SLUG, "s_atc"): f"{_KS_LAW_S}, the known-score ATC",
+        (_KS_SLUG, "b2_att"): "two-arm law B, n = 2,000, the known-score ATT",
+        (_KS_SLUG, "b2_atc"): "two-arm law B, n = 2,000, the known-score ATC",
+        (_KS_SLUG, "b3_att_1"): "three-arm law B, n = 2,000, the known-score ATT of arm 1",
+        (_KS_SLUG, "b3_att_2"): "three-arm law B, n = 2,000, the known-score ATT of arm 2",
+        (_KS_SLUG, "b3_atc_1"): "three-arm law B, n = 2,000, the known-score ATC of arm 1",
+        (_KS_SLUG, "b3_atc_2"): "three-arm law B, n = 2,000, the known-score ATC of arm 2",
+    }
+)
+PROPERTIES["efficiency_gain"] = (
+    "with the mechanism declared, the known-score ATT and ATC vary less than the arm-mean "
+    "forms fitted on the same draws, and do not when the effect is constant"
+)
+PROPERTIES["known_score_accuracy"] = (
+    "the known-score ATT and ATC are accurate and their intervals cover with a wrong outcome "
+    "regression, and a wrong declared mechanism is detected"
+)
+_KS_GAIN_RULE = "the 99% paired-bootstrap upper bound of SD(known score) / SD(arm mean)"
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "known_score"): (
+                "the known-score fit, paired with the arm-mean fit of the same draws",
+                f"{_KS_GAIN_RULE} lies below 0.98",
+            )
+            for label in ("att", "atc")
+        },
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "known_score"): (
+                "the known-score fit where the gain is zero, paired with the arm-mean fit",
+                f"{_KS_GAIN_RULE} reaches 0.98",
+            )
+            for label in ("att_zero_gain", "atc_zero_gain")
+        },
+        **{
+            (_KS_SLUG, "efficiency_gain", label, "arm_mean"): (
+                "the arm-mean fit (conditional_form='arm_mean') on the same draws",
+                _DIAGNOSTIC_REQUIRED,
+            )
+            for label in ("att", "atc", "att_zero_gain", "atc_zero_gain")
+        },
+        **{
+            (_KS_SLUG, "known_score_accuracy", label, "q_wrong"): (
+                "the declared mechanism with a wrong outcome regression",
+                "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+            )
+            for label in (
+                "s_att",
+                "s_atc",
+                "b2_att",
+                "b2_atc",
+                "b3_att_1",
+                "b3_att_2",
+                "b3_atc_1",
+                "b3_atc_2",
+            )
+        },
+        (_KS_SLUG, "known_score_accuracy", "s_att", "declared_constant"): (
+            "the constant 0.49 declared as the mechanism, correct outcome regression",
+            "bias interval lies outside the margin",
+        ),
     }
 )
 
@@ -9946,8 +11262,8 @@ CELLS.update(
 _CONTINUOUS_SLUG = "continuous-time-survival"
 IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
     "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
-    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
-    "2024)"
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024)"
 )
 STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
     "a three-level factor and a normal covariate, a binary treatment, two competing causes with "
@@ -10000,6 +11316,214 @@ STUDY_ARM_CELLS.update(
         ),
     }
 )
+
+#: ``continuous-survival-functionals`` (X6 part (c)): the continuous-time TMLE fitted with
+#: ``restricted_horizons=(2.32,)``, whose walk targets each restricted mean time lost beside the
+#: risks.  The names are those of ``tests/studies/continuous_survival_functionals.py``, its law
+#: module and its properties module.
+_FUNCTIONALS_SLUG = "continuous-survival-functionals"
+IMPLEMENTATIONS["cleverly-continuous-survival-functionals"] = (
+    "`cleverly` ContinuousSurvivalTMLE with restricted_horizons=(2.32,): the one-step TMLE whose "
+    "walk targets each arm's restricted mean time lost to each cause beside the risks "
+    "(Rytgaard and van der Laan 2024)"
+)
+STUDY_SCENARIOS[(_FUNCTIONALS_SLUG, "functionals_cf_1k")] = (
+    "the continuous-time competing-risks law of the continuous-time survival study; the default "
+    "Cox libraries and treatment learner, ten outer folds, target times 0.46, 1.12 and 2.32 and "
+    "one restricted horizon at 2.32, n = 1,000"
+)
+for _arm, _words in _CONTINUOUS_ARMS.items():
+    for _cause in (1, 2):
+        for _time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[
+                (_FUNCTIONALS_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")
+            ] = f"risk of cause {_cause} by t = {_time} under {_words}, in the restricted fit"
+        STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, f"rmtl_regimen[{_arm}, cause{_cause} @ t=2.32]")] = (
+            f"restricted mean time lost to cause {_cause} up to 2.32 under {_words}"
+        )
+    STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, f"rmst_regimen[{_arm} @ t=2.32]")] = (
+        f"restricted mean survival time up to 2.32 under {_words}"
+    )
+for _cause in (1, 2):
+    for _time in ("1.12", "2.32"):
+        STUDY_ESTIMANDS[
+            (_FUNCTIONALS_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment, in the restricted fit"
+        )
+        STUDY_ESTIMANDS[
+            (_FUNCTIONALS_SLUG, f"rr_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"ratio of the risks of cause {_cause} by t = {_time} under treatment and no "
+            "treatment, on the log scale"
+        )
+    STUDY_ESTIMANDS[
+        (_FUNCTIONALS_SLUG, f"rmtl_regimen[treated vs control, cause{_cause} @ t=2.32]")
+    ] = (
+        f"difference in the restricted mean time lost to cause {_cause} up to 2.32 between "
+        "treatment and no treatment"
+    )
+STUDY_ESTIMANDS[(_FUNCTIONALS_SLUG, "rmst_regimen[treated vs control @ t=2.32]")] = (
+    "difference in the restricted mean survival time up to 2.32 between treatment and no treatment"
+)
+STUDY_ARMS[(_FUNCTIONALS_SLUG, "rmst_rd")] = (
+    "the continuous-time competing-risks law, the difference in the restricted mean survival "
+    "time up to 2.32 between treatment and no treatment, in the restricted fit, ten outer "
+    "folds, n = 1,000"
+)
+STUDY_ARM_CELLS[(_FUNCTIONALS_SLUG, "interval_calibration", "rmst_rd", "correctly_specified")] = (
+    "the default libraries, each of which holds the true model",
+    "SE ratio and coverage intervals both inside their calibration bands",
+)
+
+#: ``continuous-survival-variance`` (X6 part (a)): the continuous-time TMLE with its default
+#: switched standard error, on five laws that each change one feature of the base law.  The
+#: names are those of ``tests/studies/continuous_survival_variance.py`` and its law module.
+_VARIANCE_SLUG = "continuous-survival-variance"
+IMPLEMENTATIONS["cleverly-continuous-survival-switched"] = (
+    "`cleverly` ContinuousSurvivalTMLE with variance='switched': the one-step TMLE's "
+    "influence-curve standard error, raised to the predictable variation where the relative SD "
+    "of the variance estimate exceeds 0.125 (Rytgaard and van der Laan 2024)"
+)
+_VARIANCE_FIT = "the default Cox libraries and treatment learner"
+STUDY_SCENARIOS.update(
+    {
+        (_VARIANCE_SLUG, "v1_rare_cause2"): (
+            "the base continuous-time competing-risks law with a rarer second cause (cause-2 "
+            f"log-hazard intercept -2.6); {_VARIANCE_FIT}, ten outer folds, n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v2_heavy_weights"): (
+            "reported cell, passing by declaration (three rows at t = 1.12 fall short of the "
+            "primary rule): the base continuous-time competing-risks law with heavier control "
+            "weights "
+            f"(treatment model coefficients 2, -1, 1.5); {_VARIANCE_FIT}, ten outer folds, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v3_half_n"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, ten outer folds, "
+            "n = 500"
+        ),
+        (_VARIANCE_SLUG, "v4_in_sample"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, fitted in sample, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v7_quadratic"): (
+            "the base continuous-time competing-risks law with 0.3 (X3^2 - 1) added to the "
+            f"cause-1 log hazard, which no default Cox model holds; {_VARIANCE_FIT}, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+for _time in ("1.12", "2.32", "1.29", "2.69"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        for _cause in (1, 2):
+            STUDY_ESTIMANDS[(_VARIANCE_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} by t = {_time} under {_words}"
+            )
+    for _cause in (1, 2):
+        STUDY_ESTIMANDS[
+            (_VARIANCE_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+
+#: ``continuous-survival-causes`` (X6 part (b)): the continuous-time TMLE in its shipped default
+#: on the base law with one cause and with three.  The names are those of
+#: ``tests/studies/continuous_survival_causes.py``, its law module and its properties module.
+_CAUSES_SLUG = "continuous-survival-causes"
+IMPLEMENTATIONS["cleverly-continuous-survival-causes"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024), with one cause and with three"
+)
+_CAUSES_FIT = "the default Cox libraries and treatment learner, ten outer folds, n = 1,000"
+STUDY_SCENARIOS.update(
+    {
+        (_CAUSES_SLUG, "l1_cf_1k"): (
+            "the base continuous-time law with its cause-2 hazard removed, so every event is of "
+            f"one type; {_CAUSES_FIT}, target times 0.58, 1.48 and 3.24"
+        ),
+        (_CAUSES_SLUG, "l3_cf_1k"): (
+            "the base continuous-time competing-risks law with a third cause of hazard "
+            f"exp(-2.5 + 0.5 X1 + 0.5 X3 + 0.5 Z); {_CAUSES_FIT}, target times 0.37, 0.9 and "
+            "1.86"
+        ),
+    }
+)
+for _time in ("0.58", "1.48", "3.24"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        STUDY_ESTIMANDS[(_CAUSES_SLUG, f"risk_regimen[{_arm} @ t={_time}]")] = (
+            f"risk of the event by t = {_time} under {_words}, one cause"
+        )
+    STUDY_ESTIMANDS[(_CAUSES_SLUG, f"ate_regimen[treated vs control @ t={_time}]")] = (
+        f"difference in the risk of the event by t = {_time} between treatment and no "
+        "treatment, one cause"
+    )
+for _time in ("0.37", "0.9", "1.86"):
+    for _cause in (1, 2, 3):
+        for _arm, _words in _CONTINUOUS_ARMS.items():
+            STUDY_ESTIMANDS[(_CAUSES_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} of three by t = {_time} under {_words}"
+            )
+        STUDY_ESTIMANDS[
+            (_CAUSES_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} of three by t = {_time} between treatment "
+            "and no treatment"
+        )
+STUDY_ARMS.update(
+    {
+        (_CAUSES_SLUG, "l1_rd"): (
+            "the one-cause law, the difference in the risk of the event by t = 1.48 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_rd"): (
+            "the three-cause law, the difference in the risk of cause 3 by t = 0.9 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l1_c1"): (
+            "the one-cause law, the treated arm's risk of the event by t = 1.48, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c1"): (
+            "the three-cause law, the treated arm's risk of cause 1 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c3"): (
+            "the three-cause law, the treated arm's risk of cause 3 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+_CAUSES_WRONG = (
+    "the event hazards wrong (a Cox model on the treatment alone), with the default treatment "
+    "learner and censoring library, which hold the true models"
+)
+for _label in ("l1_c1", "l3_c1", "l3_c3"):
+    STUDY_ARM_CELLS.update(
+        {
+            (_CAUSES_SLUG, "double_robustness", _label, "mechanism_correct"): (
+                f"{_CAUSES_WRONG}; the targeted estimate",
+                "bias interval inside the equivalence margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "plug_in_control"): (
+                f"{_CAUSES_WRONG}; the initial plug-in of the same fit, before the walk",
+                "bias interval must fall entirely outside the margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "factual_tilt_control"): (
+                f"{_CAUSES_WRONG}; the same draw fitted with tilt='factual', which tilts only "
+                "each unit's received arm",
+                "bias interval must fall entirely outside the margin",
+            ),
+        }
+    )
+for _label in ("l1_rd", "l3_rd"):
+    STUDY_ARM_CELLS[(_CAUSES_SLUG, "interval_calibration", _label, "correctly_specified")] = (
+        "the default libraries, each of which holds the true model",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this
@@ -10315,3 +11839,804 @@ for _twin, _words in _PV_LARGE.items():
                 f"{_words}, {_quantity}, 400 draws: {_tested}",
                 _DIAGNOSTIC_REQUIRED,
             )
+
+#: ``boundary-node-ltmle`` (X54 part (i)): the boundary-node supplement of ``LTMLE``, read in
+#: three arms off one fit per draw. The cells are those of
+#: ``tests/studies/boundary_node_ltmle.py`` and its properties module.
+_BN_SLUG = "boundary-node-ltmle"
+STUDY_SCENARIOS[(_BN_SLUG, "interior_n200")] = (
+    "law A, three known treatment decisions before event nodes 1, 3 and 4 with every hazard "
+    "near 0.08, in-sample iterated-mean LTMLE at n = 200: node 4 is flagged under always on "
+    "about half the draws, and the shipped interval adds its variance at the exact one-sided "
+    "bound of its hazard"
+)
+PROPERTIES["boundary_node"] = (
+    "the supplemented interval covers where a flagged node fires, its point estimate is "
+    "unbiased, and the flagged node's true variance is what the plug-in interval misses"
+)
+_BN_CELLS = {
+    "interior_n100": "law A in sample at n = 100",
+    "interior_n200": "law A in sample at n = 200",
+    "interior_n400": "law A in sample at n = 400",
+    "interior_n200_crossfit": "law A cross-fitted with five folds at n = 200",
+    "clustered_j40": "law A with a cluster effect, 40 clusters of 10 rows",
+    "zero_n200": "law A with a true node-4 hazard of 0 under always, n = 200",
+    "held_n200": "law B, one held baseline decision, hazard path, n = 200",
+    "held_zero_n200": "law B with a true node-4 hazard of 0 under always, hazard path, n = 200",
+}
+_BN_TARGETS = {
+    "always": "risk under always at horizon 4",
+    "never": "risk under never at horizon 4",
+    "contrast": "always-minus-never risk difference at horizon 4",
+}
+_BN_ARMS = {
+    "supplemented": "the shipped interval, the curve's variance plus the supplement",
+    "plugin": "the same estimate at the curve's variance alone, the supplement removed",
+    "oracle_node": (
+        "the same estimate at the curve's variance plus the flagged nodes' variance at the "
+        "true row hazards"
+    ),
+}
+
+
+def _bn_required(cell: str, target: str, arm: str) -> str:
+    from tests.studies import boundary_node_properties as _bn
+
+    name = f"{cell}__{target}__{arm}"
+    if name == _bn.CONTROL_CELL:
+        return (
+            "on the firing draws, the exact 99% McNemar lower end of supplemented minus plug-in "
+            "coverage above 0, and the exact 99% lower end of oracle-node minus plug-in coverage "
+            "at least 0.05"
+        )
+    if arm != "supplemented":
+        return _DIAGNOSTIC_REQUIRED
+    clauses = ["bias inside the margin"]
+    if name in _bn.FIRING_CELLS:
+        clauses.append("the exact 99% lower end of coverage on the firing draws at least 0.90")
+    if name in _bn.ZERO_CELLS:
+        clauses.append("the exact 99% lower end of all-draw coverage at least 0.92")
+    return ", ".join(clauses[:-1]) + (" and " if len(clauses) > 1 else "") + clauses[-1]
+
+
+for _bn_cell, _bn_words in _BN_CELLS.items():
+    for _bn_target, _bn_quantity in _BN_TARGETS.items():
+        for _bn_arm, _bn_interval in _BN_ARMS.items():
+            CELLS[("boundary_node", f"{_bn_cell}__{_bn_target}__{_bn_arm}")] = (
+                f"{_bn_words}, {_bn_quantity}: {_bn_interval}",
+                _bn_required(_bn_cell, _bn_target, _bn_arm),
+            )
+
+
+#: ``known-mechanism-sample-weights`` (Fix-16): a declared treatment mechanism read in the
+#: weighted sample (``mechanism_law="sample"``).  The laws and fits are those of
+#: ``tests/studies/known_sample_weights_law.py``, which this module cannot import.
+_KSW_SLUG = "known-mechanism-sample-weights"
+STUDY_SCENARIOS[(_KSW_SLUG, "SW")] = (
+    "a binary outcome, W1 normal and W2 binary, a declared randomization by W2 and a weight "
+    "that reads the arm and W1; mechanism_law='sample' with a correct logistic outcome "
+    "regression and a correct main-terms tilt classifier, five folds"
+)
+_KSW_BIAS = "99% interval of the standardized bias inside the margin"
+_KSW_BEYOND = "99% interval of the standardized bias wholly outside the margin"
+_KSW_SW_WRONG_Q = "the main-terms outcome regression on (A, W1, W2)"
+_KSW_LW_WRONG_Q = "an intercept-only regression at node one"
+PROPERTIES.update(
+    {
+        "sample_bias": (
+            "with every nuisance correct, mechanism_law='sample' estimates the weight-tilted "
+            "parameter without bias"
+        ),
+        "target_reading_control": (
+            "reading the declaration as the tilted law's mechanism ('target') when the weights "
+            "tilt it, with a wrong outcome regression, is biased"
+        ),
+        "sample_misspecified": (
+            "with the outcome regression wrong and the tilt classifier correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "tilt_misspecified": (
+            "with the tilt classifier wrong and the outcome regression correct, "
+            "mechanism_law='sample' stays unbiased"
+        ),
+        "both_misspecified": (
+            "with both the outcome regression and the tilt classifier wrong, "
+            "mechanism_law='sample' is biased"
+        ),
+    }
+)
+CELLS.update(
+    {
+        **{
+            ("sample_bias", label): (
+                f"{words}, mechanism_law='sample' with every nuisance correct",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("target_reading_control", label): (
+                f"{words}, mechanism_law='target' (dividing by the declaration) with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q}",
+                _KSW_BEYOND,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        **{
+            ("sample_misspecified", label): (
+                f"{words}, mechanism_law='sample' with "
+                f"{_KSW_LW_WRONG_Q if label.startswith('lw') else _KSW_SW_WRONG_Q} and the "
+                "correct tilt classifier",
+                _KSW_BIAS,
+            )
+            for label, words in _KSW_LABELS.items()
+        },
+        ("tilt_misspecified", "sw_n4000"): (
+            "law SW at n = 4,000, the ATE, mechanism_law='sample' with the correct outcome "
+            "regression and a tilt classifier on W2 alone",
+            _KSW_BIAS,
+        ),
+        ("both_misspecified", "sw_n4000"): (
+            f"law SW at n = 4,000, the ATE, mechanism_law='sample' with {_KSW_SW_WRONG_Q} and "
+            "a tilt classifier on W2 alone",
+            _KSW_BEYOND,
+        ),
+    }
+)
+#: ``hazard-time-varying``: static and modified plans on the hazard path with a binary
+#: time-varying covariate after baseline, one backward pass per plan.  The laws and fits are those
+#: of ``tests/studies/hazard_time_varying_law.py`` and
+#: ``tests/studies/canonical_hazard_time_varying.py``, which this module cannot import.
+_HAZARD_TIME_VARYING_SLUG = "hazard-time-varying"
+_HAZARD_TIME_VARYING_LAW = (
+    "two baseline covariates, a binary covariate at every later visit that the previous "
+    "treatment lowers, logistic visit dropout that depends on the covariate"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "one_cause"): (
+            f"five visits, one cause, a binary treatment at every visit, {_HAZARD_TIME_VARYING_LAW}"
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "competing"): (
+            "four visits, relapse and death as competing causes, a binary treatment at every "
+            f"visit, {_HAZARD_TIME_VARYING_LAW}"
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "three_arm"): (
+            "five visits, one cause, a treatment on three levels at every visit, "
+            f"{_HAZARD_TIME_VARYING_LAW}; the policy raises each visit's level by one, capped at "
+            "the top level"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by visit {t} under {words}"
+            )
+            for label, words in (
+                ("always", "treatment at every visit"),
+                ("never", "no treatment at any visit"),
+                ("up", "the policy"),
+                ("natural", "the natural course"),
+            )
+            for t in range(1, 6)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"ate_regimen[{plans} @ t={t}]"): (
+                f"the risk by visit {t} under {first} minus the risk under {second}"
+            )
+            for plans, first, second in (
+                ("always vs never", "treatment at every visit", "no treatment"),
+                ("up vs natural", "the policy", "the natural course"),
+            )
+            for t in range(1, 6)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"cif_regimen[{label}, {cause} @ t={t}]"): (
+                f"the cumulative incidence of {cause} by visit {t} under {words}"
+            )
+            for label, words in (
+                ("always", "treatment at every visit"),
+                ("never", "no treatment at any visit"),
+            )
+            for cause in ("relapse", "death")
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, f"ate_regimen[always vs never, {cause} @ t={t}]"): (
+                f"the cumulative incidence of {cause} by visit {t} under treatment at every "
+                "visit minus that under no treatment"
+            )
+            for cause in ("relapse", "death")
+            for t in range(1, 5)
+        },
+    }
+)
+_HAZARD_TIME_VARYING_DIFFERENCE_CELLS = {
+    **_HAZARD_MTP_DIFFERENCE_CELLS,
+    "mechanism_correct_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same plans on the same "
+        "draw, with every outcome regression omitting the time-varying covariate and the "
+        "treatment and censoring models correct",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
+    ),
+    "isotonic_difference": CELLS["iterated_mean_difference", "isotonic_difference"],
+}
+_HAZARD_TIME_VARYING_EXCESS = {
+    "hazard_excess": "the hazard fit",
+    "iterated_excess": "the iterated-mean fit",
+    "isotonic_excess": "the isotonic iterated-mean fit",
+}
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
+            for fit in ("one_cause", "competing")
+            for arm in ("contrast", "risk")
+            for base, words in _HAZARD_TIME_VARYING_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (_HAZARD_TIME_VARYING_SLUG, "iterated_mean_difference", "competing", base): (
+                f"the largest sum of the two cumulative incidences minus one under {words}, over "
+                "both plans and every visit",
+                "no verdict; reported beside the other fits' largest sums",
+            )
+            for base, words in _HAZARD_TIME_VARYING_EXCESS.items()
+        },
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "targeting_necessity", "one_cause_contrast", "targeted"): (
+            "the estimator with node hazards and continuations that omit the time-varying "
+            "covariate and correct treatment and censoring models, so targeting does all the "
+            "adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_TIME_VARYING_SLUG, "targeting_necessity", "one_cause_contrast", "untargeted"): (
+            "the same fit's backward plug-in with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+_HAZARD_TIME_VARYING_ROBUSTNESS = {
+    "mechanism_correct": (
+        "node hazards and continuations that omit the time-varying covariate, with correct "
+        "treatment and censoring models; it witnesses the hazard fluctuation, whose weights "
+        "read the covariate"
+    ),
+    "continuation_wrong": (
+        "correct node hazards and censoring model with continuations that omit the "
+        "time-varying covariate; it witnesses the covariate term of the walk alone"
+    ),
+    "outcome_correct": (
+        "correct node hazards and continuations with a censoring model that omits the "
+        "time-varying covariate"
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        (_HAZARD_TIME_VARYING_SLUG, "double_robustness", f"{fit}_contrast", base): (
+            words,
+            "bias interval inside the equivalence margin, with the reported standard error on "
+            "the scale of the empirical spread",
+        )
+        for fit, base in (
+            ("one_cause", "mechanism_correct"),
+            ("one_cause", "continuation_wrong"),
+            ("one_cause", "outcome_correct"),
+            ("competing", "mechanism_correct"),
+            ("three_arm", "mechanism_correct"),
+        )
+        for words in (_HAZARD_TIME_VARYING_ROBUSTNESS[base],)
+    }
+)
+STUDY_ARM_CELLS[
+    (_HAZARD_TIME_VARYING_SLUG, "double_robustness", "one_cause_contrast", "both_wrong")
+] = (
+    "every outcome and censoring learner omits the time-varying covariate; it reads the same "
+    "bias as the untargeted necessity control",
+    "bias interval must fall entirely outside the margin, with the reported standard error "
+    "still on the scale of the empirical spread",
+)
+
+
+#: ``hazard-time-varying-multinode`` (X70 part (b2)): a binary treatment at each of three nodes
+#: and a binary covariate after baseline, one backward pass per regimen.  The law and fits are
+#: those of ``tests/studies/hazard_time_varying_multinode_law.py`` and
+#: ``tests/studies/canonical_hazard_time_varying_multinode.py``, which this module cannot import.
+_HAZARD_TV_MULTINODE_SLUG = "hazard-time-varying-multinode"
+_HAZARD_TV_MULTINODE_REGIMENS = {
+    "always": "treatment at every node",
+    "never": "no treatment at any node",
+    "rule": "the known rule that treats at node 1 when W1 = 1 and later when the covariate is high",
+    "policy": (
+        "the known policy that treats at node 1 with probability 0.3 + 0.4 W1 and later with "
+        "probability 0.05 + 0.3 [high covariate] + 0.6 A(k-1)"
+    ),
+}
+STUDY_ARMS.update(
+    {
+        (_HAZARD_TV_MULTINODE_SLUG, label): words
+        for label, words in _HAZARD_TV_MULTINODE_CROSSFIT.items()
+    }
+)
+STUDY_SCENARIOS[(_HAZARD_TV_MULTINODE_SLUG, "multinode")] = (
+    "three nodes, one cause, two baseline covariates, a binary covariate before the treatment at "
+    "nodes 2 and 3 that reads the previous covariate and treatment, a binary treatment at every "
+    "node logistic in W1, the previous arm and the covariate, logistic dropout and event hazard "
+    "that read the covariate and the last two arms"
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by node {t} under {words}"
+            )
+            for label, words in _HAZARD_TV_MULTINODE_REGIMENS.items()
+            for t in range(1, 4)
+        },
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, f"ate_regimen[{label} vs never @ t={t}]"): (
+                f"the risk by node {t} under {words} minus the risk under no treatment"
+            )
+            for label, words in _HAZARD_TV_MULTINODE_REGIMENS.items()
+            if label != "never"
+            for t in range(1, 4)
+        },
+    }
+)
+_HAZARD_TV_MULTINODE_ROBUSTNESS = {
+    "both_correct": (
+        "correct logistic hazard, treatment and censoring learners and the correct cell-mean "
+        "continuation"
+    ),
+    "outcome_correct": (
+        "a correct hazard and continuation with treatment and censoring learners that omit the "
+        "covariate"
+    ),
+    "mechanism_correct": (
+        "a hazard and continuation that omit the covariate, with correct treatment and "
+        "censoring learners"
+    ),
+    "continuation_wrong": (
+        "a correct hazard, treatment and censoring learners with a continuation that omits the "
+        "earlier covariates; it witnesses the covariate term of the panel"
+    ),
+}
+_HAZARD_TV_MULTINODE_KEEPS = (
+    "bias interval inside the equivalence margin, with the reported standard error on the scale "
+    "of the empirical spread"
+)
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "iterated_mean_difference", f"multinode_{arm}", base): words
+            for arm in ("contrast", "policy")
+            for base, words in _HAZARD_MTP_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (
+                _HAZARD_TV_MULTINODE_SLUG,
+                "iterated_mean_difference",
+                f"multinode_{arm}",
+                "isotonic_difference",
+            ): CELLS["iterated_mean_difference", "isotonic_difference"]
+            for arm in ("contrast", "policy")
+        },
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "double_robustness", f"multinode_{arm}", base): (
+                _HAZARD_TV_MULTINODE_ROBUSTNESS[base],
+                _HAZARD_TV_MULTINODE_KEEPS,
+            )
+            for arm, bases in (
+                ("contrast", _HAZARD_TV_MULTINODE_ROBUSTNESS),
+                ("rule", ("both_correct", "outcome_correct")),
+                ("policy", _HAZARD_TV_MULTINODE_ROBUSTNESS),
+            )
+            for base in bases
+        },
+        (_HAZARD_TV_MULTINODE_SLUG, "double_robustness", "multinode_contrast", "both_wrong"): (
+            "hazard, continuation, treatment and censoring learners that all omit the covariate",
+            "bias interval must fall entirely outside the margin, with the reported standard "
+            "error still on the scale of the empirical spread",
+        ),
+        **{
+            (
+                _HAZARD_TV_MULTINODE_SLUG,
+                "double_robustness",
+                f"multinode_{arm}",
+                "outcome_correct_untargeted",
+            ): (
+                "the backward plug-in, with every targeting step removed, of a correct hazard and "
+                "continuation with treatment and censoring learners that omit the covariate, on "
+                "draws of 8,000 rows in place of 2,000; it carries the regimen's slots, which "
+                "targeting would repair",
+                "bias interval inside the equivalence margin",
+            )
+            for arm in ("rule", "policy")
+        },
+        (_HAZARD_TV_MULTINODE_SLUG, "targeting_necessity", "multinode_contrast", "targeted"): (
+            "the estimator with a hazard and continuation that omit the covariate and correct "
+            "treatment and censoring learners, so targeting does all the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_TV_MULTINODE_SLUG, "targeting_necessity", "multinode_contrast", "untargeted"): (
+            "the same fit's backward plug-in with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+        **{
+            (_HAZARD_TV_MULTINODE_SLUG, "root_n_and_efficiency", label, "n_1000"): (
+                "bias, coverage and SE calibration at n = 1,000, a rate rung that carries no claim",
+                "coverage interval lies below nominal or clears the declared floor",
+            )
+            for label in ("multinode_contrast", "multinode_policy")
+        },
+    }
+)
+
+#: ``hazard-multinode`` (X70 part (a)): a binary treatment decided at every node on the hazard
+#: path, its treatment paths enumerated as slots.  The laws and fits are those of
+#: ``tests/studies/hazard_multinode_law.py`` and ``tests/studies/canonical_hazard_multinode.py``,
+#: which this module cannot import.
+_HAZARD_MULTINODE_SLUG = "hazard-multinode"
+_HAZARD_MULTINODE_LAW = (
+    "two baseline covariates, a binary treatment at every node logistic in W and the previous "
+    "arm, logistic dropout and event hazard in W and the last two arms, one cause"
+)
+_HAZARD_MULTINODE_REGIMENS = {
+    "always": "treatment at every node",
+    "never": "no treatment at any node",
+    "rule": "the known rule that treats at every node when W2 is at least 2",
+    "policy": "the known policy that treats with probability 0.3 + 0.4 A(k-1) + 0.1 W1",
+    "stay": "a draw at node 1 with probability 0.3 + 0.2 W1, then the previous arm kept",
+}
+STUDY_SCENARIOS.update(
+    {
+        (_HAZARD_MULTINODE_SLUG, "base"): (
+            f"three nodes, {_HAZARD_MULTINODE_LAW}; five regimens against never treating"
+        ),
+        (_HAZARD_MULTINODE_SLUG, "four"): (
+            f"four nodes, {_HAZARD_MULTINODE_LAW}; always and a known policy against never treating"
+        ),
+        (_HAZARD_MULTINODE_SLUG, "msm"): (
+            f"three nodes, {_HAZARD_MULTINODE_LAW}; the logit working model (1, d, t, d W1) over "
+            "the eight static paths, d the cumulative dose through t"
+        ),
+    }
+)
+STUDY_ESTIMANDS.update(
+    {
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"risk_regimen[{label} @ t={t}]"): (
+                f"the risk of the event by node {t} under {words}"
+            )
+            for label, words in _HAZARD_MULTINODE_REGIMENS.items()
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"ate_regimen[{label} vs never @ t={t}]"): (
+                f"the risk by node {t} under {words} minus the risk under no treatment"
+            )
+            for label, words in _HAZARD_MULTINODE_REGIMENS.items()
+            if label != "never"
+            for t in range(1, 5)
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, f"msm_regimen[{term}]"): (
+                f"the {words} of the logit working model (1, d, t, d W1) over the risk of each "
+                "static path by each node"
+            )
+            for term, words in (
+                ("(intercept)", "intercept"),
+                ("dose", "cumulative-dose coefficient"),
+                ("t", "node coefficient"),
+                ("dose_W1", "cumulative-dose by W1 coefficient"),
+            )
+        },
+    }
+)
+PROPERTIES["one_step_walk"] = (
+    "reported, not judged: how the one-step walk over regimen curves calibrates on a law with a "
+    "treatment at several nodes, and how far it sits from the per-horizon fit of the same "
+    "regimens on the same draw"
+)
+CELLS.update(
+    {
+        ("one_step_walk", "one_step_fit"): (
+            "the one-step fit of the regimens, against the exact value",
+            "no verdict; coverage and SE ratio are reported",
+        ),
+        ("one_step_walk", "paired_difference"): (
+            "the one-step estimate minus the per-horizon estimate of the same regimens on the "
+            "same draw",
+            "no verdict; the SD of the difference over the efficiency-bound standard error is "
+            "reported",
+        ),
+    }
+)
+_HAZARD_MULTINODE_DIFFERENCE_CELLS = {
+    **_HAZARD_MTP_DIFFERENCE_CELLS,
+    "mechanism_correct_difference": (
+        "the hazard estimate minus the iterated-mean estimate of the same regimens on the same "
+        "draw, with the hazard learner reading the node's own arm alone and the treatment and "
+        "censoring models correct",
+        "no verdict; the SD of the difference over the efficiency-bound standard error is reported",
+    ),
+    "isotonic_difference": CELLS["iterated_mean_difference", "isotonic_difference"],
+}
+_HAZARD_MULTINODE_ROBUSTNESS = {
+    "both_correct": (
+        "correct logistic hazard, treatment and censoring learners",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "outcome_correct": (
+        "a correct hazard learner with treatment and censoring learners that predict each "
+        "node's prior share",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "mechanism_correct": (
+        "a hazard learner that reads the node's own arm alone, with correct treatment and "
+        "censoring learners",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    "both_wrong": (
+        "a hazard learner that reads the node's own arm alone and treatment and censoring "
+        "learners that predict each node's prior share",
+        "bias interval must fall entirely outside the margin, with the reported standard error "
+        "still on the scale of the empirical spread",
+    ),
+}
+STUDY_ARM_CELLS.update(
+    {
+        **{
+            (_HAZARD_MULTINODE_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
+            for fit, fit_arms in (
+                ("base", ("contrast", "rule", "policy", "stay")),
+                ("four", ("contrast", "policy")),
+            )
+            for arm in fit_arms
+            for base, words in _HAZARD_MULTINODE_DIFFERENCE_CELLS.items()
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, "double_robustness", "base_contrast", base): words
+            for base, words in _HAZARD_MULTINODE_ROBUSTNESS.items()
+        },
+        **{
+            (_HAZARD_MULTINODE_SLUG, "double_robustness", label, "mechanism_correct"): (
+                _HAZARD_MULTINODE_ROBUSTNESS["mechanism_correct"]
+            )
+            for label in (
+                "base_rule",
+                "base_policy",
+                "base_stay",
+                "four_contrast",
+                "four_policy",
+                "msm_dose",
+                "msm_dose_W1",
+            )
+        },
+        (_HAZARD_MULTINODE_SLUG, "double_robustness", "four_contrast", "node_hazard"): (
+            "a hazard learner that predicts each node's prior share of the event, with no arm "
+            "and no W, and correct treatment and censoring learners; its plug-in contrast is "
+            "zero in every sample, so the targeting alone moves the estimate",
+            "bias interval inside the equivalence margin, with the reported standard error on "
+            "the scale of the empirical spread",
+        ),
+        (_HAZARD_MULTINODE_SLUG, "targeting_necessity", "base_contrast", "targeted"): (
+            "the estimator with a hazard learner that reads the node's own arm alone and correct "
+            "treatment and censoring learners, so targeting does all the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_HAZARD_MULTINODE_SLUG, "targeting_necessity", "base_contrast", "untargeted"): (
+            "the same fit's plug-in of the initial hazards, with every targeting step removed",
+            "bias interval must fall entirely outside the margin",
+        ),
+        **{
+            (_HAZARD_MULTINODE_SLUG, "root_n_and_efficiency", label, "n_1600"): (
+                "bias, coverage and SE calibration at n = 1,600, a rate rung that carries no claim",
+                "coverage interval lies below nominal or clears the declared floor",
+            )
+            for label in ("base_contrast", "base_policy")
+        },
+    }
+)
+
+
+#: ``few-cluster-fold-variance`` (X54 part (e)): the centred fold cluster variance of a
+#: fold-evaluated ``TMLE`` with ``id=``, on t with J - V degrees of freedom, at 2 to 24 training
+#: clusters. The cells and arms are those of ``tests/studies/few_cluster_fold_variance.py``.
+_FCFV_SLUG = "few-cluster-fold-variance"
+STUDY_SCENARIOS[(_FCFV_SLUG, "equal10__v5_j20")] = (
+    "20 clusters of 10 rows with a cluster latent in the outcome and an informative "
+    "propensity, a fold-evaluated TMLE with five grouped folds and unpenalized logistic "
+    "learners, the shipped report"
+)
+PROPERTIES["fold_variance_calibration"] = (
+    "the fold-evaluated cluster variance covers at its nominal rate, keeps the mean squared SE "
+    "near the spread of the estimates, and its controls see a variance that is too small and "
+    "a cluster effect"
+)
+_FCFV_LAWS = {
+    "equal10": "equal clusters of 10 rows, cluster latent in the outcome, the ATE",
+    "cluster_covariate": "a cluster-level covariate in the outcome, the arm-1 mean",
+}
+_FCFV_ARMS = {
+    "t_reference": "the shipped interval, propensity estimated",
+    "known_propensity": "the shipped interval, propensity declared known",
+    "deflated_control": "the estimated-propensity variance times 0.64",
+    "known_deflated_control": "the known-propensity variance times 0.64",
+    "iid_t_control": "the paired variance with no clustering, against the cluster SE",
+    "pooled_centered": "the fold curves re-centred at the pooled point",
+    "t_j_minus_2_reference": "the shipped variance on t with J - 2 degrees of freedom",
+    "normal_reference": "the shipped variance on the normal reference",
+}
+_FCFV_POSITIVE = (
+    "the exact 99% interval of shown coverage inside [0.92, 0.98], the exact 99% lower end of "
+    "all-draw coverage at least 0.90, and the 99% bootstrap lower end of the variance ratio at "
+    "least 0.8649"
+)
+_FCFV_REQUIRED = {
+    "t_reference": _FCFV_POSITIVE,
+    "known_propensity": _FCFV_POSITIVE,
+    "deflated_control": "the positive rule must fail",
+    "known_deflated_control": "the positive rule must fail",
+    "iid_t_control": (
+        "the exact 99% upper end of the median paired IID/cluster SE ratio below 0.95"
+    ),
+}
+for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
+    for _fcfv_v, _fcfv_j in ((2, 4), (2, 8), (2, 12), (5, 10), (5, 20), (5, 30)):
+        _fcfv_training = _fcfv_j - _fcfv_j // _fcfv_v
+        for _fcfv_arm, _fcfv_arm_words in _FCFV_ARMS.items():
+            CELLS[
+                ("fold_variance_calibration", f"{_fcfv_law}__v{_fcfv_v}_j{_fcfv_j}__{_fcfv_arm}")
+            ] = (
+                f"{_fcfv_law_words}, V = {_fcfv_v} and J = {_fcfv_j} ({_fcfv_training} training "
+                f"clusters): {_fcfv_arm_words}",
+                _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
+            )
+
+
+#: ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` (X54 parts (a) to
+#: (c)): the interval floor of each fit family and the part (c) comparison of two small-sample
+#: constructions with the shipped interval. Mirrored from ``tests/studies/few_cluster_floor_tmle.py``
+#: and ``few_cluster_floor_ltmle.py``; a superset of their grids, so a cell either study publishes
+#: has an entry, and a key ``clustered-few-cluster-tmle`` already describes keeps its text.
+_FLOOR_TMLE_SLUG = "few-cluster-floor-tmle"
+_FLOOR_LTMLE_SLUG = "few-cluster-floor-cross-fitted-ltmle"
+STUDY_SCENARIOS[(_FLOOR_TMLE_SLUG, "floor_unequal_informative_j10")] = (
+    "10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on "
+    "one node with parametric learners, the shipped report"
+)
+STUDY_SCENARIOS[(_FLOOR_LTMLE_SLUG, "floor_equal40_j10")] = (
+    "10 clusters of 40 units on the end-of-study longitudinal law, an LTMLE with five "
+    "whole-cluster folds capped at the cluster count and parametric learners, the shipped report"
+)
+PROPERTIES["few_cluster_candidate"] = (
+    "a small-sample construction, Wang et al.'s inflation or the delete-one-cluster jackknife, "
+    "is not worse than the shipped interval on the same draws, read from 2,000 draws per cell"
+)
+PROPERTIES["few_cluster_candidate_pooled"] = (
+    "the same comparison pooled over every cell of one configuration from the count where the "
+    "candidate could be admitted"
+)
+_FLOOR_FITS = {
+    "tmle_in_sample_known": "in-sample TMLE, propensity declared known",
+    "tmle_in_sample_estimated": "in-sample TMLE, propensity a main-terms GLM",
+    "tmle_stacked_known": "stacked TMLE with min(5, J) folds, propensity declared known",
+    "tmle_stacked_estimated": "stacked TMLE with min(5, J) folds, propensity a main-terms GLM",
+    "tmle_stacked_d5_known": (
+        "stacked TMLE with three pure-noise covariates added, propensity declared known"
+    ),
+    "tmle_stacked_d5_estimated": (
+        "stacked TMLE with three pure-noise covariates added, propensity a main-terms GLM"
+    ),
+    "tmle_fold_evaluated_known": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity declared known"
+    ),
+    "tmle_fold_evaluated_estimated": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity a main-terms GLM"
+    ),
+    "drtmle_known": "cross-fitted DR-TMLE with foldwise reduced regressions, mechanism known",
+    "ltmle_in_sample": "in-sample LTMLE on one node",
+    "ltmle_cross_fitted": "LTMLE with five whole-cluster folds capped at J",
+}
+_FLOOR_SIZES = {
+    "equal10": "clusters of 10 rows",
+    "unequal_informative": "clusters of size uniform on 2 to 18, the size in the outcome",
+    "equal40": "clusters of 40 units",
+    "unequal40": "clusters of size uniform on 10 to 70",
+}
+_FLOOR_POSITIVE = (
+    "the exact 99% lower end of all-draw coverage, withheld and lost draws counted as misses, "
+    "at least 0.90, and bias inside the margin"
+)
+_FLOOR_ARMS = {
+    "t_reference": ("the shipped interval, t with J - 2 degrees of freedom", _FLOOR_POSITIVE),
+    "iid_t_control": (
+        "the same point and t quantile with the IID row standard error",
+        "on the shown draws, the 99% upper end of the paired ratio of mean IID SE to mean "
+        "cluster SE below 0.80, and the positive arm's shown-only SE-ratio upper end at most 1.20",
+    ),
+    "normal_reference": (
+        "the cluster standard error on the normal reference",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_1_reference": (
+        "the cluster standard error on t with J - 1 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_2_reference": (
+        "the fold-evaluated standard error on t with J - 2 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "wang_inflated": (
+        "Wang et al.'s inflation J / (J - p) of the cluster variance on t with J - p degrees of "
+        "freedom, every draw",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+}
+_FLOOR_CANDIDATE_ARMS = {
+    "wang_inflated": (
+        "Wang et al.'s inflated interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_wang_inflated": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+    "cluster_jackknife": (
+        "the delete-one-cluster jackknife interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_cluster_jackknife": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+}
+for _floor_fit, _floor_fit_words in _FLOOR_FITS.items():
+    for _floor_size, _floor_size_words in _FLOOR_SIZES.items():
+        for _floor_j in (*range(3, 21), 30, 39):
+            _floor_where = f"{_floor_fit_words}, {_floor_j} {_floor_size_words}"
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_ARMS.items():
+                CELLS.setdefault(
+                    (
+                        "few_cluster_reference",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    ),
+                    (f"{_floor_where}: {_floor_words}", _floor_required),
+                )
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_CANDIDATE_ARMS.items():
+                CELLS[
+                    (
+                        "few_cluster_candidate",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    )
+                ] = (f"{_floor_where}: {_floor_words}", _floor_required)
+    for _floor_candidate in ("wang_inflated", "cluster_jackknife"):
+        CELLS[("few_cluster_candidate_pooled", f"{_floor_fit}__{_floor_candidate}")] = (
+            f"{_floor_fit_words}: {_FLOOR_CANDIDATE_ARMS[_floor_candidate][0]}, pooled over every "
+            "law and count from the candidate's admissibility count",
+            "the 99% lower end of the pooled paired coverage gain at least -0.01",
+        )
+
+#: The one-node in-sample ``LTMLE`` primaries of ``clustered-few-cluster-tmle`` and
+#: ``few-cluster-floor-tmle`` assign one treatment, so their plans read as one decision, not
+#: as "both times" and "neither time" of the two-node panels (X54 implementation review m3).
+for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
+    STUDY_ESTIMANDS.update(
+        {
+            (_one_node_slug, "ey_regimen[always]"): "mean outcome under the plan treat",
+            (_one_node_slug, "ey_regimen[never]"): "mean outcome under the plan do not treat",
+            (_one_node_slug, "ate_regimen[always vs never]"): (
+                'difference in mean outcome between the plans "treat" against "do not treat"'
+            ),
+        }
+    )

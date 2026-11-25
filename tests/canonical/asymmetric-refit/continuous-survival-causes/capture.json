@@ -1,0 +1,19 @@
+{
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 4,
+    "keys_fitted": 8,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "recorder": 2,
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 29,
+    "seconds_capture": 0.48,
+    "seconds_fit": 18.99,
+    "stage": "scope",
+    "study": "continuous-survival-causes"
+  }
+}

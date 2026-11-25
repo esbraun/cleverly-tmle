@@ -1,0 +1,24 @@
+=== continuous-survival-causes declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/continuous_survival_causes/regenerate.py --jobs 4 --output /tmp/x6-causes-run6
+commit: 820bdc39f9bcc49789bd4613aa171c12818b27b2; upstream 820bdc39f9bcc49789bd4613aa171c12818b27b2
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 938739c315260c08ef1d23fa07ef902ed199ea180a2595ff206d225a8b9da6fc
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-19T18:08:16+00:00
+note: resumed from /root/.cache/cleverly/runs/continuous-survival-causes/7adf81d9f401, reused the Python phase
+finished: 2026-11-19T18:12:07+00:00
+wall seconds: 230.4
+exit code: 0
+sha256 early-time.csv: cfe0b7880f99c8c7439d07c820628ff2cc07b1336d7d10134eb56584e47aae71
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 17442efc3a3e73313f2f625272daa83e8e8d12c7bfdfa10e9a3fe2e026dd47b2
+sha256 performance-tests.csv: dae6b8cd372183f78b94f61cda36eef38b7a95520344c00597d70d9d6c285339
+sha256 properties.csv: 4eb09245e61d61e0c55d4cf5e6b26e1c8c2d75321dc5798933ab028e901e7a23
+sha256 property-replicates.parquet: 14106c05ba195cd4b2bfaf93ec012abd953260d736ba38e84f3c424dcc1427bf
+sha256 replicates.parquet: c022f551ce360664b77ee52c439cc05352d3ecd577f7fdf12de5ff08e43bd1ae
+sha256 summary.csv: 897f6f6295882c86326cab70be2435969a7dcada33bf9f628753bcce3ac64879
+sha256 targeting-readings.csv: c4d5b00a274d8d8a8ac99a897ea0ee9a4d799f7e01b5a758bd7fd32f0fa3886b
+

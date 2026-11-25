@@ -114,10 +114,16 @@ def _check_fidelity(result: Any, text: str) -> None:
                 assert float(record[column]) < float(shown[1:]), (name, shown)
             elif column == "reference_df":
                 value = record.get(column)
+                skewed = record.get("effective_df")
                 if shown == "normal":
                     assert value is None or math.isnan(float(value)), (name, shown)
-                else:
+                elif value is not None and not math.isnan(float(value)):
                     assert int(shown) == int(value), (name, shown)
+                elif shown.endswith("+"):
+                    # A skew-widened t at or above the shown ceiling prints its floor.
+                    assert float(skewed) >= float(shown[:-1]), (name, shown)
+                else:
+                    assert _close(shown, float(skewed)), (name, shown, skewed)
             elif column == "support":
                 assert shown == record[column], (name, shown)
             else:
@@ -145,7 +151,8 @@ def _user_names(result: Any, key: str | None = None) -> set[str]:
         *getattr(data, "event_names", ()),
         *getattr(data, "cause_labels", ()),
     }
-    if data.is_weighted:
+    # A continuous-time survival fit's data carries no weights.
+    if getattr(data, "is_weighted", False):
         names.add(data.weight_report().name)
     return {str(name) for name in names if name}
 
@@ -223,8 +230,45 @@ def test_a_summary_has_a_heading_a_table_and_fits_the_width(key: str, detail: st
     assert isinstance(summary, Summary)
     assert summary.heading.strip()
     assert summary.tables
-    long = [line for line in str(summary).splitlines() if len(line) > WIDTH]
+    narrowest = max(_narrowest(table) for table in summary.tables)
+    # A summary may pass the width only where its unbreakable cells force it, and only on a
+    # declared fixture, so a new table that cannot fit is noticed rather than allowed.
+    assert (narrowest > WIDTH) == ((key, detail) in WIDER_THAN_WIDTH), (key, detail, narrowest)
+    width = max(WIDTH, narrowest)
+    long = [line for line in str(summary).splitlines() if len(line) > width]
     assert not long, long
+
+
+#: The fixtures whose unbreakable cells pass :data:`WIDTH`: the all-experimental in-sample
+#: SNMM table, whose long coefficient names and df column cannot print narrower than 85.
+WIDER_THAN_WIDTH: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("longitudinal_records:snmm_in_sample", "short"),
+        ("longitudinal_records:snmm_in_sample", "full"),
+    }
+)
+
+
+def _narrowest(table: SummaryTable) -> int:
+    """The narrowest a table can print: its unbreakable cells at the smallest gap.
+
+    A row name breaks at its spaces and after each ``[``, a last column of words at its
+    spaces, and a number never. A table whose unbreakable cells pass the width, such as an
+    all-experimental table of long coefficient names with a df column, prints wider, and the
+    summary's rules widen with it; any other table must fit.
+    """
+    texts = [[cell.text for cell in row] for row in table.rows]
+    last = len(table.columns) - 1
+    names = max((len(p) for row in texts for p in _render._name_pieces(row[0])), default=0)
+    widths = [max(names, len(table.columns[0]))]
+    for index in range(1, last + 1):
+        cells = [row[index] for row in texts]
+        if index == last and _render._is_text_column(table, index):
+            widest = max((len(word) for cell in cells for word in cell.split()), default=0)
+        else:
+            widest = max(len(cell) for cell in cells)
+        widths.append(max(widest, len(table.columns[index])))
+    return sum(widths) + (_render._COLUMN_GAP - 1) * last
 
 
 def _check_numbers(case: Case, result: Any) -> None:
@@ -617,9 +661,13 @@ def _header_value(summary: Summary, label: str) -> str | None:
 
 def _check_header_counts(result: Any, summary: Summary) -> None:
     data = result.data
-    assert _header_value(summary, vocabulary.ROWS) == f"{data.n:,}"
+    # A one-row-per-unit fit (continuous-time survival) labels its count as units.
+    count = _header_value(summary, vocabulary.ROWS)
+    if count is None:
+        count = _header_value(summary, vocabulary.UNITS)
+    assert count == f"{data.n:,}"
     share = _header_value(summary, vocabulary.TREATED_SHARE)
-    if share is not None and not data.is_weighted:
+    if share is not None and not getattr(data, "is_weighted", False):
         assert _close(share, float(np.mean(data.treatment)))
 
 

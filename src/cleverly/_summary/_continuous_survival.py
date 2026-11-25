@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..survival.engine import OFF_GRID_TIMES
+from ..survival.result import BOOTSTRAP_FAILURE_SHARE
 from . import Summary, SummarySection, check_detail, note, vocabulary
 from ._estimates import estimates_table, plain_support_reason
 from ._render import count_text, share_text
@@ -32,6 +33,60 @@ def _experimental_lines(estimates: Any) -> list[str]:
         who = vocabulary.EVERY_ROW if every else ", ".join(names)
         verb = "is" if every or len(names) == 1 else "are"
         lines.append(f"Why {who} {verb} experimental: {reason}")
+    return lines
+
+
+def _bootstrapped(result: Any) -> list[Any]:
+    """The bootstrap summaries the estimates carry, in row order."""
+    return [e.bootstrap for e in result.estimates.values() if e.bootstrap is not None]
+
+
+def _bootstrap_notes(result: Any) -> list[Any]:
+    """The note on the full-refit bootstrap: what it read, or that it was withheld."""
+    status = getattr(result, "bootstrap_status", None)
+    if status is None or result.bootstrap is None:
+        return []
+    requested = int(result.bootstrap.n_requested)
+    failed = int(result.bootstrap.n_failed)
+    if status == "bootstrap_unstable":
+        text = vocabulary.NOTE_TEXTS["continuous_bootstrap_withheld"]
+        return [
+            note(
+                "continuous_bootstrap_withheld",
+                text.format(
+                    failed=count_text(failed),
+                    requested=count_text(requested),
+                    share=f"{BOOTSTRAP_FAILURE_SHARE:.0%}",
+                ),
+            )
+        ]
+    drawn = _bootstrapped(result)
+    if not drawn:
+        return []
+    band = vocabulary.CONTINUOUS_BOOTSTRAP_BAND if result.bootstrap_band is not None else ""
+    text = vocabulary.NOTE_TEXTS["continuous_bootstrap"].format(
+        interval=vocabulary.CONTINUOUS_BOOTSTRAP_INTERVAL[drawn[0].interval],
+        kept=count_text(requested - failed),
+        requested=count_text(requested),
+        band=band,
+        label=vocabulary.CONTINUOUS_BOOTSTRAP_EXPERIMENTAL if _bootstrap_lines(result) else "",
+    )
+    return [note("continuous_bootstrap", text)]
+
+
+def _bootstrap_lines(result: Any) -> list[str]:
+    """The full summary's reasons the bootstrap intervals are experimental."""
+    supports = [b.support for b in _bootstrapped(result)]
+    reasons = dict.fromkeys(
+        plain_support_reason(s.reason)
+        for s in supports
+        if s.label == vocabulary.EXPERIMENTAL and s.reason
+    )
+    lines = [vocabulary.CONTINUOUS_BOOTSTRAP_WHY.format(reason=reason) for reason in reasons]
+    band = getattr(result, "bootstrap_band", None)
+    if band is not None and band.support.label == vocabulary.EXPERIMENTAL and band.support.reason:
+        reason = plain_support_reason(band.support.reason)
+        lines.append(vocabulary.CONTINUOUS_BOOTSTRAP_BAND_WHY.format(reason=reason))
     return lines
 
 
@@ -94,6 +149,21 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
                 ),
             )
         )
+    switched = [
+        name
+        for name, estimate in result.estimates.items()
+        if estimate.variance_source == "predictable_variation"
+    ]
+    if switched:
+        notes.append(
+            note(
+                "continuous_switched_variance",
+                vocabulary.NOTE_TEXTS["continuous_switched_variance"].format(
+                    names=", ".join(switched)
+                ),
+            )
+        )
+    notes.extend(_bootstrap_notes(result))
     sections = []
     if detail == "full":
         lines = vocabulary.CONTINUOUS_TARGETING_LINES
@@ -116,6 +186,7 @@ def continuous_survival_summary(result: Any, *, detail: str = "short") -> Summar
                     ),
                     *([vocabulary.CONTINUOUS_FIRST_FOLD] if record.cross_fitted else []),
                     *_experimental_lines(result.estimates),
+                    *_bootstrap_lines(result),
                 ),
             ),
         ]

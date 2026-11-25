@@ -4,7 +4,13 @@ This study measures the coverage of the one-sided confidence limits that X82 par
 `omitted_variable_bounds`. Each part G configuration resolves its limit through the evidence
 registry with the instrument `ovb_limit` and one rule. A passing cell adds one registry row for the
 configuration it measured. The study reads each end of a bound as an estimate of its known
-population value. It reads the standard error back off the reported limit.
+population value, with the standard error of that end's own influence curve.
+
+The committed rows were written when each limit was the end plus or minus `z_0.95` standard errors,
+so the standard error read back off the limit then is this one. The limits now read the estimate's
+own interval rule (MOVER, range-logit or identity, by parameter). The row interval stays the normal
+one. The interval audits judge the committed rows under the shipped rule, in
+`tests/canonical/asymmetric-audit-screen.csv` and `tests/canonical/interval-audit-screen.csv`.
 
 **No canonical implementation is compared.** No maintained implementation computes these bounds
 for a response mechanism, an intermediate variable, a regime, an MSM coefficient or a shift. The
@@ -20,7 +26,7 @@ zero-row equivalence artifact records the absence of a comparator.
 | parameters | O1 `ate` and `ey1`. O2 the `ate` at `Z = 0` and at `Z = 1`. O3 `ey_regime[coin]` and `ate_regime[coin vs always]`. O4 `msm[W2]` and `msm[a:W2]` of `MSM.linear(modifiers=("W2",))`. O5 `ey_policy[+1]` and `ate_policy[+1 vs natural course]` |
 | strength | $c_Y = 0.3$, $c_D = 0.2$, $\rho = 1$ |
 | primary estimands | the lower and the upper bound of each parameter, 20 rows |
-| primary standard error | `(lower - ci_lower) / z_0.95` for a lower bound, and `(ci_upper - upper) / z_0.95` for an upper bound |
+| primary standard error | the influence standard error of the end's own curve: the estimate's curve plus the signed strength times the curve of the maximal bias. The harness checks that the estimate's interval rule reproduces the reported limit at this standard error |
 | primary interval | the bound plus or minus 1.959964 standard errors |
 | truth | closed forms of $\psi$, $\sigma^2$ and $\nu^2$ from the law tables. The design test checks each one against the package bound on the weighted exact frame, to 1e-5 |
 | size | 1,600 replications at $n = 2000$ per cell, and 4,000 property draws per cell |

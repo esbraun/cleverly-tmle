@@ -38,6 +38,7 @@ import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal
 
@@ -57,6 +58,7 @@ from ..exceptions import (
 )
 from ..learners._fitting import Task, fit_learner, predict_mean
 from ..learners.crossfit import Folds, make_folds, random_partition
+from ..utils.memos import without_memos
 from ._working_basis import WorkingDictionary
 
 __all__ = [
@@ -66,6 +68,7 @@ __all__ = [
     "VARIANCE_ROWS_PER_COLUMN",
     "AdaptiveTMLEDiagnostics",
     "AdaptiveTMLEFit",
+    "CheckedInputs",
     "InfluenceParts",
     "LassoSolution",
     "Nuisances",
@@ -76,6 +79,8 @@ __all__ = [
     "WorkingUnit",
     "arm_hierarchy",
     "bias_term",
+    "check_adaptive_inputs",
+    "check_split",
     "evaluate",
     "fit_adaptive_tmle",
     "kkt_residual",
@@ -237,6 +242,26 @@ class _RLoss:
             float(np.max(np.abs(self.z.T @ self.y))) / self.total if self.usable.size else 0.0
         )
 
+    @cached_property
+    def xu(self) -> FloatArray:
+        """The penalized columns of ``x``, copied once, when coefficients() first needs them.
+
+        Built lazily so that the full-row problem holds no copy while the fold problems are
+        solved, and a problem with no unpenalized column never builds it. It is the same copy,
+        values and layout, that each call used to make.
+        """
+        return self.x[:, self.usable]
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Pickle the problem without the column copy that :attr:`xu` memoized.
+
+        Returns
+        -------
+        dict of str to Any
+            The instance state, without the entries a ``cached_property`` owns.
+        """
+        return without_memos(type(self), self.__dict__)
+
     def grid(self) -> FloatArray:
         n, p = self.basis.shape
         if self.lambda_max == 0.0:
@@ -251,7 +276,7 @@ class _RLoss:
         coef = np.zeros(self.basis.shape[1])
         coef[self.usable] = standardized / self.scale
         if self.k:
-            rest = self.response - self.x[:, self.usable] @ coef[self.usable]
+            rest = self.response - self.xu @ coef[self.usable]
             coef[: self.k] = scipy.linalg.solve_triangular(self.r, self.q.T @ rest)
         return coef
 
@@ -275,13 +300,14 @@ class _RLoss:
     def tolerance(self) -> float:
         return KKT_TOLERANCE * (self.lambda_max if self.lambda_max > 0.0 else 1.0)
 
-    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+    def path(self, grid: FloatArray) -> list[FloatArray]:
+        """The original-scale coefficients at each penalty, warm-started down the grid."""
         values = np.asarray(grid, dtype=float)
         if values.size > 1 and np.any(np.diff(values) >= 0.0):
             raise ValueError("the penalty grid must be strictly decreasing")
         if np.any(values < 0.0):
             raise ValueError("penalties must be non-negative")
-        out: list[LassoSolution] = []
+        out: list[FloatArray] = []
         gram = self.z.T @ self.z / self.total
         linear = self.z.T @ self.y / self.total
         standardized = np.zeros(self.usable.size)
@@ -290,9 +316,15 @@ class _RLoss:
                 standardized = _lasso(gram, linear, float(lam), standardized)
             elif self.usable.size:
                 standardized = np.linalg.lstsq(self.z, self.y, rcond=None)[0]
-            coef = self.coefficients(standardized)
-            out.append(LassoSolution(float(lam), coef, self.kkt(coef, float(lam))))
+            out.append(self.coefficients(standardized))
         return out
+
+    def solve(self, grid: FloatArray) -> list[LassoSolution]:
+        values = np.asarray(grid, dtype=float)
+        return [
+            LassoSolution(float(lam), coef, self.kkt(coef, float(lam)))
+            for lam, coef in zip(values, self.path(values), strict=True)
+        ]
 
 
 def _lasso_objective(gram: FloatArray, linear: FloatArray, penalty: float, c: FloatArray) -> float:
@@ -616,12 +648,21 @@ def select_working_model(
         for fold in np.unique(assignment):
             held = assignment == fold
             sub = _RLoss(basis[~held], multiplier[~held], response[~held], n_unpenalized)
-            for k, solution in enumerate(sub.solve(grid)):
-                fitted = multiplier[held] * (basis[held] @ solution.coef)
-                loss[k] += float(np.sum((response[held] - fitted) ** 2))
+            # The held rows are sliced once per fold, not once per penalty. The fold paths
+            # compute no KKT residual: only the final solution's is read.
+            basis_held, multiplier_held = basis[held], multiplier[held]
+            response_held = response[held]
+            for k, coef in enumerate(sub.path(grid)):
+                fitted = multiplier_held * (basis_held @ coef)
+                loss[k] += float(np.sum((response_held - fitted) ** 2))
+            # Released before the next fold's problem is built, which keeps the peak below the
+            # replaced code's.
+            del sub, basis_held, multiplier_held, response_held
     risk = loss / problem.total
     index = int(np.flatnonzero(risk == risk.min())[0])
-    solution = problem.solve(grid[: index + 1])[-1]
+    penalty = float(grid[index])
+    coef = problem.path(grid[: index + 1])[-1]
+    solution = LassoSolution(penalty, coef, problem.kkt(coef, penalty))
     if not solution.kkt <= problem.tolerance():
         raise CapabilityError(
             f"The working-model lasso did not reach its optimality tolerance at penalty "
@@ -1724,6 +1765,145 @@ def _check_inputs(
     return y, a, s, w, seen
 
 
+def check_split(split: Folds, n: int, form: Form) -> None:
+    """Refuse an outer split that does not cover the rows, or too few folds for ``"cv"``.
+
+    Parameters
+    ----------
+    split : Folds
+        The outer split.
+    n : int
+        The number of rows.
+    form : {"cv", "pooled"}
+        The estimator's form.
+
+    Raises
+    ------
+    ValueError
+        If the split covers another number of rows.
+    MethodConfigurationError
+        If ``form="cv"`` has fewer than three folds.
+    """
+    if split.n != n:
+        raise ValueError(f"the folds cover {split.n} rows; the data hold {n}")
+    if form == "cv" and split.n_folds < 3:
+        raise MethodConfigurationError(
+            "The adaptive CV-TMLE selects each fold's working model with nuisances that read "
+            "neither that fold nor the row's own fold, which needs at least three folds. Use "
+            "n_folds=3 or more, or form='pooled'."
+        )
+
+
+@dataclass(frozen=True)
+class CheckedInputs:
+    """The arrays, outer split and column names :func:`fit_adaptive_tmle` fits on.
+
+    Parameters
+    ----------
+    y : ndarray of float
+        The outcome.
+    a : ndarray of float
+        The treatment, coded 0 or 1.
+    s : ndarray of float
+        The source, 1 on trial rows.
+    w : ndarray of float
+        The covariates, two-dimensional.
+    seen : ndarray of bool or None
+        The observation indicator, or ``None`` with every outcome recorded.
+    split : Folds
+        The outer split.
+    names : tuple of str or None
+        The covariate names.
+    """
+
+    y: FloatArray
+    a: FloatArray
+    s: FloatArray
+    w: FloatArray
+    seen: BoolArray | None
+    split: Folds
+    names: tuple[str, ...] | None
+
+
+def check_adaptive_inputs(
+    outcome: Any,
+    treatment: Any,
+    source: Any,
+    covariates: Any,
+    *,
+    observed: Any,
+    missingness_learner: Learner | None,
+    form: Any,
+    population: Any,
+    force_arm: Any,
+    folds: Folds | None,
+    n_folds: int,
+    random_state: int,
+    outcome_family: Literal["gaussian", "binomial"],
+    covariate_names: Sequence[str] | None,
+) -> CheckedInputs:
+    """Run every check :func:`fit_adaptive_tmle` makes before its first learner.
+
+    The fit and the planned-fit preview of the trial route both call this, so the preview
+    refuses exactly what the fit refuses before training a model.
+
+    Parameters
+    ----------
+    outcome : array-like of float
+        ``Y``.
+    treatment : array-like of float
+        ``A``.
+    source : array-like of float
+        ``S``.
+    covariates : array-like of float
+        ``W``.
+    observed : array-like of bool or None
+        ``Delta``.
+    missingness_learner : Learner or None
+        Required with ``observed``.
+    form : object
+        The declared form, checked here.
+    population : object
+        The declared population, checked here.
+    force_arm : object
+        The declared flag, checked here.
+    folds : Folds or None
+        The outer split, or ``None`` to draw one.
+    n_folds : int
+        The outer folds drawn when ``folds`` is ``None``.
+    random_state : int
+        The seed of a drawn split.
+    outcome_family : {"gaussian", "binomial"}
+        The outcome family, which stratifies a drawn split.
+    covariate_names : sequence of str or None
+        The names of the covariate columns.
+
+    Returns
+    -------
+    CheckedInputs
+        The checked arrays, the split and the names.
+    """
+    y, a, s, w, seen = _check_inputs(outcome, treatment, source, covariates, observed)
+    if form not in ("cv", "pooled"):
+        raise ValueError(f"form must be 'cv' or 'pooled'; got {form!r}")
+    if population not in ("pooled", "trial"):
+        raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
+    if seen is not None and missingness_learner is None:
+        raise ValueError("observed= needs a missingness_learner")
+    if not isinstance(force_arm, (bool, np.bool_)):
+        raise ValueError(f"force_arm must be a bool; got {force_arm!r}")
+    split = (
+        folds
+        if folds is not None
+        else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
+    )
+    check_split(split, y.size, form)
+    names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
+    if names is not None and len(names) != w.shape[1]:
+        raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")
+    return CheckedInputs(y, a, s, w, seen, split, names)
+
+
 def fit_adaptive_tmle(
     outcome: Any,
     treatment: Any,
@@ -1816,33 +1996,64 @@ def fit_adaptive_tmle(
     CapabilityError
         When a refit's selected columns are collinear on the rows it reads.
     """
-    y, a, s, w, seen = _check_inputs(outcome, treatment, source, covariates, observed)
-    if form not in ("cv", "pooled"):
-        raise ValueError(f"form must be 'cv' or 'pooled'; got {form!r}")
-    if population not in ("pooled", "trial"):
-        raise ValueError(f"population must be 'pooled' or 'trial'; got {population!r}")
-    if seen is not None and missingness_learner is None:
-        raise ValueError("observed= needs a missingness_learner")
-    n = y.size
-    if not isinstance(force_arm, (bool, np.bool_)):
-        raise ValueError(f"force_arm must be a bool; got {force_arm!r}")
-    split = (
-        folds
-        if folds is not None
-        else stratified_partition(s, y, seen, outcome_family, n_folds, random_state)
+    checked = check_adaptive_inputs(
+        outcome,
+        treatment,
+        source,
+        covariates,
+        observed=observed,
+        missingness_learner=missingness_learner,
+        form=form,
+        population=population,
+        force_arm=force_arm,
+        folds=folds,
+        n_folds=n_folds,
+        random_state=random_state,
+        outcome_family=outcome_family,
+        covariate_names=covariate_names,
     )
-    if split.n != n:
-        raise ValueError(f"the folds cover {split.n} rows; the data hold {n}")
-    if form == "cv" and split.n_folds < 3:
-        raise MethodConfigurationError(
-            "The adaptive CV-TMLE selects each fold's working model with nuisances that read "
-            "neither that fold nor the row's own fold, which needs at least three folds. Use "
-            "n_folds=3 or more, or form='pooled'."
-        )
-    names = None if covariate_names is None else tuple(str(name) for name in covariate_names)
-    if names is not None and len(names) != w.shape[1]:
-        raise ValueError(f"covariate_names has {len(names)} names for {w.shape[1]} columns")
-    data = _Data(y, a, s, w, seen, outcome_family, names)
+    return _fit_checked(
+        checked,
+        outcome_learner=outcome_learner,
+        treatment_learner=treatment_learner,
+        source_learner=source_learner,
+        g_bounds=g_bounds,
+        missingness_learner=missingness_learner,
+        basis=basis,
+        form=form,
+        population=population,
+        force_arm=force_arm,
+        inner_folds=inner_folds,
+        random_state=random_state,
+        outcome_family=outcome_family,
+    )
+
+
+def _fit_checked(
+    checked: Any,
+    *,
+    outcome_learner: Learner,
+    treatment_learner: Learner,
+    source_learner: Learner,
+    g_bounds: tuple[float, float],
+    missingness_learner: Learner | None,
+    basis: Any,
+    form: Form,
+    population: Population,
+    force_arm: bool,
+    inner_folds: int,
+    random_state: int,
+    outcome_family: Literal["gaussian", "binomial"],
+) -> AdaptiveTMLEFit:
+    """Fit :func:`fit_adaptive_tmle` on inputs :func:`check_adaptive_inputs` already checked.
+
+    The study's trial fit runs the check in the prefix it shares with its preview, so it
+    enters here and the check runs once per fit.
+    """
+    y, a, s, w = checked.y, checked.a, checked.s, checked.w
+    seen, split = checked.seen, checked.split
+    n = y.size
+    data = _Data(y, a, s, w, seen, outcome_family, checked.names)
     learners = _Learners(outcome_learner, treatment_learner, source_learner, missingness_learner)
     external = s == 0.0
     n_external_treated = int(np.sum(external & (a == 1.0)))

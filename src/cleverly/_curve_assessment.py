@@ -23,14 +23,17 @@ producing fit's own cross-fitted nuisances give on the held-out rows, which neve
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 
+from ._assessment_cache import _cached
 from ._typing import FloatArray, IntArray
-from .exceptions import CapabilityError, RefusalReason
+from .assessment import AssessmentCapability, DiagnosticsFacade, _argument_resolved
+from .exceptions import CapabilityError, Refusal, RefusalReason
 from .utils.frames import frame_from_dict
 
 __all__ = [
@@ -296,8 +299,197 @@ def _refuse(text: str, alternative: str) -> CapabilityError:
     return CapabilityError(text, reason=RefusalReason.INVALID_DECLARATION, alternative=alternative)
 
 
-class CurveDiagnostics:
+def _raise(refusal: Refusal | None) -> None:
+    """Raise ``refusal`` itself, so the call carries the record its row declares."""
+    if refusal is not None:
+        raise CapabilityError(refusal=refusal)
+
+
+# ------------------------------------------------------------ the fit-wide rules
+#
+# Each predicate below is what one curve operation raises from, read without fitting.  The
+# capability rows read the same predicate (:func:`cleverly.assessment._curve_fit_wide_rules`),
+# so a row never reads available where the call refuses.  A curve that keeps no producing fit
+# or estimator meets none of them: the replay gate refuses its rows instead.
+
+
+def _estimator_of(curve: Any) -> Any:
+    """The producing estimator, or ``None`` when the curve keeps no fit or estimator."""
+    return getattr(getattr(curve, "fit", None), "estimator", None)
+
+
+def modifier_stability_refusal(curve: Any) -> Refusal | None:
+    """Why :meth:`CurveDiagnostics.modifier_stability` refuses this curve, or ``None``.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The curve.
+
+    Returns
+    -------
+    Refusal or None
+        The record when the basis reads fewer than two modifiers, or when dropping a
+        modifier leaves an additive basis empty.
+    """
+    estimator = _estimator_of(curve)
+    if estimator is None:
+        return None
+    basis = estimator.effect_modification.basis
+    columns = tuple(getattr(basis, "columns", ()))
+    if len(columns) < 2 or not hasattr(basis, "columns"):
+        return _refuse(
+            "the basis reads fewer than two modifiers, or does not declare them as "
+            "columns, so no modifier can be dropped from it.",
+            "Declare a shipped basis of at least two modifiers, such as Linear(['V1', 'V2']).",
+        ).refusal
+    for name in columns:
+        refusal = _without_refusal(basis, name)
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def _zero_spread_refusal(curve: Any) -> Refusal | None:
+    if float(np.std(curve.in_sample, ddof=1)) != 0.0:
+        return None
+    return _refuse(
+        "the curve is constant on the fit rows, so its spread is zero and a relative "
+        "SD is undefined.",
+        "Read the coefficients' standard errors instead.",
+    ).refusal
+
+
+def stability_refusal(curve: Any) -> Refusal | None:
+    """Why :meth:`CurveDiagnostics.stability` refuses this curve, or ``None``.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The curve.
+
+    Returns
+    -------
+    Refusal or None
+        The record when the curve is constant on the fit rows, or when the alternative
+        basis refit's sieve check refuses: an EP sieve size above the alternative family's
+        largest member at the fit's rows.
+    """
+    zero = _zero_spread_refusal(curve)
+    if zero is not None:
+        return zero
+    estimator = _estimator_of(curve)
+    if estimator is None:
+        return None
+    other = _alternative_basis(estimator.effect_modification.basis)
+    if other is None or not hasattr(estimator, "with_basis"):
+        return None
+    from .estimators.ep import EPEstimator, size_refusal
+
+    rebuilt = estimator.with_basis(other)
+    if not isinstance(rebuilt, EPEstimator):
+        return None
+    n = int(curve.fit.data.n)
+    for size in rebuilt.sizes(n):
+        error = size_refusal(size, other, n)
+        if error is not None:
+            return error.refusal
+    return None
+
+
+def _targeting_ate(fit: Any, estimator: Any, seed: int) -> tuple[Any, Refusal | None]:
+    """The ATE estimator of the targeting curve's evaluation rows, or why it is refused."""
+    from .estimators import TMLE
+    from .targeting_curves import TARGETING_REPEATS_REFUSAL, check_targeting_settings
+
+    spec = fit.nuisance.effect_modification
+    kwargs = _ate_kwargs(estimator, reference=float(spec.pair[1]), seed=seed)
+    if int(kwargs.get("repeats", 1)) > 1:
+        return None, TARGETING_REPEATS_REFUSAL
+    ate_estimator = TMLE(**kwargs)
+    try:
+        check_targeting_settings(ate_estimator)
+    except CapabilityError as error:
+        return None, error.refusal
+    return ate_estimator, None
+
+
+def targeting_curve_refusal(curve: Any) -> Refusal | None:
+    """Why :meth:`CurveDiagnostics.targeting_curve` refuses this curve, or ``None``.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The curve.
+
+    Returns
+    -------
+    Refusal or None
+        The record when the producing fit repeats its cross-fitting split, or carries a
+        fluctuation setting the curve's ATE fit would drop.
+    """
+    estimator = _estimator_of(curve)
+    if estimator is None:
+        return None
+    return _targeting_ate(curve.fit, estimator, 0)[1]
+
+
+def _units(data: Any) -> int:
+    units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
+    return int(np.unique(units).size)
+
+
+def _folds_refusal(n_units: int, n_folds: int) -> Refusal | None:
+    if n_units >= n_folds:
+        return None
+    return _refuse(
+        f"{n_units} independent units cannot fill {n_folds} folds.", "Pass a smaller n_folds."
+    ).refusal
+
+
+def _split_fraction_refusal(split: Any) -> Refusal | None:
+    """The fold-average refusal of a ``split`` that is not a fraction in ``(0, 1)``."""
+    from .targeting_curves import TARGETING_SPLIT_REFUSAL
+
+    if (
+        isinstance(split, bool)
+        or not isinstance(split, (float, np.floating))
+        or not 0.0 < float(split) < 1.0
+    ):
+        return TARGETING_SPLIT_REFUSAL
+    return None
+
+
+def _split_refusal(split: Any, n_units: int) -> Refusal | None:
+    fraction = _split_fraction_refusal(split)
+    if fraction is not None:
+        return fraction
+    n_train_units = int(np.floor(float(split) * n_units))
+    if not 2 <= n_train_units <= n_units - 2:
+        return _refuse(
+            f"a split of {split} leaves {n_train_units} of {n_units} units to train on.",
+            "Pass a split that leaves at least two units in each part.",
+        ).refusal
+    return None
+
+
+def _engine_compare_refusal(curve: Any, compare: Any) -> Refusal | None:
+    if compare is None or getattr(curve, "identified_effect", None) is not None:
+        return None
+    return _refuse(
+        "compare= reads an external score column of the producing study, and this "
+        "curve was fitted by the engine, with no study.",
+        "Fit the curve through CausalStudy.identify(...).estimate(...).",
+    ).refusal
+
+
+class CurveDiagnostics(DiagnosticsFacade):
     """The assessment surface of an :class:`~cleverly.effect_curves.EffectCurveResult`.
+
+    A :class:`~cleverly.assessment.DiagnosticsFacade`: its rows pass the method, replay and
+    request gates, a refused row raises its own record, and :meth:`run_all` runs the rows a
+    caller has paid for.  The summaries read the producing fit; the five curve operations
+    refit the producing estimator.
 
     Parameters
     ----------
@@ -306,44 +498,84 @@ class CurveDiagnostics:
         learner (``method="ep"``).
     """
 
+    #: The operations whose call refuses some argument values and not others.
+    _request_gates: ClassVar[Mapping[str, str]] = {
+        **DiagnosticsFacade._request_gates,
+        "calibration": "_folds_gated",
+        "risk_comparison": "_folds_gated",
+        "modifier_stability": "_folds_gated",
+        "targeting_curve": "_targeting_gated",
+    }
+
     def __init__(self, curve: Any) -> None:
-        self.curve = curve
+        super().__init__(curve)
 
     @property
-    def capabilities(self) -> tuple[Any, ...]:
-        """The declared assessment rows of the curve's family."""
-        from .assessment import assessment_capabilities
+    def curve(self) -> Any:
+        """The assessed curve."""
+        return self._result
 
-        return assessment_capabilities(self.curve)
+    def _folds_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve ``n_folds`` from the predicate the fold split raises from.
 
-    def capability(self, operation: str) -> Any:
-        """The declared row of one operation.
-
-        Parameters
-        ----------
-        operation : str
-            The operation's name.
-
-        Returns
-        -------
-        AssessmentCapability
-            Its row.
+        A curve that keeps no producing fit has no units to count; its replay gate refuses
+        the row, and the call raises that record.
         """
-        for row in self.capabilities:
-            if row.operation == operation:
-                return row
-        raise KeyError(operation)
+        if self.curve.fit is None:
+            return capability
+        n_units = _units(self.curve.fit.data)
+        default = self._argument_default(capability.operation, "n_folds")
+        return _argument_resolved(
+            capability,
+            "n_folds",
+            arguments.get("n_folds"),
+            lambda value: _folds_refusal(n_units, default if value is None else int(value)),
+            (2,),
+        )
+
+    def _targeting_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve ``split`` and ``compare`` from the predicates the call raises from."""
+        if self.curve.fit is None:
+            return capability
+        n_units = _units(self.curve.fit.data)
+        resolved = _argument_resolved(
+            capability,
+            "split",
+            arguments.get("split"),
+            lambda value: _split_refusal(0.5 if value is None else value, n_units),
+            (0.5,),
+        )
+        if not resolved.available:
+            return resolved
+        return _argument_resolved(
+            resolved,
+            "compare",
+            arguments.get("compare"),
+            lambda value: _engine_compare_refusal(self.curve, value),
+            (None,),
+        )
 
     # ------------------------------------------------------------ the producing fit
 
-    def _fit(self) -> Any:
+    def _fit(self, slot: str = "refit_nuisances") -> Any:
+        """The producing fit, or the replay gate's refusal when this curve cannot do ``slot``.
+
+        The call reads the fit and its estimator itself, as well as the replay record, so a
+        row that reads available on a curve without them still meets the refusal here.
+        """
+        from .assessment import replay_refusal, replayability
+
+        replay = replayability(self.curve)
         fit = self.curve.fit
-        if fit is None or getattr(fit, "estimator", None) is None:
-            raise _refuse(
-                "this curve keeps no producing fit and estimator, so nothing can be refitted "
-                "or read",
-                "Assess the curve in the session that fitted it, before it is saved.",
-            )
+        kept = fit is not None and (
+            slot == "summarize_existing_artifacts" or getattr(fit, "estimator", None) is not None
+        )
+        if not kept or not getattr(replay, slot):
+            raise CapabilityError(refusal=replay_refusal(slot, replay))
         return fit
 
     def support(self) -> Any:
@@ -354,7 +586,10 @@ class CurveDiagnostics:
         PositivityReport
             The producing fit's support report.
         """
-        return self._fit().diagnostics.support()
+        self._require("support")
+        # The producing fit's facade files the answer in its own cache, so the curve's cache
+        # would hold a second reference to it.
+        return self._fit("summarize_existing_artifacts").diagnostics.support()
 
     def nuisance_models(self) -> Any:
         """The producing fit's held-out nuisance diagnostics.
@@ -364,9 +599,12 @@ class CurveDiagnostics:
         NuisanceDiagnostics
             The producing fit's report.
         """
-        return self._fit().diagnostics.nuisance_models()
+        self._require("nuisance_models")
+        # The producing fit's facade files the answer in its own cache, so the curve's cache
+        # would hold a second reference to it.
+        return self._fit("summarize_existing_artifacts").diagnostics.nuisance_models()
 
-    def score_equations(self) -> Any:
+    def score_equations(self) -> Any:  # type: ignore[override]
         """The score equations the producing fit solved.
 
         A projection fit reports its targeting's score equations.  An EP fit reports the
@@ -378,12 +616,36 @@ class CurveDiagnostics:
         ScoreVerdict or DebiasingScores
             The producing fit's report.
         """
-        fit = self._fit()
-        if self.curve.fitted_method == "ep":
+        self._require("score_equations")
+
+        fit = self._fit("summarize_existing_artifacts")
+        if self.curve.fitted_method != "ep":
+            # Filed in the producing fit's cache, as support() is.
+            return fit.diagnostics.score_equations()
+
+        def compute() -> Any:
             from .estimators.ep import DebiasingScores
 
             return DebiasingScores.of(fit, backend=self.curve.backend)
-        return fit.diagnostics.score_equations()
+
+        return _cached(self.curve, "diagnostics.score_equations", (), {}, compute)
+
+    def influence(self) -> Any:
+        """Refused: a curve's influence curves are its producing fit's.
+
+        Returns
+        -------
+        InfluenceReport
+            Never; the call always raises.
+
+        Raises
+        ------
+        CapabilityError
+            On a projection curve, an ``API_REDIRECTION`` to the producing fit, whose
+            coefficients carry the influence curves; on an EP curve, which has no influence
+            curve, an ``INVALID_DECLARATION``.
+        """
+        raise CapabilityError(refusal=curve_influence_refusal(self.curve))
 
     # ---------------------------------------------------------------- refits
 
@@ -408,11 +670,7 @@ class CurveDiagnostics:
     def _folds(self, data: Any, n_folds: int, seed: int) -> IntArray:
         units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
         labels, inverse = np.unique(units, return_inverse=True)
-        if len(labels) < n_folds:
-            raise _refuse(
-                f"{len(labels)} independent units cannot fill {n_folds} folds",
-                "Pass a smaller n_folds.",
-            )
+        _raise(_folds_refusal(len(labels), n_folds))
         order = np.random.default_rng(seed).permutation(len(labels))
         assignment = np.empty(len(labels), dtype=np.int64)
         assignment[order] = np.arange(len(labels)) % n_folds
@@ -471,7 +729,17 @@ class CurveDiagnostics:
         CurveCalibration
             The slope, the intercept and the binned table, all point readings.
         """
+        self._require("calibration", {"n_folds": n_folds})
         seed = self._seed(random_state)
+        return _cached(
+            self.curve,
+            "diagnostics.calibration",
+            (),
+            {"n_folds": n_folds, "bins": bins, "random_state": seed},
+            lambda: self._calibration(n_folds, bins, seed),
+        )
+
+    def _calibration(self, n_folds: int, bins: int, seed: int) -> CurveCalibration:
         _, _, _, pseudo = self._pieces()
         predictions, _ = self._out_of_fold(n_folds, seed)
         _, _, d_t, d_r = pseudo
@@ -523,7 +791,17 @@ class CurveDiagnostics:
         CurveRiskComparison
             The risks, as point readings.
         """
+        self._require("risk_comparison", {"n_folds": n_folds})
         seed = self._seed(random_state)
+        return _cached(
+            self.curve,
+            "diagnostics.risk_comparison",
+            (),
+            {"n_folds": n_folds, "random_state": seed},
+            lambda: self._risk_comparison(n_folds, seed),
+        )
+
+    def _risk_comparison(self, n_folds: int, seed: int) -> CurveRiskComparison:
         _, data, _, pseudo = self._pieces()
         q_t, q_r, d_t, d_r = pseudo
         predictions, folds = self._out_of_fold(n_folds, seed)
@@ -586,7 +864,18 @@ class CurveDiagnostics:
         CurveStability
             The relative SD, and the alternative basis's reading where one exists.
         """
+        _raise(stability_refusal(self.curve))
+        self._require("stability")
         seed = self._seed(random_state)
+        return _cached(
+            self.curve,
+            "diagnostics.stability",
+            (),
+            {"n_seeds": n_seeds, "random_state": seed},
+            lambda: self._stability(n_seeds, seed),
+        )
+
+    def _stability(self, n_seeds: int, seed: int) -> CurveStability:
         fit, data, _, _ = self._pieces()
         frame = self._frame(data)
         seeds = tuple(seed + 1 + j for j in range(n_seeds))
@@ -594,12 +883,6 @@ class CurveDiagnostics:
             [fit.estimator.refit(data, random_state=s).effect_curve().predict(frame) for s in seeds]
         )
         spread = float(np.std(self.curve.in_sample, ddof=1))
-        if spread == 0.0:
-            raise _refuse(
-                "the curve is constant on the fit rows, so its spread is zero and a relative "
-                "SD is undefined",
-                "Read the coefficients' standard errors instead.",
-            )
         relative = float(np.mean(np.std(curves, axis=1, ddof=1)) / spread)
         alternative, alternative_sd = self._alternative(fit, data, frame, spread, seed)
         return CurveStability(
@@ -613,26 +896,9 @@ class CurveDiagnostics:
     def _alternative(
         self, fit: Any, data: Any, frame: pd.DataFrame, spread: float, seed: int
     ) -> tuple[str, float | None]:
-        from .bases import BSpline, Cosine
-
         basis = fit.estimator.effect_modification.basis
-        if isinstance(basis, Cosine):
-            degree = min(3, basis.size)
-            other: Any = BSpline(
-                basis.columns,
-                n_interior_knots=basis.size - degree,
-                degree=degree,
-                domains=basis.domains,
-                intercept=basis.intercept,
-            )
-        elif isinstance(basis, BSpline):
-            other = Cosine(
-                basis.columns,
-                size=basis.n_interior_knots + basis.degree,
-                domains=basis.domains,
-                intercept=basis.intercept,
-            )
-        else:
+        other = _alternative_basis(basis)
+        if other is None:
             return (
                 f"none: a {type(basis).__name__} basis has no alternative family at a matched "
                 "size; only Cosine and BSpline do",
@@ -659,16 +925,21 @@ class CurveDiagnostics:
         ModifierStability
             The risks, as point readings.
         """
+        _raise(modifier_stability_refusal(self.curve))
+        self._require("modifier_stability", {"n_folds": n_folds})
         seed = self._seed(random_state)
+        return _cached(
+            self.curve,
+            "diagnostics.modifier_stability",
+            (),
+            {"n_folds": n_folds, "random_state": seed},
+            lambda: self._modifier_stability(n_folds, seed),
+        )
+
+    def _modifier_stability(self, n_folds: int, seed: int) -> ModifierStability:
         fit, _, _, pseudo = self._pieces()
         basis = fit.estimator.effect_modification.basis
-        columns = tuple(getattr(basis, "columns", ()))
-        if len(columns) < 2 or not hasattr(basis, "columns"):
-            raise _refuse(
-                "the basis reads fewer than two modifiers, or does not declare them as "
-                "columns, so no modifier can be dropped from it",
-                "Declare a shipped basis of at least two modifiers, such as Linear(['V1', 'V2']).",
-            )
+        columns = tuple(basis.columns)
         scale = self.curve.scale
         full, _ = self._out_of_fold(n_folds, seed)
         risks = {"(none)": self._risk(full, scale, pseudo)}
@@ -689,6 +960,7 @@ class CurveDiagnostics:
         n_half_samples: int = 2000,
         alpha: float = 0.05,
         random_state: int | None = None,
+        max_memory_bytes: int | None = None,
     ) -> Any:
         """How much treating by the curve first gains over treating at random, on held-out rows.
 
@@ -719,6 +991,13 @@ class CurveDiagnostics:
             The intervals hold at ``1 - alpha``, and the band jointly over the grid.
         random_state : int or None
             Seed of the split, the refits and the draws; ``None`` uses 0.
+        max_memory_bytes : int or None
+            The most memory the half-sample draws may add above the arrays already held, in
+            bytes; ``None`` uses the memory available now.  The draws run in blocks sized to
+            it, and a request whose setup, outputs and one draw would exceed it is refused
+            before the refits.  The score is not known before the refit, so this check
+            bounds its tie count by the evaluation rows.
+            It bounds the draws only, not the refits, and never lowers ``n_half_samples``.
 
         Returns
         -------
@@ -730,6 +1009,8 @@ class CurveDiagnostics:
         CapabilityError
             If ``split`` is not a fraction (a fold average is refused), the producing fit
             repeats its cross-fitting split, or ``compare`` is asked of an engine fit.
+        MethodConfigurationError
+            If one half-sample draw at a time is predicted to exceed the memory budget.
 
         Examples
         --------
@@ -763,37 +1044,58 @@ class CurveDiagnostics:
         >>> bool(targeting.area("autoc")["estimate"] > 0)
         True
         """
-        from .estimators import TMLE
-        from .targeting_curves import (
-            TARGETING_REPEATS_REFUSAL,
-            TARGETING_SPLIT_REFUSAL,
-            check_targeting_settings,
-            targeting_fit,
+        # A fold average is a malformed request, refused before any row is read, as
+        # ``refute`` checks its arguments first.  Then the fit-wide rules, each raising the
+        # record its row declares, and then the row this request resolves to.
+        _raise(_split_fraction_refusal(split))
+        _raise(targeting_curve_refusal(self.curve))
+        self._require("targeting_curve", {"split": split, "compare": compare})
+        seed = self._seed(random_state)
+        arguments = {
+            "split": split,
+            "compare": compare,
+            "compare_computed_from": compare_computed_from,
+            "score_kind": score_kind,
+            "grid": grid,
+            "groups": groups,
+            "n_half_samples": n_half_samples,
+            "alpha": alpha,
+            "random_state": seed,
+            "max_memory_bytes": max_memory_bytes,
+        }
+        return _cached(
+            self.curve,
+            "diagnostics.targeting_curve",
+            (),
+            arguments,
+            lambda: self._targeting_curve(**arguments),
         )
 
-        if (
-            isinstance(split, bool)
-            or not isinstance(split, (float, np.floating))
-            or not 0.0 < float(split) < 1.0
-        ):
-            raise CapabilityError(refusal=TARGETING_SPLIT_REFUSAL)
-        seed = self._seed(random_state)
+    def _targeting_curve(
+        self,
+        *,
+        split: float,
+        compare: str | None,
+        compare_computed_from: Any,
+        score_kind: str | None,
+        grid: Any,
+        groups: Any,
+        n_half_samples: int,
+        alpha: float,
+        random_state: int,
+        max_memory_bytes: int | None,
+    ) -> Any:
+        from .targeting_curves import check_draw_memory, check_grid, check_groups, targeting_fit
+
+        seed = random_state
         fit, data, spec, _ = self._pieces()
         estimator = self._estimator(fit)
-        kwargs = _ate_kwargs(estimator, reference=float(spec.pair[1]), seed=seed)
-        if int(kwargs.get("repeats", 1)) > 1:
-            raise CapabilityError(refusal=TARGETING_REPEATS_REFUSAL)
-        ate_estimator = TMLE(**kwargs)
-        check_targeting_settings(ate_estimator)
+        ate_estimator, refusal = _targeting_ate(fit, estimator, seed)
+        _raise(refusal)
         other = None
+        _raise(_engine_compare_refusal(self.curve, compare))
         if compare is not None:
-            effect = getattr(self.curve, "identified_effect", None)
-            if effect is None:
-                raise _refuse(
-                    "compare= reads an external score column of the producing study, and this "
-                    "curve was fitted by the engine, with no study",
-                    "Fit the curve through CausalStudy.identify(...).estimate(...).",
-                )
+            effect = self.curve.identified_effect
             other = np.asarray(
                 effect._external_score(compare, compare_computed_from, score_kind), dtype=float
             )
@@ -805,17 +1107,25 @@ class CurveDiagnostics:
         units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
         labels, inverse = np.unique(units, return_inverse=True)
         n_units = len(labels)
+        _raise(_split_refusal(split, n_units))
         n_train_units = int(np.floor(float(split) * n_units))
-        if not 2 <= n_train_units <= n_units - 2:
-            raise _refuse(
-                f"a split of {split} leaves {n_train_units} of {n_units} units to train on",
-                "Pass a split that leaves at least two units in each part.",
-            )
         order = np.random.default_rng(seed).permutation(n_units)
         in_train = np.zeros(n_units, dtype=bool)
         in_train[order[:n_train_units]] = True
         train = np.flatnonzero(in_train[inverse])
         evaluation = np.flatnonzero(~in_train[inverse])
+        grid_ = check_grid(grid)
+        check_draw_memory(
+            n=len(evaluation),
+            units=n_units - n_train_units,
+            blocks=len(evaluation),
+            scores=1 if other is None else 2,
+            draws=int(n_half_samples),
+            grid=grid_,
+            edges=check_groups(groups, grid_),
+            max_memory_bytes=max_memory_bytes,
+            ties_bounded=True,
+        )
         frame = self._frame(data)
         refit = estimator.refit(data.subset(train), random_state=seed)
         refit_curve = refit.effect_curve()
@@ -837,6 +1147,7 @@ class CurveDiagnostics:
             route="split",
             n_train=len(train),
             score_curve=refit_curve,
+            max_memory_bytes=max_memory_bytes,
         )
 
 
@@ -863,29 +1174,41 @@ def _ate_kwargs(estimator: Any, *, reference: float, seed: int) -> dict[str, Any
     return kwargs
 
 
+def _drops(basis: Any, name: str) -> bool:
+    """Whether ``basis`` reads ``name`` alone, so nothing of it is left without ``name``."""
+    return tuple(getattr(basis, "columns", ())) == (name,)
+
+
 def _without(basis: Any, name: str) -> Any:
-    """``basis`` without the modifier ``name``: its columns and domains, or its components.
+    """``basis`` without the modifier ``name``.
 
     An :class:`~cleverly.bases.Additive` basis drops each component that reads only ``name``
-    and rebuilds each that reads it among others; every other shipped basis is a dataclass
-    of columns and domains.
+    and rebuilds each that reads it among others.  A :class:`~cleverly.bases.Tensor` keeps
+    the other factor when one factor reads only ``name``, and rebuilds a factor that reads it
+    among others.  An :class:`~cleverly.bases.Interactions` basis rebuilds its additive basis
+    and keeps its order where enough components remain.  Every other shipped basis is a
+    dataclass of columns and domains.  :func:`_without_refusal` names what cannot be dropped.
     """
-    from .bases import Additive
+    from .bases import Additive, Interactions, Tensor
 
+    _raise(_without_refusal(basis, name))
+    if name not in tuple(getattr(basis, "columns", ())):
+        return basis
     if isinstance(basis, Additive):
-        parts = []
-        for component in basis.bases:
-            reads = tuple(getattr(component, "columns", ()))
-            if name not in reads:
-                parts.append(component)
-            elif len(reads) > 1:
-                parts.append(_without(component, name))
-        if not parts:
-            raise _refuse(
-                f"every component of the basis reads {name}, so nothing is left without it",
-                "Declare a basis with a component for each modifier.",
-            )
+        parts = [
+            _without(component, name) for component in basis.bases if not _drops(component, name)
+        ]
         return Additive(*parts, intercept=basis.intercept)
+    if isinstance(basis, Tensor):
+        if _drops(basis.left, name):
+            return _without(basis.right, name)
+        if _drops(basis.right, name):
+            return _without(basis.left, name)
+        return Tensor(_without(basis.left, name), _without(basis.right, name))
+    if isinstance(basis, Interactions):
+        additive = _without(basis.basis, name)
+        order = min(basis.order, len(additive.bases))
+        return additive if order == 1 else Interactions(additive, order)
     kept = [column for column in basis.columns if column != name]
     fields: dict[str, Any] = {"columns": kept}
     domains = getattr(basis, "domains", None)
@@ -894,6 +1217,109 @@ def _without(basis: Any, name: str) -> Any:
     elif isinstance(domains, tuple) and domains:
         fields["domains"] = tuple(item for item in domains if item[0] in kept)
     return replace(basis, **fields)
+
+
+def _without_refusal(basis: Any, name: str) -> Refusal | None:
+    """Why :func:`_without` cannot drop ``name`` from ``basis``, or ``None``.
+
+    Read without building the reduced basis, so a capability row can ask it.  An additive
+    basis whose every component reads ``name`` alone, or a tensor product whose two factors
+    each read ``name`` alone, leaves nothing behind.  A
+    :class:`~cleverly.bases.UserBasis` evaluates one function of all its columns, which
+    cannot be rebuilt without one of them.
+    """
+    from .bases import Additive, Interactions, Tensor, UserBasis
+
+    if name not in tuple(getattr(basis, "columns", ())):
+        return None
+    if isinstance(basis, UserBasis):
+        return _refuse(
+            f"a UserBasis evaluates one function of its columns, so it cannot be rebuilt "
+            f"without {name}.",
+            "Declare a shipped basis, such as Linear or Additive, to compare modifiers.",
+        ).refusal
+    if isinstance(basis, Interactions):
+        return _without_refusal(basis.basis, name)
+    if isinstance(basis, Tensor):
+        factors = (basis.left, basis.right)
+        if all(_drops(factor, name) for factor in factors):
+            return _refuse(
+                f"both factors of the tensor product read {name} alone, so nothing is left "
+                "without it.",
+                "Declare a basis with a factor for each modifier.",
+            ).refusal
+        for factor in factors:
+            inner = None if _drops(factor, name) else _without_refusal(factor, name)
+            if inner is not None:
+                return inner
+        return None
+    if not isinstance(basis, Additive):
+        return None
+    kept = False
+    for component in basis.bases:
+        if _drops(component, name):
+            continue
+        inner = _without_refusal(component, name)
+        if inner is not None:
+            return inner
+        kept = True
+    if kept:
+        return None
+    return _refuse(
+        f"every component of the basis reads {name}, so nothing is left without it.",
+        "Declare a basis with a component for each modifier.",
+    ).refusal
+
+
+def _alternative_basis(basis: Any) -> Any:
+    """The other shipped family at a matched size: Cosine for BSpline and back, else ``None``."""
+    from .bases import BSpline, Cosine
+
+    if isinstance(basis, Cosine):
+        degree = min(3, basis.size)
+        return BSpline(
+            basis.columns,
+            n_interior_knots=basis.size - degree,
+            degree=degree,
+            domains=basis.domains,
+            intercept=basis.intercept,
+        )
+    if isinstance(basis, BSpline):
+        return Cosine(
+            basis.columns,
+            size=basis.n_interior_knots + basis.degree,
+            domains=basis.domains,
+            intercept=basis.intercept,
+        )
+    return None
+
+
+def curve_influence_refusal(curve: Any) -> Refusal:
+    """Why ``curve.diagnostics.influence()`` is refused.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The curve.
+
+    Returns
+    -------
+    Refusal
+        An ``API_REDIRECTION`` to the producing fit on a projection curve, whose coefficients
+        carry the influence curves, and an ``INVALID_DECLARATION`` on an EP curve.
+    """
+    if curve.fitted_method == "ep":
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "an EP curve has no influence curve: its source proves no limit law for the "
+            "curve or its coefficients, so it reports no interval.",
+        )
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
+        "a projection curve's influence curves are those of its coefficients, which the "
+        "producing fit reports.",
+        alternative="Call curve.fit.diagnostics.influence().",
+    )
 
 
 def _log_ratio_calibration(design: FloatArray, d_t: FloatArray, d_r: FloatArray) -> FloatArray:

@@ -22,6 +22,7 @@ Use these objects to declare the observed data, identify a causal quantity, and 
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
    cleverly.IdentifiedEffect
+   cleverly.PlannedFits
    cleverly.Provenance
 ```
 

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from cleverly._inference_status import STATUS_RECORDS
+from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS, STATUS_RECORDS
 from cleverly._summary import vocabulary
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
@@ -323,14 +323,15 @@ def test_the_undercoverage_verdict_names_the_spread_by_its_status(
 
 
 def _straddling_dgp(n: int, seed: int) -> tuple[object, dict[str, float]]:
-    """A clustered law whose cluster count is drawn from 8 to 12, around the floor of 10."""
-    j = int(np.random.default_rng(seed).integers(8, 13))
+    """A clustered law whose cluster count straddles the in-sample TMLE floor by two each way."""
+    floor = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"]
+    j = int(np.random.default_rng(seed).integers(floor - 2, floor + 3))
     frame, truth = make_clustered(n=40 * j, cluster_size=40, seed=int(seed))
     return frame, truth
 
 
 def _straddling_study() -> StudyResult:
-    """Eight in-sample clustered fits, on both sides of the floor of 10 clusters."""
+    """Eight in-sample clustered fits, on both sides of the in-sample TMLE floor."""
     return CoverageStudy(
         dgp=_straddling_dgp,
         estimator=lambda: TMLE(**linear_in_sample(estimands=("ate",))),

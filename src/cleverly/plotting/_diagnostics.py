@@ -812,12 +812,20 @@ def learners(
     panels per nuisance role that a Super Learner fitted: the ensemble weights stacked at
     each time point above, each candidate's cross-validated risk below.
 
+    A continuous-time survival fit, or its ``diagnostics.nuisance_models()``, draws one panel
+    per hazard (each cause, then censoring) and one for the treatment model: each
+    candidate's cross-validated loss, with the candidate the fit chose marked. Each
+    selection keeps one candidate, so no weights are drawn. A cross-fitted fit draws the
+    first fold's selections, the ones it keeps.
+
     Parameters
     ----------
-    source : SuperLearnerDiagnostics or CTMLESelection or TMLEResult or LongitudinalResult
-        What to plot. A fitted ``SuperLearner`` holds the first as ``diagnostics_``. A
-        ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a longitudinal fit's
-        ``diagnostics.nuisance_models()`` are accepted too.
+    source : SuperLearnerDiagnostics or CTMLESelection or a fitted result
+        What to plot: one of the first two, or a ``TMLEResult``, ``LongitudinalResult`` or
+        ``ContinuousSurvivalResult``. A fitted ``SuperLearner`` holds the first as
+        ``diagnostics_``. A ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a
+        longitudinal or continuous-time survival fit's ``diagnostics.nuisance_models()`` are
+        accepted too.
     regimen : str or None, default=None
         On a longitudinal fit or its nuisance report, the regimen whose outcome regressions
         are drawn; the first when omitted. The treatment and censoring models serve every
@@ -852,19 +860,21 @@ def learners(
     -------
     Figure
         Two panels per Super Learner, one for a collaborative selection, one per arm and
-        horizon for a survival collaborative fit, two per role for a longitudinal fit.
+        horizon for a survival collaborative fit, two per role for a longitudinal fit, one
+        per selected model for a continuous-time survival fit.
 
     Raises
     ------
     ValueError
         When the source holds nothing to draw (no nuisance model was fitted by a Super
-        Learner), or ``ax`` is given for a figure of several panels.
+        Learner), when ``ax`` is given for a figure of several panels, or when a
+        continuous-time survival fit's report names a chosen candidate that its library
+        lists more than once.
     TypeError
         When the source is none of the above.
     CapabilityError
         When the source is an adaptive TMLE fit or its nuisance report, which keep no
-        candidate risks or weights, or a continuous-time survival fit, whose library
-        selections this plot does not draw yet.
+        candidate risks or weights.
     DataError
         When the regimen, horizon or cause is not in a longitudinal report.
 
@@ -880,7 +890,8 @@ def learners(
     the figure before you publish it. For this plot the notes say the risks are descriptive
     and what the criterion adds to the loss. On a longitudinal fit they also say that the
     weights are averaged over folds, which draw and which regimen's outcome regressions are
-    drawn.
+    drawn. On a continuous-time survival fit they say which fold's selections are drawn and
+    which model has no panel.
 
     Examples
     --------
@@ -906,7 +917,16 @@ def learners(
     """
     role = None
     from ..longitudinal.estimator import LongitudinalResult
+    from ..survival.diagnostics import ContinuousSurvivalNuisances
+    from ..survival.result import ContinuousSurvivalResult
 
+    if isinstance(source, (ContinuousSurvivalResult, ContinuousSurvivalNuisances)):
+        if ax is not None:
+            raise ValueError("learners() draws one panel per selection; ax= is not accepted")
+        _selectors_unused(regimen, horizon, cause)
+        from . import _continuous
+
+        return _continuous.learners(source)
     if isinstance(source, LongitudinalResult) and source.selection is not None:
         if ax is not None:
             raise ValueError("learners() draws one panel per arm and horizon; ax= is not accepted")
@@ -989,24 +1009,29 @@ def _selectors_unused(regimen: str | None, horizon: int | None, cause: str | Non
 def _refuse_unread(source: Any, plot: str) -> None:
     """Refuse the fits and reports whose nuisance models this plot cannot or does not draw."""
     from .._refusal import RefusalReason
+    from ..assessment import CandidateReports
     from ..estimators.atmle_result import AdaptiveTMLENuisanceReport, AdaptiveTMLEResult
     from ..exceptions import CapabilityError
     from ..survival.result import ContinuousSurvivalResult
+    from ..variable_importance import VariableImportanceResult
 
-    if isinstance(source, ContinuousSurvivalResult):
-        if plot == "calibration":
-            raise CapabilityError(
-                "calibration() draws a nuisance report's calibration table; a continuous-time "
-                "survival fit keeps no nuisance report, only its library selections in "
-                "result.record.",
-                reason=RefusalReason.INVALID_DECLARATION,
-            )
+    if isinstance(source, VariableImportanceResult) and not source.keep_fits:
+        from ..variable_importance import KEEP_FITS_REFUSAL
+
+        raise CapabilityError(refusal=KEEP_FITS_REFUSAL)
+    if isinstance(source, (VariableImportanceResult, CandidateReports)):
         raise CapabilityError(
-            f"{plot}() does not yet draw a continuous-time survival fit's hazard and "
-            "treatment library selections.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative="Read them in result.record.",
-            roadmap="X100",
+            f"{plot}() draws the nuisance models of one fit, and a variable-importance run "
+            "holds one fit per candidate.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=f"Call cleverly.plotting.{plot}(result.fits[candidate]) for one candidate.",
+        )
+    if isinstance(source, ContinuousSurvivalResult) and plot == "calibration":
+        raise CapabilityError(
+            "calibration() draws a nuisance report's calibration table; a continuous-time "
+            "survival fit keeps no nuisance report, only its library selections in "
+            "result.record.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if isinstance(source, (AdaptiveTMLEResult, AdaptiveTMLENuisanceReport)):
         reads, held = (
@@ -1263,10 +1288,14 @@ class _Replicates:
 
 def _from_summary(name: str, estimate: Any) -> _Replicates:
     """The fit's own bootstrap summary, under the names its printed summary uses."""
-    from .._inference_status import MINIMUM_INTERVAL_CLUSTERS
+    from .._inference_status import DEFAULT_POINT_INTERVAL_CLUSTERS
     from .._summary._estimates import plain_support_reason
     from .._summary.vocabulary import BOOTSTRAP_DIAGNOSTIC
-    from ..inference.influence import BOOTSTRAP_INTERVAL_LABELS, bootstrap_is_diagnostic
+    from ..inference.influence import (
+        BOOTSTRAP_INTERVAL_LABELS,
+        bootstrap_diagnostic_reason,
+        bootstrap_is_diagnostic,
+    )
 
     summary = estimate.bootstrap
     kind = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
@@ -1274,13 +1303,8 @@ def _from_summary(name: str, estimate: Any) -> _Replicates:
     low, high = (float(value) for value in summary.ci)
     found: list[str] = []
     if bootstrap_is_diagnostic(estimate):
-        if not estimate.supplies_inference:
-            reason = "withheld"
-        elif summary.below_floor:
-            reason = "below_floor"
-        else:
-            reason = "declared"
-        floor = summary.cluster_floor or MINIMUM_INTERVAL_CLUSTERS
+        reason = bootstrap_diagnostic_reason(estimate)
+        floor = summary.cluster_floor or DEFAULT_POINT_INTERVAL_CLUSTERS
         found.append(BOOTSTRAP_DIAGNOSTIC[reason].format(names=name, clusters=floor))
         spread_word, limits_word = "bootstrap SD", f"{kind} range (diagnostic)"
     else:
@@ -1310,6 +1334,11 @@ def _scale_maps(estimate: Any) -> tuple[Callable[[Any], Any], Callable[[Any], An
     transform = getattr(estimate, "transform", None) if estimate is not None else None
     if transform is not None:
         return transform.forward, transform.inverse, f"the {transform.name} scale"
+    if estimate is not None and getattr(estimate, "interval_scale", None) == "range_logit":
+        # The mean of a binary outcome forms its interval on the logit scale.
+        from scipy.special import expit, logit
+
+        return logit, expit, "the logit scale"
     if estimate is not None and str(estimate.scale) == "ratio":
         return np.log, np.exp, "the log scale"
     return (lambda value: value), (lambda value: value), None
@@ -1353,8 +1382,9 @@ def bootstrap(
     """Plot the bootstrap replicates with a normal curve for comparison.
 
     Use it to see whether the bootstrap distribution is symmetric and bell-shaped on the
-    scale the Wald interval is built on: the log scale for a ratio, the transform's scale
-    for a transformed estimate. When it is skewed or heavy-tailed there, the Wald interval
+    scale the Wald interval is built on: the log scale for a ratio, the logit scale for the
+    mean of a binary outcome, the transform's scale for a transformed estimate. When it is
+    skewed or heavy-tailed there, the Wald interval
     can mislead. The histogram shows the replicates, the curve is a normal density with
     their mean and standard deviation, and the vertical lines mark the limits. Nothing is
     resampled here.
@@ -1403,8 +1433,8 @@ def bootstrap(
     Raises
     ------
     ValueError
-        When a fit holds no bootstrap, the estimand has no replicates, fewer than two
-        replicates are finite, or every replicate is equal.
+        When a fit holds no bootstrap or withheld its bootstrap intervals, the estimand has
+        no replicates, fewer than two replicates are finite, or every replicate is equal.
 
     See Also
     --------
@@ -1465,11 +1495,22 @@ def bootstrap(
             reason=RefusalReason.INVALID_DECLARATION,
         )
     estimate = result.estimates.get(name) if result is not None else None
+    if getattr(result, "bootstrap_status", None) == "bootstrap_unstable":
+        # A continuous-time fit withholds every bootstrap interval when more than 1% of its
+        # refits failed; limits read from the replicates that fit would condition on them.
+        raise ValueError(
+            f"this fit withheld its bootstrap intervals: {replicates.n_failed} of "
+            f"{replicates.n_requested} refits failed (result.bootstrap_failures says why), "
+            "and limits read from the replicates that fit would condition on them"
+        )
     if estimate is not None and estimate.bootstrap is not None:
         read = _from_summary(name, estimate)
     else:
         if result is not None:
-            level = 1.0 - float(result.config.alpha_sig)
+            config = getattr(result, "config", None)
+            alpha = config.alpha_sig if config is not None else getattr(estimate, "alpha", None)
+            if alpha is not None:
+                level = 1.0 - float(alpha)
         bare = replicates.interval(name, 1.0 - level)
         low, high = (float(value) for value in bare.ci)
         read = _Replicates(
@@ -1590,7 +1631,9 @@ def bootstrap(
 # --------------------------------------------------------------------------- influence
 
 
-def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarray, np.ndarray, str]:
+def _concentration(
+    influence_curve: Any, cluster: Any = None
+) -> tuple[np.ndarray, np.ndarray, str, float]:
     """The cumulative share of the centred sum of squares carried by the top units.
 
     Units are the rows, or the clusters when ``cluster`` is given, in which case the
@@ -1600,7 +1643,9 @@ def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarra
     the numerator of the reported variance.
 
     Returns the fraction of units taken (``0, 1/m, ..., 1``, largest squared value first),
-    the share of the sum of squares those units carry, and ``"rows"`` or ``"clusters"``.
+    the share of the sum of squares those units carry, ``"rows"`` or ``"clusters"``, and the
+    Kish count of the units' influence values (the cluster sums on a clustered fit). The count
+    reads the centred values computed here, so no copy of the units outlives this function.
     """
     from ..inference.bootstrap import cluster_sums
 
@@ -1612,14 +1657,51 @@ def _concentration(influence_curve: Any, cluster: Any = None) -> tuple[np.ndarra
     values = cluster_sums(curve, None if cluster is None else np.asarray(cluster))
     if values.size < 2:
         raise ValueError("need at least two units to show how the influence is spread")
-    squares = np.sort((values - values.mean()) ** 2)[::-1]
+    from ..inference.influence import kish_count
+
+    centred = values - values.mean()
+    del values
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        kish = kish_count(centred, centered=False)
+    squares = np.sort(centred**2)[::-1]
+    del centred
     total = float(squares.sum())
     if total <= 0.0:
         raise ValueError("the influence values are all equal, so there is no spread to show")
+    if not math.isfinite(kish):
+        # The fourth powers underflowed or overflowed: |influence| below about 1e-81 or above
+        # about 1e77. The count would print as inf or nan, so the plot raises, as the
+        # report's influence_row does at these scales.
+        raise ValueError(
+            "the influence values are too close to zero or too large for the Kish count to be "
+            "computed in floating point; rescale them"
+        )
     count = squares.size
     fraction = np.concatenate([[0.0], np.arange(1, count + 1) / count])
     share = np.concatenate([[0.0], np.cumsum(squares) / total])
-    return fraction, share, "rows" if cluster is None else "clusters"
+    return fraction, share, "rows" if cluster is None else "clusters", kish
+
+
+def _line_points(
+    fraction: np.ndarray, share: np.ndarray, top: int, limit: int | None
+) -> np.ndarray:
+    """The indices of the points the concentration line is drawn through.
+
+    Every point when ``limit`` is ``None`` or not below the point count. Otherwise points
+    spread evenly along the line's length: both coordinates rise from 0 to 1, so the length
+    from the origin, measured as ``|dx| + |dy|``, is ``fraction + share``. Both ends and the
+    top-share point are always kept. The curve is concave, so between two kept points it lies
+    above their chord by at most the rise in length between them, ``2 / (limit - 4)``.
+    """
+    count = fraction.size - 1
+    if limit is None or limit >= count + 1:
+        return np.arange(count + 1)
+    length = fraction + share
+    # The total can fall a rounding error below 2, so the last target is clipped to the end.
+    spread = np.minimum(
+        np.searchsorted(length, np.linspace(0.0, 2.0, limit - 3), side="left"), count
+    )
+    return np.unique(np.concatenate([spread, [0, top, count]]))
 
 
 def _top_words(top: int, count: int, unit: str) -> tuple[str, str]:
@@ -1639,6 +1721,7 @@ def influence(
     *,
     name: str | None = None,
     cluster: Any = None,
+    max_points: int | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -1660,8 +1743,9 @@ def influence(
 
     The curve describes the stored influence values. On a fit with several cross-fitting
     repeats the stored curve is the median draw's (the mean of the two central draws for
-    an even count), and on a fit evaluated within folds the reported variance is not
-    computed from this curve; :func:`~cleverly.plotting.notes` says so.
+    an even count), and on a fit evaluated within folds, or on an estimate that adds the
+    boundary-node supplement, the reported variance is not computed from this curve alone;
+    :func:`~cleverly.plotting.notes` says so.
 
     Parameters
     ----------
@@ -1672,6 +1756,13 @@ def influence(
     cluster : array-like or None, default=None
         Cluster codes, one per row. A fit supplies its own; a bare estimate from a
         clustered fit needs them.
+    max_points : int or None, default=None
+        The most points the line is drawn through, at least 16; every point when omitted.
+        With a large data set this keeps the figure and its exported file small. The ranking,
+        the top share and the Kish count still use every unit; only the drawn line is thinned,
+        through points spread evenly along its length that always include both ends and the
+        top-share point, and it stays within ``2 / (max_points - 4)`` of the exact curve on the
+        axes' unit scale. The notes give the number of points drawn.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -1713,8 +1804,9 @@ def influence(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say the curve is descriptive,
-    whether influence values are summed within clusters, and when the curve is not the
-    reported variance.
+    whether influence values are summed within clusters, when the curve is not the
+    reported variance, and how many points the line passes through when ``max_points``
+    thins it.
 
     Examples
     --------
@@ -1765,17 +1857,22 @@ def influence(
             f"{label} comes from a clustered fit ({estimate.n_clusters} clusters in "
             f"{estimate.n} rows); pass the fitted result, or cluster= with one code per row"
         )
-    fraction, share, units = _concentration(estimate.influence_curve, cluster)
+    limit = _core.display_limit(max_points, "max_points", 16)
+    fraction, share, units, kish = _concentration(estimate.influence_curve, cluster)
     count = fraction.size - 1
     top = max(1, math.ceil(0.01 * count - 1e-12))
+    # Every point is drawn from the arrays themselves: an index of every point would copy
+    # both of them, which at a million rows adds tens of MiB to the figure's peak memory.
+    thinned = limit is not None and limit < fraction.size
+    drawn = _line_points(fraction, share, top, limit) if thinned else None
     top_share = float(share[top])
     unit = "cluster" if units == "clusters" else "row"
     headline, point_label = _top_words(top, count, unit)
     fig, axis = _core.figure_for(ax, figsize=(5.2, 5.6))
     _diagonal(axis, 0.0, 1.0, label="Even spread")
     (curve,) = axis.plot(
-        fraction,
-        share,
+        fraction if drawn is None else fraction[drawn],
+        share if drawn is None else share[drawn],
         color=_core.PALETTE[0],
         linewidth=2.0,
         zorder=3,
@@ -1817,11 +1914,6 @@ def influence(
     subtitle = (
         f"{_core.estimand_words(label)}: {headline} {_percent(top_share)} of the squared influence"
     )
-    from ..inference.sparse import influence_row
-
-    kish = influence_row(
-        label, np.asarray(estimate.influence_curve, dtype=float), cluster=cluster
-    ).kish
     found = [
         "Descriptive: a measure of how the stored influence values are spread; "
         "no interval is drawn. Values are centred at their mean, as the variance centres them.",
@@ -1829,6 +1921,11 @@ def influence(
     ]
     if units == "clusters":
         found.append("Share of clusters: influence values are summed within each cluster first.")
+    if drawn is not None:
+        found.append(
+            f"Line drawn through {drawn.size} of {fraction.size} points, chosen evenly along its "
+            f"length; the ranking, the top share and the Kish count use every {unit}."
+        )
     if result is not None:
         draws = len(getattr(result, "repeats", ()))
         if draws > 1:
@@ -1849,6 +1946,18 @@ def influence(
                 "This fit evaluates the estimate within folds, so this curve is not the "
                 "reported variance."
             )
+    if getattr(estimate, "node", None) is not None:
+        found.append(
+            "This estimate's recursion read a node with no event (or only events), whose term "
+            "the influence curve leaves out; the reported variance adds a bound on that term, "
+            "so this curve is not the reported variance."
+        )
+    if getattr(estimate, "jackknife", None) is not None:
+        found.append(
+            "This fit reports the delete-one-cluster jackknife variance "
+            "(cluster_variance='jackknife'), which refits every model once per cluster, so "
+            "this curve is not the reported variance."
+        )
     if str(estimate.scale) == "ratio":
         found.append("Influence values are on the log scale.")
     found.extend(_core.estimate_interval(estimate, label).notes)

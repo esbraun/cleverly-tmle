@@ -1,0 +1,742 @@
+r"""The memory model and allocation preflight of the continuous-time engine.
+
+:class:`~cleverly.survival.ContinuousSurvivalTMLE` walks over blocks of ``c`` units
+(:mod:`cleverly.survival._chunked`).  It holds every unit only in vectors and ``(n, P)`` arrays,
+one block of ``(2, J, c, M)`` arrays at a time, and every unit at every grid time only for the
+blocks it keeps between passes ("resident" blocks), as many as the budget allows.
+:func:`peak_bytes` predicts the largest number of bytes the fit holds at once in each phase, from
+the dimensions alone, and :func:`check_memory` refuses a fit only when its prediction with no
+block kept exceeds the budget, before any nuisance is fitted.  :func:`resident_count` sizes the
+kept blocks to the rest of the budget; it never refuses and never changes a result.
+
+Each phase is a sum of the arrays the code holds there, shape times item size, so each term can
+be checked against the line that allocates it.  Write ``n`` units, ``J`` causes, ``M`` grid
+times, ``G`` the times of the event-support grid the walk runs on (at most ``M``), ``c`` the
+units of a block, ``P = 2 J Q`` targets and ``E`` the trial steps a pass evaluates:
+
+* ``nuisance``: the data, the fitted models' per-unit factors, and the largest Cox fit's
+  ``(n_train, d, d)`` arrays (:func:`~cleverly.survival.cox._loglik_parts`) beside the treatment
+  model's selection.
+* ``initial``: one block's initial jumps on the full grid with their survival, then its
+  censoring weights, as the pass that checks the initial fit builds them.
+* ``walk``: the kept blocks, a rebuilt block or a block's trial step (its direction, candidate,
+  curves and score temporaries), and the full ``(n, P)`` arrays of each trial.
+* ``off_grid``: the final pass: the walk's state beside one ``(n, 2J x 100)`` array of the
+  off-grid diagnostic, and under ``variance="switched"`` the predictable variation
+  (``engine._Predictable``): every unit's ``(n, P)`` plug-ins and one
+  buffer of targeted jumps on the full grid, ``(2, J, b, M)`` for the ``b`` units of
+  :func:`~cleverly.survival._targeting.predictable_rows`, with that buffer's weights, curves
+  and moment temporaries, which hold about ``_PV_BLOCK_CELLS`` cells.  It grows with ``n``
+  only through the plug-ins.  With ``n_jobs`` threads each holds one block's working arrays,
+  and finished blocks' off-grid rows and targeted jumps wait for their turn; the buffer is
+  added on the calling thread once a batch of blocks has finished.
+* ``band``: the multiplier buffer of :func:`~cleverly.inference.simultaneous_bands`.
+* ``bootstrap``, with ``n_bootstrap``: the fit's result (every estimate's influence curve, the
+  record and the data) and the replicate draws, beside one replicate fit per worker process,
+  each at the peak this model predicts for a fit of ``n`` units on the full grid, trained on
+  every unit, with one walk thread and no band (:func:`bootstrap_held`).  A resample's grid
+  holds at most the fit's times, so that prediction bounds every replicate.  The workers are
+  ``min(n_jobs, n_bootstrap)``: the peak grows by one replicate per worker, and the walk's own
+  threads do not multiply it, since each replicate walks on one thread.
+
+The prediction does not cover a user learner's own allocations.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Final
+
+from ..exceptions import MethodConfigurationError
+from ..inference.multiplier import _BLOCK_BYTES
+from ..utils.memory import available_memory
+from ._targeting import predictable_rows
+
+#: Bytes of one float64.
+F8: Final = 8
+#: The band's multiplier buffer with its packed draw beside it.
+BAND_BUFFER: Final = 2 * _BLOCK_BYTES
+#: Allocations no array shape accounts for (small arrays, Python objects, the fitted models),
+#: with a margin.  It keeps the prediction an upper bound at small ``n``.
+FIXED: Final = 1 << 20
+#: Random times of the off-grid diagnostic, ``engine.OFF_GRID_TIMES``; the engine imports this
+#: module, so a test pins the two equal.
+OFF_GRID: Final = 100
+#: Bytes per training row and squared Cox design column of the Breslow fit's arrays
+#: (``cox._loglik_parts``: the ``(n, d, d)`` outer products, their reversed cumulative sum and
+#: its padded copy; the rows taken at the event times replace the sum).
+COX_FIT: Final = 3 * F8
+#: Bytes per training row and covariate of the default treatment model's selection (the
+#: scaler's copies and the solver's).
+TREATMENT_FIT: Final = 6 * F8
+
+
+#: The resident set over the array bytes the model counts, which the kept blocks are sized to
+#: leave room for.  The C library's allocator keeps freed block-sized arrays in its heap once
+#: its mmap threshold has risen, so the resident set of a walk read 7 to 9% above its predicted
+#: arrays at 8,000 to 32,000 units (and under them with the threshold held fixed).
+ALLOCATOR_MARGIN: Final = 1.15
+
+
+#: The keyword arguments of :func:`bootstrap_held`, as :func:`peak_bytes` takes them.
+BOOTSTRAP_HELD: Final = ("n", "estimates", "rows", "covariates", "n_bootstrap")
+
+
+def estimate_count(causes: int, horizons: int, restricted: int) -> int:
+    """The estimates a fit reports: risks, differences and ratios, and the restricted means.
+
+    Parameters
+    ----------
+    causes : int
+        Causes ``J``.
+    horizons : int
+        Target times ``K``.
+    restricted : int
+        Restriction times.
+
+    Returns
+    -------
+    int
+        ``4 J K`` (two arms' risks, their difference and ratio) plus ``3 J + 3`` per restriction
+        time (two arms' RMTL per cause and their difference, two RMSTs and theirs).
+    """
+    J, K, R = int(causes), int(horizons), int(restricted)
+    return 4 * J * K + R * (3 * J + 3)
+
+
+def bootstrap_held(*, n: int, estimates: int, rows: int, covariates: int, n_bootstrap: int) -> int:
+    """The bytes the fit's result and the replicate draws hold while the replicates run.
+
+    Parameters
+    ----------
+    n : int
+        Units.
+    estimates : int
+        The fit's estimates (:func:`estimate_count`).
+    rows : int
+        Weight rows ``Q``, which bound the target times of the record's retention readers.
+    covariates : int
+        Baseline covariates ``p``.
+    n_bootstrap : int
+        Replicates.
+
+    Returns
+    -------
+    int
+        Each estimate's ``(n,)`` influence curve, the record's ``(2, n, K)`` retention and its
+        per-unit vectors, the stored copy of the data, and an estimate and a standard error per
+        replicate and estimate.
+    """
+    n, E, Q, p, B = int(n), int(estimates), int(rows), int(covariates), int(n_bootstrap)
+    return F8 * n * (E + 2 * Q + 6 + p + 3) + 2 * F8 * B * E
+
+
+class ContinuousSurvivalMemoryError(MethodConfigurationError):  # numpydoc ignore=PR01
+    """A continuous-time fit predicted to need more memory than its budget.
+
+    Raised before any nuisance is fitted.  ``predicted`` and ``budget`` are in bytes, ``None``
+    on a copy rebuilt from the refusal alone.
+    """
+
+    predicted: int | None = None
+    budget: int | None = None
+
+
+@dataclass(frozen=True)
+class PeakEstimate:
+    """The predicted peak of a continuous-time fit and the phase that reaches it.
+
+    Parameters
+    ----------
+    phases : dict of str to int
+        The predicted bytes live at the peak of each phase.
+    n : int
+        Units.
+    causes : int
+        Causes ``J``.
+    times : int
+        Grid size ``M``.
+    rows : int
+        Weight rows ``Q`` of one arm and cause.
+    influence_curve : int or None
+        Under ``variance="switched"``, the predicted peak of the same fit with
+        ``variance="influence_curve"``, which has no predictable-variation pass; ``None``
+        otherwise.
+    """
+
+    phases: dict[str, int]
+    n: int
+    causes: int
+    times: int
+    rows: int
+    influence_curve: int | None = None
+
+    @property
+    def bytes(self) -> int:
+        """The predicted peak, the largest phase."""
+        return max(self.phases.values())
+
+    @property
+    def phase(self) -> str:
+        """The phase that reaches the peak."""
+        return max(self.phases, key=self.phases.__getitem__)
+
+
+def slot_bytes(units: int, causes: int, kept: int) -> int:
+    """The bytes a kept block of ``units`` holds: its jumps, curves, weight and indicators.
+
+    Parameters
+    ----------
+    units : int
+        The block's units.
+    causes : int
+        Causes ``J``.
+    kept : int
+        The walk's grid size ``G``.
+
+    Returns
+    -------
+    int
+        ``(33 J + 33) units G``: jumps and incidences ``(2, J, c, G)``, survival and weight
+        ``(2, c, G)``, and the boolean at-risk ``(c, G)`` and event ``(J, c, G)`` indicators.
+    """
+    return (33 * int(causes) + 33) * int(units) * int(kept)
+
+
+def _rebuild(c: int, J: int, M: int, G: int) -> int:
+    """A block built from the fitted models: its jumps, curves and weight, at their peak."""
+    cM, cG = c * M, c * G
+    return max(
+        # The jumps on the full grid, then the grid's kept columns copied out of them.
+        16 * J * cM + max(24 * cM, 16 * J * cG),
+        # The curves of the jumps: survival, the survival just before each time, incidences.
+        32 * J * cG + 32 * cG,
+        # The censoring weight on the full grid beside the jumps and curves: the censoring
+        # jumps, their product limit, the product with the propensity and its bounded inverse,
+        # and the first build's count of bounded cells.
+        32 * J * cG + 16 * cG + 48 * cM,
+    )
+
+
+def _direction(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -> int:
+    """A block's direction being formed beside its state."""
+    cG = c * G
+    # The direction beside the summed quotient and one conditional_risk call's increments,
+    # their reverse sums and the quotient; the factual tilt's masked copy beside the direction.
+    # The quotient reads only the walk's grid, a restricted mean's weights too.
+    peak = 16 * J * cG + 32 * cG
+    if factual:
+        peak = max(peak, 32 * J * cG)
+    return peak
+
+
+def _trial(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -> int:
+    """One trial step on a block beside its state and direction, at its peak."""
+    cM, cG = c * M, c * G
+    # The score temporaries of evaluate_rows: one arm's weighted jumps, the summed ratio, the
+    # ratio cumulated before each time, the survival before each time, two causes' increments
+    # and one cause's cumulated sum beside the next, and on a reduced grid with a restricted
+    # mean one cumulated sum read at every full-grid time.
+    score = 8 * J * cG + 48 * cG + (16 * cM if restricted else 0)
+    return max(
+        _direction(c, J, M, G, factual=factual, restricted=restricted),
+        # The direction beside the overflow bound's survival before each time, one cause's
+        # increments and their reverse sums, and its quotients and factor at the runs of dropped
+        # times (Walker.reach), at most one per walk-grid time.
+        16 * J * cG + 48 * cG,
+        # The direction beside the increment, the tilted candidate and its denominators, then
+        # the candidate's curves and their score temporaries.
+        16 * J * cG + max(32 * J * cG + 32 * cG, 32 * J * cG + 16 * cG + score),
+        # The direction beside the exact overflow check of one run of units on the full grid:
+        # its weights, filled curves, indicators, direction and the exp at the dropped times.
+        16 * J * cG + ((65 + 60 * J) * overflow_rows(c, G, M) * M if G < M else 0),
+    )
+
+
+def overflow_rows(block: int, kept: int, times: int) -> int:
+    """The units one run of the exact overflow check takes on the full grid.
+
+    A quarter of a block's cells on the walk's grid, spread over the full grid's times, and at
+    least one unit.
+
+    Parameters
+    ----------
+    block : int
+        The block's units.
+    kept : int
+        The walk's grid size ``G``.
+    times : int
+        The full grid size ``M``.
+
+    Returns
+    -------
+    int
+        Units per run.
+    """
+    return max(1, int(block) * int(kept) // (4 * int(times)))
+
+
+def _replay(c: int, J: int, M: int, G: int, *, factual: bool, restricted: bool) -> int:
+    """One accepted step applied to a block beside its old state."""
+    cG = c * G
+    return max(
+        _direction(c, J, M, G, factual=factual, restricted=restricted),
+        # The direction and the tilted jumps, then the new jumps and their curves.
+        32 * J * cG + 32 * cG,
+    )
+
+
+def _variation(n: int, J: int, M: int, Q: int) -> tuple[int, int]:
+    """The switched variance's predictable pass in the final pass: what it keeps and adds.
+
+    Returns the bytes it keeps through the final pass and the most its buffer's moment adds
+    beside them, both bounded by one buffer of ``predictable_rows`` units, not by ``n M``.
+    """
+    b = min(n, predictable_rows(J, Q, M))
+    bM = b * M
+    # Every unit's plug-ins (n, P) and the buffer of targeted jumps on the full grid (2, J, b, M).
+    kept = F8 * n * 2 * J * Q + 16 * J * bM
+    working = max(
+        # The buffer's censoring weight: the censoring jumps, their product limit, the product
+        # with the propensity and its bounded inverse, then the floored ratio.
+        64 * bM,
+        # The bounded weight and the floored ratio beside the curves being formed (survival,
+        # the survival just before each time, its combined jump and the incidences).
+        32 * bM + 48 * bM + 16 * J * bM,
+        # The weight, the ratio and the survival beside one arm's moment: the clever
+        # covariates (J, J Q, b, M) with the first moment, the scaled covariates and one
+        # product (J Q, b, M each), and the arm's weights and their square roots.  Forming the
+        # covariates, one cause's conditional risks and their reverse sums (3 Q) hold less.
+        48 * bM + F8 * bM * (J * J * Q + 3 * J * Q + 2),
+    )
+    return kept, working
+
+
+def _final(c: int, J: int, G: int, width: int) -> int:
+    """The off-grid rows of one block beside its targeted state."""
+    cG = c * G
+    # The score temporaries, the block's parts and plug-ins, and the padded copy that carries
+    # them into the sums.
+    return 11 * J * cG + 48 * cG + 3 * F8 * c * width
+
+
+def peak_bytes(
+    n: int,
+    causes: int,
+    times: int,
+    rows: int,
+    *,
+    covariates: int,
+    train_size: int,
+    design_width: int,
+    simultaneous: bool,
+    n_multiplier: int,
+    factual_tilt: bool = False,
+    stratified_learner: bool = False,
+    restricted: bool = False,
+    kept: int | None = None,
+    resident_rows: int = 0,
+    resident_blocks: int = 0,
+    rungs: int | None = None,
+    block: int | None = None,
+    folds: int = 1,
+    switched: bool,
+    n_jobs: int = 1,
+    n_bootstrap: int = 0,
+    bootstrap_workers: int = 1,
+    estimates: int = 0,
+) -> PeakEstimate:
+    """Predict the bytes a continuous-time fit holds at once, by phase.
+
+    Parameters
+    ----------
+    n : int
+        Units.
+    causes : int
+        Causes ``J``.
+    times : int
+        Grid size ``M``: the distinct observed times up to the last time a target reads.
+    rows : int
+        Weight rows ``Q``: target times plus restricted horizons.
+    covariates : int
+        Baseline covariates ``p``.
+    train_size : int
+        The most units a nuisance model is fitted on: ``n`` without cross-fitting, otherwise
+        ``n`` minus the smallest fold.
+    design_width : int
+        The widest design column count of a Cox model in either library, ``0`` with none.
+    simultaneous : bool
+        Whether the fit builds a simultaneous band.
+    n_multiplier : int
+        The band's multiplier draws.
+    factual_tilt : bool
+        Whether the walk tilts only the received arm (``tilt="factual"``).
+    stratified_learner : bool
+        Whether a library holds a stratified Nelson-Aalen learner, which keeps a cell index
+        per unit.
+    restricted : bool
+        Whether a target has weights other than a unit vector (a restricted mean), whose sums
+        run on the full grid.
+    kept : int or None
+        The walk's grid size ``G``; ``None`` takes ``M``, an upper bound known before fitting.
+    resident_rows : int
+        The units of the kept blocks.
+    resident_blocks : int
+        The kept blocks.
+    rungs : int or None
+        The trial steps a pass evaluates; ``None`` takes one with every block kept and
+        :data:`~cleverly.survival._chunked.LADDER` otherwise.
+    block : int or None
+        Units per block; ``None`` takes :func:`~cleverly.survival._chunked.chunk_size`.
+    folds : int
+        The prediction folds: a stratified learner keeps each fold's cell tables, at most a
+        block's units each.
+    switched : bool
+        Whether the fit reports the switched variance (``variance="switched"``), whose final
+        pass adds the targeted jumps on the full grid to the predictable variation, one buffer
+        of units at a time, in block order on the calling thread.
+    n_jobs : int
+        The walk's threads.  Each holds one block's working arrays at once in the walk and the
+        final pass (the initial phase's check runs on one thread), and the off-grid
+        rows (and under ``switched`` the targeted jumps) of up to ``2 n_jobs - 1`` finished
+        blocks wait to be added in row order.
+    n_bootstrap : int
+        Bootstrap replicates; ``0`` adds no ``bootstrap`` phase.
+    bootstrap_workers : int
+        The worker processes the replicates run on, each holding one replicate fit.
+    estimates : int
+        The fit's estimates (:func:`estimate_count`), whose influence curves the result holds
+        while the replicates run.
+
+    Returns
+    -------
+    PeakEstimate
+        The bytes of each phase.
+    """
+    from ._chunked import LADDER, chunk_size
+
+    n, J, M, Q = int(n), int(causes), int(times), int(rows)
+    G = M if kept is None else int(kept)
+    c = chunk_size(n, J, M) if block is None else int(block)
+    K = -(-n // c)
+    # Threads beyond the blocks have nothing to work on; one block runs on the calling thread.
+    W = max(1, min(int(n_jobs), K)) if K > 1 else 1
+    R = int(resident_blocks)
+    all_kept = R >= K
+    E = (1 if all_kept else LADDER) if rungs is None else int(rungs)
+    P = 2 * J * Q
+    p = int(covariates)
+    width = 2 * J * OFF_GRID
+    # The data, the per-unit vectors and the record arrays, live through every phase: the
+    # design and its inputs, the folds, the propensities, the retention readers, each model's
+    # scales (and cell indices), the target weights and the metric.
+    fixed = (
+        FIXED
+        + F8 * n * (p + 4) * 3
+        + F8 * n * 8
+        + 16 * n * Q
+        + 16 * (J + 1) * n * (2 if stratified_learner else 1)
+        + F8 * Q * M
+        + F8 * P * P * 4
+        # The off-grid diagnostic's weight rows, drawn before the walk.
+        + F8 * OFF_GRID * G
+        # A stratified learner's cell tables: both arms, every source and fold, a block's
+        # units at most.
+        + (16 * (J + 1) * int(folds) * c * M if stratified_learner else 0)
+    )
+    influence = F8 * n * P  # one (n, P) float array
+    nuisance = (
+        COX_FIT * int(train_size) * int(design_width) ** 2
+        + TREATMENT_FIT * int(train_size) * (p + 1)
+        + F8 * int(train_size) * (p + 1) * 4
+    )
+    cM = c * M
+    initial = (
+        max(
+            # The block's jumps on the full grid, their combined jump and survival.
+            16 * J * cM + 48 * cM,
+            # The censoring jumps, their product limit and the product with the propensity.
+            48 * cM,
+        )
+        + 2 * J * cM
+    )
+    resident = slot_bytes(int(resident_rows), J, G)
+    slot = slot_bytes(c, J, G)
+    rebuild = _rebuild(c, J, M, G)
+    flags = {"factual": factual_tilt, "restricted": restricted}
+    trial = slot + _trial(c, J, M, G, **flags)
+    replay = slot + _replay(c, J, M, G, **flags)
+    # The (n, P) arrays: the initial and current influence curves, each trial's parts and
+    # plug-ins and its retry's, a summary being formed, and the low masks.
+    held = influence * (4 + 4 * E) + 2 * n * (E + 1)
+    if all_kept:
+        # Every block's state is in ``resident``: the first pass builds the last blocks beside
+        # the others, and a later pass works on kept blocks in place.
+        last = slot_bytes(n - (K - 1) * c, J, G)
+        walk = held + max(resident - last + W * rebuild, resident + W * (max(trial, replay) - slot))
+    else:
+        walk = held + resident + W * max(rebuild, replay, trial)
+    final_rows = slot + _final(c, J, G, width)
+    # Under "switched" the final pass also adds each buffer of targeted jumps on the full grid
+    # to the predictable variation, in block order on the calling thread.
+    variation, adding = _variation(n, J, M, Q) if switched else (0, 0)
+
+    def final_phase(switched: bool) -> int:
+        """The final pass, with or without the predictable variation."""
+        if all_kept:
+            # Every block's state is in ``resident``; the pass works on each in place.
+            out = resident + W * (max(replay, final_rows) - slot)
+        else:
+            out = resident + W * max(rebuild, replay, final_rows)
+        # What a finished block hands to its commit: its off-grid parts and plug-ins and,
+        # under "switched", its targeted jumps on the walk's grid, which stay alive until
+        # then (a kept block's are its own, already in ``resident``).
+        carried = 2 * F8 * c * width + (16 * J * c * G if switched and not all_kept else 0)
+        # Up to ``2 W - 1`` finished blocks wait behind a block still running
+        # (:func:`~._chunked.for_blocks`).
+        waiting = (2 * W - 1) if W > 1 else 0
+        out += waiting * carried
+        if switched:
+            # A commit adds a buffer to the variation on the calling thread once the batch's
+            # blocks have finished, its ``2 W`` blocks' hand-overs (one on one thread) beside it.
+            out = max(out, resident + (2 * W if W > 1 else 1) * carried + adding)
+        return out + 2 * influence + F8 * n * width + (variation if switched else 0)
+
+    band = (BAND_BUFFER + F8 * int(n_multiplier) * P * 3) if simultaneous else 0
+    phases = {
+        "nuisance": nuisance,
+        "initial": initial,
+        "walk": walk,
+        "off_grid": final_phase(switched),
+        "band": 5 * influence + band,
+    }
+
+    def bootstrap_phase(switched: bool) -> int:
+        """The result and the draws beside one replicate fit per worker."""
+        replicate = peak_bytes(
+            n,
+            J,
+            M,
+            Q,
+            covariates=p,
+            # A resample's training rows never exceed n, and its grid never exceeds M.
+            train_size=n,
+            design_width=design_width,
+            simultaneous=False,
+            n_multiplier=n_multiplier,
+            factual_tilt=factual_tilt,
+            stratified_learner=stratified_learner,
+            restricted=restricted,
+            folds=folds,
+            switched=switched,
+            n_jobs=1,
+        ).bytes
+        held = bootstrap_held(
+            n=n, estimates=estimates, rows=Q, covariates=p, n_bootstrap=n_bootstrap
+        )
+        return held + max(1, int(bootstrap_workers)) * replicate
+
+    if n_bootstrap:
+        # Only the studentized band reads a replicate's standard errors, so a replicate keeps
+        # the switched variance only beside the band (``ContinuousSurvivalTMLE._replica``).
+        phases["bootstrap"] = bootstrap_phase(switched and simultaneous)
+    influence_curve = None
+    if switched:
+        # The same fit without the predictable variation: only the final pass differs.
+        plain = {**phases, "off_grid": final_phase(False)}
+        if n_bootstrap:
+            plain["bootstrap"] = bootstrap_phase(False)
+        influence_curve = max(plain.values()) + fixed
+    return PeakEstimate(
+        {name: value + fixed for name, value in phases.items()}, n, J, M, Q, influence_curve
+    )
+
+
+#: Each phase of :class:`PeakEstimate`, as a refusal names it.
+PHASES: Final = {
+    "nuisance": "fitting the nuisance models",
+    "initial": "the pass that checks the initial hazard fits",
+    "walk": "the targeting walk",
+    "off_grid": "the final pass (the off-grid diagnostic)",
+    "band": "the estimates and their simultaneous band",
+    "bootstrap": "the full-refit bootstrap (the fit's result beside one replicate fit per worker)",
+}
+
+
+def _described(phase: str, switched: bool) -> str:
+    """The phase in words; under the switched variance the final pass names its variation."""
+    if phase == "off_grid" and switched:
+        return (
+            "the final pass (the off-grid diagnostic and the switched variance's predictable "
+            "variation)"
+        )
+    return PHASES[phase]
+
+
+def _gib(value: int) -> str:
+    return f"{value / 1024.0**3:.2f} GiB ({value:,} bytes)"
+
+
+def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
+    """Refuse a fit whose predicted peak with no block kept exceeds its memory budget.
+
+    Parameters
+    ----------
+    estimate : PeakEstimate
+        The prediction with no block kept and the walk on the full grid.
+    max_memory_bytes : int or None
+        The budget.  ``None`` reads the memory available now
+        (:func:`~cleverly.utils.memory.available_memory`), and checks nothing where the
+        platform does not report it.
+
+    Raises
+    ------
+    ContinuousSurvivalMemoryError
+        When the prediction exceeds the budget.
+    """
+    explicit = max_memory_bytes is not None
+    budget = available_memory() if max_memory_bytes is None else int(max_memory_bytes)
+    if budget is None or estimate.bytes <= budget:
+        return
+    source = f"max_memory_bytes={budget}" if explicit else "the memory available now"
+    switched = estimate.influence_curve is not None
+    condition = (
+        f"The continuous-time fit is predicted to hold at least {_gib(estimate.bytes)} at once, "
+        f"in {_described(estimate.phase, switched)}, for {estimate.n:,} units, "
+        f"{estimate.causes} cause(s), {estimate.rows} target row(s) and "
+        f"M = {estimate.times:,} grid times, and the budget is {_gib(budget)}, {source}. No "
+        "budget lowers that with these settings: the prediction already walks over blocks of "
+        "units and keeps no block between passes, so what remains is one block of units' "
+        "arrays at a time and arrays with one row per unit. "
+        "Nothing was fitted. The prediction does not count a user learner's own memory, and "
+        "the available memory is read at one instant."
+    )
+    alternative = (
+        "Pass max_memory_bytes= to ContinuousSurvivalTMLE to set the budget yourself, higher "
+        "or lower."
+    )
+    if estimate.phase == "bootstrap":
+        alternative += (
+            " With a smaller n_jobs the bootstrap holds fewer replicate fits at once; each "
+            "worker holds one."
+        )
+    if estimate.influence_curve is not None and estimate.influence_curve < estimate.bytes:
+        alternative += (
+            ' With variance="influence_curve" the fit needs less, a predicted '
+            f"{_gib(estimate.influence_curve)}: it skips the predictable variation and reports "
+            "the influence-curve variance alone, without raising it where the influence curve "
+            "is sparse."
+        )
+    error = ContinuousSurvivalMemoryError(condition, alternative=alternative)
+    error.predicted = estimate.bytes
+    error.budget = budget
+    raise error
+
+
+def resident_count(shape: dict[str, Any], bounds: Any, max_memory_bytes: int | None) -> int:
+    """The blocks a walk keeps between passes: as many as the rest of the budget holds.
+
+    The budget is the explicit one, or under the default
+    :data:`~cleverly.survival._chunked.RESIDENT_SHARE` of the memory available now; the kept
+    blocks are as many as leave the walk's prediction times :data:`ALLOCATOR_MARGIN` within it.
+    Every block is kept where the platform reports no memory.  The count changes only how often
+    a pass rebuilds a block, never a result.
+
+    Parameters
+    ----------
+    shape : dict
+        The keyword arguments of :func:`peak_bytes` for the walk, without the kept blocks.
+    bounds : sequence of tuple of int
+        Each block's row range, in row order.
+    max_memory_bytes : int or None
+        The fit's budget.
+
+    Returns
+    -------
+    int
+        The kept blocks, the first ones in row order.
+    """
+    from ._chunked import RESIDENT_SHARE
+
+    if max_memory_bytes is None:
+        available = available_memory()
+        if available is None:
+            return len(bounds)
+        budget = RESIDENT_SHARE * available
+    else:
+        budget = float(max_memory_bytes)
+    budget /= ALLOCATOR_MARGIN
+    estimate = peak_bytes(**shape)
+    free = budget - max(estimate.phases["walk"], estimate.phases["off_grid"])
+    J, G = int(shape["causes"]), int(shape["kept"])
+    count = units = 0
+    for lo, hi in bounds:
+        units += hi - lo
+        if slot_bytes(units, J, G) > free:
+            break
+        count += 1
+    return count
+
+
+def train_size(folds: object, n: int, cross_fit: bool) -> int:
+    """The most units one nuisance model is fitted on.
+
+    Parameters
+    ----------
+    folds : array-like
+        One fold label per unit.
+    n : int
+        Units.
+    cross_fit : bool
+        Whether each model is fitted out of fold.
+
+    Returns
+    -------
+    int
+        ``n`` without cross-fitting, otherwise ``n`` minus the smallest fold.
+    """
+    import numpy as np
+
+    if not cross_fit:
+        return int(n)
+    _, counts = np.unique(np.asarray(folds), return_counts=True)
+    return int(n - counts.min()) if counts.size else int(n)
+
+
+def design_width(library: Any, covariates: int) -> int:
+    """The widest design of a Cox model in ``library``, ``0`` with none.
+
+    Parameters
+    ----------
+    library : iterable
+        Hazard learners.
+    covariates : int
+        Baseline covariates ``p``; the design adds the treatment first.
+
+    Returns
+    -------
+    int
+        Columns: one for the treatment alone, ``p + 1`` for main terms and ``2 p + 1`` with
+        the treatment interactions.
+    """
+    from .cox import CoxHazard
+
+    widths = {"treatment": 1, "main": covariates + 1, "interaction": 2 * covariates + 1}
+    return max(
+        (widths[member.terms] for member in library if isinstance(member, CoxHazard)), default=0
+    )
+
+
+__all__ = [
+    "BOOTSTRAP_HELD",
+    "ContinuousSurvivalMemoryError",
+    "PeakEstimate",
+    "bootstrap_held",
+    "check_memory",
+    "design_width",
+    "estimate_count",
+    "peak_bytes",
+    "resident_count",
+    "slot_bytes",
+    "train_size",
+]

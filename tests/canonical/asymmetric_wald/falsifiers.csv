@@ -1,0 +1,11 @@
+falsifier,target_class,cell,reading,value,threshold,fired
+mover,bounded differences,d1_ate,lower leg failed: False; tail clause failed: False,0.9405605569788266,0.92,False
+mover,bounded differences,d2_ate,lower leg failed: False; tail clause failed: False,0.9383204460089475,0.92,False
+skew,continuous targets,c1_ey1,lower leg failed: False; tail clause failed: False,0.9416829024512422,0.92,False
+skew,continuous targets,c1_ate,lower leg failed: False; tail clause failed: False,0.9411215339804778,0.92,False
+skew,continuous targets,c2_ey1,lower leg failed: False; tail clause failed: False,0.9399999654467363,0.92,False
+means,bounded means (PR 2 rule),d1_ey1,any leg failed: False; tail clause failed: False,0.9344140370578438,0.92,False
+means,bounded means (PR 2 rule),d2_ey0,any leg failed: False; tail clause failed: False,0.9411215339804778,0.92,False
+mover against identity,bounded differences,d1_ate+d2_ate,"b=356, c=160; lower bound of c/(b+c)",0.2586335629904987,0.5,False
+harm (width),continuous targets,c3_ey1,99% bootstrap upper bound of the mean width ratio over the capped t,1.0281781205224054,1.08,False
+harm (width),continuous targets,c3_ate,99% bootstrap upper bound of the mean width ratio over the capped t,1.0228811520707994,1.08,False

@@ -1,0 +1,4 @@
+family,kind,cell,reading,expected_floor,replicates,plugin,predictive,target_met
+ltmle_cross_fitted,family,,,19.0,4000.0,0.999999581332765,0.814160704492575,True
+ltmle_cross_fitted,predicted red,few_cluster_reference/ltmle_cross_fitted__unequal40__j7__t_reference,below floor (finite-sample),,,,,
+ltmle_cross_fitted,predicted red,few_cluster_reference/ltmle_cross_fitted__unequal40__j8__t_reference,below floor (finite-sample),,,,,

@@ -33,10 +33,16 @@ curve.predict({"age": [40, 60]}, interval=True)  # the effect at new ages, with 
 A simulation study checked these intervals in repeated samples: they covered the true
 coefficients about 95% of the time, on both scales and with three treatment levels, weights,
 clusters and missing outcomes. The status line of `fit.summary()` reads `supported` for a fit
-like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A fit with
-one pooled outcome model, a combination the study did not run (weights together with clusters,
-for example) and the band over a grid read `experimental`: they are computed the same way, and
-no study has checked them.
+like the one the study ran, with one outcome model per arm (`outcome_by_arm=True`). A second
+study checked one pooled outcome model on plain rows, so that fit reads `supported` too. A
+combination no study ran (a pooled model with weights, or weights together with clusters, for
+example) reads `experimental`: it is computed the same way, and no study has checked it.
+
+The band over a grid has its own label, in the summary's note on the band, because a study can
+check the coefficients without checking the band. A study checked the default band (random signs
+as multipliers, 1,000 draws) on fits like the one above, on both scales, with clusters and with
+repeated cross-fitting, and it held at all grid points together about 95% of the time. Other band
+settings, and fits that study did not run, read `experimental`.
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -123,6 +129,18 @@ per-row estimate of each unit's effect built from the outcome and treatment mode
   each modifier is left out of the basis.
 
 These are single numbers with no intervals. They describe this fit and do not test it.
+
+`curve.assess(include_refits=True)` runs every check in one report: the overlap and model checks
+of the fit the curve came from, the check that its final adjustment step solved its equations,
+the four checks above, and the gain curve of `curve.diagnostics.targeting_curve()`, which ranks
+rows held out of a refit by their predicted effect and reads how much effect the top-ranked
+rows capture.
+The sensitivity analyses of a single effect, such as the E-value or the confounding bounds, are
+not worked out for a curve, so the report lists each one as not run, with the reason. Run them
+on `ATE()` or `RiskRatio()` from the same study. A check that cannot run on this curve, such as
+`modifier_stability()` on a basis of one modifier, is listed with its reason too. Every check
+needs the fit the curve came from, which `effect_curve()` and a saved curve keep. A curve built
+without that fit refuses each check and asks you to fit it again.
 
 ## Fit the effect without choosing a basis
 
@@ -294,12 +312,77 @@ half-and-half split for a continuous outcome. Known treatment probabilities
 (`treatment_probabilities=`) were checked with a score from other data and a continuous outcome. The difference between two scores was checked for a continuous outcome
 only, and its interval at 10% came out a little wide: it covered 96% of the time.
 
+## Other settings for the coefficients
+
+Four more settings fit the coefficients of a working model. Their numbers are computed, but they
+are labelled `experimental` until their validation study has run.
+
+- **Rows with no recorded treatment.** Declare the column that marks a recorded treatment with
+  `PointTreatment(treatment_missingness=...)` and fit with `cross_fit=False`. Every row's
+  covariates still count, and the fit reweights the rows with a recorded treatment by how likely
+  a row like it was to have one. This is valid when whether the treatment was recorded depends
+  only on the treatment and the covariates.
+- **Effects within groups.** `PointTreatment(strata=["S"])` reports, next to the overall
+  coefficients, each group's own coefficients, named like `cate_projection[W1][S=1]`. Inside each
+  group no basis column may be redundant, such as a modifier that is constant there, or the fit
+  stops and names the group.
+- **Repeating the split.** `repeats=3` refits on three random splits of the rows and reports the
+  median coefficient. Its standard error adds how much the coefficient moves between splits. The
+  summary prints the standard error without that addition in the next column, for comparison
+  (`result.se_without_displacement`).
+- **The bootstrap.** `n_bootstrap=200` refits the whole analysis on 200 resamples of the rows
+  and reports an interval from the spread of the refitted coefficients.
+
+## Hold a later variable fixed
+
+Sometimes a variable that the treatment can change, such as whether a patient was admitted, sits
+between the treatment and the outcome. The effect with that variable held at one value for
+everyone is a *controlled direct effect*. Declare the variable as `intermediate=` and wrap the
+contrast in `ControlledDirectEffect`, with the value to hold it at, 0 or 1:
+
+```python
+from cleverly import ControlledDirectEffect
+
+study = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y", treatment="A", adjustment=("age", "W2", "W3"), intermediate="Z"
+    ),
+)
+direct = study.identify(
+    ControlledDirectEffect(
+        intermediate=0.0,
+        contrast=ConditionalContrast(
+            Modifiers(["age"], domains={"age": (18, 90)}), model=Linear(["age"])
+        ),
+    )
+)
+direct_fit = direct.estimate(
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    intermediate_learner=LogisticRegression(max_iter=1000),  # P(Z = 1 | A, covariates)
+    outcome_by_arm=True,
+    random_state=0,
+)
+direct_fit.summary()  # "effect of A on Y with Z held at 0 for every unit"
+```
+
+The coefficients describe how the effect with `Z` held at 0 changes with age. The interval needs
+two more conditions than the plain conditional effect: no unmeasured variable that affects both
+`Z` and the outcome, given the treatment and the covariates, and some rows with `Z` at the held
+value in every treatment arm at every covariate value. A simulation study checked this fit, with
+one outcome model per arm and the default cross-fitting, and its intervals covered the true
+coefficients about 95% of the time, so it reads `supported`. Other settings, such as weights or a
+fit without cross-fitting, read `experimental`. The score checks and the held-out curve checks refuse on it,
+because they would check the total effect instead.
+
 ## What is not supported yet
 
-An interval for the EP curve, a learner of your own as its last step on the log-ratio scale,
-checks of how much hidden confounding would move the coefficients, missing treatment values, an
-intermediate variable, `strata=`, repeated out-of-fold fits on new splits and the bootstrap each
-refuse before any model is fitted and say what to do instead.
+An interval for the EP curve, checks of how much hidden confounding would move the coefficients,
+a variable held fixed together with groups (`strata=`) or with the EP curve, and rows with no
+recorded treatment combined with cross-fitting each refuse before any model is fitted and say
+what to do instead. A learner of your own as the EP curve's last step on the log-ratio scale runs
+and is labelled `experimental`, because no theorem covers it.
 
 The [conditional effects reference](../technical-reference/conditional-effects.md) gives
 the exact targets, the formulas behind the intervals and the evidence.

@@ -438,7 +438,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "weighted-ltmle",
         "property",
         "interval_calibration/static__correctly_specified",
-        "type_i_error/static__sharp_null",
         "targeting_necessity/dynamic__targeted",
         "targeting_necessity/dynamic__untargeted",
         "targeting_necessity/static__targeted",
@@ -454,14 +453,22 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "learned-rule-arms-coverage-draws": _keys(
         "learned-rule-arms", "property", "conservative_coverage/missing_quadratic__declared"
     ),
+    # The binary declared-pair ATE, red on one draw set under correlated MOVER, which the
+    # regeneration under the shipped intervals reads (Fix-3 PR 3).
+    "ctmle-derivative-coverage-draws": _keys(
+        "ctmle-derivative", "truth", "cleverly-ctmle-derivative/binary_declared_pair/ate"
+    ),
     # The in-sample band over the arm mean near 0.94 in the smallest stratum.
     "strata-boundary-mean": _keys(
         "canonical-stratified-tmle",
         "property",
         "simultaneous_coverage/strata__simultaneous_band",
     ),
-    # The committed rows of that arm mean under the identity normal interval, which the logit
-    # interval of a bounded mean replaced: a standing record of the replaced interval.
+    # Committed rows under an interval the shipped default replaced, kept as the standing
+    # record of the replaced interval: that arm mean under the identity normal interval, which
+    # the logit interval of a bounded mean replaced, and ``small-sample-wald``'s bounded
+    # difference and skewed continuous means under the normal reference and the moment-df t,
+    # which correlated MOVER and the skew-widened t replaced (``asymmetric-wald``).
     "F3-normal-reference": (
         *_keys(
             "canonical-stratified-tmle",
@@ -473,6 +480,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-stratified-tmle",
             "property",
             "interval_calibration/v2_ey1__correctly_specified",
+        ),
+        *_keys(
+            "small-sample-wald",
+            "property",
+            "heldout_coverage/ho_sparse_treat_ate",
+            "heldout_coverage/ho_hurdle_ey1",
+            "diagnosis_continuous/lognormal06_ey1",
         ),
     ),
     # Two default bands that cover just under the band on the Mammen logit band of Wave 2, read
@@ -506,21 +520,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "heldout_coverage/ho_logit_msm_a",
             "heldout_coverage/ho_logit_msm_w",
         ),
-    ),
-    # ``small-sample-wald``'s held-out bounded difference whose treated arm sits near 1 and
-    # carries most of its variance: the rule's normal reference refuted for differences.
-    "F3-difference-near-bound": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_sparse_treat_ate",
-    ),
-    # ``small-sample-wald``'s skewed continuous means in a small stratum: the moment-df t
-    # refuted for skewed outcomes, on held-out law H2 and on a diagnosis law.
-    "F3-skewed-continuous": _keys(
-        "small-sample-wald",
-        "property",
-        "heldout_coverage/ho_hurdle_ey1",
-        "diagnosis_continuous/lognormal06_ey1",
     ),
     # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
     # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
@@ -582,8 +581,122 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/boot_ate_crossfit__correctly_specified",
         "interval_calibration/boot_ate_clustered__correctly_specified",
     ),
+    # The supplement's declared width cost (X54 part (i)): the SE-ratio leg of the always risk
+    # and the contrast, declared red before the run (boundary_node_ltmle.PRIMARY_RED_READINGS).
+    "X54-supplement-width": _keys(
+        "boundary-node-ltmle",
+        "truth",
+        "cleverly/interior_n200/risk_regimen[always @ t=4]",
+        "cleverly/interior_n200/ate_regimen[always vs never @ t=4]",
+    ),
     # The declared negative control of ``sequential-baselines``: law ``X`` makes every
     # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    # The training-floor limit of the centred fold cluster variance (X54 part (e)): the three
+    # positive cells at 2 training clusters, below each configuration's floor of 4, held under
+    # the declared reading ``declared_route`` returns from the committed summary
+    # (few_cluster_fold_variance_properties.declared_route; the design test recomputes it).
+    "X54-training-floor": _keys(
+        "few-cluster-fold-variance",
+        "property",
+        "fold_variance_calibration/cluster_covariate__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__t_reference",
+        "fold_variance_calibration/equal10__v2_j4__known_propensity",
+    ),
+    # The few-cluster floor studies (X54 parts (a) to (c)): every red of
+    # ``few-cluster-floor-tmle`` below its family's floor, under the reading ``declared_route``
+    # or ``candidate_owners`` returns from the committed summary (``few_cluster_floor.red_owners``;
+    # the design test recomputes it), and the primary's arm-mean truth row below the arm-mean
+    # floor of 20 (``few_cluster_floor.primary_owners``; post-run ruling 2, R3).
+    # ``few-cluster-floor-cross-fitted-ltmle`` has no red row.
+    "X54-cluster-floor": _keys(
+        "few-cluster-floor-tmle",
+        "truth",
+        "cleverly/floor_unequal_informative_j10/ey_regimen[never]",
+    )
+    + _keys(
+        "few-cluster-floor-tmle",
+        "property",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j6__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__equal10__j6__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_estimated__unequal_informative__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j6__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__equal10__j6__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j4__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j4__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j5__cluster_jackknife",
+        "few_cluster_candidate/tmle_in_sample_known__unequal_informative__j5__reference_for_cluster_jackknife",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j4__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j4__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j5__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_estimated__unequal_informative__j5__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j4__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j4__wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j5__reference_for_wang_inflated",
+        "few_cluster_candidate/tmle_stacked_d5_known__unequal_informative__j5__wang_inflated",
+        "few_cluster_reference/drtmle_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j5__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j6__iid_t_control",
+        "few_cluster_reference/drtmle_known__equal10__j7__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j4__t_reference",
+        "few_cluster_reference/drtmle_known__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/drtmle_known__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/ltmle_in_sample__equal10__j4__t_reference",
+        "few_cluster_reference/ltmle_in_sample__equal10__j5__t_reference",
+        "few_cluster_reference/ltmle_in_sample__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_estimated__equal10__j7__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_fold_evaluated_known__equal10__j7__iid_t_control",
+        "few_cluster_reference/tmle_in_sample_estimated__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_in_sample_estimated__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_in_sample_known__equal10__j4__t_reference",
+        "few_cluster_reference/tmle_in_sample_known__equal10__j5__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j5__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j6__t_reference",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j7__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j8__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j9__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__equal10__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j4__t_reference",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j5__iid_t_control",
+        "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j6__iid_t_control",
+        "few_cluster_reference/tmle_stacked_known__equal10__j4__iid_t_control",
+        "few_cluster_reference/tmle_stacked_known__equal10__j4__t_reference",
+    ),
+    # The one red no declared reading holds: the five-covariate estimated stacked IID control at
+    # 10 clusters, which sends stacked TMLE to a redeclaration (``few_cluster_floor.REDECLARED_REDS``).
+    "X54-stacked-d5-redeclaration": _keys(
+        "few-cluster-floor-tmle",
+        "property",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control",
+    ),
     "X41-negative-control": _keys(
         "sequential-baselines",
         "property",
@@ -598,7 +711,10 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # The point study's sanity phase is the same design at n = 2,000 (X82 SP). At 200
     # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
     # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
-    # (X82 SJ) covers 190 of 200, a 99% lower limit of 0.896 below the floor.
+    # (X82 SJ) covers 191 of 200, a 99% lower limit of 0.903 above the floor, and its bias
+    # interval crosses the margin. The sampled-refutation study's sanity row (X106 H) is the
+    # point study's T1 Gaussian fit again: its bias and SE-ratio intervals cross their margins
+    # at 200 replications, and the study's 1,000 I2-F trials of the same fit read 1.015.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",
@@ -617,6 +733,21 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-refute-band/point/ate",
         ),
+        *_keys(
+            "refuter-sampled",
+            "truth",
+            "cleverly-refute-sampled/gaussian/ate",
+        ),
+    ),
+    # The sanity phase of the continuous-time survival refutation study (X101): 200
+    # replications of the default fit on the size law. Two rows cannot resolve the coverage
+    # floor or the SE-ratio screen at that size; the cause-2 rows read a small bias.
+    "X101-short-study-sanity": _keys(
+        "refuter-calibration-continuous-survival",
+        "truth",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause1 @ t=2.32]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=1.12]",
+        "cleverly-refute-continuous-survival/size/ate_regimen[treated vs control, cause2 @ t=2.32]",
     ),
     # X92 part 5. The paired TOC(0.1) difference of two correlated scores, the one declared
     # reporting row of ``targeting-curves``: the oracle computation read its bootstrap SE ratio
@@ -930,7 +1061,12 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     TypeError
         If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
-    tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    tables = {
+        name: pd.read_csv(record.artifact(filename))
+        for name, filename in FRAMES.items()
+        if name != "properties"
+    }
+    tables["properties"] = property_verdicts.read_property_table(record)
     if record.paired_role == "descriptive":
         # A descriptive paired row states no verdict, so the ledger reads none of them and
         # counts none of them.  The study page publishes the rows themselves.

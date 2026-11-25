@@ -10,6 +10,7 @@ covariates the reader knows.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -107,6 +108,7 @@ def weights(
     repeat: int = 1,
     labels: dict[str, str] | None = None,
     time_label: str = "Time point",
+    counterfactual: bool = False,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -134,13 +136,23 @@ def weights(
     received; :func:`~cleverly.plotting.notes` counts the units still followed with a weight of zero
     at each time point, and the boxes describe the other weights.
 
+    A continuous-time survival fit draws one panel: at each target time :math:`t`, each unit's
+    weight :math:`1 / (\\hat\\pi(a \\mid L)\\hat S_c(t^- \\mid a, L))` for each arm, the inverse
+    of the probability of the arm times the probability of staying uncensored just before
+    :math:`t`, before the fit's floor. No weight the fit gives the unit up to that time is
+    larger. Each box holds the units given that arm, or with ``counterfactual=True`` the units
+    given the other arm. The dotted line is the largest weight the floor allows. The fit keeps
+    no follow-up times, so no effective sample size is drawn.
+
     Parameters
     ----------
-    result : LongitudinalResult
-        A fitted inverse-weighting or targeted longitudinal result.
+    result : LongitudinalResult or ContinuousSurvivalResult
+        A fitted inverse-weighting or targeted longitudinal result, or a continuous-time
+        survival fit.
     regimens : sequence of str or None, default=None
         The labels of the regimens to draw, at most three, in the order given; every
-        regimen of the result, up to three, when omitted.
+        regimen of the result, up to three, when omitted. On a continuous-time survival fit,
+        the arm labels.
     horizon : int or None, default=None
         The horizon of a curve fit; the largest when omitted.
     cause : str or None, default=None
@@ -151,6 +163,9 @@ def weights(
         Words for each regimen, keyed by its label.
     time_label : str, default="Time point"
         Words for a node on the x axis.
+    counterfactual : bool, default=False
+        On a continuous-time survival fit, draw each arm's weight over the units given the
+        other arm: the weight each would carry under the arm it did not receive.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -171,17 +186,20 @@ def weights(
     Returns
     -------
     Figure
-        Two panels with a shared x axis.
+        Two panels with a shared x axis; one for a continuous-time survival fit.
 
     Raises
     ------
     CapabilityError
-        When the result is not a longitudinal fit, or is a g-computation or parametric
-        g-formula fit, which has no weights.
+        When the result is not a longitudinal or continuous-time survival fit, or is a
+        g-computation or parametric g-formula fit, which has no weights.
     DataError
         When the result holds more than three regimens and ``regimens`` is omitted, when
         ``regimens`` is a single string, empty, repeats a label or names more than three,
         or when a regimen, the cause, the horizon or the repeat is not in the result.
+    ValueError
+        When ``counterfactual=True`` is given for a longitudinal fit, or ``horizon``,
+        ``cause`` or ``repeat`` for a continuous-time survival fit.
 
     See Also
     --------
@@ -194,7 +212,8 @@ def weights(
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes say which horizon and repeat
     are drawn, where no limit line applies and why, and how many units carry a weight of
-    zero.
+    zero. For a continuous-time survival fit they say which units each box holds and how the
+    share beyond the floor differs from the fit's own bounded share.
 
     Examples
     --------
@@ -226,20 +245,25 @@ def weights(
     'Weights over time'
     >>> plt.close(fig)
     """
-    from .._refusal import NO_ALTERNATIVE, RefusalReason
+    from .._refusal import RefusalReason
     from ..exceptions import CapabilityError, DataError
     from ..longitudinal.estimator import LongitudinalResult
-    from ..longitudinal.weights import node_weights
+    from ..longitudinal.weights import _weight_summary
     from ..survival.result import ContinuousSurvivalResult
 
     if isinstance(result, ContinuousSurvivalResult):
-        raise CapabilityError(
-            "weights() does not yet draw a continuous-time survival fit's weights, the inverse "
-            "of each row's treatment probability times its probability of staying uncensored "
-            "over time.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
-            alternative=NO_ALTERNATIVE,
-            roadmap="X100",
+        from . import _continuous
+
+        return _continuous.weights(
+            result,
+            regimens=regimens,
+            horizon=horizon,
+            cause=cause,
+            repeat=repeat,
+            labels=labels,
+            time_label=time_label,
+            counterfactual=counterfactual,
+            title=title or None,
         )
     if not isinstance(result, LongitudinalResult):
         point_fit = hasattr(result, "nuisance") and hasattr(result, "repeats")
@@ -253,6 +277,11 @@ def weights(
             )
             + ".",
             reason=RefusalReason.INVALID_DECLARATION,
+        )
+    if counterfactual:
+        raise ValueError(
+            "counterfactual= draws a continuous-time survival fit's weights under the arm "
+            "each unit did not receive; a longitudinal fit's weights follow each regimen"
         )
     repeats = result.repeats
     if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= len(repeats):
@@ -268,8 +297,10 @@ def weights(
             )
     else:
         names = _chosen_regimens(regimens, held)
+    # Per-node summaries, read node by node from the fit: the same values node_weights
+    # gives, without its four (n, T) arrays per regimen.
     series = [
-        node_weights(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
+        _weight_summary(result, regimen=name, horizon=horizon, cause=cause, repeat=repeat)
         for name in names
     ]
     first = series[0]
@@ -290,7 +321,7 @@ def weights(
         offset = (index - (count - 1) / 2.0) * step
         stats, positions, peaks = [], [], []
         for node, time in enumerate(times):
-            used = item.used[item.followed[:, node], node]
+            used = item.nodes[node].used
             zero = int(np.sum(used == 0.0))
             if zero:
                 zeros.append(
@@ -347,7 +378,7 @@ def weights(
                         gid=_core.GID_SERIES_LABEL,
                     )
         for node, time in enumerate(times):
-            share = float(item.share_beyond_bounds[node])
+            share = item.nodes[node].share
             if (
                 not _capped(item.node_kinds, node)
                 or not item.unit_weights
@@ -380,8 +411,8 @@ def weights(
                 color=_core.SECONDARY_INK,
                 gid="cleverly-tail-share",
             )
-        effective = item.effective_n
-        followers = item.followed.sum(axis=0).astype(float)
+        effective = np.asarray([summary.effective_n for summary in item.nodes], dtype=float)
+        followers = np.asarray([summary.followers for summary in item.nodes], dtype=float)
         bottom.plot(
             times,
             followers,
@@ -419,7 +450,9 @@ def weights(
     bottom.set_xlabel(time_label)
     bottom.set_xticks(list(times))
     bottom.set_xlim(times[0] - 0.7, times[-1] + 0.7)
-    bottom.set_ylim(0.0, max(float(item.followed.sum(axis=0).max()) for item in series) * 1.1)
+    bottom.set_ylim(
+        0.0, max(float(max(summary.followers for summary in item.nodes)) for item in series) * 1.1
+    )
     cause_words = f", cause {first.cause}" if first.cause is not None else ""
     _core.header(
         top,
@@ -553,8 +586,28 @@ def _zero_text(zeros: Sequence[_Zeros], time_label: str, *, named: bool) -> str:
 
 def _balance_object(source: Any) -> Any:
     from ..sensitivity.balance import CovariateBalance, covariate_balance
+    from ..sensitivity.balance_time import BalanceOverTime
 
-    return source if isinstance(source, CovariateBalance) else covariate_balance(source)
+    if isinstance(source, (CovariateBalance, BalanceOverTime)):
+        return source
+    return covariate_balance(source)
+
+
+def _largest_differences(summary: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Each covariate's largest finite absolute difference before and after weighting.
+
+    One pass over the rows (a categorical covariate's levels, every panel); 0.0 when none is
+    finite. The keys keep the covariates' order of first appearance.
+    """
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    for row in summary.rows:
+        for found, attribute in ((before, "smd_unweighted"), (after, "smd_weighted")):
+            value = getattr(row, attribute)
+            current = found.setdefault(row.covariate, 0.0)
+            if np.isfinite(value) and abs(value) > current:
+                found[row.covariate] = abs(value)
+    return before, after
 
 
 def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int]:
@@ -565,18 +618,9 @@ def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int
     covariates with the largest difference before or after weighting. Drawn rows are sorted
     by their largest difference before weighting.
     """
-    covariates = list(dict.fromkeys(row.covariate for row in summary.rows))
-
-    def largest(name: str, attribute: str) -> float:
-        values = [
-            abs(getattr(row, attribute))
-            for row in summary.rows
-            if row.covariate == name and np.isfinite(getattr(row, attribute))
-        ]
-        return max(values, default=0.0)
-
-    before = {name: largest(name, "smd_unweighted") for name in covariates}
-    after = {name: largest(name, "smd_weighted") for name in covariates}
+    before, after = _largest_differences(summary)
+    covariates = list(before)
+    position = {name: index for index, name in enumerate(covariates)}
     kept = [name for name in covariates if after[name] > summary.threshold]
     if covariates:
         kept.append(max(covariates, key=lambda name: after[name]))
@@ -588,9 +632,34 @@ def _shown_covariates(summary: Any, max_covariates: int) -> tuple[list[str], int
     chosen = set(kept)
     order = sorted(
         (name for name in covariates if name in chosen),
-        key=lambda name: (-before[name], covariates.index(name)),
+        key=lambda name: (-before[name], position[name]),
     )
     return order, len(covariates) - len(order)
+
+
+def _paged_covariates(summary: Any, max_covariates: int, page: int) -> tuple[list[str], int, int]:
+    """One page of covariates in drawing order, the number of pages, and the flagged count.
+
+    Every covariate is ranked: those above the threshold after weighting first, largest
+    difference after weighting first, then the rest by the larger of their differences
+    before and after, ties in covariate order. A page holds ``max_covariates`` ranks and is
+    drawn sorted by the difference before weighting, as the unpaged figure is.
+    """
+    before, after = _largest_differences(summary)
+    covariates = list(before)
+    position = {name: index for index, name in enumerate(covariates)}
+    flagged = [name for name in covariates if after[name] > summary.threshold]
+    flagged_set = set(flagged)
+    ranked = sorted(flagged, key=lambda name: (-after[name], position[name])) + sorted(
+        (name for name in covariates if name not in flagged_set),
+        key=lambda name: (-max(before[name], after[name]), position[name]),
+    )
+    pages = max(1, math.ceil(len(ranked) / max_covariates))
+    if page > pages:
+        raise ValueError(f"page must be at most {pages}, the number of pages; got {page}")
+    on_page = ranked[(page - 1) * max_covariates : page * max_covariates]
+    order = sorted(on_page, key=lambda name: (-before[name], position[name]))
+    return order, pages, len(flagged)
 
 
 @_core.labelled
@@ -598,8 +667,12 @@ def balance(
     source: Any,
     *,
     max_covariates: int = 30,
+    page: int | None = None,
     treatment_label: str | None = None,
     labels: dict[str, str] | None = None,
+    diagnostic: str | None = None,
+    view: Literal["summary", "panels"] = "summary",
+    nodes: Sequence[int] | None = None,
     title: str | Literal[False] | None = None,
     subtitle: str | Literal[False] | None = None,
     xlabel: str | Sequence[str] | None = None,
@@ -624,19 +697,43 @@ def balance(
     is compared with all the others, one panel per arm. A categorical covariate has a row
     per level. The figure is descriptive: it carries no interval or test.
 
+    A fit over time (longitudinal, discrete-time survival or continuous-time survival) draws
+    its :class:`~cleverly.sensitivity.BalanceOverTime` instead. The summary view has one
+    panel per treatment and comparison, each marker the covariate's difference averaged over
+    the strata of earlier treatments, with a whisker across the strata after weighting. The
+    panels view draws every stratum's signed difference as a dot, one panel per treatment
+    time and covariate time.
+
     Parameters
     ----------
-    source : CovariateBalance or TMLEResult
-        The balance, or a fitted point-treatment result to compute it from with the default
-        estimand.
+    source : CovariateBalance, BalanceOverTime or a fitted result
+        The balance, or a fitted result to compute it from: a point-treatment result with
+        the default estimand, or a longitudinal or survival result.
     max_covariates : int, default=30
         The most covariates to draw. Every covariate above the threshold after weighting is
-        drawn, then those with the largest difference before or after weighting.
+        drawn, then those with the largest difference before or after weighting. With
+        ``page``, the number on each page; the last page may hold fewer.
+    page : int or None, default=None
+        The page of covariates to draw, starting at 1. Covariates are ranked, those above the
+        threshold after weighting first, and each page holds ``max_covariates`` of them, so
+        every covariate can be drawn on some page; on a fit over time each panel is paged
+        the same way. Every difference and the subtitle still read all covariates, and the
+        notes give the page and the number of pages. When omitted, one figure as described
+        under ``max_covariates``.
     treatment_label : str or None, default=None
         Words for the treatment in the subtitle and the panel titles, such as ``"Offer"``
         (read ``"Offer = 1 vs Offer = 0"``); its column name when omitted.
     labels : dict or None, default=None
         Words for each covariate, keyed by its name.
+    diagnostic : {"confounding", "feedback", "censoring", "joint"} or None, default=None
+        Which check of a fit over time to draw; the first the report has when omitted.
+        Point-treatment fits take none.
+    view : {"summary", "panels"}, default="summary"
+        For a fit over time, the averaged markers or one dot per stratum. A continuous-time
+        survival fit has no strata, so it draws the summary view only.
+    nodes : sequence of int or None, default=None
+        For a fit over time, the treatment time points to draw; every one in the summary
+        view, and the last four in the panels view, when omitted.
     title : str, False or None, default=None
         The title; a short description of the figure when omitted, and none when ``False``.
     subtitle : str, False or None, default=None
@@ -662,11 +759,16 @@ def balance(
     Raises
     ------
     CapabilityError
-        When the fit estimated no treatment mechanism, or is not a point-treatment fit.
+        When the fit estimated no treatment mechanism or no weights, or ``diagnostic`` names
+        a check the fit omits, such as feedback on a survival fit, or ``view="panels"`` is
+        asked of a continuous-time survival fit, which has no strata.
     DataError
-        When the treatment is continuous.
+        When the treatment, or a treatment node of a fit over time, is continuous.
     ValueError
-        When ``max_covariates`` is less than one.
+        When ``max_covariates`` is less than one, ``page`` is not a whole number from 1 to
+        the number of pages or is given with ``view="panels"``, ``diagnostic``, ``view`` or
+        ``nodes`` names something the report does not have, or one of them is given for a
+        point-treatment fit.
 
     See Also
     --------
@@ -678,7 +780,7 @@ def balance(
     interval has no checked coverage because no registered study covers it or a stated
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes give the standardized
-    difference and the weights used, and name the covariates not drawn.
+    difference and the weights used, and name the covariates not drawn or the page drawn.
 
     Examples
     --------
@@ -713,7 +815,24 @@ def balance(
         raise ValueError(f"max_covariates must be an integer of at least 1; got {max_covariates!r}")
     if max_covariates < 1:
         raise ValueError(f"max_covariates must be at least 1; got {max_covariates!r}")
+    page = _core.display_limit(page, "page", 1)
+    from ..sensitivity.balance_time import BalanceOverTime
+    from ._balance_time import check_point_keywords, draw
+
     summary = _balance_object(source)
+    if isinstance(summary, BalanceOverTime):
+        return draw(
+            summary,
+            diagnostic=diagnostic,
+            view=view,
+            nodes=nodes,
+            max_covariates=max_covariates,
+            treatment_label=treatment_label,
+            labels=labels,
+            title=title or None,
+            page=page,
+        )
+    check_point_keywords(diagnostic, view, nodes)
     contrasts = summary.contrasts
 
     def said(contrast: str) -> str:
@@ -722,7 +841,10 @@ def balance(
             return contrast
         return contrast.replace(f"{summary.treatment} = ", f"{treatment_label} = ")
 
-    shown, hidden = _shown_covariates(summary, max_covariates)
+    if page is None:
+        shown, hidden = _shown_covariates(summary, max_covariates)
+    else:
+        shown, pages, flagged = _paged_covariates(summary, max_covariates, page)
     columns = min(len(contrasts), 3)
     panel_height = 0.27 * len(shown) + 0.45
     longest = max(len((labels or {}).get(name, name)) for name in shown)
@@ -843,7 +965,15 @@ def balance(
     rest = rest_text(summary, "panel")
     if rest is not None:
         found.append(rest)
-    if hidden:
+    if page is not None:
+        first = (page - 1) * max_covariates + 1
+        total = len(dict.fromkeys(row.covariate for row in summary.rows))
+        found.append(
+            f"Page {page} of {pages}: covariates ranked {first} to {first + len(shown) - 1} "
+            f"of {total}, covariates above the threshold after weighting first ({flagged} "
+            "above it in all)."
+        )
+    elif hidden:
         found.append(
             f"{hidden} covariates are not drawn. Every covariate above the threshold after "
             "weighting is drawn, then those with the largest difference before or after."

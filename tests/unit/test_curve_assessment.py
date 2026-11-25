@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -27,7 +28,7 @@ def frame(n: int = 400, seed: int = 5) -> pd.DataFrame:
     return pd.DataFrame({"Y": y, "A": a, "W1": w[:, 0], "W2": w[:, 1]})
 
 
-def curve(data: pd.DataFrame, scale: str = "difference", basis: Any = None) -> Any:
+def curve(data: pd.DataFrame, scale: str = "difference", basis: Any = None, **settings: Any) -> Any:
     study = CausalStudy(
         data, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
     )
@@ -45,9 +46,29 @@ def curve(data: pd.DataFrame, scale: str = "difference", basis: Any = None) -> A
                 treatment_learner=LogisticRegression(),
                 n_folds=2,
                 random_state=0,
+                **settings,
             )
             .effect_curve()
         )
+
+
+def ep_curve(sieve: Any) -> Any:
+    """The EP curve of ``W1`` on a declared sieve."""
+    from cleverly.bases import Modifiers
+    from cleverly.methods import EPMethod
+
+    study = CausalStudy(
+        frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+    )
+    method = EPMethod(sieve=sieve).with_overrides(
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        random_state=0,
+    )
+    contrast = ConditionalContrast(Modifiers(["W1"], domains={"W1": (-1, 1)}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(contrast).estimate(method)
 
 
 @pytest.fixture(scope="module")
@@ -73,8 +94,6 @@ def test_a_held_out_fold_never_sees_its_own_outcomes(fitted: Any) -> None:
     fit = fitted.fit
     held = folds == 0
     flipped = fit.data
-    from dataclasses import replace
-
     outcome = np.asarray(flipped.outcome, dtype=float).copy()
     outcome[held] = 1.0 - outcome[held]
     moved = replace(fitted, fit=_with_data(fit, replace(flipped, outcome=outcome)))
@@ -138,8 +157,6 @@ def test_modifier_stability_drops_each_modifier(fitted: Any) -> None:
 
 
 def test_a_curve_without_its_fit_refuses(fitted: Any) -> None:
-    from dataclasses import replace
-
     with pytest.raises(CapabilityError, match="keeps no producing fit"):
         replace(fitted, fit=None).diagnostics.calibration()
 
@@ -150,8 +167,6 @@ def test_every_reading_becomes_one_report_row(fitted: Any) -> None:
     The mutation control is the stability row: the same report with ``warning`` flipped
     must change status, so the row reads the flag rather than always completing.
     """
-    from dataclasses import replace
-
     from cleverly.assessment import INTERPRETERS, AssessmentStatus
 
     diagnostics = fitted.diagnostics
@@ -185,3 +200,276 @@ def test_the_tables_come_back_in_the_fit_backend() -> None:
         diagnostics.modifier_stability(n_folds=2, random_state=0).to_frame(),
     )
     assert all(isinstance(table, pl.DataFrame) for table in tables)
+
+
+# ------------------------------------------------------------------ the facade surface
+
+#: The curve operations' cheapest arguments.
+CHEAP = {
+    "calibration": {"n_folds": 2},
+    "risk_comparison": {"n_folds": 2},
+    "stability": {"n_seeds": 2},
+    "modifier_stability": {"n_folds": 2},
+    "targeting_curve": {"n_half_samples": 20},
+}
+SUMMARIES = ("support", "nuisance_models", "score_equations")
+
+
+@pytest.fixture(scope="module")
+def sieve_curve() -> Any:
+    """The EP curve on a declared cosine sieve of size 2, whose B-spline match holds fewer."""
+    from cleverly.bases import Cosine, Sieve
+
+    return ep_curve(Sieve(Cosine(["W1"], size=3), size=2))
+
+
+def _raised(call: Any, **arguments: Any) -> CapabilityError:
+    with pytest.raises(CapabilityError) as caught:
+        call(**arguments)
+    return caught.value
+
+
+def test_the_curve_is_a_diagnostics_facade_with_the_shared_gates(fitted: Any) -> None:
+    from cleverly.assessment import DiagnosticsFacade, assessment_capabilities
+
+    diagnostics = fitted.diagnostics
+    assert isinstance(diagnostics, DiagnosticsFacade)
+    assert diagnostics.capabilities == assessment_capabilities(fitted)
+    rows = {row.operation: row for row in diagnostics.capabilities}
+    assert {rows[name].requires_replay for name in SUMMARIES} == {"summarize_existing_artifacts"}
+    assert {rows[name].requires_replay for name in CURVE_OPERATIONS} == {"refit_nuisances"}
+
+
+def test_every_sensitivity_route_refuses_a_curve_with_p1(fitted: Any, sieve_curve: Any) -> None:
+    """Every route refuses with the curve record, by row and by call, on both methods."""
+    from cleverly.assessment import SENSITIVITY_ROUTES, curve_sensitivity_refusal
+    from cleverly.exceptions import RefusalReason
+
+    for result in (fitted, sieve_curve):
+        sensitivity = result.sensitivity
+        assert {row.operation for row in sensitivity.capabilities} == set(SENSITIVITY_ROUTES)
+        for operation in SENSITIVITY_ROUTES:
+            row = sensitivity.capability(operation)
+            assert not row.available and row.refusal == curve_sensitivity_refusal(operation)
+            assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+            assert row.refusal.roadmap == "P1"
+            assert "conditional contrast curve" in row.refusal.condition
+            for arguments in ({}, {"estimand": "ate"}):
+                error = _raised(getattr(sensitivity, operation), **arguments)
+                assert row.refusal.condition in str(error)
+                assert error.refusal.alternative == row.refusal.alternative
+
+
+def test_assess_composes_the_three_surfaces(fitted: Any) -> None:
+    from cleverly.assessment import AssessmentStatus
+
+    report = fitted.assess(include_refits=True, arguments=CHEAP, random_state=0)
+    assert [item.name for item in report.validation.items] == [
+        "score_equations",
+        "support",
+        "nuisance_models",
+    ]
+    ran = {item.name: item for item in report.diagnostics.items}
+    assert all(ran[name].status is not AssessmentStatus.UNAVAILABLE for name in CURVE_OPERATIONS)
+    assert ran["calibration"].report.n_folds == 2
+    assert all(item.status is AssessmentStatus.UNAVAILABLE for item in report.sensitivity.items)
+    # A direct call reads the answer the battery filed.
+    assert fitted.diagnostics.calibration(n_folds=2, random_state=0) is ran["calibration"].report
+    skipped = {item.name: item for item in fitted.assess().diagnostics.items}
+    assert all(skipped[name].status is AssessmentStatus.DEFERRED for name in CURVE_OPERATIONS)
+
+
+def test_an_ep_curve_score_row_completes_with_its_debiasing_scores(sieve_curve: Any) -> None:
+    """The EP debiasing scores have no derived tolerance, so the row completes.
+
+    The detail carries the stored largest score after the regression; the generic score
+    path would read ``failed`` with no score rows.
+    """
+    from cleverly.assessment import AssessmentStatus
+
+    scores = sieve_curve.diagnostics.score_equations()
+    item = sieve_curve.validate()["score_equations"]
+    assert item.status is AssessmentStatus.COMPLETED
+    assert f"{scores.max_after:.3g}" in item.detail
+    assert f"{len(scores.features)} debiasing feature(s)" in item.detail
+
+
+def test_a_curve_without_its_fit_refuses_every_reading_by_its_replay_record(fitted: Any) -> None:
+    """With no producing fit every reading row refuses, and each call raises that record.
+
+    The nonzero witness is the kept fit: the same rows are available and a summary runs.
+    A fit whose estimator is removed keeps its summaries and refuses its refits.
+    """
+    from cleverly.assessment import CURVE_REPLAY_NO_ESTIMATOR, CURVE_REPLAY_NO_FIT
+
+    kept = fitted.diagnostics
+    assert all(kept.capability(name).available for name in (*SUMMARIES, *CURVE_OPERATIONS))
+    assert kept.support() is not None
+    bare = replace(fitted, fit=None)
+    assert bare.replayability.unreconstructible == (CURVE_REPLAY_NO_FIT,)
+    for name in (*SUMMARIES, *CURVE_OPERATIONS):
+        row = bare.diagnostics.capability(name)
+        assert not row.available, name
+        assert CURVE_REPLAY_NO_FIT in row.refusal.condition
+        assert "effect_curve()" in row.refusal.alternative
+        error = _raised(getattr(bare.diagnostics, name), **CHEAP.get(name, {}))
+        assert row.refusal.condition in str(error) and error.refusal.alternative == (
+            row.refusal.alternative
+        )
+    unfitted = replace(fitted, fit=replace(fitted.fit, estimator=None))
+    assert unfitted.replayability.unreconstructible == (CURVE_REPLAY_NO_ESTIMATOR,)
+    diagnostics = unfitted.diagnostics
+    assert all(diagnostics.capability(name).available for name in SUMMARIES)
+    assert diagnostics.score_equations().passed
+    for name in CURVE_OPERATIONS:
+        row = diagnostics.capability(name)
+        assert not row.available and CURVE_REPLAY_NO_ESTIMATOR in row.refusal.condition
+        error = _raised(getattr(diagnostics, name), **CHEAP[name])
+        assert row.refusal.condition in str(error)
+
+
+def test_a_projection_refit_preflight_reaches_the_curve_rows(
+    fitted: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A producing fit whose estimator refit() refuses refuses the curve's refits too."""
+    from cleverly.assessment import POINT_REPLAY_REFIT_CONFIGURATION
+
+    estimator = type(fitted.fit.estimator)
+    monkeypatch.setattr(
+        estimator, "_refit_configuration_refusal", lambda self, data: "refused", raising=False
+    )
+    fresh = replace(fitted)
+    assert fresh.replayability.unreconstructible == (POINT_REPLAY_REFIT_CONFIGURATION,)
+    rows = {row.operation: row for row in fresh.diagnostics.capabilities}
+    assert all(rows[name].available for name in SUMMARIES)
+    assert not any(rows[name].available for name in CURVE_OPERATIONS)
+
+
+def _rule_witness(result: Any, operation: str, arguments: dict[str, Any]) -> None:
+    row = result.diagnostics.capability(operation)
+    assert not row.available, operation
+    error = _raised(getattr(result.diagnostics, operation), **arguments)
+    assert error.refusal == row.refusal, operation
+
+
+def test_each_fit_wide_rule_refuses_the_row_and_the_call_with_one_record(
+    fitted: Any, sieve_curve: Any
+) -> None:
+    """Each rule's witness curve: the row and the call refuse with the call's own record.
+
+    The control is the two-modifier, non-constant, single-split projection, where each row
+    is available.
+    """
+    from cleverly.targeting_curves import TARGETING_REPEATS_REFUSAL
+
+    rows = {row.operation: row for row in fitted.diagnostics.capabilities}
+    assert all(rows[name].available for name in CURVE_OPERATIONS)
+    one = curve(frame(), basis=Linear(["W1"]))
+    _rule_witness(one, "modifier_stability", CHEAP["modifier_stability"])
+    assert "fewer than two modifiers" in one.diagnostics.capability("modifier_stability").reason
+    constant = replace(fitted, in_sample=np.full(fitted.in_sample.size, 0.1))
+    _rule_witness(constant, "stability", CHEAP["stability"])
+    assert "spread is zero" in constant.diagnostics.capability("stability").reason
+    _rule_witness(sieve_curve, "stability", CHEAP["stability"])
+    assert "sieve declares 2 terms" in sieve_curve.diagnostics.capability("stability").reason
+    _rule_witness(sieve_curve, "modifier_stability", CHEAP["modifier_stability"])
+    repeated = curve(frame(), repeats=2)
+    _rule_witness(repeated, "targeting_curve", CHEAP["targeting_curve"])
+    assert repeated.diagnostics.capability("targeting_curve").refusal is TARGETING_REPEATS_REFUSAL
+    assert repeated.diagnostics.capability("calibration").available
+
+
+def test_an_ep_curve_whose_matched_family_holds_its_size_keeps_stability() -> None:
+    """The sieve rule's control: a size the matched B-spline family holds keeps the row."""
+    from cleverly.bases import Cosine, Sieve
+
+    small = ep_curve(Sieve(Cosine(["W1"], size=4), size=1))
+    assert small.diagnostics.capability("stability").available
+    assert small.diagnostics.stability(n_seeds=2, random_state=0).alternative.startswith("BSpline")
+
+
+def test_the_request_gates_follow_the_calls(fitted: Any) -> None:
+    """``n_folds``, ``split`` and ``compare`` resolve the row as the call raises."""
+    from cleverly.targeting_curves import TARGETING_SPLIT_REFUSAL
+
+    diagnostics = fitted.diagnostics
+    many = diagnostics._capability_for_arguments("calibration", {"n_folds": 10_000})
+    assert not many.available and "cannot fill 10000 folds" in many.reason
+    assert diagnostics._capability_for_arguments("calibration", {"n_folds": 2}).available
+    with pytest.raises(CapabilityError, match="cannot fill 10000 folds"):
+        diagnostics.calibration(n_folds=10_000)
+    fold_average = diagnostics._capability_for_arguments("targeting_curve", {"split": 1})
+    assert fold_average.refusal is TARGETING_SPLIT_REFUSAL
+    assert _raised(diagnostics.targeting_curve, split=1).refusal is TARGETING_SPLIT_REFUSAL
+    tiny = diagnostics._capability_for_arguments("targeting_curve", {"split": 0.001})
+    assert not tiny.available and "units to train on" in tiny.reason
+    engine = replace(fitted, identified_effect=None).diagnostics
+    compared = engine._capability_for_arguments("targeting_curve", {"compare": "W2"})
+    assert not compared.available and "fitted by the engine" in compared.reason
+    assert engine.capability("targeting_curve").available
+
+
+def test_influence_refuses_on_a_curve(fitted: Any, sieve_curve: Any) -> None:
+    from cleverly.exceptions import RefusalReason
+
+    projection = _raised(fitted.diagnostics.influence)
+    assert projection.refusal.reason is RefusalReason.API_REDIRECTION
+    assert "curve.fit.diagnostics.influence()" in projection.refusal.alternative
+    ep = _raised(sieve_curve.diagnostics.influence)
+    assert ep.refusal.reason is RefusalReason.INVALID_DECLARATION
+
+
+def test_without_rebuilds_a_tensor_and_an_interaction_basis() -> None:
+    """Dropping a modifier from a product or interaction basis keeps the rest of the model.
+
+    Before the fix, both bases went through ``dataclasses.replace(basis, columns=...)`` and
+    raised ``TypeError``, while the ``modifier_stability`` row read available.
+    """
+    from cleverly._curve_assessment import _without, _without_refusal
+    from cleverly.bases import Additive, Cosine, Interactions, Tensor
+
+    product = Tensor(Linear(["W1"]), Cosine(["W2"], 2))
+    assert _without(product, "W1") == Cosine(["W2"], 2)
+    assert _without(product, "W2") == Linear(["W1"])
+    wide = Tensor(Linear(["W1", "W2"]), Cosine(["W1"], 2))
+    assert _without(wide, "W1") == Linear(["W2"])
+    assert _without(wide, "W2") == Tensor(Linear(["W1"]), Cosine(["W1"], 2))
+    three = Interactions(Additive(Linear(["W1"]), Linear(["W2"]), Linear(["W3"])), 2)
+    assert _without(three, "W1") == Interactions(Additive(Linear(["W2"]), Linear(["W3"])), 2)
+    two = Interactions(Additive(Linear(["W1"]), Linear(["W2"])), 2)
+    reduced = _without(two, "W1")
+    assert isinstance(reduced, Additive) and reduced.columns == ("W2",)
+    # A product whose two factors read the modifier alone keeps nothing without it.
+    alone = Tensor(Linear(["W1"]), Cosine(["W1"], 2))
+    assert "both factors" in _without_refusal(alone, "W1").condition
+    with pytest.raises(CapabilityError, match="both factors"):
+        _without(alone, "W1")
+
+
+def test_modifier_stability_runs_on_a_tensor_basis_and_refuses_a_user_basis() -> None:
+    """The row follows the call on both: a product runs, a written function refuses.
+
+    The tensor curve is the nonzero witness that the fix reaches the refit: each dropped
+    modifier gives a finite out-of-fold risk.
+    """
+    from cleverly.bases import Tensor, UserBasis
+
+    product = curve(frame(), basis=Tensor(Linear(["W1"]), Linear(["W2"])))
+    assert product.diagnostics.capability("modifier_stability").available
+    table = product.diagnostics.modifier_stability(n_folds=2, random_state=0).to_frame()
+    assert list(table["dropped"]) == ["W1", "W2"]
+    assert np.isfinite(table.select_dtypes("number").to_numpy()).all()
+    written = UserBasis(
+        lambda rows: np.column_stack(
+            [np.ones_like(np.asarray(rows["W1"], float)), np.asarray(rows["W1"] * rows["W2"])]
+        ),
+        terms=("(intercept)", "W1*W2"),
+        columns=("W1", "W2"),
+        basis_kind="known",
+    )
+    user = curve(frame(), basis=written)
+    _rule_witness(user, "modifier_stability", CHEAP["modifier_stability"])
+    assert (
+        "UserBasis evaluates one function"
+        in user.diagnostics.capability("modifier_stability").reason
+    )

@@ -497,8 +497,8 @@ class TestMutationControls:
         slope_edit(
             monkeypatch,
             (
-                "grad[:, k] = outcome - expit(moved.logits[rows, :, levels][:, k])",
-                "grad[:, k] = (inputs.events - moved.hazards[rows, :, levels])[:, k]",
+                "grad[:, k] = outcome - expit(inputs.at_observed(moved.logits)[:, k])",
+                "grad[:, k] = (inputs.events - inputs.at_observed(moved.hazards))[:, k]",
             ),
         )
         assert fails("B")
@@ -515,7 +515,7 @@ class TestMutationControls:
             monkeypatch,
             (
                 "np.where(self.counted[..., None], summand, 0.0)",
-                "np.where((self.counted & ~np.asarray(self.state.full)[:, levels].T)[..., None],"
+                "np.where((self.counted & ~np.asarray(self.state.full)[:, inputs.observed].T)[..., None],"
                 " summand, 0.0)",
             ),
         )

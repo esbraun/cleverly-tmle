@@ -306,6 +306,9 @@ def _roles(data: pd.DataFrame, **flags: bool) -> dict[str, Any]:
         roles["treatment_probabilities"] = {
             float(index): column for index, column in enumerate(levels)
         }
+        if "w" in data:
+            # The declared probabilities are the tilted law's mechanism (the shipped reading).
+            roles["mechanism_law"] = "target"
     if flags.get("dose"):
         roles["treatment_kind"] = "continuous"
     return roles
@@ -2655,6 +2658,31 @@ def _learned_rule_intermediate_cases() -> tuple[RowCase, ...]:
     return (case("T47", "learned_z0", False), case("T48", "known_z0", True))
 
 
+def _learned_rule_optimal_compositions_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-optimal-compositions`` (X11 (f3)): ``T57``.
+
+    Each runs the study's own fit of one setting with the known treatment mechanism on a draw of
+    its law at the primary size, up to the classifier.
+    """
+    module, slug = "_learned_rule_optimal_compositions_law", "learned-rule-optimal-compositions"
+
+    def case(setting: str) -> RowCase:
+        return _observed(
+            f"T57.{setting}",
+            slug,
+            setting,
+            f"{module}.py:512",
+            module,
+            lambda study: study.draw(setting, 2_000, 0),
+            lambda study, frame: study.fit(frame, setting, 0),
+        )
+
+    return tuple(
+        case(setting)
+        for setting in ("weighted", "strata", "known_regimes", "in_sample", "intermediate")
+    )
+
+
 def _learned_regimen_cases() -> tuple[RowCase, ...]:
     """The case of ``learned-regimen-ltmle`` (X11 PR K, X11 (b)).
 
@@ -2814,6 +2842,109 @@ def _hazard_mtp_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _known_sample_weights_cases() -> tuple[RowCase, ...]:
+    """The cases of ``known-mechanism-sample-weights`` (Fix-16): ``T56`` and ``G64``.
+
+    Each runs the study's own fit of the gated setting on a draw of its law.
+    """
+    module, slug = "known_sample_weights_law", "known-mechanism-sample-weights"
+    return (
+        _observed(
+            "T56",
+            slug,
+            "sample_correct",
+            f"{module}.py:459",
+            module,
+            lambda law: law.draw(400, 0),
+            lambda law, frame: law.fit(frame, "sample_correct"),
+        ),
+        _observed(
+            "G64",
+            slug,
+            "ltmle_sample",
+            f"{module}.py:789",
+            module,
+            lambda law: law.draw_longitudinal(400, 0),
+            lambda law, frame: law.fit_longitudinal(frame, "ltmle_sample"),
+        ),
+    )
+
+
+def _hazard_multinode_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-multinode`` (X70 part (a)): ``G62``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_multinode", "hazard-multinode"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G62.{row}",
+            slug,
+            label,
+            f"{module}.py:508",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("three_node", "base"),
+        case("four_node", "four"),
+        case("msm", "msm"),
+    )
+
+
+def _hazard_time_varying_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-time-varying`` (X70 part (b1)): ``G63.held``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_time_varying", "hazard-time-varying"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G63.held.{row}",
+            slug,
+            label,
+            f"{module}.py:539",
+            module,
+            lambda study: study.law_of(label).draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("in_sample", "one_cause"),
+        case("competing", "competing"),
+        case("mtp", "three_arm"),
+        case("cross_fitted", "crossfit"),
+    )
+
+
+def _hazard_time_varying_multinode_cases() -> tuple[RowCase, ...]:
+    """The cases of ``hazard-time-varying-multinode`` (X70 part (b2)): ``G63.multinode``.
+
+    Each runs the study's own fit of one fit label, on a draw of its law, up to the classifier.
+    """
+    module, slug = "canonical_hazard_time_varying_multinode", "hazard-time-varying-multinode"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            f"G63.multinode.{row}",
+            slug,
+            label,
+            f"{module}.py:424",
+            module,
+            lambda study: study.law.LAW.draw(1_000, 0),
+            lambda study, frame: study.fit(label, frame),
+        )
+
+    return (
+        case("in_sample", "multinode"),
+        case("cross_fitted", "crossfit"),
+    )
+
+
 def _projection_cases() -> tuple[RowCase, ...]:
     """The cases of ``conditional-projection`` (P1 part (a)): ``T49`` and ``T50``.
 
@@ -2842,6 +2973,70 @@ def _projection_cases() -> tuple[RowCase, ...]:
         case("T49.missing", "obs_missing_4k"),
         case("T50", "crr_4k"),
         case("T50.missing", "obs_missing_crr_4k"),
+    )
+
+
+def _projection_composition_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-compositions`` (P1 part (a)): the ``T49`` and ``T50`` variants.
+
+    Each runs the study's own fit of one calibration group, on a draw of its law at the
+    group's size, up to the classifier.
+    """
+    module, slug = "projection_compositions", "projection-compositions"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:684",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study._fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.in_sample", "insample_2k"),
+        case("T49.in_sample.missing_treatment", "mtreat_4k"),
+        case("T49.in_sample.missing_both", "mtreat_both_4k"),
+        case("T49.strata", "strata_4k"),
+        case("T49.repeats", "rep3_obs_4k"),
+        case("T50.in_sample", "insample_crr_2k"),
+        case("T50.in_sample.missing_treatment", "mtreat_crr_4k"),
+        case("T50.strata", "strata_crr_4k"),
+        case("T50.repeats", "rep3_crr_4k"),
+    )
+
+
+def _projection_evidence_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-evidence`` (P1 PR 2): the CDE and pooled ``T49``/``T50`` rows.
+
+    Each runs the study's own fit of one calibration group, on a draw of its law at the
+    group's size, up to the classifier: the engine fit of the CDE projection at both levels,
+    or the identified projection with one pooled outcome regression.
+    """
+    module, slug = "projection_evidence", "projection-evidence"
+
+    def case(row: str, label: str, where: str, fit: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:{where}",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: getattr(study, fit)(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.intermediate", "cde_4k", "568", "fit_cde"),
+        case("T50.intermediate", "cde_crr_4k", "568", "fit_cde"),
+        case("T49.pooled", "pooled_4k", "600", "fit_projection"),
+        case("T50.pooled", "pooled_crr_4k", "600", "fit_projection"),
+        case("T49", "band_obs_4k", "600", "fit_projection"),
+        case("T50", "band_crr_4k", "600", "fit_projection"),
+        case("T49.clustered", "band_clustered_4k", "600", "fit_projection"),
+        case("T49.repeats", "band_rep3_4k", "600", "fit_projection"),
     )
 
 
@@ -2907,6 +3102,23 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
                 lambda module, label=label: _study("mtp_pricing_common").sample(
                     400, 0, module.CELLS[label][0]
                 ),
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    # X77: the cross-fitted classifier fits of ``mtp-pricing-censored``, with censoring.
+    censored = "mtp_pricing_censored_properties"
+    for row, label in (
+        ("G39.ltmle.tau3_cross_fitted_censored", "censored_crossfit_ltmle_tau3"),
+        ("G39.sdr.tau3_cross_fitted_censored", "censored_crossfit_sdr_tau3"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-pricing-censored",
+                f"{label}__correctly_specified",
+                f"{censored}.py:217",
+                censored,
+                lambda module: _study("mtp_pricing_censored_common").sample(400, 0),
                 lambda module, frame, label=label: module.calibration_fit(label, frame),
             )
         )
@@ -3248,6 +3460,32 @@ def _x76_patience_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _x35_known_score_cases() -> tuple[RowCase, ...]:
+    """The cases of ``known-score-att`` (X35): ``T55``.
+
+    Each runs the study's own fit of one setting on a draw of its law.
+    """
+    module, slug = "known_score_att_law", "known-score-att"
+
+    def case(row: str, setting: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            setting,
+            f"{module}.py:451",
+            module,
+            lambda law: law.sample(law.SETTINGS[setting], 400, 0),
+            lambda law, frame: law.fit(frame, setting),
+        )
+
+    return (
+        case("T55.in_sample", "s_known_score"),
+        case("T55.stacked", "s_known_score_stacked"),
+        case("T55.binary", "b2_wrong_known_score"),
+        case("T55.arms3", "b3_wrong_known_score"),
+    )
+
+
 def _x76_adjustment_cases() -> tuple[RowCase, ...]:
     """The cases of ``option-treatment-adjustment`` (X76 part (d)): ``T54``.
 
@@ -3389,6 +3627,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_contrast_cases(),
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
+    *_learned_rule_optimal_compositions_cases(),
     *_learned_regimen_cases(),
     *_eliminated_cases(),
     *_separable_cases(),
@@ -3396,7 +3635,13 @@ CASES: tuple[RowCase, ...] = (
     *_survival_dr_tmle_cases(),
     *_hazard_msm_cases(),
     *_hazard_mtp_cases(),
+    *_known_sample_weights_cases(),
+    *_hazard_multinode_cases(),
+    *_hazard_time_varying_cases(),
+    *_hazard_time_varying_multinode_cases(),
     *_projection_cases(),
+    *_projection_composition_cases(),
+    *_projection_evidence_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),
@@ -3404,6 +3649,7 @@ CASES: tuple[RowCase, ...] = (
     *_x76_by_arm_cases(),
     *_x76_patience_cases(),
     *_x76_adjustment_cases(),
+    *_x35_known_score_cases(),
     *_x76_stopping_long_cases(),
     *_x76_trim_cases(),
     *_x76_markov_cases(),

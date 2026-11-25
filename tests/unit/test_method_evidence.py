@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -50,7 +51,13 @@ from tests.studies.evidence.document import (
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
-from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
+from tests.studies.evidence.manifest import (
+    COMPACT_BYTES,
+    comparator_findings,
+    csv_text,
+    read_rows,
+    write_rows,
+)
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.red_cells import ACCEPTED_BY_EXCEPTION, OWNERS
@@ -87,6 +94,12 @@ GATED_OFF_GRID: dict[str, str] = {
         "scientific_failures hook) gated the declared run of 99eb159e, but it declared no "
         "property cell, and the R atmle pairing record is declared and not run, so "
         "AdaptiveTMLEMethod has no grid row"
+    ),
+    "continuous-survival-variance": (
+        "its 48 median and upper-quartile rows of four cells gated the declared run of 0cb80a56, "
+        "and its ship rule, controls and floors are computed from the primary rows "
+        "(ship-rule.csv, floors.csv), not from a property family. It declares no property cell "
+        "and no comparator, so the switched variance has no grid row of its own"
     ),
     "adaptive-tmle-selective": (
         "its primary coverage tests gated the declared run of c6f9e51c (artifacts at 8f2a91a5), "
@@ -264,14 +277,18 @@ def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
 
 @_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
-    """Load immutable primary rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("replicates.parquet"))
+    """Load immutable primary rows once per study and worker.
+
+    The frame :func:`_artifacts` read: a second read held a second copy, which on a study of
+    millions of rows cost a CI worker gigabytes.
+    """
+    return _artifacts(slug)["replicates"]
 
 
 @_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
-    """Load immutable property rows once per study and worker."""
-    return read_rows(STUDY_BY_SLUG[slug].artifact("property-replicates.parquet"))
+    """Load immutable property rows once per study and worker, as :func:`_artifacts` read them."""
+    return _artifacts(slug)["property_replicates"]
 
 
 def _property_records(study: StudyRecord) -> pd.DataFrame | None:
@@ -449,16 +466,37 @@ class TestArtifacts:
         for name in names:
             path = study.artifact(name)
             assert path.read_bytes()[:4] == b"PAR1", f"{name} is not Parquet"
-            committed = pq.read_table(path)
-            assert committed.schema.metadata is None, f"{name} carries pandas schema metadata"
+            schema = pq.read_schema(path)
+            assert schema.metadata is None, f"{name} carries pandas schema metadata"
             groups = pq.read_metadata(path)
             codecs = {
                 groups.row_group(group).column(index).compression
                 for group in range(groups.num_row_groups)
-                for index in range(committed.num_columns)
+                for index in range(len(schema))
             }
             assert codecs <= {"ZSTD"}, f"{name} uses {codecs}"
             dtype = property_failures.WITNESS_DTYPE if witnesses.name == name else None
+            if path.stat().st_size > COMPACT_BYTES:
+                # A file this large holds millions of rows, and one rewrite holds the frame,
+                # its CSV text and the table at once, several gigabytes. The CSV reader infers
+                # each column alone, so the rewrite of one column at a time decodes to the same
+                # table column by column.
+                for field in schema:
+                    column = read_rows(path, columns=[field.name])
+                    kept = (
+                        None
+                        if dtype is None
+                        else {key: value for key, value in dtype.items() if key == field.name}
+                    )
+                    rows = pd.read_csv(
+                        io.BytesIO(csv_text(column)), float_precision="round_trip", dtype=kept
+                    )
+                    again = pa.Table.from_pandas(rows, preserve_index=False)
+                    assert again.schema.field(field.name).equals(field), (name, field.name)
+                    stored = pq.read_table(path, columns=[field.name]).column(0)
+                    assert again.column(0).equals(stored), (name, field.name)
+                continue
+            committed = pq.read_table(path)
             rewritten = tmp_path / name
             write_rows(read_rows(path), rewritten, dtype=dtype)
             assert pq.read_table(rewritten).equals(committed, check_metadata=True), name
@@ -942,7 +980,9 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        published = pd.read_csv(study.artifact("properties.csv"))
+        if not study.property_cells:
+            pytest.skip("study declares no property cell")
+        published = property_verdicts.read_property_table(study)
         pd.testing.assert_frame_equal(
             published,
             _property_summary(study.slug),
@@ -995,7 +1035,9 @@ class TestPublishedVerdicts:
         Every row's ``passed`` must therefore follow from that row's own endpoints, and the
         clause that really is about the pair lives in ``property_passed``.
         """
-        published = pd.read_csv(study.artifact("properties.csv"))
+        if not study.property_cells:
+            pytest.skip("study declares no property cell")
+        published = property_verdicts.read_property_table(study)
         control = published["role"] == "control"
 
         def verdicts(mask: pd.Series, column: str) -> list[bool]:
@@ -1081,6 +1123,27 @@ class TestPublishedVerdicts:
                 )
                 assert bool(row.passed) is expected, (
                     f"{row.cell} publishes passed={row.passed} against its own count {count}"
+                )
+
+        relative = published.loc[
+            published["property"].isin({"refuter_size_relative", "refuter_mutation"})
+        ]
+        if not relative.empty:
+            declared = study.runner()
+            margin = declared.RELATIVE_MARGIN
+            for row in relative.itertuples():
+                inside = -margin < row.relative_ci_lower and row.relative_ci_upper < margin
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.property == "refuter_size_relative":
+                    expected = inside
+                else:
+                    count = round(row.rejection_rate * row.replicates)
+                    outside = row.relative_ci_lower > margin or row.relative_ci_upper < -margin
+                    expected = count > declared.SIZE_MAX_REJECTIONS and outside
+                assert bool(row.passed) is expected, (
+                    f"{row.cell} publishes passed={row.passed} against its own interval "
+                    f"{row.relative_ci_lower} to {row.relative_ci_upper}"
                 )
 
         # X76 (a): a positive residual-share or widened-coverage row answers to the lower limit
@@ -1212,7 +1275,20 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own reading"
             )
 
-        accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
+        gain = published.loc[
+            (published["property"] == "efficiency_gain")
+            & published["role"].isin(["positive", "control"])
+        ]
+        for row in gain.itertuples():
+            below = row.spread_ratio_ci_upper < row.spread_ratio_boundary
+            expected = below if row.role == "positive" else not below
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own spread ratio"
+            )
+
+        accuracy = published.loc[
+            published["property"].isin(["known_mechanism_accuracy", "known_score_accuracy"])
+        ]
         for row in accuracy.itertuples():
             if row.role == "control":
                 expected = bool(row.bias_discriminated)
@@ -1495,7 +1571,26 @@ class TestPublishedVerdicts:
         # requested fit and the shown fits' upper end, restated here from the declaration rather
         # than read from the module; the paired-gain cells also need the gain's lower bound
         # above 1/2, and the leverage rows an SE-ratio interval containing 1.
-        two_legs = published.loc[published["property"].isin(SMALL_SAMPLE_TWO_LEG_PROPERTIES)]
+        # ``asymmetric-wald`` shares those family names but reads its legs on the first 2,000
+        # fits and a tail clause on all 4,000: each side's one-sided miss rate with a 99% lower
+        # end at most 0.040. An owner cell also needs its paired gain above 1/2, and a witness
+        # passes when its tail clause fails. Restated from the declaration.
+        if study.slug == "asymmetric-wald":
+            for row in published.itertuples():
+                tails = row.below_ci_lower <= 0.04 and row.above_ci_lower <= 0.04
+                if row.property == "witness":
+                    expected = not tails
+                else:
+                    expected = (
+                        row.lower_leg_ci_lower >= 0.92 and row.leg_shown_ci_upper <= 0.98 and tails
+                    )
+                    if row.property == "owner_coverage":
+                        expected = expected and row.gain_lower > 0.5
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its legs and tails"
+                )
+        ssw = published.iloc[0:0] if study.slug == "asymmetric-wald" else published
+        two_legs = ssw.loc[ssw["property"].isin(SMALL_SAMPLE_TWO_LEG_PROPERTIES)]
         for row in two_legs.itertuples():
             expected = row.lower_leg_ci_lower >= 0.92 and row.shown_ci_upper <= 0.98
             if row.cell in ("boundary_mean", "student_ey1"):
@@ -1505,7 +1600,7 @@ class TestPublishedVerdicts:
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own coverage legs"
             )
-        for row in published.loc[published["property"] == "non_h1"].itertuples():
+        for row in ssw.loc[ssw["property"] == "non_h1"].itertuples():
             expected = (
                 row.coverage_ci_upper < 0.90
                 if row.role == "control"
@@ -1514,7 +1609,7 @@ class TestPublishedVerdicts:
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own non-H1 endpoint"
             )
-        for row in published.loc[published["property"] == "witness"].itertuples():
+        for row in ssw.loc[ssw["property"] == "witness"].itertuples():
             assert bool(row.passed) is bool(row.coverage_ci_upper < 0.50), (
                 f"{row.cell} publishes passed={row.passed} against its own witness ceiling"
             )
@@ -1555,6 +1650,81 @@ class TestPublishedVerdicts:
                 expected = row.se_ratio_ci_upper < 0.93
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own clause"
+            )
+
+        # ``boundary-node-ltmle``: restated from the declaration in the driver's docstring.
+        # The control's clauses are statements about its own firing draws, read against the
+        # paired arms, and the readings they rest on are columns of the control's own row.
+        boundary = published.loc[published["property"] == "boundary_node"]
+        if not boundary.empty:
+            module = study.properties()
+            for row in boundary.itertuples():
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = (
+                        row.mcnemar_lower > 0.0
+                        and row.oracle_gain_lower >= module.ORACLE_GAIN_MARGIN
+                    )
+                else:
+                    expected = bool(row.bias_equivalent)
+                    if row.cell in module.FIRING_CELLS:
+                        expected = expected and row.firing_ci_lower >= module.FIRING_FLOOR
+                    if row.cell in module.ZERO_CELLS:
+                        expected = expected and row.coverage_ci_lower >= module.ZERO_FLOOR
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
+        # ``few-cluster-fold-variance``: restated from the declaration in ``regenerate.py``. A
+        # positive row passes the shown band, G1 and the variance-ratio lower end; a deflated
+        # control fails that rule; the IID control's median upper end sits below 0.95.
+        fold = published.loc[published["property"] == "fold_variance_calibration"]
+        if not fold.empty:
+            for row in fold.itertuples():
+                rule = (
+                    row.shown_ci_lower >= 0.92
+                    and row.shown_ci_upper <= 0.98
+                    and row.all_draw_ci_lower >= 0.90
+                    and row.variance_ratio_ci_lower >= 0.93**2
+                )
+                arm = str(row.cell).rsplit("__", 1)[1]
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif arm.endswith("deflated_control"):
+                    expected = not rule
+                elif arm == "iid_t_control":
+                    expected = row.paired_median_ci_upper < 0.95
+                else:
+                    expected = rule
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+
+        # ``few-cluster-floor-tmle`` part (c), restated from the declaration in ``regenerate.py``.
+        # A candidate row's own verdict holds unless its cell's draws exceed the failure bound
+        # (``property-failure-accounting.csv``); the paired gain against (A) is the joint
+        # clause in ``property_passed``. A pooled row passes when its gain's lower end lies
+        # above the pooled margin.
+        candidate = published.loc[published["property"] == "few_cluster_candidate"]
+        if not candidate.empty:
+            accounting = _property_accounting(study)
+            exceeded = set(
+                accounting.loc[
+                    (accounting["property"] == "few_cluster_candidate")
+                    & (accounting["reason"] == property_failures.BOUND_EXCEEDED),
+                    "cell",
+                ].astype(str)
+            )
+            for row in candidate.itertuples():
+                assert bool(row.passed) is (str(row.cell) not in exceeded), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        pooled = published.loc[published["property"] == "few_cluster_candidate_pooled"]
+        for row in pooled.itertuples():
+            margin = study.properties().floor.POOLED_MARGIN
+            assert bool(row.passed) is bool(row.coverage_gain_ci_lower > margin), (
+                f"{row.cell} publishes passed={row.passed} against its pooled gain"
             )
 
         correction = published.loc[published["property"] == "correction_necessity"]
@@ -1902,6 +2072,13 @@ BIAS_GATED_PROPERTIES = frozenset(
         "ordered_late_confounder",
         "ordered_whole_path",
         "instrument_slow_outcome",
+        # Fix-16 (``known-mechanism-sample-weights``): the ``"sample"`` positives' bias inside
+        # the margin; the ``"target"`` reading and the both-wrong fit outside it.
+        "sample_bias",
+        "sample_misspecified",
+        "tilt_misspecified",
+        "target_reading_control",
+        "both_misspecified",
     }
 )
 
@@ -1928,16 +2105,37 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Checked row by row below.
         "policy_variance",
         "policy_calibration",
+        # ``boundary-node-ltmle``: a supplemented row answers to its bias, its firing floor
+        # where gated and the zero-cell floor where declared; the paired control to its two
+        # clauses on the control's firing draws; the other arms carry the diagnostic role.
+        # Checked row by row below.
+        "boundary_node",
+        # ``few-cluster-fold-variance``: a positive row answers to the shown-coverage band, G1
+        # and the variance-ratio lower end; a deflated control must fail that rule; the IID
+        # control to its median ratio's upper end. Checked row by row below.
+        "fold_variance_calibration",
+        # ``few-cluster-floor-tmle`` part (c): a candidate pair's rows each hold their own
+        # verdict, lost only when the pair's draws exceed the failure bound; the paired gain is
+        # the joint clause. A pooled row answers to its pooled gain's lower end. Checked row by
+        # row below.
+        "few_cluster_candidate",
+        "few_cluster_candidate_pooled",
         # ``small-sample-wald``: each row answers to its own coverage legs, its non-H1 endpoint
         # or its witness ceiling (checked above).  The reported and control rows keep their own
         # reading in ``passed`` with the diagnostic role, so they are never red.
         *SMALL_SAMPLE_TWO_LEG_PROPERTIES,
         "non_h1",
         "witness",
+        # ``asymmetric-wald``'s owner cells: legs, tails and the paired gain (checked above).
+        "owner_coverage",
         # X82 SL: each size row answers to its own rejection count and each power row to its
         # own detection count (checked below against the study's declared thresholds).
         "refuter_size",
         "refuter_power",
+        # X106 H: a relative row answers to its own interval of the rate difference, its
+        # partner carries the diagnostic role; a mutation row to its count and that interval.
+        "refuter_size_relative",
+        "refuter_mutation",
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
@@ -1980,6 +2178,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X11 PR I (``learned-rule-optimal-value``): a control whose learner's limit rule is not
         # the optimal rule answers to a coverage ceiling on the optimal value.
         "optimal_target_control",
+        # X11 (f3) (``learned-rule-optimal-compositions``): the weighted fit read against the
+        # unweighted optimal value and against the weighted value of the unweighted rule, each a
+        # control that answers to a coverage ceiling.
+        "weighted_target_control",
         # Calibration families with no efficiency claim: the positive arm answers to the
         # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
         # Checked row by row below.
@@ -1994,6 +2196,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The same three endpoints on a declared mechanism; its control answers to bias
         # discrimination.  Checked row by row below.
         "known_mechanism_accuracy",
+        "known_score_accuracy",
+        # The paired spread ratio of two forms: a positive's 99% upper bound below the
+        # boundary, a control's at or above it.  Checked row by row below.
+        "efficiency_gain",
         # A percentile bootstrap interval, gated on its coverage floor alone.
         "bootstrap_coverage",
         "power",
@@ -2068,7 +2274,38 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
 #: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
 SAME_DRAW_FAMILIES = {
+    # ``hazard-multinode`` (design review a, F9): the power cell reads the rejection of zero on
+    # the ``base`` calibration fits, and the necessity pair compares the targeted contrast with
+    # the plug-in of the initial hazards of the ``base`` ``mechanism_correct`` robustness fits,
+    # as ``hazard-time-varying``'s does.  No claim reads two verdicts jointly.
+    "hazard-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
+    # ``hazard-time-varying`` (design review b1, f11a): the power cell reads the rejection of
+    # zero on the ``one_cause`` calibration fits, and the necessity pair compares the targeted
+    # contrast with the untargeted backward plug-in of the ``one_cause`` ``mechanism_correct``
+    # robustness fits, as ``adaptive-iptw``'s does.  No claim reads two verdicts jointly.
+    "hazard-time-varying": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
+    # ``hazard-time-varying-multinode`` (X70 (b2)): the same pairs as ``hazard-time-varying``,
+    # on the ``multinode`` calibration fits and the ``multinode`` ``mechanism_correct``
+    # robustness fits.
+    "hazard-time-varying-multinode": (
+        frozenset({"interval_calibration", "power"}),
+        frozenset({"double_robustness", "targeting_necessity"}),
+    ),
     "survival-node-bounds": (frozenset({"binding_witness", "interval_calibration"}),),
+    # X54 part (c): each ``few_cluster_candidate`` pair refits a candidate interval on the draws
+    # of the ``few_cluster_reference`` cell at that count and files (A)'s copy beside it, so the
+    # paired coverage gain compares the two on the same draws. The floor verdicts read the
+    # reference family alone, and the part (c) decision reads the pairs.
+    "few-cluster-floor-tmle": (frozenset({"few_cluster_candidate", "few_cluster_reference"}),),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        frozenset({"few_cluster_candidate", "few_cluster_reference"}),
+    ),
     # ``adaptive-iptw``: the known-mechanism scenes host a calibration cell and a bias cell on
     # one set of fits, and a necessity row compares the targeted arm with the untargeted arm of
     # the fit that the bias row reads.
@@ -2081,6 +2318,12 @@ SAME_DRAW_FAMILIES = {
     # shows that trimming leaves a remainder that double robustness otherwise removes, on the
     # draws whose correct-outcome fits the point cells measure.
     "option-ratio-trim": (frozenset({"trim_necessity", "trim_point"}),),
+    # ``refuter-calibration-continuous-survival`` (X101): each subset power cell rescales the
+    # subset statistic of one of the first 50 size trials by 1/2 or 2, so it reads the size
+    # draws by construction (``trial_readings`` in the study module).  It controls the rule's
+    # sensitivity to a misscaled standard error on the very fits whose size the size cell
+    # measures, and no claim reads the two verdicts jointly.
+    "refuter-calibration-continuous-survival": (frozenset({"refuter_power", "refuter_size"}),),
     # ``isotonic-binding``: the interval at the projected level and the two move shares read one
     # fit per draw of law LG2, so the shares say how often the level the interval is centred at
     # moved on exactly the draws the calibration cell reads.
@@ -2114,6 +2357,29 @@ SAME_DRAW_FAMILIES = {
             }
         ),
     ),
+    # ``known-mechanism-sample-weights`` (Fix-16): every cell of a size reads one draw stream,
+    # the paired design of method-benchmarking.md, so each control's paired difference against
+    # its ``sample_misspecified`` partner is a difference on the same draws.  The study declared
+    # it (design review m4).
+    "known-mechanism-sample-weights": (
+        frozenset(
+            {"interval_calibration", "sample_bias", "sample_misspecified", "target_reading_control"}
+        ),
+        frozenset(
+            {
+                "both_misspecified",
+                "interval_calibration",
+                "sample_bias",
+                "sample_misspecified",
+                "target_reading_control",
+                "tilt_misspecified",
+            }
+        ),
+    ),
+    # ``known-score-att`` (X35): the efficiency gain is the paired spread ratio of the two
+    # forms on the calibration draws, so it reads the fits the calibration cells measure by
+    # design. The pairing is what makes the ratio's interval narrow enough to gate.
+    "known-score-att": (frozenset({"efficiency_gain", "interval_calibration"}),),
 }
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
@@ -2193,6 +2459,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # working model on the same draws, and the iterated-mean curve's decreasing share, each
         # reported with no verdict.
         "iterated_mean_difference",
+        # X70 part (a) (``hazard-multinode``): the one-step walk over regimen curves beside the
+        # per-horizon fit of the same regimens on the same draws, reported with no verdict.
+        "one_step_walk",
         # P1 part (b), the EP studies: the paired EP-minus-TMLE difference at a fixed basis, the
         # nuisance errors, the oracle Hessian checks and the split-stability readings, each
         # reported with no verdict.
@@ -4263,7 +4532,7 @@ def _verdict_families(module: Any) -> set[str]:
     for study in STUDIES:
         path = study.artifact("properties.csv")
         if study.properties() is module and path.exists():
-            published = pd.read_csv(path)
+            published = property_verdicts.read_property_table(study)
             families |= set(
                 published.loc[published["role"] != property_verdicts.DIAGNOSTIC_ROLE, "property"]
             )

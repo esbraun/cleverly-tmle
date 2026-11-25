@@ -15,7 +15,9 @@ of the ``ey`` rows and nothing they were computed from.  For those rows the repl
 committed endpoints against the identity interval of the refit, and the shipped endpoints
 against the logit interval of the committed estimate and standard error
 (:func:`~tests.studies.evidence.interval_audit.logit_interval`), so the estimate, the standard
-error and both intervals stay pinned.
+error and both intervals stay pinned. A difference of two arm means (``interval_scale``
+``"mover"``) is read the same way, its shipped endpoints against correlated MOVER on the
+committed rows of its arms and itself (:func:`~tests.studies.evidence.asymmetric_audit.mover_interval`).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import pytest
 from scipy import stats
 
 from tests.studies import canonical_ctmle_oat, canonical_multi_arm_ctmle_oat
+from tests.studies.evidence.asymmetric_audit import mover_interval
 from tests.studies.evidence.interval_audit import logit_interval
 from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.schema import reported_inference
@@ -56,9 +59,32 @@ def test_replication_zero_refits_to_the_committed_rows(module: ModuleType) -> No
             assert estimate.psi == pytest.approx(row["estimate"], rel=1e-10, abs=1e-14)
             assert std_error == pytest.approx(row["std_error"], rel=1e-10)
             committed_interval = (row["ci_lower"], row["ci_upper"])
+            half = stats.norm.ppf(1.0 - estimate.alpha / 2.0) * std_error
+            if estimate.interval_scale == "mover":
+                assert row["inference_scale"] == "identity"
+                # The components carry their own names; the committed arm row is the one
+                # whose estimate is the component's.
+                minuend, subtrahend = (
+                    rows.loc[(rows["estimate"] - arm.psi).abs().idxmin()]
+                    for arm in estimate.components
+                )
+                for arm, arm_row in zip(estimate.components, (minuend, subtrahend), strict=True):
+                    assert arm.psi == pytest.approx(arm_row["estimate"], rel=1e-10)
+                low_mover, high_mover = mover_interval(
+                    row["estimate"],
+                    minuend["estimate"],
+                    minuend["std_error"],
+                    subtrahend["estimate"],
+                    subtrahend["std_error"],
+                    row["std_error"],
+                    alpha=estimate.alpha,
+                )
+                assert (low, high) == pytest.approx(
+                    (float(low_mover), float(high_mover)), rel=1e-9, abs=1e-12
+                )
+                low, high = estimate.psi - half, estimate.psi + half
             if estimate.interval_scale == "range_logit":
                 assert row["inference_scale"] == "identity"
-                half = stats.norm.ppf(1.0 - estimate.alpha / 2.0) * std_error
                 low_logit, high_logit = logit_interval(
                     row["estimate"], row["std_error"], alpha=estimate.alpha
                 )

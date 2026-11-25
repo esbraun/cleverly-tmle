@@ -47,8 +47,15 @@ __all__ = [
     "VarianceSource",
 ]
 
-#: Which variance an estimate under ``variance="policy_weighted"`` reports.
-VarianceSource = Literal["influence_curve", "policy_weighted"]
+#: Which variance an estimate reports: the curve's, the policy-weighted one under
+#: ``variance="policy_weighted"``, the predictable variation under ``variance="switched"``
+#: (:mod:`cleverly.inference.switched`), the curve's plus the boundary-node supplement
+#: (:mod:`cleverly.inference.node_variance`), or the delete-one-cluster jackknife variance
+#: (:mod:`cleverly.inference.cluster_jackknife`).  The one definition: the switched record and
+#: ``ParameterEstimate.variance_source`` read it from here.
+VarianceSource = Literal[
+    "influence_curve", "policy_weighted", "predictable_variation", "boundary_node", "jackknife"
+]
 
 #: A policy-weighted variance at or below this multiple of the influence-curve variance is
 #: treated as degenerate, and the estimate keeps the influence-curve variance.

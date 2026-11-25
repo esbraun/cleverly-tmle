@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
@@ -33,10 +33,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     )
 
 from ._assessment_cache import (
+    _EVICTION_RULE,
     _RETAIN_PACKED,
+    AssessmentCache,
+    CacheEntry,
     _cache_key,
     _cached,
+    _file,
     _frame_payload,
+    _is_evictable,
     _normalize,
     _pack_cached,
     _result_backend,
@@ -117,10 +122,13 @@ __all__ = [
     "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
+    "AssessmentCache",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentReport",
     "AssessmentStatus",
+    "CacheEntry",
+    "CandidateReports",
     "DiagnosticReport",
     "DiagnosticsFacade",
     "LongitudinalDiagnostics",
@@ -339,6 +347,10 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
     "effect_modification": ("tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
+    "dose_response": ("tmle",),
+    # Every candidate of a variable-importance run is a point fit by one shared estimator,
+    # and the run admits the point methods that supply inference.
+    "variable_importance": ("tmle", "collaborative_tmle", "drtmle"),
 }
 
 
@@ -534,7 +546,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         ),
     ),
     # The structural nested mean model (X82 part D). The fit keeps its own positivity and
-    # learner record in ``result.diagnostics``, so the two summaries redirect there.
+    # learner record in ``result.structural_diagnostics``, so the two summaries redirect there.
     _capability(
         "support",
         "structural",
@@ -547,7 +559,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "standardized eigenvalue of each diagonal Jacobian block, below which the fit "
             "refuses, and the share of extreme class probabilities at each node.",
             alternative=(
-                "Read result.diagnostics.smallest_eigenvalue and result.diagnostics.extreme_share."
+                "Read result.structural_diagnostics.smallest_eigenvalue and "
+                "result.structural_diagnostics.extreme_share."
             ),
         ),
         interpretation="whether each node's treatment varies given the history",
@@ -564,8 +577,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "product-mean regression in its own diagnostics, and builds no held-out nuisance "
             "report.",
             alternative=(
-                "Read result.diagnostics.learner_diagnostics and "
-                "result.diagnostics.n_constant_fits."
+                "Read result.structural_diagnostics.learner_diagnostics and "
+                "result.structural_diagnostics.n_constant_fits."
             ),
         ),
         interpretation="held-out fit of the outcome means and the product means",
@@ -679,7 +692,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
     ),
     # The continuous-time survival TMLE (X6, X101). Its diagnostics read the engine's own
-    # record; no refutation or truncation curve is implemented for it.
+    # record; the refutation and the truncation curve refit the stored estimator, and so does
+    # the simulated common cause among the sensitivity rows.
     _capability(
         "support",
         CONTINUOUS_SURVIVAL_FAMILY,
@@ -718,20 +732,28 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "truncation_curve",
         CONTINUOUS_SURVIVAL_FAMILY,
-        artifacts=(),
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=continuous_survival_refusal("truncation_curve"),
-        interpretation="estimate stability across declared mechanism bounds",
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        cost="expensive",
+        requires_replay="refit_nuisances",
+        interpretation=(
+            "estimate stability across floors on pi(a | L) S_c(u- | a, L), rerun from "
+            "refitted initial hazards after an exact replay of the fit at its own floor"
+        ),
     ),
     _capability(
         "refute",
         CONTINUOUS_SURVIVAL_FAMILY,
-        artifacts=(),
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=continuous_survival_refusal("refute"),
-        interpretation="behavior under placebo, noise, subsampling and bootstrap refits",
+        artifacts=("estimator configuration", "analysis data"),
+        execution="refit",
+        deterministic=False,
+        cost="expensive",
+        accepts_random_state=True,
+        requires_replay="rerun_configuration",
+        interpretation=(
+            "behavior under a treatment placebo on a contrast, a noise covariate and "
+            "subsampling on the fit's folds, read descriptively"
+        ),
     ),
     # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
     # the producing fit, and declares four of its own, which only a curve has.
@@ -739,18 +761,21 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "support",
         "effect_modification",
         artifacts=("the producing fit's mechanism",),
+        requires_replay="summarize_existing_artifacts",
         interpretation="overlap of the producing fit's mechanism, as the point support report",
     ),
     _capability(
         "nuisance_models",
         "effect_modification",
         artifacts=("the producing fit's out-of-fold nuisance predictions",),
+        requires_replay="summarize_existing_artifacts",
         interpretation="the producing fit's held-out nuisance fit",
     ),
     _capability(
         "score_equations",
         "effect_modification",
         artifacts=("the producing fit's targeting or debiasing state",),
+        requires_replay="summarize_existing_artifacts",
         interpretation=(
             "the score equations the producing fit solved: the projection's targeting, or the "
             "EP learner's debiasing regression"
@@ -802,6 +827,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             deterministic=True,
             cost="expensive",
             accepts_random_state=True,
+            requires_replay="refit_nuisances",
             interpretation=interpretation,
         )
         for operation, interpretation in (
@@ -829,10 +855,85 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         deterministic=True,
         cost="expensive",
         accepts_random_state=True,
+        requires_replay="refit_nuisances",
         interpretation=(
             "TOC, cumulative gain, AUTOC and Qini of the curve refit on a training split, "
             "evaluated on the other rows with half-sample bootstrap intervals"
         ),
+    ),
+    # The kernel-smoothed dose-response curve (X104). Each declared pair is targeted by its own
+    # one-dimensional fluctuation; the result keeps the pairs' support records, their scores
+    # and the outcome regression at the observed dose, and no estimator to refit.
+    _capability(
+        "support",
+        "dose_response",
+        artifacts=("the declared pairs' support records",),
+        interpretation=(
+            "the Kish effective size of each pair's clever covariate against the declaration's "
+            "provisional support floor, and the smallest fitted density"
+        ),
+    ),
+    _capability(
+        "score_equations",
+        "dose_response",
+        artifacts=("each pair's mean score at its solution", "each pair's standard error"),
+        interpretation=(
+            "each pair's fluctuation score on the scaled outcome against the package's score "
+            "threshold; the fit refuses an unsolved pair, so this restates convergence"
+        ),
+    ),
+    _capability(
+        "nuisance_models",
+        "dose_response",
+        artifacts=("the outcome regression at the observed dose", "the fold assignment"),
+        interpretation=(
+            "the fit of the outcome regression at the observed dose: out of fold on a "
+            "cross-fitted fit, in sample otherwise"
+        ),
+    ),
+    _capability(
+        "corrections",
+        "dose_response",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "each declared pair is targeted by its own one-dimensional fluctuation, and no "
+            "doubly-robust correction system is solved.",
+        ),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "dose_response",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "no mechanism bound enters a dose-response fit: the clever covariate divides by "
+            "the fitted density without a floor, and support_floor labels the pairs below it "
+            "and truncates nothing.",
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
+        "refute",
+        "dose_response",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no refutation test is derived for a kernel-smoothed dose-response curve: each "
+            "pair is a smoothed mean outcome at a dose, the placebo, common-cause and subset "
+            "references of refute are written for a contrast or an arm mean of a point "
+            "treatment, and the result keeps no estimator to refit.",
+            alternative=NO_ALTERNATIVE,
+            roadmap="X82",
+        ),
+        interpretation="behavior under placebo, noise, and subsampling perturbations",
     ),
 )
 
@@ -959,15 +1060,52 @@ def _refuse_on_projection(
     )
 
 
+def _curve_fit_wide_rules(
+    result: Any, rows: tuple[AssessmentCapability, ...]
+) -> tuple[AssessmentCapability, ...]:
+    """Refuse each curve row whose call this curve refuses whatever the arguments.
+
+    Each rule reads the predicate its call raises from (:mod:`cleverly._curve_assessment`)
+    and carries the call's own record, so a row never reads available where the call
+    refuses.  A curve that keeps no producing fit or estimator meets no rule here: the replay
+    gate refuses its rows.
+    """
+    from ._curve_assessment import (
+        modifier_stability_refusal,
+        stability_refusal,
+        targeting_curve_refusal,
+    )
+
+    rules = {
+        "modifier_stability": modifier_stability_refusal,
+        "stability": stability_refusal,
+        "targeting_curve": targeting_curve_refusal,
+    }
+    resolved = []
+    for row in rows:
+        rule = rules.get(row.operation)
+        refusal = None if rule is None or not row.available else rule(result)
+        resolved.append(
+            row
+            if refusal is None
+            else replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refusal)
+        )
+    return tuple(resolved)
+
+
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     """All operation declarations for the result's family."""
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
-    if family in (AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY):
+    if family in (AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY, "dose_response"):
         # The rows read the engine's own record; none of the point-treatment or
-        # longitudinal rules below reads an adaptive TMLE or continuous-time fit.
+        # longitudinal rules below reads an adaptive TMLE, continuous-time or dose-response
+        # fit.
         return rows
+    if family == "effect_modification":
+        # A curve has its own fit-wide rules; none of the point rules below reads a curve.
+        return _curve_fit_wide_rules(result, rows)
     if family == "point" and _is_projection(result):
         rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
@@ -1038,14 +1176,31 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator in ("gcomp", "parametric_gformula"):
+    truncation = None
+    if family == "longitudinal":
         # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
-        # moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
+        # moves it; a SurvivalCTMLE or SurvivalDRTMLE replay would rerun a selection or a
+        # drift loop that no study measures. The call reads the same helper.
+        from .longitudinal.estimator import longitudinal_truncation_refusal
 
-        truncation = (
-            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
-        )
+        truncation = longitudinal_truncation_refusal(result)
+        # A learned-regimen fit refuses every surface that runs the fit again (F27): the
+        # truncation call raises this record before any other, and the facade's refute
+        # call raises it from this row. The free refute() reaches it at the refit, after
+        # its request checks.
+        from .longitudinal.learned import learned_regimen_refusal
+
+        learned = learned_regimen_refusal(result, "the truncation curve")
+        if learned is not None:
+            truncation = learned
+            refit = learned_regimen_refusal(result, "a refit")
+            rows = tuple(
+                replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refit)
+                if row.operation == "refute"
+                else row
+                for row in rows
+            )
+    if truncation is not None:
         rows = tuple(
             replace(
                 row,
@@ -1058,12 +1213,14 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     if family == "longitudinal":
-        from .longitudinal.estimator import hazard_mtp_replay
+        from .longitudinal.estimator import hazard_replay
 
-        # A hazard fit targets each modified treatment policy by its own weighted walk,
-        # which the truncation replay does not rebuild (H25).
-        walk = hazard_mtp_replay(result)
-        if walk is not None:
+        # The truncation replay does not rebuild a hazard fit's regressions of the future on
+        # covariates after baseline (H31), nor the weighted walk of each modified treatment
+        # policy (H25). The call raises the method's own refusal above before it reaches the
+        # replay, so that one stands.
+        walk = hazard_replay(result)
+        if walk is not None and truncation is None:
             rows = tuple(
                 replace(
                     row,
@@ -1200,8 +1357,11 @@ class AssessmentItem:
         if self._report is _AbsentReport.TOKEN:
             return None
         payload = _unpack_cached(self._report)
-        # The row keeps the frame, which the cache packs; the caller gets the curve.
-        return TruncationCurve(payload) if self.name == "truncation_curve" else payload
+        # The row keeps the frame, which the cache packs; the caller gets the curve. A
+        # variable-importance row keeps each candidate's curve as it was returned.
+        if self.name == "truncation_curve" and not isinstance(payload, CandidateReports):
+            return TruncationCurve(payload)
+        return payload
 
     def __repr__(self) -> str:
         from ._assessment_summary import item_repr
@@ -1846,11 +2006,28 @@ def replayability(result: Any) -> Replayability:
         # refit selects its own working model, so nothing retargets or refits in place.
         return Replayability(True, False, False, False, False, (), rerun_configuration=True)
     if _family(result) == CONTINUOUS_SURVIVAL_FAMILY:
-        # A continuous-time fit keeps its record and its influence curves only: no
-        # estimator, no data and no hazard jumps, so nothing retargets, refits or reruns.
-        return Replayability(
-            True, False, False, False, False, ("estimator configuration", "analysis data")
+        # A continuous-time fit keeps its estimator, with the seed resolved, and its data,
+        # so it refits its nuisances and reruns on changed data. It keeps no hazard jumps,
+        # so nothing retargets in place, and no representer.
+        absent = tuple(
+            name
+            for name, held in (
+                ("estimator configuration", getattr(result, "estimator", None)),
+                ("analysis data", getattr(result, "data", None)),
+            )
+            if held is None
         )
+        ok = not absent
+        return Replayability(True, False, False, ok, False, absent, rerun_configuration=ok)
+    if _family(result) == "effect_modification":
+        return _curve_replayability(result)
+    if _family(result) == "dose_response":
+        # A dose-response fit keeps its pairs' estimates, support records, scores and the
+        # outcome regression at the observed dose. It keeps no estimator, data or node
+        # predictions, so nothing refits, retargets or reruns.
+        return Replayability(True, False, False, False, False, ("estimator configuration",))
+    if _family(result) == "variable_importance":
+        return _importance_replayability(result)
     if _family(result) == "structural":
         # A structural fit keeps its settings and its split. It reruns on a changed panel;
         # it stores no targeting state or representer to retarget or evaluate.
@@ -1912,6 +2089,55 @@ def replayability(result: Any) -> Replayability:
     if callable(refit_refusal) and data is not None and refit_refusal(data) is not None:
         return Replayability(True, True, False, False, False, (POINT_REPLAY_REFIT_CONFIGURATION,))
     return Replayability(True, True, False, True, False, rerun_configuration=True)
+
+
+def _curve_replayability(curve: Any) -> Replayability:
+    """What an effect curve can redo: it reads and refits through its producing fit.
+
+    The summaries read the producing fit, so they need it kept.  The refits rerun its
+    estimator; a projection's producing fit also passes its own refit preflight, so a
+    configuration ``refit()`` refuses before a learner is refused here as well.
+    """
+    fit = getattr(curve, "fit", None)
+    if fit is None:
+        return Replayability(False, False, False, False, False, (CURVE_REPLAY_NO_FIT,))
+    if getattr(fit, "estimator", None) is None:
+        return Replayability(True, False, False, False, False, (CURVE_REPLAY_NO_ESTIMATOR,))
+    if getattr(fit, "assessment_family", None) == "point":
+        producer = replayability(fit)
+        refit = producer.refit_nuisances
+        return Replayability(
+            True,
+            False,
+            False,
+            refit,
+            False,
+            () if refit else producer.unreconstructible,
+            rerun_configuration=refit,
+        )
+    return Replayability(True, False, False, True, False, rerun_configuration=True)
+
+
+def _importance_replayability(result: Any) -> Replayability:
+    """What a variable-importance run can redo: what every candidate's fit can redo.
+
+    A ``keep_fits=False`` run keeps no fit, so it redoes nothing.  The composed facades do
+    not gate on this record: each candidate's own facade applies its own replay gate.
+    """
+    if not result.keep_fits:
+        return Replayability(False, False, False, False, False, ("candidate fits",))
+    slots = [replayability(fit) for fit in result.kept_fits.values()]
+    flags = (
+        "summarize_existing_artifacts",
+        "retarget_cached_nuisances",
+        "evaluate_stored_representer",
+        "refit_nuisances",
+        "evaluate_new_data",
+        "rerun_configuration",
+    )
+    held = {flag: all(getattr(slot, flag) for slot in slots) for flag in flags}
+    missing = tuple(dict.fromkeys(code for slot in slots for code in slot.unreconstructible))
+    return Replayability(unreconstructible=missing, **held)
 
 
 #: What each :class:`Replayability` slot lets an operation do, in the words a refusal uses.
@@ -1992,6 +2218,23 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
 _REPLAY_ARTIFACT_MISSING = "this stored result no longer carries the components it needs"
 POINT_REPLAY_DECLARATION = "point_replay_function_declaration"
 POINT_REPLAY_REFIT_CONFIGURATION = "point_replay_refit_configuration"
+#: An effect curve that keeps no producing fit, or whose producing fit keeps no estimator.
+CURVE_REPLAY_NO_FIT = "curve_replay_no_producing_fit"
+CURVE_REPLAY_NO_ESTIMATOR = "curve_replay_no_producing_estimator"
+
+#: The working call a replay refusal names, for the codes that have one.  A curve built by
+#: :meth:`~cleverly.estimators.TMLEResult.effect_curve` or the EP learner keeps its producing
+#: fit and estimator, and so does a saved one, so a refit of the curve restores both.
+_REPLAY_ALTERNATIVES: dict[str, str] = {
+    CURVE_REPLAY_NO_FIT: (
+        "Fit the curve again with effect_curve() or the EP learner, which keep the producing "
+        "fit and its estimator."
+    ),
+    CURVE_REPLAY_NO_ESTIMATOR: (
+        "Fit the curve again with effect_curve() or the EP learner, which keep the producing "
+        "fit and its estimator."
+    ),
+}
 
 
 def _replay_omission_causes() -> dict[str, str]:
@@ -2037,6 +2280,12 @@ def _replay_omission_causes() -> dict[str, str]:
             "a stored MSM projection lacks proof that its design and weights were declared "
             "known; refit the original MSM with known functions to restore replay"
         ),
+        CURVE_REPLAY_NO_FIT: (
+            "this curve keeps no producing fit, so nothing can be read from it or refitted"
+        ),
+        CURVE_REPLAY_NO_ESTIMATOR: (
+            "this curve's producing fit keeps no estimator, so nothing can be refitted"
+        ),
     }
 
 
@@ -2045,6 +2294,33 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     slot = item.requires_replay
     if not item.available or slot is None or getattr(replay, slot):
         return item
+    return replace(
+        item,
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=replay_refusal(slot, replay),
+    )
+
+
+def replay_refusal(slot: str, replay: Replayability) -> Refusal:
+    """The record of a refusal for want of one :class:`Replayability` slot.
+
+    The replay gate refuses a row with it, and an operation that checks the slot itself
+    raises the same record, so the row and the call give one text.
+
+    Parameters
+    ----------
+    slot : str
+        The :class:`Replayability` field the operation needs.
+    replay : Replayability
+        What the stored result can redo.
+
+    Returns
+    -------
+    Refusal
+        An ``INVALID_DECLARATION`` record naming the work, the causes and the reported codes,
+        with the working call when a code has one.
+    """
     codes = list(replay.unreconstructible)
     explained = _replay_omission_causes()
     # One sentence per distinct cause, in the order the codes are reported, so a result
@@ -2058,14 +2334,13 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
         if causes
         else "this stored result reports no cause for it"
     )
-    return replace(
-        item,
-        available=False,
-        status=AssessmentStatus.UNAVAILABLE,
-        refusal=Refusal(
-            RefusalReason.INVALID_DECLARATION,
-            f"{_REPLAY_WORK[slot]} is unavailable: {detail}",
-        ),
+    alternatives = dict.fromkeys(
+        _REPLAY_ALTERNATIVES[code] for code in codes if code in _REPLAY_ALTERNATIVES
+    )
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"{_REPLAY_WORK[slot]} is unavailable: {detail}",
+        alternative=" ".join(alternatives) or None,
     )
 
 
@@ -2430,6 +2705,17 @@ class _CapabilityFacade:
             )
         return item
 
+    def _require_call(
+        self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    ) -> None:
+        """Raise the refusal a direct call of ``operation`` with these arguments meets first.
+
+        A diagnostic call refuses by the row its request resolves to.  The sensitivity
+        facade lets an explicit estimand past the rows that cannot read it, and overrides
+        this method with that rule, which its own calls apply.
+        """
+        self._require(operation, kwargs)
+
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """Reported parameters this operation is left to choose between, or ``()``.
 
@@ -2680,8 +2966,8 @@ class _CapabilityFacade:
                     effective = self._effective_arguments(
                         capability.operation, operation_arguments, report
                     )
-                    interpreted = INTERPRETERS[capability.operation](
-                        report, self._result, operation_arguments
+                    interpreted = _interpreted(
+                        capability.operation, report, self._result, operation_arguments
                     )
                     items.append(
                         replace(
@@ -2705,7 +2991,10 @@ class _CapabilityFacade:
             {
                 "include_refits": include_refits,
                 "include_retargets": include_retargets,
-                "arguments": supplied,
+                "arguments": {
+                    operation: _cache_arguments(operation, dict(values))
+                    for operation, values in supplied.items()
+                },
                 "random_state": random_state,
             },
             compute,
@@ -2790,7 +3079,7 @@ class _CapabilityFacade:
         args: tuple[Any, ...] = (),
     ) -> dict[str, Any]:
         bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
-        effective = _bound_arguments(bound, report)
+        effective = _cache_arguments(operation, _bound_arguments(bound, report))
         if operation == "evalue" and effective.get("estimand") is None:
             # Explicit OR requests choose the approximation; keep None replayable there.
             source = getattr(report, "source_estimand", None)
@@ -2811,7 +3100,7 @@ class _CapabilityFacade:
     def _invoke(self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Any:
         function, _ = self._routed_callable(operation)
         bound = self._bind_arguments(operation, kwargs, partial=False, args=args)
-        effective = _bound_arguments(bound)
+        effective = _cache_arguments(operation, _bound_arguments(bound))
 
         def compute() -> Any:
             return function(*bound.args, **bound.kwargs)
@@ -2824,13 +3113,34 @@ class _CapabilityFacade:
             def compute() -> Any:
                 return _evalue_from_selection(self._result, selection)
 
-        report = _cached(self._result, f"{self._attribute}.{operation}", (), effective, compute)
-        resolved = _bound_arguments(bound, report)
+        name = f"{self._attribute}.{operation}"
+        report = _cached(self._result, name, (), effective, compute)
+        resolved = _cache_arguments(operation, _bound_arguments(bound, report))
         if _normalize(resolved) != _normalize(effective):
-            self._result.assessment_cache[
-                _cache_key(f"{self._attribute}.{operation}", (), resolved)
-            ] = _pack_cached(report, _result_backend(self._result))
+            # The alias is pinned when the answer it repeats is kept and pinned. An answer the
+            # budget did not keep leaves an evictable alias, which the budget drops as well.
+            cache = self._result.assessment_cache
+            primary = _cache_key(name, (), effective)
+            _file(
+                cache,
+                _cache_key(name, (), resolved),
+                _pack_cached(report, _result_backend(self._result)),
+                evictable=primary not in cache or _is_evictable(cache, primary),
+            )
         return report
+
+
+#: Keywords that change where an operation keeps its work, or what it reports while it runs,
+#: and never its answer. The cache key and the alias filing leave them out, so a call with them
+#: and one without share one answer (X106 G3).
+_UNKEYED_ARGUMENTS: Final[dict[str, tuple[str, ...]]] = {"refute": ("checkpoint", "progress")}
+
+
+def _cache_arguments(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """``arguments`` without the keywords that never change ``operation``'s answer."""
+    for name in _UNKEYED_ARGUMENTS.get(operation, ()):
+        arguments.pop(name, None)
+    return arguments
 
 
 def _arm_source_target(result: Any, source: str) -> str:
@@ -2886,14 +3196,21 @@ def _single_pass(
 
 def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
     """Check a bound refutation request before a facade starts any operation."""
-    from .validation.refute import _validated_tests
+    from .validation.refute import _validated_checkpoint, _validated_tests
 
     bound.apply_defaults()
+    _validated_checkpoint(bound.arguments["checkpoint"], bound.arguments["progress"])
     _validated_tests(
         bound.arguments["tests"],
         bound.arguments["n_replicates"],
         bound.arguments["negative_control_outcome"],
         bound.arguments["placebo_mode"],
+        bound.arguments["negative_control_kind"],
+        bound.arguments["negative_control_floor"],
+        bound.arguments["future_treatment_control"],
+        bound.arguments["future_treatment_node"],
+        bound.arguments["sample_limit"],
+        bound.arguments["sampling"],
     )
 
 
@@ -3158,6 +3475,16 @@ class DiagnosticsFacade(_CapabilityFacade):
             return _cached(
                 self._result, "diagnostics.support", (), {}, lambda: support_report(self._result)
             )
+        if _family(self._result) == "dose_response":
+            from .estimators.dose_response import dose_support_report
+
+            return _cached(
+                self._result,
+                "diagnostics.support",
+                (),
+                {},
+                lambda: dose_support_report(self._result),
+            )
         if _family(self._result) == "longitudinal":
             return _cached(
                 self._result,
@@ -3254,6 +3581,10 @@ class DiagnosticsFacade(_CapabilityFacade):
                 from .survival.diagnostics import nuisance_report
 
                 return nuisance_report(self._result)
+            if _family(self._result) == "dose_response":
+                from .estimators.dose_response import dose_nuisance_report
+
+                return dose_nuisance_report(self._result)
             if _family(self._result) == "longitudinal":
                 return _longitudinal_nuisances(self._result)
             from .validation.nuisance import nuisance_diagnostics
@@ -3311,6 +3642,8 @@ class DiagnosticsFacade(_CapabilityFacade):
             elif family == CONTINUOUS_SURVIVAL_FAMILY:
                 # Every estimate of the fit carries the one alpha the engine was given.
                 alpha = float(next(iter(self._result.estimates.values())).alpha)
+            elif family == "dose_response":
+                alpha = float(self._result.alpha)
             else:
                 alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
             report = influence_report(
@@ -3375,6 +3708,10 @@ class DiagnosticsFacade(_CapabilityFacade):
                 from .survival.diagnostics import score_report
 
                 return score_report(self._result)
+            if _family(self._result) == "dose_response":
+                from .estimators.dose_response import dose_score_report
+
+                return dose_score_report(self._result, tolerance=resolved)
             if _family(self._result) == "longitudinal":
                 return _longitudinal_scores(self._result, tolerance=resolved)
             from .validation.score import score_check
@@ -3440,13 +3777,19 @@ class DiagnosticsFacade(_CapabilityFacade):
         estimands: Sequence[str] | None = None,
         mechanism: bool | None = None,
     ) -> Any:
-        """Evaluate fitted estimates across a sequence of mechanism bounds.
+        r"""Evaluate fitted estimates across a sequence of mechanism bounds.
 
         Point-treatment and longitudinal results intentionally have different
         contracts. A point-treatment curve retargets the stored nuisance fits. A
         longitudinal curve repeats the complete backward recursion while reusing the
         fitted treatment/censoring mechanism, folds, prepared data, scaler, and frozen
         resolved regimen plans.
+
+        A continuous-time survival curve refits the initial hazards from the stored estimator,
+        replays the fit at its own floor exactly, and reruns the targeting walk at each floor
+        on :math:`\pi(a \mid L) S_c(u^- \mid a, L)`; it refuses ``mechanism=True``, and its
+        default grid is the fitted floor times 1/4, 1/2, 1, 2 and 4
+        (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`).
 
         A longitudinal fit refuses ``mechanism=True``. It has one cumulative
         treatment-and-censoring bound, so there is no separate observation mechanism for a
@@ -3503,6 +3846,20 @@ class DiagnosticsFacade(_CapabilityFacade):
         self._require("truncation_curve", {"mechanism": mechanism})
         # The cache key holds these arguments, so a one-shot iterator is read once here.
         (bounds, estimands), _ = _single_pass((bounds, estimands), {})
+        if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
+            from .survival.diagnostics import MECHANISM_REFUSAL, continuous_truncation_curve
+
+            if mechanism:
+                raise CapabilityError.from_refusal(MECHANISM_REFUSAL)
+            return TruncationCurve(
+                _cached(
+                    self._result,
+                    "diagnostics.truncation_curve",
+                    (bounds,),
+                    {"estimands": estimands, "mechanism": mechanism},
+                    lambda: continuous_truncation_curve(self._result, bounds, estimands=estimands),
+                )
+            )
         longitudinal = _family(self._result) == "longitudinal"
         if longitudinal and bounds is None:
             raise CapabilityError(
@@ -3556,7 +3913,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         Parameters
         ----------
         **kwargs
-            Options forwarded to :func:`cleverly.validation.refute`.
+            Options forwarded to :func:`cleverly.validation.refute`. The answer is cached
+            without ``checkpoint`` and ``progress``, so a repeated request returns the cached
+            answer without reading the checkpoint's draws or calling ``progress``. A
+            variable-importance run still records its candidates' names in the directory.
 
         Returns
         -------
@@ -3587,6 +3947,39 @@ class DiagnosticsFacade(_CapabilityFacade):
         # whose estimator cannot refit.
         self._require("refute", kwargs)
         return self._invoke("refute", (), kwargs)
+
+    def planned_refits(self, **kwargs: Any) -> Any:
+        """Count the refits and model fits :meth:`refute` would make, without fitting.
+
+        Takes exactly :meth:`refute`'s keywords and raises what :meth:`refute` raises before
+        its first refit. Nothing is cached, so a later :meth:`refute` call runs as usual.
+
+        Parameters
+        ----------
+        **kwargs
+            Options forwarded to :func:`cleverly.validation.planned_refits`.
+
+        Returns
+        -------
+        PlannedRefits
+            One record per requested test.
+
+        Raises
+        ------
+        TypeError
+            If an argument is not one :func:`cleverly.validation.refute` takes.
+        ValueError
+            If an argument is malformed, as :meth:`refute` raises it.
+        CapabilityError
+            If :meth:`refute` would refuse this request.
+        """
+        from .validation._planned_refits import planned_refits
+
+        _, kwargs = _single_pass((), kwargs)
+        bound = self._bind_arguments("refute", kwargs, partial=False)
+        _validate_refute_arguments(bound)
+        self._require("refute", kwargs)
+        return planned_refits(self._result, **kwargs)
 
     def run_all(
         self,
@@ -3765,13 +4158,52 @@ def _continuous_survival_item(operation: str, report: Any) -> AssessmentItem:
     return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
 
 
+def _debiasing_score_item(report: Any) -> AssessmentItem:
+    """The row of an EP curve's debiasing scores: completed, with no pass rule.
+
+    The EP curve carries no standard error, so no tolerance on the raw scores is derived,
+    and a pass rule here would be a new verdict.
+    """
+    detail = (
+        f"{len(report.features)} debiasing feature(s); largest abs(score) after the "
+        f"debiasing regression {report.max_after:.3g}; the regression solves these equations, "
+        "and no tolerance is derived for them"
+    )
+    return AssessmentItem("score_equations", AssessmentStatus.COMPLETED, detail)
+
+
+def _dose_score_item(report: Any) -> AssessmentItem:
+    """The row of a dose-response fit's pair scores against the package threshold."""
+    worst = float(np.max(report.ratios)) if len(report.names) else float("nan")
+    detail = (
+        f"{len(report.names)} pair score(s); worst abs(score) / threshold = {worst:.3g}; the "
+        "fit refuses a pair whose fluctuation did not solve its score, so this restates "
+        "convergence"
+    )
+    if report.passed:
+        return AssessmentItem("score_equations", AssessmentStatus.PASSED, detail)
+    return AssessmentItem(
+        "score_equations",
+        AssessmentStatus.FAILED,
+        detail,
+        ("inspect result.diagnostics.score_equations()",),
+    )
+
+
 def _score_item(
     report: Any, result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    from .estimators.dose_response import DoseResponseScoreReport
+    from .estimators.ep import DebiasingScores
+
     if is_augmented_trial(result):
         return _augmented_trial_item("score_equations", report)
     if is_continuous_survival(result):
         return _continuous_survival_item("score_equations", report)
+    if isinstance(report, DebiasingScores):
+        return _debiasing_score_item(report)
+    if isinstance(report, DoseResponseScoreReport):
+        return _dose_score_item(report)
     ratios = []
     for row in getattr(report, "rows", ()):
         if hasattr(row, "ratio"):
@@ -3914,13 +4346,44 @@ def _group_load_fact(report: Any) -> str | None:
     return f"{kind} load: {name}:{values['equation']} {rendered}; not estimator ESS"
 
 
+def _dose_support_item(report: Any) -> AssessmentItem:
+    """The row of a dose-response fit's pair support: completed, or a warning, never passed.
+
+    The Kish floor is provisional (X95), so no pair clears positivity by passing it.  A pair
+    below it is a restatement of the fit's own label, not a new finding.
+    """
+    facts = [
+        f"minimum Kish effective size {report.min_kish:.3g} against the provisional floor "
+        f"{report.support_floor:g}",
+        f"{report.below_floor} of {len(report.pairs)} pair(s) below the floor",
+        f"smallest fitted density {min(float(pair.min_density) for pair in report.pairs):.3g}",
+        f"quadrature-doubling shift {report.quadrature_shift:.3g} standard errors",
+    ]
+    if not report.below_floor:
+        return AssessmentItem("support", AssessmentStatus.COMPLETED, "; ".join(facts))
+    facts.append(
+        f"{report.below_floor} pair(s) carry the experimental low_dose_support_plugin "
+        "interval; the floor is provisional (X95)"
+    )
+    return AssessmentItem(
+        "support",
+        AssessmentStatus.WARNING,
+        "; ".join(facts),
+        ("inspect result.diagnostics.support()",),
+    )
+
+
 def _support_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    from .estimators.dose_response import DoseResponseSupportReport
+
     if is_augmented_trial(_result):
         return _augmented_trial_item("support", report)
     if is_continuous_survival(_result):
         return _continuous_survival_item("support", report)
+    if isinstance(report, DoseResponseSupportReport):
+        return _dose_support_item(report)
     warning = _support_warning(report)
     facts = _support_facts(*_support_metrics(report))
     group_fact = _group_load_fact(report)
@@ -4651,6 +5114,140 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
 }
 
 
+@dataclass(frozen=True)
+class CandidateReports(Mapping[str, Any]):
+    """One operation's report for each candidate of a variable-importance run.
+
+    A read-only mapping from candidate to that candidate's own report, in candidate order.
+    Each report is what ``result.fits[candidate]`` returns for the same call, with that
+    fit's own estimate and unadjusted interval, not the Benjamini-Hochberg adjusted test.
+
+    Parameters
+    ----------
+    operation : str
+        The operation that produced the reports.
+    reports : mapping of str to Any
+        Each candidate's report.
+    backend : str or None
+        The dataframe library :meth:`to_frame` returns.
+    """
+
+    operation: str
+    reports: Mapping[str, Any]
+    backend: str | None = None
+
+    def __getitem__(self, candidate: str) -> Any:
+        return self.reports[candidate]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.reports)
+
+    def __len__(self) -> int:
+        return len(self.reports)
+
+    def to_frame(self) -> Any:
+        """Every candidate's table, stacked under a leading ``candidate`` column.
+
+        Returns
+        -------
+        dataframe
+            Each candidate's rows in candidate order. A column one candidate's table lacks
+            reads missing on its rows.
+
+        Raises
+        ------
+        CapabilityError
+            If some candidate's report has no table, such as the number ``tipping_gamma``
+            returns; read it from the mapping instead.
+        """
+        tables = {}
+        for candidate, report in self.reports.items():
+            if not callable(getattr(report, "to_frame", None)):
+                raise CapabilityError(
+                    f"candidate {candidate!r}'s {self.operation} report has no table.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative=f"Read it as reports[{candidate!r}].",
+                )
+            tables[candidate] = _frame_payload(report.to_frame())
+        columns = list(dict.fromkeys(name for table in tables.values() for name in table))
+        payload: dict[str, list[Any]] = {"candidate": []}
+        payload.update({name: [] for name in columns if name != "candidate"})
+        for candidate, table in tables.items():
+            rows = len(next(iter(table.values()), ()))
+            payload["candidate"].extend([candidate] * rows)
+            for name in payload:
+                if name != "candidate":
+                    payload[name].extend(table.get(name, [None] * rows))
+        return emit_frame(payload, backend=self.backend)
+
+    def __repr__(self) -> str:
+        from ._summary import short_repr
+
+        return short_repr(
+            "CandidateReports", [("operation", self.operation), ("candidates", len(self))]
+        )
+
+
+#: How a composed variable-importance row reads its candidates' statuses: the first status of
+#: this order that any candidate reached.  A failure outranks a warning, a verdict outranks
+#: a descriptive reading, and any reading outranks an omission.
+_CANDIDATE_STATUS_ORDER: tuple[AssessmentStatus, ...] = (
+    AssessmentStatus.FAILED,
+    AssessmentStatus.WARNING,
+    AssessmentStatus.PASSED,
+    AssessmentStatus.COMPLETED,
+    *_SUMMARY_OMISSION_ORDER,
+)
+
+
+def _combined_candidate_item(operation: str, items: Mapping[str, AssessmentItem]) -> AssessmentItem:
+    """One row for an operation read on every candidate, named after the candidates.
+
+    The status is the first of :data:`_CANDIDATE_STATUS_ORDER` that any candidate reached.
+    The detail names each candidate whose row asks for attention, or every candidate when
+    none does, and the next steps are the candidates' own, each once.
+    """
+    status = next(
+        status
+        for status in _CANDIDATE_STATUS_ORDER
+        if any(item.status is status for item in items.values())
+    )
+    flagged = {name: item for name, item in items.items() if item.status in _ATTENTION}
+    shown = flagged or items
+    detail = "; ".join(f"{name}: {item.detail}" for name, item in shown.items())
+    return AssessmentItem(
+        operation,
+        status,
+        detail,
+        _distinct_steps(list(items.values())),
+    )
+
+
+def _interpreted(
+    operation: str, report: Any, result: Any, arguments: Mapping[str, Any]
+) -> AssessmentItem:
+    """The combined-report row of one operation's report.
+
+    A variable-importance report holds one report per candidate.  Each is read by the
+    operation's interpreter against its own candidate's fit, and the rows are combined.
+    """
+    interpret = INTERPRETERS[operation]
+    if not isinstance(report, CandidateReports):
+        return interpret(report, result, arguments)
+    return _combined_candidate_item(
+        operation,
+        {
+            # A curve is read as its frame, as the combined report of one fit reads it.
+            candidate: interpret(
+                each.to_frame() if isinstance(each, TruncationCurve) else each,
+                result.kept_fits[candidate],
+                arguments,
+            )
+            for candidate, each in report.items()
+        },
+    )
+
+
 #: What the combined row says when the point support report is not in its ``adequate``
 #: tier.  The tier itself is decided by
 #: :attr:`~cleverly.sensitivity.positivity.PositivityReport.severity`; these are only its
@@ -4734,7 +5331,7 @@ def validate_result(result: Any, diagnostics: DiagnosticsFacade | None = None) -
             report = getattr(facade, name)()
             items.append(
                 replace(
-                    INTERPRETERS[name](report, result, _NO_ARGUMENTS),
+                    _interpreted(name, report, result, _NO_ARGUMENTS),
                     _report=_pack_cached(report, _result_backend(result)),
                 )
             )
@@ -5030,10 +5627,13 @@ _AUGMENTED_TRIAL_SENSITIVITY: tuple[AssessmentCapability, ...] = _augmented_tria
 
 
 def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
-    """Every sensitivity row of a continuous-time survival fit, each refused with its record.
+    """Every refused sensitivity row of a continuous-time survival fit.
 
-    The omitted-variable, marginal and tilt rows name F16, the simulated common cause X101
-    and the E-value X6 (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).
+    The omitted-variable, marginal and tilt rows name F16
+    (:func:`~cleverly._continuous_survival_family.continuous_survival_refusal`).  The E-value
+    reads the fit's risk ratio and the simulated common cause refits the stored estimator
+    (X101 part (b)), so :meth:`SensitivityFacade._evalue_row` and
+    :meth:`SensitivityFacade._continuous_simulated_row` build their rows.
     """
     return tuple(
         _capability(
@@ -5046,13 +5646,127 @@ def _continuous_survival_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             refusal=continuous_survival_refusal(row.operation),
         )
         for row in _STRUCTURAL_SENSITIVITY
+        if row.operation not in ("evalue", "simulated_confounding")
     )
 
 
-#: The sensitivity declarations of a continuous-time survival fit (X101).
+#: The refused sensitivity declarations of a continuous-time survival fit.
 _CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
     _continuous_survival_sensitivity_rows()
 )
+
+
+#: The families whose every sensitivity row is declared refused, so no request lifts one.
+_REFUSED_SENSITIVITY_FAMILIES = (
+    "structural",
+    AUGMENTED_TRIAL_FAMILY,
+    "effect_modification",
+    "dose_response",
+)
+
+
+def curve_sensitivity_refusal(operation: str) -> Refusal:
+    """Why a sensitivity analysis of an effect curve is refused (P1).
+
+    Parameters
+    ----------
+    operation : str
+        The refused operation.
+
+    Returns
+    -------
+    Refusal
+        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+    """
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"{operation} is defined for a mean or a contrast of means, and no derivation of it "
+        "exists for a conditional contrast curve or its working-model coefficients.",
+        alternative="Run it on ATE() or RiskRatio() on the same study.",
+        roadmap="P1",
+    )
+
+
+def _curve_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of an effect curve, each refused with the P1 record."""
+    return tuple(
+        _capability(
+            row.operation,
+            "effect_modification",
+            artifacts=row.required_artifacts,
+            interpretation=row.interpretation,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            refusal=curve_sensitivity_refusal(row.operation),
+        )
+        for row in _STRUCTURAL_SENSITIVITY
+    )
+
+
+#: The sensitivity declarations of an effect curve.
+_CURVE_SENSITIVITY: tuple[AssessmentCapability, ...] = _curve_sensitivity_rows()
+
+#: Why a dose-response pair has no omitted-variable or marginal bound.
+_DOSE_RESPONSE_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no omitted-variable or marginal sensitivity bound is implemented for a kernel-smoothed "
+    "dose-response pair.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X82",
+)
+
+#: Why a dose-response curve has no simulated common cause.
+_DOSE_RESPONSE_SIMULATED_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no simulated-confounding replay of a dose-response curve is implemented.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X66",
+)
+
+#: Why a dose-response pair has no E-value.
+_DOSE_RESPONSE_EVALUE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "each pair is a smoothed mean outcome at one dose, not a contrast, so there is no ratio "
+    "to convert.",
+)
+
+#: Why the missingness tilt does not apply to a dose-response fit.
+_DOSE_RESPONSE_TILT_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "this fit has no missing outcome, so no observation mechanism exists to tilt; the "
+    "estimator does not yet accept one (X10).",
+)
+
+
+def _dose_response_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of a dose-response fit, each refused with its record."""
+    records = {
+        "simulated_confounding": (_DOSE_RESPONSE_SIMULATED_REFUSAL, AssessmentStatus.UNAVAILABLE),
+        "evalue": (_DOSE_RESPONSE_EVALUE_REFUSAL, AssessmentStatus.NOT_APPLICABLE),
+        "missingness": (_DOSE_RESPONSE_TILT_REFUSAL, AssessmentStatus.NOT_APPLICABLE),
+        "tipping_gamma": (_DOSE_RESPONSE_TILT_REFUSAL, AssessmentStatus.NOT_APPLICABLE),
+    }
+    rows = []
+    for row in _STRUCTURAL_SENSITIVITY:
+        refusal, status = records.get(
+            row.operation, (_DOSE_RESPONSE_BOUND_REFUSAL, AssessmentStatus.UNAVAILABLE)
+        )
+        rows.append(
+            _capability(
+                row.operation,
+                "dose_response",
+                artifacts=row.required_artifacts,
+                interpretation=row.interpretation,
+                available=False,
+                status=status,
+                refusal=refusal,
+            )
+        )
+    return tuple(rows)
+
+
+#: The sensitivity declarations of a dose-response fit.
+_DOSE_RESPONSE_SENSITIVITY: tuple[AssessmentCapability, ...] = _dose_response_sensitivity_rows()
 
 
 class SensitivityFacade(_CapabilityFacade):
@@ -5126,8 +5840,22 @@ class SensitivityFacade(_CapabilityFacade):
             return _STRUCTURAL_SENSITIVITY
         if family == AUGMENTED_TRIAL_FAMILY:
             return _AUGMENTED_TRIAL_SENSITIVITY
+        if family == "effect_modification":
+            # Before the tilt rule and every read of the result's data, which a curve lacks.
+            return _CURVE_SENSITIVITY
+        if family == "dose_response":
+            return _DOSE_RESPONSE_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:
-            return _CONTINUOUS_SURVIVAL_SENSITIVITY
+            refused = {row.operation: row for row in _CONTINUOUS_SURVIVAL_SENSITIVITY}
+            refused["simulated_confounding"] = self._continuous_simulated_row()
+            return (
+                *(
+                    refused[row.operation]
+                    for row in _STRUCTURAL_SENSITIVITY
+                    if row.operation in refused
+                ),
+                self._evalue_row(),
+            )
         if family == "point" and _is_projection(self._result):
             # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
             # axis it has no entry for.
@@ -5351,6 +6079,35 @@ class SensitivityFacade(_CapabilityFacade):
             )
         return selected
 
+    def _continuous_simulated_row(self) -> AssessmentCapability:
+        """The ``simulated_confounding`` row of a continuous-time survival fit (X101 part (b)).
+
+        The surface replays event and censoring times under a latent shift of the
+        cause-specific hazards and refits the stored estimator in every cell.  It is refused
+        only on a result that holds no estimator or data.
+        """
+        from .sensitivity._simulated_confounding_continuous import (
+            continuous_survival_simulated_refusal,
+        )
+
+        refusal = continuous_survival_simulated_refusal(self._result)
+        return _capability(
+            "simulated_confounding",
+            CONTINUOUS_SURVIVAL_FAMILY,
+            artifacts=("fitted estimator configuration", "analysis data"),
+            execution="refit",
+            deterministic=False,
+            cost="expensive",
+            interpretation="estimate movement under a simulated common cause",
+            available=refusal is None,
+            status=AssessmentStatus.PASSED if refusal is None else AssessmentStatus.UNAVAILABLE,
+            refusal=refusal,
+            # A continuous-time fit reports no bare ``ate``, so the call names its estimand.
+            requires_arguments=("grid", "estimand"),
+            accepts_random_state=True,
+            requires_replay="refit_nuisances",
+        )
+
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
         from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
 
@@ -5397,20 +6154,23 @@ class SensitivityFacade(_CapabilityFacade):
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        if operation == "evalue" and _family(self._result) not in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        if (
+            operation == "evalue"
+            and _family(self._result) not in _REFUSED_SENSITIVITY_FAMILIES
+            and not _is_projection(self._result)
         ):
             # The E-value selects for itself from a ``None`` sentinel rather than through
-            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
+            # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand. A
+            # projection fit keeps its declared R9 row, which its call raises (Fix-15).
             return self._evalue_row(arguments.get("estimand"))
         return super()._capability_for_arguments(operation, arguments)
 
-    #: ``benchmark`` resolves ``covariates``, ``simulated_confounding`` resolves
-    #: ``estimand``, and ``tipping_gamma`` resolves ``use_ci``.
+    #: ``benchmark`` resolves ``covariates``, ``marginal_bounds`` and
+    #: ``simulated_confounding`` resolve ``estimand``, and ``tipping_gamma`` resolves
+    #: ``use_ci``.
     _request_gates: ClassVar[Mapping[str, str]] = {
         "benchmark": "_benchmark_gated",
+        "marginal_bounds": "_marginal_estimand_gated",
         "simulated_confounding": "_simulated_confounding_gated",
         "tipping_gamma": "_tipping_interval_gated",
     }
@@ -5482,6 +6242,24 @@ class SensitivityFacade(_CapabilityFacade):
             lambda covariates: benchmark_refusal(self._result, covariates),
             tuple((name,) for name in _benchmark_covariates(self._result.data)),
         )
+
+    def _marginal_estimand_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``marginal_bounds`` row for a named estimand from the call's predicate.
+
+        The bare row already reads the default estimand (:func:`_marginal_row`). A request
+        that names one reads
+        :func:`~cleverly.sensitivity.marginal.marginal_estimand_refusal` at it, which the call
+        raises from: an estimate whose status withholds the interval, or that carries
+        ``"few_cluster_estimand_plugin"``, reads ``unavailable`` with the call's sentence.
+        """
+        from .sensitivity.marginal import marginal_estimand_refusal
+
+        def declared(estimand: str | None) -> Refusal | None:
+            return None if estimand is None else marginal_estimand_refusal(self._result, estimand)
+
+        return _argument_resolved(capability, "estimand", arguments.get("estimand"), declared, ())
 
     def _simulated_confounding_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
@@ -5587,9 +6365,22 @@ class SensitivityFacade(_CapabilityFacade):
         tuple of str
             Eligible reported names, empty when the route settles its own estimand.
         """
+        if operation == "marginal_bounds":
+            # Its ``estimand=None`` resolves to the fit's own reported parameter, and the
+            # call raises when that leaves a choice (Fix-15), so the row defers on the same
+            # candidates rather than run on a parameter the fit did not report.
+            from .sensitivity.marginal import default_estimand_candidates
+
+            candidates = default_estimand_candidates(self._result)
+            return () if len(candidates) == 1 else candidates
         function, _ = self._routed_callable(operation)
         if not _defaults_to_ambiguous_estimand(function):
             return ()
+        if operation == "simulated_confounding" and _family(self._result) == (
+            CONTINUOUS_SURVIVAL_FAMILY
+        ):
+            # Every reported continuous-time estimate runs, so each one is a candidate.
+            return tuple(self._result.estimates)
         if operation == "simulated_confounding":
             from .sensitivity._simulated_confounding_request import (
                 _eligible_binary_parameter_names,
@@ -5720,13 +6511,15 @@ class SensitivityFacade(_CapabilityFacade):
         """
         # The malformed argument first, through the check the function runs first, so the
         # facade and the function report an unknown name before any refusal. A
-        # longitudinal fit has no covariate list to check a name against, and its row
-        # refuses every request.
+        # longitudinal, curve or dose-response fit has no covariate list to check a name
+        # against, and its row refuses every request.
         args, kwargs = _single_pass(args, kwargs)
         if _family(self._result) not in (
             "longitudinal",
             AUGMENTED_TRIAL_FAMILY,
             CONTINUOUS_SURVIVAL_FAMILY,
+            "effect_modification",
+            "dose_response",
         ):
             bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
             _validate_benchmark_arguments(self._result, bound)
@@ -5857,24 +6650,32 @@ class SensitivityFacade(_CapabilityFacade):
     def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         """Refuse by the declared capability, then call the declared implementation."""
         args, kwargs = _single_pass(args, kwargs)
+        self._require_call(operation, args, kwargs)
+        return self._invoke(operation, args, kwargs)
+
+    def _require_call(
+        self, operation: str, args: tuple[Any, ...], kwargs: Mapping[str, Any]
+    ) -> None:
+        """Refuse a call by its row, unless an explicit estimand is the call's to answer."""
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         # The marginal bounds refuse a withheld default estimand by row; a named one is the
         # call's to answer, and the call asks the fit-level refusal itself.
         explicit_evalue = explicit_evalue or (
             operation == "marginal_bounds" and kwargs.get("estimand") is not None
         )
-        # A structural or adaptive TMLE fit declares every row refused, so an explicit
-        # estimand lifts none.
-        if not explicit_evalue or _family(self._result) in (
-            "structural",
-            AUGMENTED_TRIAL_FAMILY,
-            CONTINUOUS_SURVIVAL_FAMILY,
+        # A structural, adaptive TMLE, curve, dose-response or projection fit declares every
+        # row refused, and a continuous-time survival fit every row but the E-value, so an
+        # explicit estimand lifts none of those.
+        if (
+            not explicit_evalue
+            or _family(self._result) in _REFUSED_SENSITIVITY_FAMILIES
+            or (_family(self._result) == CONTINUOUS_SURVIVAL_FAMILY and operation != "evalue")
+            or _is_projection(self._result)
         ):
             # The omitted-variable rows read the request, which can lift their refusal.
             self._require(
                 operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
             )
-        return self._invoke(operation, args, kwargs)
 
     def _with_default_parameter(
         self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]
@@ -5968,3 +6769,40 @@ class SensitivityFacade(_CapabilityFacade):
             supplied=self._validated_arguments(arguments, random_state),
             random_state=random_state,
         )
+
+
+# ------------------------------------------------------------------------- cache eviction
+
+#: Operations whose answer is computed again bit for bit from stored artifacts and stored
+#: answers alone. A combined report reads its rows back from their own entries.
+_EVICTABLE_OPERATIONS: frozenset[str] = frozenset(
+    {"validate", "diagnostics.influence", "diagnostics.run_all", "sensitivity.run_all"}
+)
+
+
+def _cache_eviction_rule(
+    result: Any, operation: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+) -> bool:
+    """Whether an answer to this request may be dropped from a budgeted cache.
+
+    Only a request that resolves to a ``summarize`` or ``retarget`` row declared
+    deterministic from saved artifacts qualifies. Every refit is kept, whatever its seed: a
+    seed fixes only the randomness the package routes through it, and a learner's nested
+    splitter or a user callback can read global state. A bound under an assumed consistent
+    mechanism refits the treatment learner on a selecting C-TMLE fit, so it is kept too.
+    """
+    if operation in _EVICTABLE_OPERATIONS:
+        return True
+    surface, _, name = operation.partition(".")
+    if surface not in ("diagnostics", "sensitivity"):
+        return False
+    if kwargs.get("assume_consistent_mechanism"):
+        return False
+    facade = getattr(result, surface)
+    if name not in {row.operation for row in facade.capabilities}:
+        return False
+    row = facade._capability_for_arguments(name, dict(kwargs))
+    return row.execution in ("summarize", "retarget") and bool(row.deterministic_from_saved)
+
+
+_EVICTION_RULE[:] = [_cache_eviction_rule]

@@ -136,18 +136,25 @@ def test_every_blocked_sidecar_matches_its_record(plan: dict[str, Any]) -> None:
         assert band_rerun.validate_sidecar(record.parent.parent, plan) == [], record
 
 
+#: Sources that import ``band_rerun`` for its capture and replay helpers alone. Each must name no
+#: sidecar file and no sidecar directory, which the test checks.
+CAPTURE_HELPER_USERS = ("tests/studies/evidence/asymmetric_refit.py",)
+
+
 def test_no_support_or_grid_source_reads_a_sidecar() -> None:
     """A blocked run is diagnostic: its verdicts reach no support row and no grid row (4.4)."""
     sources = [*(ROOT / "src/cleverly").rglob("*.py"), *(ROOT / "tests/studies").rglob("*.py")]
-    readers = [
-        path.relative_to(ROOT).as_posix()
-        for path in sources
-        if path.name != "band_rerun.py"
-        and any(
-            text in path.read_text(encoding="utf-8")
-            for text in ("band_rerun", *band_rerun.SIDECAR_FILES)
-        )
-    ]
+    sidecar_names = ("SIDECAR", "sidecar", *band_rerun.SIDECAR_FILES)
+    readers = []
+    for path in sources:
+        relative = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8")
+        if path.name == "band_rerun.py":
+            continue
+        if relative in CAPTURE_HELPER_USERS:
+            assert not any(name in text for name in sidecar_names), relative
+        elif any(name in text for name in ("band_rerun", *band_rerun.SIDECAR_FILES)):
+            readers.append(relative)
     assert readers == []
 
 

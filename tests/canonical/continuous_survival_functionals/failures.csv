@@ -1,0 +1,2 @@
+implementation,group_id,scenarios,replicates,attempt,class,stage,call,message,seed
+cleverly-continuous-survival-functionals,primary/functionals_cf_1k/r000010023,functionals_cf_1k,10023,1,fitting_failure,cleverly fit,cleverly.survival.engine:_initial,"DataError: An initial hazard fit puts a combined jump of one or more at some time, so the product-limit survival is not a probability there. A Breslow jump can exceed one where few units are at risk; choose earlier target times or restricted horizons, or a smaller library.",2215718755

@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
-    MINIMUM_INTERVAL_CLUSTERS,
+    BOUNDARY_NODE_BAND_NOTE,
+    DEFAULT_POINT_INTERVAL_CLUSTERS,
     NO_CONSTANT_ARM_BANDS,
+    NO_JACKKNIFE_BANDS,
     NO_KNOWN_REGIME_BANDS,
     NO_LOGIT_RANGE_BANDS,
     NO_SIMULTANEOUS_BANDS,
@@ -53,8 +55,10 @@ from ..inference.cluster import (
     positive_mass_clause,
     unequal_cluster_sizes,
 )
+from ..inference.cluster_jackknife import jackknife_summary_line
 from ..inference.influence import (
     BOOTSTRAP_INTERVAL_LABELS,
+    bootstrap_diagnostic_reason,
     bootstrap_is_diagnostic,
 )
 from ..inference.multiplier import (
@@ -226,6 +230,10 @@ def _meaning(result: TMLEResult, name: str) -> str:
     key = result.parameter_keys.get(name)
     target = _target_name(result, name)
     axis = getattr(key, "axis", "arm")
+    if result.intermediate_value is not None and target in vocabulary.CDE_PROJECTION_MEANINGS:
+        return vocabulary.CDE_PROJECTION_MEANINGS[target].format(
+            Z=result.data.intermediate_name or "Z", z=f"{result.intermediate_value:g}"
+        )
     template = vocabulary.ESTIMAND_MEANINGS.get(target or "")
     if template is not None and axis == "arm":
         return _fill(template, result, key, target)
@@ -436,8 +444,19 @@ def _bands(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTable,
     if bands.support.label == vocabulary.EXPERIMENTAL:
         sentences.append(vocabulary.NOTE_TEXTS["bands_experimental"])
     outside = [name for name in result.estimates if name not in bands.bands]
+    # An estimate with the boundary-node supplement has an interval, and the band leaves it
+    # out for another reason (X54 part (i)).
+    supplemented = [
+        name
+        for name in outside
+        if getattr(result.estimates[name], "node", None) is not None
+        and result.estimates[name].supplies_inference
+    ]
+    outside = [name for name in outside if name not in supplemented]
     if outside:
         sentences.append(vocabulary.NOTE_TEXTS["bands_leave_out"].format(names=", ".join(outside)))
+    if supplemented:
+        sentences.append(BOUNDARY_NODE_BAND_NOTE.format(names=", ".join(supplemented)))
     return table, note("simultaneous_bands", " ".join(sentences))
 
 
@@ -446,7 +465,7 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
     assert bootstrap is not None
     rows: list[tuple[Cell, ...]] = []
     diagnostic: dict[str, list[str]] = {}
-    floor = MINIMUM_INTERVAL_CLUSTERS
+    floor = DEFAULT_POINT_INTERVAL_CLUSTERS
     experimental: list[str] = []
     interval_name = ""
     for name, estimate in result.estimates.items():
@@ -457,13 +476,9 @@ def _bootstrap(result: TMLEResult, decimals: int, level: str) -> tuple[SummaryTa
         low, high = summary.ci
         flagged = bootstrap_is_diagnostic(estimate)
         if flagged:
-            if not estimate.supplies_inference:
-                reason = "withheld"
-            elif summary.below_floor:
-                reason = "below_floor"
+            reason = bootstrap_diagnostic_reason(estimate)
+            if reason == "below_floor":
                 floor = summary.cluster_floor or floor
-            else:
-                reason = "declared"
             diagnostic.setdefault(reason, []).append(name)
         elif summary.support.label == vocabulary.EXPERIMENTAL:
             experimental.append(name)
@@ -646,6 +661,7 @@ _GROUP_WORDS = {
     "mtp": "the shifted-treatment mean",
     "effect_modification": "the conditional-contrast projection",
     "effect_modification_ratio": "the log-ratio conditional-contrast projection",
+    "effect_modification_ratio_strata": "the log-ratio conditional-contrast projection by stratum",
 }
 
 
@@ -921,8 +937,16 @@ def _settings(result: TMLEResult, clipping: _Clipping) -> SummarySection:
         )
     if data.cluster is not None:
         lines.append(f"Clusters: {_cluster_fact(data)}.")
+        jackknife = jackknife_summary_line(result.estimates)
+        if jackknife is not None:
+            lines.append(jackknife)
     if config.treatment_mechanism == "known":
         lines.append("Treatment probabilities are the declared known values; no limit moved one.")
+        if getattr(config, "conditional_form", "arm_mean") == "known_score":
+            lines.append(
+                "The ATT and ATC weight every row's targeted contrast by the declared "
+                "probability of the conditioning arm (conditional_form='known_score')."
+            )
     if config.bounded_mechanisms:
         lines.append(
             f"Estimated probabilities {_mechanism_words(config.bounded_mechanisms)} raised to "
@@ -1062,6 +1086,8 @@ def _band_settings(result: TMLEResult) -> list[str]:
         return [NO_SIMULTANEOUS_BANDS]
     if t_reference:
         return [NO_T_REFERENCE_BANDS]
+    if any(getattr(estimate, "jackknife", None) is not None for estimate in estimates.values()):
+        return [NO_JACKKNIFE_BANDS]
     if known_regime_estimates(estimates):
         return [NO_KNOWN_REGIME_BANDS]
     constant = constant_arm_members(estimates)
@@ -1116,7 +1142,11 @@ def point_summary(result: TMLEResult, facts: SummaryFacts, detail: Detail) -> Su
     level = f"{level_value * 100:g}%"
     clipping = _clipping(result)
     header, split = _header(result, facts, clipping)
-    table, notes = estimates_table(result.estimates, level=level_value)
+    table, notes = estimates_table(
+        result.estimates,
+        level=level_value,
+        without_split_spread=getattr(result, "se_without_displacement", None),
+    )
     tables = [table]
     key = _key_table(result)
     if key is not None:

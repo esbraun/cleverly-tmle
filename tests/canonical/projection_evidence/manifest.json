@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "study": "Projection evidence",
+  "slug": "projection-evidence",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-projection-tmle",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "f60abdf71c8b7c8497702b57b03ed6b26a7c856f",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "dc4d209215f641284445c1b2642b7c95dfd71ab53a0b20da0301929970aac1fe"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 4000,
+    "seed": 20261511,
+    "resampling_seed": 20261512,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-projection-tmle": 0.01
+    },
+    "scenarios": {
+      "cde_4k": [
+        "z0:cate_projection[(intercept)]",
+        "z1:cate_projection[(intercept)]"
+      ]
+    },
+    "cde_4k": "cde_obs law, n=4000, R=12000, cde, scale difference",
+    "cde_crr_4k": "cde_obs law, n=4000, R=12000, cde, scale log_ratio",
+    "cde_dr_4k": "cde_obs law, n=4000, R=1000, cde_dr, scale difference",
+    "cde_total_4k": "cde_obs law, n=4000, R=500, cde_total, scale difference",
+    "pooled_4k": "observational law, n=4000, R=12000, pooled, scale difference",
+    "pooled_crr_4k": "observational law, n=4000, R=12000, pooled, scale log_ratio",
+    "band_obs_4k": "observational law, n=4000, R=2400, band, scale difference",
+    "band_crr_4k": "observational law, n=4000, R=2400, band, scale log_ratio",
+    "band_clustered_4k": "clustered law, n=4000, R=2400, band, scale difference",
+    "band_rep3_4k": "observational law, n=4000, R=2400, band, scale difference, repeats=3",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/projection_evidence.py": "25994de6e6f1b70577a8cd30d866e0a59fc99f858fc1f2778f8e90d97665a5cc",
+    "tests/studies/projection_evidence_law.py": "fe82b6356e7427cbae663fc1c811f323305e3ba485046822a06fed2d9900a00c",
+    "tests/studies/projection_evidence_pilot.py": "72447776abc53e710ff3028d72d0c55c6e98df0e9ca778761bdec45ad28ed7df",
+    "tests/studies/projection_evidence_properties.py": "fcacaf58572f5822df6a1c5fc121ca71e8a04eb564c4c825db445b7d6f3e20fa",
+    "tests/studies/conditional_projection.py": "1a144ff826cc69afb1b8ab92979a7de0ee6c06fb98df7baf0709f4d99688364f",
+    "tests/studies/point_reading.py": "0cfac12441058a841922a1d1a324db4dca35ed5e74738cba30c1c186b781b5e1",
+    "tests/studies/repeated_sizing.py": "1530cdae8779eeb2df585c501bf5ce0a925c74955ced6d6d533e92408df7d0a5",
+    "tests/studies/evidence/simultaneous.py": "f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "60b2a28b37b0271f1b6afa27eb2c82c0d76972c3788c9c3ca22265d51bf6001d",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "src/cleverly/effect_curves.py": "fb2ab1a4dd0682826386b8a341076083ffc70a2ed37daf2387e76632775dc69d",
+    "src/cleverly/effect_modification.py": "9ef5fd9fd9f9fa3c4490a3485853b4464975f7e4814cfda754bb186dc9a2d49f",
+    "src/cleverly/estimators/direct_effect.py": "dea143d6f015dd6085fcf05c0c7787c0bfd1c1e7859c4cfe6809901b1076f9c9",
+    "src/cleverly/estimators/targeting.py": "47cf4b4eefd58af8f402979478a15304f4bdd25dd6183c1fb253204b57a4f603",
+    "src/cleverly/estimators/tmle.py": "66f6b6a064843b6761497c59ab0b91848045cf1e43ec566c7e58c0b88866470c",
+    "src/cleverly/estimators/_nuisance.py": "2516b3b31221006c32ef0954f31617e8da8d771fa119b55128a18f16c0b74dff",
+    "src/cleverly/estimators/base.py": "005447e7e9d2d8f7fda2002e84ff5d9b223cbd59f26cae547657eca659989f7a",
+    "src/cleverly/fluctuation/submodel.py": "7598b2d03ac6d0dea603aad101ccab5bc54f86220db4adda62bcbe70eabf1dda",
+    "src/cleverly/inference/influence.py": "0575ea43a9bf0d071f55afa5099caee5d5e9defdaf85f57ccef1fbf47360e4ba",
+    "src/cleverly/inference/multiplier.py": "d82b713e24e12126f32527979303cacf72f003f631e5a7ecab0fc06f0ea36c94",
+    "src/cleverly/inference/results.py": "bf08964c0ee6aac7fb9a4e858b24a5090afa89092fc2bf4da20640b655b7bdef",
+    "src/cleverly/_support_rows.py": "4cc614d3faef8d8916e541ef60ccc1a71b7851102ff571792257812a7e4b987f"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "46abab81ba2865042239b7550781b2600760a609cb73f5315d9184943ecb51c4",
+    "summary.csv": "b9856db20404ef849fed868361fd31403520c9cd7d502a0e9d4dcfd79b75fb64",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "a429e08d03d769c4eb6730cb6989abfb8b018e1dcd879fecaae4ee7f4a18cef3",
+    "property-replicates.parquet": "8d188aa085fecde58816f471dbf1ba7946232c22af63bd1e3837f25c7c68a573",
+    "properties.csv": "b1289efb5f943b7ecf6b75a59837993c7193b827061acc0934c79c97a99b38b6"
+  }
+}

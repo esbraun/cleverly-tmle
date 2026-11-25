@@ -1260,10 +1260,16 @@ def calibration_verdicts(
     ``positive_suffix`` names the positive arm, for the reason
     :func:`calibration_controls` takes it.  A study whose positives carry more than one name,
     because some of its cells are not correctly specified, passes them all.
+
+    A :data:`DIAGNOSTIC_ROLE` row publishes its intervals and states no verdict, as the
+    coverage and joint-coverage readers treat it.
     """
     positives = (positive_suffix,) if isinstance(positive_suffix, str) else tuple(positive_suffix)
     calibration = summary["property"] == "interval_calibration"
     for index in summary.index[calibration]:
+        if "role" in summary.columns and summary.loc[index, "role"] == DIAGNOSTIC_ROLE:
+            summary.loc[index, "passed"] = True
+            continue
         kind = str(summary.loc[index, "cell"]).rsplit("__", 1)[-1]
         ratio = summary_interval(summary, index, "se_ratio")
         if kind in positives:
@@ -1816,6 +1822,41 @@ FOLD_POLICY_FAMILY = "fold_policy"
 FOLD_POLICY_REFERENCE_CELL = "unstratified"
 DIAGNOSTIC_ROLE = "diagnostic"
 
+#: The verdict columns every reader takes from ``properties.csv``, in published order.
+PROPERTY_TABLE_COLUMNS = ("property", "cell", "role", "passed", "property_passed")
+
+
+def empty_property_table() -> pd.DataFrame:
+    """The ``properties.csv`` of a record that declares no property cell: no row, every column."""
+    return pd.DataFrame(
+        {
+            name: pd.Series(dtype=bool if name.endswith("passed") else str)
+            for name in PROPERTY_TABLE_COLUMNS
+        }
+    )
+
+
+def read_property_table(record: StudyRecord) -> pd.DataFrame:
+    """Read a record's committed ``properties.csv``.
+
+    A record that declares no property cell publishes no property row, so its table is
+    :func:`empty_property_table` and its file is not read: what a reader sees then follows from
+    the declaration, not from the bytes one run wrote.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose table is read.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The committed table, or :func:`empty_property_table` for a record without property cells.
+    """
+    if not record.property_cells:
+        return empty_property_table()
+    return pd.read_csv(record.artifact("properties.csv"))
+
 
 def fold_policy_seed(record: StudyRecord) -> int:
     """Return the sample seed shared by every arm of a fold-policy diagnostic.
@@ -2107,6 +2148,8 @@ def few_cluster_reference_verdicts(
     rows: pd.DataFrame,
     record: StudyRecord,
     groups: Sequence[Sequence[str]],
+    *,
+    shown_only: bool = False,
 ) -> None:
     """The positive, control and reported rules of every ``few_cluster_reference`` cell.
 
@@ -2129,6 +2172,12 @@ def few_cluster_reference_verdicts(
     likely as under-coverage. ``clustered-few-cluster-tmle`` and
     ``few-cluster-cross-fitted-ltmle`` both read this one rule.
 
+    A study whose fits can withhold an interval (the X54 floor studies) passes ``shown_only``.
+    The SE ratios then read the shown draws (:func:`~tests.studies.evidence.property_failures.shown_mask`: not
+    withheld, with a finite positive SE), and the paired ratio the draws both arms show; a withheld draw stays a miss in the coverage the
+    shared summary computed over every draw. A cell with fewer than two such draws publishes
+    no SE ratio, and its control fails: no clause can be read.
+
     Parameters
     ----------
     summary : pandas.DataFrame
@@ -2140,15 +2189,33 @@ def few_cluster_reference_verdicts(
     groups : sequence of sequence of str
         The module's declared groups of the family (``PROPERTY_GROUPS``), which pair each
         control with its positive arm.
+    shown_only : bool, default False
+        Read the SE ratios on the shown draws, as above.
     """
     margins = record.margins
     family = summary["property"] == FEW_CLUSTER_FAMILY
+    shown_by_cell: dict[str, pd.DataFrame] = {}
 
     def cell_rows(cell: str) -> pd.DataFrame:
-        return rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+        # Indexed once per frame: a boolean scan of every row per call cost minutes on a study
+        # of millions of rows.
+        found = pf.cell_frame(rows, FEW_CLUSTER_FAMILY, cell)
+        selected = rows.iloc[:0] if found is None else found
+        if not shown_only:
+            return selected
+        if cell not in shown_by_cell:
+            # The shown subset is no longer the accounted cell, so it pairs on replicate ids
+            # alone.
+            shown_by_cell[cell] = selected.loc[
+                pf.shown_mask(selected), ["replicate", "estimate", "std_error", "truth"]
+            ]
+        return shown_by_cell[cell]
 
     for index in summary.index[family.to_numpy()]:
         cell = str(summary.loc[index, "cell"])
+        if shown_only and len(cell_rows(cell)) < 2:
+            summary.loc[index, ["se_ratio_ci_lower", "se_ratio_ci_upper"]] = np.nan
+            continue
         ratio = se_ratio_interval(
             cell_rows(cell),
             replicates=margins.bootstrap_replicates,
@@ -2169,9 +2236,18 @@ def few_cluster_reference_verdicts(
             )
         elif role == "control":
             positive, _ = few_cluster_pair(summary, groups, cell)
+            control_rows, positive_rows = cell_rows(cell), cell_rows(positive)
+            if shown_only:
+                both = np.intersect1d(control_rows["replicate"], positive_rows["replicate"])
+                control_rows = control_rows.loc[control_rows["replicate"].isin(both)]
+                positive_rows = positive_rows.loc[positive_rows["replicate"].isin(both)]
+                if len(both) < 2:
+                    summary.loc[index, "passed"] = False
+                    summary.loc[index, "property_passed"] = False
+                    continue
             paired = paired_se_ratio_interval(
-                cell_rows(cell),
-                cell_rows(positive),
+                control_rows,
+                positive_rows,
                 replicates=margins.bootstrap_replicates,
                 confidence_level=margins.confidence_level,
                 seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
@@ -2857,7 +2933,14 @@ def _paired_rules() -> tuple[pf.FamilyRule, ...]:
     )
 
 
-def _few_cluster_rule() -> pf.FamilyRule:
+def few_cluster_rule(*, shown_only: bool = False) -> pf.FamilyRule:
+    """The ``few_cluster_reference`` rule; ``shown_only`` is the floor studies' form.
+
+    With ``shown_only`` the two SE-ratio clauses' worst cases read what the verdict reads
+    (``few_cluster_reference_verdicts(..., shown_only=True)``): the lost count comes from the
+    unfiltered cell, then the withheld rows are dropped. A module that passes ``shown_only`` to
+    the verdict declares this rule in its ``PROPERTY_RULES``.
+    """
     return pf.FamilyRule(
         families=frozenset({FEW_CLUSTER_FAMILY}),
         shared="few_cluster_reference_verdicts",
@@ -2874,6 +2957,7 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
+                shown_only=shown_only,
             ),
             pf.paired_positive_se_clause(
                 "paired positive se ratio at most the sanity ceiling",
@@ -2881,6 +2965,7 @@ def _few_cluster_rule() -> pf.FamilyRule:
                 seed=_cell_seed(FEW_CLUSTER_FAMILY),
                 applies=pf.roles("control"),
                 truth_varies=lambda ctx: False,
+                shown_only=shown_only,
             ),
         ),
     )
@@ -3564,6 +3649,6 @@ FAMILY_RULES: tuple[pf.FamilyRule, ...] = (
     calibration_rule(efficiency_band=None),
     _simultaneous_rule(),
     *_paired_rules(),
-    _few_cluster_rule(),
+    few_cluster_rule(),
     _contraction_rule(),
 )

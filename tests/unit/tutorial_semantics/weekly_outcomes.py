@@ -121,7 +121,7 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert [round(psi[_key("always", week)], 3) for week in WEEKS] == [0.168, 0.111, 0.076]
     assert [round(psi[_key("win_back", week)], 3) for week in WEEKS] == [0.098, 0.085, 0.046]
     assert [round(value, 3) for value in result[_key("always", 1)].ci] == [0.151, 0.185]
-    assert [round(value, 3) for value in result[_key("always", 3)].ci] == [0.030, 0.122]
+    assert [round(value, 3) for value in result[_key("always", 3)].ci] == [0.030, 0.121]
     # "the effect fades as customers get codes in a row".
     assert psi[_key("always", 1)] > psi[_key("always", 2)] > psi[_key("always", 3)]
     # "five of the six intervals holding their true values", and win-back's week 3 misses.

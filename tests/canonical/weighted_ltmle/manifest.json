@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-weighted-ltmle",
-      "cleverly_version": "0.1.0",
-      "cleverly_commit": "d07d2458a28e56479b402bca3fbd81d33b0488c7",
-      "cleverly_worktree_clean": false,
-      "python": "3.13.7",
-      "numpy": "2.4.6",
-      "scipy": "1.18.0",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.0"
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "7d4d8a4a2ce78b7c28965d9da93a2736e305361c",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "ltmle-weighted",
@@ -27,6 +29,10 @@
     "n": 2000,
     "seed": 20261101,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-weighted-ltmle": 0.01,
+      "ltmle-weighted": 0.01
+    },
     "scenarios": {
       "selected_censored_end_of_study": [
         "ey_regimen[never]",
@@ -66,6 +72,7 @@
       "always",
       "treat then continue if l2 positive"
     ],
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -93,37 +100,37 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_weighted_ltmle.py": "e35ee69cdac6f0925dad2dbc27a5d33df13d917367a00dfd558484cbebb68fa0",
-    "tests/studies/weighted_longitudinal_common.py": "fa0484ea3827c1892211811b330daab60ba9603d6a05efe55063877bdded8213",
-    "tests/studies/weighted_ltmle_properties.py": "11a7fd56d29268fef1aab84ccc245c02e741373ade924d126d8d8e9f0dc4d601",
-    "tests/studies/weighted_longitudinal_properties_common.py": "72eff374fa398a39805d18a046ba532cda95289c02a18a64c2eaa75782fd9389",
-    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
-    "tests/studies/canonical_ltmle.py": "d0d88097ead628afc7087070825c377dfbaab34b711ff8efc0275483b76b1868",
-    "tests/studies/ltmle_properties.py": "a24bd7bb06dd2c48adbed9c16ce91c05cee13a42d330bfdd5ae7b08d1183a91b",
-    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
-    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
-    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "f427cb7c417d9778e4876f12e7338ab982b18bfbb861fd87b9f9a08adfcfea2d",
-    "tests/studies/evidence/property_verdicts.py": "22a97bdbde5afa551b88b4a3784f8674eb57753b2327413e634a215c284cc417",
-    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/canonical_weighted_ltmle.py": "3252d9e14a997ed92c2c99f95dfc3f1cf8a052ec3c2c3aee69bd764a7dead1f1",
+    "tests/studies/weighted_longitudinal_common.py": "dafb473ff3f3ade4890df22acdb8cc4106a40ec40a18ee737bb26e689def8147",
+    "tests/studies/weighted_ltmle_properties.py": "bc763b7338760511d0e26e9ec024eebe7dfa07fde663db3bef23b9c8e431db0b",
+    "tests/studies/weighted_longitudinal_properties_common.py": "351027399da2d92b4bcefa66b105a37cba7426ba9b0746b5055efb9f3b2ddf34",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/ltmle_properties.py": "9285c29946decfcde1623a20a6b91fa1bdbae6014d0c999467813f98106c2a01",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
-    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ltmle_regimen_adapter.R": "cf332486a8349cf9f978e5a136ec0343db8e281b888e05abfb417c1c1247e765",
     "tests/canonical/weighted_ltmle/run_study.R": "27d89b6b60e69d5cea9f1d6dd52dd162edeaee34c1aa950ff1da291590d5171d"
   },
   "reference_sha256": {
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
     "tests/canonical/weighted_ltmle/run_study.R": "27d89b6b60e69d5cea9f1d6dd52dd162edeaee34c1aa950ff1da291590d5171d",
-    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
-    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ltmle_regimen_adapter.R": "cf332486a8349cf9f978e5a136ec0343db8e281b888e05abfb417c1c1247e765"
   },
   "sha256": {
-    "replicates.parquet": "a978809ce66c4bc71be085e393ec5ad3ee99b62a4f54f499e772d0f73d0131d2",
-    "summary.csv": "0d1891a0ebcce64e19433a5f2270bae8cb3cf88897164f6c2ac7c29674210507",
-    "equivalence.csv": "b77b8c5f6eade34bb479277bba46ca8d26e73dc53249a0c9db3574e59cbf90cf",
-    "performance-tests.csv": "e6caa18c20054e4515dd096a46cfc4fafdd11e8daca975b4a55d5bed0c030c64",
-    "property-replicates.parquet": "94ac19e8aa4bc248c5b39e51d1fc992dc1f26484c6c75ab929877024161f8ca4",
-    "properties.csv": "1ebbf738a4ad705b46fe3bb4f1bbbc25edb44753ed04167facbecf8264cc8e26"
+    "replicates.parquet": "2aef37ccaa54d3f6ddd411c41c226bd69d9d22b3a1142cbcb7d0938e15a36424",
+    "summary.csv": "875a775e292d843807abdd3cc10d32adab76849b5c8b4bbe1447a3385c053571",
+    "equivalence.csv": "1292b8000eab71c7d0b11e13da1e4d76edf5da8bc52f5c13956e115a8173cef7",
+    "performance-tests.csv": "637a44f81632068c7d2b2e8535af1e094938f796ded594dddac466ea64652e22",
+    "property-replicates.parquet": "ca54b8468a9f83b028ecf3e74717f59d03de23a02e119daed703381c13478b68",
+    "properties.csv": "875de8c8344ce488b24c113ddd3fb8869ae8081b5032c68dc028dd4d4df93e5b"
   }
 }

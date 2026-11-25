@@ -213,7 +213,10 @@ Coordinatewise medians do not preserve identities among several estimands. A rep
 point-treatment fit with the median therefore refuses joint covariance and post-fit contrasts. It also refuses
 simultaneous bands, because a multiplier construction would use the retained central-draw curve.
 That curve supports marginal diagnostics. The split-adjusted variance above supplies the pointwise
-interval.
+interval. The projection coefficients of a `ConditionalContrast` fit are the exception: each draw
+stores its coefficients, covariance and curves, and `covariance()`, the heterogeneity test, the
+effect curve and its band combine the draws by the longitudinal rules below
+([repeated splits](conditional-effects.md#repeated-splits)).
 
 **Longitudinal fits combine each derived quantity per draw.** `LTMLE`, `SDR` and `IPSI` accept
 `repeats`. Each draw is the complete single-draw fit at its own split and seed. The longitudinal
@@ -462,8 +465,9 @@ Each row gives the shipped remedy in the message's own words.
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
 | a treatment arm held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that arm and no fold count or seed can fit the treatment mechanism; fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". Under `id=` the message says "clusters" in place of "rows" |
-| an outcome class held by fewer than two independent units | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that class and no fold count or seed can fit the outcome regression; collect more observations with outcome 1". Under `id=` the message says "clusters" in place of "rows" |
-| a drawn split whose training complement lacks an arm, a row with an observed outcome, an observed outcome class, or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
+| an outcome class held by fewer than two independent units, for `CTMLE`, `DRTMLE`, `AdaptiveIPTW`, a learned rule and a continuous dose | `DataError` before the first learner | "A split moves whole rows, so every partition leaves some training complement without that class and no fold count or seed can fit the outcome regression; collect more observations with outcome 1". Under `id=` the message says "clusters" in place of "rows" |
+| an outcome class held by no independent unit, for a plain `TMLE` of a discrete treatment | `DataError` before the first learner | "Every training complement would hold one value, so there is no outcome regression to fit; collect observations with outcome 1." One unit is enough: a complement without the class takes the [one-value rule](point-treatment-tmle.md#a-binary-outcome-regression-with-one-value) |
+| a drawn split whose training complement lacks an arm, a row with an observed outcome, an observed outcome class (not for a plain `TMLE` of a discrete treatment), or two rows of a Super Learner class | `DataError` before the first learner | "The split is drawn from the seed alone and reads no treatment or outcome, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Either fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), or collect more observations at the rare level." |
 | a drawn longitudinal split that leaves a node level or a regimen unsupported | `LongitudinalError` before the first learner | "The split reads no treatment, outcome or covariate, so trying fold counts or seeds until one fits would choose the partition by the values it must not read. Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect more observations at the rare level." The tail changes with the shortfall |
 | a generated-outcome refutation with a `GaussianAdjustmentOutcome` on a fit that declares `q_bounds` | `CapabilityError` before any refit | "Declare a BoundedAdjustmentOutcome, which draws inside the fit's q_bounds, or refute a fit with q_bounds=None (Targeting(q_bounds=None)) and cross_fit=False (CrossFitting(enabled=False))" |
 | `learned_rule=` with `n_bootstrap` above 0 | `CapabilityError` before any learner | cross-fitted: "To estimate the learned-rule value, fit it with cross_fit=True on the engine, or CrossFitting(enabled=True) on the method, with n_folds of at least 2 and n_bootstrap=0 (Inference(n_bootstrap=0) on the method); cv_evaluation=True on the engine (CrossFitting(fold_evaluation=True) on the method) gives the fold-evaluated report that the registered studies cover. That fit reports the influence-curve interval." Either value of `cv_evaluation` fits, and the default is the stacked report. In sample: "Fit the value of the full-sample rule with n_bootstrap=0 (Inference(n_bootstrap=0) on the method), which reports its influence-curve interval." The message names [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions). A data declaration that no setting repairs refuses first. `cross_fit=False` alone fits the value of the full-sample rule ([one rule fitted on all rows](point-treatment-tmle.md#learned-rules)) |
@@ -473,7 +477,7 @@ Each row gives the shipped remedy in the message's own words.
 | a learned-rule fit whose treatment arm is held by fewer than two units, or whose drawn split leaves a training complement short | `DataError` before the first learner | "collect more observations at the rare arm, or fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value". After a drawn split, the message reads "Either fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value, or collect more observations at the rare level." |
 | a cross-fitted learned-rule fit of a continuous outcome with `q_bounds=None` | `CapabilityError` before any learner | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))). Without a known finite support, fit the value of the full-sample rule with cross_fit=False, a different target from the cross-fitted learned-rule value." |
 | `LearnedRule(loss=...)` with a learner that does not suit the loss: a learner beside `loss="plug_in"`, none beside another loss, a classifier for `"blip"`, a regressor for `"weighted_classification"`, a `SuperLearner` that clips the blip, or a classifier (or a `SuperLearner` member) whose `fit` takes no `sample_weight` | `CapabilityError` with code `invalid_declaration` when `LearnedRule` is built | the remedy of each: "Drop learner=, or pass loss='blip' or loss='weighted_classification' to learn the rule with it.", "Pass learner=, such as LinearRegression() for loss='blip' or LogisticRegression() for loss='weighted_classification'.", "Pass a regressor, or loss='weighted_classification' for a classifier.", "Pass a classifier, or loss='blip' for a regressor.", "Pass a SuperLearner with clip=None.", "Pass a classifier whose fit takes sample_weight, such as LogisticRegression(), and for a SuperLearner a library whose every member's fit takes it." |
-| `loss="blip"` with `weights=` and a regressor (or a `SuperLearner` member) whose `fit` takes no `sample_weight`, row 13 of the refusal table of [learned rules](point-treatment-tmle.md#learned-rules) | `CapabilityError` with code `invalid_declaration` before any learner | "Pass a regressor whose fit takes sample_weight, such as LinearRegression(), and for a SuperLearner a library whose every member's fit takes it." |
+| `loss="blip"` with `weights=` and a regressor (or a `SuperLearner` member) whose `fit` takes no `sample_weight`, row 10 of the refusal table of [learned rules](point-treatment-tmle.md#learned-rules) | `CapabilityError` with code `invalid_declaration` before any learner | "Pass a regressor whose fit takes sample_weight, such as LinearRegression(), and for a SuperLearner a library whose every member's fit takes it." |
 | a rule-learner fit whose inner cross-fit of an outer training fold leaves an inner training complement without an arm, or for a binary outcome without an outcome class | `DataError` before that inner fold's first learner | "Fit the learned-rule value on a larger sample, with fewer outer folds, or with loss='plug_in'." The message names the inner fold, the outer fold and the missing arm or class |
 
 `CrossFitting(n_folds=1)` is not the in-sample spelling. That declaration keeps `enabled=True`, so
@@ -550,6 +554,33 @@ variance takes the centered variance of the cluster totals inside each fold
 at every cluster count. Without a learned rule it also needs clusters of equal denominator mass
 ([clusters of unequal mass](#clusters-of-unequal-mass)).
 
+The training complement of a validation fold is every cluster outside it, so it holds the clusters
+that fit that fold's models. The
+[few-cluster fold variance study](method-evidence/few-cluster-fold-variance.md) measures the
+fold-evaluated interval at 2 to 24 training clusters, with the propensity estimated or declared
+known. A cell passes when the exact 99% interval of its shown coverage lies inside [0.92, 0.98],
+the exact 99% lower end of its coverage over every draw is at least 0.90, and the 99% lower end of
+its variance ratio is at least 0.8649. Every cell passes from 4 training clusters. That holds
+under the study's conditions: equal cluster sizes, equal folds of 2 to 6 clusters at $V = 2$ and
+5, unpenalized logistic learners, and its two binary-outcome laws.
+
+At 2 training clusters, 5.5% of the `equal10` draws withhold their interval, which leaves
+all-draw coverage below 0.90, and the estimated propensity's covariate-law cell reads shown
+coverage 0.926, whose exact lower end sits below 0.92. At 2 clusters per validation fold the
+cells with 8 and 16 training clusters pass, so the limit is the training complement. With an
+estimated propensity on 2 to 8 training clusters, a few fits report very wide intervals: the
+variance ratio of the mean squared SE to the spread reads up to 15.7 while its 5%-trimmed form
+reads 0.94 to 2.2.
+
+`MINIMUM_FOLD_TRAINING_CLUSTERS` keys the floor by mechanism (4 estimated, 4 known), and a fit
+whose smallest training complement holds fewer positive-mass clusters takes
+`"few_cluster_plugin"`. The whole-fit floor still applies. For the ATE it is 8 positive-mass
+clusters, the count from which
+[`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes a fold-evaluated fit,
+and a fit below it keeps `"few_cluster_plugin"` even when every complement holds 4 or more. The arm
+means, the ATT and the ATC keep 10, so at 8 or 9 clusters they take
+`"few_cluster_estimand_plugin"`.
+
 Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
 what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
@@ -559,15 +590,20 @@ what each source recommends. $J$ is the cluster count, which Nugent et al. write
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 | Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
-The package follows Nugent et al. From 10 to 39 positive-mass clusters, in the fit or in the
-stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom, and a
-fold-evaluated estimate uses $J-V$ at every count. Below 10 such
-clusters the fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted, because no
-registered study measures an interval there. An in-sample `LTMLE` fit
-with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
-learners only. [Clusters](inference.md#clusters) gives the rules, and
-[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements at 4 to 9 clusters, and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) keeps fits below 4.
+The package follows Nugent et al. Below 40 positive-mass clusters, in the fit or in the stratum
+an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom, and a fold-evaluated
+estimate uses $J-V$ at every count. Below the fit's interval floor the fit takes the
+`"few_cluster_plugin"` status. For the ATE the floor is 6 in sample, 10 stacked and 8
+fold-evaluated, the counts from which
+[`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes each fit.
+
+Every other estimate keeps 10 and takes `"few_cluster_estimand_plugin"` below it, because the study
+cells read the ATE alone. The registered few-cluster evidence uses parametric nuisance learners
+only. [Clusters](inference.md#clusters) gives the rules,
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the measured limits
+and keeps fits below 4, and
+[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the
+stacked redeclaration and the arm-mean cells.
 
 ### Clusters of unequal mass
 

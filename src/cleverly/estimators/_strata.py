@@ -332,7 +332,7 @@ def refuse_untrainable_leave_two_out(
 
     Raises
     ------
-    ValueError
+    DataError
         If some arm and pair of folds leave no trainable row outside the pair, or if a
         Super Learner role keeps one row of a class there (or no row, except a binary
         outcome class).
@@ -355,7 +355,7 @@ def refuse_untrainable_leave_two_out(
             outside = (assignment != first) & (assignment != second)
             if np.any(trainable & outside):
                 continue
-            raise ValueError(
+            raise DataError(
                 f"folds {first} and {second} together hold every trainable row of arm "
                 f"{data.arm_label(arm)!r} in the sample, so the leave-two-out primary "
                 "regressions of reduced_crossfit='foldwise' cannot be fitted. "
@@ -375,7 +375,7 @@ def refuse_untrainable_leave_two_out(
                 count = int(np.count_nonzero(values == value))
                 if count >= 2 or (count == 0 and role == "outcome" and binary):
                     continue
-                raise ValueError(
+                raise DataError(
                     f"folds {first} and {second} leave {count} {label(float(value))} "
                     f"outside them, so the leave-two-out {role} regression of "
                     "reduced_crossfit='foldwise' cannot be fitted: its learner is a package "
@@ -432,6 +432,60 @@ def check_stratified_msm_design(msm: object, data: CausalData) -> None:
             ) from error
 
 
+def check_stratified_projection_rank(contrast: Any, data: CausalData) -> None:
+    """Refuse a conditional contrast's basis that is singular inside a baseline stratum.
+
+    A stratum coefficient vector of a conditional contrast is the projection on the
+    stratum's rows, so the basis Gram ``P_n[w phi phi' | S = s]`` must have full rank in
+    every stratum.  A modifier equal to the stratum column, or an ``Indicators`` level
+    absent from a stratum, makes it singular.  The check forms each stratum's Gram with the
+    fit's weights and reruns the shipped rank rule (:func:`~cleverly.msm.check_projection_rank`).
+    The fit runs it where it evaluates the basis, so a bootstrap replicate or a repeat that
+    meets a singular stratum raises too; :meth:`~cleverly.CausalStudy.identify` runs it on
+    the full data before any learner.
+
+    Parameters
+    ----------
+    contrast : EffectModificationSet
+        The basis evaluated on the fit's rows.
+    data : CausalData
+        The data of the fit.  The check returns at once without baseline strata.
+
+    Raises
+    ------
+    DataError
+        If the basis is singular inside a stratum.  The message is the shipped rank message
+        with the stratum named first.
+    """
+    from ..msm import check_projection_rank
+
+    if not data.has_strata:
+        return
+    assert data.strata is not None
+    weights = np.asarray(data.weights, dtype=float)
+    design = np.asarray(contrast.design, dtype=float)
+    for code in range(data.n_strata):
+        rows = data.strata == code
+        block, w = design[rows], weights[rows]
+        mass = float(w.sum())
+        gram = (
+            block.T @ (block * w[:, None]) / mass
+            if mass > 0.0
+            else np.zeros((design.shape[1], design.shape[1]))
+        )
+        try:
+            check_projection_rank(gram, contrast.terms, axis="rows of the modifiers")
+        except DataError as error:
+            inner = error.refusal
+            raise DataError.from_refusal(
+                replace(
+                    inner,
+                    condition=f"inside baseline stratum {data.stratum_label(code)}: "
+                    f"{inner.condition}",
+                )
+            ) from error
+
+
 def check_stratified_targets(data: CausalData, *, incremental: bool, msm: object | None) -> None:
     """Refuse, before any learner, a stratified target whose stratum equations cannot be solved.
 
@@ -472,8 +526,9 @@ def check_stratified_targets(data: CausalData, *, incremental: bool, msm: object
 #: learned-rule value reads each fold's own rule as the one-hot regime density of the fold's
 #: rows, so stratum :math:`s` of fold :math:`v` evaluates the fixed rule :math:`d_v`.
 #: The known regimes declared beside a learned rule (X11 (c)) and their contrasts with it are
-#: regime means and their differences on the same folds. Every other target keeps the refusal
-#: of :func:`fold_evaluated_strata_refusal`.
+#: regime means and their differences on the same folds. The value of the optimal rule and its
+#: contrasts (X11 (f3)) are the same columns under other names. Every other target keeps the
+#: refusal of :func:`fold_evaluated_strata_refusal`.
 FOLD_EVALUATED_STRATA_TARGETS: frozenset[str] = frozenset(
     {
         "ate",
@@ -485,6 +540,8 @@ FOLD_EVALUATED_STRATA_TARGETS: frozenset[str] = frozenset(
         "ey_learned_rule",
         "ey_known_regime",
         "ate_learned_rule",
+        "ey_optimal_rule",
+        "ate_optimal_rule",
     }
 )
 
@@ -495,8 +552,9 @@ def _x28_gap(what: str, why: str, alternative: str) -> CapabilityError:
     return CapabilityError(
         "cv_evaluation=True with baseline strata reports the arm means and their linear "
         "contrasts (ey, ate), the regime means and their contrasts (ey_regime, ate_regime), "
-        "and the learned-rule value (ey_learned_rule) with its known regimes and their "
-        "contrasts (ey_known_regime, ate_learned_rule), "
+        "and the learned-rule value (ey_learned_rule) or the value of the optimal rule "
+        "(ey_optimal_rule) with its known regimes and their contrasts (ey_known_regime, "
+        "ate_learned_rule, ate_optimal_rule), "
         f"on complete data with rows as the independent unit. {what} is not implemented: "
         f"{why}.",
         reason=RefusalReason.IMPLEMENTATION_GAP,

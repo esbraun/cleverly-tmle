@@ -30,12 +30,18 @@ from typing import Any, Final, Literal
 
 from ._inference_status import (
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_INTERVAL_CLUSTERS,
-    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     STATUS_RECORDS,
+    cluster_interval_floor,
+    longitudinal_floor_family,
+    point_floor_family,
     supplies_inference,
 )
 from ._refusal import Refusal
+from .data.known_mechanism import (
+    divides_by_declaration,
+    estimates_declared_tilt,
+    tilts_node_declarations,
+)
 
 __all__ = [
     "ADAPTIVE_IN_SAMPLE_REASON",
@@ -331,20 +337,25 @@ class SupportKey:
         1) and ``supplied_plan`` where they apply.
     dependence : {"iid", "clustered", "t", "below_floor"}
         ``clustered`` from 40 clusters with positive weight mass, ``t`` from the interval floor
-        to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
-        longitudinal one.
+        to 39, ``below_floor`` under the floor. The floor is the fit's floor family's
+        (:func:`interval_floor`).
     qualifiers : frozenset of str
-        ``strata``, ``known_mechanism`` and, on a learned-rule fit with clusters of unequal
+        ``strata``, ``known_mechanism``, ``tilted_mechanism`` (a declaration read in the
+        weighted sample, ``mechanism_law="sample"``, which the fit estimates as a tilt) and, on a
+        learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
         ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
-        holds the known factors. A clustered key on the ``t`` tier adds ``adaptive_nuisance``
-        when a nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`); a
-        row that does not declare it still covers the fit (:data:`SOFT_QUALIFIERS`).
+        holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
+        weighted sample. A clustered key on the ``t`` or ``clustered`` tier adds
+        ``adaptive_nuisance`` when a nuisance learner the fit uses is data-adaptive
+        (:func:`adaptive_nuisance`); a row that does not declare it still covers the fit
+        (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``,
+        point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
+        ``conditional_form`` of the ATT and ATC,
         a ``patience`` or a ``treatment_adjustment`` subset, and under a declared stopping rule
         the ``step_bound`` (``"none"``, ``"search"`` or ``"fixed"``) and the reported
         ``iterate``; under ``stopping="relative"`` those two read ``"none"`` and ``"last"``,
@@ -354,8 +365,10 @@ class SupportKey:
         policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm,
         the ``isotonic`` projection, whether the fit declares ``node_bounds``, the
         ``hazard_pooling``, whether it declares a ``ratio_trim``, whether the data declare a
-        ``markov_order``, whether a regimen has a ``tuned_cap``, and the ``stopping``,
-        ``step_bound`` and ``iterate`` of a point key. No key holds the band's
+        ``markov_order``, whether a regimen has a ``tuned_cap``, the ``stopping``,
+        ``step_bound`` and ``iterate`` of a point key, and ``later_covariates``: whether a
+        hazard fit (``survival_model="hazard"``) has a covariate block at a node after the
+        first. No key holds the band's
         ``multiplier_kind`` or ``band_scale``: pointwise inference never reads them, so they
         are checked against the row's ``band_options`` by :func:`band_support` alone.
     """
@@ -456,8 +469,41 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
+def floor_family(key: SupportKey) -> str | None:
+    """The floor family of the fit ``key`` describes, or ``None`` for an unmeasured one.
+
+    It reads the axes the estimators' own floor hooks read: the engine, the splitting scheme,
+    the ``known_mechanism`` qualifier and DR-TMLE's ``reduced_crossfit`` option.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The fit's key.
+
+    Returns
+    -------
+    str or None
+        A key of :data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`, or ``None``.
+    """
+    scheme = key.splitting[0] if key.splitting else ""
+    repeated = "repeated" in key.splitting
+    if key.kind == "point":
+        return point_floor_family(
+            key.engine[0] if key.engine else "",
+            scheme,
+            repeated=repeated,
+            known_mechanism="known_mechanism" in key.qualifiers,
+            foldwise=dict(key.options).get("reduced_crossfit") == "foldwise",
+        )
+    return longitudinal_floor_family(
+        key.engine[0] if key.engine else "",
+        cross_fitted=scheme == "cross_fitted",
+        repeated=repeated,
+    )
+
+
 def interval_floor(key: SupportKey) -> int:
-    """The cluster count below which ``key`` reads ``below_floor``: 10 for a point fit, else 20.
+    """The cluster count below which ``key`` reads ``below_floor``: its floor family's floor.
 
     Parameters
     ----------
@@ -467,11 +513,10 @@ def interval_floor(key: SupportKey) -> int:
     Returns
     -------
     int
-        The interval floor of the fit's kind.
+        The interval floor of the fit's family (:func:`floor_family`), or the default floor of
+        its kind.
     """
-    if key.kind == "point":
-        return MINIMUM_INTERVAL_CLUSTERS
-    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+    return cluster_interval_floor(floor_family(key), longitudinal=key.kind != "point")
 
 
 def _dependence(clusters: int | None, floor: int) -> str:
@@ -483,6 +528,11 @@ def _dependence(clusters: int | None, floor: int) -> str:
     if clusters >= floor:
         return "t"
     return "below_floor"
+
+
+def _with_dependence(key: SupportKey, data: Any) -> SupportKey:
+    """``key`` with its dependence tier, read against the floor of its floor family."""
+    return replace(key, dependence=_dependence(_positive_mass_clusters(data), interval_floor(key)))
 
 
 def _positive_mass_clusters(data: Any) -> int | None:
@@ -752,9 +802,7 @@ def in_sample_learned_rule_learners(estimator: Any, data: Any) -> dict[str, str]
     families = {
         "outcome_learner_family": learner_family(estimator.outcome_learner),
         "treatment_learner_family": (
-            "known"
-            if data.known_treatment is not None
-            else learner_family(estimator.treatment_learner)
+            "known" if divides_by_declaration(data) else learner_family(estimator.treatment_learner)
         ),
     }
     rule = estimator.learned_rule
@@ -872,6 +920,61 @@ def _stopping_options(estimator: Any) -> dict[str, str]:
     }
 
 
+def point_scheme(estimator: Any) -> str:
+    """The splitting scheme of a point-treatment fit, the first entry of its key's ``splitting``.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed.
+
+    Returns
+    -------
+    str
+        ``"in_sample"``, ``"stacked"``, ``"fold_evaluated"``, ``"fold_targeted"`` or
+        ``"fold_targeted_evaluated"``.
+    """
+    if not estimator.cross_fit:
+        return "in_sample"
+    folded = estimator.targeting_scheme != "pooled"
+    if estimator.cv_evaluation:
+        return "fold_targeted_evaluated" if folded else "fold_evaluated"
+    return "fold_targeted" if folded else "stacked"
+
+
+def point_interval_floor(estimator: Any, data: Any) -> int:
+    """The interval floor of a point-treatment fit, read from its configuration before any learner.
+
+    It reads what :func:`point_key` reads for :func:`floor_family`, so the status an estimator
+    stamps and the dependence tier of its key agree. The treatment mechanism does not enter
+    for TMLE: the floor study measures each TMLE family with a declared and an estimated
+    mechanism, and a count passes only when both do.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    int
+        The floor of the fit's floor family, or
+        :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
+    """
+    method = str(getattr(estimator, "_assessment_method", type(estimator).__name__))
+    foldwise = getattr(estimator, "_foldwise", None)
+    family = point_floor_family(
+        method,
+        point_scheme(estimator),
+        repeated=getattr(estimator, "repeats", 1) != 1,
+        known_mechanism=divides_by_declaration(data),
+        foldwise=bool(foldwise()) if callable(foldwise) else False,
+    )
+    return cluster_interval_floor(family, longitudinal=False)
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -902,14 +1005,7 @@ def point_key(
             # engine: a row for it never matches a per-arm fit that keeps the shipped curve.
             engine += ("parametric_stack",)
 
-    if estimator.cross_fit:
-        folded = estimator.targeting_scheme != "pooled"
-        if estimator.cv_evaluation:
-            scheme = "fold_targeted_evaluated" if folded else "fold_evaluated"
-        else:
-            scheme = "fold_targeted" if folded else "stacked"
-    else:
-        scheme = "in_sample"
+    scheme = point_scheme(estimator)
     splitting = [scheme]
     if estimator.repeats != 1:
         splitting.append("repeated")
@@ -935,8 +1031,13 @@ def point_key(
     qualifiers = set()
     if data.has_strata:
         qualifiers.add("strata")
-    if data.known_treatment is not None:
+    if divides_by_declaration(data):
         qualifiers.add("known_mechanism")
+    if estimates_declared_tilt(data):
+        # ``mechanism_law="sample"`` beside tilting weights: the mechanism is the declaration
+        # times a weighted classification, a construction of its own, so only a row of a study
+        # of that route covers it, and its rows never cover an ordinary weighted fit.
+        qualifiers.add("tilted_mechanism")
     if getattr(estimator, "learned_rule", None) is not None and _unequal_clusters(data):
         # Unequal sizes that depend on the outcome put a ratio bias in the fold-evaluated point,
         # so a learned-rule row never covers unequal sizes unless it declares them. Only the
@@ -961,9 +1062,14 @@ def point_key(
         "target_weights": estimator.target_weights,
         **_stopping_options(estimator),
         "outcome_by_arm": bool(getattr(estimator, "outcome_by_arm", False)),
+        "conditional_form": str(getattr(estimator, "conditional_form", "arm_mean")),
         "patience": getattr(estimator, "patience", None) is not None,
         "treatment_adjustment": getattr(data, "treatment_covariate_names", None) is not None,
     }
+    if getattr(estimator, "cluster_variance", "influence_curve") == "jackknife":
+        # The delete-one-cluster jackknife is another variance of the interval (X54 (c)). No
+        # registered row lists it, so the fit reads experimental until its study registers.
+        options["cluster_variance"] = "jackknife"
     if method == "drtmle":
         for name in ("guard", "reduction", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
@@ -994,13 +1100,6 @@ def point_key(
             # never covers it.
             options["tuned_cap"] = True
 
-    dependence = _dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS)
-    if dependence in _INTERVAL_TIERS and adaptive_nuisance(
-        _point_nuisance_learners(estimator, data)
-    ):
-        # X54 part (h): the clustered evidence of every row fits parametric nuisances.
-        qualifiers.add(ADAPTIVE_NUISANCE)
-
     key = SupportKey(
         kind="point",
         engine=engine,
@@ -1010,10 +1109,16 @@ def point_key(
         treatment=treatment,
         weighting=_weighting(data),
         splitting=tuple(splitting),
-        dependence=dependence,
+        dependence="",
         qualifiers=frozenset(qualifiers),
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
+    key = _with_dependence(key, data)
+    if key.dependence in _INTERVAL_TIERS and adaptive_nuisance(
+        _point_nuisance_learners(estimator, data)
+    ):
+        # X54 part (h): the clustered evidence of every row fits parametric nuisances.
+        key = replace(key, qualifiers=key.qualifiers | {ADAPTIVE_NUISANCE})
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),
@@ -1118,17 +1223,6 @@ def longitudinal_key(
             (data.node_kind(time), node) for time, node in enumerate(data.treatment_levels, 1)
         )
     )
-    dependence = _dependence(_positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS)
-    qualifiers = (
-        (*known_factors, f"separable_first_cause_{separable_first}")
-        if separable_first is not None
-        else tuple(known_factors)
-    )
-    if dependence in _INTERVAL_TIERS and adaptive_nuisance(
-        _longitudinal_nuisance_learners(estimator, data, qualifiers)
-    ):
-        # X54 part (h), as for a point fit.
-        qualifiers = (*qualifiers, ADAPTIVE_NUISANCE)
     key = SupportKey(
         kind="longitudinal",
         engine=getattr(estimator, "_support_engine", None) or (str(estimator._estimator),),
@@ -1158,8 +1252,20 @@ def longitudinal_key(
             if cross_fitted
             else ("in_sample",)
         ),
-        dependence=dependence,
-        qualifiers=frozenset(qualifiers),
+        dependence="",
+        qualifiers=frozenset(
+            (
+                *known_factors,
+                *(
+                    (f"separable_first_cause_{separable_first}",)
+                    if separable_first is not None
+                    else ()
+                ),
+                # A declared node read in the weighted sample is an estimated factor of its own
+                # construction (``mechanism_law="sample"``), as on the point key.
+                *(("tilted_mechanism",) if tilts_node_declarations(data) else ()),
+            )
+        ),
         options=(
             ("normalization", _option(estimator._normalization())),
             ("ratio", _option(getattr(estimator, "ratio", "density"))),
@@ -1172,8 +1278,29 @@ def longitudinal_key(
             ("markov_order", getattr(data, "markov_order", None) is not None),
             ("tuned_cap", tuned_cap),
             *_stopping_options(estimator).items(),
+            # A hazard fit with a covariate block at a node after the first runs the backward
+            # pass (X70 parts (b1) and (b2)), a different estimator from the baseline hazard
+            # engine.
+            (
+                "later_covariates",
+                estimator.survival_model == "hazard"
+                and any(getattr(data, "time_varying_names", ())[1:]),
+            ),
+            # The delete-one-cluster jackknife (X54 (c)). No registered row lists it, so the
+            # fit reads experimental until its study registers.
+            *(
+                (("cluster_variance", "jackknife"),)
+                if getattr(estimator, "cluster_variance", "influence_curve") == "jackknife"
+                else ()
+            ),
         ),
     )
+    key = _with_dependence(key, data)
+    if key.dependence in _INTERVAL_TIERS and adaptive_nuisance(
+        _longitudinal_nuisance_learners(estimator, data, key.qualifiers)
+    ):
+        # X54 part (h), as for a point fit.
+        key = replace(key, qualifiers=key.qualifiers | {ADAPTIVE_NUISANCE})
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "pseudo": _learner_type(estimator.pseudo_learner),
@@ -1240,12 +1367,11 @@ def structural_key(
         treatment=levels,
         weighting=_weighting(data),
         splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
-        dependence=_dependence(
-            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        ),
+        dependence="",
         qualifiers=frozenset(),
         options=(("covariate_features", bool(covariate_features)),),
     )
+    key = _with_dependence(key, data)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),

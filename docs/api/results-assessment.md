@@ -12,6 +12,8 @@ rows as a dataframe.
    cleverly.estimators.TMLEResult
    cleverly.estimators.DoseResponseResult
    cleverly.estimators.PairSupport
+   cleverly.estimators.dose_response.DoseResponseSupportReport
+   cleverly.estimators.dose_response.DoseResponseScoreReport
    cleverly.longitudinal.LongitudinalResult
    cleverly.AdaptiveTMLEResult
    cleverly.estimators.atmle_result.AdaptiveTMLESupport
@@ -27,13 +29,18 @@ rows as a dataframe.
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
    cleverly.AssessmentStatus
+   cleverly.assessment.AssessmentCache
+   cleverly.assessment.CacheEntry
    cleverly.DiagnosticReport
    cleverly.ValidationReport
    cleverly.Replayability
    cleverly.TruncationCurve
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
+   cleverly.ImportanceFacts
+   cleverly.assessment.CandidateReports
    cleverly.variable_importance
+   cleverly.variable_importance_plan
    cleverly.load
    cleverly.effect_curves.EffectCurveResult
    cleverly.effect_curves.CurveBand
@@ -51,6 +58,11 @@ rows as a dataframe.
 `TMLEResult.fluctuations` returns one `Fluctuation` for each target group. A fold-targeted
 cross-validated fit fills that record's `folds` field with one `FoldFluctuation` for each
 validation fold.
+
+`DoseResponseResult.diagnostics.support()` returns a `DoseResponseSupportReport`, and
+`score_equations()` returns a `DoseResponseScoreReport`. On a `VariableImportanceResult`, each
+`diagnostics` and `sensitivity` call runs on every candidate's fit and returns a
+`CandidateReports`, which maps each candidate to its own report.
 
 `TMLEResult.effect_curve()` returns an `EffectCurveResult` for a fit of a `ConditionalContrast`,
 and `TMLEResult.heterogeneity_test()` returns a `HeterogeneityTest`.

@@ -10,6 +10,7 @@ time ``k - 1``, so censoring ties with the events of node ``k - 1``.
 from __future__ import annotations
 
 import warnings
+from fractions import Fraction
 from functools import cache
 from typing import Any
 
@@ -25,7 +26,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
 )
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard, StratifiedNelsonAalen, _targeting
-from cleverly.survival._targeting import Problem, evaluate, walk
+from cleverly.survival._targeting import Problem, evaluate, point_weights, walk
 from cleverly.survival.cox import (
     _design,
     _loglik_parts,
@@ -126,7 +127,8 @@ def _problem(
         [((T[:, None] == grid[None, :]) & (D[:, None] == j + 1)).astype(float) for j in range(2)]
     )
     index = np.searchsorted(grid, HORIZONS, side="right") - 1
-    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), index), dlam
+    weights = point_weights(index, grid.size)
+    return Problem(A, at_risk, events, 1.0 / (pi[:, :, None] * retention), weights), dlam
 
 
 def _ic_error(problem: Problem, dlam: np.ndarray) -> float:
@@ -226,8 +228,8 @@ def test_freezing_the_other_cause_keeps_the_bias(
     problem, dlam = wrong_hazard
     original = _targeting._direction
 
-    def frozen(problem: Problem, evaluation: Any, v: np.ndarray) -> np.ndarray:
-        out = original(problem, evaluation, v)
+    def frozen(problem: Problem, evaluation: Any, v: np.ndarray, dlam: np.ndarray) -> np.ndarray:
+        out = original(problem, evaluation, v, dlam)
         out[:, 1] = 0.0
         return out
 
@@ -264,6 +266,120 @@ def test_a_held_pair_that_still_reads_below_the_floor_halves_the_step(
     assert result.halvings > 0
 
 
+# ------------------------------------------- the clever covariate where survival is tiny
+
+
+def _steep_paths() -> tuple[np.ndarray, np.ndarray]:
+    """``(J, M)`` hazard jumps whose survival falls to about 1e-20 at grid position 34 of 40.
+
+    An extrapolating Cox fit gives such a path to a unit with extreme covariates; the old
+    clever covariate differenced two incidences near one there and lost every digit.
+    """
+    M = 40
+    dlam = np.zeros((2, M))
+    dlam[0] = np.linspace(0.01, 0.03, M)
+    dlam[1] = 0.01
+    dlam[0, 20:35] = 0.9
+    dlam[1, 20:35] = 0.05
+    return dlam, np.cumprod(1.0 - dlam.sum(axis=0))
+
+
+def _steep_weights() -> np.ndarray:
+    """``(Q, M)`` risks at positions 30 and 39 and a restricted mean scaled by ``1 / tau``."""
+    grid = np.linspace(0.1, 4.0, 40)
+    return np.vstack(
+        [point_weights(np.array([30, 39]), 40), _targeting.restricted_weights(grid, 3.75) / 3.75]
+    )
+
+
+def _exact_quotient(dlam: np.ndarray, omega: np.ndarray, j: int) -> list[Fraction]:
+    """:math:`\\sum_{m \\ge k} \\omega_m \\{F_j(u_m) - F_j(u_k)\\} / S(u_k)` in exact rationals."""
+    M = dlam.shape[1]
+    d = [[Fraction(float(x)) for x in row] for row in dlam]
+    w = [Fraction(float(x)) for x in omega]
+    survival, incidence, s, f = [], [], Fraction(1), Fraction(0)
+    for k in range(M):
+        f += s * d[j][k]
+        s *= 1 - sum(d[l][k] for l in range(len(d)))
+        survival.append(s)
+        incidence.append(f)
+    return [
+        sum((w[m] * (incidence[m] - incidence[k]) for m in range(k, M)), Fraction(0)) / survival[k]
+        for k in range(M)
+    ]
+
+
+def test_the_conditional_risk_holds_every_digit_where_the_survival_is_tiny() -> None:
+    dlam, survival = _steep_paths()
+    assert 1e-21 < survival[34] < 1e-19
+    worst = np.zeros(2)
+    for omega in _steep_weights():
+        tail = np.cumsum(omega[::-1])[::-1]
+        for j in (0, 1):
+            exact = np.array([float(x) for x in _exact_quotient(dlam, omega, j)])
+            stable = _targeting.conditional_risk(survival, dlam[j], tail)
+            np.testing.assert_allclose(stable, exact, rtol=1e-12, atol=1e-300)
+            assert np.all(stable >= 0.0) and np.all(stable <= omega.sum() * (1 + 1e-12))
+            # The cancelling form the engine used before, a difference of cumulative
+            # incidences near one over the survival, agrees where the survival is ordinary.
+            incidence = np.cumsum(_targeting._before(survival) * dlam[j])
+            cancelling = (np.cumsum((omega * incidence)[::-1])[::-1] - tail * incidence) / survival
+            ordinary = survival > 1e-3
+            np.testing.assert_allclose(cancelling[ordinary], exact[ordinary], rtol=1e-9, atol=1e-12)
+            tiny = survival < 1e-15
+            worst[j] = max(worst[j], float(np.max(np.abs(cancelling - exact)[tiny])))
+    # Mutation: where the survival is tiny that form is wrong by a tenth or more for both
+    # causes, on a quotient that lies in [0, 1] for every row here.
+    assert np.all(worst > 0.1)
+
+
+def test_the_score_and_direction_hold_where_the_survival_is_tiny() -> None:
+    # Unit 0 received arm 1, follows the steep path and is at risk while its survival is
+    # ~1e-20 (its cause-2 event is at position 33), so its residuals there carry the quotient
+    # into the score: a nonzero witness for evaluate and _direction past the old floor.
+    paths, _ = _steep_paths()
+    J, n, M = 2, 3, 40
+    dlam = np.zeros((2, J, n, M))
+    dlam[...] = np.array([0.02, 0.01])[None, :, None, None]
+    dlam[1, :, 0] = paths
+    arm = np.array([1, 0, 1])
+    last = np.array([33, 20, 38])
+    cause = np.array([1, 0, 1])
+    at_risk = np.arange(M)[None, :] <= last[:, None]
+    events = np.zeros((J, n, M), dtype=bool)
+    for i in range(n):
+        events[cause[i], i, last[i]] = True
+    weight = np.broadcast_to(np.array([1.3, 1.1, 1.7])[None, :, None], (2, n, M)).copy()
+    rows = _steep_weights()
+    problem = Problem(arm, at_risk, events, weight, rows)
+    evaluation = evaluate(problem, dlam)
+    Q = rows.shape[0]
+    v = np.random.default_rng(3).normal(size=problem.n_targets)
+    direction = _targeting._direction(problem, evaluation, v, dlam)
+    expected = np.zeros((2, J, n, M))
+    for a in (0, 1):
+        for i in range(n):
+            # c_l = 1{l = j} W - H_j, summed over targets with v; the score part is
+            # 1{A = a} sum_k sum_l c_l w (dN_l - Y dLam_l).
+            residual = weight[a, i] * (events[:, i] - at_risk[i] * dlam[a, :, i])
+            for j in range(J):
+                for q in range(Q):
+                    p = (a * J + j) * Q + q
+                    tail = np.cumsum(rows[q][::-1])[::-1]
+                    quotient = np.array(
+                        [float(x) for x in _exact_quotient(dlam[a, :, i], rows[q], j)]
+                    )
+                    clever = -np.tile(quotient, (J, 1))
+                    clever[j] += tail
+                    part = float(np.sum(clever * residual)) if arm[i] == a else 0.0
+                    plugin = evaluation.incidence[a, j, i] @ rows[q]
+                    got = evaluation.influence[i, p] - plugin + evaluation.psi[p]
+                    np.testing.assert_allclose(got, part, rtol=1e-10, atol=1e-12)
+                    expected[a, :, i] += v[p] * weight[a, i] * clever
+    assert np.all(np.isfinite(direction))
+    np.testing.assert_allclose(direction, expected, rtol=1e-10, atol=1e-12)
+
+
 def test_the_true_hazards_take_no_step_under_any_censoring_model() -> None:
     problem, dlam = _problem(tie_rule=False)
     assert walk(problem, dlam, cutoff=1e-12).steps == 0
@@ -282,7 +398,7 @@ def test_the_path_derivative_of_the_log_likelihood_is_the_score_norm(
     metric = _targeting._metric(sigma, norm)  # type: ignore[arg-type]
     x = evaluation.score
     length = float(np.sqrt(x @ metric @ x))
-    direction = _targeting._direction(problem, evaluation, metric @ x / length)
+    direction = _targeting._direction(problem, evaluation, metric @ x / length, dlam)
     factual = np.stack([(problem.arm == a) for a in (0, 1)])[:, None, :, None]
 
     def loglik(step: float) -> float:
@@ -417,21 +533,187 @@ def test_a_newton_step_that_fails_every_halving_is_not_taken(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Away from zero the likelihood is not finite, as when a risk set's weights underflow at a
-    # monotone-likelihood boundary: the fit stays at its last finite coefficients and warns.
+    # monotone-likelihood boundary: the fit stays at its last resolved coefficients and warns.
     from cleverly.survival import cox
 
     X, time, event = _cox_sample()
-    original = cox._loglik_parts
+    original = cox._loglik
 
-    def overflowing(beta: np.ndarray, *args: Any) -> tuple[float, np.ndarray, np.ndarray]:
-        loglik, grad, info = original(beta, *args)
-        return (loglik if not np.any(beta) else float("nan")), grad, info
+    # A halving trial reads the log likelihood alone.
+    def overflowing(beta: np.ndarray, *args: Any) -> float:
+        return original(beta, *args) if not np.any(beta) else float("nan")
 
-    monkeypatch.setattr(cox, "_loglik_parts", overflowing)
-    with pytest.warns(ConvergenceWarning, match="monotone-likelihood boundary"):
+    monkeypatch.setattr(cox, "_loglik", overflowing)
+    with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
         model = CoxHazard("main").fit(X, time, event)
     assert not model.converged_
+    assert not model.monotone_likelihood_  # stuck at zero, not pinned at the range's edge
     np.testing.assert_array_equal(model.coef_, 0.0)
+
+
+def test_a_trial_whose_likelihood_reads_plus_infinity_is_not_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An underflowed risk set gives log(0) = -inf and a likelihood of +inf, which a plain
+    # "not lower" test accepts.
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    original = cox._loglik
+
+    def underflowing(beta: np.ndarray, *args: Any) -> float:
+        return original(beta, *args) if not np.any(beta) else float("inf")
+
+    monkeypatch.setattr(cox, "_loglik", underflowing)
+    with pytest.warns(ConvergenceWarning, match="last fit whose likelihood was resolved"):
+        model = CoxHazard("main").fit(X, time, event)
+    np.testing.assert_array_equal(model.coef_, 0.0)
+
+
+def _heavy_tailed_sample(n: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A regular law whose covariate is lognormal: one outlier dominates the risk weights."""
+    rng = np.random.default_rng(seed)
+    L = rng.lognormal(0.0, 2.5, n)
+    A = rng.binomial(1, 0.5, n)
+    hazard = np.exp(0.5 * A + np.log(L))
+    T = rng.exponential(1 / hazard)
+    C = rng.exponential(2 * np.median(1 / hazard), n)
+    return np.column_stack([A, L]), np.minimum(T, C), (T <= C).astype(float)
+
+
+@pytest.mark.parametrize(("n", "seed"), [(1000, 1), (2000, 3)])
+def test_a_newton_step_past_the_resolved_range_on_regular_data_is_halved(
+    monkeypatch: pytest.MonkeyPatch, n: int, seed: int
+) -> None:
+    # Newton's first steps on these draws spread the linear predictor past the bound, where risk
+    # sets underflow to +inf, though the maximum is interior. Halving and carrying on reaches it;
+    # taking the +inf trial (main) or stopping at the bound does not.
+    from cleverly.survival import cox
+
+    X, time, event = _heavy_tailed_sample(n, seed)
+    reached: list[float] = []
+    original = cox._loglik
+
+    def recording(beta: np.ndarray, Z: np.ndarray, sets: Any) -> Any:
+        reached.append(float(np.ptp(Z @ beta)))
+        return original(beta, Z, sets)
+
+    # Halving trials read the log likelihood alone.
+    monkeypatch.setattr(cox, "_loglik", recording)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = CoxHazard("main").fit(X, time, event)
+    assert model.converged_ and not model.monotone_likelihood_
+    assert np.ptp(model.linear_predictor(X)) < 0.5 * cox._SPREAD_MAX
+    _, grad, _ = cox._loglik_parts(
+        model._zs_beta, model._standardize(_design(X, "main")), _risk_sets(time, event)
+    )
+    assert np.max(np.abs(grad)) < 1e-9
+    # The witness is live: the bound turned a trial away before it was evaluated.
+    monkeypatch.setattr(cox, "_SPREAD_MAX", np.inf)
+    reached.clear()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        CoxHazard("main").fit(X, time, event)
+    assert max(reached) > 0.8 * float(np.log(np.finfo(float).max))
+
+
+def _ordered_sample(n: int = 200) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Every row an event, in the order of covariate 1: a monotone partial likelihood."""
+    rng = np.random.default_rng(1)
+    L = rng.normal(size=(n, 2))
+    A = rng.integers(0, 2, n)
+    time = np.argsort(np.argsort(-L[:, 0])).astype(float) + 1.0
+    return np.column_stack([A, L]), time, np.ones(n)
+
+
+def test_a_separated_fit_stops_inside_the_resolved_range_and_says_why() -> None:
+    from cleverly.survival import cox
+
+    X, time, event = _ordered_sample()
+    times = np.quantile(time, [0.1, 0.5, 0.9])
+    for terms in ("main", "interaction"):
+        with pytest.warns(ConvergenceWarning, match="coefficients of covariate 1 may be infinite"):
+            model = CoxHazard(terms).fit(X, time, event)
+        assert model.monotone_likelihood_ and not model.converged_
+        # Pinned at the edge of the resolved range, not stalled short of it.
+        reach = np.ptp(model.linear_predictor(X))
+        assert 0.5 * cox._SPREAD_MAX < reach <= cox._SPREAD_MAX
+        assert np.all(np.isfinite(model.baseline_jumps_)) and np.all(model.baseline_jumps_ > 0)
+        # Finite on the rows and on both treatment-set copies the engine predicts at.
+        for arm in (0, 1):
+            Xa = X.copy()
+            Xa[:, 0] = arm
+            assert np.all(np.isfinite(model.cumulative_hazard(Xa, times)))
+        # The run is along covariate 1, far past where a regular fit would sit.
+        others = np.delete(np.abs(model.coef_), 1)
+        assert abs(model.coef_[1]) > 10 * np.max(others)
+
+
+def test_a_ridge_penalty_gives_the_separated_data_a_finite_maximum() -> None:
+    X, time, event = _ordered_sample()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model = CoxHazard("main", penalty=1.0).fit(X, time, event)
+    assert model.converged_ and not model.monotone_likelihood_
+
+
+def test_an_arm_without_events_is_reported_and_its_fit_is_unchanged_by_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The score tolerance is met with the treatment coefficient running to -infinity: the fit
+    # is the likelihood's limit, and only coxph's infinite-coefficient test can tell.
+    from cleverly.survival import cox
+
+    X, time, event = _cox_sample()
+    event = np.where(X[:, 0] == 1, 0.0, event)
+    for terms in ("treatment", "interaction"):
+        # Only the running column is named, not the columns coupled to it.
+        with pytest.warns(
+            ConvergenceWarning, match=r"coefficients of the treatment may be infinite\."
+        ):
+            CoxHazard(terms).fit(X, time, event)
+    with pytest.warns(ConvergenceWarning, match=r"coefficients of the treatment may be infinite\."):
+        model = CoxHazard("main").fit(X, time, event)
+    assert model.converged_ and model.monotone_likelihood_
+    assert model.coef_[0] < -10
+    # Inside the resolved range the bound changes nothing, bit for bit.
+    monkeypatch.setattr(cox, "_SPREAD_MAX", np.inf)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ConvergenceWarning)
+        unbounded = CoxHazard("main").fit(X, time, event)
+    np.testing.assert_array_equal(model.coef_, unbounded.coef_)
+    # Control: without the infinite-coefficient test the separation goes unreported.
+    monkeypatch.setattr(cox, "_INF_EPS", np.inf)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        silent = CoxHazard("main").fit(X, time, event)
+    assert not silent.monotone_likelihood_
+
+
+@pytest.mark.parametrize("code", [1, 0], ids=["outcome", "censoring"])
+def test_a_hazard_without_events_in_one_arm_still_gives_finite_estimates(code: int) -> None:
+    # One treated event of the modelled hazard (cause 1, or censoring) is kept, so the arm passes
+    # the engine's checks while every training fold without that unit has none: the hazard's Cox
+    # fits there are separated. Censored treated rows become deaths in the censoring case.
+    frame = _sample()
+    treated = (frame["Z"] == 1) & (frame["event"] == code)
+    keep = frame.index[treated & (frame["time"] < 1.0)][0]
+    frame.loc[treated & (frame.index != keep), "event"] = 1 if code == 0 else 0
+    with pytest.warns(ConvergenceWarning, match="monotone partial likelihood"):
+        fit = ContinuousSurvivalTMLE([1.0], n_folds=2, learner_folds=2, random_state=0).fit(
+            frame, time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert all(np.isfinite(e.psi) and np.isfinite(e.std_error) for e in fit.values())
+
+
+def test_a_regular_fit_reports_no_monotone_likelihood() -> None:
+    X, time, event = _cox_sample()
+    for terms in ("treatment", "main", "interaction"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ConvergenceWarning)
+            model = CoxHazard(terms).fit(X, time, event)
+        assert model.converged_ and not model.monotone_likelihood_
 
 
 # --------------------------------------------------------- end to end and refusals
@@ -525,7 +807,7 @@ def test_a_flexible_treatment_learner_needs_cross_fitting() -> None:
 def test_a_target_before_any_event_of_a_cause_in_an_arm_is_refused() -> None:
     frame = _sample()
     early = float(frame["time"][frame["event"] > 0].min()) / 2
-    with pytest.raises(CapabilityError, match="no event of cause"):
+    with pytest.raises(DataError, match="no event of cause"):
         ContinuousSurvivalTMLE([early], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
@@ -632,27 +914,47 @@ def test_a_target_past_one_arms_follow_up_is_refused() -> None:
     frame = pd.DataFrame(
         {"time": np.minimum(T, C), "event": (T <= C).astype(int), "Z": Z, "X3": X3}
     )
-    with pytest.raises(CapabilityError, match="followed only to"):
+    with pytest.raises(DataError, match="followed only to"):
         ContinuousSurvivalTMLE([2.0, 6.0], cross_fit=False).fit(
             frame, time="time", event="event", treatment="Z", baseline=["X3"]
         )
 
 
 @pytest.mark.parametrize(
-    ("jump", "match"), [(0.5, "combined jump of one or more"), (0.45, "survival reaches zero")]
+    ("jump", "bounded", "match"),
+    [
+        (0.5, True, "survival falls below"),
+        (0.45, False, "survival falls below"),
+        (np.inf, False, "infinite hazard jump"),
+    ],
 )
 def test_an_initial_fit_that_breaks_the_product_limit_is_a_data_failure(
-    jump: float, match: str, monkeypatch: pytest.MonkeyPatch
+    jump: float, bounded: bool, match: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Both checks read the fitted hazards of one draw, so they raise DataError, which a study
-    # records as a failed replicate; a CapabilityError would stop the whole run.
-    from cleverly.survival import engine
+    # records as a failed replicate; a CapabilityError would stop the whole run.  Two causes at
+    # 0.5 each sum to one at every cell: the jump bound scales every cell to 1 - 1e-8, and the
+    # survival then underflows, as it does unbounded at 0.45 each.  An infinite jump has no
+    # share to keep, so it is refused before any survival.
+    from cleverly.survival import _chunked
 
-    monkeypatch.setattr(engine, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
-    with pytest.raises(DataError, match=match):
+    acted: list[bool] = []
+    bound = _chunked.bound_jumps
+
+    def recording(dlam: np.ndarray) -> np.ndarray | None:
+        scaled = bound(dlam)
+        acted.append(scaled is not None)
+        return scaled
+
+    monkeypatch.setattr(_chunked, "_jumps", lambda cumulative: np.full(cumulative.shape, jump))
+    monkeypatch.setattr(_chunked, "bound_jumps", recording)
+    with pytest.raises(DataError, match=match) as caught:
         ContinuousSurvivalTMLE([2.0], cross_fit=False).fit(
             _sample(), time="time", event="event", treatment="Z", baseline=["X3"]
         )
+    assert acted and all(value == bounded for value in acted)
+    # An underflow after the bound names the bound and the extrapolation.
+    assert ("The hazard model also put a combined jump" in str(caught.value)) is bounded
 
 
 def test_a_declared_cause_with_no_event_is_refused() -> None:
@@ -679,7 +981,7 @@ def test_the_study_route_answers_the_setup_questions_and_reads_the_band_default(
         warnings.simplefilter("ignore")
         fit = effect.estimate(cross_fit=False, random_state=0)
     assert fit.simultaneous is not None
-    with pytest.raises(CapabilityError, match="evalue_from_rr"):
+    with pytest.raises(CapabilityError, match="two arms' risks at one cause"):
         evalue(fit)
 
 
@@ -728,7 +1030,9 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
         gated = not name.startswith("rr_regimen") and f"t={early:g}]" not in name
         assert label == ("supported" if gated else "experimental"), name
     early_name = next(name for name in fit if f"t={early:g}]" in name)
-    assert "coverage fell to 0.88" in fit[early_name].support.reason
+    assert "8 of the 30 rows of the continuous-survival-variance study" in (
+        fit[early_name].support.reason
+    )
     assert fit.simultaneous is not None
     assert fit.simultaneous.support.label == "experimental"
     in_sample = ContinuousSurvivalTMLE([middle], cross_fit=False, random_state=0)
@@ -749,4 +1053,5 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
             frame.iloc[:600], time="time", event="event", treatment="Z", baseline=["X3"]
         )
     assert all("n_folds" in estimate.support.reason for estimate in half.values())
-    assert all("600 units" in estimate.support.reason for estimate in half.values())
+    # 600 units clear the size floor of 500 the variance study measured: only n_folds binds.
+    assert not any("600 units" in estimate.support.reason for estimate in half.values())

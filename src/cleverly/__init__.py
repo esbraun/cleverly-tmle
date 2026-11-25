@@ -31,6 +31,7 @@ they retarget or refit.
 
 from __future__ import annotations
 
+from ._planned_fits import PlannedFits
 from ._version import __version__
 from .assessment import (
     AssessmentCapability,
@@ -121,9 +122,11 @@ from .study import (
     TrialWithExternalData,
 )
 from .variable_importance import (
+    ImportanceFacts,
     VariableImportanceEntry,
     VariableImportanceResult,
     variable_importance,
+    variable_importance_plan,
 )
 
 __all__ = [
@@ -159,6 +162,7 @@ __all__ = [
     "IPWMethod",
     "IdentificationProvider",
     "IdentifiedEffect",
+    "ImportanceFacts",
     "InSampleLearnerWarning",
     "IncrementalEffect",
     "IncrementalMean",
@@ -182,6 +186,7 @@ __all__ = [
     "ParameterKey",
     "ParameterSpaceWarning",
     "ParametricGFormulaMethod",
+    "PlannedFits",
     "PointTreatment",
     "PopulationAttributableFraction",
     "PopulationAttributableRisk",
@@ -212,4 +217,5 @@ __all__ = [
     "__version__",
     "load",
     "variable_importance",
+    "variable_importance_plan",
 ]

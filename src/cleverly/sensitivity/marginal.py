@@ -75,10 +75,17 @@ parameters are means of the same summands.
 
 **The interval.**  ``[lower - z se_lower, upper + z se_upper]`` with
 :math:`z = \Phi^{-1}(1 - (1 - \text{level})/2)` covers the identified set with asymptotic
-probability at least ``level`` by the union bound.  It is a set interval: the tighter
-interval for the parameter alone (Imbens and Manski 2004) is not shipped.  The binary
-quantile is a plug-in threshold, so its sharpness needs a margin condition: the outcome
-regression puts little mass near :math:`1 - \tau`.  Validity needs no such condition.
+probability at least ``level`` by the union bound.  Each limit is the matching side of the
+two-sided interval at ``level`` that the bounded estimate's own rule forms about that end
+(:func:`~cleverly.inference.interval_reference`): the range-logit scale of a bounded mean,
+the skew-widened t of a continuous outcome and the MOVER multiples of a bounded difference
+replace the normal ``z`` where the estimate's interval reads them.  A clustered fit below the
+few-cluster threshold replaces :math:`z` with the Student t quantile on the fit's own
+``J - 2`` degrees of freedom over the rows the bounded parameter reads.  It is a set
+interval: the tighter interval for the parameter alone (Imbens and Manski 2004) is not
+shipped.  The binary quantile is a plug-in threshold, so its sharpness needs a margin
+condition: the outcome regression puts little mass near :math:`1 - \tau`.  Validity needs no
+such condition.
 
 **What the interval may claim.**  It resolves through the registry of
 :mod:`cleverly.validation._interpretation`, instrument :data:`MSM_BOUND_INSTRUMENT`.  Study
@@ -89,6 +96,10 @@ other fit prints the registry's descriptive sentence.
 
 from __future__ import annotations
 
+import os
+import pickle
+import sys
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any
@@ -96,13 +107,18 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._continuous_survival_family import refuse_continuous_survival
-from .._inference_status import status_record, supplies_inference
+from .._inference_status import FEW_CLUSTER_ESTIMAND_STATUS, status_record, supplies_inference
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..exceptions import CapabilityError
-from ..inference.cluster import influence_variance
+from ..inference.cluster import cluster_reference_df, influence_variance
+from ..inference.cluster_jackknife import jackknife_fit
 from ..inference.delta import reference_quantile
+from ..inference.influence import ParameterEstimate
 from ..utils.frames import emit_frame
+from ..utils.parallel import map_parallel, resolve_n_jobs
+from ._limits import bound_limits
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
@@ -164,9 +180,10 @@ class MarginalSensitivityRow:
     upper_std_error : float
         The standard error of ``upper``.
     lower_limit : float
-        ``lower`` less ``z`` standard errors.
+        The lower side of the estimate's own interval rule about ``lower``: ``lower`` less
+        ``z`` standard errors under the normal identity rule.
     upper_limit : float
-        ``upper`` plus ``z`` standard errors.
+        The upper side of that rule about ``upper``.
     """
 
     gamma: float
@@ -219,6 +236,9 @@ class MarginalSensitivityBounds:
     scale : {"identity", "log"}
         The scale of the standard errors. A risk ratio or an odds ratio reports its ends
         and limits on the ratio scale and its standard errors on the log scale.
+    reference_df : int or None
+        The degrees of freedom of the Student t reference of the limits, the fit's own rule
+        over the rows the bounded parameter reads; ``None`` for the normal reference.
 
     Attributes
     ----------
@@ -237,6 +257,7 @@ class MarginalSensitivityBounds:
     limit_reading: Resolution | None = field(default=None, compare=False)
     backend: str | None = None
     scale: str = "identity"
+    reference_df: int | None = None
 
     @property
     def breakdown(self) -> float | None:
@@ -450,6 +471,16 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             f"{data.family!r}.",
             alternative=NO_ALTERNATIVE,
         )
+    if jackknife_fit(result):
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            "the bound's interval is built from its influence curve, and this fit reports the "
+            "delete-one-cluster jackknife variance (cluster_variance='jackknife'), which the "
+            "curve does not carry, so at Gamma = 1 the set interval would not be the fit's "
+            "interval.",
+            alternative="Refit with cluster_variance='influence_curve' for the bounds.",
+            roadmap="F28",
+        )
     status = result.inference_status
     status = status() if callable(status) else status
     if status != "influence_curve" and not (
@@ -472,9 +503,21 @@ def marginal_estimand_refusal(result: Any, estimand: str | None = None) -> Refus
     The fit-level reasons are :func:`marginal_bound_refusal`'s; call it first.  This one is the
     bounded estimate's own: its status withholds the interval (:func:`_withheld_status`), and
     at :math:`\Gamma = 1` the set interval would be a confidence interval for that estimate.
-    ``None`` names the default estimand, which the capability row reads.
+    ``None`` names the default estimand, which the capability row reads.  When the fit leaves
+    the caller a choice of estimand, no estimate is bound yet, so there is nothing to refuse:
+    the row defers and asks for ``estimand=``.
     """
-    return _estimand_refusal(result, _resolve_target(result, estimand))
+    if estimand is None and len(default_estimand_candidates(result)) != 1:
+        return None
+    try:
+        target = _resolve_target(result, estimand)
+    except CapabilityError as error:
+        # A target the bound is not derived for (a known-score ATT, a multi-arm conditional
+        # effect) refuses in the call; the row declares the same record.
+        if error.refusal is None:
+            raise
+        return error.refusal
+    return _estimand_refusal(result, target)
 
 
 def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
@@ -482,19 +525,25 @@ def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
     if withheld is None:
         return None
     record = status_record(withheld)
+    # A shown parameter status (few_cluster_estimand_plugin) labels the estimate's interval
+    # rather than withholding it; the bound refuses it as the fit-level few_cluster_plugin is.
+    reads = "labels" if record.interval == "shown" else "withholds"
     return Refusal(
         RefusalReason.INFERENCE_GAP,
         f"the bound's interval is built from the influence curve of {target.name}, and that "
-        f"estimate withholds its interval ({withheld}): {record.reason}",
+        f"estimate {reads} its interval ({withheld}): {record.reason}",
         alternative=record.alternative or NO_ALTERNATIVE,
         roadmap=record.reopened_by,
     )
 
 
 def _withheld_status(result: Any, target: _Target) -> str | None:
-    """The status of ``target``'s estimate when it withholds the interval, else ``None``.
+    """The status of ``target``'s estimate when the bound refuses it, else ``None``.
 
-    A reported estimate answers through its own status.  An unreported one withholds when
+    A reported estimate answers through its own status: one that withholds the interval, or
+    ``"few_cluster_estimand_plugin"``, which shows it below the default cluster floor of an
+    estimate no floor study measured, as the fit-level ``"few_cluster_plugin"`` that
+    :func:`marginal_bound_refusal` refuses does.  An unreported one withholds when
     an arm it reads holds one observed outcome value in its rows, the cause the fit's
     ``constant_arm_cell_plugin`` status names, because the bound's influence curve leaves out
     that arm's outcome variance as the estimate's would.
@@ -504,6 +553,8 @@ def _withheld_status(result: Any, target: _Target) -> str | None:
     estimate = result.estimates.get(target.name)
     if estimate is not None:
         status = estimate.inference
+        if status == FEW_CLUSTER_ESTIMAND_STATUS:
+            return str(status)
         # A selecting C-TMLE withholds for its selected mechanism, which the bounds refit.
         if supplies_inference(status) or (
             status in _SELECTION_STATUSES and _refits_mechanism(result)
@@ -856,6 +907,61 @@ def _named_targets(result: TMLEResult) -> dict[str, _Target]:
     return out
 
 
+def default_estimand_candidates(result: TMLEResult) -> tuple[str, ...]:
+    """The parameters a call without ``estimand`` chooses between.
+
+    ``("ate",)`` when the fit reports the ATE; else the reported parameters the bounds can
+    take; else, when the fit reports none of them (a PAR or natural-course fit), every
+    parameter the bounds can take. One candidate settles the default; two or more leave a
+    choice the caller makes, which the sensitivity facade reports as a deferral.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The point-treatment fit to bound.
+
+    Returns
+    -------
+    tuple of str
+        The candidate names, in the order the fit reports them.
+    """
+    named = _named_targets(result)
+    if "ate" in result.estimates and "ate" in named:
+        return ("ate",)
+    reported = tuple(name for name in result.estimates if name in named)
+    return reported if reported else tuple(named)
+
+
+def _default_estimand(result: TMLEResult) -> str:
+    """The parameter a call without ``estimand`` bounds: the fit's own reported one."""
+    candidates = default_estimand_candidates(result)
+    if len(candidates) == 1:
+        return candidates[0]
+    raise ValueError(
+        "marginal_sensitivity_bounds answers for one estimand, and this fit leaves a "
+        f"choice: pass estimand= with one of {list(candidates)}. A call without it bounds "
+        "only the one parameter the fit reported, never a parameter it did not report."
+    )
+
+
+def _reference_df(result: TMLEResult, target: _Target) -> int | None:
+    """The t reference of the bounds' limits: the fit's own rule over the target's rows.
+
+    A clustered fit studentizes each estimate on ``J - 2`` degrees of freedom below the
+    few-cluster threshold (:func:`~cleverly.inference.cluster.cluster_reference_df`), over
+    the rows the estimate reads. The bound endpoints are means of influence curves over the
+    same rows, so their limits take the same reference; ``None`` is the normal one.
+    """
+    data = result.data
+    if data.cluster is None:
+        return None
+    rows = None
+    if target.stratum is not None:
+        rows = np.asarray(data.strata) == target.stratum
+    weights = data.weights if getattr(data, "is_weighted", False) else None
+    return cluster_reference_df(data.cluster, weights, rows=rows)
+
+
 def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
     """The parameter an ``estimand`` name asks for, with ``None`` read as the default."""
     from ._parameters import stratum_parameter
@@ -863,14 +969,7 @@ def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
     data = result.data
     named = _named_targets(result)
     if estimand is None:
-        if data.is_binary_treatment:
-            return named["ate"]
-        # A fit with more than two arms has no single ATE: take its first reported
-        # marginal contrast or mean, else the first contrast against the reference.
-        for name in result.estimates:
-            if name in named and not named[name].ratio:
-                return named[name]
-        return next(target for target in named.values() if target.stem == "ate")
+        estimand = _default_estimand(result)
     if estimand in named:
         target = named[estimand]
     else:
@@ -883,6 +982,10 @@ def _resolve_target(result: TMLEResult, estimand: str | None) -> _Target:
             )
         stem = "ey" if conditional.stem in ("ey1", "ey0") else conditional.stem
         target = _Target(estimand, stem, conditional.arm, conditional.versus, conditional.stratum)
+    if target.stem in ("att", "atc") and known_score_fit(result):
+        raise CapabilityError.from_refusal(
+            known_score_reader_refusal("the marginal sensitivity bound")
+        )
     if target.stem in ("att", "atc") and not data.is_binary_treatment:
         raise CapabilityError.from_refusal(MULTI_ARM_CONDITIONAL_REFUSAL)
     if target.ratio:
@@ -977,7 +1080,7 @@ def _draw_sides(
     observed = np.asarray(data.observed, dtype=bool)
     binary = data.family == "binomial"
     treatment = np.asarray(data.treatment, dtype=float)
-    sides: dict[tuple[float, bool], _Side] = {}
+    payloads: list[tuple[Callable[..., _Side], tuple[Any, ...], dict[str, Any]]] = []
     for level, upper in wanted:
         treated = (treatment == level).astype(float)
         e = g[:, level_index[level]]
@@ -987,25 +1090,128 @@ def _draw_sides(
             column = list(nuisance.arms).index(level)
             observed_weight = np.where(observed, 1.0 / response[:, column], 0.0)
         if binary:
-            sides[(level, upper)] = _binary_side(y, treated, e, mu, gamma, upper, observed_weight)
+            payloads.append((_binary_side, (y, treated, e, mu, gamma, upper, observed_weight), {}))
         else:
-            sides[(level, upper)] = _continuous_side(
-                x,
-                y,
-                treated,
-                e,
-                mu,
-                gamma,
-                upper,
-                assignment,
-                n_folds,
-                quantile_learner,
-                pseudo_outcome_learner,
-                seed,
-                weights=weights,
-                observed_weight=observed_weight,
+            payloads.append(
+                (
+                    _continuous_side,
+                    (
+                        x,
+                        y,
+                        treated,
+                        e,
+                        mu,
+                        gamma,
+                        upper,
+                        assignment,
+                        n_folds,
+                        quantile_learner,
+                        pseudo_outcome_learner,
+                        seed,
+                    ),
+                    {"weights": weights, "observed_weight": observed_weight},
+                )
             )
+    # The continuous sides fit their quantile and tail learners independently of one another,
+    # each from the draw's seed, so on a fit made with ``n_jobs > 1`` they run in workers and
+    # come back in order: every side is the one the serial loop computes.  A side that runs in
+    # another process has its warnings captured there and raised again here in task order
+    # (:func:`_replay` states where that matches the serial loop).  ``n_jobs=1``, the binary
+    # sides and Gamma = 1, which are closed forms, take the serial loop itself.
+    n_jobs = 1 if binary or gamma == 1.0 else resolve_n_jobs(getattr(result.estimator, "n_jobs", 1))
+    if n_jobs == 1 or len(payloads) <= 1:
+        return {
+            key: function(*arguments, **keywords)
+            for key, (function, arguments, keywords) in zip(wanted, payloads, strict=True)
+        }
+    caller = os.getpid()
+    outcomes = map_parallel(
+        _captured_side,
+        [(caller, function, arguments, keywords) for function, arguments, keywords in payloads],
+        n_jobs=n_jobs,
+    )
+    sides: dict[tuple[float, bool], _Side] = {}
+    for key, (side, shown) in zip(wanted, outcomes, strict=True):
+        _replay(shown)
+        sides[key] = side
     return sides
+
+
+#: A warning a worker captured: message, category, file name and line number.
+_Shown = tuple[Any, type[Warning], str, int]
+
+
+def _captured_side(
+    caller: int,
+    function: Callable[..., _Side],
+    arguments: tuple[Any, ...],
+    keywords: dict[str, Any],
+) -> tuple[_Side, list[_Shown]]:
+    """One side, with the warnings it raised in another process, in order, for :func:`_replay`.
+
+    ``warnings.catch_warnings`` swaps process-wide state, so it is safe only where nothing
+    else runs at the same time: a worker process.  A side running in the caller's process (a
+    thread backend, or a call nested in a worker, where joblib uses threads) raises its
+    warnings in place, as the serial loop does, and returns none to replay.
+    """
+    if os.getpid() == caller:
+        return function(*arguments, **keywords), []
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        side = function(*arguments, **keywords)
+    return side, [_portable(w.message, w.category, w.filename, w.lineno) for w in caught]
+
+
+def _portable(message: Any, category: type[Warning], filename: str, lineno: int) -> _Shown:
+    """A captured warning that survives the trip back to the caller.
+
+    A warning instance that does not pickle travels as its text, which the caller raises as
+    ``category(text)``.
+    """
+    try:
+        pickle.dumps((message, category))
+    except Exception:
+        try:
+            pickle.dumps(category)
+        except Exception:
+            category = Warning
+        return str(message), category, filename, lineno
+    return message, category, filename, lineno
+
+
+def _replay(shown: Sequence[_Shown]) -> None:
+    """Raise a worker's warnings again in the caller, at their original source lines.
+
+    Each one passes through the caller's filters, under the module name the serial loop would
+    report, so a filter on ``module=`` matches as it would there.  No once-per-location
+    registry is passed: the serial loop resets that registry between fits (every learner fit
+    changes the warning filters), so under the ``"default"`` and ``"module"`` actions it shows
+    every repeat, and so does this replay.  Under ``"once"`` the serial loop shows a repeat
+    after each reset and the replay shows it once; under ``"always"``, ``"error"`` and
+    ``"ignore"`` they agree.
+    """
+    for message, category, filename, lineno in shown:
+        module = _module_of(filename)
+        if module is None:
+            # An explicit ``module=None`` drops the warning on CPython 3.13; leaving it out
+            # names the module from the file name.
+            warnings.warn_explicit(message, category, filename, lineno, registry=None)
+        else:
+            warnings.warn_explicit(
+                message, category, filename, lineno, module=module, registry=None
+            )
+
+
+def _module_of(filename: str) -> str | None:
+    """The name of the loaded module at ``filename``, as ``warnings.warn`` reports it.
+
+    ``None`` when no loaded module has that file, and :func:`_replay` leaves
+    :func:`warnings.warn_explicit` to name it from the file name.
+    """
+    for name, module in list(sys.modules.items()):
+        if getattr(module, "__file__", None) == filename:
+            return name
+    return None
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:
@@ -1101,6 +1307,46 @@ def _target_ends(
     return lower, upper
 
 
+def _shipped_limit(
+    estimate: ParameterEstimate | None,
+    end: float,
+    std_error: float,
+    curve: FloatArray | None,
+    level: float,
+    side: float,
+    *,
+    ratio: bool,
+    df: int | None = None,
+    clustered: bool = False,
+) -> float:
+    """One limit of the set interval, under the interval rule the bounded estimate ships.
+
+    ``end`` is the bound on the reported scale (a ratio's on the ratio scale) and
+    ``std_error`` its standard error on the inference scale. The limit is the side ``side``
+    (``-1`` lower, ``1`` upper) of the two-sided interval at ``level`` that
+    :func:`~cleverly.inference.interval_reference` forms about the bound: the estimate's t
+    reference over the target's rows, the range-logit scale of a bounded mean, the
+    skew-widened t of a continuous outcome (reading ``curve`` on one draw), and the MOVER
+    multiples of a bounded difference (:func:`~cleverly.sensitivity._limits.bound_limits`).
+    A target the fit reports no estimate of takes the normal reference on the bound's scale,
+    the log scale for a ``ratio``.  On a ``clustered`` fit, ``df`` is the few-cluster t
+    reference over the target's rows (:func:`_reference_df`, ``None`` for the normal one): a
+    clustered estimate keeps its own symmetric reference under every shipped rule, so the
+    limit is the normal or t limit on the bound's scale, on the bound's own degrees of
+    freedom, which can differ from the estimate's (a fold-evaluated CV-TMLE pools the cluster
+    variance on ``J - 2``).
+    """
+    if estimate is None or clustered:
+        # No rule is shipped for an unreported target, and a clustered one keeps its
+        # symmetric reference: the normal or t quantile on the bound's scale.
+        z = reference_quantile(1.0 - level, df)
+        if ratio:
+            return float(np.exp(np.log(end) + side * z * std_error))
+        return float(end + side * z * std_error)
+    read = bound_limits(estimate, level=level, psi=end, std_error=std_error, influence_curve=curve)
+    return float(read.lower if side < 0 else read.upper)
+
+
 def _median_rule(values: FloatArray, variances: FloatArray) -> tuple[float, float]:
     """The repeat median and its variance (Chernozhukov et al. 2018, eq. 3.14)."""
     centre = float(np.median(values))
@@ -1173,8 +1419,9 @@ def marginal_sensitivity_bounds(
         the treated or the controls (``"att"``, ``"atc"``, two arms only), a ratio
         (``"rr"``, ``"or"``), any of these against a named reference arm, or a
         stratum-conditional alias such as ``"ate[V=1]"``. The fit need not have reported
-        it. ``None`` bounds the ATE of a two-arm fit, and the first reported contrast or
-        mean of a fit with more arms.
+        it. ``None`` bounds the fit's own reported parameter: the ATE when the fit reports
+        it, else the one reported parameter the bounds can take. A fit that reports two or
+        more of them and no ATE (or none of them) raises ``ValueError`` naming the choices.
     level : float, default=0.95
         The coverage level of the set interval.
     quantile_learner : callable, optional
@@ -1243,13 +1490,15 @@ def marginal_sensitivity_bounds(
     if withheld is not None:
         raise CapabilityError.from_refusal(withheld)
     cluster = result.data.cluster
-    z = reference_quantile(1.0 - level)
+    reported = result.estimates.get(target.name)
+    df = _reference_df(result, target)
     outcome_kind = "binary" if result.data.family == "binomial" else "continuous"
     rows: list[MarginalSensitivityRow] = []
     quantile_names: set[str] = set()
     pseudo_names: set[str] = set()
     for value in grid:
         lowers, uppers, lower_vars, upper_vars = [], [], [], []
+        lower_curves, upper_curves = [], []
         for repeat in result.repeats:
             sides = _draw_sides(
                 result, repeat, value, _wanted(target), quantile_learner, pseudo_outcome_learner
@@ -1279,13 +1528,36 @@ def marginal_sensitivity_bounds(
             uppers.append(up.value)
             lower_vars.append(influence_variance(low.curve, cluster))
             upper_vars.append(influence_variance(up.curve, cluster))
+            lower_curves.append(low.curve)
+            upper_curves.append(up.curve)
         lower, lower_var = _median_rule(np.asarray(lowers), np.asarray(lower_vars))
         upper, upper_var = _median_rule(np.asarray(uppers), np.asarray(upper_vars))
         lower_se, upper_se = float(np.sqrt(lower_var)), float(np.sqrt(upper_var))
-        lower_limit, upper_limit = lower - z * lower_se, upper + z * upper_se
         if target.ratio:
             lower, upper = float(np.exp(lower)), float(np.exp(upper))
-            lower_limit, upper_limit = float(np.exp(lower_limit)), float(np.exp(upper_limit))
+        single = len(lower_curves) == 1
+        lower_limit = _shipped_limit(
+            reported,
+            lower,
+            lower_se,
+            lower_curves[0] if single else None,
+            level,
+            -1.0,
+            ratio=target.ratio,
+            df=df,
+            clustered=cluster is not None,
+        )
+        upper_limit = _shipped_limit(
+            reported,
+            upper,
+            upper_se,
+            upper_curves[0] if single else None,
+            level,
+            1.0,
+            ratio=target.ratio,
+            df=df,
+            clustered=cluster is not None,
+        )
         rows.append(
             MarginalSensitivityRow(
                 gamma=value,
@@ -1314,4 +1586,5 @@ def marginal_sensitivity_bounds(
         ),
         backend=result.data.backend,
         scale="log" if target.ratio else "identity",
+        reference_df=df,
     )

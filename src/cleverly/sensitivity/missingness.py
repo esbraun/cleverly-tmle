@@ -88,6 +88,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import refuse_augmented_trial
 from .._typing import FloatArray
 from .._warnings import warn as _warn
+from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
 from ..estimators.iptw import OPERATION_REFUSALS
@@ -101,12 +102,17 @@ from ..inference.influence import (
 )
 from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
 from ..msm import solve_projection
-from ..targets.base import arm_alias, parameter_name
+from ..targets.base import arm_alias, parameter_name, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_TARGET
 from ..utils.bounds import expit, logit
 from ._objects import MissingnessTilt
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
-from ._tilt_targeting import INFERENTIAL_KINDS, targeted_tilt_estimates, tilt_interval_exclusion
+from ._tilt_targeting import (
+    INFERENTIAL_KINDS,
+    TiltInputs,
+    targeted_tilt_estimates,
+    tilt_interval_exclusion,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data import CausalData
@@ -289,6 +295,22 @@ class _TiltTarget:
 def _tilt_targets(result: Any) -> dict[str, _TiltTarget]:
     """Every reported parameter the tilt can re-mix, by name.
 
+    On a fit with ``conditional_form="known_score"`` the ATT and ATC are left out: the tilt
+    re-mixes them over the conditioning arm, which is the arm-mean form, so it refuses them.
+    """
+    out = _reported_tilt_targets(result)
+    if known_score_fit(result):
+        out = {
+            name: target
+            for name, target in out.items()
+            if parameter_stem(name) not in ("att", "atc")
+        }
+    return out
+
+
+def _reported_tilt_targets(result: Any) -> dict[str, _TiltTarget]:
+    """Every reported parameter the tilt's algebra can re-mix, by name, whatever the form.
+
     Composed forward through :func:`~cleverly.targets.parameter_name` and
     :func:`~cleverly.targets.base.arm_alias` from the codes the fit carries, the rule
     :mod:`cleverly.sensitivity._parameters` follows.  A stratum alias is a different name,
@@ -374,6 +396,8 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """
     if _tilt_targets(result):
         return None
+    if known_score_fit(result) and _reported_tilt_targets(result):
+        return known_score_reader_refusal("the MNAR tilt")
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt re-mixes the arm means and their contrasts and ratios, the "
@@ -555,9 +579,14 @@ def _tilt_frame(
     *,
     estimands: Sequence[str] | None = None,
     arm_gamma: Mapping[Any, float] | None = None,
+    inputs: dict[int, TiltInputs] | None = None,
 ) -> Any:
-    """The rows of :func:`missingness_tilt` as a frame, for the tipping search."""
-    return result.data.frame_like(_tilt_payload(result, gamma, estimands, arm_gamma))
+    """The rows of :func:`missingness_tilt` as a frame, for the tipping search.
+
+    ``inputs`` holds each draw's gamma-invariant tilt inputs by draw position, shared by
+    every frame of one search.
+    """
+    return result.data.frame_like(_tilt_payload(result, gamma, estimands, arm_gamma, inputs))
 
 
 def _interval_targets(
@@ -647,8 +676,13 @@ def _tilt_payload(
     gamma: Sequence[float] | None,
     estimands: Sequence[str] | None,
     arm_gamma: Mapping[Any, float] | None,
+    inputs: dict[int, TiltInputs] | None = None,
 ) -> dict[str, list[Any]]:
-    """The columns of :func:`missingness_tilt`, after its refusals."""
+    """The columns of :func:`missingness_tilt`, after its refusals.
+
+    ``inputs`` holds each draw's gamma-invariant tilt inputs by draw position; ``None``
+    shares them across this call's grid only.
+    """
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
@@ -669,6 +703,8 @@ def _tilt_payload(
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:
                 raise CapabilityError.from_refusal(conditional)
+            if known_score_fit(result) and parameter_stem(name) in ("att", "atc"):
+                raise CapabilityError.from_refusal(known_score_reader_refusal("the MNAR tilt"))
     targets = tuple(tiltable[name] for name in requested if name in tiltable)
     if not targets:
         raise CapabilityError(
@@ -681,10 +717,14 @@ def _tilt_payload(
     grid = tuple(DEFAULT_GAMMA_GRID if gamma is None else (float(g) for g in gamma))
 
     inferential = _interval_targets(result, targets)
+    if inputs is None:
+        inputs = {}
 
     rows: list[dict[str, Any]] = []
     for value in grid:
-        targeted = _targeted_tilt(result, inferential, value, direction) if value != 0.0 else {}
+        targeted = (
+            _targeted_tilt(result, inferential, value, direction, inputs) if value != 0.0 else {}
+        )
         for target in targets:
             name = target.name
             estimate = result[name]
@@ -768,20 +808,29 @@ def _targeted_tilt(
     targets: Sequence[_TiltTarget],
     gamma: float,
     direction: Mapping[float, float],
+    inputs: dict[int, TiltInputs] | None = None,
 ) -> dict[str, ParameterEstimate]:
     """The targeted tilted estimate of each target at ``gamma``, combined over the draws.
 
     Each draw solves its own tilt fluctuation from its own targeted regression and
     mechanisms, and the draws combine by the rule the fit's report used
     (:func:`~cleverly.inference.influence.median_estimates`).  A solve that misses the
-    fit's tolerance warns, as the fit's own targeting does.
+    fit's tolerance warns, as the fit's own targeting does.  ``inputs`` holds each draw's
+    :class:`~cleverly.sensitivity._tilt_targeting.TiltInputs` by draw index; a caller that
+    evaluates many ``gamma`` passes the same dict to every call, and a missing draw is built
+    and added on first use.
     """
     if not targets:
         return {}
     per_repeat = []
     converged = True
-    for repeat in result.repeats:
-        estimates, solved = targeted_tilt_estimates(result, repeat, targets, gamma, direction)
+    shared = {} if inputs is None else inputs
+    for index, repeat in enumerate(result.repeats):
+        if index not in shared:
+            shared[index] = TiltInputs(result, repeat)
+        estimates, solved = targeted_tilt_estimates(
+            result, repeat, targets, gamma, direction, shared[index]
+        )
         per_repeat.append(estimates)
         converged = converged and solved
     if not converged:
@@ -1254,8 +1303,14 @@ def tipping_gamma(
             result.estimates[estimand].inference, operation=_TIPPING_INTERVAL_OPERATION
         )
 
+    # Every frame of the search reads the same draws, so their gamma-invariant inputs are
+    # built once for the baseline, the probe grid and every root evaluation.
+    inputs: dict[int, TiltInputs] = {}
+
     def row_at(value: float) -> Any:
-        frame = _tilt_frame(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
+        frame = _tilt_frame(
+            result, [value], estimands=[estimand], arm_gamma=arm_gamma, inputs=inputs
+        )
         return nw.from_native(frame, eager_only=True)
 
     baseline_row = row_at(0.0)
@@ -1294,6 +1349,7 @@ def tipping_gamma(
         tuple(float(value) for value in probes),
         estimands=[estimand],
         arm_gamma=arm_gamma,
+        inputs=inputs,
     )
     probe_rows = nw.from_native(probe_frame, eager_only=True)
     probe_deviations = np.asarray(probe_rows[field], dtype=float) - null_hypothesis

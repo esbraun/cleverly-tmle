@@ -158,6 +158,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "ParameterKey",
         "ParameterSpaceWarning",
         "ParametricGFormulaMethod",
+        "PlannedFits",
         "PointTreatment",
         "PopulationAttributableFraction",
         "PopulationAttributableRisk",
@@ -178,6 +179,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "Targeting",
         "TimeToEvent",
         "TruncationCurve",
+        "ImportanceFacts",
         "VariableImportanceEntry",
         "VariableImportanceResult",
         "ValidationReport",
@@ -186,6 +188,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "__version__",
         "load",
         "variable_importance",
+        "variable_importance_plan",
         "AdaptiveTMLEMethod",
         "AdaptiveTMLEResult",
         "TrialATE",
@@ -503,6 +506,9 @@ BACKEND_ROUTES: dict[str, str] = {
     "StructuralNestedMeanResult": "container",
     "AdaptiveTMLEResult": "container",
     "CTMLESelection": "argument",
+    "PlannedFits": "argument",
+    # X106 G2: the refutation refit preview has no fit data of its own.
+    "PlannedRefits": "argument",
     "SurvivalSelection": "argument",
     "DriftRecord": "argument",
     "StudyResult": "argument",
@@ -526,6 +532,8 @@ BACKEND_ROUTES: dict[str, str] = {
     # Balance and per-node weight readings (X92 part 3b): built from a fit's weights,
     # so the caller names the backend.
     "CovariateBalance": "argument",
+    # Balance over time (X103): built from a fit's data and weights alone.
+    "BalanceOverTime": "argument",
     "NodeWeights": "argument",
     # The MSM working model's mean at each level (X92 part 2): built from a fit's
     # coefficients alone, so the caller names the backend.
@@ -538,6 +546,11 @@ BACKEND_ROUTES: dict[str, str] = {
     "ScoreAssessment": "field",
     # The EP learner's debiasing-score report (P1 part b).
     "DebiasingScores": "field",
+    # X104: the dose-response assessment reports carry the fit's backend name, and a
+    # variable-importance run's per-candidate reports carry the run's.
+    "DoseResponseSupportReport": "field",
+    "DoseResponseScoreReport": "field",
+    "CandidateReports": "field",
 }
 
 

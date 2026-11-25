@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "covariates after baseline beside a treatment at several nodes on the hazard path",
+  "slug": "hazard-time-varying-multinode",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "6fe1bac59025fe460078e82410bd2f0881b3d2da",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 2000,
+    "seed": 20261902,
+    "resampling_seed": 2026190201,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "multinode": [
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[always @ t=3]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[never @ t=3]",
+        "risk_regimen[rule @ t=1]",
+        "risk_regimen[rule @ t=2]",
+        "risk_regimen[rule @ t=3]",
+        "risk_regimen[policy @ t=1]",
+        "risk_regimen[policy @ t=2]",
+        "risk_regimen[policy @ t=3]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[rule vs never @ t=1]",
+        "ate_regimen[rule vs never @ t=2]",
+        "ate_regimen[rule vs never @ t=3]",
+        "ate_regimen[policy vs never @ t=1]",
+        "ate_regimen[policy vs never @ t=2]",
+        "ate_regimen[policy vs never @ t=3]"
+      ]
+    },
+    "construction": "a binary treatment at three nodes and a binary covariate before the treatment at nodes 2 and 3; one backward pass per regimen, each node evaluated at the observed history (slots: the regimen's values of the current treatment; hazards predicted at the observed earlier treatments with the current one set)",
+    "survival_model": "hazard",
+    "targeting": "one_step",
+    "tol": 1e-10,
+    "fits": {
+      "multinode": 1,
+      "crossfit": 5
+    },
+    "outcome_learner": "unpenalized logistic regression on W1, W2, L_k, A_{k-1} and A_k",
+    "pseudo_learner": "the weighted cell mean over every continuation column but the earlier L columns",
+    "treatment_learner": "unpenalized logistic regression on W1, W2, L_k and A_{k-1}",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, L_k and A_k",
+    "regimens": {
+      "always / never": "every treatment set to 1 or 0",
+      "rule": "treat when W1 = 1 at node 1 and when L_k = +1 after",
+      "policy": "P(A_1 = 1) = 0.3 + 0.4 W1; P(A_k = 1) = 0.05 + 0.3 [L_k = +1] + 0.6 A_{k-1}"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_hazard_time_varying_multinode.py": "7565d2819dc6e09282804f6e8f531dec846a54d3c56a7112d2675574c4a7bba3",
+    "tests/studies/hazard_time_varying_multinode_properties.py": "ab8dae142b88a51a2e1ba3bc05fa1930248f321fb7adb396268be9a706619827",
+    "tests/studies/hazard_time_varying_multinode_law.py": "081ce0385cbc5a9bb37d83cc8054ae8e39fe3a694b8285a99d062fd4dba5f088",
+    "tests/studies/canonical_hazard_time_varying.py": "1689e891c2b5903ab31cf51af4e694d59abea7ef9c62c9bfd02a61af4646d272",
+    "tests/studies/hazard_time_varying_properties.py": "f7695eac502094b413f70c228fd222f010e52c215f8f5ea3217a5c6661b0f3ab",
+    "tests/studies/hazard_time_varying_law.py": "4fa26e57655e85ad644041801e92cd694cdd795f290300eff38a43ff85863202",
+    "src/cleverly/longitudinal/hazard.py": "2ed8870151cce4e7ca711151556c2949ba09051320520688a0c5933ab00bc90e",
+    "src/cleverly/longitudinal/hazard_backward.py": "76c14bb1268ae4d3949d42570827e61afcdb52a5444a039d0bf145d4b9f8f60a",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "734a02f5d3ade098904b21247e75d4db57a1ef9f5d6c41b81dccba6b0332ebad",
+    "summary.csv": "41cd0b47e5b1681d59491593a73024a130463ad6cd38aa0362806f5b4a230cf8",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "ad45657d75c2314bd469032c7a96a61b5d76aa7df6ef257d0e97bf095677e8b2",
+    "property-replicates.parquet": "6bf6b2994ab0779a71310b0adfcf41323321baa13a27230d7d098c59ebca45c0",
+    "properties.csv": "c5a83848f0fb164e4300a2d26bb34069022f151759990c1b5c5f822ec26440a9",
+    "property-failures.csv": "5005fb8d71628a825d25423a8edb7c7e80e4f60da790af74275e38c87a470bc9",
+    "property-failure-accounting.csv": "4242c14d24b1a4dbec4b23ae029bd73c23654c3980f6ae4be146970c0e831bde",
+    "property-failure-witnesses.parquet": "45d8533b08cab4895205bda351a414d0badf343219ce33d946cf634ebcb16428"
+  }
+}

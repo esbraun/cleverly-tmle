@@ -20,6 +20,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import _support
+from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS
 from cleverly._refusal import Refusal, RefusalReason
 from cleverly._support import (
     DEFAULT_BAND_OPTION,
@@ -56,6 +57,8 @@ from tests.studies.support_cases import CASES, Observed
 from tests.unit._inference_status_support import LONGITUDINAL_N, longitudinal_learners
 from tests.unit.test_longitudinal_markov_order import _panel as markov_panel
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
+
+IN_SAMPLE_FLOOR = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"]
 
 SUPPORTED_A = Support("supported", "A study covers it.", ("study-a",), row="R1", limits=("l1",))
 SUPPORTED_B = Support("supported", "A study covers it.", ("study-b",), row="R2")
@@ -138,6 +141,7 @@ class TestPointKey:
             "step_bound": "none",
             "iterate": "last",
             "outcome_by_arm": False,
+            "conditional_form": "arm_mean",
             "patience": False,
             "treatment_adjustment": False,
         }
@@ -282,10 +286,16 @@ class TestPointKey:
 
     @pytest.mark.parametrize(
         ("clusters", "tier"),
-        [(5, "below_floor"), (9, "below_floor"), (10, "t"), (39, "t"), (40, "clustered")],
+        [
+            (IN_SAMPLE_FLOOR - 1, "below_floor"),
+            (IN_SAMPLE_FLOOR, "t"),
+            (39, "t"),
+            (40, "clustered"),
+        ],
     )
     def test_the_dependence_tiers_at_their_boundaries(self, clusters: int, tier: str) -> None:
-        """The floors are 10 and 40: each boundary count lands on the named side."""
+        """The floors are the in-sample TMLE floor and 40: each boundary count lands on the named
+        side. The tier reads the fit family's floor, the floor of its measured ATE."""
         estimator = TMLE(**linear_in_sample())
         key, _ = key_of(estimator, clustered_frame(clusters), id="cluster")
         assert key.dependence == tier
@@ -720,18 +730,26 @@ class TestBandSupport:
             DEFAULT_BAND_DRAWS,
             LONGITUDINAL_ROWS,
             POINT_ROWS,
+            PROJECTION_BAND_CELLS,
+            PROJECTION_BAND_DRAWS,
+            PROJECTION_BAND_OPTION,
             T_BAND_CELLS,
         )
 
         rows = {row.id: row for row in (*POINT_ROWS, *LONGITUDINAL_ROWS)}
         banded = {row_id: row for row_id, row in rows.items() if "band" in row.kinds}
-        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS)
+        assert set(banded) == set(BAND_CELLS) | set(T_BAND_CELLS) | set(PROJECTION_BAND_CELLS)
         assert dict(BAND_OPTION_DRAWS) == {"D09": 1_000}
         for row_id, row in banded.items():
             measured = BAND_OPTION_DRAWS.get(row_id, DEFAULT_BAND_DRAWS)
             listed = (
                 *(((DEFAULT_BAND_OPTION, measured),) if row_id in BAND_CELLS else ()),
                 *(((T_BAND_OPTION, DEFAULT_BAND_DRAWS),) if row_id in T_BAND_CELLS else ()),
+                *(
+                    ((PROJECTION_BAND_OPTION, PROJECTION_BAND_DRAWS),)
+                    if row_id in PROJECTION_BAND_CELLS
+                    else ()
+                ),
             )
             assert row.band_option_draws == listed, row_id
         row = rows["G23.cross_fitted"]

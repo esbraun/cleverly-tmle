@@ -20,6 +20,7 @@ from sklearn.pipeline import Pipeline
 from .._typing import FloatArray, IntArray, Learner
 from .._warnings import warn as _warn
 from ..exceptions import MethodConfigurationError
+from ..utils.random import note_learner_fit
 from ._threads import thread_limit
 
 __all__ = [
@@ -195,6 +196,23 @@ def supports_sample_weight(estimator: Learner) -> bool:
     )
 
 
+def names_sample_weight(estimator: Learner) -> bool:
+    """Whether ``estimator.fit`` (or its pipeline's final step) names ``sample_weight``.
+
+    Stricter than :func:`supports_sample_weight`: a ``fit(**kwargs)`` may drop the weights,
+    which is harmless where they only buy efficiency and wrong where they carry the targets.
+    """
+    target, _ = _final_estimator(estimator)
+    fit = getattr(target, "fit", None)
+    if fit is None:
+        return False
+    try:
+        signature = inspect.signature(fit)
+    except (TypeError, ValueError):  # pragma: no cover - exotic callables
+        return False
+    return "sample_weight" in signature.parameters
+
+
 def accepts_groups(estimator: Learner) -> bool:
     """Whether ``estimator.fit`` (or its pipeline's final step) takes cluster codes.
 
@@ -239,6 +257,7 @@ def fit_learner(
     intact, but also a wrapped search whose own cross-validation should respect the
     same structure.  It is dropped for a learner that has no use for it.
     """
+    note_learner_fit()
     model = clone_learner(estimator) if copy else estimator
     _, step_name = _final_estimator(model)
     params: dict[str, Any] = {}

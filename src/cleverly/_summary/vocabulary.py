@@ -164,6 +164,8 @@ def interval_label(level: float) -> str:
 SPREAD_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "std_err": "std. error",
+        # A repeated projection fit's standard error without the spread between splits.
+        "se_without_displacement": "std. error without split spread",
         "plugin_std_err": "plug-in SE (diagnostic)",
         "ci_lower": "CI lower",
         "ci_upper": "CI upper",
@@ -365,6 +367,19 @@ QUESTION_PHRASES: Final[Mapping[str, str]] = MappingProxyType(
 SEVERAL_ROWS_QUESTION: Final = "effect of {A} on {Y}; each row is defined below"
 #: The Question fact of a controlled direct effect.
 DIRECT_EFFECT_QUESTION: Final = "effect of {A} on {Y} with {Z} held at {z} for every unit"
+#: The meaning of a projection coefficient of a controlled direct effect (P1 PR 2), which the
+#: target registry's level-free description would misstate as the total conditional effect.
+CDE_PROJECTION_MEANINGS: Final = {
+    "cate_projection": (
+        "coefficients of the best linear projection of the controlled direct effect "
+        "E[Y(t, {z}) - Y(r, {z}) | V], with {Z} held at {z}, onto a declared basis phi(V)"
+    ),
+    "log_crr_projection": (
+        "coefficients of the projection of the conditional log risk ratio "
+        "log E[Y(t, {z}) | V] - log E[Y(r, {z}) | V], with {Z} held at {z}, onto a declared "
+        "basis phi(V)"
+    ),
+}
 #: The Question fact of a learned-rule fit, whose target the data chose.
 LEARNED_RULE_QUESTION: Final = "value of a treatment rule learned from the data"
 #: The Question fact of a fit of the value of the optimal rule (X11 (f)), a fixed parameter.
@@ -390,6 +405,8 @@ NOTE_CODES: Mapping[str, NoteKind] = MappingProxyType(
         "t_reference": "note",
         "spread_scale": "note",
         "interval_scale": "note",
+        "skew_widened": "note",
+        "mover": "note",
         "repeated_splits": "note",
         "simultaneous_bands": "note",
         "bootstrap_diagnostic": "note",
@@ -462,6 +479,7 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "strata": "baseline strata",
         "known_mechanism": "a known treatment mechanism",
+        "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
         "rule_learner_blip": "a rule learner",
@@ -538,6 +556,11 @@ BOOTSTRAP_DIAGNOSTIC: Final[Mapping[str, str]] = MappingProxyType(
             "because the fit reads fewer than {clusters} clusters, and no validation study "
             "measures a bootstrap interval at so few."
         ),
+        "boundary_node": (
+            "The bootstrap range of {names} is a diagnostic, not a confidence interval: every "
+            "resample of rows keeps the flagged node's one value, so the bootstrap cannot see "
+            "the variance that the boundary-node supplement adds."
+        ),
         "declared": (
             "The bootstrap range of {names} is a diagnostic, not a confidence interval: the "
             "collaborative fit builds its treatment model from the data again on each "
@@ -606,6 +629,24 @@ NOTE_TEXTS: Mapping[str, str] = MappingProxyType(
             "The interval of {names} is built on the log-odds scale and turned back, so it "
             "stays inside the possible range of a proportion and need not be centred on the "
             "estimate."
+        ),
+        "skew_widened": (
+            "The interval of {names} is built from a t distribution with the degrees of freedom "
+            "in the df column, which widens it when a few rows carry most of the uncertainty, "
+            "and it is widened further on the side where a skewed outcome makes misses more "
+            "likely, so it need not be centred on the estimate. The p-value is the level at "
+            "which the interval would just reach the null value."
+        ),
+        "skew_widened_large_df": (
+            "The interval of {names} is widened on the side where a skewed outcome makes misses "
+            "more likely, so it need not be centred on the estimate. Its t distribution has "
+            "{df_floor} or more degrees of freedom, so it is close to the normal one. The "
+            "p-value is the level at which the interval would just reach the null value."
+        ),
+        "mover": (
+            "The interval of {names}, a difference of two proportions, is built from the two "
+            "proportions' log-odds intervals, so it need not be centred on the estimate. The "
+            "p-value is the level at which the interval would just reach the null value."
         ),
         "spread_scale_transform": (
             "The std. error of {names} is on the transformed scale, where the interval is "
@@ -826,7 +867,14 @@ RESULT: Final = "Result"
 ESTIMATE_TESTED: Final = "Estimate tested"
 TESTS_RUN: Final = "Tests run"
 REPEATS_PER_TEST: Final = "Repeats per test"
-HEADER_LABELS = HEADER_LABELS | {RESULT, ESTIMATE_TESTED, TESTS_RUN, REPEATS_PER_TEST}
+UNITS_REFUTED: Final = "Units refuted"
+HEADER_LABELS = HEADER_LABELS | {
+    RESULT,
+    ESTIMATE_TESTED,
+    TESTS_RUN,
+    REPEATS_PER_TEST,
+    UNITS_REFUTED,
+}
 
 #: The notes of a refutation report: one per test, a warning when that test failed.
 T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
@@ -844,6 +892,7 @@ T3_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "refit_failures": "warning",
         "refit_spread_diagnostic": "warning",
         "ratio_scale": "note",
+        "sampled_refutation": "warning",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T3_NOTE_CODES})
@@ -1050,6 +1099,7 @@ REFIT_RESAMPLING_WORDS: Final[Mapping[str, str]] = MappingProxyType(
 #: Section titles of a refutation report's full detail.
 SECTION_COMPARED: Final = "What each test was compared with"
 SECTION_DRAWS: Final = "Repeats"
+SECTION_SAMPLE: Final = "Sampled analysis"
 REFUTATION_TITLE: Final = "Refutation tests"
 STATISTICS_TITLE: Final = "Test statistics"
 READINGS_TITLE: Final = "Readings against their allowed bands"
@@ -1144,6 +1194,7 @@ EQUATION_GROUPS: Final[Mapping[str, str]] = MappingProxyType(
         "mtp": "shifted-treatment mean",
         "effect_modification": "conditional-contrast projection",
         "effect_modification_ratio": "log-ratio conditional-contrast projection",
+        "effect_modification_ratio_strata": "log-ratio conditional-contrast projection by stratum",
     }
 )
 
@@ -3490,6 +3541,7 @@ CANDIDATES: Final = "Candidates"
 CHOSEN: Final = "Chosen"
 CRITERION: Final = "Criterion"
 SEARCH: Final = "Search"
+SEARCH_WORK: Final = "Search work"
 COVARIATES_SEARCHED: Final = "Covariates searched"
 ADJUSTMENT: Final = "Multiple testing"
 LOSS: Final = "Loss"
@@ -3785,6 +3837,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "learners_failed": "warning",
         "ensemble_risk": "note",
         "fit_cautions": "warning",
+        "fit_cautions_listed": "warning",
         "stacked_refused": "note",
         "rows_shown": "note",
         "guard_scope": "note",
@@ -3888,6 +3941,10 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "fit_cautions": (
             "The fits of {names} carry warnings that change how to read their rows; print "
             "each with result.fits[name].summary()."
+        ),
+        "fit_cautions_listed": (
+            "The fits of {names} carry warnings that change how to read their rows. This run "
+            "kept no fits (keep_fits=False), so they are listed here: {listing}"
         ),
         "stacked_interval": (
             "Each interval is pointwise and comes from one stacked estimating equation of "
@@ -4005,6 +4062,8 @@ T4_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "incremental_reading": "note",
         "learned_rule_reading": "note",
         "learned_rule_bound": "note",
+        "optimal_rule_reading": "note",
+        "optimal_rule_bound": "note",
         "observation_reads": "note",
         "bounded_rows": "note",
         "redrawn_folds": "note",
@@ -4201,6 +4260,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The outcome flips for a share of units, those highest on the simulated cause, "
             "set by the outcome strength."
         ),
+        "law_outcome_panel_hazard": (
+            "Each unit's per-node event log-odds shifts by the outcome strength times its "
+            "value of the simulated cause, and censoring is redrawn where the treatment "
+            "changed."
+        ),
+        "law_outcome_continuous_hazard": (
+            "Each unit's cause-specific log-hazards ({causes}) shift by the outcome strength "
+            "times its value of the simulated cause; event and censoring times are redrawn "
+            "from the replay's Cox fits, and censoring is redrawn where the treatment changed."
+        ),
         "law_outcome_logit": (
             "The outcome moves on the log-odds scale of its declared bounds, so it stays "
             "inside them, and the outcome strength is not in standard-deviation units: "
@@ -4228,6 +4297,16 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "learned_rule_bound": (
             "The bound keeps the rules the fit learned fixed, so it reads confounding of the "
             "value of those fixed rules, not of the procedure that learned them."
+        ),
+        "optimal_rule_reading": (
+            "Each cell learns the rule again from its altered data, so it reads confounding "
+            "of the value of the best rule, and the rule itself moves with the confounding."
+        ),
+        "optimal_rule_bound": (
+            "The bound reads the strengths as limits that hold for every rule, random rules "
+            "included. Its lower side is the bound of the value of the rules the fit learned, "
+            "and its upper side adds the largest bias any rule can carry, so the interval is "
+            "not symmetric."
         ),
         "observation_reads": (
             "The cells that move the treatment are valid only if whether a value is recorded "
@@ -4273,6 +4352,18 @@ T4_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "value is a point bound, because the estimate of the average squared weight "
             "applies each fold's rule to rows that rule was learned on, and no standard "
             "error is derived for that. {alternative}"
+        ),
+        "limits_withheld_optimal_rule": (
+            "No one-sided limits or limit robustness value: the bound of the value of the "
+            "best rule is a point bound. Its upper side reads the average of the largest "
+            "inverse treatment probability over arms, a maximum with no derived standard "
+            "error, and its lower side is the point bound of the learned rules' value. "
+            "{alternative}"
+        ),
+        "limits_withheld_jackknife": (
+            "No one-sided limits or limit robustness value: the fit reports the "
+            "delete-one-cluster jackknife variance, and the limits would read the influence "
+            "curves, which do not carry it. {alternative}"
         ),
         "limits_withheld_zero": (
             "No one-sided limits or limit robustness value: the bias scale is zero on this "
@@ -4485,8 +4576,7 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "curve_band": (
             "The band holds jointly at {level} over the {points} declared grid points, with "
-            "critical value {critical}. No registered study measures its joint coverage, so "
-            "the status above covers the coefficients and not the band."
+            "critical value {critical}. {coverage}"
         ),
         "curve_experimental": (
             "{reason} Its intervals are computed as for a validated fit; read them with more "
@@ -4528,6 +4618,20 @@ EFFECT_CURVE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **EFFECT_CURVE_NOTE_TEXTS})
+
+#: The ``{coverage}`` sentence of the ``curve_band`` note when the band reads ``supported``: a
+#: registered study measured its joint coverage in this configuration.
+CURVE_BAND_MEASURED: Final = (
+    "A registered study measures its joint coverage in this kind of fit, with {kind} "
+    "multipliers and {draws} draws."
+)
+
+#: The ``{coverage}`` sentence when it does not, naming the band's configuration.
+CURVE_BAND_UNMEASURED: Final = (
+    "No registered study measures its joint coverage in this kind of fit with {kind} "
+    "multipliers and {draws} draws, so the status above covers the coefficients and not the "
+    "band."
+)
 
 # ------------------------------------------------------------ targeting curves (X92 PR-5)
 
@@ -4724,6 +4828,80 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+# --------------------------------------------------------- covariate balance over time (X103)
+
+BALANCE_TIME_TITLE: Final = "Covariate balance over time"
+BALANCE_TIME_TREATMENTS: Final = "Treatments"
+BALANCE_TIME_DIAGNOSTICS: Final = "Checks"
+BALANCE_TIME_COLUMNS: Final[tuple[str, ...]] = (
+    "exposure",
+    "covariate",
+    "before weighting",
+    "after weighting",
+)
+#: The title of each diagnostic's table.
+BALANCE_TIME_DIAGNOSTIC_TITLES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "confounding": "Confounding: covariates up to each treatment, across it",
+        "feedback": "Feedback (weights do not remove it): later covariates across each treatment",
+        "censoring": "Censoring: covariates across leaving the study and staying",
+        "joint": "Joint: covariates across the arms among units whose status is known",
+    }
+)
+BALANCE_TIME_DROPPED_TITLE: Final = "Strata with no comparison"
+BALANCE_TIME_DROPPED_LINE: Final = "{diagnostic}, {exposure}: {strata} strata, {units} rows"
+
+#: The notes a balance-over-time summary can print.
+BALANCE_TIME_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {
+        "balance_time_descriptive": "note",
+        "balance_time_averaged": "note",
+        "balance_time_bounds": "note",
+        "balance_time_omitted": "note",
+        "balance_time_collaborative": "note",
+    }
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_TIME_NOTE_CODES})
+
+BALANCE_TIME_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balance_time_descriptive": (
+            "These differences describe the data and the fitted weights and carry no interval "
+            "or test. Each is the mean in the first group minus the mean in the second, within "
+            "the units that share the same earlier treatments, divided by a spread read there "
+            "before weighting: the square root of the mean of the two groups' variances, or, "
+            "for units whose status is known against their whole arm, the arm's standard "
+            "deviation."
+        ),
+        "balance_time_averaged": (
+            "Each row is averaged over the strata of earlier treatments, each stratum counting "
+            "by its size; the averages are of signed differences, so strata that differ in "
+            "opposite directions offset each other. to_frame() holds every stratum."
+        ),
+        "balance_time_bounds": (
+            "Each cumulative probability is kept within [{lower:.3g}, {upper:.3g}] before it is "
+            "inverted; the limits moved {share} of the weighted rows."
+        ),
+        "balance_time_omitted": "This fit reports no {diagnostic} balance: {reason}.",
+        "balance_time_collaborative": "{text}",
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **BALANCE_TIME_NOTE_TEXTS})
+
+BALANCE_TIME_READINGS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "balanced": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after."
+        ),
+        "residual": (
+            "{before} of {total} averaged covariate differences are larger than {threshold} "
+            "before weighting and {after} after. The largest left is {worst} at {exposure} "
+            "({size}), so the weights have not made the groups alike on it there."
+        ),
+    }
+)
+
 # ------------------------------------------------- continuous-time survival (X91 part G)
 
 #: The ``checkable`` note of a question on a continuous follow-up time, whose fit reports
@@ -4781,9 +4959,29 @@ CONTINUOUS_ASSUMPTIONS: Final[tuple[str, ...]] = (
 CONTINUOUS_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
     {
         "continuous_not_converged": "warning",
+        "continuous_switched_variance": "note",
+        "continuous_bootstrap": "note",
+        "continuous_bootstrap_withheld": "warning",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_NOTE_CODES})
+
+#: The bootstrap note's clause for a fit that also holds a simultaneous bootstrap band.
+CONTINUOUS_BOOTSTRAP_BAND: Final = (
+    ", and the simultaneous band over the risks (result.bootstrap_band) reads the same refits"
+)
+#: The interval named in the bootstrap note, by ``BootstrapSummary.interval``.
+CONTINUOUS_BOOTSTRAP_INTERVAL: Final[Mapping[str, str]] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
+)
+#: The bootstrap note's sentence when its intervals read experimental.
+CONTINUOUS_BOOTSTRAP_EXPERIMENTAL: Final = (
+    " Every bootstrap interval is experimental, and the full summary gives the reason."
+)
+#: The full summary's line on why the bootstrap intervals are experimental.
+CONTINUOUS_BOOTSTRAP_WHY: Final = "Why the bootstrap intervals are experimental: {reason}"
+#: The full summary's line on why the simultaneous bootstrap band is experimental.
+CONTINUOUS_BOOTSTRAP_BAND_WHY: Final = "Why the bootstrap band is experimental: {reason}"
 
 CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -4792,6 +4990,79 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "its stopping rule; the largest is {worst} times the rule. The intervals may be "
             "too narrow. result.record.standardized_score lists every target."
         ),
+        "continuous_switched_variance": (
+            "The standard error of {names} comes from the model-based variance of the event "
+            "process, because few events carry its usual variance and the model-based one is "
+            "larger. estimate.variance_source names the variance of each estimate."
+        ),
+        "continuous_bootstrap": (
+            "The {interval} bootstrap intervals read the {kept} of {requested} refits on "
+            "resampled units that fit{band}.{label} result.to_frame() lists them in the "
+            "bootstrap_ci_lower and bootstrap_ci_upper columns, and "
+            "result.bootstrap_failures says why any refit failed."
+        ),
+        "continuous_bootstrap_withheld": (
+            "{failed} of {requested} bootstrap refits failed, more than {share}, so the fit "
+            "dropped every bootstrap interval and kept the usual ones. "
+            "result.bootstrap_failures says why the refits failed."
+        ),
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})
+
+# ----------------------------------------------------------------- planned fits (X106 I)
+
+PLANNED_FITS_TITLE: Final = "Planned model fits"
+PLANNED_FITS_TOTAL: Final = "Model fits"
+PLANNED_CANDIDATE_TOTAL: Final = "Candidate fits"
+PLANNED_BOUND: Final = "Count"
+PLANNED_BOUND_TEXT: Final[Mapping[bool, str]] = MappingProxyType(
+    {True: "exact", False: "upper bound, at least {low} model fits"}
+)
+PLANNED_FOLDS: Final = "Folds"
+PLANNED_FOLDS_TEXT: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "realized": "the ones the fit uses (seeded)",
+        "outer realized": "outer folds as the fit uses them; inner folds drawn afresh",
+        "one draw": "one draw; the fit draws its own (no random_state)",
+    }
+)
+PLANNED_ROWS_TITLE: Final = "Fits by model"
+PLANNED_ROW_COLUMNS: Final = ("model", "fits", "candidate fits", "what and how often")
+PLANNED_LEARNERS_TITLE: Final = "Learners"
+PLANNED_LEARNER_COLUMNS: Final = ("model", "learner")
+PLANNED_CANDIDATES_TITLE: Final = "Fits by candidate"
+PLANNED_CANDIDATE_COLUMNS: Final = ("candidate", "fits", "own CV folds")
+PLANNED_UPPER_MARK: Final = "at most {fits}"
+SECTION_MULTIPLIERS: Final = "Where the counts come from"
+SECTION_PLANNED_NOTES: Final = "What the counts include"
+SECTION_UNPREVIEWED: Final = "Checks left to the fit"
+PLANNED_UNPREVIEWED_LEAD: Final = (
+    "These checks read a fitted tuner, so estimate() runs them after the count stops:"
+)
+PLANNED_NO_NOTES: Final = (
+    "The correction step that follows the model fits fits no learner and is not counted."
+)
+# ----------------------------------------------------------------- planned refits (X106 G2)
+
+PLANNED_REFITS_TITLE: Final = "Planned refutation refits"
+PLANNED_REFITS_TOTAL: Final = "Refits"
+PLANNED_REFITS_ESTIMAND: Final = "Estimand"
+PLANNED_REFITS_SEED: Final = "Seed"
+PLANNED_REFITS_DRAWN_SEED: Final = "drawn at the call"
+PLANNED_REFITS_STORED: Final = "Draws already stored"
+PLANNED_REFIT_TESTS_TITLE: Final = "Refits by test"
+PLANNED_REFIT_TEST_COLUMNS: Final = ("test", "draws", "refits", "model fits", "candidate fits")
+SECTION_PLANNED_REFIT_TESTS: Final = "What each test's counts assume"
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_REFITS_TOTAL,
+    PLANNED_REFITS_ESTIMAND,
+    PLANNED_REFITS_SEED,
+    PLANNED_REFITS_STORED,
+}
+HEADER_LABELS = HEADER_LABELS | {
+    PLANNED_FITS_TOTAL,
+    PLANNED_CANDIDATE_TOTAL,
+    PLANNED_BOUND,
+    PLANNED_FOLDS,
+}

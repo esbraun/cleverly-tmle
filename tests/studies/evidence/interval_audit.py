@@ -485,18 +485,37 @@ RERUN: dict[str, str] = {}
 #: explain rather than a moved verdict.
 SCREEN_REASONS: dict[str, str] = {
     "canonical-multi-arm-ctmle-selector": (
-        "the flagged cells read ate[medium vs high], a difference, whose interval is unchanged"
+        "the flagged cells read ate[medium vs high], a difference, which this screen does not "
+        "model; asymmetric_audit reads it under MOVER"
     ),
     "canonical-multi-arm-drtmle": (
-        "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, whose interval is "
-        "unchanged"
+        "root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, which this screen "
+        "does not model; asymmetric_audit reads it under MOVER"
     ),
     "canonical-stratified-incremental-msm": (
         "logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
     ),
     "ctmle-oat-per-arm-strata-missing": (
-        "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, whose "
-        "interval is unchanged"
+        "root_n_and_efficiency/n_2000 and n_4000 read the marginal ate, a difference, which this "
+        "screen does not model; asymmetric_audit reads it under MOVER"
+    ),
+    "few-cluster-floor-cross-fitted-ltmle": (
+        "the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every "
+        "fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the "
+        "identity interval on its t reference; the range-logit scale applies to an unclustered "
+        "mean only (ParameterEstimate.interval_scale)"
+    ),
+    "few-cluster-floor-tmle": (
+        "the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every "
+        "fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the "
+        "identity interval on its t reference; the range-logit scale applies to an unclustered "
+        "mean only (ParameterEstimate.interval_scale)"
+    ),
+    "few-cluster-fold-variance": (
+        "the flagged rows are the cluster_covariate cells (ey1, a bounded mean): every fit is "
+        "clustered (id=), and a clustered mean keeps the identity interval on its t reference; "
+        "the range-logit scale applies to an unclustered mean only "
+        "(ParameterEstimate.interval_scale)"
     ),
     "option-patience": (
         "late_confounder_stop/lc3_ordered reads an exclusion share in its covered column, not an "
@@ -504,6 +523,9 @@ SCREEN_REASONS: dict[str, str] = {
     ),
     "score-assessment": (
         "the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
+    ),
+    "score-assessment-compositions": (
+        "the flagged cells are calibration slopes of a CATE score, not package intervals of a mean"
     ),
     "targeting-curves": (
         "the flagged cells are band and type I rows of a targeting curve with truth 0, not "

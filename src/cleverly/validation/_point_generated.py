@@ -584,7 +584,7 @@ def arm_means(
     return out
 
 
-def held_weights(target: PointTarget, data: Any) -> np.ndarray:
+def held_weights(target: PointTarget, data: Any, *, known_score: bool = False) -> np.ndarray:
     """Return the population weight of each held row: the fit weight within the population.
 
     Parameters
@@ -593,6 +593,11 @@ def held_weights(target: PointTarget, data: Any) -> np.ndarray:
         The target whose population and stratum the weights select.
     data : CausalData
         The held rows.
+    known_score : bool
+        Whether the fit summarized its ATT and ATC with ``conditional_form="known_score"``.
+        The population of such a target is then every held row weighted by its declared
+        probability of the conditioning arm, the functional that fit estimates, instead of
+        the held rows observed in that arm.
 
     Returns
     -------
@@ -605,6 +610,12 @@ def held_weights(target: PointTarget, data: Any) -> np.ndarray:
     code = target.population_code()
     if code is None:
         return weights
+    known = getattr(data, "known_treatment", None)
+    if known_score:
+        if known is None:  # pragma: no cover - the fit's preflight requires a declaration
+            raise RuntimeError("a known-score fit reached the held truth with no declaration")
+        column = list(data.arm_codes).index(code)
+        return weights * np.asarray(known.values, dtype=float)[:, column]
     return np.where(np.asarray(data.treatment, dtype=float) == code, weights, 0.0)
 
 
@@ -728,6 +739,22 @@ class PlasmodeLaw:
     recording: np.ndarray | None = None
     mediator: np.ndarray | None = None
     clusters: np.ndarray | None = None
+    #: The row indices of each cluster, in label order, computed once rather than on every
+    #: draw (X106 G5e). Derived from ``clusters``, so it is neither compared nor printed.
+    _members: tuple[np.ndarray, ...] | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.clusters is None:
+            return
+        # ``np.flatnonzero(clusters == label)`` per label, in one stable sort: the rows of
+        # each cluster in ascending order, the clusters in ``np.unique`` order. The field
+        # holds the data's integer cluster codes, so no label is NaN.
+        _, inverse, counts = np.unique(self.clusters, return_inverse=True, return_counts=True)
+        order = np.argsort(inverse.reshape(-1), kind="stable")
+        members = tuple(np.split(order, np.cumsum(counts)[:-1]))
+        object.__setattr__(self, "_members", members)
 
     @property
     def treated(self) -> np.ndarray:
@@ -894,9 +921,9 @@ class PlasmodeLaw:
         n = self.covariates.shape[0]
         if self.clusters is None:
             return np.asarray(rng.integers(0, n, size=n)), None
-        labels = np.unique(self.clusters)
-        members = [np.flatnonzero(self.clusters == label) for label in labels]
-        chosen = rng.integers(0, labels.size, size=labels.size)
+        members = self._members
+        assert members is not None
+        chosen = rng.integers(0, len(members), size=len(members))
         rows = np.concatenate([members[index] for index in chosen])
         ids = np.concatenate(
             [np.full(members[index].size, copy) for copy, index in enumerate(chosen)]
@@ -977,7 +1004,13 @@ class PlasmodeLaw:
         if self.known is not None:
             from ..data.known_mechanism import KnownMechanism
 
-            sample = replace(sample, known_treatment=KnownMechanism(self.known[rows], "array"))
+            # The drawn treatment is independent of the resampled weights given W, so both
+            # readings hold on the plasmode law; the reading is carried so that each refit
+            # runs the configuration of the fit it validates.
+            law = None if data.known_treatment is None else data.known_treatment.law
+            sample = replace(
+                sample, known_treatment=KnownMechanism(self.known[rows], "array", law=law)
+            )
         if self.response is not None:
             observed = rng.random(rows.size) < self.response[rows, index]
             outcome = np.where(observed, outcome, np.nan)

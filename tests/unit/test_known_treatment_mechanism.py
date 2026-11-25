@@ -111,32 +111,11 @@ def _drtmle(**settings: Any) -> DRTMLE:
     return DRTMLE(**base)
 
 
-class ReplicaFolds:
-    """A mixin whose outer folds each hold an exact replica of the law.
-
-    Row ``i`` goes to fold ``k mod V``, where ``k`` counts the rows before it with the same
-    ``(cell, arm, Y)``.  Every such group is a multiple of ten rows, so each fold's empirical
-    law is the law and the cross-fitted estimate is exact too.  The package draws its folds
-    from a seed alone, so a test that needs this split overrides ``_folds``.
-    """
-
-    def _folds(self, data: CausalData, seed: int | None = None) -> Any:
-        from cleverly.learners.crossfit import Folds
-
-        keys = np.column_stack([data.covariates, data.treatment, data.outcome])
-        _, groups = np.unique(keys, axis=0, return_inverse=True)
-        order = np.zeros(data.n, dtype=np.int64)
-        for group in np.unique(groups):
-            rows = np.flatnonzero(groups == group)
-            order[rows] = np.arange(rows.size)
-        return Folds(order % self.n_folds, self.n_folds)  # type: ignore[attr-defined]
-
-
-class ReplicaTMLE(ReplicaFolds, TMLE):
+class ReplicaTMLE(law.ReplicaFolds, TMLE):
     pass
 
 
-class ReplicaDRTMLE(ReplicaFolds, DRTMLE):
+class ReplicaDRTMLE(law.ReplicaFolds, DRTMLE):
     pass
 
 
@@ -372,7 +351,7 @@ def test_the_reported_curve_is_the_efficient_curve_at_the_known_mechanism() -> N
     np.testing.assert_allclose(result.estimates["atc"].influence_curve, curve, atol=1e-12)
 
 
-# ----------------------------------------------------------------------------- E6, E7, E8, E9
+# ------------------------------------------------------- E6, E7, E8 (E9 moved to W2, weights file)
 
 
 def test_a_missing_outcome_tmle_divides_by_the_known_mechanism() -> None:
@@ -446,17 +425,6 @@ def test_an_incremental_fit_on_a_known_mechanism_is_the_known_stochastic_regime(
     )
     (with_term,) = estimated.estimates.values()
     assert np.max(np.abs(with_term.influence_curve - ipsi.influence_curve)) > 1e-3
-
-
-def test_a_weighted_fit_recovers_the_tilted_truth() -> None:
-    """E9: weights that depend on ``W`` only keep the design mechanism the tilted one."""
-    frame = law.point_frame(2)
-    result = (
-        _tmle(estimands="all")
-        .fit(frame, **ROLES, weights="wt", treatment_probabilities=_columns(2))
-        .single()
-    )
-    _assert_truth(result, law.point_truth(2, weighted=True))
 
 
 # ----------------------------------------------------------------------------- witnesses
@@ -1109,9 +1077,9 @@ def test_simulated_confounding_carries_the_flipped_mechanism_in_every_cell(
     declared: list[np.ndarray] = []
     original = CausalData.with_known_mechanism
 
-    def spy(self: CausalData, treatment_probabilities: Any) -> CausalData:
+    def spy(self: CausalData, treatment_probabilities: Any, **options: Any) -> CausalData:
         declared.append(np.asarray(treatment_probabilities, dtype=float))
-        return original(self, treatment_probabilities)
+        return original(self, treatment_probabilities, **options)
 
     monkeypatch.setattr(CausalData, "with_known_mechanism", spy)
     NeverFit.calls = 0

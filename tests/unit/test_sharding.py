@@ -62,7 +62,7 @@ def test_the_ci_job_shards_each_interpreter_and_keeps_the_old_check_names() -> N
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
     assert "CLEVERLY_TEST_SHARD: ${{ matrix.shard }}/${{ matrix.shards }}" in job
-    assert job.count("shards: 4") == 4 and job.count("shards: 2") == 4
+    assert job.count("shards: 4") == 12 and "shards: 2" not in job
     verdict = workflow.split("\n  tests-verdict:", 1)[1].split("\n  # ", 1)[0]
     assert "name: tests\n" in verdict
     assert "needs: tests" in verdict

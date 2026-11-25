@@ -202,6 +202,7 @@ _READ: Final = frozenset(
         ("inference", "n_multiplier"),
         ("inference", "multiplier_kind"),
         ("inference", "band_scale"),
+        ("inference", "n_bootstrap"),
         ("runtime", "random_state"),
         ("runtime", "run_id"),
         ("runtime", "n_jobs"),
@@ -258,8 +259,8 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         raise MethodConfigurationError(
             f"TimeToEvent(grid='continuous') cannot apply {sorted(refused)}: the one-step "
             "continuous-time TMLE reads cross_fit, n_folds, learner_folds, treatment_learner, "
-            "g_bounds, max_iter, step_size, tol, alpha, the band settings and the runtime "
-            f"settings only (roadmap {ROADMAP})."
+            "g_bounds, max_iter, step_size, tol, alpha, the band settings, n_bootstrap and the "
+            f"runtime settings only (roadmap {ROADMAP})."
         )
     targeting = method.targeting
     g_bounds = targeting.g_bounds
@@ -299,4 +300,8 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         "multiplier_kind": inference.multiplier_kind,
         "band_scale": inference.band_scale,
         "random_state": method.runtime.random_state,
+        # The walk's threads, and the bootstrap's worker processes; a study driver's processes
+        # multiply them.
+        "n_jobs": method.runtime.n_jobs,
+        "n_bootstrap": int(inference.n_bootstrap),
     }

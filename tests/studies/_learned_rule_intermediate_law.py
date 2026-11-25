@@ -416,7 +416,9 @@ def curve_variances(result: Any, z: float) -> tuple[float, float]:
     return with_factor * scale**2, without * scale**2
 
 
-def harness(results: Any, learner: Any, *, known: bool = False) -> dict[float, Truth]:
+def harness(
+    results: Any, learner: Any, *, known: bool = False, estimand: str | None = None
+) -> dict[float, Truth]:
     """Refit each fold's rule, check it at each level, and integrate each level's value.
 
     The refit is the package's ``fit_on_rows`` on the fold's training rows with the fit's own
@@ -424,6 +426,9 @@ def harness(results: Any, learner: Any, *, known: bool = False) -> dict[float, T
     fitted model. The design :func:`level_design` builds is checked against the data's own
     ``counterfactual_design`` at every arm and level. A known-rule fit refits nothing: its rule is
     ``1{W1 > 0}`` at both levels, which the harness checks against the fit's rule.
+    ``estimand`` names the reported parameter whose variance the longhand curve must match; it
+    defaults to the learned-rule value, or the known rule's value when ``known``
+    (``learned-rule-optimal-compositions`` passes ``ey_optimal_rule[learned rule]``).
 
     Raises
     ------
@@ -487,7 +492,8 @@ def harness(results: Any, learner: Any, *, known: bool = False) -> dict[float, T
             values.append(value)
             variances.append(variance)
             sizes.append(len(test))
-        reported = float(result.estimates[KNOWN_ESTIMAND if known else ESTIMAND].variance)
+        name = estimand or (KNOWN_ESTIMAND if known else ESTIMAND)
+        reported = float(result.estimates[name].variance)
         with_factor, without = curve_variances(result, z)
         if abs(with_factor - reported) > EXACTNESS_TOLERANCE * reported:
             raise HarnessMismatch(

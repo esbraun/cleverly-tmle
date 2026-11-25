@@ -42,9 +42,9 @@ moves and the estimate is the reported one.  The tilted parameter is not doubly 
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -54,7 +54,13 @@ from ..data.causal_data import arm_share
 from ..estimators._nuisance import tilt_missingness
 from ..exceptions import DataWarning
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
-from ..inference.influence import ParameterEstimate, Scale, make_estimate, unscale
+from ..inference.influence import (
+    ParameterEstimate,
+    Scale,
+    make_estimate,
+    unscale,
+    with_components,
+)
 from ..utils.bounds import expit, g_bounds_for, logit
 
 #: Predictions are kept this far inside ``(0, 1)`` while the fluctuation moves them, the
@@ -177,20 +183,24 @@ def solve_tilt(
         # (m, K, J): the outcome and the mechanism clever covariates of every column.
         return b * (kappa / p)[:, :, None], b * (q - h)[:, :, None]
 
-    def score(q: FloatArray, p: FloatArray) -> tuple[FloatArray, FloatArray, float]:
-        # The total score of each column, the outcome half plus the mechanism half, and its
-        # largest value relative to the most it could be.
+    def evaluate(
+        q: FloatArray, p: FloatArray
+    ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, FloatArray, float]:
+        # The covariates at (q, p), their rows at the received arm, the total score of each
+        # column (the outcome half plus the mechanism half) and its largest value relative
+        # to the most it could be.  Evaluated once per iterate: the Newton step at an
+        # iterate reads the same covariates and score that decided it had not converged.
         hq, hp = covariates(q, p)
         own_q, own_p = hq[at, a], hp[at, a]
         total = (w * delta * (y - q[at, a])) @ own_q / m + (w * (delta - p[at, a])) @ own_p / m
         scale = np.maximum(
             (np.abs(w * delta) @ np.abs(own_q) + np.abs(w) @ np.abs(own_p)) / m, 1e-300
         )
-        return total, scale, float(np.max(np.abs(total) / scale, initial=0.0))
+        return hq, hp, own_q, own_p, total, float(np.max(np.abs(total) / scale, initial=0.0))
 
     converged = False
     iteration = 0
-    _, _, relative = score(q, p)
+    hq, hp, own_q, own_p, total, relative = evaluate(q, p)
     while iteration < _MAX_ITER:
         if relative <= tol:
             converged = True
@@ -201,12 +211,9 @@ def solve_tilt(
         # still as gamma goes to zero, where its covariate vanishes: a coefficient of its
         # own would solve the mechanism score along that vanishing direction at any gamma,
         # and the estimate would jump at gamma = 0.
-        hq, hp = covariates(q, p)
-        own_q, own_p = hq[at, a], hp[at, a]
         vq = w * delta * q[at, a] * (1.0 - q[at, a])
         vp = w * p[at, a] * (1.0 - p[at, a])
         gram = ((own_q * vq[:, None]).T @ own_q + (own_p * vp[:, None]).T @ own_p) / m
-        total, _, _ = score(q, p)
         step = np.asarray(np.linalg.lstsq(gram, total, rcond=None)[0], dtype=float)
         # The updated mechanism is not clipped back to ``missingness_bound``.  That floor
         # guards the initial fit; the update is a score-solving submodel step, and clipping
@@ -214,7 +221,7 @@ def solve_tilt(
         # the bounded start is of the order of the coefficient, which shrinks with n.
         q = np.clip(expit(logit(q) + hq @ step), _EDGE, 1.0 - _EDGE)
         p = np.clip(expit(logit(p) + hp @ step), _EDGE, 1.0 - _EDGE)
-        _, _, relative = score(q, p)
+        hq, hp, own_q, own_p, total, relative = evaluate(q, p)
     else:
         converged = relative <= tol
 
@@ -418,12 +425,115 @@ def tilt_interval_exclusion(result: Any) -> str | None:
     return None
 
 
+_A = TypeVar("_A", bound=np.ndarray)
+
+
+def _frozen(array: _A) -> _A:
+    """A read-only view, so a sweep's shared input cannot be written by one tilt."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
+
+
+class TiltInputs:
+    """The gamma-invariant inputs of the targeted tilt of one cross-fitting draw.
+
+    Every array here reads the fit and the draw only, never the tilt, so a sweep over
+    ``gamma`` builds them once per draw instead of once per ``gamma``.  The arrays are
+    computed by exactly the expressions the per-``gamma`` construction used, and nothing
+    downstream writes into them, so every solve and estimate is bitwise the one a fresh
+    construction gives.
+
+    Parameters
+    ----------
+    result : Any
+        The fitted result.
+    repeat : RepeatFit
+        The draw whose targeted regressions and mechanisms start the fluctuation.
+    """
+
+    def __init__(self, result: Any, repeat: Any) -> None:
+        data = result.data
+        config = result.config
+        nuisance = repeat.nuisance
+        self.result = result
+        self.repeat = repeat
+        self.arms = tuple(nuisance.arms)
+        self.column = {arm: self.arms.index(arm) for arm in self.arms}
+        lookup = np.array([float(arm) for arm in self.arms], dtype=float)
+        treatment = np.asarray(data.treatment, dtype=float)
+        # Each row's arm as a column index.  ``data.treatment`` holds arm codes only, so the
+        # position of the code among the arms is the column ``self.column`` names.
+        order = np.argsort(lookup, kind="stable")
+        position = np.searchsorted(lookup[order], treatment)
+        position = np.minimum(position, lookup.size - 1)
+        if not np.array_equal(lookup[order][position], treatment):
+            raise KeyError("a treatment value is not one of the fitted arms")
+        self.received = _frozen(np.asarray(order[position], dtype=int))
+        self.observed = _frozen(np.asarray(data.observed, dtype=bool))
+        raw = np.asarray(data.outcome, dtype=float)
+        self.scaled = _frozen(
+            np.where(self.observed, nuisance.scaler.scale(np.where(self.observed, raw, 0.0)), 0.0)
+        )
+        self.weights = _frozen(np.asarray(data.weights, dtype=float))
+        mechanism = tilt_missingness(nuisance, config.missingness_bound)
+        assert mechanism is not None
+        self.mechanism = _frozen(mechanism)
+        self.folds = (
+            [_frozen(np.asarray(test, dtype=int)) for _, test in nuisance.folds]
+            if config.cv_evaluation and not nuisance.folds.is_single
+            else None
+        )
+        # The fit's own update weights: under the fold-evaluated construction they normalise
+        # the weight mass inside each validation fold, and solving with any other weights
+        # would move the fluctuation at gamma = 0 away from the fit's.
+        self.solve_weights = _frozen(
+            np.asarray(result.estimator._validation_weights(data, nuisance), dtype=float)
+        )
+        self._regressions: dict[str, FloatArray] = {}
+        self._propensities: dict[str, FloatArray] = {}
+        self._columns: dict[Any, FloatArray] = {}
+
+    def regression(self, group: str) -> FloatArray:
+        """The targeted regression of ``group`` at every arm, ``(n, K)``."""
+        if group not in self._regressions:
+            n = self.result.data.n
+            targeted = self.repeat.fluctuations[group].targeted
+            if group == "natural_course":
+                # Only the received arm is read, by the curve and by the plug-in.
+                out = np.full((n, len(self.arms)), 0.5)
+                out[np.arange(n), self.received] = np.asarray(targeted.observed, dtype=float)
+            else:
+                out = np.column_stack(
+                    [np.asarray(targeted.arms[arm], dtype=float) for arm in self.arms]
+                )
+            self._regressions[group] = _frozen(out)
+        return self._regressions[group]
+
+    def propensity(self, group: str) -> FloatArray:
+        """The bounded treatment mechanism ``group``'s target divides by, ``(n, K)``."""
+        if group not in self._propensities:
+            config = self.result.config
+            bounds = g_bounds_for(group, config.g_bounds, config.g_bounds_conditional)
+            self._propensities[group] = _frozen(
+                np.asarray(self.repeat.nuisance.bounded_propensity(bounds), dtype=float)
+            )
+        return self._propensities[group]
+
+    def columns(self, key: Any, build: Callable[[], FloatArray]) -> FloatArray:
+        """The arm weights stored under ``key``, built by ``build()`` on first use."""
+        if key not in self._columns:
+            self._columns[key] = _frozen(build())
+        return self._columns[key]
+
+
 def targeted_tilt_estimates(
     result: Any,
     repeat: Any,
     targets: Sequence[Any],
     gamma: float,
     direction: Mapping[float, float],
+    inputs: TiltInputs | None = None,
 ) -> tuple[dict[str, ParameterEstimate], bool]:
     """The targeted tilted estimate of every target, from one cross-fitting draw.
 
@@ -439,6 +549,8 @@ def targeted_tilt_estimates(
         The tilt magnitude.
     direction : mapping of float to float
         The per-arm multiplier, by arm code.
+    inputs : TiltInputs or None
+        The draw's gamma-invariant inputs, shared across a sweep; ``None`` builds them.
 
     Returns
     -------
@@ -447,31 +559,23 @@ def targeted_tilt_estimates(
     """
     data = result.data
     config = result.config
+    if inputs is None:
+        inputs = TiltInputs(result, repeat)
     nuisance = repeat.nuisance
     scaler = nuisance.scaler
-    arms = tuple(nuisance.arms)
-    column = {arm: arms.index(arm) for arm in arms}
-    treatment = np.asarray(data.treatment, dtype=float)
-    received = np.array([column[float(code)] for code in treatment], dtype=int)
-    observed = np.asarray(data.observed, dtype=bool)
-    raw = np.asarray(data.outcome, dtype=float)
-    scaled = np.where(observed, scaler.scale(np.where(observed, raw, 0.0)), 0.0)
-    weights = np.asarray(data.weights, dtype=float)
-    mechanism = tilt_missingness(nuisance, config.missingness_bound)
-    assert mechanism is not None
+    arms = inputs.arms
+    column = inputs.column
+    received = inputs.received
+    observed = inputs.observed
+    scaled = inputs.scaled
+    weights = inputs.weights
+    mechanism = inputs.mechanism
     tilt = np.array([gamma * direction[arm] for arm in arms], dtype=float)
     tol = float(config.targeting_spec.tol)
     n = data.n
     alpha = float(config.alpha_sig)
-    folds = (
-        [np.asarray(test, dtype=int) for _, test in nuisance.folds]
-        if config.cv_evaluation and not nuisance.folds.is_single
-        else None
-    )
-    # The fit's own update weights: under the fold-evaluated construction they normalise
-    # the weight mass inside each validation fold, and solving with any other weights would
-    # move the fluctuation at gamma = 0 away from the fit's.
-    solve_weights = np.asarray(result.estimator._validation_weights(data, nuisance), dtype=float)
+    folds = inputs.folds
+    solve_weights = inputs.solve_weights
     converged = True
     solved: dict[Any, TiltSolve] = {}
 
@@ -498,18 +602,8 @@ def targeted_tilt_estimates(
                 )
         return solved[key]
 
-    def regression(group: str) -> FloatArray:
-        targeted = repeat.fluctuations[group].targeted
-        if group == "natural_course":
-            # Only the received arm is read, by the curve and by the plug-in.
-            out = np.full((n, len(arms)), 0.5)
-            out[np.arange(n), received] = np.asarray(targeted.observed, dtype=float)
-            return out
-        return np.column_stack([np.asarray(targeted.arms[arm], dtype=float) for arm in arms])
-
-    def propensity(group: str) -> FloatArray:
-        bounds = g_bounds_for(group, config.g_bounds, config.g_bounds_conditional)
-        return np.asarray(nuisance.bounded_propensity(bounds), dtype=float)
+    regression = inputs.regression
+    propensity = inputs.propensity
 
     def report(rows: IntArray | None) -> dict[str, ParameterEstimate]:
         # Every target on the rows ``rows`` selects, one validation fold or (``None``) the
@@ -533,7 +627,8 @@ def targeted_tilt_estimates(
         def arm_means(group: str) -> tuple[FloatArray, FloatArray]:
             if group not in means:
                 g = propensity(group)
-                out = solve(("arm", group), arm_columns(received, g), regression(group))
+                columns = inputs.columns(("arm", group), lambda: arm_columns(received, g))
+                out = solve(("arm", group), columns, regression(group))
                 means[group] = arm_mean_curves(cut(out), y, d, a, w, g[at], tilt)
             return means[group]
 
@@ -541,12 +636,20 @@ def targeted_tilt_estimates(
 
         def natural_course() -> tuple[float, FloatArray]:
             if not observed_mean:
-                columns = natural_course_columns(n, len(arms))
+                columns = inputs.columns(
+                    "natural_course", lambda: natural_course_columns(n, len(arms))
+                )
                 out = solve("natural_course", columns, regression("natural_course"))
                 observed_mean.append(natural_course_curve(cut(out), y, d, a, w, tilt))
             return observed_mean[0]
 
-        def finish(target: Any, psi: float, curve: FloatArray, scale: Scale) -> ParameterEstimate:
+        def finish(
+            target: Any,
+            psi: float,
+            curve: FloatArray,
+            scale: Scale,
+            arms: tuple[tuple[float, FloatArray], tuple[float, FloatArray]] | None = None,
+        ) -> ParameterEstimate:
             reported = result[target.name]
             log_psi = None
             if scale == "fraction":
@@ -555,7 +658,7 @@ def targeted_tilt_estimates(
                 value, ic = unscale(psi, curve, scaler, scale)
             if scale == "ratio":
                 log_psi, value = psi, float(np.exp(psi))
-            return make_estimate(
+            estimate = make_estimate(
                 target.name,
                 value,
                 ic,
@@ -569,7 +672,31 @@ def targeted_tilt_estimates(
                 reference_df=reported.reference_df,
                 # The tilted refit solves its own score to tolerance (``solve_tilt``).
                 rule_widened=False,
+                # The fit's bounds and outcome family choose the shipped interval scale
+                # (range-logit, MOVER or skew-widened t), as on the reported estimate.
+                bounds=reported.bounds,
+                outcome_family=reported.outcome_family,
             )
+            if arms is None or reported.bounds != (-1.0, 1.0):
+                return estimate
+            one, zero = (
+                make_estimate(
+                    f"{target.name}[{side}]",
+                    *unscale(arm_psi, arm_curve, scaler, "level"),
+                    n=size,
+                    cluster=cluster,
+                    scale="level",
+                    alpha=alpha,
+                    covariance_rule=reported.covariance_rule,
+                    inference=reported.inference,
+                    reference_df=reported.reference_df,
+                    rule_widened=False,
+                    bounds=(0.0, 1.0),
+                    outcome_family=reported.outcome_family,
+                )
+                for side, (arm_psi, arm_curve) in zip(("arm", "versus"), arms, strict=True)
+            )
+            return with_components(estimate, one, zero)
 
         out: dict[str, ParameterEstimate] = {}
         for target in targets:
@@ -589,20 +716,29 @@ def targeted_tilt_estimates(
                             psi_arms[i] - psi_arms[r],
                             curves[:, i] - curves[:, r],
                             "difference",
+                            arms=((psi_arms[i], curves[:, i]), (psi_arms[r], curves[:, r])),
                         )
                     continue
                 g = propensity(parameter.group)
                 pair = [(column[parameter.arm], column[parameter.versus], column[conditioning])]
                 key = ("contrast", parameter.group, pair[0])
-                columns = contrast_columns(g, pair)
-                if folds is not None:
-                    # The fit rebuilds this covariate with each validation fold's share of
-                    # the conditioning arm, so the common update solves the equal average of
-                    # the fold scores; a common share would target a different equation.
-                    for fold in folds:
-                        columns[fold] /= arm_share(
-                            data.treatment, data.weights, conditioning, mask=fold
-                        )
+
+                def build(
+                    g: FloatArray = g,
+                    pair: list[tuple[int, int, int]] = pair,
+                    on: Any = conditioning,
+                ) -> FloatArray:
+                    built = contrast_columns(g, pair)
+                    if folds is not None:
+                        # The fit rebuilds this covariate with each validation fold's share
+                        # of the conditioning arm, so the common update solves the equal
+                        # average of the fold scores; a common share would target a
+                        # different equation.
+                        for fold in folds:
+                            built[fold] /= arm_share(data.treatment, data.weights, on, mask=fold)
+                    return built
+
+                columns = inputs.columns(key, build)
                 fitted = solve(key, columns, regression(parameter.group))
                 psi_c, curve_c = contrast_curves(cut(fitted), y, d, a, w, g[at], tilt, pair)
                 out[target.name] = finish(target, float(psi_c[0]), curve_c[:, 0], "difference")

@@ -216,13 +216,17 @@ def solve_pooled(
 
     Raises
     ------
+    CapabilityError
+        On rows with an intermediate: the pseudo-outcomes carry no ``1{Z = z}/q_z``.
     DataError
         When the fluctuation does not converge or its Hessian is near-singular.
     """
     from .effect_curves import _pseudo_outcomes
+    from .effect_modification import refuse_cde_curve_tools
     from .estimators.targeting import solve_submodel
     from .fluctuation.submodel import effect_modification_submodel
 
+    refuse_cde_curve_tools(data)
     nuisance = fit.nuisance
     spec = fit.config.targeting_spec
     g_bounds = (float(fit.config.g_bounds[0]), float(fit.config.g_bounds[1]))

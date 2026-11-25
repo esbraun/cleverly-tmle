@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import importlib
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import (
+    CLUSTER_INTERVAL_FLOORS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     T_REFERENCE_STRATUM,
@@ -62,6 +64,7 @@ from tests.unit._inference_status_support import (
     longitudinal_learners,
 )
 from tests.unit._inference_status_support import cluster_labels as labels
+from tests.unit.test_longitudinal_cluster_status import fit_one_node
 from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
@@ -201,10 +204,11 @@ class TestTheBoundaries:
         assert result.inference_status == "influence_curve"
         assert set(reference_dfs(result).values()) == {8}
 
-    def test_nine_clusters_take_the_status(self) -> None:
-        result = fit_k(9)
-        assert set(reference_dfs(result).values()) == {7}
-        assert_shows_interval(result, "few_cluster_plugin", 7)
+    def test_one_below_the_in_sample_floor_takes_the_status(self) -> None:
+        below = CLUSTER_INTERVAL_FLOORS["tmle_in_sample"] - 1
+        result = fit_k(below)
+        assert set(reference_dfs(result).values()) == {below - 2}
+        assert_shows_interval(result, "few_cluster_plugin", below - 2)
 
     def test_an_at_or_below_threshold_fails_the_forty_cluster_control(
         self, monkeypatch: pytest.MonkeyPatch
@@ -704,10 +708,14 @@ class TestAFortyClusterFoldEvaluatedFit:
         self, forty: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         t_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
-        import cleverly.sensitivity.omitted_variable as omitted
 
+        from cleverly.sensitivity import _limits
+
+        real = _limits.interval_reference
         monkeypatch.setattr(
-            omitted, "one_sided_quantile", lambda level, df=None: stats.norm.ppf(level)
+            _limits,
+            "interval_reference",
+            lambda estimate, **options: real(replace(estimate, reference_df=None), **options),
         )
         normal_bounds = omitted_variable_bounds(forty, "ate", cf_y=0.02, cf_d=0.02)
         ratio = (t_bounds.lower - t_bounds.ci_lower) / (
@@ -749,10 +757,15 @@ class TestTheLongitudinalDerivedEstimates:
         assert result.ratio(risks[0], risks[1]).reference_df == 20
 
     @pytest.mark.parametrize(
-        ("clusters", "status"), [(19, "few_cluster_plugin"), (20, "influence_curve")]
+        ("clusters", "status"),
+        [
+            (CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"] - 1, "few_cluster_plugin"),
+            (CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"], "influence_curve"),
+        ],
     )
-    def test_the_longitudinal_floor_is_twenty(self, clusters: int, status: str) -> None:
-        result = _ltmle_end_of_study(clusters)
+    def test_the_in_sample_longitudinal_floor(self, clusters: int, status: str) -> None:
+        # The family floor holds on its measured design alone (MEASURED_LONGITUDINAL_DESIGNS).
+        result = fit_one_node(clusters)
         assert result.inference_status == status
         assert set(reference_dfs(result).values()) == {clusters - 2}
 
@@ -827,10 +840,14 @@ class TestTheConsumersReadTheReference:
         """The limit's half-width is the t(10) quantile times its standard error."""
         result = _linear(12, estimands=("ate",))
         t_bounds = omitted_variable_bounds(result, "ate", cf_y=0.02, cf_d=0.02)
-        import cleverly.sensitivity.omitted_variable as omitted
 
+        from cleverly.sensitivity import _limits
+
+        real = _limits.interval_reference
         monkeypatch.setattr(
-            omitted, "one_sided_quantile", lambda level, df=None: stats.norm.ppf(level)
+            _limits,
+            "interval_reference",
+            lambda estimate, **options: real(replace(estimate, reference_df=None), **options),
         )
         normal_bounds = omitted_variable_bounds(result, "ate", cf_y=0.02, cf_d=0.02)
         ratio = (t_bounds.lower - t_bounds.ci_lower) / (
@@ -868,6 +885,7 @@ ALLOWED = {
     "longitudinal/gformula.py": "an inverse-CDF draw of a Gaussian covariate, not an interval",
     "sensitivity/simulated_confounding.py": "a latent perturbation threshold",
     "learners/screeners.py": "a screening p-value, not a reported interval",
+    "longitudinal/_memory_guard.py": "a measured worker-share ratio that happens to read 1.96",
 }
 
 FORBIDDEN_ATTRIBUTES = {"ppf", "sf", "cdf", "isf"}

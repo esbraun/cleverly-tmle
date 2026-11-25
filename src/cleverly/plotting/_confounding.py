@@ -310,6 +310,15 @@ def _check_robustness(data: Any, robustness: Any) -> float | None:
         )
     if not _close(robustness.psi, data.psi):
         raise ValueError("the robustness value and the contour describe different estimates")
+    side = robustness.get("side")
+    if side is not None and side != data.bound:
+        # The bound of the value of the optimal rule has two scales, and a robustness value
+        # records the side it solved (X11 (f3)).
+        raise ValueError(
+            f"the robustness value was solved on the {side} side of an asymmetric bound, but "
+            f"the contour maps the {data.bound} bound; build it with contour_data(..., "
+            f"bound={side!r})"
+        )
     estimator = robustness.get("nu2_estimator", "doubly_robust")
     if estimator != data.nu2_estimator:
         raise ValueError(
@@ -789,7 +798,19 @@ def _intermediate_dim(result: Any) -> _Dim:
     )
 
 
+_TIME_TO_EVENT = ("survival", "competing_risks")
+
+
 def _outcome_label(result: Any) -> str:
+    if result.outcome_family in _TIME_TO_EVENT:
+        if result.treatment_family == "longitudinal":
+            return "Shift of the per-node event log-odds per SD of the simulated cause"
+        if result.outcome_cause is not None:
+            return (
+                f"Shift of the log-hazard of cause {result.outcome_cause} per SD of the "
+                "simulated cause"
+            )
+        return "Shift of each cause-specific log-hazard per SD of the simulated cause"
     if result.bounded_outcome_law == "logit":
         return "Outcome strength on the log-odds scale of its bounds (not SD units)"
     if result.bounded_outcome_law == "normal_score":
@@ -800,6 +821,10 @@ def _outcome_label(result: Any) -> str:
 
 
 def _outcome_short(result: Any) -> str:
+    if result.outcome_family in _TIME_TO_EVENT:
+        if result.treatment_family == "longitudinal":
+            return "Event log-odds shift per SD"
+        return "Log-hazard shift per SD"
     if result.bounded_outcome_law is not None:
         return "Outcome strength (not SD units)"
     if result.outcome_family == "gaussian":
@@ -831,8 +856,13 @@ def _calibration_marks(
     A binomial row is a share of predictions changed, which is the scale of a flip share. A
     numeric Gaussian row is a signed coefficient per SD of the covariate, the scale of a
     dose shift; the Gaussian outcome law subtracts its strength, so an outcome row sits at
-    minus its coefficient. An unsigned block strength has no place on a signed axis.
+    minus its coefficient. An unsigned block strength has no place on a signed axis. A
+    time-to-event outcome row is a signed coefficient in the replay's own hazard model: a
+    log-hazard coefficient on a continuous-time surface (``family="hazard"``) and a per-node
+    event log-odds coefficient on a survival panel, each on the scale of the outcome axis, one
+    mark per cause.
     """
+    from ..sensitivity._simulated_confounding_survival import REPLAY_HAZARD_METHOD
     from ..sensitivity.simulated_confounding import _NUMERIC_GAUSSIAN_METHOD
 
     x_marks: list[tuple[str, float]] = []
@@ -840,11 +870,19 @@ def _calibration_marks(
     elsewhere: list[str] = []
     numeric_y = result.outcome_family == "gaussian" and result.bounded_outcome_law is None
     binary_y = result.outcome_family == "binomial" and result.bounded_outcome_law is None
+    hazard_y = result.outcome_family in _TIME_TO_EVENT
     for row in result.calibrations:
         strength = float(row.strength)
         numeric = row.family == "gaussian" and row.method == _NUMERIC_GAUSSIAN_METHOD
+        hazard_row = row.role == "outcome" and (
+            row.family == "hazard" or row.method == REPLAY_HAZARD_METHOD
+        )
         unit = (
-            "share of predictions changed"
+            "log-hazard coefficient"
+            if row.role == "outcome" and row.family == "hazard"
+            else "log-odds coefficient"
+            if hazard_row
+            else "share of predictions changed"
             if row.family == "binomial"
             else "signed coefficient"
             if numeric
@@ -866,6 +904,9 @@ def _calibration_marks(
                 elsewhere.append(where + ": the treatment is held)")
             else:
                 elsewhere.append(where + ": no drawn axis on its scale)")
+        elif hazard_y and hazard_row:
+            label = f"{row.covariate} ({row.component})" if row.component else row.covariate
+            y_marks.append((label, strength))
         elif binary_y and row.family == "binomial":
             y_marks.append((row.covariate, strength))
         elif numeric_y and numeric:
