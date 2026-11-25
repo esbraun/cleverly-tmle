@@ -607,7 +607,9 @@ clusters, or `G07` from 20 clusters). The study covers equal clusters of 10 rows
 `LTMLE`) and binary outcomes only, so Remark 3 remains the source's caution for other designs.
 
 On the $t$ tier every other fit with a data-adaptive outcome or treatment learner is experimental
-with its interval shown; the reduced-regression learners of `DRTMLE` are not read. A cross-fitted
+with its interval shown; the reduced-regression learners of `DRTMLE` are not read. A
+scikit-learn pipeline of fixed polynomial or scaling transforms before a parametric model counts
+as parametric (`cleverly._support.nuisance_family`). A cross-fitted
 fit outside the measured ground reads "not measured with an adaptive learner": another adaptive
 learner (a scikit-learn tree, or a Super Learner with a library named), cross-fitted `LTMLE`
 below 20 clusters, and the fold-evaluated, `DRTMLE` and `SDR` fits with an adaptive outcome or

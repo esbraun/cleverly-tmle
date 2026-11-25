@@ -80,6 +80,29 @@ def test_the_family_of_each_learner_kind() -> None:
     assert adaptive_nuisance([GLM(), None]) and not adaptive_nuisance([GLM(), GLM()])
 
 
+def test_a_fixed_basis_pipeline_with_a_parametric_final_step_is_parametric() -> None:
+    """The outcome learner of ``learned-rule-compositions``: logistic on fixed interactions."""
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import PolynomialFeatures, SplineTransformer, StandardScaler
+
+    interactions = PolynomialFeatures(2, interaction_only=True, include_bias=False)
+    assert nuisance_family(make_pipeline(interactions, LogisticRegression())) == "parametric"
+    assert nuisance_family(make_pipeline(StandardScaler(), LinearRegression())) == "parametric"
+    # Witnesses: an adaptive final step, and a transform outside the fixed basis.
+    assert nuisance_family(make_pipeline(interactions, DecisionTreeClassifier())) == "adaptive"
+    assert nuisance_family(make_pipeline(SplineTransformer(), LogisticRegression())) == "adaptive"
+
+
+def test_a_row_whose_study_measured_its_learners_keeps_its_label() -> None:
+    """``T37.few_cluster``: the learned-rule study's own fit carries no adaptive qualifier."""
+    case = next(case for case in support_cases.CASES if case.row == "T37.few_cluster")
+    classification = support_cases.classification(case)
+    assert classification.row is not None and classification.row.id == "T37.few_cluster"
+    assert classification.key.dependence == "t"
+    assert ADAPTIVE_NUISANCE not in classification.key.qualifiers
+    assert adaptive_nuisance_shortfall(classification, "wald_t") is None
+
+
 def test_the_default_library_is_none_or_a_super_learner_with_no_library() -> None:
     assert default_library_learner(None) and default_library_learner(SuperLearner())
     # Witnesses: an adaptive library named, and a single adaptive learner.

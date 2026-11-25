@@ -651,6 +651,17 @@ ADAPTIVE_UNMEASURED_REASON: Final[str] = (
 )
 
 
+def _fixed_basis_transforms() -> tuple[type, ...]:
+    """The pipeline transforms :func:`nuisance_family` reads as a fixed basis.
+
+    Each maps a row to a fixed number of features chosen by its settings, not by the data's
+    outcome: a fixed-degree polynomial or interaction expansion, and a column standardization.
+    """
+    from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+
+    return (PolynomialFeatures, StandardScaler)
+
+
 def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
     """The family of a nuisance learner, with a Super Learner of parametric candidates parametric.
 
@@ -658,7 +669,11 @@ def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
     few-cluster reading of X54 part (h) a Super Learner whose every candidate is parametric is
     a convex combination of finite-dimensional fits, which the registered parametric evidence
     covers. A Super Learner without a library uses the default library,
-    which is adaptive.
+    which is adaptive. A scikit-learn ``Pipeline`` of fixed-basis transforms
+    (:func:`_fixed_basis_transforms`) before a parametric final step is parametric too: a
+    logistic regression on fixed pairwise interactions has a fixed dimension and selects
+    nothing, so it is the fit the registered parametric evidence measures (the outcome learner
+    of ``learned-rule-compositions``, for one). A pipeline with any other step is adaptive.
 
     Parameters
     ----------
@@ -682,7 +697,17 @@ def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
     >>> nuisance_family(None)
     'adaptive'
     """
+    from sklearn.pipeline import Pipeline
+
     from .learners.super_learner import SuperLearner
+
+    if type(learner) is Pipeline:
+        *transforms, (_, final) = learner.steps
+        fixed = all(
+            step == "passthrough" or type(step) in _fixed_basis_transforms()
+            for _, step in transforms
+        )
+        return "parametric" if fixed and nuisance_family(final) == "parametric" else "adaptive"
 
     if type(learner) is SuperLearner:
         library = learner.library
