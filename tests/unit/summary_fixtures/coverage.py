@@ -251,6 +251,17 @@ def regime_report_unsupported() -> Any:
 
 
 @_quiet
+def regime_report_natural_course() -> Any:
+    """The overlap of three regimes beside a learned rule and the natural course.
+
+    The natural course has no treatment density, so it has no row; the note names it.
+    """
+    from tests.unit.test_learned_rule_natural_course import _fit
+
+    return _fit("stochastic_natural").diagnostics.support()
+
+
+@_quiet
 def policy_row_unsupported() -> Any:
     """The overlap of a dose-shifting policy with two rows whose shifted dose has no density."""
     from . import longitudinal_records as records
@@ -359,6 +370,11 @@ FIXTURES = {
     "survival_projected": survival_projected,
     "regime_report_unsupported": Case(
         regime_report_unsupported, names=("screen",), fidelity=read.read_support_report
+    ),
+    "regime_report_natural_course": Case(
+        regime_report_natural_course,
+        names=("learned rule", "always 0", "coin", "offer", "natural course"),
+        fidelity=read.read_support_report,
     ),
     "policy_row_unsupported": Case(
         policy_row_unsupported, names=("up",), fidelity=read.read_policy_support
