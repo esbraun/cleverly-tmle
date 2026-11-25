@@ -1616,10 +1616,10 @@ def _long_cases() -> tuple[RowCase, ...]:
     )
     # few-cluster-adaptive-learners: the study's own gated fits with the default learner
     # library, stopped where the classifier reads the key. Stacked TMLE lands on T11.stacked
-    # below 40 clusters and on T10.unweighted at 40; cross-fitted LTMLE lands on G07.
+    # below 40 clusters and cross-fitted LTMLE on G07. At 40 clusters the stacked fit is on the
+    # clustered tier, whose row T10.unweighted rests on its own unequal-size evidence.
     for row, fit, law, clusters in (
         ("T11.stacked", "tmle_stacked", "equal10", 20),
-        ("T10.unweighted", "tmle_stacked", "equal10", 40),
         ("G07", "ltmle_crossfit", "equal40", 20),
     ):
         observed(

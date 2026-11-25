@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from ._inference_status import (
+    ADAPTIVE_MEASURED_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
     STATUS_RECORDS,
     cluster_interval_floor,
@@ -616,14 +617,11 @@ ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
 #: The qualifier of an ``adaptive_nuisance`` fit inside the ground that
 #: ``few-cluster-adaptive-learners`` measured: every adaptive learner is the default library
 #: (:func:`default_library_learner`), and the fit reads at least
-#: :data:`ADAPTIVE_MEASURED_CLUSTERS` positive-mass clusters for its kind. The rows the study
+#: :data:`~cleverly._inference_status.ADAPTIVE_MEASURED_CLUSTERS` positive-mass clusters for
+#: its kind. The rows the study
 #: reaches (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`) keep their label only for a
 #: fit that carries it.
 ADAPTIVE_MEASURED: Final[str] = "adaptive_nuisance_measured"
-
-#: The fewest clusters the study measured the default library at: stacked ``TMLE`` at 10, 20
-#: and 40, and cross-fitted ``LTMLE`` at 20.
-ADAPTIVE_MEASURED_CLUSTERS: Final[Mapping[str, int]] = {"point": 10, "longitudinal": 20}
 
 #: Qualifiers that a row which does not declare them still covers. Each records a property of
 #: the fit that a registered study reads as a measured limit, not as a configuration the rows
@@ -648,7 +646,8 @@ ADAPTIVE_UNMEASURED_REASON: Final[str] = (
     "composition is not measured with an adaptive learner. few-cluster-adaptive-learners "
     "measures stacked TMLE at 10 to 40 clusters and cross-fitted LTMLE at 20 clusters, with "
     "the default library (a SuperLearner with no library named). Another adaptive learner, "
-    "fewer clusters, and the fold-evaluated, DR-TMLE and SDR estimators have no measurement."
+    "fewer clusters, and the fold-evaluated, DR-TMLE and SDR estimators with an adaptive "
+    "outcome or treatment learner have no measurement."
 )
 
 
@@ -739,7 +738,7 @@ def _adaptive_qualifiers(key: SupportKey, learners: Sequence[Any], data: Any) ->
 
     ``adaptive_nuisance`` when one of them is adaptive, and with it ``adaptive_nuisance_measured``
     when every adaptive one is the default library and the fit reads at least
-    :data:`ADAPTIVE_MEASURED_CLUSTERS` clusters for its kind.
+    :data:`~cleverly._inference_status.ADAPTIVE_MEASURED_CLUSTERS` clusters for its kind.
     """
     if key.dependence != "t" or not adaptive_nuisance(learners):
         return frozenset()

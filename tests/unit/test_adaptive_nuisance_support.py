@@ -6,7 +6,7 @@ is experimental by theory (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`).
 ``few-cluster-adaptive-learners`` measures stacked ``TMLE`` at 10 to 40 clusters and
 cross-fitted ``LTMLE`` at 20 clusters, with the default library, and every gated row passes. A
 fit inside that ground (``adaptive_nuisance_measured``) keeps the label of ``T11.stacked``,
-``T10.unweighted`` or ``G07``; every other cross-fitted adaptive fit on the ``t`` tier is
+or ``G07``; every other cross-fitted adaptive fit on the ``t`` tier is
 experimental, not measured (:data:`cleverly._support.ADAPTIVE_UNMEASURED_REASON`). These tests
 pin each branch with a witness, the label with its text, and that every plot and every refute,
 validate and sensitivity operation answers on an in-sample, stacked and ``LTMLE`` fit with the
@@ -180,16 +180,24 @@ def test_the_study_configurations_carry_the_qualifier_as_declared(
 def test_the_study_is_evidence_of_the_rows_its_gated_fits_reach() -> None:
     """Each case of the study runs its own fit to the classifier and lands on a row naming it.
 
-    The stacked fits reach ``T11.stacked`` below 40 clusters and ``T10.unweighted`` at 40, and
-    the cross-fitted ``LTMLE`` reaches ``G07``. The in-sample fits are reported only, so no row
+    The stacked fits reach ``T11.stacked`` below 40 clusters, and the cross-fitted ``LTMLE``
+    reaches ``G07``. At 40 clusters the stacked fit reaches ``T10.unweighted`` on the clustered
+    tier, whose evidence is its own, so that row does not name the study. The in-sample fits are reported only, so no row
     names the study for them.
     """
     rows = {row.id: row for row in registered_rows()}
     cases = [case for case in support_cases.CASES if case.slug == study.STUDY.slug]
-    assert {case.row for case in cases} == {"T11.stacked", "T10.unweighted", "G07"}
+    assert {case.row for case in cases} == {"T11.stacked", "G07"}
     for case in cases:
         assert study.STUDY.slug in rows[case.row].evidence, case.row
     assert study.STUDY.slug not in rows["T11.in_sample"].evidence
+    assert study.STUDY.slug not in rows["T10.unweighted"].evidence
+    # Witness: the study's stacked fit at 40 clusters does land on T10.unweighted.
+    frame = study.draw("equal10", 40, 0)
+    observed = support_cases.capture(lambda: study.fit_one("tmle_stacked", frame))
+    at_forty = classify_key(observed.key, observed.learners)
+    assert at_forty.row is not None and at_forty.row.id == "T10.unweighted"
+    assert ADAPTIVE_NUISANCE not in at_forty.key.qualifiers
 
 
 # ------------------------------------------------------------------ the measured ground
@@ -234,6 +242,23 @@ def test_the_ltmle_default_library_is_measured_from_20_clusters(
     assert classification.key.dependence == "t"
     expected = None if measured else ADAPTIVE_UNMEASURED_REASON.format(row="G07")
     assert adaptive_nuisance_shortfall(classification, "wald_t") == expected
+
+
+def test_the_measured_counts_are_the_study_s_own() -> None:
+    """The measured ground and the note's counts are the study's COUNTS, not a policy floor."""
+    from cleverly._adaptive_evidence import ADAPTIVE_MEASURED_COUNTS
+    from cleverly._inference_status import ADAPTIVE_MEASURED_CLUSTERS, T_REFERENCE_NOTE
+
+    stacked = sorted({count for law in study.POINT_LAWS for count in study.COUNTS[law]})
+    assert list(ADAPTIVE_MEASURED_COUNTS["point"]) == stacked
+    assert ADAPTIVE_MEASURED_COUNTS["longitudinal"] == study.COUNTS[study.LTMLE_LAW]
+    assert dict(ADAPTIVE_MEASURED_CLUSTERS) == {
+        "point": min(stacked),
+        "longitudinal": min(study.COUNTS[study.LTMLE_LAW]),
+    }
+    (ltmle,) = study.COUNTS[study.LTMLE_LAW]
+    assert f"stacked TMLE at {min(stacked)} to {max(stacked)} clusters" in T_REFERENCE_NOTE
+    assert f"cross-fitted LTMLE at {ltmle} clusters" in T_REFERENCE_NOTE
 
 
 _UNMEASURED_ROWS = ("T11.fold_evaluated", "T37.few_cluster", "D05", "G26.clusters_20")
@@ -291,7 +316,7 @@ def test_a_stacked_tree_fit_is_not_measured_below_40_clusters() -> None:
     at_forty = _clustered(_tree(), clusters=40, stacked=True)["ate"]
     assert at_forty.support.label == "supported"
     assert at_forty.support.row == "T10.unweighted"
-    assert "few-cluster-adaptive-learners" in at_forty.support.evidence
+    assert "few-cluster-adaptive-learners" not in at_forty.support.evidence
 
 
 # In sample, by theory.
