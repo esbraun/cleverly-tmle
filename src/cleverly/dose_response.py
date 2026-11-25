@@ -362,8 +362,8 @@ class DoseResponse:
         Parameters
         ----------
         extra_breaks : sequence of float
-            More break points, such as a binned density's edges, so that each piece sees a
-            density that is constant in the dose.
+            More break points, such as a binned density's edges and bin centres, so that the
+            density is log-linear on each piece.
         refine : int
             Multiplies :attr:`nodes_per_piece`; the doubling diagnostic passes 2.
 

@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
-from cleverly.validation.nuisance import NuisanceDiagnostics
+from cleverly.validation.nuisance import NUISANCE_CLASSIFIER_RATIO, NuisanceDiagnostics
 
 from . import Case
 from ._check_fidelity import read_models
@@ -155,6 +155,19 @@ def declared() -> NuisanceDiagnostics:
     return replace(in_sample(), treatment_role="declared_treatment_law")
 
 
+def classifier_ratio() -> NuisanceDiagnostics:
+    """A policy fit on the classifier route with missing outcomes: it fits the outcome and
+    missingness models and no treatment model."""
+    check = cross_fitted()
+    missingness = replace(check["propensity"], name="missingness")
+    return replace(
+        check,
+        treatment_role=None,
+        treatment_omission=NUISANCE_CLASSIFIER_RATIO,
+        models=(check["outcome"], missingness),
+    )
+
+
 def missing_parts() -> NuisanceDiagnostics:
     """A collaborative check whose selection is missing and whose outcome was not fitted."""
     check = collaborative()
@@ -186,6 +199,7 @@ FIXTURES = {
     "models_weak_treatment": _models(weak_treatment),
     "models_recording": _models(recording),
     "models_declared": _models(declared),
+    "models_classifier_ratio": _models(classifier_ratio),
     "models_missing_parts": _models(missing_parts),
     "models_none": _models(none),
 }

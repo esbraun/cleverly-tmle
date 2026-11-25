@@ -172,12 +172,14 @@ from ..interventions.joint_density import (
 from ..interventions.policy import (
     JointPolicy,
     _atom_index,
+    _policy_steps,
     _refuse_undeclared_atoms,
     branch_ratio,
     check_component_atoms,
     check_declared_atoms,
     check_observed_support,
     component_atom_layout,
+    component_support_layout,
     induced_probabilities,
     joint_branches,
     joint_policy_moves,
@@ -191,6 +193,7 @@ from ..learners.density import (
     ConditionalDensity,
     MixedDensity,
     bin_edges,
+    bin_occupancy,
     default_density_bins,
     fit_conditional_density,
 )
@@ -480,6 +483,10 @@ class Mechanism:
         On a plan with a ratio trim (:attr:`ratio_trims`) the raw prefix is the cumulative
         mechanism the trimmed ratio implies, :meth:`RatioTrim.implied_cumulative`, and the
         bound applies to it.  On a row whose ratios were never trimmed it is the raw prefix.
+        On a trimmed row of a plan with a policy node only the lower bound applies: there
+        the implied mechanism :math:`\\pi / \\tilde R` is no probability, since the policy
+        density sits in the numerator, and an upper bound of one would restore the
+        untrimmed weight.
         """
         return cached(
             "cumulative",
@@ -502,7 +509,11 @@ class Mechanism:
         density = plan.intervention_density(data)
         implied = trim.implied_cumulative(np.cumprod(density, axis=1, dtype=np.float64), raw)
         lower, upper = bounds
-        return implied, bound(implied, lower, upper)
+        limited = bound(implied, lower, upper)
+        if not plan.has_policy:
+            return implied, limited
+        touched = np.logical_or.accumulate(trim.trimmed, axis=1)
+        return implied, np.where(touched, np.maximum(implied, lower), limited)
 
     def _cumulative_with_unbounded(
         self,
@@ -2684,6 +2695,14 @@ def _continuous_node_ratios(
     frame = lazy_frame(lambda: data.policy_frame(time))
     atoms = data.node_atoms(time)
     density: ConditionalDensity | MixedDensity | None = None
+    declared = data.node_support(time)
+    # The node's declared support, on the observed history: the density reads each row over
+    # it (``learners.density``).  The hazard fit does not read it.
+    support = None if declared is None or ratio != "density" else declared.bounds(frame, data.n)
+    # The classifier's step columns read the same declared support on the observed history.
+    steps_support = (
+        None if declared is None or ratio == "density" else declared.bounds(frame, data.n)
+    )
     if ratio == "density" and atoms:
         # A dose with declared atoms: the multinomial "which atom, or none" and the binned
         # density of the rows with no atom, on the same folds.  A
@@ -2700,16 +2719,21 @@ def _continuous_node_ratios(
             n_jobs=n_jobs,
             fit_mask=fit_at,
             edge_rows=None if np.array_equal(fit_at, at_risk) else at_risk,
+            support=support,
         )
     elif ratio == "density":
         edges = None
+        occupied = None
         if not np.array_equal(fit_at, at_risk):
             # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
-            # out-of-fold fit's, read from every row at risk, so at the fold's held-out rows
-            # it is the model the out-of-fold mechanism uses there.
+            # out-of-fold fit's, read from every row at risk, and so is the occupancy that
+            # breaks its segments, so at the fold's held-out rows it is the model the
+            # out-of-fold mechanism uses there.
             grid_values = dose[at_risk]
             bins = default_density_bins(grid_values.size) if density_bins is None else density_bins
-            edges = bin_edges(grid_values, bins).tolist()
+            grid = bin_edges(grid_values, bins)
+            edges = grid.tolist()
+            occupied = bin_occupancy(grid_values, grid)
         density, _ = fit_conditional_density(
             treatment_learner,
             history,
@@ -2718,6 +2742,8 @@ def _continuous_node_ratios(
             folds,
             n_bins=density_bins,
             edges=edges,
+            occupied=occupied,
+            support=support,
             groups=data.cluster,
             n_jobs=n_jobs,
             fit_mask=fit_at,
@@ -2753,6 +2779,8 @@ def _continuous_node_ratios(
                     groups=data.cluster,
                     n_jobs=n_jobs,
                     atoms=atoms,
+                    frame=frame,
+                    support=steps_support,
                 )
             numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
             shifted[plan.label][time] = {
@@ -2779,6 +2807,8 @@ def _continuous_node_ratios(
                 groups=data.cluster,
                 n_jobs=n_jobs,
                 atoms=atoms,
+                frame=frame,
+                support=steps_support,
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
     return density
@@ -2820,6 +2850,29 @@ def _density_numerator(
     return out
 
 
+def _node_steps(
+    plan: Plan,
+    time: int,
+    folds: Folds,
+    frame: Any,
+    support: tuple[FloatArray, FloatArray] | None,
+    dose: FloatArray,
+    atoms: tuple[float, ...] = (),
+) -> Any:
+    """A node's step columns for a plan's classifier (``classifier_ratio(steps=)``).
+
+    Every branch of the plan's policy at the node lowers on the node's policy frame.  A plan
+    with fold plans on several folds lowers each fold's own map.  The bounds are the node's
+    declared support, or else the one-sided observed bound of the fold's fitted training
+    rows, which are at risk, off the node's declared atoms.
+    """
+    if frame is None:
+        return None
+    sources = plan.fold_plans if plan.fold_plans and not folds.is_single else (plan,)
+    branch_sets = [[branch for _, branch in _node_branches(source, time)] for source in sources]
+    return _policy_steps(branch_sets, frame, dose.size, support, dose, atoms)
+
+
 def _classifier_numerator(
     plan: Plan,
     time: int,
@@ -2834,6 +2887,8 @@ def _classifier_numerator(
     groups: Any,
     n_jobs: int,
     atoms: Sequence[float],
+    frame: Any = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
 ) -> FloatArray:
     """The classifier-route ratio of one plan at a continuous node, at the observed doses.
 
@@ -2861,6 +2916,7 @@ def _classifier_numerator(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
+    steps = _node_steps(plan, time, folds, frame, support, dose, tuple(atoms))
     (numerator,) = classifier_ratio(
         treatment_learner,
         history,
@@ -2874,6 +2930,7 @@ def _classifier_numerator(
         n_jobs=n_jobs,
         atoms=atoms,
         assigned_by_fold=by_fold,
+        steps=steps,
     )
     return numerator
 
@@ -2893,6 +2950,8 @@ def _classifier_numerators(
     groups: Any,
     n_jobs: int,
     atoms: Sequence[float],
+    frame: Any = None,
+    support: tuple[FloatArray, FloatArray] | None = None,
 ) -> list[FloatArray]:
     """:func:`_classifier_numerator`, and the same classifier's ratio at each dose of ``extra``.
 
@@ -2922,6 +2981,7 @@ def _classifier_numerators(
             (probability, target)
             for (probability, _), target in zip(branches, targets, strict=True)
         )
+    steps = _node_steps(plan, time, folds, frame, support, dose, tuple(atoms))
     return classifier_ratio(
         treatment_learner,
         history,
@@ -2935,6 +2995,7 @@ def _classifier_numerators(
         n_jobs=n_jobs,
         atoms=atoms,
         assigned_by_fold=by_fold,
+        steps=steps,
     )
 
 
@@ -3086,6 +3147,7 @@ def _mixed_node_inputs(
         data.history_design(time),
         f"node {data.treatment_names[time - 1]!r} at time {time}",
         component_atom_layout(components, data.component_atoms(time)),
+        component_support_layout(components, data.component_supports(time)),
     )
     branches: list[JointBranch] = []
     # ``(plan, probability, branch, fold)``: the fold whose rows a branch's ratio serves,

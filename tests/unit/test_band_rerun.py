@@ -86,8 +86,95 @@ def test_the_plan_records_every_moved_cell_and_the_true_draw_pins(plan: dict[str
 def test_the_planned_studies_install_as_one_unit(plan: dict[str, Any]) -> None:
     """Every planned study is at its baseline, or every one is a composite, or every one has a
     sidecar beside its baseline: a wave never installs in part."""
-    states = set(band_rerun.installed_state(plan).values())
+    installed = band_rerun.installed_state(plan)
+    assert {slug for slug, state in installed.items() if state == "regenerated"} == set(
+        band_rerun.REGENERATED
+    )
+    states = {state for state in installed.values() if state != "regenerated"}
     assert len(states) == 1 and states <= {"baseline", "composite", "sidecar"}, states
+
+
+REGENERATED_SLUG = "dose-response"
+
+
+def _regenerated_manifest() -> dict[str, Any]:
+    record = band_rerun.record_for(REGENERATED_SLUG)
+    return json.loads((record.artifacts / "manifest.json").read_bytes())
+
+
+def test_a_regenerated_study_holds_only_as_a_full_regeneration(tmp_path: Path) -> None:
+    """A study listed in ``REGENERATED`` is accepted only while its manifest is a normal full
+    regeneration at the listed commit: a composite, a band-rerun mode, an older run or an
+    unclean tree each turn it back into a failure, so the list never skips a study blindly."""
+    assert REGENERATED_SLUG in band_rerun.REGENERATED
+    manifest = _regenerated_manifest()
+    assert band_rerun.regenerated_findings(REGENERATED_SLUG, manifest) == []
+    older = copy.deepcopy(manifest)
+    older["generated_with"]["subject"]["cleverly_commit"] = band_rerun.BASELINE_COMMIT
+    unclean = copy.deepcopy(manifest)
+    unclean["generated_with"]["subject"]["cleverly_worktree_clean"] = False
+    mutants = {
+        "composite": {**manifest, "composite": {}},
+        "mode": {**manifest, "generation_mode": band_rerun.MODE},
+        "older": older,
+        "unclean": unclean,
+    }
+    for name, mutant in mutants.items():
+        assert band_rerun.regenerated_findings(REGENERATED_SLUG, mutant), name
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "manifest.json").write_text(json.dumps(mutant), encoding="utf-8")
+        mutated = {"studies": {REGENERATED_SLUG: {"artifact_directory": str(directory)}}}
+        with pytest.raises(ValueError, match=REGENERATED_SLUG):
+            band_rerun.installed_state(mutated)
+    assert band_rerun.regenerated_findings("adaptive-iptw", manifest)
+    assert not band_rerun.regenerated("adaptive-iptw")
+
+
+def test_a_plain_form_study_holds_only_while_its_hashes_are_the_run_commit() -> None:
+    """The plain-form exception reads the run's own record, not the flag alone.
+
+    A plain-form manifest records an unclean tree by construction, so the guard holds it to
+    every module and reference hash it records, read against the listed run commit.  One
+    altered hash, an unknown tree state, or a study not listed in ``PLAIN_FORM`` each fail.
+    """
+    known = band_rerun.git("cat-file", "-e", f"{band_rerun.WAVE_INSTALL_COMMIT}^{{commit}}")
+    if known.returncode != 0:
+        pytest.skip("a shallow checkout holds no history to read the run commit from")
+    for slug in band_rerun.PLAIN_FORM:
+        assert slug in band_rerun.REGENERATED, slug
+        record = band_rerun.record_for(slug)
+        manifest = json.loads((record.artifacts / "manifest.json").read_bytes())
+        assert manifest["generated_with"]["subject"]["cleverly_worktree_clean"] is False
+        assert band_rerun.regenerated_findings(slug, manifest) == []
+        altered = copy.deepcopy(manifest)
+        name = next(iter(altered["study_module_sha256"]))
+        altered["study_module_sha256"][name] = "0" * 64
+        assert band_rerun.regenerated_findings(slug, altered) == [
+            f"the manifest's {name} is not the file at the run "
+            f"{band_rerun.REGENERATED[slug][0][:7]}"
+        ]
+        unknown = copy.deepcopy(manifest)
+        unknown["generated_with"]["subject"]["cleverly_worktree_clean"] = None
+        assert "its manifest does not record a clean tree" in band_rerun.regenerated_findings(
+            slug, unknown
+        )
+    assert REGENERATED_SLUG not in band_rerun.PLAIN_FORM
+
+
+def test_every_regenerated_study_descends_from_the_wave_install() -> None:
+    """The ancestry half of the guard, which a shallow checkout cannot read."""
+    known = band_rerun.git("cat-file", "-e", f"{band_rerun.WAVE_INSTALL_COMMIT}^{{commit}}")
+    if known.returncode != 0:
+        pytest.skip("a shallow checkout holds no history to read the ancestry from")
+    for slug, (commit, _) in band_rerun.REGENERATED.items():
+        ancestry = band_rerun.git(
+            "merge-base", "--is-ancestor", band_rerun.WAVE_INSTALL_COMMIT, commit
+        )
+        assert ancestry.returncode == 0, slug
+    older = band_rerun.git("rev-parse", f"{band_rerun.WAVE_INSTALL_COMMIT}~1").stdout.strip()
+    ancestry = band_rerun.git("merge-base", "--is-ancestor", band_rerun.WAVE_INSTALL_COMMIT, older)
+    assert ancestry.returncode != 0
 
 
 PLANNED = tuple(json.loads(band_rerun.PLAN_PATH.read_bytes())["studies"])
@@ -222,13 +309,17 @@ def test_an_installed_study_is_the_run_its_manifest_records(
     """After a flip, each committed file hashes to its manifest, and the manifest is the one
     the install wrote: a targeted composite carries the plan's baseline rows outside its bands;
     a complete rerun's record names the plan, the plan's baseline and the committed manifest."""
-    if band_rerun.installed_state(plan)[slug] == "baseline":
+    state = band_rerun.installed_state(plan)[slug]
+    if state == "baseline":
         pytest.skip(f"{slug} is at its baseline: the plan itself holds it")
     entry = plan["studies"][slug]
     directory = ROOT / entry["artifact_directory"]
     manifest = json.loads((directory / "manifest.json").read_bytes())
     for name, recorded in manifest["sha256"].items():
         assert band_rerun.digest((directory / name).read_bytes()) == recorded, name
+    if state == "regenerated":
+        assert band_rerun.regenerated_findings(slug, manifest) == []
+        return
     complete = band_rerun.installed_complete(directory)
     if complete is None:
         assert manifest["generation_mode"] == band_rerun.MODE
@@ -1180,6 +1271,10 @@ def test_the_decision_reads_the_committed_properties(slug: str, plan: dict[str, 
     The decision is what the red-cell ledgers and the support rows cite; a committed summary
     that moved after it, or a decision edited by hand, would leave them citing another reading.
     """
+    if slug in band_rerun.REGENERATED:
+        # The decision keeps the wave's reading; the study's rows are a later full run.
+        assert band_rerun.regenerated_findings(slug) == []
+        return
     decision = json.loads((ROOT / "tests/canonical/band-rerun-decision.json").read_bytes())
     entry = plan["studies"][slug]
     summary = pd.read_csv(ROOT / entry["artifact_directory"] / "properties.csv")

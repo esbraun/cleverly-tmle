@@ -69,53 +69,51 @@ _PROBE = "reviews/notebook-review/probes/sequential-pricing"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "0.0056": f"SD of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
-    "-0.00013": f"mean of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
-    "-0.45": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
-    "0.65": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
+    "0.0065": f"SD of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "-0.00024": f"mean of the price_up placebo estimates, 400 draws: {_PROBE}/placebo.log",
+    "-0.74": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
+    "0.46": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
     "1.01": f"mean reported SE over the SD of the placebo estimates, 400 draws: {_PROBE}/placebo.log",
-    "94.5": f"share of the placebo 95% intervals that contain 0, 400 draws: {_PROBE}/placebo.log",
-    "-0.0002": f"bias of the LTMLE renewal contrast of price_up, 200 draws: {_PROBE}/summary.log",
-    "0.0004": f"bias of the LTMLE renewal contrast of price_down, 200 draws: {_PROBE}/summary.log",
-    "0.0005": f"Monte Carlo standard error of both renewal biases, 200 draws: {_PROBE}/summary.log, "
-    f"and the paired Monte Carlo standard error of the price_up learner difference: "
-    f"{_PROBE}/revenue_learner.log",
-    "0.0099": f"bias of the LTMLE revenue contrast of price_up, 200 draws: {_PROBE}/summary.log",
-    "0.0094": f"bias of the LTMLE revenue contrast of price_down, 200 draws: {_PROBE}/summary.log",
-    "0.0039": f"Monte Carlo standard error of the price_up revenue bias: {_PROBE}/summary.log",
+    "94.75": f"share of the placebo 95% intervals that contain 0, 400 draws: {_PROBE}/placebo.log",
+    "-0.0003": f"bias of the LTMLE renewal contrast of price_up, 200 draws: {_PROBE}/summary.log",
+    "0.0003": f"bias of the LTMLE renewal contrast of price_down, 200 draws: {_PROBE}/summary.log",
+    "0.0005": f"Monte Carlo standard error of both renewal biases, 200 draws: {_PROBE}/summary.log",
+    "-0.0016": f"bias of the LTMLE revenue contrast of price_up, 200 draws: {_PROBE}/summary.log",
+    "0.0014": f"bias of the LTMLE revenue contrast of price_down, 200 draws: {_PROBE}/summary.log",
+    "0.0044": f"Monte Carlo standard error of the price_up revenue bias: {_PROBE}/summary.log",
     "0.0038": f"Monte Carlo standard error of the price_down revenue bias: {_PROBE}/summary.log",
-    "0.0557": f"SD of the price_up revenue estimates, 200 draws: {_PROBE}/summary.log",
-    "0.0537": f"SD of the price_down revenue estimates, 200 draws: {_PROBE}/summary.log",
-    "0.0028": f"bias of the price_up revenue contrast, quadratic outcome learner, 60 draws: "
+    "0.0629": f"SD of the price_up revenue estimates, 200 draws: {_PROBE}/summary.log",
+    "0.0539": f"SD of the price_down revenue estimates, 200 draws: {_PROBE}/summary.log",
+    "0.0032": f"bias of the price_up revenue contrast, both outcome learners, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
-    "0.0132": f"bias of the price_up revenue contrast, linear outcome learner, 60 draws: "
+    "0.0089": f"Monte Carlo standard error of the price_up quadratic bias, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
-    "0.0075": f"Monte Carlo standard error of the price_up quadratic bias, 60 draws: "
+    "0.0090": f"Monte Carlo standard error of the price_up linear bias, 60 draws: "
     f"{_PROBE}/revenue_learner.log",
-    "0.0074": f"Monte Carlo standard error of the price_up linear bias, 60 draws: "
-    f"{_PROBE}/revenue_learner.log",
-    "0.88": "bootstrap_stability spread 0.005749 over the renewal standard error 0.0065, both "
+    "1.10": "bootstrap_stability spread 0.008295 over the renewal standard error 0.0075, both "
     "printed (checked in check_refits)",
-    "1.98": "mean reported standard error over the SD of the ten placebo estimates, 1.983 (checked "
+    "2.31": "mean reported standard error over the SD of the ten placebo estimates, 2.314 (checked "
     "in check_refits)",
-    "10.5": "the printed renewal contrast 0.1050 of the 15% cut, in percentage points (checked in "
+    "10.9": "the printed renewal contrast 0.1091 of the 15% cut, in percentage points (checked in "
     "_check_reading_attribution)",
-    "0.31": "the size of the printed revenue contrast -0.3129 of the 12% rise, written as a fall "
+    "0.35": "the size of the printed revenue contrast -0.3536 of the 12% rise, written as a fall "
     "(checked in _check_reading_attribution)",
-    "0.0104": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
+    "0.0000": f"mean estimate of the linear learner minus the quadratic learner, price_up revenue, "
     f"60 paired draws: {_PROBE}/revenue_learner.log",
-    "0.0076": f"mean estimate of the linear learner minus the quadratic learner, price_down revenue, "
+    "0.0006": f"mean estimate of the linear learner minus the quadratic learner, price_down revenue, "
     f"60 paired draws: {_PROBE}/revenue_learner.log",
-    "0.0010": f"paired Monte Carlo standard error of the price_down learner difference: "
+    "0.0004": f"paired Monte Carlo standard error of the price_up learner difference: "
+    f"{_PROBE}/revenue_learner.log",
+    "0.0008": f"paired Monte Carlo standard error of the price_down learner difference: "
     f"{_PROBE}/revenue_learner.log",
     "-0.0203": f"limit of the omit regression, price_up, one draw of 400000: {_PROBE}/summary.log",
     "0.0270": f"limit of the omit regression, price_down, one draw of 400000: {_PROBE}/summary.log",
-    "14.82": f"mean maximum weight of price_up at month 3, 200 draws: {_PROBE}/summary.log",
-    "2.03": f"SD of that maximum weight: {_PROBE}/summary.log",
-    "31.76": f"mean maximum weight of price_down at month 3, 200 draws: {_PROBE}/summary.log",
-    "5.21": f"SD of that maximum weight: {_PROBE}/summary.log",
-    "0.361": f"mean effective n over n of price_up at month 3, 200 draws: {_PROBE}/summary.log",
-    "0.154": f"mean effective n over n of price_down at month 3, 200 draws: {_PROBE}/summary.log",
+    "17.25": f"mean maximum weight of price_up at month 3, 200 draws: {_PROBE}/summary.log",
+    "2.07": f"SD of that maximum weight: {_PROBE}/summary.log",
+    "33.79": f"mean maximum weight of price_down at month 3, 200 draws: {_PROBE}/summary.log",
+    "5.92": f"SD of that maximum weight: {_PROBE}/summary.log",
+    "0.297": f"mean effective n over n of price_up at month 3, 200 draws: {_PROBE}/summary.log",
+    "0.141": f"mean effective n over n of price_down at month 3, 200 draws: {_PROBE}/summary.log",
 }
 
 FINGERPRINT = "c04c00be0a4211eb"
@@ -387,6 +385,9 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
     summary = result.summary()
     assert dict(summary.header)["Out-of-fold predictions"] == "no"
     assert dict(summary.header)["Probability limits"] == "[0.01, 1]"
+    # "The header's `Policy ratio` line names how the weights are estimated, here the classifier
+    # this page asks for."
+    assert dict(summary.header)["Policy ratio"] == "classifier (requested)"
     # The limits move no probability, so the summary prints no capped note.
     assert "weights_capped" not in summary.note_codes
     # The summary prints the weight tail at one decimal. The stored output fixes the printed text,
@@ -394,30 +395,30 @@ def _check_renewal_fit(namespace: dict[str, Any]) -> None:
     printed_tail = stored_output(NOTEBOOK, "ltmle")
     plans_table = summary.table("What each plan assigns and who followed it to the end")
     rows = {row[0].value: row for row in plans_table.rows}
-    for plan, shown in (("price_up", 13.7), ("price_down", 31.2)):
+    for plan, shown in (("price_up", 15.5), ("price_down", 32.4)):
         assert rows[plan][1].value == 10000
         assert re.search(rf"^{plan} +10,000 of 10,000 +{shown} ", printed_tail, re.MULTILINE)
         assert rows[plan][2].value == pytest.approx(shown, abs=0.11)
     assert result.simultaneous is not None
-    assert round(result.simultaneous.critical_value, 3) == 2.188
+    assert round(result.simultaneous.critical_value, 3) == 2.228
     assert round(result.simultaneous.pointwise_critical_value, 3) == 1.960
     assert "experimental" in summary.note("simultaneous_bands").text
 
     up, down = (result[_key(plan)] for plan in PLANS)
-    # "The `price_up` contrast is -0.1025, with a standard error of 0.0065 and a 95% interval of
-    # (-0.1154, -0.0900) ... The `price_down` contrast is 0.1050, with an interval of (0.0890,
-    # 0.1197)." The seed is the first of the swept range, so the coverage is a record of the draw.
-    assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.1025, 0.0065)
-    assert [round(value, 4) for value in up.ci] == [-0.1154, -0.0900]
-    assert (round(down.psi, 4), round(down.std_error, 4)) == (0.1050, 0.0078)
-    assert [round(value, 4) for value in down.ci] == [0.0890, 0.1197]
+    # "The `price_up` contrast is -0.1065, with a standard error of 0.0075 and a 95% interval of
+    # (-0.1214, -0.0919) ... The `price_down` contrast is 0.1091, with an interval of (0.0936,
+    # 0.1234)." The seed is the first of the swept range, so the coverage is a record of the draw.
+    assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.1065, 0.0075)
+    assert [round(value, 4) for value in up.ci] == [-0.1214, -0.0919]
+    assert (round(down.psi, 4), round(down.std_error, 4)) == (0.1091, 0.0076)
+    assert [round(value, 4) for value in down.ci] == [0.0936, 0.1234]
     for plan in PLANS:
         assert covers(result[_key(plan)], truth[_key(plan)])
     table = namespace["against_truth"](result, "ate_regimen")
     assert table["covers"].all() and table["support"].tolist() == ["supported"] * 2
     assert up.ci[1] < 0 < down.ci[0]
-    # "A 12% rise lowers the month-3 renewal share by about ten points."
-    assert -0.11 < up.psi < -0.09
+    # "A 12% rise lowers the month-3 renewal share by about 11 percentage points."
+    assert -0.115 < up.psi < -0.105
     for plan in PLANS:
         estimate = result[_key(plan)]
         assert estimate.support.label == "supported"
@@ -440,13 +441,13 @@ def _check_revenue_fit(namespace: dict[str, Any]) -> None:
         "engaged_3",
     )
     up, down = (result[_key(plan)] for plan in PLANS)
-    # "The `price_up` revenue contrast is -0.3129, with an interval of (-0.4241, -0.2033). The
-    # true contrast is -0.3122." "The `price_down` contrast is 0.0743, with an interval of
-    # (-0.0362, 0.1798)... the interval contains zero on this draw."
-    assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.3129, 0.0559)
-    assert [round(value, 4) for value in up.ci] == [-0.4241, -0.2033]
-    assert (round(down.psi, 4), round(down.std_error, 4)) == (0.0743, 0.0536)
-    assert [round(value, 4) for value in down.ci] == [-0.0362, 0.1798]
+    # "The `price_up` revenue contrast is -0.3536, with an interval of (-0.4832, -0.2260). The
+    # true contrast is -0.3122." "The `price_down` contrast is 0.0998, with an interval of
+    # (-0.0064, 0.2016)... the interval contains zero on this draw."
+    assert (round(up.psi, 4), round(up.std_error, 4)) == (-0.3536, 0.0650)
+    assert [round(value, 4) for value in up.ci] == [-0.4832, -0.2260]
+    assert (round(down.psi, 4), round(down.std_error, 4)) == (0.0998, 0.0517)
+    assert [round(value, 4) for value in down.ci] == [-0.0064, 0.2016]
     revenue_truth = {plan: truth[f"ate_revenue[{plan} vs natural_prices]"] for plan in PLANS}
     assert round(revenue_truth["price_up"], 4) == -0.3122
     assert round(revenue_truth["price_down"], 4) == 0.1254
@@ -498,8 +499,8 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
         "price_down": 0.0268,
     }
     printed = stored_output(NOTEBOOK, "failure-mode")
-    assert "price_up   -0.1003 -0.1025    -0.1154     -0.0900 -0.0796 -0.0202" in printed
-    assert "price_down  0.1149  0.1050     0.0890      0.1197  0.0938  0.0268" in printed
+    assert "price_up   -0.1003 -0.1065    -0.1214     -0.0919 -0.0796 -0.0202" in printed
+    assert "price_down  0.1149  0.1091     0.0936      0.1234  0.0938  0.0268" in printed
     up, down = (result[_key(plan)] for plan in PLANS)
     # price_up: the adjust regression lies outside the LTMLE interval and between LTMLE and omit.
     assert not covers(up, adjust["price_up"])
@@ -562,10 +563,10 @@ def _check_support(namespace: dict[str, Any]) -> None:
     assert list(month3.index) == ["up_6", "price_up", "up_25"]
     # The weight tail is the one quantity that a platform moves in the last digits.
     assert month3["max_weight"].to_dict() == pytest.approx(
-        {"up_6": 5.712, "price_up": 13.704, "up_25": 19.976}, rel=WEIGHT_TAIL_REL
+        {"up_6": 11.343, "price_up": 15.469, "up_25": 21.835}, rel=WEIGHT_TAIL_REL
     )
     assert month3["effective_n"].to_dict() == pytest.approx(
-        {"up_6": 6629.661, "price_up": 3508.672, "up_25": 1977.153}, rel=WEIGHT_TAIL_REL
+        {"up_6": 5325.470, "price_up": 2922.186, "up_25": 1973.710}, rel=WEIGHT_TAIL_REL
     )
     assert (support["share_truncated"] == 0.0).all()
     assert support.equals(rise_fit.diagnostics.support().to_frame())
@@ -606,9 +607,9 @@ def _check_support(namespace: dict[str, Any]) -> None:
     keys = {plan: _key(plan) for plan in ("up_6", "price_up", "up_25")}
     estimates = [rise_fit[key] for key in keys.values()]
     widths = [estimate.ci[1] - estimate.ci[0] for estimate in estimates]
-    assert [round(width, 4) for width in widths] == [0.0129, 0.0254, 0.0393]
+    assert [round(width, 4) for width in widths] == [0.0173, 0.0295, 0.0374]
     assert widths == sorted(widths)
-    assert [round(estimate.psi, 4) for estimate in estimates] == [-0.0598, -0.1025, -0.1223]
+    assert [round(estimate.psi, 4) for estimate in estimates] == [-0.0654, -0.1065, -0.1234]
     assert [round(truth[key], 4) for key in keys.values()] == [-0.0587, -0.1003, -0.1283]
     # The ladder's 12% estimate is the Step 6 estimate: the same data, plan, learners, and seed.
     assert rise_fit[keys["price_up"]].psi == pytest.approx(result[_key("price_up")].psi, abs=1e-9)
@@ -672,24 +673,24 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert report.equals(result.diagnostics.support().to_frame())
     at_end = report[report["time"] == 3].set_index("regimen")
     assert at_end["max_weight"].to_dict() == pytest.approx(
-        {"natural_prices": 1.0, "price_up": 13.704, "price_down": 31.240}, rel=WEIGHT_TAIL_REL
+        {"natural_prices": 1.0, "price_up": 15.469, "price_down": 32.389}, rel=WEIGHT_TAIL_REL
     )
     assert at_end["effective_n"].to_dict() == pytest.approx(
-        {"natural_prices": 10000.0, "price_up": 3508.672, "price_down": 1554.276},
+        {"natural_prices": 10000.0, "price_up": 2922.186, "price_down": 1451.848},
         rel=WEIGHT_TAIL_REL,
     )
-    # "its largest weight grows from about 5 at month 1 to about 31 at month 3"
+    # "its largest weight grows from about 4 at month 1 to about 32 at month 3"
     down = report[report["regimen"] == "price_down"].set_index("time")["max_weight"]
-    assert down.tolist() == pytest.approx([4.646, 13.093, 31.240], rel=WEIGHT_TAIL_REL)
+    assert down.tolist() == pytest.approx([4.321, 13.012, 32.389], rel=WEIGHT_TAIL_REL)
     assert down.is_monotonic_increasing
     assert (report["share_truncated"] == 0.0).all()
     ratio = report["effective_n"] / report["n_followed"]
-    assert namespace["ess_ratio"] == pytest.approx(0.1554, rel=WEIGHT_TAIL_REL)
+    assert namespace["ess_ratio"] == pytest.approx(0.1452, rel=WEIGHT_TAIL_REL)
     assert ratio.min() == pytest.approx(namespace["ess_ratio"])
     assert report.loc[ratio.idxmin(), "regimen"] == "price_down"
     assert report.loc[ratio.idxmin(), "time"] == 3
-    # "about a third of the sample carries them": 3508.672 of 10000.
-    assert 0.3 < at_end.loc["price_up", "effective_n"] / 10_000 < 0.4
+    # The rise's month-3 weights count as 2922.186 of 10000 subscribers, more than the cut's.
+    assert 0.25 < at_end.loc["price_up", "effective_n"] / 10_000 < 0.35
     assert at_end["max_weight"].idxmax() == "price_down"
     # "It leaves 19.7% of the month-3 prices at the engine's value."
     held_down = float(namespace["held_down"])
@@ -789,21 +790,21 @@ def check_refits(namespace: dict[str, Any]) -> None:
     placebo = report["placebo"]
     values = np.asarray(placebo.values)
     assert len(values) == 10
-    assert float(values.mean()) == pytest.approx(0.00064, abs=0.000005)
-    assert placebo.statistic == pytest.approx(0.72, abs=0.005)
-    assert placebo.statistic_pvalue == pytest.approx(0.49, abs=0.005)
+    assert float(values.mean()) == pytest.approx(0.00078, abs=0.000005)
+    assert placebo.statistic == pytest.approx(0.88, abs=0.005)
+    assert placebo.statistic_pvalue == pytest.approx(0.40, abs=0.005)
     assert float(values.std(ddof=1)) == pytest.approx(0.0028, abs=0.00005)
     se_over_sd = float(np.mean(placebo.standard_errors)) / float(values.std(ddof=1))
-    assert se_over_sd == pytest.approx(1.98, abs=0.005)
+    assert se_over_sd == pytest.approx(2.31, abs=0.005)
     # The subset ratio, the noise-column shift and the bootstrap spread that the reading quotes.
     subset = report["subset"]
-    assert subset.statistic == pytest.approx(0.98, abs=0.005)
-    assert subset.statistic_pvalue == pytest.approx(0.93, abs=0.005)
-    assert report["random_common_cause"].statistic == pytest.approx(-0.034, abs=0.0005)
+    assert subset.statistic == pytest.approx(1.12, abs=0.005)
+    assert subset.statistic_pvalue == pytest.approx(0.50, abs=0.005)
+    assert report["random_common_cause"].statistic == pytest.approx(-0.027, abs=0.0005)
     table = report.to_frame().set_index("test")
     spread = float(table.loc["bootstrap_stability", "refuted_sd"])
     assert spread / namespace["result"].estimates[estimand].std_error == pytest.approx(
-        0.88, abs=0.01
+        1.10, abs=0.01
     )
     # "The revenue contrast takes the same tests": the banded placebo runs on the revenue fit too.
     revenue = namespace["revenue_result"]
@@ -938,35 +939,35 @@ def _check_probe_logs() -> None:
     assert sweep.startswith("draws 200, seeds 1000 to 1199, n = 10000, complete data")
 
     # Step 6: coverage and bias of the renewal contrasts.
-    assert "coverage 186 of 200" in _line(sweep, "  renewal  price_up")
-    assert "coverage 187 of 200" in _line(sweep, "  renewal  price_down")
-    assert "bias -0.0002 (MC SE 0.0005)" in _line(sweep, "  renewal  price_up")
-    assert "bias +0.0004 (MC SE 0.0005)" in _line(sweep, "  renewal  price_down")
+    assert "coverage 190 of 200" in _line(sweep, "  renewal  price_up")
+    assert "coverage 191 of 200" in _line(sweep, "  renewal  price_down")
+    assert "bias -0.0003 (MC SE 0.0005)" in _line(sweep, "  renewal  price_up")
+    assert "bias +0.0003 (MC SE 0.0005)" in _line(sweep, "  renewal  price_down")
     # Every fit of the sweep carries the label `supported`, and no fit raised another warning.
     labels = [row for row in _lines(sweep) if "_label: supported on 200 of 200" in row]
     assert len(labels) == 7
     assert "renewal_warnings: other warnings []" in sweep
     assert "revenue_warnings: other warnings []" in sweep
-    assert "SparseInfluenceWarning on 46 of 200" in _line(sweep, "revenue_warnings:")
+    assert "SparseInfluenceWarning on 82 of 200" in _line(sweep, "revenue_warnings:")
     assert "revenue price_down SparseInfluenceWarning, seed 1000: False" in sweep
     # Step 7: the revenue cut, and the linear learner's bias.
-    assert "revenue price_down interval contains zero: 60 of 200" in sweep
+    assert "revenue price_down interval contains zero: 85 of 200" in sweep
     assert "revenue price_up interval contains zero: 0 of 200" in sweep
-    assert "coverage 184 of 200" in _line(sweep, "  revenue  price_up")
-    assert "coverage 191 of 200" in _line(sweep, "  revenue  price_down")
-    assert "bias +0.0099 (MC SE 0.0039); SD 0.0557" in _line(sweep, "  revenue  price_up")
-    assert "bias +0.0094 (MC SE 0.0038); SD 0.0537" in _line(sweep, "  revenue  price_down")
+    assert "coverage 191 of 200" in _line(sweep, "  revenue  price_up")
+    assert "coverage 192 of 200" in _line(sweep, "  revenue  price_down")
+    assert "bias -0.0016 (MC SE 0.0044); SD 0.0629" in _line(sweep, "  revenue  price_up")
+    assert "bias +0.0014 (MC SE 0.0038); SD 0.0539" in _line(sweep, "  revenue  price_down")
     # Step 8: the regressions against LTMLE.
     up = sweep.split("  price_up: truth")[1].split("  price_down: truth")[0]
     down = sweep.split("  price_down: truth")[1].split("Node-3 support")[0]
-    assert "adjust further from the truth than LTMLE: 193 of 200" in up
-    assert "adjust outside the LTMLE interval: 194 of 200" in up
+    assert "adjust further from the truth than LTMLE: 192 of 200" in up
+    assert "adjust outside the LTMLE interval: 173 of 200" in up
     assert "omit outside the LTMLE interval: 200 of 200" in up
     assert "adjust between LTMLE and omit: 200 of 200" in up
-    assert "adjust further from the truth than LTMLE: 185 of 200" in down
-    assert "adjust outside the LTMLE interval: 127 of 200" in down
+    assert "adjust further from the truth than LTMLE: 183 of 200" in down
+    assert "adjust outside the LTMLE interval: 106 of 200" in down
     assert "omit outside the LTMLE interval: 200 of 200" in down
-    assert "adjust between LTMLE and omit: 199 of 200" in down
+    assert "adjust between LTMLE and omit: 200 of 200" in down
     assert "omit price_up: limit -0.0203, truth -0.1003" in sweep
     assert "omit price_down: limit 0.0270, truth 0.1149" in sweep
     assert "adjust price_up: limit -0.0801, truth -0.1003" in sweep
@@ -977,45 +978,46 @@ def _check_probe_logs() -> None:
     # Step 9 and 10: the support of the ladder and of the plans.
     assert "width increases with the factor: 200 of 200" in sweep
     assert "effective n decreases with the factor: 200 of 200" in sweep
-    assert "max weight increases with the factor: 195 of 200" in sweep
+    assert "max weight increases with the factor: 182 of 200" in sweep
     assert sweep.count("no weight truncated: 200 of 200 (1.000)") == 5
-    assert "max weight mean 14.8178, SD 2.0257" in sweep
-    assert "max weight mean 31.7571, SD 5.2131" in sweep
-    assert "effective n over n mean 0.3607" in sweep and "effective n over n mean 0.1536" in sweep
+    assert "max weight mean 17.2464, SD 2.0672" in sweep
+    assert "max weight mean 33.7865, SD 5.9150" in sweep
+    assert "effective n over n mean 0.2968" in sweep and "effective n over n mean 0.1410" in sweep
     # The probe fits the page: the first row of the sweep is the draw that the page shows.
     first = pd.read_csv(folder / "sweep.csv", float_precision="round_trip")
     assert len(first) == 200 and first["seed"].tolist() == list(range(1000, 1200))
     row = first.iloc[0]
-    assert round(row["y_price_up_psi"], 4) == -0.1025 and round(row["y_price_up_se"], 4) == 0.0065
-    assert round(row["y_price_down_psi"], 4) == 0.1050
-    assert round(row["r_price_up_psi"], 4) == -0.3129
-    assert round(row["r_price_down_psi"], 4) == 0.0743
+    assert round(row["y_price_up_psi"], 4) == -0.1065 and round(row["y_price_up_se"], 4) == 0.0075
+    assert round(row["y_price_down_psi"], 4) == 0.1091
+    assert round(row["r_price_up_psi"], 4) == -0.3536
+    assert round(row["r_price_down_psi"], 4) == 0.0998
     assert round(row["adjust_price_up"], 4) == -0.0796 and round(row["omit_price_up"], 4) == -0.0202
     assert round(row["adjust_price_down"], 4) == 0.0938
-    assert row["maxw_price_up"] == pytest.approx(13.704, rel=WEIGHT_TAIL_REL)
-    assert row["maxw_price_down"] == pytest.approx(31.240, rel=WEIGHT_TAIL_REL)
-    assert round(row["ladder_up_6_psi"], 4) == -0.0598
-    assert round(row["ladder_up_25_psi"], 4) == -0.1223
+    assert row["maxw_price_up"] == pytest.approx(15.469, rel=WEIGHT_TAIL_REL)
+    assert row["maxw_price_down"] == pytest.approx(32.389, rel=WEIGHT_TAIL_REL)
+    assert round(row["ladder_up_6_psi"], 4) == -0.0654
+    assert round(row["ladder_up_25_psi"], 4) == -0.1234
     # The seeds 1000 to 1059 of the revenue-learner probe are the first 60 of the sweep.
     learner = (folder / "revenue_learner.log").read_text()
     assert learner.startswith("draws 60, seeds 1000 to 1059, n = 10000")
-    assert "price_up    linear    outcome learner: bias +0.0132 (MC SE 0.0074)" in learner
-    assert "price_up    quadratic outcome learner: bias +0.0028 (MC SE 0.0075)" in learner
+    assert "price_up    linear    outcome learner: bias +0.0032 (MC SE 0.0090)" in learner
+    assert "price_up    quadratic outcome learner: bias +0.0032 (MC SE 0.0089)" in learner
     # The two learners fit the same draws, so the log prints the paired difference of the estimates.
-    assert "linear minus quadratic: mean +0.0104 (paired MC SE 0.0005)" in _line(
+    assert "linear minus quadratic: mean +0.0000 (paired MC SE 0.0004)" in _line(
         learner, "price_up", "linear minus quadratic"
     )
-    assert "linear minus quadratic: mean +0.0076 (paired MC SE 0.0010)" in _line(
+    assert "linear minus quadratic: mean +0.0006 (paired MC SE 0.0008)" in _line(
         learner, "price_down", "linear minus quadratic"
     )
     # The renewal fit and the revenue fit of the page's draw raised no warning.
     assert pd.isna(row["renewal_warnings"]) and pd.isna(row["revenue_warnings"])
     # Step 11: the placebo of the page's fit at 400 draws.
     placebo = (folder / "placebo.log").read_text()
-    assert "draws 400; mean -0.000128; sd 0.005649" in placebo
-    assert "t = -0.45274 (two-sided p = 0.651" in placebo
-    assert "mean SE over sd 1.006" in placebo
-    assert "interval holds 0: 0.9450" in placebo
+    assert "draws 400; mean -0.000240; sd 0.006487" in placebo
+    statistic = _line(placebo, "t of the refits against 0").split()
+    assert statistic[-2:] == ["-0.741", "0.4593"]
+    assert "mean SE over sd 1.008" in placebo
+    assert "interval holds 0: 0.9475" in placebo
 
 
 def _prose(cell_id: str) -> str:
@@ -1077,8 +1079,8 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
     assert round(count_error) == 3 and "a Monte Carlo standard error of about 3 draws" in renewal
     for plan in PLANS:
         z = (190 - int(hits["renewal", plan])) / count_error
-        assert 0.9 < z < 1.5, plan
-    assert "so both lie about one standard error below it" in renewal
+        assert abs(z) < 1, plan
+    assert "so both lie within one standard error of it" in renewal
     renewal_warned = grab(
         r"SparseInfluenceWarning on (\d+) of 200", _line(sweep, "renewal_warnings:")
     )
@@ -1092,22 +1094,23 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
     down_bias = bias["revenue", "price_down"].lstrip("+")
     assert (
         f"the estimates of the rise and the cut had biases of {up_bias} and {down_bias}. Each is "
-        f"about two and a half Monte Carlo standard errors ({error['revenue', 'price_up']} and "
-        f"{error['revenue', 'price_down']}) and about a sixth of the spread of the estimates "
-        f"(standard deviations {spread['price_up']} and {spread['price_down']})"
+        f"within one Monte Carlo standard error ({error['revenue', 'price_up']} and "
+        f"{error['revenue', 'price_down']}) of zero and under a thirtieth of the spread of the "
+        f"estimates (standard deviations {spread['price_up']} and {spread['price_down']})"
     ) in revenue
     for plan, value in (("price_up", up_bias), ("price_down", down_bias)):
-        assert 2.2 < float(value) / float(error["revenue", plan]) < 2.8
-        assert 5 < float(spread[plan]) / float(value) < 7
+        assert abs(float(value)) < float(error["revenue", plan])
+        assert float(spread[plan]) / abs(float(value)) > 30
+    # "this fit shows no bias that the draws can detect, though its outcome model is wrong"
+    assert "this fit shows no bias that the draws can detect" in revenue
     assert (
         f"contained the truth on {hits['revenue', 'price_up']} and "
         f"{hits['revenue', 'price_down']} of 200 draws"
     ) in revenue
-    z_low = (190 - int(hits["revenue", "price_up"])) / count_error
-    assert 1 < z_low < 2 and int(hits["revenue", "price_down"]) > 190
+    assert all(int(hits["revenue", plan]) >= 190 for plan in PLANS)
     assert (
-        f"The count {hits['revenue', 'price_up']} lies between one and two standard errors "
-        f"below the nominal 190, and {hits['revenue', 'price_down']} lies above it"
+        f"contained the truth on {hits['revenue', 'price_up']} and "
+        f"{hits['revenue', 'price_down']} of 200 draws, at or above the nominal 190"
     ) in revenue
     zero = grab(r"revenue price_down interval contains zero: (\d+) of 200", sweep)
     assert f"The cut's interval contained zero on {zero} of 200 draws" in revenue
@@ -1125,8 +1128,8 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
         f"For the rise, the bias was {quadratic} with the quadratic model and {linear} with the "
         f"linear one, with Monte Carlo standard errors of {quadratic_error} and {learner_error}"
     ) in revenue
-    # The paired line of the log, attributed by plan: the learner change moves the estimate by
-    # about the size of the bias, with a paired standard error far below the shift.
+    # The paired line of the log, attributed by plan.  The sign is read with the value: a shift
+    # that rounds to zero prints as +0.0000.
     shift, shift_error = {}, {}
     for plan in PLANS:
         paired = _line(learner, plan, "linear minus quadratic")
@@ -1137,19 +1140,13 @@ def _check_prose_phrases(namespace: dict[str, Any]) -> None:
         f"error {shift_error['price_up']}) and the cut's by {shift['price_down']} (paired standard "
         f"error {shift_error['price_down']})"
     ) in revenue
+    # "the outcome model's form barely moves the estimate": each paired shift is within two paired
+    # standard errors of zero, and small next to the linear learner's bias standard error.
     for plan in PLANS:
-        assert float(shift[plan]) > 5 * float(shift_error[plan]), plan
-    bias_linear = {
-        plan: float(grab(rf"{plan}\s+linear\s+outcome learner: bias \+(\d\.\d{{4}})", learner))
-        for plan in PLANS
-    }
-    # "most of the rise's bias and about half of the cut's"
-    assert float(shift["price_up"]) / bias_linear["price_up"] > 0.7
-    assert 0.4 < float(shift["price_down"]) / bias_linear["price_down"] < 0.6
-    assert "the linear model carries most of the rise's bias and about half of the cut's" in revenue
-    # With the quadratic learner the price_up bias is within one Monte Carlo standard error of zero.
+        assert float(shift[plan]) <= 2 * float(shift_error[plan]), plan
+        assert float(shift[plan]) < float(learner_error), plan
+    assert "the outcome model's form barely moves the estimate" in revenue
     assert float(quadratic) < float(learner_error)
-    assert "With the quadratic model, 60 draws cannot tell the rise's bias from zero" in revenue
 
     failure = _prose("failure-mode-reading")
     up_text = sweep.split("  price_up: truth")[1].split("  price_down: truth")[0]
@@ -1230,7 +1227,7 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     assert f"(estimate {up.psi:.2f}, 95% interval {_interval(up, 3)})" in title
     assert f"by about {-r_up.psi:.2f} per subscriber (interval {_interval(r_up, 2)})" in title
     assert f"the true effects: {t_up:.3f} on renewal and {rt_up:.2f} on revenue" in title
-    assert "about 10 percentage points" in title and -0.105 < up.psi < -0.095
+    assert "about 11 percentage points" in title and -0.115 < up.psi < -0.105
     # "understates the renewal effect by about a fifth".
     assert 0.15 < 1 - adjust["price_up"] / t_up < 0.25
     assert "understates the renewal effect by about a fifth" in title
@@ -1337,19 +1334,19 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
         low, high = rise_fit[_key(plan)].ci
         widths[plan] = high - low
         assert covers(rise_fit[_key(plan)], truth[_key(plan)]), plan
-    # "the largest month-3 weight goes from 5.7 to 20.0, the effective sample size falls from about
-    # 6,630 to about 1,977, a fifth of the sample, and the interval width triples, from 0.0129 to
-    # 0.0393"
+    # "the largest month-3 weight goes from 11.3 to 21.8, the effective sample size falls from about
+    # 5,325 to about 1,974, a fifth of the sample, and the interval width more than doubles, from
+    # 0.0173 to 0.0374"
     weight = {plan: float(ladder_tail[(plan, 3)][0]) for plan in held}
     size = {plan: float(ladder_tail[(plan, 3)][1]) for plan in held}
     assert (
         f"the largest month-3 weight goes from {weight['up_6']:.1f} to {weight['up_25']:.1f}, the "
         f"effective sample size falls from about {round(size['up_6']):,} to about "
-        f"{round(size['up_25']):,}, a fifth of the sample, and the interval width triples, from "
+        f"{round(size['up_25']):,}, a fifth of the sample, and the interval width more than doubles, from "
         f"{widths['up_6']:.4f} to {widths['up_25']:.4f}"
     ) in support
     assert 0.15 < size["up_25"] / len(frame) < 0.25
-    assert 2.8 < widths["up_25"] / widths["up_6"] < 3.3
+    assert 2.0 < widths["up_25"] / widths["up_6"] < 2.5
     assert round(100 * held["up_25"]) == 45 and "leaves 45% of month-3 prices unchanged" in support
     assert all(0.0 < zero[plan] < held[plan] for plan in held)
     assert "Each estimate stays near its truth, and each interval contains it" in support
@@ -1389,15 +1386,15 @@ def _check_reading_attribution(namespace: dict[str, Any]) -> None:
     # The answer: each estimate and interval, attributed.
     interpret = _prose("interpret")
     assert (
-        f"would lower the month-3 renewal share by about 10 percentage points (95% interval "
+        f"would lower the month-3 renewal share by about 11 percentage points (95% interval "
         f"{_interval(up, 3)})"
     ) in interpret
     assert (
         f"lower mean month-3 revenue by about {-r_up.psi:.2f} per subscriber (interval "
         f"{_interval(r_up, 2)})"
     ) in interpret
-    assert round(100 * down.psi, 1) == 10.5
-    assert f"raises renewals by about 10.5 points ({_interval(down, 3)})" in interpret
+    assert round(100 * down.psi, 1) == 10.9
+    assert f"raises renewals by about 10.9 points ({_interval(down, 3)})" in interpret
     assert "about a fifth of the prices" in interpret
     assert all(0.15 < value < 0.25 for value in (held["price_up"], float(namespace["held_down"])))
     assert "who start a three-month term" in interpret

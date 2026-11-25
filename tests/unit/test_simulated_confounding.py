@@ -2216,9 +2216,9 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
     ``test_fit_wide_refusals_have_one_order_and_match_assessment`` witnesses real behavior
     for the four boundaries one fitted result can carry at once. It cannot reach the
     longitudinal or multi-arm rules, whose fits are a different shape, and it cannot reach
-    the twelve rules that assume their predecessors passed. The table is the introspection
+    the rules that assume their predecessors passed. The table is the introspection
     contract those rules share, and ``docs/technical-reference/validation-methods.md``
-    quotes the three missing-science names in this relative order, so a silent reordering
+    quotes the missing-science names in this relative order, so a silent reordering
     must fail here.
 
     ``result_type`` is second because every later rule reads the result's fields directly.
@@ -2246,6 +2246,50 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "functional",
         "provider",
     ]
+
+
+_NUMBER_WORDS = (
+    r"\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+    r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty"
+)
+
+
+def test_the_refusal_section_names_every_fit_wide_rule_and_counts_none() -> None:
+    """X124 C2: the page named fourteen of eighteen rules and counted them twice.
+
+    Each rule name appears in the page's refusal section, and no sentence there states how
+    many rules or stops there are, so a new rule fails here until the page names it.
+    """
+    import re
+    from pathlib import Path
+
+    page = Path(__file__).parents[2] / "docs/technical-reference/validation-methods.md"
+    text = page.read_text(encoding="utf-8")
+    start = text.index("**Refusals.** `_FIT_WIDE_RULES`")
+    section = text[start : text.index("Some rows above record an upstream limit", start)]
+    missing = [name for name, _ in _FIT_WIDE_RULES if f"`{name}`" not in section]
+    assert not missing
+    # The science stops are named in the prose, and the shape stops have a table row each.
+    prose, table = section.split("| rule | refuses |", 1)
+    table = table[: table.index("\n\n")]
+    tabled = {line.split("|")[1].strip().strip("`") for line in table.splitlines()[2:]}
+    science = {
+        "longitudinal",
+        "projection",
+        "risk_ratio_tilt",
+        "optimal_rule",
+        "learned_rule_level",
+        "learned_rule_splits",
+    }
+    assert tabled == {name for name, _ in _FIT_WIDE_RULES} - science
+    assert all(f"`{name}`" in prose for name in science)
+    counted = re.findall(
+        rf"\b(?:all\s+)?(?:{_NUMBER_WORDS})\s+(?:\w+[\s-]+){{0,3}}?(?:stops|rules)\b|"
+        rf"\ball\s+(?:{_NUMBER_WORDS})\b",
+        section,
+        flags=re.IGNORECASE,
+    )
+    assert not counted
 
 
 #: One fragment of each missing-science refusal that appears in no other constant, keyed by
