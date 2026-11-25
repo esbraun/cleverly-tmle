@@ -1048,14 +1048,14 @@ longitudinal-mtp,interval_calibration,efficiency above band,pair_collapse
 longitudinal-mtp,interval_calibration,efficiency empirical in efficiency band,none
 longitudinal-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
 longitudinal-mtp,interval_calibration,se ratio below band,se_high
-longitudinal-mtp,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-mtp,interval_calibration,se ratio in calibration band,se/0.95
 longitudinal-mtp,inverse_necessity,bias discriminated,pair_collapse
 longitudinal-mtp,inverse_necessity,bias equivalent,bias
 longitudinal-mtp,inverse_necessity,least displacement over labels,control_concentrated
 longitudinal-mtp,power,rejection floor,rejection/0.01
 longitudinal-mtp,root_n_and_efficiency,bias equivalent,shift/0.15
 longitudinal-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
-longitudinal-mtp,root_n_and_efficiency,coverage resolves,shift/0.15
+longitudinal-mtp,root_n_and_efficiency,coverage resolves,contract
 longitudinal-mtp,root_n_and_efficiency,se ratio sanity,se_high
 longitudinal-mtp,root_n_rate,slope in root-n band,contract
 longitudinal-mtp,simultaneous_coverage,joint coverage below nominal,se_low
