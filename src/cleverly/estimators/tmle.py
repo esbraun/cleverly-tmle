@@ -1204,9 +1204,17 @@ class TMLE:
         logit is taken.
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
-    screen_treatment, screen_threshold, min_retain:
-        Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
-        beside a declared known mechanism, which replaces the treatment model.
+    screen_treatment, min_retain:
+        Pre-screen the covariates of the treatment model on the outcome, as R's
+        ``prescreenW.g`` does: inside each training set, a cross-validated lasso of the
+        outcome on the covariates, with the treatment held fixed, keeps the covariates that
+        predict the outcome (:func:`~cleverly.learners.screen_by_outcome`).  An instrument,
+        which predicts treatment only, is dropped.  ``min_retain`` is the fewest kept;
+        ``None`` is R's ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless
+        ``p`` is large next to the effective sample size.  Dropping a confounder from the
+        treatment model costs nothing when the outcome model is consistent, and biases the
+        estimate when it is not.  Refused beside a declared known mechanism, which replaces
+        the treatment model.
     outcome_by_arm:
         Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
         fold fits a learner on the covariates alone for each arm, on that arm's rows with an
@@ -1492,7 +1500,6 @@ class TMLE:
         nuisance_bound: float = DEFAULT_NUISANCE_BOUND,
         target_weights: bool = False,
         screen_treatment: bool = False,
-        screen_threshold: float = 0.1,
         min_retain: int | None = None,
         outcome_by_arm: bool = False,
         conditional_form: ConditionalForm = "arm_mean",
@@ -1565,7 +1572,6 @@ class TMLE:
         self.nuisance_bound = nuisance_bound
         self.target_weights = target_weights
         self.screen_treatment = screen_treatment
-        self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.outcome_by_arm = outcome_by_arm
         self.conditional_form = conditional_form
@@ -2461,7 +2467,6 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=folds,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=policies,
@@ -2550,7 +2555,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=inner_folds if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else inner_folds.n_folds,
@@ -2672,7 +2676,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=split if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else split.n_folds,
@@ -2749,7 +2752,6 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=None,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=() if declares_tuned(self.policies) else tuple(self.policies),
@@ -5899,7 +5901,6 @@ class TMLE:
             intermediate_value=intermediate_value,
             extra_levels=extra_levels,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
             policy_reference=reference if tuned is None else None,
@@ -6077,7 +6078,6 @@ class TMLE:
             folds=folds,
             scaler=scaler,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             n_jobs=self.n_jobs,
             outcome_by_arm=self.outcome_by_arm,

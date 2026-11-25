@@ -1510,22 +1510,24 @@ def test_strata_on_the_composite_tmle_are_exact(key: str) -> None:
 
 
 def test_screening_reads_the_recorded_rows_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``screen_treatment=True`` screens the treatment on the rows whose treatment is recorded."""
+    """``screen_treatment=True`` screens on the rows whose treatment and outcome are recorded."""
     import cleverly.learners.screeners as screeners
 
-    seen: list[int] = []
-    original = screeners.screen_by_correlation
+    seen: list[set[int]] = []
+    original = screeners._lasso_screen
 
-    def spy(design: Any, target: Any, **kwargs: Any) -> Any:
-        values = np.asarray(target, dtype=float)
-        assert np.all(np.isfinite(values))
-        seen.append(values.shape[0])
-        return original(design, target, **kwargs)
+    def spy(*args: Any) -> Any:
+        y, rows = args[3], args[5]
+        assert np.all(np.isfinite(np.asarray(y, dtype=float)))
+        seen.append(set(np.asarray(rows).tolist()))
+        return original(*args)
 
-    monkeypatch.setattr(screeners, "screen_by_correlation", spy)
+    monkeypatch.setattr(screeners, "_lasso_screen", spy)
     law = dl.TWO
     frame = _live_frame(law, 600, 9).assign(V=lambda f: f["W"] ** 2)
-    estimator = TMLE(screen_treatment=True, **_settings(**_fitted_learners(), estimands=("ate",)))
+    estimator = TMLE(
+        screen_treatment=True, min_retain=1, **_settings(**_fitted_learners(), estimands=("ate",))
+    )
     estimator.fit(
         frame,
         outcome="Y",
@@ -1535,7 +1537,10 @@ def test_screening_reads_the_recorded_rows_only(monkeypatch: pytest.MonkeyPatch)
         treatment_delta="DeltaA",
     )
     assert seen
-    assert set(seen) == {int((frame["DeltaA"] == 1.0).sum())}
+    recorded = set(np.flatnonzero((frame["DeltaA"] == 1.0) & (frame["Delta"] == 1.0)).tolist())
+    assert all(rows <= recorded for rows in seen)
+    # The whole-sample support the result reports reads every recorded row.
+    assert recorded in seen
 
 
 def test_the_array_entry_point_takes_delta_a() -> None:

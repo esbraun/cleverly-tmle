@@ -851,6 +851,23 @@ the public `Intervention`, `Rule`, `DynamicRegimen`, or `MSM` callables.
 | [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1), Definition 1 | a longitudinal MSM projection with a user-given design transformation and projection distribution | no derivative for a design centred at the analysis sample's mean |
 | [Kennedy (2019)](https://arxiv.org/html/1704.00211v3), Section 3.3, and [de Aguas (2026)](https://arxiv.org/html/2511.11353) | influence functions for specified propensity-dependent intervention families | each family has its own derivative. Neither supplies one for an arbitrary user-written density |
 
+## Treatment-model covariate screening
+
+- Shortreed & Ertefaie (2017), *Outcome-adaptive lasso: variable selection for causal
+  inference*, Biometrics 73(4), 1111–1122. Read first-hand through the local research thread
+  (Fix-20). Section 3, display 3: the propensity penalty weights are $|\tilde\beta_j|^{-\gamma}$
+  from an outcome regression on the covariates and the treatment. Section 2.2: exposure-only
+  covariates inflate standard errors without reducing bias and bring near-positivity violations.
+  Cited for holding the treatment fixed in `screen_treatment=True`.
+- Brookhart, Schneeweiss, Rothman, Glynn, Avorn & Stürmer (2006), *Variable selection for
+  propensity score models*, American Journal of Epidemiology 163(12), 1149–1156. Read first-hand
+  through the local research thread (Fix-20). Pages 1152 and 1155–1156: covariate roles are defined
+  by an outcome model that includes the exposure; including outcome-only covariates reduced
+  variance, and exposure-only ones raised it.
+- CRAN `tmle` 2.1.1, `R/tmle.R`, `.prescreenW.g` and the `min.retain` default in `tmle()`,
+  read first-hand from the `cran/tmle` mirror (Fix-20): a `cv.glmnet` lasso of the outcome on
+  $W$ at `lambda.min`, filled to `min.retain` by `order(abs(cor(A, W)))`.
+
 ## Known treatment mechanisms
 
 The contract of a declared known mechanism, in

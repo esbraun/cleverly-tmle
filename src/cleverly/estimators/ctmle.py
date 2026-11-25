@@ -775,7 +775,6 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         "weighted clever covariate w H is one more fluctuation equation",
     ),
     "screen_treatment": (lambda v: v is False, "screen_treatment=False"),
-    "screen_threshold": (_anything, "any value; screening is off"),
     "min_retain": (_anything, "any value; screening is off"),
     "estimands": (
         _anything,

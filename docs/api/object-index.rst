@@ -158,7 +158,7 @@ categorized API tables.
    cleverly.exceptions.Refusal
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
-   cleverly.learners.CorrelationScreener
+   cleverly.learners.screen_by_outcome
    cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism
