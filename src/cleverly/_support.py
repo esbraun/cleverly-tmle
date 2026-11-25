@@ -99,11 +99,16 @@ SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
 #: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
-#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, or a Wald
+#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, a Wald
 #: interval at the larger of the influence-curve and policy-weighted variances
-#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`).
-#: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
-#: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
+#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`), or the Wald interval
+#: of a restricted mean of a binned survival curve: of one regimen's restricted mean
+#: (``"restricted_mean"``) or of the difference of two regimens' restricted means
+#: (``"restricted_mean_difference"``). A derived estimate is a ratio, a contrast or an
+#: E-value built from estimates of one fit. A restricted mean has its own kinds because a
+#: cell that measured it licenses it without licensing every ratio and contrast, and because
+#: a common bias of two arms cancels in their difference, so a difference cell does not
+#: license a level. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
 Kind = Literal[
     "point",
@@ -115,6 +120,8 @@ Kind = Literal[
     "bootstrap_band",
     "derived",
     "wald_policy",
+    "restricted_mean",
+    "restricted_mean_difference",
 ]
 
 
@@ -196,7 +203,9 @@ def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Su
         The support of each input estimate. At least one is required.
     kind : str or None, default None
         A member of :data:`Kind`: the kind the new estimate needs from the rows of its
-        inputs. A derived estimate passes ``"derived"``. ``None`` combines the inputs only.
+        inputs. A derived estimate passes ``"derived"``, and a restricted mean of a binned
+        survival curve passes ``"restricted_mean"`` or ``"restricted_mean_difference"``.
+        ``None`` combines the inputs only.
 
     Returns
     -------
@@ -1677,6 +1686,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
     "wald_policy": "Wald interval, policy-weighted variance",
+    "restricted_mean": "restricted mean",
+    "restricted_mean_difference": "restricted mean difference",
 }
 
 
