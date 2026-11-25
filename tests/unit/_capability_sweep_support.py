@@ -2468,6 +2468,97 @@ def fit_separable() -> Any:
     return LTMLE(regimens, **settings).fit(frame, **law.fit_columns())
 
 
+def _continuous_frame() -> pd.DataFrame:
+    """Two causes with exact event and censoring times, n = 300."""
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
+    h1 = np.exp(-1.5 + 0.5 * w - a)
+    h2 = np.exp(-2.0 - 0.5 * w - 0.5 * a)
+    t = rng.exponential(1 / (h1 + h2))
+    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
+    c = rng.exponential(1 / 0.15, n)
+    return pd.DataFrame(
+        {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
+    )
+
+
+def fit_study_continuous_survival_restricted() -> Any:
+    """The study twin of :func:`fit_continuous_survival_restricted` (X123 part (g)).
+
+    ``RegimeMean(restricted_horizons=(1.0,))`` on ``TimeToEvent(grid="continuous")`` with the
+    same frame and settings, so the walk targets the same restricted means.
+    """
+    from cleverly.survival import CoxHazard
+
+    design = TimeToEvent(
+        time="time", event="event", treatment="A", baseline=["W"], grid="continuous"
+    )
+    effect = CausalStudy(_continuous_frame(), design=design).identify(
+        RegimeMean(
+            {"a1": 1, "a0": 0}, reference="a0", horizons=(0.5, 1.0), restricted_horizons=(1.0,)
+        )
+    )
+    return effect.estimate(
+        random_state=0,
+        cross_fit=False,
+        hazard_library=(CoxHazard("main"),),
+        censoring_library=(CoxHazard("main"),),
+    )
+
+
+def _restricted_survival_study() -> CausalStudy:
+    """``make_point_survival(600, 3)`` on its unit grid of four times (X123 part (g))."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    return CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+
+
+def fit_ltmle_restricted() -> Any:
+    """LTMLE with ``restricted_horizons=(4,)``: the risks and each arm's restricted means.
+
+    The engine twin of the binned restricted-mean study kinds, on the same prepared data.
+    """
+    from cleverly.longitudinal import LTMLE
+
+    return LTMLE(
+        {"a1": 1, "a0": 0}, reference="a0", restricted_horizons=(4,), **_longitudinal_settings()
+    ).fit(_restricted_survival_study().data)
+
+
+def _fit_restricted_study(estimand: Any) -> Any:
+    return (
+        _restricted_survival_study()
+        .identify(estimand)
+        .estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            censoring_learner=LogisticRegression(max_iter=1000),
+            random_state=5,
+            simultaneous=False,
+            **IN_SAMPLE,
+        )
+    )
+
+
+def fit_study_time_to_event_restricted() -> Any:
+    """``RegimeMean(restricted_horizons=(4,))`` on the binned grid: risks and restricted means."""
+    return _fit_restricted_study(
+        RegimeMean({"a1": 1, "a0": 0}, reference="a0", restricted_horizons=(4,))
+    )
+
+
+def fit_study_time_to_event_restricted_contrast() -> Any:
+    """``RegimeContrast(restricted_horizons=(4,))``: risk and restricted-mean differences."""
+    return _fit_restricted_study(
+        RegimeContrast({"a1": 1, "a0": 0}, reference="a0", restricted_horizons=(4,))
+    )
+
+
 def fit_continuous_survival(
     restricted_horizons: tuple[float, ...] = (),
     variance: str = "switched",
@@ -2485,18 +2576,7 @@ def fit_continuous_survival(
     """
     from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
 
-    rng = np.random.default_rng(0)
-    n = 300
-    w = rng.normal(size=n)
-    a = rng.binomial(1, 1 / (1 + np.exp(-w)))
-    h1 = np.exp(-1.5 + 0.5 * w - a)
-    h2 = np.exp(-2.0 - 0.5 * w - 0.5 * a)
-    t = rng.exponential(1 / (h1 + h2))
-    cause = np.where(rng.uniform(size=n) < h1 / (h1 + h2), 1, 2)
-    c = rng.exponential(1 / 0.15, n)
-    frame = pd.DataFrame(
-        {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
-    )
+    frame = _continuous_frame()
     return ContinuousSurvivalTMLE(
         list(horizons),
         restricted_horizons=restricted_horizons,
@@ -2810,6 +2890,10 @@ STUDY_TWINS: dict[str, str] = {
     "study_ltmle_jackknife": "ltmle_jackknife",
     "study_ipsi_bca": "ipsi",
     "study_continuous_survival_settings": "continuous_survival+bootstrap",
+    # Part (g): restricted means declared on the estimand.
+    "study_time_to_event_restricted": "ltmle_restricted",
+    "study_time_to_event_restricted_contrast": "ltmle_restricted",
+    "study_continuous_survival_restricted": "continuous_survival+restricted",
 }
 
 #: The rows each modified-treatment-policy shape answers, on every route.
@@ -3103,6 +3187,19 @@ KINDS: dict[str, Kind] = {
     ),
     "continuous_survival+restricted": _kind(
         fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
+    ),
+    "study_continuous_survival_restricted": _kind(
+        fit_study_continuous_survival_restricted,
+        *_READ,
+        *_POINT,
+        "evalue",
+        "simulated_confounding",
+    ),
+    # Part (g): the binned restricted means, stored beside the risks of the same fit.
+    "ltmle_restricted": _kind(fit_ltmle_restricted, *_READ, *_POINT),
+    "study_time_to_event_restricted": _kind(fit_study_time_to_event_restricted, *_READ, *_POINT),
+    "study_time_to_event_restricted_contrast": _kind(
+        fit_study_time_to_event_restricted_contrast, *_READ, *_POINT
     ),
     # The modified treatment policy fits of each shape on each density-ratio route
     # (tests.unit._mtp_route_kinds). A point fit's g(W) truncation axis is refused; the
@@ -3616,6 +3713,10 @@ MUTATIONS: dict[str, Mutation] = {
                 "continuous_survival+influence_curve",
                 "continuous_survival+bootstrap",
                 "study_continuous_survival_settings",
+                "study_continuous_survival_restricted",
+                # Part (g): a risk is reported first; the contrast kind reads a difference.
+                "ltmle_restricted",
+                "study_time_to_event_restricted",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
