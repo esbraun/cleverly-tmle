@@ -2777,6 +2777,14 @@ treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_til
 levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
 mixtures of the branch means and curves, with the known probabilities as weights.
 
+The mixture needs a randomizer with finitely many values of known probability, the
+`Randomizer` of Díaz, Williams, Hoffman and Schenck (2023), Section 2. A `randomizer=` that is
+not a `Randomizer`, such as a continuous draw, raises `CapabilityError` (`implementation_gap`)
+when the `ModifiedPolicy` is built, before any data are read. A uniform draw compared with
+`delta` is the two-point randomizer `Randomizer((True, False), (delta, 1 - delta))`, which the
+fit accepts. [X64](../roadmap.md#x64-intervention-and-policy-declarations) tracks a continuous
+randomizer (`tests/unit/test_policy_randomizer_refusal.py`).
+
 On a continuous or vector dose the default `ratio=None` resolves to `ratio="classifier"`, which
 replaces the density with the stacked classification of Section 5.4 of Díaz et al. (2023). The
 treatment learner classifies an observed row against its policy copy, and the ratio is the odds
