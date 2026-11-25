@@ -112,13 +112,22 @@ a tutorial notebook.
 | recorded | the commit, the version, and the generator's file list | asserts the file list matches this checkout |
 
 Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
-the recorded command fails for the same reason. Edit library code and no notebook gate fails. The
+the recorded command fails for the same reason. Edit library code and no digest gate fails. The
 recorded half fingerprints the run's repository context. It does not reconstruct a dirty tree or
 constrain the tree you work in. `tests/notebooks.py` gives the reason for the split.
 
 A hash comparison cannot see a library change that moved a published number while every cell kept
-its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
-re-executes the notebook and reports each cell whose printed text moved. It writes nothing.
+its bytes, so the fast tier also compares what each tutorial notebook's cells print now with what
+the notebook stores (`tests/notebook_freshness.py`). The fast tier runs every cell but the refit
+cells, which the slow tier adds. The comparison allows a relative difference of 1e-4, the machine
+noise in a learner fit's sixth figure, and one last-place rounding per cell beyond it. The
+TWINS notebook downloads its data, so it is checked statically instead. A library change that moves
+a published number therefore fails that notebook's semantic test.
+
+Re-execute the notebook, read the difference, and update the prose that quotes the number; do not
+pin a library to keep an old output. The stamp's version must also equal the package version, so a
+release pull request re-executes every notebook. Run `python scripts/execute_notebook.py <path>
+--check` to see what moved without writing anything.
 
 Regenerate every registered study that evaluates a result-determining implementation change. Read
 [fast tests and validation studies](testing-strategy.md) to select the affected rows.

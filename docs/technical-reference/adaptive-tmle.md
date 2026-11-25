@@ -269,8 +269,15 @@ as $\tilde Q = \sum_s \Pi(s \mid W, A)\,Q(s, W, A)$.
 ## Influence functions
 
 These are the nonparametric-model gradients of the projection parameters. The model that knows the
-trial randomization has a smaller tangent space and $D_w$ is not orthogonal to its scores, so $D_w$
-is a gradient there and not that model's efficient influence function. Write
+trial randomization has a smaller tangent space. When the external rows' bias is nonzero, $D_w$ is
+in general not orthogonal to that model's scores, so $D_w$ is a gradient there and not its
+efficient influence function. A known trial probability $P(A = 1 \mid W, S = 1)$ restricts the model but fixes none of
+$g$, $\Pi$ and $\pi$, so it removes no product from the remainder below. The deliberate mutation
+`test_a_trial_treatment_mechanism_in_the_clever_covariate_leaves_a_first_order_remainder` in
+`tests/unit/test_atmle_exact.py` puts the trial's mechanism in place of the pooled $g$ and leaves a
+first-order remainder.
+
+Write
 $r_A = Y - \theta - (A - g)\beta_A^\top\phi$, $r_S = Y - \tilde Q - (S - \Pi)\beta_S^\top\psi$,
 $U_A = I_A^{-1}(A - g)\phi\,r_A$, $U_S = I_S^{-1}(S - \Pi)\psi\,r_S$, with
 $I_A = E[g(1 - g)\phi\phi^\top]$ and $I_S = E[\Pi(1 - \Pi)\psi\psi^\top]$, and
@@ -337,7 +344,8 @@ lists the codes.
 | `CrossFitting(repeats > 1)` | `inference_gap` | no source combines adaptive working-model fits across splits |
 | `form="cv"` with fewer than three folds, or with cross-fitting off | `invalid_declaration` | the form selects and targets on other folds |
 | a setting the method does not read (bootstrap, simultaneous band, outcome fluctuation, `n_jobs`) | `invalid_declaration` | each is refused by name with its reason |
-| `weights=`, `cluster=`, `strata=`, `intermediate=`, `treatment_missingness=` | not accepted by the design | no source derives them |
+| `weights=`, `cluster=`, `strata=`, `intermediate=`, `treatment_missingness=` on `TrialWithExternalData` | `implementation_gap`, F40 | no weighted, clustered, stratum, held-intermediate or missing-treatment form is derived |
+| `treatment_probabilities=` on `TrialWithExternalData` | `implementation_gap`, F40 | the fit estimates the pooled $g$ and $\Pi$, which a known trial probability does not fix, and no estimator attains the smaller influence function of the model that knows it |
 | the sensitivity analyses, refutation and truncation curves | `inference_gap` or `api_redirection` | their bounds assume a point-treatment fit; each fit refuses with its reason |
 
 An arm with all outcomes missing, a trial membership column with a null, and a pooled frame with

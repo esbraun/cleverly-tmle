@@ -127,6 +127,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "EPMethod",
         "DataError",
         "DiagnosticReport",
+        "DoseResponseCurve",
         "Estimand",
         "EstimationMethod",
         "ExplicitAdjustmentProvider",

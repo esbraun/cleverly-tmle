@@ -337,8 +337,8 @@ class TestEveryLearnerClauseCitesF26:
             bound_of(result),
             key="screened",
             text=full_text(
-                "screen_treatment=True selects the covariates of the treatment model inside "
-                "each fold, so the mechanism is not one fixed parametric model",
+                "screen_treatment=True selects the covariates of the treatment model on the "
+                "outcome inside each fold, so the mechanism is not one fixed parametric model",
                 learner=True,
             ),
             alternative=DOUBLY_ROBUST,
@@ -697,12 +697,24 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
         )
 
     def test_screening_that_drops_a_covariate_reaches_treatment_design_first(self) -> None:
-        """Check 0 runs before the learner rule, so a screen that drops a column names it."""
+        """Check 0 runs before the learner rule, so a screen that drops a column names it.
+
+        Within each arm, ``Z`` is orthogonal in the sample to the intercept, the covariates
+        and the outcome.  So are ``Z`` and its product with the treatment against every
+        column of the screen's lasso, whose coefficients on ``Z`` are then zero at every
+        penalty: the outcome screen drops it whatever the inner folds.
+        """
+        frame = binary_frame()
+        span = np.column_stack(
+            [np.ones(len(frame)), frame[["W1", "W2", "W3", "W4", "Y"]].to_numpy(dtype=float)]
+        )
+        z = np.random.default_rng(5).normal(size=len(frame))
+        for arm in (0.0, 1.0):
+            rows = frame["A"].to_numpy() == arm
+            z[rows] -= span[rows] @ np.linalg.lstsq(span[rows], z[rows], rcond=None)[0]
+        frame = frame.assign(Z=z)
         result = fit_binary(
-            LogisticRegression(max_iter=1000),
-            screen_treatment=True,
-            screen_threshold=0.2,
-            min_retain=1,
+            LogisticRegression(max_iter=1000), frame, screen_treatment=True, min_retain=1
         )
         assert result.repeats[0].nuisance.treatment_covariates != result.data.covariate_names
         assert bound_of(result).limit_refusal.key == "treatment_design"

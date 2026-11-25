@@ -66,6 +66,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.msm.working_model_means
@@ -158,7 +159,7 @@ categorized API tables.
    cleverly.exceptions.Refusal
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
-   cleverly.learners.CorrelationScreener
+   cleverly.learners.screen_by_outcome
    cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism

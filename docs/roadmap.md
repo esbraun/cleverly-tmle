@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X107](#x107-front-door-pages-getting-started-and-workflow) Front door pages: getting started and workflow | docs | no new theory | the shipped point-treatment study API |
 | [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
 | [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
 | [X109](#x109-user-guide-capability-map-and-configuration-reference) User guide: capability map and configuration reference | docs | no new theory | X123 for the engine-only options |
@@ -134,7 +133,7 @@ different pages and run in parallel.
 | [X57](#x57-joint-intervention-axes-and-tilt-compositions) Joint intervention axes and tilt compositions | 6 | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt |
 | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) Typed study requests for the risk-ratio tilt | 6 | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests |
 | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) Continuous-dose MSM with a second mechanism | 6 | source audit | the shipped continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting |
-| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report |
+| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band; part (e) holds the study route's refused designs and method settings | the shipped `DoseResponseTMLE` and its support report |
 | [X98](#x98-score-assessment-compositions) Score assessment compositions | 6 | natural extension for part (a), a joint band over the pairs and a registered study; no new theory for parts (b) and (c); source audit for part (d) | the shipped `assess_score` and its pooled fluctuation |
 
 ### Collaborative and doubly robust TMLE
@@ -244,7 +243,7 @@ It moved each part that an established method or a natural extension carries to 
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
-| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
+| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale; use of the trial's known randomization probability | adaptive-optimum inference for the interval; regularity for the next two; efficiency for the known probability | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 | Intervals for a constant arm cell or an estimate on its bound | an interval for a mean of a yes/no outcome whose treatment arm holds one observed outcome value in its stratum, or whose estimate lies on its bound, and for every contrast that reads it | asymptotic | the point estimate stands under the `constant_arm_cell_plugin` or `out_of_range_plugin` status, with no interval, p-value or band ([small-sample scale](technical-reference/inference.md#small-sample-scale)) | [F41](#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
 | EP learner theory | an interval for the EP curve, pointwise or over a range; the EP curve with a sieve size chosen by cross-validation; a declared final learner on the curve, on either scale; the value of the optimal rule from an EP rule with a declared final learner | asymptotic; adaptive-optimum inference for the CV size and the optimal value | the EP curve reports points with no interval. A declared fixed-size sieve reads supported where `ep-cate` and `ep-crr` measured it. A CV-chosen size and a declared final learner read experimental. `T51` and `T51.optimal` label the EP rule's learned value supported with a declared sieve or learner. The optimal value with a declared final learner keeps its interval, labelled experimental | [F42](#f42-ep-learner-theory) |
 
@@ -669,25 +668,6 @@ and study records that state something the code does not do. No number moves.
   confounder surface, the refutation operations) get a test that ties the owner page to the code.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
-### X107. Front door pages: getting started and workflow
-
-The quickstart calls its interval a Wald interval where the fit reports the skew-widened $t$, says
-no study covers its law where the fit reads `supported`, names assumptions differently from the
-printed summary, and does not run on a core install. The workflow page narrates a dataset it
-never defines and never reaches plots, the support label, refutation, the other designs and
-methods, learner cost or provenance.
-
-- (a) Correct the stale statements on both pages and in the README lines they share.
-- (b) The path to a reader's own data: one cross-fitted call, the default learner library and its
-  cost, one spelling of `q_bounds`, the benchmark and E-value readings, and a front door that routes
-  each other analysis family to its guide and example.
-- (c) The workflow covers plots, the support label, refutation and per-check sensitivity, the
-  other design roles and designs, the other methods and when to use them, `planned_fits`, the
-  accessors and the band default, and says steps 3 to 7 hold for analyses over time.
-
-Acceptance: the documentation procedure in `CLAUDE.md`, and the reader review for each rewritten
-page.
 
 ### X123. Public API gaps the documentation needs
 
@@ -2063,7 +2043,7 @@ $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its f
 (`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
 (`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
 0.922 and the labelled fits 0.948, and the stratified pair at n = 8,000 covered 0.921 at a mean
-Kish size of 136 with an SE ratio of 0.96. This item has four parts.
+Kish size of 136 with an SE ratio of 0.96. This item has five parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
@@ -2078,6 +2058,13 @@ Kish size of 136 with an SE ratio of 0.96. This item has four parts.
   clever covariate, and an atom would need a point mass in the quadrature and the band.
 - (d) Contrasts between declared dose pairs, such as the difference of the curve at two doses,
   with an interval from the pair's joint influence curve. Experimental until a registered study.
+- (e) The study route's open settings. `CausalStudy.identify(DoseResponseCurve(curve))` fits
+  `DoseResponseTMLE` on a `PointTreatment` design and refuses, before any learner, a dose given
+  over time (`LongitudinalTreatment`, `TimeToEvent` and `LongPanel`) and four method settings:
+  repeated cross-fitting (`repeats > 1`), a reused `split_plan`, the bootstrap (`n_bootstrap`,
+  `bootstrap_resampling`) and treatment screening (`screen_treatment`). Repeats need a median
+  rule for each pair and for the band. The bootstrap needs a refit of the curve per draw. Once
+  implemented, each setting reads experimental until a registered study measures it.
 
 ### X98. Score assessment compositions
 
@@ -2965,6 +2952,7 @@ reports the `working_model_projection` status. A testable form of the condition 
 | adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
 | a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
 | adaptive TMLE with sampling weights, clusters, strata, a held intermediate or a missing treatment | regularity | a weighted or clustered form of the working-model selection and of the projection the interval covers, a projection per stratum, and a held-intermediate or missing-treatment form of the decomposition. `TrialWithExternalData` refuses each role when it is declared |
+| adaptive TMLE that uses the trial's known randomization probability | efficiency | an estimator of the working-model parameter that attains the smaller influence function of the model that knows $P(A = 1 \mid W, S = 1)$. When the external rows' bias is nonzero, $D_w$ is in general not orthogonal to that model's scores, and no projection or estimator is derived here. `TrialWithExternalData(treatment_probabilities=...)` refuses |
 
 ### F41. Intervals for a constant arm cell or an estimate on its bound
 

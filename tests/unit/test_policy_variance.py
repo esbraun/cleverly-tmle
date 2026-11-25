@@ -423,7 +423,8 @@ def test_a_default_fit_the_option_accepts_is_advised_to_use_it(simultaneous: boo
     text = " ".join(
         str(w.message) for w in caught if issubclass(w.category, SparseInfluenceWarning)
     )
-    assert "variance='policy_weighted' (with simultaneous=False) adds a standard error" in text
+    assert "variance='policy_weighted' (with simultaneous=False;" in text
+    assert "on a method object) adds a standard error" in text
     assert "bootstrap_interval='bca'" not in text
 
 

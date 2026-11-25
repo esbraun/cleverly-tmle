@@ -62,6 +62,14 @@ UNPRINTED_DECIMALS = {
 }
 
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "rule-reading": {"0.7175": "failure-mode"},
+    "gains-reading": {"0.0241": "association"},
+}
+
+
 def _check_probe_log() -> None:
     """Each quoted probe number appears in the committed probe log, in its line."""
     text = _PROBE.read_text(encoding="utf-8")

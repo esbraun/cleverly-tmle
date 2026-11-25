@@ -1687,6 +1687,13 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         self.evaluation = evaluation
         self.randomized = randomized
         self._pending: dict[tuple[str, int], DriftRecord] | None = None
+        if refused.pop("max_memory_bytes", None) is not None:
+            # Its memory is its own, outside the guard's calibration, and it fits static arms
+            # only, so the hazard path limit never runs: the budget would be read by nothing.
+            from ..exceptions import MethodConfigurationError
+            from ..methods import memory_budget_refusal
+
+            raise MethodConfigurationError.from_refusal(memory_budget_refusal("SurvivalDRTMLE"))
         super().__init__(
             regimens,
             reference=reference,

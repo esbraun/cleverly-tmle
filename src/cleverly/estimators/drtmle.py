@@ -181,7 +181,7 @@ from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
-from ._nuisance import NuisanceEstimates, _screened, fit_inner_designs
+from ._nuisance import NuisanceEstimates, fit_inner_designs, screened_learner
 from ._strata import refuse_untrainable_leave_two_out, refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
@@ -1106,10 +1106,8 @@ class DRTMLE(TMLE):
                     ),
                     # Screened inside each training set exactly as the production
                     # mechanism is, so a slab's arrays come from the production learner.
-                    treatment_learner=(
-                        _screened(treatment, self.screen_threshold, self.min_retain)
-                        if self.screen_treatment
-                        else treatment
+                    treatment_learner=screened_learner(
+                        treatment, data, self.screen_treatment, self.min_retain
                     ),
                     n_jobs=self.n_jobs,
                     outcome_by_arm=self.outcome_by_arm,
@@ -1380,8 +1378,7 @@ class DRTMLE(TMLE):
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         outcome = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
         mechanism = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
-        if self.screen_treatment:
-            mechanism = _screened(mechanism, self.screen_threshold, self.min_retain)
+        # The screen selects columns and fits no learner, so the count reads the bare one.
         weights = np.asarray(data.weights, dtype=float)
         target = np.asarray(data.outcome, dtype=float)
         known = data.known_treatment is not None
