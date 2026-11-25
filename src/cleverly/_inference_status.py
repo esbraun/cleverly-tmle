@@ -664,21 +664,21 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "is a function of g_0, or, with a wrong treatment model, when the error of Qbar_n "
                 "is a function of Qbar_0. No fit can check the last three. The scalar DR-TMLE "
                 "keeps its interval under a contract that predates the rule of guide/science.md; "
-                "theorem.md's route table records both. P1 in docs/roadmap.md reopens this. The "
+                "theorem.md's route table records both. F5 in docs/roadmap.md reopens this. The "
                 "plug-in standard error remains as a diagnostic under plugin_std_error and "
                 "plugin_interval."
             ),
             assessment_note=(
                 "the plug-in interval is not valid inference here: the treatment mechanism is "
                 "estimated, and the conditioning term of the reduced regressions cannot be "
-                "checked; P1 in the roadmap is the condition that reopens it"
+                "checked; F5 in the roadmap is the condition that reopens it"
             ),
             bootstrap_note=(
                 "a diagnostic: the bootstrap resamples the same estimator, so its range rests on "
                 "the same remainder"
             ),
             diagnostic_noun="reduced-regression plug-in diagnostic",
-            reopened_by="P1",
+            reopened_by="F5",
             alternative=(
                 "Pass treatment_probabilities= on complete data, or fit method='tmle' with model=."
             ),
