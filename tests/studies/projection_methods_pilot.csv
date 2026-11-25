@@ -1,0 +1,3 @@
+cell,group,arm,replicates,se_ratio,se_ratio_se,coverage,covered,standardized_bias
+dr_known_4k_intercept__dr_known_intercept,dr_known_4k,__dr_known_intercept,3200,1.00048,0.0130568,0.948438,3035,0.0260386
+dr_known_4k_W1__dr_known_slope,dr_known_4k,__dr_known_slope,3200,0.979487,0.0117755,0.94375,3020,-0.0953713

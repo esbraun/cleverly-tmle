@@ -447,8 +447,10 @@ class TargetContext:
     #: :meth:`~cleverly.inference.influence.CorrectionParts.total` selects on the guard --
     #: for a fit that solved the
     #: extra score equations; ``None`` for every other fit.  Subtracted from the ``mean``
-    #: group's curves and reaching nothing else -- the other groups have no reduced-
-    #: dimension derivation, and a fit declaring one is refused before it gets here.
+    #: group's curves, and from a difference-scale projection's coefficient curves, where
+    #: each arm holds ``(n, p)``: one correction per basis term (P1 PR 3).  The other groups
+    #: have no reduced-dimension derivation, and a fit declaring one is refused before it
+    #: gets here.
     corrections: dict[float, FloatArray] | None = None
     #: ``(n, S + 1, S)`` shift clever covariates, for the ``mtp`` fluctuation; ``None``
     #: otherwise.  Carried only to select the mean function: unlike ``regimes``, whose
@@ -573,6 +575,7 @@ class TargetContext:
                 self.weights,
                 self.scaler,
                 self.observed,
+                self.corrections,
             )
         if self.msm_design is not None:
             assert self.msm_weights is not None

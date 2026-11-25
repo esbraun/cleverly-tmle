@@ -95,6 +95,7 @@ learned-regimen-ltmle
 conditional-projection
 projection-compositions
 projection-evidence
+projection-methods
 ep-cate
 ep-crr
 ep-assessment

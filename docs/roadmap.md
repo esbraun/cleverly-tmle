@@ -2023,13 +2023,23 @@ clusters, missing outcomes, a pair of three arms and an ATE fit in sample, one a
 difference scale, and `SCORE_COMPOSITIONS_MEASURED` labels each of them supported alone. Other
 compositions of each read experimental.
 
+`method="drtmle"` fits the difference-scale projection on complete, unstratified data. It keeps
+its interval with a declared treatment mechanism and reports points under
+`reduced_regression_plugin` with an estimated one. The per-arm outcome-adaptive C-TMLE fits it
+as points. The registered `projection-methods` study measured both in sample, and rows
+`T49.drtmle.known` (with its interval), `T49.drtmle` and `T49.ctmle_oat` (points) label those fits
+supported. Other compositions of either read experimental.
+
 What stays here is the compositions the shipped refusals name with this item: a continuous or
 vector treatment for `ConditionalContrast`; a conditional contrast from a method other than
-`method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a curve;
+`method="tmle"`, `"drtmle"`, the per-arm `"collaborative_tmle"` and `"ep"`; a DR-TMLE projection on
+the log ratio, with the bivariate reduction, missing data, `strata=`, the one-step update or a
+companion, and the five held-out checks on its curve; an interval for a DR-TMLE projection with an
+estimated mechanism; the truncation curve and the sensitivity analyses and refutations of a curve;
 `strata=` with an intermediate; the EP curve of a controlled direct effect; the score check, the
 targeting curve and the held-out curve checks on a controlled direct effect, whose pseudo-outcomes
-need the selection and the intermediate density; and scalar aggregates of an EP curve. A
-cross-fitted missing treatment is [X53](#x53-missing-outcome-cv-tmle-variants) (c).
+need the selection and the intermediate density; and scalar aggregates of an EP curve.
+A cross-fitted missing treatment is [X53](#x53-missing-outcome-cv-tmle-variants) (c).
 
 Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
 `ep-assessment` studies are pending, and the EP curve carries no interval. A cross-validated sieve

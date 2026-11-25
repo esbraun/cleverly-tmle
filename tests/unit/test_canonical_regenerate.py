@@ -189,6 +189,80 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
         regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
 
+@pytest.mark.parametrize("matches", [True, False])
+def test_a_study_check_rows_hook_notes_a_match_and_stops_a_mismatch_before_the_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, matches: bool
+) -> None:
+    """``check_rows`` reads the primary rows, the written property rows and both summaries.
+
+    Its lines go to ``RUN_NOTES``; a raise stops the run before the manifest, so nothing
+    publishes (``projection-methods`` rev 3, the first-run determinism check).
+    """
+    record = fold_evaluated_cvtmle.STUDY
+    expected = pd.DataFrame({"cell": ["a"], "estimate": [1.0]})
+    seen: dict[str, Any] = {}
+
+    def check_rows(
+        rows: pd.DataFrame,
+        property_rows: pd.DataFrame,
+        *,
+        summary: pd.DataFrame,
+        property_summary: pd.DataFrame,
+    ) -> list[str]:
+        seen.update(rows=rows, summary=summary, property_summary=property_summary)
+        if not property_rows.equals(expected):
+            raise RuntimeError("the rows do not reproduce the first run")
+        return ["first-run check: equal"]
+
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+        check_rows=check_rows,
+    )
+    written = expected if matches else expected.assign(estimate=[1.0 + 1e-6])
+    summary = pd.DataFrame({"passed": [True], "property_passed": [True]})
+
+    def property_artifacts(properties: Any, arguments: Any, here: Any, paths: Any, rec: Any) -> Any:
+        write_rows(written, paths["property-replicates.parquet"])
+        return summary, ()
+
+    manifests: list[Any] = []
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    monkeypatch.setattr(regenerate, "write_manifest", lambda *a, **k: manifests.append(a))
+    monkeypatch.setattr(regenerate, "_property_artifacts", property_artifacts)
+
+    if matches:
+        regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
+        assert regenerate.RUN_NOTES[-1] == "first-run check: equal"
+        assert len(manifests) == 1
+        assert seen["property_summary"] is summary
+        assert list(seen["summary"]["summary"]) == [1.0]
+        assert set(seen["rows"]["implementation"]) == {record.implementation}
+    else:
+        with pytest.raises(RuntimeError, match="do not reproduce"):
+            regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
+        assert manifests == []
+
+
 def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
