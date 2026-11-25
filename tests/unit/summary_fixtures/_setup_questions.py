@@ -34,16 +34,19 @@ from cleverly import (
     RegimeContrast,
     RegimeMean,
     RiskRatio,
+    TimeToEvent,
     TrialATE,
     TrialWithExternalData,
 )
 from cleverly.datasets import (
     make_binary_outcome,
+    make_heart_failure,
     make_linear_ate,
     make_longitudinal,
     make_multi_arm,
 )
 from cleverly.interventions import Incremental, Shift
+from cleverly.longitudinal import Separable
 from tests import discrete_law_cde, discrete_law_mar
 from tests import law_q_point as lawp
 from tests import law_q_tuned as lawq
@@ -179,6 +182,29 @@ def _trial() -> CausalStudy:
     )
 
 
+@functools.cache
+def _competing() -> CausalStudy:
+    """A baseline dose with two competing causes, the setting of a separable effect."""
+    frame = make_heart_failure(n=300, seed=11)[0]
+    return CausalStudy(
+        frame,
+        design=TimeToEvent(
+            time="day",
+            event="event",
+            treatment="dose",
+            baseline=("older", "prior_admissions"),
+            grid=(30, 60, 90),
+            causes={1: "readmission", 2: "death"},
+        ),
+    )
+
+
+SEPARABLE_PLANS = {
+    "high": 2,
+    "none": 0,
+    "split": Separable(arms={"readmission": 2, "death": 0}, first="death"),
+}
+
 SHIFTS = (Shift(0.0, cap=None), Shift(0.5, cap=None))
 
 QUESTIONS: dict[str, Callable[[], Any]] = {
@@ -215,6 +241,9 @@ QUESTIONS: dict[str, Callable[[], Any]] = {
         ),
         "regime_incremental": lambda: _panel().identify(
             IncrementalEffect([Incremental(1.0), Incremental(2.0)])
+        ),
+        "regime_separable": lambda: _competing().identify(
+            RegimeMean(SEPARABLE_PLANS, horizons=(90,))
         ),
         "regime_policy": lambda: _dose_panel().identify(
             RegimeContrast(mtp.regimens(("natural", "up")), reference="natural")

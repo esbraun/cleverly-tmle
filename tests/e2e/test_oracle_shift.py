@@ -269,13 +269,15 @@ class TestTheDegenerateShifts:
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             policies=[Shift(1.0, cap=low, name="unreachable")],
+            # The density route: the identity is the binned ratio's indicator algebra.
+            ratio="density",
             random_state=0,
             simultaneous=False,
         )
         # The resolution warning is *correct* here and is asserted rather than silenced:
         # a policy that moves nobody is exactly what it exists to report, and an analyst
         # who wrote this cap by accident should be told the intervention is invisible.
-        with pytest.warns(UserWarning, match="across a bin edge"):
+        with pytest.warns(UserWarning, match="changes no row.s dose"):
             result = estimator.fit(
                 frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
             ).single()

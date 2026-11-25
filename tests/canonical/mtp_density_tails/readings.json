@@ -1,0 +1,361 @@
+{
+  "boosting": {
+    "B": {
+      "above_1": 1,
+      "ceiling": 8,
+      "median_2000": 0.3195607107,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 1,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      }
+    },
+    "C": {
+      "above_1": 0,
+      "ceiling": 2,
+      "fall": {
+        "holds": true,
+        "ratio": 0.2823740742
+      },
+      "median_2000": 0.3499418528,
+      "median_20000": 0.09881450668,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 0,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      },
+      "tail_20000": {
+        "above_05": 0,
+        "draws": 10,
+        "holds": true
+      }
+    },
+    "G": {
+      "above_1": 2,
+      "ceiling": 3,
+      "fall": {
+        "holds": true,
+        "ratio": 0.2725708886
+      },
+      "median_2000": 0.4585350423,
+      "median_20000": 0.1249833039,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 2,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      },
+      "tail_20000": {
+        "above_05": 0,
+        "draws": 10,
+        "holds": true
+      }
+    },
+    "S": {
+      "above_1": 0,
+      "ceiling": 2,
+      "median_2000": 0.2350309632,
+      "median_20000": 0.07476486238,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 0,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      },
+      "tail_20000": {
+        "above_05": 0,
+        "draws": 10,
+        "holds": true
+      }
+    },
+    "T": {
+      "above_1": 3,
+      "ceiling": 6,
+      "median_2000": 0.4687421889,
+      "median_20000": 0.09555812653,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 3,
+        "above_3": 1,
+        "draws": 20,
+        "holds": false
+      },
+      "tail_20000": {
+        "above_05": 0,
+        "draws": 10,
+        "holds": true
+      }
+    },
+    "U": {
+      "above_1": 2,
+      "ceiling": 4,
+      "median_2000": 0.4122105366,
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 2,
+        "above_3": 1,
+        "draws": 20,
+        "holds": false
+      }
+    }
+  },
+  "breaches": [
+    {
+      "label": "boosting_B_n2000",
+      "ratio_error": 1.531144329,
+      "replicate": 15,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_G_n2000",
+      "ratio_error": 1.068199904,
+      "replicate": 2,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_G_n2000",
+      "ratio_error": 2.626252017,
+      "replicate": 4,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_T_n2000",
+      "ratio_error": 1.72323453,
+      "replicate": 1,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_T_n2000",
+      "ratio_error": 5.144850165,
+      "replicate": 6,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_T_n2000",
+      "ratio_error": 1.023072081,
+      "replicate": 17,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_U_n2000",
+      "ratio_error": 6.2954373,
+      "replicate": 3,
+      "route": "learner_limitation"
+    },
+    {
+      "label": "boosting_U_n2000",
+      "ratio_error": 1.083066771,
+      "replicate": 12,
+      "route": "learner_limitation"
+    }
+  ],
+  "classifier_dr": {
+    "G_classifier_dr__reported": {
+      "bias_in_se": 0.03038013355,
+      "coverage": 0.95,
+      "holds": true,
+      "remainder": -0.002254454752
+    },
+    "G_classifier_dr_both_wrong__reported": {
+      "bias_in_se": 1.295057819,
+      "coverage": 0.8,
+      "remainder": 1.254645348
+    },
+    "T_classifier_dr__reported": {
+      "bias_in_se": -0.1782704139,
+      "coverage": 0.955,
+      "coverage_below_090": false,
+      "holds": true,
+      "remainder": -0.2055127572
+    }
+  },
+  "classifier_steps": {
+    "Bp2": {
+      "holds": true,
+      "steps_ratio_2000": 0.641537803
+    },
+    "C": {
+      "holds": true,
+      "steps_ratio_2000": 1.083772674
+    },
+    "G": {
+      "holds": true,
+      "steps_ratio_2000": 0.9575957241
+    },
+    "Gcap": {
+      "holds": true,
+      "steps_ratio_2000": 0.4534794981
+    },
+    "S": {
+      "holds": true,
+      "steps_ratio_2000": 1.008790229
+    },
+    "T": {
+      "holds": true,
+      "with_steps_fall": 0.5877335217,
+      "without_steps_fall": 1.083589418
+    }
+  },
+  "learned": {
+    "B": {
+      "above_1": 0,
+      "boosting": {
+        "holds": true,
+        "median": 0.2902307991,
+        "pre_fix_median": 0.4253738,
+        "support_ignored_median": 0.3587020376
+      },
+      "ceiling": 8,
+      "pooled_logistic": {
+        "holds": true,
+        "median": 0.2086181003,
+        "pre_fix_median": 0.5691627672,
+        "support_ignored_median": 0.2379478199
+      },
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 0,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      }
+    },
+    "U": {
+      "above_1": 0,
+      "boosting": {
+        "holds": true,
+        "median": 0.3658298362,
+        "pre_fix_median": 0.9973424605,
+        "support_ignored_median": 0.4663071177
+      },
+      "ceiling": 4,
+      "pooled_logistic": {
+        "holds": true,
+        "median": 0.2750204605,
+        "pre_fix_median": 0.485786538,
+        "support_ignored_median": 0.3091518373
+      },
+      "reopened": false,
+      "tail_2000": {
+        "above_1": 0,
+        "above_3": 0,
+        "draws": 20,
+        "holds": true
+      }
+    }
+  },
+  "reported_calibration": {
+    "B__reported": {
+      "coverage": 0.954375,
+      "inside_band": true,
+      "se_ratio": 1.011636718
+    },
+    "LTMLE_ate_scale_at_2_vs_natural__reported": {
+      "coverage": 0.941875,
+      "inside_band": true,
+      "se_ratio": 0.9721786614
+    },
+    "LTMLE_ate_up_then_history_vs_natural__reported": {
+      "coverage": 0.9478125,
+      "inside_band": true,
+      "se_ratio": 1.006314153
+    },
+    "LTMLE_ey_natural__reported": {
+      "coverage": 0.955625,
+      "inside_band": true,
+      "se_ratio": 1.019975876
+    },
+    "LTMLE_ey_scale_at_2__reported": {
+      "coverage": 0.9503125,
+      "inside_band": true,
+      "se_ratio": 1.001651261
+    },
+    "LTMLE_ey_up__reported": {
+      "coverage": 0.959375,
+      "inside_band": false,
+      "se_ratio": 1.043409607
+    },
+    "LTMLE_ey_up_then_history__reported": {
+      "coverage": 0.9575,
+      "inside_band": false,
+      "se_ratio": 1.035071296
+    },
+    "SDR_ate_scale_at_2_vs_natural__reported": {
+      "coverage": 0.93375,
+      "inside_band": false,
+      "se_ratio": 0.9554168152
+    },
+    "SDR_ate_up_then_history_vs_natural__reported": {
+      "coverage": 0.94375,
+      "inside_band": true,
+      "se_ratio": 0.9921175014
+    },
+    "SDR_ey_natural__reported": {
+      "coverage": 0.945625,
+      "inside_band": true,
+      "se_ratio": 0.9836183575
+    },
+    "SDR_ey_scale_at_2__reported": {
+      "coverage": 0.9478125,
+      "inside_band": true,
+      "se_ratio": 0.9719474858
+    },
+    "SDR_ey_up__reported": {
+      "coverage": 0.9571875,
+      "inside_band": true,
+      "se_ratio": 1.016400596
+    },
+    "SDR_ey_up_then_history__reported": {
+      "coverage": 0.95,
+      "inside_band": true,
+      "se_ratio": 1.00725507
+    },
+    "S__reported": {
+      "coverage": 0.95125,
+      "inside_band": true,
+      "se_ratio": 0.9963713406
+    },
+    "S_classifier__reported": {
+      "coverage": 0.9453125,
+      "inside_band": true,
+      "se_ratio": 0.985555444
+    },
+    "U__reported": {
+      "coverage": 0.955,
+      "inside_band": true,
+      "se_ratio": 1.020965564
+    }
+  },
+  "stacked": {
+    "C": {
+      "above_1": 0,
+      "above_3": 0,
+      "draws": 5,
+      "holds": true
+    },
+    "G": {
+      "above_1": 0,
+      "above_3": 0,
+      "draws": 5,
+      "holds": true
+    },
+    "S": {
+      "above_1": 0,
+      "above_3": 0,
+      "draws": 5,
+      "holds": true
+    },
+    "T": {
+      "above_1": 0,
+      "above_3": 0,
+      "draws": 5,
+      "holds": true
+    }
+  }
+}

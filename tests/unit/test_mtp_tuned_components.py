@@ -104,7 +104,7 @@ def _regimen(
 
 
 def _settings(**overrides: Any) -> dict[str, Any]:
-    return {
+    settings = {
         "q_bounds": (0.0, 1.0),
         "outcome_learner": LinearRegression(),
         "pseudo_learner": LinearRegression(),
@@ -114,6 +114,10 @@ def _settings(**overrides: Any) -> dict[str, Any]:
         "simultaneous": False,
         **overrides,
     }
+    if settings.get("ratio") == "classifier":
+        # The classifier fits no binned density, so it refuses density_bins.
+        del settings["density_bins"]
+    return settings
 
 
 def _fit(estimator: type, regimens: Any, frame: pd.DataFrame, **settings: Any) -> Any:

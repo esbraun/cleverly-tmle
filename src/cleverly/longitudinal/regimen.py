@@ -120,6 +120,7 @@ __all__ = [
     "Separable",
     "declares_mtp",
     "declares_policy",
+    "declares_separable",
     "declares_tilt",
     "refuse_regimen_rules",
     "resolve_plans",
@@ -2091,6 +2092,22 @@ def declares_tilt(regimens: Any) -> bool:
         if any(_is_tilt(node) for node in ((plan,) if nodes is None else nodes)):
             return True
     return False
+
+
+def declares_separable(regimens: Any) -> bool:
+    """Whether any plan of a ``regimens=`` argument is a :class:`Separable` intervention.
+
+    Parameters
+    ----------
+    regimens : Any
+        The ``regimens=`` argument of a fit or of a longitudinal estimand.
+
+    Returns
+    -------
+    bool
+        ``True`` when some plan is a :class:`Separable` declaration.
+    """
+    return any(isinstance(plan, Separable) for _label, plan in _plans(regimens))
 
 
 def tilt_nodes(regimens: Any, n_times: int) -> frozenset[int]:

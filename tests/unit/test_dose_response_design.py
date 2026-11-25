@@ -24,7 +24,7 @@ from scipy.stats import beta, norm
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.dose_response import equivalent_kernel, pair_name
-from cleverly.learners.density import bin_edges, default_density_bins
+from cleverly.learners.density import _equal_mass_edges, default_density_bins
 from tests.studies import dose_response as study
 from tests.studies import dose_response_law as law
 from tests.studies import dose_response_pilot as pilot
@@ -317,7 +317,10 @@ def population() -> dict[str, float]:
     y = frame["Y"].to_numpy()
     design_matrix = np.column_stack([a, w])
     truth = law.q_bar(a, w)
-    edges = bin_edges(a, default_density_bins(study.PRIMARY_N))
+    # The record's density is the marginal histogram on equal-mass quantile bins, each holding
+    # 1 / bins of the rows, kept on purpose from before the refined grid: the shipped grid now
+    # refines the tails, where ``(1 / bins) / width`` would no longer be each bin's share.
+    edges = _equal_mass_edges(a, default_density_bins(study.PRIMARY_N), None)
     width = np.diff(edges)
     bins = len(width)
 

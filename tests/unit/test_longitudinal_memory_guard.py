@@ -202,6 +202,25 @@ def test_the_prediction_bounds_the_traced_peak_and_a_dropped_term_breaks_it(
     assert not _bound_holds(peak, mutated), mutated / peak
 
 
+def test_the_refined_grid_is_counted_and_a_nominal_count_breaks_the_mtp_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The density counts the bins of the refined grid, not ``density_bins``.
+
+    ``bin_edges`` splits the wide outer core bins, so the ``mtp`` case's 40 core bins fit 49.
+    Counted at 40, its prediction falls below the traced peak.
+    """
+    case, family, _ = TRACED["mtp"]
+    peak, counts = support.traced(case, N)
+    assert counts.family == family
+    assert counts.bins > case["B"]
+    assert _bound_holds(peak, _memory_guard.predicted_bytes(counts))
+    monkeypatch.setattr(_memory_guard, "refined_bins", lambda data, nominal: nominal)
+    _, nominal = support.traced(case, N)
+    assert nominal.bins == case["B"]
+    assert not _bound_holds(peak, _memory_guard.predicted_bytes(nominal))
+
+
 def test_the_two_cause_survival_bound() -> None:
     peak, counts = support.traced(
         {"est": "ltmle_surv", "T": 4, "R": 2, "folds": 1, "H": 4, "J": 2}, N
@@ -642,8 +661,11 @@ def _route_counts(est: str, n: int = 300, **case: Any) -> FitCounts:
 def test_each_density_route_is_its_own_family(
     est: str, prefix: str, overrides: dict[str, Any], route: str, bins: int
 ) -> None:
-    counts = _route_counts(est, overrides=overrides)
-    assert (counts.family, counts.bins) == (f"{prefix}_continuous{route}", bins)
+    # The classifier route fits no binned density and refuses a bin count, so it runs without
+    # one; a binned route's count is the refined grid of its 12 core bins.
+    counts = _route_counts(est, overrides=overrides, B=bins)
+    assert counts.family == f"{prefix}_continuous{route}"
+    assert counts.bins >= bins if bins else counts.bins == 0
 
 
 @pytest.mark.parametrize(
@@ -688,7 +710,7 @@ def test_mutation_ignoring_the_density_route_fails_the_route_witnesses(
     monkeypatch.setattr(_memory_guard, "density_route", lambda estimator: "")
     index = {"treatment_learner": _IndexLogistic(max_iter=1000)}
     assert _route_counts("mtp", overrides=index).family == "ltmle_continuous"
-    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}).bins == 12
+    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}, B=0).bins > 0
     counts = _route_counts("mtp", 2_000, R=4, B=320, overrides=index)
     assert _memory_guard.predicted_bytes(counts) > 2**30
 
@@ -898,7 +920,8 @@ def test_horizons_causes_and_bins_reach_the_counts() -> None:
     with support.captured_counts() as seen, warnings.catch_warnings():
         warnings.simplefilter("ignore")
         support.build({"est": "mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 12}, 500)[1]()
-    assert (seen[0].family, seen[0].bins) == ("ltmle_continuous", 12)
+    assert seen[0].family == "ltmle_continuous"
+    assert seen[0].bins >= 12
 
 
 def test_the_draw_is_the_written_out_sum_of_its_terms() -> None:
