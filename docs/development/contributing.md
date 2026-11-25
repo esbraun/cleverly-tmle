@@ -120,7 +120,9 @@ A hash comparison cannot see a library change that moved a published number whil
 its bytes, so the fast tier also compares what each tutorial notebook's cells print now with what
 the notebook stores (`tests/notebook_freshness.py`). The fast tier runs every cell but the refit
 cells, which the slow tier adds. The comparison allows a relative difference of 1e-4, the machine
-noise in a learner fit's sixth figure, and one last-place rounding per cell beyond it. The
+noise in a learner fit's sixth figure, and one last-place rounding per cell beyond it. A cell
+that the callback lists in `HARDWARE_SENSITIVE_CELLS`, such as a boosted fit, allows 1e-2 and any
+number of last-place roundings. The
 TWINS notebook downloads its data, so it is checked statically instead. A library change that moves
 a published number therefore fails that notebook's semantic test.
 
