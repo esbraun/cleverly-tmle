@@ -407,6 +407,11 @@ Do these steps in order. Run each command from the repository root.
    echo "exit status $?"
    ```
 
+   The kernel runs on one thread and on matplotlib's bundled defaults, so a machine's own
+   matplotlibrc (a different `figure.dpi` or font) cannot change the published figures. Commit
+   your edits first and execute from the clean checkout: the stamp records whether the worktree
+   was clean.
+
 5. Read every stored output. Write each reading from those outputs.
 6. Delete the Markdown source with `git rm docs/examples/<stem>.md`.
 7. Update the callback module, as the previous section describes.
