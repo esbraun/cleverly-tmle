@@ -345,7 +345,9 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     "longitudinal": ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"),
     "structural": ("snmm",),
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
-    "effect_modification": ("tmle", "ep"),
+    # DR-TMLE fits a difference-scale projection, and the per-arm outcome-adaptive C-TMLE a
+    # point estimate of one (P1 PR 3).
+    "effect_modification": ("tmle", "drtmle", "collaborative_tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
     "dose_response": ("tmle",),
     # Every candidate of a variable-importance run is a point fit by one shared estimator,
@@ -411,10 +413,103 @@ def projection_sensitivity_refusal(operation: str) -> Refusal:
     )
 
 
+#: R-evalue-slope of the P1 PR 3 plan: an E-value of a working-model coefficient.
+EVALUE_PROJECTION_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "An E-value maps a risk ratio, and a working-model coefficient of a conditional contrast "
+    "other than the constant term on the log-ratio scale is not one.",
+    alternative="Bound the CATE projection with omitted_confounding() on scale='difference'.",
+)
+
+#: R-evalue-constant: the constant of a log-ratio projection on the constant basis.
+EVALUE_PROJECTION_CONSTANT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "The constant term of a log-ratio projection on the constant basis is the marginal log "
+    "risk ratio.",
+    alternative="Identify RiskRatio() on the same study and run the E-value there.",
+)
+
+#: The sensitivity rows of a projection fit that keep R9: no derivation for a coefficient
+#: has been read (P1 PR 3 plan, 1.4).
+PROJECTION_R9_SENSITIVITY = (
+    "missingness",
+    "tipping_gamma",
+    "simulated_confounding",
+    "marginal_bounds",
+)
+
+
+def projection_evalue_refusal(result: Any) -> Refusal:
+    """The E-value refusal of a projection fit: R-evalue-constant or R-evalue-slope.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fit of a conditional contrast's projection.
+
+    Returns
+    -------
+    Refusal
+        R-evalue-constant for a log-ratio fit on the constant basis alone, and
+        R-evalue-slope otherwise.
+    """
+    spec = getattr(getattr(result, "nuisance", None), "effect_modification", None)
+    if (
+        spec is not None
+        and str(spec.scale) == "log_ratio"
+        and len(spec.terms) == 1
+        and tuple(spec.intercept_columns) == (0,)
+    ):
+        return EVALUE_PROJECTION_CONSTANT_REFUSAL
+    return EVALUE_PROJECTION_REFUSAL
+
+
 #: The fitted methods that declare a point-treatment operation by default, and the same
 #: methods with AdaptiveIPTW, which declares the operations it supports one by one.
 POINT_METHODS = ("tmle", "collaborative_tmle", "drtmle")
 POINT_METHODS_WITH_IPTW = (*POINT_METHODS, "adaptive_iptw")
+
+#: The refusal of ``refute`` on an effect curve (R-curve-refute of the P1 PR 3 plan): the fit
+#: that produced the curve is what a refutation refits.
+CURVE_REFUTE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "refute refits an estimator and compares one reported estimate. A curve is computed from a "
+    "fit and reports no estimand of its own.",
+    alternative=(
+        "Run refute on the fit that produced the curve, naming a coefficient such as "
+        "'cate_projection[W1]'."
+    ),
+)
+
+#: The ``truncation_curve`` row of a projection curve, which reads the producing fit's curve.
+_CURVE_TRUNCATION_ROUTED = _capability(
+    "truncation_curve",
+    "effect_modification",
+    artifacts=("the producing fit's nuisance predictions", "its targeting state"),
+    execution="retarget",
+    cost="moderate",
+    requires_replay="summarize_existing_artifacts",
+    interpretation=(
+        "the producing fit's truncation curve: its coefficients retargeted at each declared "
+        "mechanism bound"
+    ),
+)
+
+
+#: Why a DR-TMLE fit with ``guard=()``, and its curve, have no ``corrections`` row.
+_NO_CORRECTION_TERM = "the fitted DR-TMLE guard subtracts no correction term"
+
+#: The ``corrections`` row of a DR-TMLE projection curve, which reads the producing fit's.
+_CURVE_CORRECTIONS_ROUTED = _capability(
+    "corrections",
+    "effect_modification",
+    artifacts=("the producing fit's doubly-robust correction state",),
+    requires_replay="summarize_existing_artifacts",
+    interpretation=(
+        "the producing fit's correction identities: one row per arm, basis term and equation"
+    ),
+)
+
 
 # This is intentionally data rather than branches hidden inside the facade.  Contract tests
 # check both directions: every operation covers every family, and no declaration names a
@@ -789,8 +884,8 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.NOT_APPLICABLE,
         refusal=Refusal(
             RefusalReason.INVALID_DECLARATION,
-            "a projection curve is fitted by TMLE and an EP curve by one debiasing regression, "
-            "and neither solves doubly-robust correction equations.",
+            "a projection curve fitted by TMLE or the per-arm C-TMLE, and an EP curve fitted "
+            "by one debiasing regression, solve no doubly-robust correction equations.",
         ),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),
@@ -815,7 +910,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         artifacts=(),
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        refusal=projection_sensitivity_refusal("refute"),
+        refusal=CURVE_REFUTE_REFUSAL,
         interpretation="behavior under placebo, noise, and subsampling perturbations",
     ),
     *(
@@ -1043,21 +1138,9 @@ def _is_projection(result: Any) -> bool:
     )
 
 
-def _refuse_on_projection(
-    rows: tuple[AssessmentCapability, ...], operations: Container[str] | None = None
-) -> tuple[AssessmentCapability, ...]:
-    """Mark ``operations`` (every row when ``None``) unavailable with the R9 record."""
-    return tuple(
-        replace(
-            row,
-            available=False,
-            status=AssessmentStatus.UNAVAILABLE,
-            refusal=projection_sensitivity_refusal(row.operation),
-        )
-        if operations is None or row.operation in operations
-        else row
-        for row in rows
-    )
+def _is_ep_curve(curve: Any) -> bool:
+    """Whether ``curve`` came from the EP learner, which has no truncation curve."""
+    return getattr(curve, "fitted_method", None) == "ep"
 
 
 def _curve_fit_wide_rules(
@@ -1081,10 +1164,40 @@ def _curve_fit_wide_rules(
         "stability": stability_refusal,
         "targeting_curve": targeting_curve_refusal,
     }
+    from .effect_modification import curve_tools_refusal
+
+    method = getattr(result, "fitted_method", None)
+    tools = curve_tools_refusal(method)
     resolved = []
     for row in rows:
+        if row.operation == "truncation_curve" and not _is_ep_curve(result):
+            # A projection curve reads its producing fit's truncation curve (P1 PR 3, 3.3).
+            resolved.append(_CURVE_TRUNCATION_ROUTED)
+            continue
+        if row.operation == "corrections" and method == "drtmle":
+            # A DR-TMLE projection solves the correction equations per arm and term, so its
+            # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).  A fit with
+            # guard=() solves none, and the curve's row says what the fit's row says.
+            fit = getattr(result, "fit", None)
+            routed = _CURVE_CORRECTIONS_ROUTED
+            if fit is not None and not getattr(fit, "solved_corrections", False):
+                routed = replace(
+                    routed,
+                    available=False,
+                    status=AssessmentStatus.NOT_APPLICABLE,
+                    refusal=Refusal(
+                        RefusalReason.INVALID_DECLARATION,
+                        _NO_CORRECTION_TERM,
+                    ),
+                )
+            resolved.append(routed)
+            continue
         rule = rules.get(row.operation)
         refusal = None if rule is None or not row.available else rule(result)
+        if tools is not None and row.available and row.operation in CURVE_OPERATIONS:
+            # The held-out rows rebuild the TMLE pseudo-outcome, which a DR-TMLE or per-arm
+            # C-TMLE projection's estimate does not solve (P1 PR 3).
+            refusal = tools
         resolved.append(
             row
             if refusal is None
@@ -1106,8 +1219,6 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     if family == "effect_modification":
         # A curve has its own fit-wide rules; none of the point rules below reads a curve.
         return _curve_fit_wide_rules(result, rows)
-    if family == "point" and _is_projection(result):
-        rows = _refuse_on_projection(rows, {"refute"})
     if family == "point" and is_natural_course_fit(result):
         rows = tuple(
             replace(
@@ -1262,7 +1373,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             status=AssessmentStatus.NOT_APPLICABLE,
             refusal=Refusal(
                 RefusalReason.INVALID_DECLARATION,
-                "the fitted DR-TMLE guard subtracts no correction term"
+                _NO_CORRECTION_TERM
                 if _method(result) == "drtmle"
                 else "the fitted method does not use the correction system",
             ),
@@ -3756,6 +3867,11 @@ class DiagnosticsFacade(_CapabilityFacade):
             If the fitted method does not use the correction system.
         """
         self._require("corrections")
+        if _family(self._result) == "effect_modification":
+            # The row reads available only for a DR-TMLE projection curve that keeps its fit.
+            return self._result.fit.diagnostics.corrections(
+                tolerance=tolerance, identity_tolerance=identity_tolerance
+            )
         if _family(self._result) == AUGMENTED_TRIAL_FAMILY:
             return _cached(
                 self._result, "diagnostics.corrections", (), {}, self._result.corrections_report
@@ -3848,6 +3964,11 @@ class DiagnosticsFacade(_CapabilityFacade):
         # raises from, and it is checked before the cache, so an unanswerable request is
         # refused whether or not the cache already holds a curve.
         self._require("truncation_curve", {"mechanism": mechanism})
+        if _family(self._result) == "effect_modification":
+            # The row reads available only for a projection curve that keeps its fit.
+            return self._result.fit.diagnostics.truncation_curve(
+                bounds, estimands=estimands, mechanism=mechanism
+            )
         # The cache key holds these arguments, so a one-shot iterator is read once here.
         (bounds, estimands), _ = _single_pass((bounds, estimands), {})
         if _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
@@ -5861,20 +5982,7 @@ class SensitivityFacade(_CapabilityFacade):
                 self._evalue_row(),
             )
         if family == "point" and _is_projection(self._result):
-            # Every row refuses with R9 of the P1 plan, before any fit-wide rule reads an
-            # axis it has no entry for.
-            return tuple(
-                _capability(
-                    operation,
-                    family,
-                    artifacts=(),
-                    interpretation="not defined for a projection coefficient",
-                    available=False,
-                    status=AssessmentStatus.UNAVAILABLE,
-                    refusal=projection_sensitivity_refusal(operation),
-                )
-                for operation in SENSITIVITY_ROUTES
-            )
+            return self._projection_rows()
         longitudinal = family == "longitudinal"
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
@@ -6057,6 +6165,89 @@ class SensitivityFacade(_CapabilityFacade):
             _marginal_row(self._result, family),
         )
         return rows
+
+    def _projection_rows(self) -> tuple[AssessmentCapability, ...]:
+        """The rows of a projection fit (P1 PR 3).
+
+        The five omitted-variable rows read the bound's own fit-wide refusals, which admit a
+        difference-scale coefficient and refuse the log ratio and strata. ``evalue`` refuses
+        with R-evalue-slope or R-evalue-constant, and the other four rows keep R9, before
+        any of their fit-wide rules reads an axis it has no entry for.
+        """
+        from .sensitivity.omitted_variable import fit_wide_bound_refusal
+
+        family = _family(self._result)
+        bound_refusal = fit_wide_bound_refusal(self._result)
+        available = bound_refusal is None
+        status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
+        bound = {
+            "omitted_confounding": (
+                "omitted-confounder bias for the fitted orthogonal score",
+                "cheap",
+            ),
+            "robustness_value": (
+                "confounding strength needed to move the estimate to its null",
+                "cheap",
+            ),
+            "elements": ("raw components of the omitted-confounder bias bound", "cheap"),
+            "contour": ("bias bounds over a grid of confounding strengths", "moderate"),
+        }
+        rows = []
+        for operation in SENSITIVITY_ROUTES:
+            if operation in bound:
+                interpretation, cost = bound[operation]
+                repeats = int(getattr(self._result, "n_repeats", 1)) > 1
+                rows.append(
+                    _capability(
+                        operation,
+                        family,
+                        artifacts=("fitted representer", "outcome residuals"),
+                        interpretation=interpretation,
+                        cost=cost,  # type: ignore[arg-type]
+                        available=available,
+                        status=status,
+                        refusal=bound_refusal,
+                        requires_arguments=(
+                            ("repeat",) if operation == "elements" and repeats else ()
+                        ),
+                    )
+                )
+            elif operation == "benchmark":
+                rows.append(
+                    _capability(
+                        "benchmark",
+                        artifacts=("fitted estimator configuration",),
+                        execution="refit",
+                        deterministic=False,
+                        cost="expensive",
+                        interpretation="calibration against named observed covariates",
+                        available=available,
+                        status=status,
+                        refusal=bound_refusal,
+                        requires_arguments=("covariates",),
+                        accepts_random_state=True,
+                        requires_replay="refit_nuisances",
+                        family=family,
+                    )
+                )
+            else:
+                refusal = (
+                    projection_evalue_refusal(self._result)
+                    if operation == "evalue"
+                    else projection_sensitivity_refusal(operation)
+                )
+                rows.append(
+                    _capability(
+                        operation,
+                        family,
+                        artifacts=(),
+                        interpretation="not defined for a projection coefficient",
+                        available=False,
+                        status=AssessmentStatus.UNAVAILABLE,
+                        refusal=refusal,
+                    )
+                )
+        return tuple(rows)
 
     @cached_property
     def _evalue_selections(self) -> dict[str | None, Any]:
@@ -6676,9 +6867,14 @@ class SensitivityFacade(_CapabilityFacade):
             or (_family(self._result) == CONTINUOUS_SURVIVAL_FAMILY and operation != "evalue")
             or _is_projection(self._result)
         ):
-            # The omitted-variable rows read the request, which can lift their refusal.
+            # The omitted-variable rows read the request, which can lift their refusal, and the
+            # benchmark row reads its covariates, which a projection fit refuses or runs by
+            # whether the declared basis reads them.
             self._require(
-                operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
+                operation,
+                kwargs
+                if operation in self._CONSISTENT_MECHANISM_OPERATIONS or operation == "benchmark"
+                else None,
             )
 
     def _with_default_parameter(

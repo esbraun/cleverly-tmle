@@ -153,6 +153,8 @@ def reduced_outcome_submodel(
         raise ValueError(
             f"the treatment has {a.shape[0]} rows and the reduced regressions {reduced.n}"
         )
+    if reduced.n_terms is not None:
+        return _term_outcome_submodel(a, reduced, bounds=bounds)
     if reduced.reduction == "univariate":
         ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
     else:
@@ -174,6 +176,31 @@ def reduced_outcome_submodel(
         "mean",
         {arm: j for j, arm in enumerate(arms)},
     )
+
+
+def _term_outcome_submodel(
+    a: FloatArray, reduced: ReducedSet, *, bounds: tuple[float, float]
+) -> Submodel:
+    r"""Equation (10) of a projection: :math:`1_a g_{r,2,j}/g_{r,1}`, one column per arm and term.
+
+    Term-major, so column ``j K + k`` is arm ``k``'s term ``j`` (the layout
+    :func:`~cleverly.fluctuation.mechanism.armwise_mechanism_score` reads for one block of
+    columns per arm).  Each column belongs to one arm, so no ``arm_columns`` map is given:
+    an arm owns ``p`` columns here.
+    """
+    arms = reduced.arms
+    k, p = len(arms), int(reduced.n_terms or 0)
+    ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)[:, :, None]
+    observed = np.empty((a.shape[0], p * k))
+    counterfactual = {arm: np.zeros((a.shape[0], p * k)) for arm in arms}
+    names: list[str] = []
+    for j in range(p):
+        for column, arm in enumerate(arms):
+            observed[:, j * k + column] = (a == arm) * ratio[:, column, j]
+            counterfactual[arm][:, j * k + column] = ratio[:, column, j]
+    for j in range(p):
+        names.extend(f"h_dr{arm:g}_term{j}" for arm in arms)
+    return Submodel(observed, counterfactual, tuple(names), "mean")
 
 
 def reduced_mechanism_covariate(
@@ -239,12 +266,27 @@ def reduced_mechanism_covariate(
         mechanism = np.column_stack([1.0 - g1, g1])
         # +1 for the arm the tilt is on, -1 for the one whose residual is its negation.
         signs = np.array([-1.0, 1.0])
+        if reduced.n_terms is not None:
+            return _term_major(signs[None, :, None] * qr / mechanism[:, :, None])
         return np.asarray(signs * qr / mechanism, dtype=float)
 
     if values.shape != (reduced.n, len(arms)):
         raise ValueError(f"the mechanism must be ({reduced.n}, {len(arms)}); got {values.shape}")
     mechanism = bound(values, float(bounds[0]), float(bounds[1]))
+    if reduced.n_terms is not None:
+        return _term_major(np.asarray(reduced.qr, dtype=float) / mechanism[:, :, None])
     return np.asarray(reduced.qr, dtype=float) / mechanism
+
+
+def _term_major(values: FloatArray) -> FloatArray:
+    """``(n, K, p)`` as ``(n, p K)``, column ``j K + k`` holding arm ``k``'s term ``j``.
+
+    A projection's equation (9) tilts the upper arm's margin along ``2 p`` columns on two arms
+    (Benkeser et al. 2017, (9) for each term), and each arm's margin along its own ``p``
+    columns above two, where the armwise solver reads arm ``k``'s columns as ``k, k + K, ...``.
+    """
+    n, k, p = values.shape
+    return np.ascontiguousarray(np.transpose(values, (0, 2, 1)).reshape(n, p * k))
 
 
 def _bounded_armwise_propensity(

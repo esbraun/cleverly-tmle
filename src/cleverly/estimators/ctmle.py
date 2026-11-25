@@ -432,6 +432,7 @@ __all__ = [
     "is_selector_strategy",
     "logistic_plugin",
     "per_arm_parametric_support",
+    "projection_refusal",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "lasso", "learners", "derivative", "oat"]
@@ -1182,6 +1183,58 @@ _MSM_REFUSAL = Refusal(
     alternative="Use a plain TMLE, which fits msm=.",
     roadmap="X51",
 )
+
+#: R-ct-strategy of the P1 PR 3 plan: only the per-arm outcome-adaptive design fits a
+#: conditional contrast's projection, as a point estimate.
+PROJECTION_STRATEGY_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "Only the per-arm outcome-adaptive C-TMLE (strategy='oat', oat_design='per_arm') fits a "
+    "projection, as a point estimate. A selector path chooses its treatment model by the loss "
+    "of the arm means, and the shared design's vector mechanism has no derivation for a "
+    "weighted target.",
+    alternative="Use CTMLE(strategy='oat', oat_design='per_arm'), or method='tmle' with model=.",
+    roadmap="P1",
+)
+
+#: R-ct-data: the per-arm design's point contract for strata and missing data covers the
+#: arm means only.
+PROJECTION_DATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The per-arm outcome-adaptive C-TMLE fits a projection on complete, unstratified data "
+    "only. Its point contract for strata and missing data covers the arm means.",
+    alternative="Fit method='tmle' with model=.",
+    roadmap="P1",
+)
+
+
+def projection_refusal(estimator: Any, data: Any) -> Refusal | None:
+    """The refusal a C-TMLE fit of a conditional contrast's projection meets, or ``None``.
+
+    R-ct-strategy for every strategy but the per-arm outcome-adaptive design, then R-ct-data
+    on strata or a missing outcome or treatment (P1 PR 3 plan, 1.5).
+
+    Parameters
+    ----------
+    estimator : Any
+        The estimator, or a method's options. Only ``strategy`` and ``oat_design`` are read.
+    data : CausalData or None
+        The data, or ``None`` when only the options are known.
+
+    Returns
+    -------
+    Refusal or None
+        The first refusal, or ``None`` for an admitted fit.
+    """
+    if not is_per_arm_oat(estimator):
+        return PROJECTION_STRATEGY_REFUSAL
+    if data is not None and (
+        bool(getattr(data, "has_strata", False))
+        or bool(getattr(data, "has_missing_outcome", False))
+        or bool(getattr(data, "has_missing_treatment", False))
+    ):
+        return PROJECTION_DATA_REFUSAL
+    return None
+
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
@@ -4249,6 +4302,13 @@ default="greedy"
                 alternative="Fit each controlled direct effect with TMLE instead.",
                 roadmap="F5",
             )
+        if self.effect_modification is not None:
+            # The projection resolves its own target (P1 PR 3): the arm-mean estimand list
+            # and its ATT and ATC refusal do not apply.
+            refusal = projection_refusal(self, data)
+            if refusal is not None:
+                raise CapabilityError.from_refusal(refusal)
+            return
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if conditional:

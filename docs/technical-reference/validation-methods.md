@@ -930,6 +930,7 @@ the clever covariate.
 | `regime` | `ey_regime`, `ate_regime` | $g^\star_r(A \mid W) / g(A \mid W)$, over $\pi$ and $q_z$ where the fit has them | $\sum_a g^\star_r(a \mid W) \alpha(a, W)$ | `regime` |
 | `policy` | `ey_policy`, `ate_policy` | the shift's ratio of dose probabilities $h_s(A, W)$, on declared dose atoms | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
 | `msm` | `msm[term]` | $e_j^\top M^{-1} h(A, V) \varphi(A, V) / g(A \mid W)$ | $\sum_a e_j^\top M^{-1} h(a, V) \varphi(a, V) \alpha(a, W)$ | `msm` |
+| `effect_modification` | `cate_projection[term]` | $e_j^\top M^{-1} \varphi(V) s(A) / g(A \mid W)$, with $s(1) = 1$ and $s(0) = -1$ | $\sum_a e_j^\top M^{-1} s(a) \varphi(V) \alpha(a, W)$ | `projection` |
 
 $M = P_n \sum_a h \varphi \varphi^\top$ is the observation-weighted Gram matrix that the
 coefficient inverts. A contrast takes the difference of two representers and of two $m$ terms.
@@ -940,6 +941,17 @@ $z = M^{-1} K b$. Here $K$ is the matrix with $\nu^2 = b^\top K b$. The term is 
 of a marginal MSM, because each row's Gram contribution is $M$. The package derives this term,
 and no cited source gives it.
 
+A difference-scale projection coefficient has the same form with $M = P_n[w \varphi \varphi^\top]$,
+the target-weighted Gram matrix of the basis. Its $\hat M$ term is
+$-2 w [(z^\top \varphi)(\varphi^\top b) - \nu^2]$. The residual reads only the rows where
+$\varphi^\top b$ is nonzero. On a basis of disjoint stratum indicators, the term equals the share
+term of the stratum bound, so the coefficient of one indicator gives that stratum's bound. A
+log-ratio coefficient refuses with `implementation_gap`, because it is not linear in the outcome
+regression and the linearized bound it would need is not derived. A projection fitted with
+`strata=` refuses under [P1](../roadmap.md#p1-ep-learner), because its stratum and marginal
+coefficients read different representers. `sensitivity.evalue()` refuses on every projection
+coefficient, which is not a risk ratio.
+
 A shift representer is a ratio of dose probabilities. The bound covers a shift only when
 `dose_atoms` holds every observed dose and every shifted dose. A shift on a continuous dose refuses
 with `implementation_gap` under both estimators of $\nu^2$.
@@ -948,7 +960,8 @@ the refusal.
 
 `benchmark()` refits without the named covariates. The refit evaluates the declared regime,
 policy, or working model again. When a dropped covariate changes or breaks that declaration, the
-call refuses, because the short model would estimate another target.
+call refuses, because the short model would estimate another target. On a projection, `benchmark()` refuses a
+covariate that the declared basis reads, because the refit could not evaluate the same basis.
 
 `tests/unit/test_omitted_variable_axes.py` checks these claims:
 
@@ -957,6 +970,10 @@ call refuses, because the short model would estimate another target.
 - A static regime and a saturated MSM give the arm bound's $\nu^2$.
 - The MSM curve equals the Gateaux derivative on a design that reads $V$. A mutation that drops
   the $\hat M$ term departs from it.
+- The projection representer satisfies the Riesz identity on the outcome, intermediate, and
+  composite responses. Mutants that drop $M^{-1}$, double it, or read another term fail. The
+  projection curve equals the Gateaux derivative, and dropping the $\hat M$ term or the residual
+  mask departs from it. A basis of disjoint indicators reproduces the stratum bound.
 
 #### The bound after repeated cross-fitting
 
@@ -2452,6 +2469,14 @@ For $RR=2$, the E-value is $3.414$. Associations of $3$ and $4$ give a bounding 
 $3\times4/(3+4-1)=2$, so both associations need not reach $3.414$.
 The E-value does not decide whether a confounder of either strength is plausible.
 
+`EValue.plot()` draws the level set $B(x, y) = RR$ of that bounding factor, the curve
+$y = RR(x - 1)/(x - RR)$ for $x > RR$, once at the point ratio and once at the confidence limit
+nearest the null. Each curve meets the diagonal $x = y$ at its E-value. A ratio below 1 is drawn
+at its reciprocal. The limit curve is omitted when the limit E-value is 1. The curves are a
+deterministic function of the stored ratio and limit, so the figure adds no inference; the limit
+keeps the reading the E-value records. `tests/unit/test_plotting_evalue.py` checks every drawn
+vertex against the bounding factor.
+
 The selected path depends on the reported contrast and retained artifacts.
 
 | request | E-value path |
@@ -2539,6 +2564,7 @@ product.
 | outcome strength | one $RR_{UY}$ for each arm |
 | conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$; $U$ is a baseline latent that $A$ does not affect; positivity given $(W, U)$; no confounder of $Z$ and $Y$ that $A$ affects |
 | inversion | with four equal strengths the product is $BF(E, E)^2$, so the E-value is the ordinary E-value of $\sqrt{RR}$ |
+| figure | `EValue.plot()` draws the slice where both arms share one pair $(x, y)$, so the product is $B(x, y)^2$ and the curve is $B(x, y) = \sqrt{RR}$. Arms with unequal strengths can trade off, which the slice does not show |
 
 The square root comes after the path's own conversion. An odds ratio therefore enters as
 $OR^{1/4}$, and a Gaussian contrast as $\exp(0.905d)^{1/2}$. The confidence limit takes the root

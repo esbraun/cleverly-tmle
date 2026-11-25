@@ -433,13 +433,16 @@ class TestMT7RefusalsBeforeAnyLearner:
         assert NeverFit.calls == 0
 
     def test_randomized(self) -> None:
-        # ``randomized=True`` is a DR-TMLE construction; that method has no projection target,
-        # and its refusal comes before any learner. ``PointTreatment(randomized=True)`` only
-        # declares an intentional empty adjustment set and selects no construction.
+        # ``randomized=True`` is a DR-TMLE construction. The DR-TMLE projection fits complete
+        # outcomes and treatments only, so on this composite study's missing data it refuses
+        # with R-dr-missing (P1 PR 3), before any learner. ``PointTreatment(randomized=True)``
+        # only declares an intentional empty adjustment set and selects no construction.
         from cleverly import DRTMLEMethod
 
         effect = composite_study().identify(CONTRAST)
-        with pytest.raises(CapabilityError, match="drtmle has no projection target") as caught:
+        with pytest.raises(
+            CapabilityError, match="DRTMLE fits a projection on complete outcomes and treatments"
+        ) as caught:
             effect.estimate(method=DRTMLEMethod(randomized=True), cross_fit=False, **never())
         assert NeverFit.calls == 0
         assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
