@@ -5619,7 +5619,7 @@ class CausalStudy:
         estimand: PointEstimand,
         method: str | EstimationMethod | None = None,
         **overrides: Any,
-    ) -> TMLEResult | LongitudinalResult | AdaptiveTMLEResult | DoseResponseResult: ...
+    ) -> TMLEResult | LongitudinalResult | AdaptiveTMLEResult: ...
 
     def estimate(
         self,
