@@ -458,6 +458,9 @@ def test_an_interval_outside_the_observed_doses_is_refused() -> None:
     curve = DoseResponse(doses=(1.0,), bandwidths=(0.6,), support=(-20.0, 4.5))
     with pytest.raises(DataError, match="inside the observed dose"):
         _fit(_sample(300, 1), curve)
+    # ``dose_response_preflight`` runs it before any learner.
+    with pytest.raises(DataError, match="inside the observed dose"):
+        _refusing(curve).fit(_sample(300, 1), outcome="Y", treatment="A", covariates=["W"])
 
 
 def test_a_discrete_treatment_is_refused() -> None:

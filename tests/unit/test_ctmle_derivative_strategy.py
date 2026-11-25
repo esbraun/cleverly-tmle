@@ -299,9 +299,9 @@ class TestRefusals:
                 "strategy='derivative', which fits one mechanism and its partner",
             ),
             (
-                {"ctmle_estimand": "ey"},
+                {"selection_estimand": "ey"},
                 ValueError,
-                "ctmle_estimand= does not apply to strategy='derivative'",
+                "selection_estimand= does not apply to strategy='derivative'",
             ),
             (
                 {"oat_design": "shared"},

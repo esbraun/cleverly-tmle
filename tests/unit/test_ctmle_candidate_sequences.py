@@ -441,7 +441,7 @@ class TestLasso:
             n_folds=3,
             outcome_learner=LogisticRegression(max_iter=1000),
             estimands=("ey",),
-            ctmle_estimand="ey",
+            selection_estimand="ey",
         )
         assert result.inference_status == "working_mechanism_plugin"
         assert len(result.extra["ctmle"].path) == len(SHORT_GRID)
@@ -658,7 +658,7 @@ class TestArrays:
             "selection_split": labels,
             "outcome_learner": LogisticRegression(max_iter=1000),
             "estimands": ("ey",),
-            "ctmle_estimand": "ey",
+            "selection_estimand": "ey",
         }
         if scale == 1.0:
             assert _fit(frame, **settings).extra["ctmle"].labels[0] == "arrays[0]"

@@ -1276,7 +1276,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"intermediate_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"screen_treatment": True},
-        {"screen_threshold": 0.2},
         {"min_retain": 2},
         {"stratify_folds": "outcome"},
         {"targeting_scheme": "foldwise"},

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from dataclasses import fields as dataclass_fields
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._ratio_route import refuse_classifier_settings
@@ -59,6 +60,10 @@ __all__ = [
     "BASELINE_POLICY_VARIANCE_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
+    "DOSE_RESPONSE_FIELDS",
+    "DOSE_RESPONSE_FOLD_FIELDS",
+    "DOSE_RESPONSE_FOLD_REFUSAL",
+    "DOSE_RESPONSE_GAP_FIELDS",
     "ENGINE_ONLY",
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
@@ -91,6 +96,7 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
     "baseline_no_fluctuation_refusal",
+    "dose_response_estimator_kwargs",
     "memory_budget_refusal",
     "node_bounds_refusal",
     "sdr_no_fluctuation_refusal",
@@ -316,11 +322,16 @@ class MethodAvailability:
         The record of the refusal when ``available`` is false: its reason code, the failed
         condition and the alternative. :attr:`reason` is its text, and a selection of the
         method raises the same record.
+    only : str or None, default=None
+        When ``available`` is true but the method's default configuration refuses, the one
+        configuration that fits, such as ``"strategy='derivative'"``. ``None`` when the
+        default fits.
     """
 
     name: str
     available: bool
     refusal: Refusal | None = None
+    only: str | None = None
 
     @property
     def reason(self) -> str | None:
@@ -408,7 +419,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
         Returns
         -------
         dataframe
-            Columns ``method``, ``available``, ``reason_code`` and ``reason``.
+            Columns ``method``, ``available``, ``only``, ``reason_code`` and ``reason``.
         """
         from .utils.frames import frame_from_dict
 
@@ -416,6 +427,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
             {
                 "method": [record.name for record in self],
                 "available": [record.available for record in self],
+                "only": [record.only for record in self],
                 "reason_code": [
                     None
                     if record.refusal is None
@@ -483,11 +495,13 @@ class ModelSpec:
         the rule that chose it.  ``"classifier"`` with ``density_bins`` or a ``bin_design``
         learner is refused, and a study refuses it where no policy ratio is estimated.
     screen_treatment : bool
-        Whether to screen treatment-mechanism covariates by correlation.
-    screen_threshold : float
-        Absolute correlation threshold used by screening.
+        Whether to keep only the treatment-model covariates that predict the outcome with
+        the treatment held fixed, selected inside each training set by a cross-validated
+        lasso (:func:`~cleverly.learners.screen_by_outcome`), as R's ``prescreenW.g``.
     min_retain : int or None
-        Minimum number of covariates retained by screening.
+        The fewest covariates screening keeps.  ``None`` is R's
+        ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless ``p`` is large
+        next to the effective sample size.
     hazard_pooling : {"node", "pooled"}
         How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
         per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
@@ -545,7 +559,6 @@ class ModelSpec:
     density_bins: int | None = None
     ratio: Literal["density", "classifier"] | None = None
     screen_treatment: bool = False
-    screen_threshold: float = 0.1
     min_retain: int | None = None
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
@@ -1099,7 +1112,6 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "density_bins": "density_bins",
         "ratio": "ratio",
         "screen_treatment": "screen_treatment",
-        "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
         "hazard_pooling": "hazard_pooling",
         "outcome_by_arm": "outcome_by_arm",
@@ -1169,7 +1181,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
     ("models", "intermediate_learner", "intermediate_learner"),
     ("models", "screen_treatment", "screen_treatment"),
-    ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
     ("models", "outcome_by_arm", "outcome_by_arm"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
@@ -1187,7 +1198,9 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 _POINT_RATIO_TRIM = Refusal(
     RefusalReason.API_REDIRECTION,
     "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
-    "does. A point-treatment fit bounds its mechanism with g_bounds=.",
+    "does. A point-treatment fit bounds its fitted treatment probabilities with g_bounds=, "
+    "which reach a policy's ratio only through a categorical value the policy changes; no "
+    "option trims the ratio itself.",
     alternative=(
         "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
     ),
@@ -1704,7 +1717,6 @@ class TMLEMethod:
                 "density_bins": models.density_bins,
                 "ratio": models.ratio,
                 "screen_treatment": models.screen_treatment,
-                "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
                 "outcome_by_arm": models.outcome_by_arm,
                 "cross_fit": cross.enabled,
@@ -2123,7 +2135,7 @@ default="greedy"
             "selection_inner_folds": self.selection_inner_folds,
             "loss": self.loss,
             "penalty": self.penalty,
-            "ctmle_estimand": self.selection_estimand,
+            "selection_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
@@ -2653,6 +2665,175 @@ class AdaptiveTMLEMethod(TMLEMethod):
         }
 
 
+#: The fields of :class:`TMLEMethod` a kernel-smoothed dose-response curve reads, which
+#: ``CausalStudy`` forwards to :class:`~cleverly.estimators.DoseResponseTMLE`.
+DOSE_RESPONSE_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("models", "outcome_learner"),
+        ("models", "treatment_learner"),
+        ("models", "density_bins"),
+        ("cross_fitting", "enabled"),
+        ("cross_fitting", "n_folds"),
+        ("cross_fitting", "learner_folds"),
+        ("targeting", "fluctuation"),
+        ("targeting", "q_bounds"),
+        ("inference", "alpha"),
+        ("inference", "n_multiplier"),
+        ("inference", "multiplier_kind"),
+        ("inference", "band_reference"),
+        ("inference", "simultaneous"),
+        ("runtime", "random_state"),
+        ("runtime", "run_id"),
+        ("runtime", "n_jobs"),
+    }
+)
+
+#: The well-posed fields the dose-response curve does not take yet, with why (X95 part (e)).
+DOSE_RESPONSE_GAP_FIELDS: Mapping[tuple[str, str], str] = MappingProxyType(
+    {
+        ("cross_fitting", "repeats"): (
+            "a median over repeated splits of each pair's CV-TMLE is not implemented"
+        ),
+        ("cross_fitting", "split_plan"): "the curve draws its own folds",
+        # Unreachable through a built CrossFitting, which refuses every stratified split.
+        ("cross_fitting", "stratify_by"): "the curve draws unstratified folds",
+        ("inference", "n_bootstrap"): (
+            "the curve reports influence-curve intervals and a multiplier band, and no bootstrap"
+        ),
+        ("inference", "bootstrap_resampling"): (
+            "the curve reports influence-curve intervals and a multiplier band, and no bootstrap"
+        ),
+        ("inference", "bootstrap_interval"): (
+            "the curve reports influence-curve intervals and a multiplier band, and no bootstrap"
+        ),
+        ("runtime", "max_memory_bytes"): (
+            "the curve checks its quadrature nodes against its own fixed memory budget"
+        ),
+        ("models", "screen_treatment"): (
+            "the dose density reads every adjustment column, or the declared "
+            "treatment_adjustment= subset"
+        ),
+        ("models", "min_retain"): (
+            "the dose density reads every adjustment column, or the declared "
+            "treatment_adjustment= subset"
+        ),
+    }
+)
+
+#: The fold-specific targeting fields, which no reviewed interval covers for a smoothed pair.
+DOSE_RESPONSE_FOLD_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {("cross_fitting", "targeting_scheme"), ("cross_fitting", "fold_evaluation")}
+)
+
+#: Why the dose-response curve refuses a fold-specific fluctuation or a fold-evaluated report.
+DOSE_RESPONSE_FOLD_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "each declared pair is fluctuated once over every row's out-of-fold predictions, the "
+    "pooled CV-TMLE of Zheng and van der Laan (2011); a fold-specific fluctuation or a "
+    "fold-evaluated report of a smoothed pair has no reviewed interval.",
+    alternative="Keep targeting_scheme='pooled' and fold_evaluation=False.",
+)
+
+#: Why each group's other fields do not apply to the dose-response curve.
+_DOSE_RESPONSE_UNREAD_REASONS: dict[str, str] = {
+    "models": (
+        "the dose-response curve fits an outcome regression and a conditional dose density "
+        "and reads nothing else of ModelSpec"
+    ),
+    "targeting": (
+        "each declared pair takes one pooled one-dimensional fluctuation solved to its score, "
+        "and no mechanism bound enters its clever covariate"
+    ),
+    "inference": (
+        "the curve reports influence-curve intervals and a multiplier band on the identity "
+        "scale, from unclustered rows"
+    ),
+}
+
+
+def dose_response_estimator_kwargs(method: Any) -> dict[str, Any]:
+    """Translate a :class:`TMLEMethod` for the kernel-smoothed dose-response curve.
+
+    The curve reads the fields of :data:`DOSE_RESPONSE_FIELDS`.  Every other field must keep
+    its default; a changed one is refused by name, before any learner, as an implementation
+    gap (:data:`DOSE_RESPONSE_GAP_FIELDS`), an inference gap (a fold-specific fluctuation),
+    or a field that does not apply.
+
+    Parameters
+    ----------
+    method : TMLEMethod
+        The method of a ``CausalStudy`` fit of a dose-response curve.
+
+    Returns
+    -------
+    dict of str to Any
+        Keyword arguments of :class:`~cleverly.estimators.DoseResponseTMLE`.
+
+    Raises
+    ------
+    MethodConfigurationError
+        When ``method`` is not a ``TMLEMethod`` named ``"tmle"``, or when a field the curve
+        does not read differs from its default, or when ``simultaneous=False``.
+    """
+    if type(method) is not TMLEMethod or method.name != "tmle":
+        raise MethodConfigurationError(
+            "the dose-response curve is fitted by TMLEMethod alone; got "
+            f"{type(method).__name__} named {getattr(method, 'name', None)!r}",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    default = TMLEMethod()
+    for group in ("models", "cross_fitting", "targeting", "inference", "runtime"):
+        value, baseline = getattr(method, group), getattr(default, group)
+        for item in dataclass_fields(value):
+            key = (group, item.name)
+            if key in DOSE_RESPONSE_FIELDS or not _differs_from_default(
+                getattr(value, item.name), getattr(baseline, item.name)
+            ):
+                continue
+            label = f"{group}.{item.name}"
+            if key in DOSE_RESPONSE_GAP_FIELDS:
+                raise MethodConfigurationError(
+                    f"the dose-response curve does not yet take {label}: "
+                    f"{DOSE_RESPONSE_GAP_FIELDS[key]}.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative="Fit with the default of this field.",
+                    roadmap="X95",
+                )
+            if key in DOSE_RESPONSE_FOLD_FIELDS:
+                raise MethodConfigurationError.from_refusal(DOSE_RESPONSE_FOLD_REFUSAL)
+            if group not in _DOSE_RESPONSE_UNREAD_REASONS:  # pragma: no cover - a new field
+                raise RuntimeError(f"{label} is not classified for the dose-response curve")
+            raise MethodConfigurationError(
+                f"{_DOSE_RESPONSE_UNREAD_REASONS[group]}; {label} does not apply. Remove it.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+    inference = method.inference
+    if inference.simultaneous is False:
+        raise MethodConfigurationError(
+            "the curve always reports its band over the declared pairs; simultaneous=False "
+            "would not remove it.",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    models, cross = method.models, method.cross_fitting
+    return {
+        "outcome_learner": models.outcome_learner,
+        "treatment_learner": models.treatment_learner,
+        "density_bins": models.density_bins,
+        "cross_fit": cross.enabled,
+        "n_folds": cross.n_folds,
+        "learner_folds": cross.learner_folds,
+        "fluctuation": method.targeting.fluctuation,
+        "q_bounds": method.targeting.q_bounds,
+        "alpha": inference.alpha,
+        "n_replicates": inference.n_multiplier,
+        "multiplier_kind": inference.multiplier_kind,
+        "band_reference": inference.band_reference,
+        "random_state": method.runtime.random_state,
+        "run_id": method.runtime.run_id,
+        "n_jobs": method.runtime.n_jobs,
+    }
+
+
 @dataclass(frozen=True)
 class SDRMethod(TMLEMethod):
     """Configure the sequentially doubly robust longitudinal estimator.
@@ -2676,8 +2857,11 @@ class SDRMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str
@@ -3111,8 +3295,11 @@ class IPSIMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str

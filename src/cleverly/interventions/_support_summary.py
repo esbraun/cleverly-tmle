@@ -131,6 +131,14 @@ def support_report_summary(report: SupportReport, detail: Detail) -> Summary:
                 vocabulary.NOTE_TEXTS["unsupported_rows"].format(counts=", ".join(unsupported)),
             )
         )
+    if report.natural_course is not None:
+        name = report.natural_course[:1].upper() + report.natural_course[1:]
+        notes.append(
+            note(
+                "natural_course_no_weights",
+                vocabulary.NOTE_TEXTS["natural_course_no_weights"].format(name=name),
+            )
+        )
     sections: list[SummarySection] = []
     if detail == "full":
         lines = [vocabulary.SUPPORT_TWO_MECHANISMS]

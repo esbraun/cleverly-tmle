@@ -10126,14 +10126,15 @@ class SDR(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  No registered row lists a
-        bootstrap kind for an ``SDR`` fit, so its intervals carry the label
-        ``experimental``.  The replicates are computed as for :class:`LTMLE`.
+        Full-refit bootstrap replicates, ``0`` for none, computed as for :class:`LTMLE`.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The pointwise bootstrap interval, as for :class:`LTMLE`.  It carries the label
-        ``experimental``.
+        The pointwise bootstrap interval, as for :class:`LTMLE`.  ``"bca"`` reads supported
+        where a ``G46.sdr`` row licenses it, as ``n_bootstrap`` says.
     density_bins : int or None
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"} or None
@@ -10444,9 +10445,10 @@ class IPSI(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  Each estimate then carries the
-        bootstrap interval that ``bootstrap_interval`` names, with the fit's support label. No
-        registered study measures the IPSI bootstrap, so that interval reads experimental.
+        Full-refit bootstrap replicates, ``0`` for none.  The bootstrap publishes the
+        interval that ``bootstrap_interval`` names and a sup-t band beside the fit's own
+        interval.  No registered row lists a bootstrap kind for an ``IPSI`` fit, so they carry
+        the label ``experimental``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     bootstrap_interval : {"percentile", "bca"}
@@ -10972,10 +10974,19 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
-        no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
+        (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
+        (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
+        as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     density_bins : int or None
         The bin count of a continuous node's diagnostic density.  Setting it makes
         ``ratio=None`` resolve to the density route.
@@ -11199,10 +11210,19 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
-        no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
+        (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
+        (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
+        as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     **refused : Any
         ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
         which raise because the estimator fits no outcome regression and no density ratio;
@@ -11467,8 +11487,11 @@ class ParametricGFormula(_Baseline):
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
         ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
         ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
-        ``bootstrap_resampling``, ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.
-        ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
+        ``bootstrap_resampling``, ``bootstrap_interval``, ``density_bins`` and ``ratio``.
+        ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
+        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile interval
+        and a sup-t band, labelled ``experimental``, when the fit publishes its
+        interval, and diagnostics only when it withholds it.
 
     See Also
     --------

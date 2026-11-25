@@ -313,6 +313,9 @@ class ScoreCheck:
         The stopping rule the fit declared, ``"relative"`` for the shipped one.
     alpha_sig : float
         The significance level of the fit's intervals.
+    natural_course : str or None
+        The name of the natural course declared beside a learned rule, or ``None``. It has
+        no targeting equation, and the summary says so.
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -345,6 +348,8 @@ class ScoreCheck:
     stopping: str = "relative"
     #: The significance level of the fit's intervals, which the coverage bound reads.
     alpha_sig: float = 0.05
+    #: The natural course declared beside a learned rule, which no targeting step enters.
+    natural_course: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -807,6 +812,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         inference=result.inference_status,
         stopping=rule,
         alpha_sig=result.config.alpha_sig,
+        natural_course=getattr(result.extra.get("learned_rule"), "natural_course", None),
     )
 
 

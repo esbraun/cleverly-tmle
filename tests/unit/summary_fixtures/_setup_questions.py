@@ -22,6 +22,7 @@ from cleverly import (
     CausalStudy,
     ControlledDirectEffect,
     CounterfactualMean,
+    DoseResponseCurve,
     IncrementalEffect,
     IncrementalMean,
     LongitudinalTreatment,
@@ -45,6 +46,7 @@ from cleverly.datasets import (
     make_longitudinal,
     make_multi_arm,
 )
+from cleverly.dose_response import DoseResponse
 from cleverly.interventions import Incremental, Shift
 from cleverly.longitudinal import Separable
 from tests import discrete_law_cde, discrete_law_mar
@@ -226,6 +228,11 @@ QUESTIONS: dict[str, Callable[[], Any]] = {
         "multi_arm_att": lambda: _multi_arm().identify(ATT(reference="low")),
         "multi_arm_atc": lambda: _multi_arm().identify(ATC(reference="low")),
         "dose_policy": lambda: _dose().identify(ModifiedTreatmentPolicy(policies=SHIFTS)),
+        "dose_response": lambda: _dose().identify(
+            DoseResponseCurve(
+                DoseResponse(doses=(-1.0, 1.0), bandwidths=(0.5,), support=(-2.0, 2.0))
+            )
+        ),
         "missing_ate": lambda: _missing_outcome().identify(ATE()),
         "missing_natural_course": lambda: _missing_outcome().identify(NaturalCourseMean()),
         "missing_par": lambda: _missing_outcome().identify(PopulationAttributableRisk(reference=1)),

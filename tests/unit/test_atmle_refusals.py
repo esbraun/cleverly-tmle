@@ -109,9 +109,55 @@ def test_a_vector_treatment_is_refused_at_declaration() -> None:
 @pytest.mark.parametrize(
     "field", ["weights", "cluster", "strata", "intermediate", "treatment_missingness"]
 )
-def test_the_design_takes_no_unsupported_role(field: str) -> None:
-    with pytest.raises(TypeError):
-        _design(**{field: "W"})
+def test_an_unsupported_role_is_refused_with_its_record(field: str) -> None:
+    """TR-S2: each role the pooled design has no adaptive form for raises a typed refusal
+    with its reason, before any data is read, and the default design passes."""
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    records = dict(TRIAL_ROLE_REFUSALS)
+    value: Any = ("W",) if field == "strata" else "W"
+    with pytest.raises(CapabilityError) as caught:
+        _design(**{field: value})
+    assert caught.value.refusal == records[field]
+    assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert caught.value.refusal.roadmap == "F40"
+    assert f"PointTreatment({field}=...)" in (caught.value.refusal.alternative or "")
+    assert getattr(_design(), field) in (None, ())
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("weights", np.ones(4)),
+        ("weights", 0),
+        ("weights", ""),
+        ("strata", ["W"]),
+        ("strata", None),
+        ("strata", 3),
+        ("cluster", {}),
+    ],
+)
+def test_any_value_but_the_default_is_refused(field: str, value: Any) -> None:
+    """An array would raise on its truth value, and a falsy value would pass a truth test."""
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    with pytest.raises(CapabilityError) as caught:
+        _design(**{field: value})
+    assert caught.value.refusal == dict(TRIAL_ROLE_REFUSALS)[field]
+
+
+def test_an_empty_strata_list_is_the_default() -> None:
+    """A list equal to the default tuple declares nothing, so the design is the default's."""
+    assert _design(strata=[]) == _design()
+
+
+def test_every_refused_role_is_a_point_treatment_role() -> None:
+    """The alternative sends the reader to PointTreatment, so each role must exist there."""
+    from cleverly import PointTreatment
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    point = {item.name for item in dataclasses.fields(PointTreatment)}
+    assert {role for role, _ in TRIAL_ROLE_REFUSALS} <= point
 
 
 def test_repeated_splits_are_refused() -> None:

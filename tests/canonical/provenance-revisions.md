@@ -153,6 +153,7 @@ no longer imports. Remove the row when you regenerate the study.
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/conftest.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from `tests/studies/canonical_clustered_tmle.py`, which imports this module for its own fits. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_clustered_tmle.py` and `tests/studies/canonical_tmle.py` import this module for their own fits, and the study reaches them only through the constants of `tests/studies/clustered_crossfit_ltmle.py` and through `fitted_rows`, which runs the study's own sampler and fit. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/clustered_unequal_laws.py` | result-neutral: `tests/studies/few_cluster_floor.py` imports `ExactLongitudinalPropensity` from `tests/studies/clustered_few_cluster_tmle.py`, which imports this module, and that class reads `informative_propensity` from it. No fit of the study constructs `ExactLongitudinalPropensity` or its subclass `ParametricExactPropensity`; only `few-cluster-floor-tmle` does. No result of this study reads this module |
+| `projection-methods` | `tests/studies/point_study_helpers.py` | result-neutral: the study imports `tests/studies/drtmle_one_wrong.py` for law L's learners and quadrature (`OffsetLogistic`, `DeclaredOnly`, `CubicLeastSquares`, `CubicLogistic`, `newton_logistic`, `gauss_hermite`, `slow`, `g` and `G_BOUNDS`), and that module imports `primary_rows` and `initial_estimates` from this module for its own `cleverly_rows`. No fit of the study calls either function: the study writes its primary rows itself. The module list omitted it, so the manifest records no hash for it |
 
 ## Descriptive manifest text
 
@@ -924,3 +925,30 @@ study's own `primary_rows` and property `_replicate` at `537d9c53`, again at the
 again with the registration edits, gives the same 12 rows: 176 numbers (estimates, standard errors, truths, oracle SEs, regrets and
 the paired limit fits) equal bit for bit. The committed verdicts recomputed under main's
 `property_verdicts.py` are unchanged, which `tests/unit/test_method_evidence.py` checks.
+
+## Registration edits after the `projection-methods` run (P1)
+
+The second declared run ran at `d2e5a0e5` and was recorded at `32ac8489`. Registration then
+edited two modules its manifest records, and neither edit reaches a seed, a fit or a verdict:
+
+- `tests/studies/projection_methods.py`: the docstring now names the declared run and the
+  registration.
+- `src/cleverly/_support_rows.py` adds the `T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat`
+  rows. They set support labels, which the study's rows do not record.
+
+The seed-0 witness of the next section covers these edits too.
+
+## Main merged into `projection-methods` after its run
+
+Merging main at `95b494c8` after the run changed three modules the manifest records:
+`src/cleverly/_inference_status.py` and `src/cleverly/_support_rows.py` gain the measured
+cluster counts of `few-cluster-adaptive-learners` and its support rows, and
+`src/cleverly/estimators/tmle.py` rewords the comment at the EP rule condition. These set notes
+and support labels; no fit reads them. The evidence: at seed 0 (sample seed 0,
+`random_state=0`, n = 2,000) every one of the seven groups, fitted through `fit_group` at
+`32ac8489` and again at the merge `d1fa0fac` with the registration edits of the previous section,
+gives the same 39 numbers bit for bit: 14 points, 14 plug-in standard errors, the two Wald
+standard errors of `dr_known_4k`, three control values and six readings. The other 12 standard
+errors are withheld on both trees. Only the support labels moved, from experimental to the
+`T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat` rows, which is the registration and enters
+no recorded row.

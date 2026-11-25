@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from tests import conftest as sharding
@@ -9,7 +11,7 @@ from tests import conftest as sharding
 
 def test_every_unit_lands_in_exactly_one_shard() -> None:
     units = [f"unit-{i}" for i in range(500)] + ["study-a", "study-b"]
-    for count in (1, 2, 3, 4):
+    for count in (1, 2, 3, 4, 6, 8):
         seen = [sharding.shard_of(unit, count) for unit in units]
         assert set(seen) <= set(range(1, count + 1))
         if count > 1:
@@ -62,7 +64,16 @@ def test_the_ci_job_shards_each_interpreter_and_keeps_the_old_check_names() -> N
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
     assert "CLEVERLY_TEST_SHARD: ${{ matrix.shard }}/${{ matrix.shards }}" in job
-    assert job.count("shards: 4") == 12 and "shards: 2" not in job
+    rows = re.findall(r'\{python-version: "(3\.\d+)", shard: (\d+), shards: (\d+)\}', job)
+    listed: dict[str, list[tuple[int, int]]] = {}
+    for version, shard, count in rows:
+        listed.setdefault(version, []).append((int(shard), int(count)))
+    # 3.12 also runs the study evidence checks, about as much work again (ci.yml says why).
+    expected = {"3.11": 6, "3.12": 8, "3.13": 6}
+    assert {version: len(shards) for version, shards in listed.items()} == expected
+    for version, shards in listed.items():
+        count = expected[version]
+        assert shards == [(index, count) for index in range(1, count + 1)], version
     verdict = workflow.split("\n  tests-verdict:", 1)[1].split("\n  # ", 1)[0]
     assert "name: tests\n" in verdict
     assert "needs: tests" in verdict

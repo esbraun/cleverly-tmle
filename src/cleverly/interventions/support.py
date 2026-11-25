@@ -197,6 +197,9 @@ class SupportReport:
         Number of observations the records were computed over.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    natural_course : str or None
+        The name of the natural course declared beside a learned rule, or ``None``. It uses
+        no treatment weights, so it has no row, and the summary says so.
     """
 
     regimes: dict[str, RegimeSupport] = field(default_factory=dict)
@@ -205,6 +208,7 @@ class SupportReport:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    natural_course: str | None = None
 
     @property
     def worst(self) -> RegimeSupport | None:

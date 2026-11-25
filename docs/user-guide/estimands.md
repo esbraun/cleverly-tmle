@@ -398,11 +398,11 @@ list the settings where neither runs.
 [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
-To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
-estimator itself, because `CausalStudy` has no way to declare the comparison yet:
-`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, where `Static(1)` treats everyone.
-The fit reports three rows: the learned rule's value, the fixed policy's value
-`ey_known_regime[always 1]`, and their difference `ate_learned_rule[learned rule vs always 1]`.
+To compare the learned rule with a fixed policy, such as treating everyone, ask for
+`LearnedRuleContrast(against=(Static(1),))`, where `Static(1)` treats everyone. The fit reports
+three rows: the learned rule's value, the fixed policy's value `ey_known_regime[always 1]`, and
+their difference `ate_learned_rule[learned rule vs always 1]`. The same `TMLE` call is
+`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, with the same numbers.
 
 Both values come from the same rows and the same fitted models, and the interval of the
 difference uses the correlation between the two estimates, measured on those rows. No published
@@ -413,13 +413,30 @@ each 95% interval covered its target 0.946 to 0.956 of the time over 5,600 sampl
 outcome model left out a term the treated outcomes needed, coverage stayed between 0.942 and
 0.951. That study measured a correct treatment model only.
 
-The three rows are marked supported when the treatment has two options, the fit uses the default
-cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
-or strata. Otherwise they
-are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
-its message names this spelling. Adding `estimands=["ey_optimal_rule"]` to the same `TMLE` call
-compares the best rule's value with the fixed policy instead, reported as
-`ate_optimal_rule[learned rule vs always 1]` and marked experimental.
+`against=` takes more than fixed policies. A `Stochastic` plan, such as offering treatment to
+half of the eligible people at random, is compared the same way. `NaturalCourse()` compares the
+learned rule with current practice: its row `ey_natural_course[natural course]` is the average
+outcome under the treatment people actually got, and the difference reads as the gain from
+switching to the rule. That interval is right when the outcome model is right or the treatment
+chances are supplied. When the outcome model is wrong and the treatment chances are estimated,
+no result says the interval errs on the safe side, so read it as approximate. A plain arm
+estimand such as `ate` refuses beside a learned rule, and its message names these spellings.
+`OptimalRuleContrast(against=(Static(1),))` compares the best rule's value with the fixed policy
+instead, reported as `ate_optimal_rule[learned rule vs always 1]`.
+
+Each row carries a support label. Rows comparing the learned rule with fixed policies read
+supported when the treatment has two options, the fit uses the default cross-fitting with one
+split and the rule comes from the outcome model, with no weights, clusters or strata. The
+best-rule comparison, `OptimalRuleContrast`, reads supported only when the treatment chances are
+supplied (`treatment_probabilities=`), and experimental when the fit estimates them
+([the value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)).
+Rows comparing the learned rule with a random plan or with current practice read supported in
+the same setting, from their own
+[study](../technical-reference/method-evidence/learned-rule-contrast-comparators.md).
+[Contrasts with known regimes](../technical-reference/point-treatment-tmle.md#learned-rules)
+lists which settings read supported, and the
+[refusal table](../technical-reference/scope-and-refusals.md#not-written-yet) lists the
+comparisons that refuse.
 
 To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
 such as whether a patient took a follow-up dose) at one of its values, declare the variable with
@@ -650,13 +667,12 @@ raises `CapabilityError` when an outcome is missing. The refused table of
 
 ## A curve over a continuous dose
 
-`DoseResponseTMLE` estimates how the mean outcome changes with a continuous dose, such as a price
-or a discount. A curve at one exact dose has no interval that narrows at the usual rate as the
-data grow, so the estimator
-reports a smoothed curve: at each declared dose it averages the curve over nearby doses, within a
-declared bandwidth. You choose the doses, the bandwidths and the dose range before looking at the
-results. The fit gives an interval at each dose and bandwidth, and one band that covers all of them
-at once.
+`DoseResponseCurve` asks how the mean outcome changes with a continuous dose, such as a price or
+a discount. A curve at one exact dose has no interval that narrows at the usual rate as the data
+grow, so the fit reports a smoothed curve: at each declared dose it averages the curve over
+nearby doses, within a declared bandwidth. You choose the doses, the bandwidths and the dose range
+before looking at the results. The fit gives an interval at each dose and bandwidth, and one band
+that covers all of them at once.
 
 ```python
 import numpy as np
@@ -664,8 +680,8 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 
+from cleverly import CausalStudy, DoseResponseCurve, PointTreatment
 from cleverly.dose_response import DoseResponse
-from cleverly.estimators import DoseResponseTMLE
 
 rng = np.random.default_rng(1)
 n = 800
@@ -674,33 +690,46 @@ discount = np.clip(2.5 + 0.8 * income + rng.normal(size=n), -1.0, 6.0)
 bought = rng.binomial(1, 1 / (1 + np.exp(-(0.6 * np.sin(discount) + 0.5 * income))))
 orders = pd.DataFrame({"income": income, "discount": discount, "bought": bought})
 
+study = CausalStudy(
+    orders,
+    design=PointTreatment(
+        outcome="bought",
+        treatment="discount",
+        adjustment=("income",),
+        treatment_kind="continuous",
+    ),
+)
 curve = DoseResponse(doses=[1.0, 2.5, 4.0], bandwidths=[0.8, 1.2], support=(0.5, 4.5))
-dose_fit = DoseResponseTMLE(
-    curve,
+dose_fit = study.identify(DoseResponseCurve(curve)).estimate(
     outcome_learner=HistGradientBoostingClassifier(max_depth=2, max_iter=50),
     treatment_learner=LogisticRegression(),
     density_bins=10,
+    n_folds=5,
     random_state=0,
-).fit(orders, outcome="bought", treatment="discount", covariates=["income"])
+)
 table = dose_fit.to_frame()
 ```
 
 Each row of `table` is one dose and bandwidth. `lower` and `upper` are the interval for that row
 alone. `band_lower` and `band_upper` hold for every row together, so read the band when you compare
 bandwidths or pick one after seeing the results. A wider bandwidth usually gives a narrower interval
-and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with the square of the bandwidth where the curve bends, so
-prefer the narrower bandwidth when its interval is usable.
+and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with
+the square of the bandwidth where the curve bends, so prefer the narrower bandwidth when its
+interval is usable. `dose_fit.summary()` prints the same rows, and its full form adds the
+conditions the answer rests on.
 
 The intervals need both models to be good: the outcome model, and the model of which dose each
 customer received given their characteristics. The dose range must lie inside the doses you
-observed, with a margin: the fit refuses a range that
-reaches past them. A row whose dose has few nearby observations is flagged in the `low_support`
-column, and its estimate's `inference` reads `low_dose_support_plugin`: its interval rests on few
-effective rows. Each estimate's `support.label` says whether a registered simulation study covers
-the fit's setup. It reads `supported` for a cross-fitted, unweighted fit of a binary outcome, or of
-a continuous outcome with `fluctuation="linear"`, except at a flagged row, and `experimental`
-otherwise. `cleverly.plotting.curve(dose_fit)` draws one
-line per bandwidth with the band.
+observed, with a margin: the fit refuses a range that reaches past them. A row whose dose has few
+nearby observations is flagged in the `low_support` column, and its estimate's `inference` reads
+`low_dose_support_plugin`: its interval rests on few effective rows. Each estimate's
+`support.label` says whether a registered simulation study covers the fit's setup;
+[the support-label table](../technical-reference/dose-response.md#support-label) lists the setups
+that read `supported`. A continuous outcome also needs `q_bounds=`, its known range.
+`dose_fit.assess()` runs the checks that apply, `dose_fit.diagnostics.influence()` shows each
+row's influence curve, and `cleverly.plotting.curve(dose_fit)` draws one line per bandwidth with
+the band. `DoseResponseTMLE(curve, ...).fit(orders, outcome=..., treatment=..., covariates=...)`
+is the same fit without a study.
 [Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
 conditions and the refusals.
 

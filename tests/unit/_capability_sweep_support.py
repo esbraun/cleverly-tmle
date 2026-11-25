@@ -456,6 +456,73 @@ def fit_projection_intermediate_crr() -> Any:
     return _projection_intermediate("log_ratio")
 
 
+def _projection_ctmle_oat(scale: str) -> Any:
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return (
+        CTMLE(
+            strategy="oat",
+            oat_design="per_arm",
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+            effect_modification=_projection(scale),
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_ctmle_oat() -> Any:
+    """The per-arm outcome-adaptive C-TMLE projection, points only (P1 PR 3)."""
+    return _projection_ctmle_oat("difference")
+
+
+def fit_projection_ctmle_oat_crr() -> Any:
+    """The per-arm outcome-adaptive C-TMLE log-ratio projection, points only (P1 PR 3)."""
+    return _projection_ctmle_oat("log_ratio")
+
+
+def fit_curve_projection_ctmle_oat() -> Any:
+    """The curve of :func:`fit_projection_ctmle_oat`: the five held-out rows refuse."""
+    return fit_projection_ctmle_oat().effect_curve()
+
+
+def fit_projection_drtmle() -> Any:
+    """The DR-TMLE projection with an estimated mechanism, points only (P1 PR 3).
+
+    The guarded fit reports ``reduced_regression_plugin``, which withholds the interval.
+    """
+    frame, _ = make_binary_outcome(n=240, seed=11)
+    return (
+        DRTMLE(**linear_drtmle(n_folds=3), effect_modification=_projection())
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def fit_projection_drtmle_known() -> Any:
+    """The DR-TMLE projection with a declared mechanism, which keeps its interval (P1 PR 3)."""
+    frame = known_mechanism.point_frame()
+    return (
+        DRTMLE(**linear_drtmle(n_folds=3), effect_modification=_projection())
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=frame[["p0", "p1"]].to_numpy(dtype=float),
+        )
+        .single()
+    )
+
+
+def fit_curve_projection_drtmle() -> Any:
+    """The curve of :func:`fit_projection_drtmle`: the five held-out rows refuse."""
+    return fit_projection_drtmle().effect_curve()
+
+
 def fit_projection_bootstrap() -> Any:
     """The in-sample projection with the full-refit bootstrap (P1 PR 1)."""
     return (
@@ -1203,6 +1270,55 @@ def fit_learned_rule_known() -> Any:
     return learned_rule_support.fit(interventions=[Static(1)])
 
 
+def _learned_contrast_study(estimand: Any) -> Any:
+    """A typed learned-rule contrast on the learned-rule support law, fold-evaluated."""
+    from cleverly import CrossFitting, PointTreatment, TMLEMethod
+
+    study = CausalStudy(
+        learned_rule_support.law_frame(),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=learned_rule_support.COVARIATES
+        ),
+    )
+    method = TMLEMethod(cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True))
+    return study.identify(estimand).estimate(
+        method,
+        outcome_learner=learned_rule_support.outcome_learner(),
+        treatment_learner=learned_rule_support.treatment_learner(),
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def fit_learned_rule_contrast_study() -> Any:
+    """``LearnedRuleContrast(against=(Static(0), offer))``, a fixed and a random plan."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import Static, Stochastic
+
+    def offer(w: Any) -> Any:
+        p = 0.5 * (np.asarray(w["W1"]) > 0)
+        return np.column_stack([1.0 - p, p])
+
+    plan = Stochastic(offer, name="offer", density_kind="known")
+    return _learned_contrast_study(LearnedRuleContrast(against=(Static(0), plan)))
+
+
+def fit_learned_rule_natural_course() -> Any:
+    """``LearnedRuleContrast(against=(NaturalCourse(),))``, the rule against current practice."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import NaturalCourse
+
+    return _learned_contrast_study(LearnedRuleContrast(against=(NaturalCourse(),)))
+
+
+def fit_optimal_rule_contrast_study() -> Any:
+    """``OptimalRuleContrast(against=(Static(0),))`` with g estimated (X11 (f3))."""
+    from cleverly import OptimalRuleContrast
+    from cleverly.interventions import Static
+
+    return _learned_contrast_study(OptimalRuleContrast(against=(Static(0),)))
+
+
 def fit_optimal_rule_estimated_g() -> Any:
     """The fold-evaluated value of the optimal rule with g estimated (X11 (f), family P12)."""
     return learned_rule_support.fit(estimands=["ey_optimal_rule"])
@@ -1360,6 +1476,34 @@ def fit_dose_response() -> Any:
             n_folds=2,
         ).fit(
             pd.DataFrame({"Y": y, "A": dose, "W": w}), outcome="Y", treatment="A", covariates=["W"]
+        )
+
+
+def fit_dose_response_study() -> Any:
+    """The curve of :func:`fit_dose_response`, fitted through ``CausalStudy``."""
+    from cleverly import CausalStudy, DoseResponseCurve, PointTreatment
+    from cleverly.dose_response import DoseResponse
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.normal(size=n)
+    dose = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1 + 0.5 * dose - 0.08 * dose * dose + 0.4 * w))
+    study = CausalStudy(
+        pd.DataFrame({"Y": y, "A": dose, "W": w}),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(
+            DoseResponseCurve(DoseResponse.spanning((1.0, 4.0), 3, fractions=(0.25,)))
+        ).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            n_folds=2,
         )
 
 
@@ -2945,23 +3089,31 @@ KINDS: dict[str, Kind] = {
     # rules, so the benchmark row refuses; the E-value reads no regime contrast.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve", *_PLUGIN_BOUND),
     # The projection of a conditional contrast and its P1 PR 1 compositions. The summarize
-    # rows and the truncation curve run; refute and every sensitivity row refuse a
-    # working-model coefficient by name, with the ATE or the risk ratio as the alternative.
-    "projection": _kind(fit_projection, *_READ, "truncation_curve"),
+    # rows, the truncation curve and refute run (refute with no verdict, P1 PR 3). The
+    # omitted-variable rows answer on the difference scale without strata; the E-value and
+    # the other sensitivity rows refuse a working-model coefficient by name.
+    "projection": _kind(fit_projection, *_READ, *_POINT, *_PLUGIN_BOUND),
     "projection+missing_treatment": _kind(
-        fit_projection_missing_treatment, *_READ, "truncation_curve"
+        fit_projection_missing_treatment, *_READ, *_POINT, *_PLUGIN_BOUND
     ),
-    "projection+strata": _kind(fit_projection_strata, *_READ, "truncation_curve"),
-    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
-    "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
-    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    "projection+strata": _kind(fit_projection_strata, *_READ, *_POINT),
+    "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, *_POINT),
+    "projection+repeats": _kind(fit_projection_repeated, *_READ, *_POINT, *_PLUGIN_BOUND),
+    "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, *_POINT, *_PLUGIN_BOUND),
     # The CDE projection (P1 PR 2) answers as the projection does; its pseudo-outcome tools
     # (curve diagnostics, assess_score, targeting_curve) refuse with CDE_CURVE_TOOLS_REFUSAL,
     # which tests/unit/test_projection_composition_operations.py pins.
-    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, "truncation_curve"),
-    "projection+intermediate+log_ratio": _kind(
-        fit_projection_intermediate_crr, *_READ, "truncation_curve"
-    ),
+    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, *_POINT, *_PLUGIN_BOUND),
+    "projection+intermediate+log_ratio": _kind(fit_projection_intermediate_crr, *_READ, *_POINT),
+    # The per-arm outcome-adaptive C-TMLE projection (P1 PR 3) reports points only: refute and
+    # the truncation curve run, and the omitted-variable rows keep the bound's premise
+    # refusal of a selecting C-TMLE fit.
+    "projection+ctmle_oat": _kind(fit_projection_ctmle_oat, *_READ, *_POINT),
+    "projection+ctmle_oat+log_ratio": _kind(fit_projection_ctmle_oat_crr, *_READ, *_POINT),
+    # The DR-TMLE projection (P1 PR 3) reads its correction scores; the estimated mechanism
+    # withholds the interval under reduced_regression_plugin, and the declared one keeps it.
+    "projection+drtmle": _kind(fit_projection_drtmle, *_READ, *_POINT, "corrections"),
+    "projection+drtmle_known": _kind(fit_projection_drtmle_known, *_READ, *_POINT, "corrections"),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),
@@ -3010,6 +3162,7 @@ KINDS: dict[str, Kind] = {
         fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
     ),
     "ctmle_ordered": _kind(fit_ctmle_ordered, "marginal_bounds", *_LIVE),
+    # The default axis refuses as on "shift"; the row defers on mechanism=True, which runs.
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
@@ -3147,9 +3300,15 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
-    # A projection coefficient has no refutation or sensitivity derivation (R9, P1).
-    "cate_projection": _kind(fit_cate_projection, *_READ, "truncation_curve"),
-    "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
+    "learned_rule_contrast_study": _kind(fit_learned_rule_contrast_study, *_LIVE, *_PLUGIN_BOUND),
+    "learned_rule_natural_course": _kind(fit_learned_rule_natural_course, *_LIVE, *_PLUGIN_BOUND),
+    # Beside known regimes the value of the optimal rule refuses its bounds' benchmark replay
+    # and every plug-in bound row (X11 (f4)), so only the live rows must answer.
+    "optimal_rule_contrast_study": _kind(fit_optimal_rule_contrast_study, *_LIVE),
+    # A projection coefficient runs refute with no verdict, and the omitted-variable rows
+    # bound a difference-scale coefficient (P1 PR 3).
+    "cate_projection": _kind(fit_cate_projection, *_READ, *_POINT, *_PLUGIN_BOUND),
+    "log_crr_projection": _kind(fit_log_crr_projection, *_READ, *_POINT),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
     # X54 B1: a fit at its family's floor with mixed estimate statuses. The ATE reads the
@@ -3218,18 +3377,28 @@ KINDS: dict[str, Kind] = {
         fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
     ),
     # X104: the effect curves. The summaries read the producing fit, and the five curve
-    # operations refit its estimator on two folds or seeds. Every refutation and sensitivity
-    # row refuses a curve (P1). Each witness kind loses the rows its fit-wide rule refuses.
+    # operations refit its estimator on two folds or seeds. The truncation curve reads the
+    # producing fit's (P1 PR 3); refute redirects to that fit and every sensitivity row
+    # refuses a curve. Each witness kind loses the rows its fit-wide rule refuses.
     "curve_projection": _kind(
-        fit_curve_projection, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+        fit_curve_projection,
+        *_READ,
+        "truncation_curve",
+        *CURVE_OPERATIONS,
+        arguments=_CURVE_ARGUMENTS,
     ),
     "curve_projection_crr": _kind(
-        fit_curve_projection_crr, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+        fit_curve_projection_crr,
+        *_READ,
+        "truncation_curve",
+        *CURVE_OPERATIONS,
+        arguments=_CURVE_ARGUMENTS,
     ),
     # One modifier: none can be dropped from the basis.
     "curve_projection_one_modifier": _kind(
         fit_curve_projection_one_modifier,
         *_READ,
+        "truncation_curve",
         *(name for name in CURVE_OPERATIONS if name != "modifier_stability"),
         arguments=_CURVE_ARGUMENTS,
     ),
@@ -3237,6 +3406,7 @@ KINDS: dict[str, Kind] = {
     "curve_projection_repeated": _kind(
         fit_curve_projection_repeated,
         *_READ,
+        "truncation_curve",
         *(name for name in CURVE_OPERATIONS if name != "targeting_curve"),
         arguments=_CURVE_ARGUMENTS,
     ),
@@ -3249,12 +3419,30 @@ KINDS: dict[str, Kind] = {
         "targeting_curve",
         arguments=_CURVE_ARGUMENTS,
     ),
+    # A per-arm C-TMLE projection's curve (P1 PR 3): the rows that read the producing fit
+    # answer, and the five held-out rows refuse with CTMLE_CURVE_TOOLS_REFUSAL.
+    "curve_projection+ctmle_oat": _kind(
+        fit_curve_projection_ctmle_oat,
+        *_READ,
+        "truncation_curve",
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # A DR-TMLE projection's curve (P1 PR 3): the corrections and truncation rows route to
+    # the producing fit, and the five held-out rows refuse with DRTMLE_CURVE_TOOLS_REFUSAL.
+    "curve_projection+drtmle": _kind(
+        fit_curve_projection_drtmle,
+        *_READ,
+        "truncation_curve",
+        "corrections",
+        arguments=_CURVE_ARGUMENTS,
+    ),
     # No producing fit: the replay gate refuses every row.
     "curve_without_fit": _kind(fit_curve_without_fit, arguments=_CURVE_ARGUMENTS),
     # The structural rows redirect to the fit-time record; refute reruns the estimator.
     "snmm": _kind(fit_snmm, "refute"),
     # No refutation or sensitivity analysis is implemented for a dose-response curve.
     "dose_response": _kind(fit_dose_response, *_READ),
+    "dose_response_study": _kind(fit_dose_response_study, *_READ),
     # Variable importance: each row runs on every candidate's own fit, so a run answers the
     # rows its candidates' point fits answer.
     "variable_importance": _kind(fit_variable_importance, "marginal_bounds", *_ARM),
@@ -3632,6 +3820,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 *OPTIMAL_RULE_KINDS,
             )
         ),
@@ -3640,6 +3830,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
+        # A policy fit whose ratio reads no bound would return a curve that repeats the
+        # fit. With missing outcomes the default axis still refuses; only mechanism=True runs.
         frozenset(
             {
                 "incremental",
@@ -3651,7 +3843,7 @@ MUTATIONS: dict[str, Mutation] = {
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
         + r"the truncation curve re-targets the fitted nuisances"
-        + "|on a modified treatment policy of a continuous or vector dose)",
+        + "|this fit's policies divide by a density ratio that no g\\(W\\) bound reaches)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -3786,9 +3978,19 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
                 # available and its call refuses; the run's call refuses with it.
                 "variable_importance_mixed",
+                # P1 PR 3: the sweep's benchmark drops the modifier W1, which the basis
+                # reads, so the short model would project onto another basis.
+                "projection",
+                "projection+missing_treatment",
+                "projection+repeats",
+                "projection+bootstrap",
+                "projection+intermediate",
+                "cate_projection",
             }
         ),
         "("
@@ -3796,7 +3998,8 @@ MUTATIONS: dict[str, Mutation] = {
         + "(candidate X2: )?benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
         + "|benchmark declined: .*would still divide by the declared mechanism"
-        + "|benchmark declined: .*this fit's data declares the mechanism known)",
+        + "|benchmark declined: .*this fit's data declares the mechanism known"
+        + "|benchmark declined: .*the declared basis of the modifiers reads them)",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",
@@ -3828,8 +4031,16 @@ MUTATIONS: dict[str, Mutation] = {
     "M-curve-rules": Mutation(
         "the curve rows skip the fit-wide rules, which the calls still apply",
         lambda patch: patch.setattr(assessment, "_curve_fit_wide_rules", _rules_unapplied),
-        frozenset({"curve_ep", "curve_projection_one_modifier", "curve_projection_repeated"}),
-        r"(modifier_stability|stability|targeting_curve) declined: ",
+        frozenset(
+            {
+                "curve_ep",
+                "curve_projection_one_modifier",
+                "curve_projection_repeated",
+                "curve_projection+ctmle_oat",
+                "curve_projection+drtmle",
+            }
+        ),
+        r"(calibration|risk_comparison|modifier_stability|stability|targeting_curve) declined: ",
     ),
     "M-vi-compose": Mutation(
         "the variable-importance rows read only the first candidate's row",
