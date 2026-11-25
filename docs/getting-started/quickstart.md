@@ -198,8 +198,8 @@ interval comes from repeated sampling.
 | the truth of the simulated law | this estimate is 0.013 from $\psi$ | the behavior of the interval over repeated samples |
 | the equations-solved check, `result.diagnostics.score_equations()` | the targeting step solved the efficient influence-curve equation | that $Q$ or $g$ is correct |
 | the overlap check, `result.diagnostics.support()` | no patient's $g(W)$ reaches the bound. The effective-sample-size ratio is above 0.97 in each arm | structural overlap in the population |
-| the [canonical point-treatment TMLE study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md), the coverage study behind this fit's `supported` label | the ATE interval covers the true ATE in 94.81% of 1,600 replications at n = 1,000, with GLM nuisances and no cross-fitting | coverage on this law. The study law has a bounded outcome and effect modification |
-| the [asymmetric interval study](../technical-reference/method-evidence/asymmetric-wald-intervals.md) | the skew-widened t interval keeps close to 95% coverage on skewed and symmetric continuous outcomes | coverage on this law |
+| the [canonical point-treatment TMLE study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md), the coverage study behind this fit's `supported` label | the symmetric normal interval covers the true ATE in 94.81% of 1,600 replications at n = 1,000, with GLM nuisances and no cross-fitting. The printed interval contains that symmetric interval, because it only widens it | coverage on this law. The study law has a bounded outcome and effect modification |
+| the [asymmetric interval study](../technical-reference/method-evidence/asymmetric-wald-intervals.md) | the skew-widened t interval keeps close to 95% coverage for subgroup estimates of skewed and symmetric continuous outcomes | coverage on this law |
 | the omitted-variable sensitivity analysis | the confounder strength that would move the estimate to zero | whether such a confounder exists |
 
 `assess()` runs the overlap, model, equations-solved, and sensitivity checks on the fitted result. It
@@ -235,7 +235,7 @@ This page establishes less than a real analysis must.
 | --- | --- |
 | the four identification assumptions hold | true by construction of the law. On real data, each needs a design argument |
 | the nuisance models are correct | true by construction. On real data, flexible learners and cross-fitting replace this |
-| the interval has 95% coverage | supported by the package's label, with a limit. The label's coverage study fits in-sample GLM TMLE on a bounded-outcome law, not on this unbounded one, and one sample cannot show coverage |
+| the interval has 95% coverage | supported by the package's label, with a limit. The label's coverage study fits in-sample GLM TMLE on a bounded-outcome law, not on this unbounded one, and measured the symmetric interval. One sample cannot show coverage |
 | the effect is the same for every patient | not supported. The ATE is an average |
 | the effect holds in another health plan | not supported. The estimand is specific to its population |
 

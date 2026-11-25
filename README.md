@@ -34,7 +34,8 @@ strong a missing confounder would have to be to change the result. Read the **[d
 - Other estimators for comparison or special cases, such as collaborative TMLE and the parametric
   g-formula.
 - pandas, polars, and `pyarrow.Table` inputs, through
-  [narwhals](https://narwhals-dev.github.io/narwhals/).
+  [narwhals](https://narwhals-dev.github.io/narwhals/). Arrow input needs `pyarrow`, which you
+  install yourself.
 
 The [technical reference](https://esbraun.github.io/cleverly-tmle/technical-reference/) lists every
 method with its source papers and evidence.
