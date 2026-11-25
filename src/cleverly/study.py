@@ -46,10 +46,10 @@ from .data.treatment_covariates import (
 from .data.validate import RANDOMIZED_INTERCEPT
 from .effect_modification import (
     CDE_CURVE_TOOLS_REFUSAL,
-    CONDITIONAL_CONTRAST_ALTERNATIVE,
     TARGET_OF_SCALE,
     EffectModification,
     EffectModificationSet,
+    conditional_contrast_alternative,
     effect_modification_data_refusal,
     effect_modification_ep_refusal,
     no_projection_target,
@@ -6631,8 +6631,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         per-arm outcome-adaptive design, as a point estimate, and ``drtmle`` fits it on the
         difference scale with one block of reduced regressions per basis term (P1 PR 3).
         Both read the TMLE refusal when the model is not a fixed basis.  The longitudinal
-        baselines and the adaptive TMLE keep their own records; every other method has no
-        projection target and is redirected
+        baselines keep their own records; every other method, the adaptive TMLE among them,
+        has no projection target and is redirected
         (:func:`~cleverly.effect_modification.no_projection_target`).
         """
         estimand = _unwrapped_contrast(self.estimand)
@@ -6644,18 +6644,22 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if estimand.model is None
             else TMLE_CV_SIEVE_REFUSAL
         )
+        data = None if self._study is None else self._study.data
+        data_ep_refusal = (
+            effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
+        )
+        ep_refusal = data_ep_refusal
+        if ep_refusal is None and isinstance(estimand.model, Sieve) and estimand.model.chosen_by_cv:
+            ep_refusal = EP_CV_MODEL_REFUSAL
+        # A redirection names ``ep`` only where the data let it fit the curve: a model that
+        # cross-validation sizes is a declaration the caller changes with ``model=None``.
+        ep_fits = data_ep_refusal is None
+        alternative = conditional_contrast_alternative(ep=ep_fits)
         out = []
         for record in records:
             if record.name == "tmle":
                 out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
             elif record.name == "ep":
-                model = estimand.model
-                data = None if self._study is None else self._study.data
-                ep_refusal = (
-                    effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
-                )
-                if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
-                    ep_refusal = EP_CV_MODEL_REFUSAL
                 out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
             elif record.name in ("collaborative_tmle", "drtmle"):
                 if tmle_refusal is not None:
@@ -6672,17 +6676,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 out.append(
                     replace(
                         record,
-                        refusal=replace(
-                            record.refusal, alternative=CONDITIONAL_CONTRAST_ALTERNATIVE
-                        ),
+                        refusal=replace(record.refusal, alternative=alternative),
                     )
                 )
-            elif record.name == "atmle":
-                # The adaptive TMLE needs trial membership: a declaration record, kept.
-                out.append(record)
             else:
+                # ``atmle`` lands here too: its own record asks for trial membership, and a
+                # trial with external data refuses a conditional contrast.
                 out.append(
-                    MethodAvailability(record.name, False, no_projection_target(record.name))
+                    MethodAvailability(
+                        record.name, False, no_projection_target(record.name, ep=ep_fits)
+                    )
                 )
         return tuple(out)
 

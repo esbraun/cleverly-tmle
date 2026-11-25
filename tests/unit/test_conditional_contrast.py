@@ -105,11 +105,11 @@ class TestTheStudyFit:
         """B1 of the P1 PR 4 plan: no method falls into a catch-all record.
 
         ``drtmle`` and ``collaborative_tmle`` fit a fixed basis or read the TMLE refusal; the
-        longitudinal baselines and ``atmle`` keep their own records; the four methods with no
-        projection target are redirected, with no roadmap item.
+        longitudinal baselines keep their own condition; the five methods with no projection
+        target, ``atmle`` among them, are redirected, with no roadmap item.
         """
         from cleverly.effect_modification import (
-            CONDITIONAL_CONTRAST_ALTERNATIVE,
+            conditional_contrast_alternative,
             no_projection_target,
         )
         from cleverly.methods import BASELINE_POINT_REFUSAL, IPW_POINT_REFUSAL
@@ -142,9 +142,11 @@ class TestTheStudyFit:
         ):
             refusal = methods[name].refusal
             assert (refusal.reason, refusal.condition) == (record.reason, record.condition)
-            assert refusal.alternative == CONDITIONAL_CONTRAST_ALTERNATIVE
-        assert methods["atmle"].refusal == ATMLE_POINT_REFUSAL
-        for name in ("adaptive_iptw", "sdr", "ipsi", "riesz_tmle"):
+            assert refusal.alternative == conditional_contrast_alternative(ep=True)
+        # ATMLE_POINT_REFUSAL asks for TrialWithExternalData(source=), which refuses a
+        # conditional contrast, so atmle is redirected with the others.
+        assert methods["atmle"].refusal != ATMLE_POINT_REFUSAL
+        for name in ("adaptive_iptw", "sdr", "ipsi", "riesz_tmle", "atmle"):
             refusal = methods[name].refusal
             assert refusal == no_projection_target(name)
             assert refusal.reason is RefusalReason.API_REDIRECTION

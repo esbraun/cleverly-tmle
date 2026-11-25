@@ -363,6 +363,20 @@ class TestTheStudySites:
         assert not methods["ep"].available
         assert methods["ep"].refusal == EP_INTERMEDIATE_REFUSAL
 
+    def test_a_redirected_method_does_not_name_the_refused_ep(self) -> None:
+        """The redirections name ``tmle`` alone on a controlled direct effect.
+
+        Nonzero witness: on a total-effect contrast the same records name ``ep`` too.
+        """
+        from cleverly.effect_modification import conditional_contrast_alternative
+
+        methods = {m.name: m for m in effect(1).available_methods()}
+        for name in ("sdr", "atmle", "gcomp"):
+            refusal = methods[name].refusal
+            assert refusal.alternative == conditional_contrast_alternative(ep=False), name
+            assert "'ep'" not in refusal.alternative and "'ep'" not in refusal.condition
+        assert "method='ep'" in conditional_contrast_alternative(ep=True)
+
     @pytest.mark.parametrize("scale", SCALES)
     def test_ep_refuses_before_any_learner(self, scale: str) -> None:
         with pytest.raises(CapabilityError, match="intermediate mechanism") as caught:

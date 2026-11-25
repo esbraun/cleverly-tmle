@@ -363,6 +363,28 @@ class TestTruncationCurve:
         assert caught.value.refusal.condition.endswith(row.refusal.condition)
         assert caught.value.refusal.alternative == row.refusal.alternative
 
+    def test_an_ep_curve_carries_the_projection_s_live_truncation_refusal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Witness: where the projection's truncation call refuses, the EP row says so."""
+        assert _ep_truncation_record(monkeypatch) is not None
+
+    def test_an_always_redirecting_ep_truncation_row_fails_the_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: a row that redirects past a refusing gate fails the witness."""
+        import cleverly.assessment as assessment
+        from tests.unit._source_mutation import mutate
+
+        mutate(
+            monkeypatch,
+            assessment,
+            assessment,
+            "_ep_truncation_row",
+            [("if blocked is not None:", "if False:")],
+        )
+        assert _ep_truncation_record(monkeypatch) is None
+
     def test_a_curve_s_refute_row_redirects_to_its_fit(self) -> None:
         curve = fit("plain", "difference").effect_curve()
         row = curve.diagnostics.capability("refute")
@@ -370,3 +392,34 @@ class TestTruncationCurve:
         assert row.refusal == CURVE_REFUTE_REFUSAL
         assert row.refusal.reason is RefusalReason.API_REDIRECTION
         assert row.refusal.roadmap is None
+
+
+def _ep_truncation_record(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The EP curve's truncation record when its projection reports a jackknife variance.
+
+    Returns the record when it carries the projection's live refusal, prefixed for the curve,
+    and ``None`` when the row redirects instead.  The jackknife gate refuses the truncation
+    curve on the projection while the method's static row runs, so only the live gate sees it.
+    """
+    import cleverly.assessment as assessment
+    import cleverly.inference.cluster_jackknife as cluster_jackknife
+    from cleverly.inference.cluster_jackknife import JACKKNIFE_TRUNCATION_REFUSAL
+    from tests.unit.summary_fixtures.conditional import curve_ep
+
+    curve = curve_ep()
+    nuisance_fit = curve.fit.nuisance_fit
+    row = next(
+        item
+        for item in assessment.assessment_capabilities(curve)
+        if item.operation == "truncation_curve"
+    )
+    monkeypatch.setattr(cluster_jackknife, "jackknife_fit", lambda result: result is nuisance_fit)
+    record = assessment._ep_truncation_row(curve, row).refusal
+    if record.reason is not JACKKNIFE_TRUNCATION_REFUSAL.reason:
+        return None
+    if not record.condition.startswith(assessment.EP_NO_INFLUENCE_CURVE):
+        return None
+    tail = JACKKNIFE_TRUNCATION_REFUSAL.condition[1:]
+    assert record.condition.endswith(tail)
+    assert record.alternative == JACKKNIFE_TRUNCATION_REFUSAL.alternative
+    return record

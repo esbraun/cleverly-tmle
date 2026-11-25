@@ -43,7 +43,6 @@ from .msm import ProjectionFit, check_projection_rank
 
 __all__ = [
     "CDE_CURVE_TOOLS_REFUSAL",
-    "CONDITIONAL_CONTRAST_ALTERNATIVE",
     "CTMLE_CURVE_TOOLS_REFUSAL",
     "DOSE_CONTRAST_REFUSAL",
     "DRTMLE_CURVE_TOOLS_REFUSAL",
@@ -53,6 +52,7 @@ __all__ = [
     "EffectModification",
     "EffectModificationSet",
     "ModifierReader",
+    "conditional_contrast_alternative",
     "effect_modification_data_refusal",
     "effect_modification_ep_refusal",
     "log_ratio_scale_refusal",
@@ -82,20 +82,37 @@ DOSE_CONTRAST_REFUSAL = Refusal(
 )
 
 
-#: The working call of a conditional contrast, which a method with no projection target
-#: names.
-CONDITIONAL_CONTRAST_ALTERNATIVE = (
-    "Fit method='tmle' with a fixed basis declared as model=, or method='ep' for the curve."
-)
+def conditional_contrast_alternative(*, ep: bool) -> str:
+    """The working call of a conditional contrast, which a method with no projection target
+    names.
+
+    Parameters
+    ----------
+    ep : bool
+        Whether ``method="ep"`` fits this contrast.  It is refused with an intermediate, a
+        missing treatment or baseline strata, and then the alternative names ``tmle`` alone.
+
+    Returns
+    -------
+    str
+        The alternative sentence.
+    """
+    if ep:
+        return (
+            "Fit method='tmle' with a fixed basis declared as model=, or method='ep' for the curve."
+        )
+    return "Fit method='tmle' with a fixed basis declared as model=."
 
 
-def no_projection_target(name: str) -> Refusal:
+def no_projection_target(name: str, *, ep: bool = True) -> Refusal:
     """The record of a method that has no projection target for a conditional contrast.
 
     Parameters
     ----------
     name : str
         The method's name, such as ``"sdr"``.
+    ep : bool
+        Whether ``method="ep"`` fits this contrast, so the record may name it.
 
     Returns
     -------
@@ -106,8 +123,8 @@ def no_projection_target(name: str) -> Refusal:
         RefusalReason.API_REDIRECTION,
         f"{name} has no projection target for a conditional contrast. A conditional contrast "
         "is fitted by method='tmle', 'drtmle' or the per-arm 'collaborative_tmle' with model= "
-        "declared, or by method='ep' for the curve.",
-        alternative=CONDITIONAL_CONTRAST_ALTERNATIVE,
+        "declared" + (", or by method='ep' for the curve." if ep else "."),
+        alternative=conditional_contrast_alternative(ep=ep),
     )
 
 

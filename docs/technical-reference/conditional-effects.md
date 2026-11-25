@@ -274,9 +274,10 @@ With `model=None` on the difference scale the curve is clipped to $[-(b - a), b 
 the target lies, and the result records the clipped share. With `model=` declared the target is
 that projection and nothing is clipped.
 
-An EP curve's sensitivity and truncation rows redirect to the `method="tmle"` projection on the
-curve's own basis ([assessing a curve](#assessing-a-curve)), which is a related estimand and not
-always the same one. On the difference scale, with a fixed sieve size and the default
+An EP curve's sensitivity and truncation rows are resolved against the `method="tmle"`
+projection on the curve's own basis, and redirect to it where its row runs
+([assessing a curve](#assessing-a-curve)). That projection is a related estimand and not always
+the same one. On the difference scale, with a fixed sieve size and the default
 least-squares final stage, the EP curve and that projection target the same best approximation
 of the CATE in the basis. With a size chosen by cross-validation or a declared `final_learner`
 they do not. The average effect in a subgroup, which an average of the curve would estimate, is
@@ -681,8 +682,10 @@ the curve's row carries that refusal with its code and roadmap item. On an EP cu
 (`curve.model.basis`), read without a refit, and a carried refusal opens with "An EP curve has no
 influence curve."
 
-The `truncation_curve` row of an EP curve redirects to the same projection, because the
-truncation curve reports an interval at each bound and an EP curve has none. `assess()` composes
+The `truncation_curve` row of an EP curve is resolved against the same projection, because the
+truncation curve reports an interval at each bound and an EP curve has none. Where the
+projection's call runs, the row redirects to it; where it refuses, as on a fit with the
+jackknife variance, the row carries that refusal. `assess()` composes
 `validate()` (the producing fit's support, nuisance and score checks), the diagnostics and the
 sensitivity rows. The five curve operations refit, so they run only with
 `include_refits=True`. An EP curve's `score_equations` row
@@ -839,7 +842,7 @@ $-0.0123$ and $-0.0108$, and row `T49.ctmle_oat` labels them `supported`.
 | `refute` on a curve | a curve is computed from a fit and reports no estimand of its own; run it on the producing fit | `api_redirection` |
 | a sensitivity route on a projection curve | a curve reports no estimand of its own. Where the producing fit's row runs, the curve redirects to it; where it refuses, the curve carries that refusal | `api_redirection`, or the producing fit's own record |
 | a sensitivity route on an EP curve | an EP curve has no influence curve. Where the row of the `method="tmle"` projection on `curve.model.basis` runs, the curve redirects to it; where it refuses, the curve carries that refusal after the sentence "An EP curve has no influence curve." | `api_redirection`, or that projection's own record |
-| `truncation_curve` on an EP curve | the truncation curve reports an estimate and its interval at each bound, and an EP curve has no interval; the projection on `curve.model.basis` has both | `api_redirection` |
+| `truncation_curve` on an EP curve | the truncation curve reports an estimate and its interval at each bound, and an EP curve has no interval; the projection on `curve.model.basis` has both; where that projection's call refuses, the row carries its refusal | `api_redirection`, or that projection's own record |
 | `method="collaborative_tmle"` with a strategy other than `"oat"` with `oat_design="per_arm"` | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target | `implementation_gap`, roadmap F5 |
 | the per-arm C-TMLE projection with `strata=`, a missing outcome or a missing treatment | its point contract for strata and missing data covers the arm means | `implementation_gap`, roadmap X51 |
 | the five held-out curve checks on a curve of a per-arm C-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also reads the per-arm design. The support, nuisance, score and truncation rows still answer | `implementation_gap`, roadmap X62 |
@@ -850,7 +853,7 @@ $-0.0123$ and $-0.0108$, and row `T49.ctmle_oat` labels them `supported`.
 | `method="drtmle"` with `targeting="one_step"` or `evaluation=` | the one-step update and the companion carry one scalar per arm, and the projection needs one per arm and basis term | `implementation_gap`, roadmap X62 |
 | the five held-out curve checks on a curve of a DR-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also solves the reduced-regression equations. The support, nuisance, score, truncation and correction rows still answer | `implementation_gap`, roadmap X62 |
 | `method="drtmle"` or `"collaborative_tmle"` with `model=None` or a sieve sized by cross-validation | each fits the projection on a fixed basis, as `method="tmle"` does, so the method record is the TMLE refusal | `invalid_declaration` |
-| `method="adaptive_iptw"`, `"sdr"`, `"ipsi"` or `"riesz_tmle"` | the method has no projection target for a conditional contrast; fit `method="tmle"` with a fixed basis, or `method="ep"` for the curve | `api_redirection` |
+| `method="adaptive_iptw"`, `"atmle"`, `"sdr"`, `"ipsi"` or `"riesz_tmle"` | the method has no projection target for a conditional contrast; fit `method="tmle"` with a fixed basis, or `method="ep"` for the curve where the EP learner accepts the declaration | `api_redirection` |
 | `method="gcomp"`, `"ipw"` or `"parametric_gformula"` | each is a baseline of a longitudinal fit; the record names the working call of a conditional contrast | `api_redirection` |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |

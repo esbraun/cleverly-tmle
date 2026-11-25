@@ -1225,17 +1225,25 @@ def _ep_truncation_row(curve: Any, row: AssessmentCapability) -> AssessmentCapab
 
     The projection by ``method="tmle"`` on the curve's basis, at the size the curve used, has
     an interval at each bound.  The EP fit's nuisance fit is that projection on the constant
-    basis, so its row says whether the call runs: where it runs, the row redirects to it and
-    names the basis; where it refuses, the row carries its record.
+    basis, so its live truncation gate says whether the call runs: where it runs, the row
+    redirects to it and names the basis; where it refuses, the row carries its record.
     """
-    nuisance_fit = getattr(getattr(curve, "fit", None), "nuisance_fit", None)
-    if nuisance_fit is None:
+    from .sensitivity.positivity import truncation_refusal
+
+    if curve.fit is None:
         return row
+    nuisance_fit = getattr(curve.fit, "nuisance_fit", None)
+    assert nuisance_fit is not None, "an EP fit keeps its constant-basis projection"
     target = {item.operation: item for item in assessment_capabilities(nuisance_fit)}.get(
         "truncation_curve"
     )
-    if target is not None and not target.available and target.refusal is not None:
-        refusal = _same_basis_record(curve, target.refusal)
+    # The static row says whether the method has the call; the live gate is what the call
+    # raises for this fit's settings (an adaptive or jackknife fit refuses it).
+    blocked = target.refusal if target is not None and not target.available else None
+    if blocked is None:
+        blocked = truncation_refusal(nuisance_fit, None)
+    if blocked is not None:
+        refusal = _same_basis_record(curve, blocked)
     else:
         basis = _ep_basis(curve)
         refusal = replace(
@@ -5899,8 +5907,7 @@ def _curve_target_sensitivity(curve: Any) -> dict[str, AssessmentCapability] | N
     if not _is_ep_curve(curve):
         return dict(SensitivityFacade(fit)._gated_map)
     nuisance_fit = getattr(fit, "nuisance_fit", None)
-    if nuisance_fit is None:
-        return None
+    assert nuisance_fit is not None, "an EP fit keeps its constant-basis projection"
     from .bases import INTERCEPT
 
     rows = dict(SensitivityFacade(nuisance_fit)._gated_map)
