@@ -27,6 +27,13 @@ UNPRINTED_DECIMALS = {
 }
 
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "identify-reading": {"0.16": "estimate", "0.90": "estimate"},
+}
+
+
 def _check_confounding(namespace: dict[str, Any]) -> None:
     """The simple difference overstates the effect in every age band."""
     table = namespace["table"]

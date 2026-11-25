@@ -742,7 +742,13 @@ class EffectCurveResult:
 
     @property
     def sensitivity(self) -> Any:
-        """The sensitivity-analysis facade, whose every row refuses on a curve (P1)."""
+        """The sensitivity-analysis facade, whose every row refuses on a curve.
+
+        A curve reports no estimand of its own.  Each row redirects to the fit that answers
+        it (the producing fit of a projection curve, or the projection on an EP curve's
+        basis) where that fit's row runs, and carries that fit's own record where it refuses
+        (:func:`cleverly.assessment.curve_sensitivity_record`).
+        """
         from .assessment import SensitivityFacade
 
         return SensitivityFacade(self)
@@ -776,9 +782,10 @@ class EffectCurveResult:
     ) -> Any:
         """Run the applicable post-fit assessment battery.
 
-        Every sensitivity row refuses on a curve: no sensitivity analysis is derived for a
-        conditional contrast curve (P1).  The five curve operations refit the producing
-        estimator, so they run only with ``include_refits=True``.
+        Every sensitivity row refuses on a curve, which reports no estimand of its own; each
+        row names the fit that answers it, or that fit's own refusal.  The five curve
+        operations refit the producing estimator, so they run only with
+        ``include_refits=True``.
 
         Parameters
         ----------

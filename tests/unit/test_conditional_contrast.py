@@ -100,6 +100,64 @@ class TestTheStudyFit:
         admitted = ("tmle", "ep", "collaborative_tmle", "drtmle")
         assert not any(m.available for name, m in methods.items() if name not in admitted)
 
+    @pytest.mark.parametrize("model", ["fixed", "none", "cv"])
+    def test_each_method_record_is_true_for_the_declared_model(self, model: str) -> None:
+        """B1 of the P1 PR 4 plan: no method falls into a catch-all record.
+
+        ``drtmle`` and ``collaborative_tmle`` fit a fixed basis or read the TMLE refusal; the
+        longitudinal baselines keep their own condition; the five methods with no projection
+        target, ``atmle`` among them, are redirected, with no roadmap item.
+        """
+        from cleverly.effect_modification import (
+            conditional_contrast_alternative,
+            no_projection_target,
+        )
+        from cleverly.methods import BASELINE_POINT_REFUSAL, IPW_POINT_REFUSAL
+        from cleverly.study import (
+            ATMLE_POINT_REFUSAL,
+            TMLE_CV_SIEVE_REFUSAL,
+            TMLE_WITHOUT_MODEL_REFUSAL,
+        )
+
+        declared = {
+            "fixed": linear_contrast(),
+            "none": ConditionalContrast(MODIFIERS),
+            "cv": ConditionalContrast(MODIFIERS, model=Sieve(Cosine(["W"], 3))),
+        }[model]
+        methods = {m.name: m for m in law_study().identify(declared).available_methods()}
+        tmle_refusal = {
+            "fixed": None,
+            "none": TMLE_WITHOUT_MODEL_REFUSAL,
+            "cv": TMLE_CV_SIEVE_REFUSAL,
+        }[model]
+        for name in ("drtmle", "collaborative_tmle"):
+            if tmle_refusal is None:
+                assert methods[name].available, name
+            else:
+                assert methods[name].refusal == tmle_refusal, name
+        for name, record in (
+            ("gcomp", BASELINE_POINT_REFUSAL),
+            ("parametric_gformula", BASELINE_POINT_REFUSAL),
+            ("ipw", IPW_POINT_REFUSAL),
+        ):
+            refusal = methods[name].refusal
+            assert (refusal.reason, refusal.condition) == (record.reason, record.condition)
+            assert refusal.alternative == conditional_contrast_alternative(ep=True)
+        # ATMLE_POINT_REFUSAL asks for TrialWithExternalData(source=), which refuses a
+        # conditional contrast, so atmle is redirected with the others.
+        assert methods["atmle"].refusal != ATMLE_POINT_REFUSAL
+        for name in ("adaptive_iptw", "sdr", "ipsi", "riesz_tmle", "atmle"):
+            refusal = methods[name].refusal
+            assert refusal == no_projection_target(name)
+            assert refusal.reason is RefusalReason.API_REDIRECTION
+            assert refusal.roadmap is None
+            assert refusal.condition.startswith(
+                f"{name} has no projection target for a conditional contrast."
+            )
+        assert not any(
+            m.refusal is not None and m.refusal.roadmap == "P1" for m in methods.values()
+        )
+
     def test_other_estimands_read_the_ep_record(self) -> None:
         methods = {m.name: m for m in law_study().identify(ATE()).available_methods()}
         refusal = methods["ep"].refusal
@@ -155,6 +213,33 @@ class TestRefusalsBeforeAnyLearner:
             law_study().identify(ConditionalContrast(Modifiers(["S"]), model=Linear(["S"])))
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
+    def test_r7_ct_a_dose_has_no_pair_of_arms(self) -> None:
+        """R7-ct: a declaration error, not a gap, so it names no roadmap item."""
+        from cleverly.effect_modification import DOSE_CONTRAST_REFUSAL
+
+        rng = np.random.default_rng(0)
+        frame = pd.DataFrame(
+            {
+                "W": rng.uniform(0.0, 2.0, 50),
+                "A": rng.uniform(0.0, 1.0, 50),
+                "Y": rng.binomial(1, 0.5, 50),
+            }
+        )
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+            ),
+        )
+        with pytest.raises(CapabilityError) as caught:
+            study.identify(linear_contrast())
+        refusal = caught.value.refusal
+        assert refusal == DOSE_CONTRAST_REFUSAL
+        assert refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert refusal.roadmap is None
+        assert refusal.condition.startswith("A conditional contrast compares two arms")
+        assert "DoseResponseTMLE" in refusal.alternative
+
     def test_r7_a_bare_contrast_on_an_intermediate_design(self) -> None:
         """An intermediate composes through ControlledDirectEffect; a bare contrast is ambiguous
         between the total and the controlled effect (tests/unit/test_cde_projection.py)."""
@@ -175,7 +260,7 @@ class TestRefusalsBeforeAnyLearner:
         for name in PROJECTION_R9_SENSITIVITY:
             assert not rows[name].available
             assert rows[name].refusal.condition.startswith(f"{name} is defined for a mean")
-            assert rows[name].refusal.roadmap == "P1"
+            assert rows[name].refusal.roadmap == "X82"
         for name in ("omitted_confounding", "robustness_value", "elements", "benchmark"):
             assert "choose an explicit estimand" in rows[name].refusal.condition
         with pytest.raises(CapabilityError, match="other than the constant term"):
@@ -236,7 +321,7 @@ def test_simulated_confounding_refuses_the_projection(projection_fit: Any) -> No
             grid=sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
             random_state=0,
         )
-    assert caught.value.refusal.roadmap == "P1"
+    assert caught.value.refusal.roadmap == "X82"
 
 
 def test_benchmark_refuses_a_covariate_the_basis_reads(projection_fit: Any) -> None:

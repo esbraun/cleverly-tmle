@@ -948,7 +948,7 @@ $\varphi^\top b$ is nonzero. On a basis of disjoint stratum indicators, the term
 term of the stratum bound, so the coefficient of one indicator gives that stratum's bound. A
 log-ratio coefficient refuses with `implementation_gap`, because it is not linear in the outcome
 regression and the linearized bound it would need is not derived. A projection fitted with
-`strata=` refuses under [P1](../roadmap.md#p1-ep-learner), because its stratum and marginal
+`strata=` refuses under [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator), because its stratum and marginal
 coefficients read different representers. `sensitivity.evalue()` refuses on every projection
 coefficient, which is not a risk ratio.
 

@@ -535,7 +535,6 @@ _UNREAD_VALUES: dict[str, Any] = {
     "competing_learner": LogisticRegression(),
     "ratio": "classifier",
     "screen_treatment": True,
-    "screen_threshold": 0.5,
     "min_retain": 2,
     "hazard_pooling": "pooled",
     "outcome_by_arm": True,

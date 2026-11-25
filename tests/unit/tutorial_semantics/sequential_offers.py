@@ -44,6 +44,7 @@ _PROBE = "reviews/notebook-review/probes/sequential-offers"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.25": "the smallest logged probability the simulated law sets, not a printed result",
     "0.0156": "the product of the three smallest logged offer probabilities, 0.25 cubed = 0.015625: "
     "src/cleverly/datasets/offers.py, recomputed in _check_cap",
     "0.0019": f"Monte Carlo standard error of the crude and wrong-model g-computation "
@@ -58,6 +59,14 @@ UNPRINTED_DECIMALS = {
     "_check_deployment_and_benchmark",
     "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
     "probability of a shipping follower falls under the cap of 0.01, recomputed in _check_cap",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-reading": {"0.01": "ltmle"},
+    "refutation-reading": {"0.020": "ltmle"},
 }
 
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")

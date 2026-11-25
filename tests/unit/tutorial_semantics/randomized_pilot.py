@@ -39,6 +39,13 @@ UNPRINTED_DECIMALS = {
 }
 
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "identify-reading": {"0.2": "association", "0.8": "association"},
+}
+
+
 def _assert_sweep_log() -> None:
     """Each repeated-draw number of the readings matches the committed sweep log."""
     log = (ROOT / _PROBE / "sweep.log").read_text(encoding="utf-8")
