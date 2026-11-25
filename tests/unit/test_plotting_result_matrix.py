@@ -93,7 +93,7 @@ OTHER_INPUTS = {
     "notes": "reads a figure",
     "style": "a style context, not a plot",
     "sensitivity": "takes a sensitivity analysis or a truncation curve",
-    "confounding": "takes an omitted-variable bound or a benchmark",
+    "confounding": "takes an omitted-variable contour, a simulated-confounding surface or an E-value",
     "targeting": "takes a targeting curve",
     "zipper": "takes a simulation study",
 }
@@ -492,7 +492,7 @@ NOT_FITS = {
     "BootstrapResult": "a fit's replicates; bootstrap() reads it through its fit",
     "CausalResult": "a protocol, not a class with instances",
     "RefutationResult": "a refutation report of a fit",
-    "SimulatedConfoundingResult": "a simulated-confounding report; sensitivity() draws it",
+    "SimulatedConfoundingResult": "a simulated-confounding report; confounding() draws it",
     "StudyResult": "a simulation study; zipper() draws it",
     "VariableImportanceResult": (
         "one TMLEResult per candidate, each covered as a point fit; a keep_fits=False "
@@ -1240,6 +1240,59 @@ def test_no_plot_crashes_on_a_capability_sweep_kind(kind: str) -> None:
         result = sweep.KINDS[kind].build()
     for plot in PLOTS:
         outcome(plot, result)
+
+
+#: The capability-sweep kinds whose E-value row must run.
+_EVALUE_KINDS = [kind for kind in sweep.KINDS if "evalue" in sweep.KINDS[kind].must_run]
+
+
+def _assert_evalue_figure(value: Any) -> None:
+    from cleverly.plotting._evalue import GID_EVALUE_LIMIT
+
+    fig = plotting.confounding(value)
+    assert isinstance(fig, Figure)
+    drawn = any(line.get_gid() == GID_EVALUE_LIMIT for line in fig.axes[0].lines)
+    assert drawn is (value.limit > 1.0), "a limit curve is drawn when the limit E-value exceeds 1"
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("kind", _EVALUE_KINDS)
+def test_the_evalue_figure_draws_on_every_kind_that_reports_one(kind: str) -> None:
+    """Every kind whose E-value row runs: its E-value draws, or a run redirects to a candidate."""
+    from cleverly.assessment import CandidateReports
+    from cleverly.exceptions import RefusalReason
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = sweep.KINDS[kind].build()
+        arguments = sweep.sweep_arguments(result, sweep.KINDS[kind].arguments)
+        value = result.sensitivity.evalue(**arguments.get("evalue", {}))
+        if isinstance(value, CandidateReports):
+            assert kind.startswith("variable_importance")
+            with pytest.raises(CapabilityError) as caught:
+                plotting.confounding(value)
+            assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+            assert "confounding(reports[candidate])" in caught.value.refusal.alternative
+            for candidate in value:
+                _assert_evalue_figure(value[candidate])
+        else:
+            from cleverly.sensitivity import EValue
+
+            assert isinstance(value, EValue)
+            if kind == "constant_fold":
+                # Nonzero witness: a real fit whose interval reaches the null draws no limit.
+                assert value.limit == 1.0
+            if kind == "drtmle+constant_pair":
+                # The linear-remainder sentence the short summary omits reaches the notes.
+                fig = plotting.confounding(value)
+                assert any("linear in the mechanism error" in line for line in plotting.notes(fig))
+                plt.close(fig)
+            _assert_evalue_figure(value)
+
+
+def test_the_evalue_kinds_reach_a_limit_at_the_null_and_a_run() -> None:
+    """The sweep keeps a kind whose limit E-value is 1 and a variable-importance run."""
+    assert {"constant_fold", "variable_importance"} <= set(_EVALUE_KINDS)
 
 
 @pytest.mark.parametrize("kind", ["variable_importance", "variable_importance_no_fits"])

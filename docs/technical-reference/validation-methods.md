@@ -2445,6 +2445,14 @@ For $RR=2$, the E-value is $3.414$. Associations of $3$ and $4$ give a bounding 
 $3\times4/(3+4-1)=2$, so both associations need not reach $3.414$.
 The E-value does not decide whether a confounder of either strength is plausible.
 
+`EValue.plot()` draws the level set $B(x, y) = RR$ of that bounding factor, the curve
+$y = RR(x - 1)/(x - RR)$ for $x > RR$, once at the point ratio and once at the confidence limit
+nearest the null. Each curve meets the diagonal $x = y$ at its E-value. A ratio below 1 is drawn
+at its reciprocal. The limit curve is omitted when the limit E-value is 1. The curves are a
+deterministic function of the stored ratio and limit, so the figure adds no inference; the limit
+keeps the reading the E-value records. `tests/unit/test_plotting_evalue.py` checks every drawn
+vertex against the bounding factor.
+
 The selected path depends on the reported contrast and retained artifacts.
 
 | request | E-value path |
@@ -2532,6 +2540,7 @@ product.
 | outcome strength | one $RR_{UY}$ for each arm |
 | conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$; $U$ is a baseline latent that $A$ does not affect; positivity given $(W, U)$; no confounder of $Z$ and $Y$ that $A$ affects |
 | inversion | with four equal strengths the product is $BF(E, E)^2$, so the E-value is the ordinary E-value of $\sqrt{RR}$ |
+| figure | `EValue.plot()` draws the slice where both arms share one pair $(x, y)$, so the product is $B(x, y)^2$ and the curve is $B(x, y) = \sqrt{RR}$. Arms with unequal strengths can trade off, which the slice does not show |
 
 The square root comes after the path's own conversion. An odds ratio therefore enters as
 $OR^{1/4}$, and a Gaussian contrast as $\exp(0.905d)^{1/2}$. The confidence limit takes the root
