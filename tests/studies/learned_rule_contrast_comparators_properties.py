@@ -100,10 +100,13 @@ CALIBRATION_N = PRIMARY_N
 #: (``test_learned_rule_contrast_comparators_design``). The design test applies it to the
 #: pilot's ratios, and the count is raised to its value before the declared run.
 CALIBRATION_REPLICATES = 6_400
-#: The largest calibration count the study's budget of 5 CPU-hours holds, the pilot included
+#: The largest calibration count a pilot may raise the count to: the 95th percentile, as a
+#: multiple of 400, of the per-arm count over pilots of sixteen cells at a true SE ratio of 1
+#: with the pilot's own error, so a well-behaved pilot fits. The study's budget is set at this
+#: cap, about 7.9 CPU-hours with the pilot outside it
 #: (``test_learned_rule_contrast_comparators_design``). A pilot whose per-arm rule asks for more
 #: stops the run for a re-declaration.
-CALIBRATION_REPLICATES_CAP = 10_400
+CALIBRATION_REPLICATES_CAP = 26_400
 #: The ``misspecified_limit`` draws: each coverage cell's chance of a false red is at most 0.002
 #: at a realized coverage of 0.942, T44's lowest contrast coverage on this law
 #: (``test_learned_rule_contrast_comparators_design``).

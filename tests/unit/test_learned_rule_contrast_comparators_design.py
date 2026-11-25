@@ -524,8 +524,8 @@ def test_the_calibration_count() -> None:
 
 #: Core-seconds per draw, read from the smoke runs: one draw is two fits under two reports.
 SECONDS_PER_DRAW = {"primary": 0.5, "calibration": 0.9, "coverage": 0.9, "necessity": 0.3}
-PILOT_SECONDS = 0.9 * 4_000
-BUDGET_SECONDS = 5 * 3_600
+#: The declared budget of the study, the 4,000-draw pilot (about 1 CPU-hour) outside it.
+BUDGET_SECONDS = 8 * 3_600
 
 
 def _study_seconds(calibration: int) -> float:
@@ -538,12 +538,28 @@ def _study_seconds(calibration: int) -> float:
 
 
 def test_the_calibration_cap_is_the_budget() -> None:
-    """The run is about 3 CPU-hours at 6,800 calibration draws. With the pilot, 5 CPU-hours
-    hold at most 10,400 draws, the cap a pilot's per-arm count may reach."""
+    """The run is about 3 CPU-hours at 6,800 calibration draws and about 7.9 at the cap of
+    26,400; the budget of 8 CPU-hours, the pilot outside it, holds the cap and not one step
+    more."""
     assert _study_seconds(6_800) / 3_600 == pytest.approx(3.0, abs=0.1)
     cap = properties.CALIBRATION_REPLICATES_CAP
-    assert PILOT_SECONDS + _study_seconds(cap) <= BUDGET_SECONDS
-    assert PILOT_SECONDS + _study_seconds(cap + 400) > BUDGET_SECONDS
+    assert _study_seconds(cap) / 3_600 == pytest.approx(7.9, abs=0.1)
+    assert _study_seconds(cap) <= BUDGET_SECONDS < _study_seconds(cap + 400)
+
+
+def test_a_well_behaved_pilot_fits_under_the_cap() -> None:
+    """Over 400 simulated pilots of sixteen cells at a true SE ratio of 1, each read with the
+    pilot's own error, the per-arm count stays at or under the cap in about 95% of them (a run
+    of 2,000 put the 95th percentile at 26,400 and the median at 12,000)."""
+    rng = np.random.default_rng(pilot.PILOT_SEED)
+    sigma = tools.pilot_sigma(pilot.PILOT_DRAWS)
+    counts = []
+    for _ in range(400):
+        ratios = 1.0 + rng.normal(0.0, sigma, CELLS)
+        sized = tools.per_arm_replicates(ratios.tolist(), pilot.PILOT_DRAWS)["R"]
+        counts.append(np.inf if sized is None else sized)
+    inside = float(np.mean(np.asarray(counts) <= properties.CALIBRATION_REPLICATES_CAP))
+    assert 0.92 <= inside <= 0.98, inside
 
 
 def test_a_cell_at_ratio_098_under_the_per_arm_rule() -> None:
