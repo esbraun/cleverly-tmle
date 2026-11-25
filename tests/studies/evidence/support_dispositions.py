@@ -588,7 +588,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "T22",
         ("wald",),
         LIMIT,
-        "mtp-point-calibration: coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to 1.0034",
+        "mtp-point-calibration: coverage 0.9485 to 0.9713, SE ratio 1.0017 to 1.0886, empirical efficiency ratio 0.9202 to 1.0000, reported efficiency ratio 1.0003 to 1.0033",
         "",
     ),
     (
