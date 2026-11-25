@@ -795,29 +795,26 @@ class TestTruncationCurve:
         assert "selected no parameter" in str(refusal.value)
         assert "['ate']" in str(refusal.value)
 
-    def test_a_continuous_treatment_refuses_the_curve_it_cannot_move(self) -> None:
-        """A shift fit's ratio reads no bound, so the curve refuses rather than repeat the fit.
+    def test_a_continuous_dose_policy_refuses_the_propensity_curve(self) -> None:
+        """No propensity, so no ``g(W)`` bound to sweep. The curve says so before replaying.
 
-        A shift fit's propensity is ``(n, 0)``: the mechanism it divides by is a density
-        ratio, and no column of it is a treatment probability the ``g_bounds`` pair clips.
-        Every point of a curve would equal the fit, with a withheld ``truncated_fraction``
-        beside it. The capability row reads unavailable, and the call raises the same
-        record (X124 B6; ``tests/unit/test_truncation_policy_ratio.py`` holds the moving
-        and flat cases).
+        A shift fit's propensity is ``(n, 0)``: its only treatment weight is the density
+        ratio, and a point fit has no bound on that ratio. A curve over ``g(W)`` bounds would
+        report one unchanged estimate per bound, which reads as a mechanism the bounds never
+        bind. The refusal names the longitudinal ``ratio_trim=`` sweep instead.
         """
         frame, _ = make_shift_dose(n=300, seed=0)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", RuntimeWarning)
-            result = (
-                fast_tmle(cross_fit=False, policies=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
-                .fit(frame, outcome="Y", treatment="A")
-                .single()
-            )
+        result = (
+            fast_tmle(cross_fit=False, policies=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
         assert not result.diagnostics.capability("truncation_curve").available
-        with pytest.raises(CapabilityError, match="every point of the curve would equal the fit"):
+        with pytest.raises(CapabilityError, match="fits no propensity g\\(W\\)") as refusal:
             result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+        assert "ratio_trim=" in str(refusal.value)
 
 
 class TestOmittedVariableBias:

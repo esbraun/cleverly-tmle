@@ -681,8 +681,9 @@ class TestTheMarginalBoundsReadTheEstimandStatus:
 class TestTheWorkflowPageRunsOnUnequalClusters:
     """``docs/workflow.md`` fits a cross-fitted weighted clustered TMLE and assesses it.
 
-    Its households differ in size, and the fit keeps its interval. Every call the page makes
-    after the fit must answer.
+    The page's practice table has equal households; a reader's households usually differ in
+    size. On unequal households the fit keeps its interval, and every call the page makes after
+    the fit must answer.
     """
 
     def test_the_page_calls_answer(self, tmp_path: Any) -> None:

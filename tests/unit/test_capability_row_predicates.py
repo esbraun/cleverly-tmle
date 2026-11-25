@@ -409,7 +409,7 @@ class TestTheTruncationRowResolvesEachRequest:
             "incremental",
             "natural_course",
             "learned_rule_splits",
-            "density_ratio",
+            "policy_ratio",
         ]
 
     @pytest.mark.parametrize("kind", list(TRUNCATION_STATUS_OF))

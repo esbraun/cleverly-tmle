@@ -74,12 +74,14 @@ LIMIT_OWNERS = frozenset(
         "X8-identity-small-stratum",
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
-        "RM18-comparator-density",
         "X19-competing-calibration",
         "X45-finite-sample",
         "mtp-pricing-learned-density",
         "X26-plugin-conservative",
         "X26-refusal-limited",
+        # Fix-9's regeneration: one replicate lost to a constant arm cell in another stratum,
+        # green on the complete case, the refusal-limited reading of X26.
+        "F3-constant-arm-replicate",
         "adaptive-iptw-finite-sample",
         "adaptive-iptw-composite-l3",
         "X39-below-tail-size",
@@ -97,7 +99,7 @@ FLAGGED_EXPERIMENTAL = {
         "0.93 to 0.95"
     ),
     "X40-sdr-heavy-ratios": (
-        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9408 and a coverage of 0.9357 "
+        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9412 and a coverage of 0.9347 "
         "at n = 4,000"
     ),
 }
@@ -239,6 +241,17 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         EXPERIMENTAL,
         "",
         "Q6",
+    ),
+    (
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/v0_ate_x2__correctly_specified",
+        "T15",
+        ("wald",),
+        LIMIT,
+        "F3-constant-arm-replicate: coverage 0.9222 to 0.9506, SE ratio 0.9316 to 1.0113, "
+        "failures 1 of 2000 (worst case fails)",
+        "",
     ),
     (
         "canonical-stratified-msm-identity",
@@ -583,23 +596,13 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "Q6",
     ),
     (
-        "shift-policies",
-        "paired",
-        "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
-        "T21",
-        ("wald",),
-        LIMIT,
-        "RM18-comparator-density: difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, calibration excess bound 0.0648 vs 0.0500, resolution 0.0439",
-        "",
-    ),
-    (
         "policy-point-mtp",
         "property",
         "interval_calibration/halve__correctly_specified",
         "T22",
         ("wald",),
         LIMIT,
-        "mtp-point-calibration: coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to 1.0034",
+        "mtp-point-calibration: coverage 0.9485 to 0.9713, SE ratio 1.0017 to 1.0886, empirical efficiency ratio 0.9202 to 1.0000, reported efficiency ratio 1.0003 to 1.0033",
         "",
     ),
     (
@@ -649,7 +652,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "G10.continuous",
         ("wald",),
         LIMIT,
-        "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006",
+        "mtp-longitudinal-limits: coverage 0.9283 to 0.9555, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006",
         "",
     ),
     (
@@ -661,7 +664,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         LIMIT,
         "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
         "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
-        "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+        "ate_regimen[always vs never], coverage is 0.913; bias 0.000011 to 0.0112, SE ratio "
         "0.9459",
         "",
     ),
@@ -1319,14 +1322,15 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
 
 #: X40 (continuous-policy validation). The owner chose ``experimental`` with the measured number
 #: (the RM42b measured-shortfall standard) for the four red price_down cells of the five-node
-#: price study on 2026-10-16. To flip it to a stated
+#: price study on 2026-10-16. Since the regeneration under the shipped intervals (Fix-9) the two
+#: level cells pass on the logit interval, so the two contrast cells remain. To flip it to a stated
 #: limit, set this to ``LIMIT``. Then move each sentence of
 #: ``SHORTFALLS`` for ``G39.ltmle.tau5`` and ``G39.sdr.tau5`` in ``src/cleverly/_support_rows.py``
 #: to ``MEASURED_LIMITS`` under the same row id, with the text of ``_PRICE_DOWN_LIMIT``.
 _X40_PRICE_DOWN: Choice = EXPERIMENTAL
 _PRICE_DOWN_LIMIT = {
-    "G39.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9160 to 0.9170, SE ratio 0.9310 to 0.9479",
-    "G39.sdr.tau5": "mtp-pricing-calibration: coverage 0.9190 to 0.9230, SE ratio 0.9339 to 0.9518",
+    "G39.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9200, SE ratio 0.9310",
+    "G39.sdr.tau5": "mtp-pricing-calibration: coverage 0.9230, SE ratio 0.9339",
 }
 _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
     *(
@@ -1344,7 +1348,7 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
             ("pricing_ltmle_tau5", "G39.ltmle.tau5"),
             ("pricing_sdr_tau5", "G39.sdr.tau5"),
         )
-        for estimand in ("ate_regimen[price_down vs natural_prices]", "ey_regimen[price_down]")
+        for estimand in ("ate_regimen[price_down vs natural_prices]",)
     ),
     # The learned-density arms read conservative intervals and a coverage above nominal, so the
     # decision is a stated limit.
@@ -1355,7 +1359,7 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
         "G10.continuous",
         ("wald",),
         LIMIT,
-        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
+        "mtp-pricing-learned-density: coverage 0.9445 to 0.9683, SE ratio 0.9878 to 1.0786",
         "",
     ),
     (
@@ -1365,17 +1369,7 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
         "G40.tau3",
         ("wald",),
         LIMIT,
-        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
-        "",
-    ),
-    (
-        "mtp-pricing",
-        "property",
-        "interval_calibration/up_learned_density_tau5__correctly_specified",
-        "G40.tau5",
-        ("wald",),
-        LIMIT,
-        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+        "mtp-pricing-learned-density: coverage 0.9383 to 0.9635, SE ratio 1.0000 to 1.0867",
         "",
     ),
 )

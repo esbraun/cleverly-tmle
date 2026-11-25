@@ -1,18 +1,19 @@
-"""The bin count of an oracle binned density in the modified-treatment-policy studies.
+"""The core bin count of an oracle binned density in the modified-treatment-policy studies.
 
 Both ``policy-point-mtp`` and ``longitudinal-mtp`` give the package an oracle hazard: the exact
-probability of each bin.  The only error left in the density ratio is then the binning, which
-is of order ``1 / K`` for ``K`` bins.  A fixed ``K`` leaves that error in place as ``n`` grows,
-so the ratio is not consistent; the first ``longitudinal-mtp`` run found it.  The
+probability of each bin.  The only error left in the density ratio is then the representation,
+the grid and its reading.  A fixed count leaves that error in place as ``n`` grows, so the ratio
+is not consistent; the first ``longitudinal-mtp`` run found it with the histogram reading.  The
 double-robustness cells with a wrong outcome regression need more: their bias is the ratio
-error times the outcome error, so the ratio error must be ``o(n^(-1/2))``.  ``K`` therefore
-grows as ``n^(2/3)``, faster than ``n^(1/2)``.
+error times the outcome error, so the ratio error must be ``o(n^(-1/2))``.
 
-The count at ``n = 2,000`` is 320.  The first run's diagnosis measured the oracle's binning
-error there: with exact bin probabilities the influence curve's spread was 1.14 times the
-efficient one at 80 bins, 1.04 at 160 and 0.99 at 320 on one draw.  At 320 the binning no
-longer moves the cells, so the cells measure the targeting with a nearly exact ratio, which is
-what an oracle hazard is for.
+``oracle_bins(n) = ceil(320 (n / 2,000)^(2/3))`` sets the core count ``K`` of
+:func:`cleverly.learners.density.bin_edges`.  The tail refinement adds at most the pieces its
+row floor allows, and at 320 core bins on 2,000 rows (six rows per core bin) it adds none, so
+``K`` is the grid.  The first run's diagnosis measured the histogram reading's error at 320 as
+too small to move the cells, so the cells measure the targeting with a nearly exact ratio, which
+is what an oracle hazard is for.  The corrected log-polygon reading at the same count is
+measured again when these studies are regenerated.
 """
 
 from __future__ import annotations

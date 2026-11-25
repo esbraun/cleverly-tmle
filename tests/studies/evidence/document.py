@@ -604,11 +604,28 @@ def measured(row: Any) -> str:
             f"bias {render(float(row.bias))}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "ic_gap":
+        # ``mtp-density-tails``: the influence-curve gap SD(IC - D0) / SD(D0) over a cell's
+        # draws.  A 2,000 row is judged on its median, a 20,000 row on its largest gap and on
+        # its median over the 2,000 median of the same arm.
+        measured = (
+            f"median gap {render(float(row.median_gap))}, largest gap {render(float(row.max_gap))}"
+        )
+        if pd.notna(getattr(row, "gap_fall", float("nan"))):
+            measured += f", median over the 2,000 median {render(float(row.gap_fall))}"
+        return measured
+    if family == "cluster_warning":
+        # ``mtp-density-tails``: the draws on which the isolated-cluster helper warns.
+        return f"warned on {int(row.warned_draws)} of {int(row.replicates)} draws"
     if family == "interval_calibration":
         measured = (
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
         )
+        if pd.notna(getattr(row, "remainder_proxy", float("nan"))):
+            # The classifier DR rows of ``mtp-density-tails`` publish the mean remainder
+            # proxy, in efficiency-bound standard errors.
+            measured += f", mean remainder proxy {render(float(row.remainder_proxy))} SE"
         if _has_exact_efficiency(row):
             measured += (
                 ", empirical efficiency ratio "

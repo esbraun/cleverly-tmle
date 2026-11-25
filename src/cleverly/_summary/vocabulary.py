@@ -36,6 +36,8 @@ MISSINGNESS_MODEL: Final = "Missingness model"
 WEIGHTED: Final = " (weighted)"
 #: The model of whether a row's treatment was recorded.
 RECORDING_MODEL: Final = "Recording model"
+#: The route a policy fit estimates its density ratio by, and the rule that chose it.
+POLICY_RATIO: Final = "Policy ratio"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"
@@ -1549,6 +1551,7 @@ T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "calibration": "note",
         "collaborative_model": "note",
         "declared_treatment": "note",
+        "classifier_ratio": "note",
         "fit_status": "note",
         "selection": "note",
         "split_ratio": "note",
@@ -1593,6 +1596,10 @@ T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "declared_treatment": (
             "The treatment probabilities were declared, not fitted, so the treatment rows "
             "compare the declaration with the treatment each row received."
+        ),
+        "classifier_ratio": (
+            "The policy weights come from a classifier that tells each row's policy dose from "
+            "its observed dose, so the fit has no separate treatment model to check here."
         ),
         "fit_status": "{sentences}",
         "selection": "{sentence}",
@@ -1688,6 +1695,7 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
+        "treatment": "No treatment model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
         "folds": (
             "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
@@ -2685,6 +2693,26 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
             "At each time, among units with the same recorded history, the dose a unit got "
             "is unrelated to the outcomes it would have had, in the strong or the standard "
             "form that each causal reading names.",
+            "no",
+        ),
+    ),
+    (
+        "separable components:",
+        (
+            "treatment splits into two parts",
+            "The treatment can be split into a part that acts on the event of interest and a "
+            "part that acts on the competing event, and each part could be given on its own.",
+            "no",
+        ),
+    ),
+    (
+        "dismissible components",
+        (
+            "each part acts on one event",
+            "The part for the competing event changes the event of interest only by changing "
+            "the competing event, and the part for the event of interest changes the competing "
+            "event only by changing the event of interest. This fails, for example, when an "
+            "unrecorded cause affects both events.",
             "no",
         ),
     ),

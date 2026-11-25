@@ -691,6 +691,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_density_tails import STUDY as MTP_DENSITY_TAILS
     from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_pricing_censored import STUDY as MTP_PRICING_CENSORED
@@ -924,6 +925,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
+        MTP_DENSITY_TAILS,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,

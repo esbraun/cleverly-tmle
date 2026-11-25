@@ -1330,26 +1330,31 @@ def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | Non
     )
 
 
-def _refuse_unbounded_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
+def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
     """Refuse the propensity axis of a policy fit whose ratios read no bounded probability.
 
     ``g_bounds`` reaches a policy's clever covariate only through a categorical factor
     that the policy changes (:attr:`~cleverly.interventions.PolicySet.reads_bounded_probability`).
-    A ratio of doses, a ratio from a classifier, or a factor that cancels leaves every
-    point of the curve equal to the fit, while its truncated fraction still reports the
-    rows a bound would have clipped.
+    On a continuous or vector dose a point fit fits no propensity ``g(W)``, and the density
+    ratio is its only treatment weight; a classifier ratio reads no probability either; and
+    a factor that cancels moves nothing. Each leaves every point of the curve equal to the
+    fit. The density route at a vector whose categorical component a policy moves is the
+    case that sweeps.
     """
     policies = result.nuisance.policies
     if axis or policies is None or policies.reads_bounded_probability:
         return None
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
-        "this fit's policies divide by a density ratio that the g(W) bounds of a "
-        "truncation curve do not bound, so every point of the curve would equal the fit.",
+        "this fit's policies divide by a density ratio that no g(W) bound reaches: a point "
+        "fit fits no propensity g(W) on a continuous or vector dose, a classifier ratio "
+        "reads no treatment probability, and a categorical factor reaches the ratio only "
+        "where a policy changes the value, so every point of the curve would equal the fit.",
         alternative=(
-            "Use diagnostics.support() for the policy weights; to trim the ratio, fit a "
-            "one-node LongitudinalTreatment with ratio_trim=, or pass mechanism=True when "
-            "an observation mechanism was fitted."
+            "Read the policy weights with diagnostics.support(). To trim the ratio, declare "
+            "the treatment as a one-node LongitudinalTreatment and sweep its ratio_trim= with "
+            "longitudinal_truncation_curve(), or pass mechanism=True where the fit has "
+            "missing outcomes."
         ),
     )
 
@@ -1363,7 +1368,7 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
     ("learned_rule_splits", _refuse_learned_rule_splits),
-    ("density_ratio", _refuse_unbounded_ratio),
+    ("policy_ratio", _refuse_policy_ratio),
 )
 
 
@@ -1539,7 +1544,9 @@ def truncation_curve(
     ------
     CapabilityError
         When the requested axis is refused, as :func:`truncation_refusal` states, or when an
-        explicit ``g(W)`` bound moves a value of a declared known mechanism.
+        explicit ``g(W)`` bound moves a value of a declared known mechanism.  A modified
+        treatment policy fit whose ratios read no bounded probability refuses the ``g(W)``
+        axis, as the paragraph on those fits above says.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
     if is_continuous_survival(result):

@@ -69,6 +69,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.learners import GLM
 from cleverly.longitudinal import LTMLE, StructuralNestedMean
 from tests.unit import _capability_sweep_support as sweep
+from tests.unit import _mtp_route_kinds as mtp_route_kinds
 from tests.unit.test_plotting_core import assert_short_title
 
 #: The tests that share the module's fits run on one worker, which fits each family once.
@@ -477,6 +478,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
+    # The modified-treatment-policy fits of each shape on each density-ratio route.
+    **mtp_route_kinds.FITS,
     # X54 (c): the delete-one-cluster jackknife variance, which ships for LTMLE only (the
     # registered measurement refuses it for point TMLE). The interval plots read the jackknife
     # interval, and influence() says its curve is not the reported variance.
@@ -505,6 +508,59 @@ NOT_FITS = {
         "result keeps no fit to plot"
     ),
     "TMLEResultSet": "one TMLEResult per level, each covered as a point fit",
+}
+
+#: Each modified-treatment-policy shape's cells, the same on every density-ratio route.
+_MTP_EXPECTED: dict[str, dict[str, str]] = {
+    "shift": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "DataError: A is continuous, so there",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "DataError: A is continuous, so there",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "CapabilityError: no probability model with a",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    # The banded fit's outcome is binary, so its outcome model has a calibration plot.
+    "band": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "DataError: A is continuous, so there",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "DataError: A is continuous, so there",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "atoms": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "DataError: A is continuous, so there",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "DataError: A is continuous, so there",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "CapabilityError: no probability model with a",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "panel": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "DataError: A1 is a continuous treatment,",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
 }
 
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
@@ -1064,6 +1120,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    **{name: _MTP_EXPECTED[name.split("/")[1]] for name in mtp_route_kinds.FITS},
 }
 
 

@@ -1,0 +1,22 @@
+=== mtp-density-tails declared run
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/mtp_density_tails/regenerate.py --output /home/user/fix9-assembly/declared-r2 --jobs 4
+commit: 58538bfa7ce7a5395afa2137aa447db1b707e81e; upstream 58538bfa7ce7a5395afa2137aa447db1b707e81e
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 3b2e4b9d018e2e621589ee4235c41336fd3bf2d9d2bbf83d53967cea0ebfca65
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-20T04:57:52+00:00
+note: resumed from /root/.cache/cleverly/runs/mtp-density-tails/2cb7fd8b99e3, reused the Python phase
+finished: 2026-11-20T05:04:11+00:00
+wall seconds: 378.9
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 7524599d0cb776002481ca5ab40217beac3b31f0411a0a8ea1cec72e6c94aa7f
+sha256 performance-tests.csv: 829e20bdf1fded0fb6ae83fd0314175cdd2241d87b3741fcce64b3ebda8fe0e2
+sha256 properties.csv: 0efa7af2263ee8c59bd6c718017884869bd4370841b800a0f31380cc45956e9a
+sha256 property-replicates.parquet: 715ba5a6b63e9c60f68fa6a154f2a8d3ddd9d62eea611ffb0d9617f659399eff
+sha256 replicates.parquet: 528955471b65def1fc948610e700713706c1ee8b21741aaefd03d46c662c1889
+sha256 summary.csv: 52f3be91123aaefd96d5ea2374617a4006cc7ac96d0771290f5c76bced5c9283
+

@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-vector-mtp",
-      "cleverly_version": "0.1.5",
-      "cleverly_commit": "40a39a1a124921f1b9e0071d3f71323b42e8dff4",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "58538bfa7ce7a5395afa2137aa447db1b707e81e",
       "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
-      "pandas": "3.1.0",
-      "scikit_learn": "1.9.1"
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "lmtp",
@@ -112,6 +114,7 @@
       ]
     },
     "reference": "natural course",
+    "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
       "alpha": 0.05,
@@ -139,26 +142,26 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_vector_mtp.py": "2d0b326db58e529a093758b90df36d2ba4c84a9397fc7a859fd96869a4379860",
+    "tests/studies/canonical_vector_mtp.py": "14f390d40264dba0391b3750c9d1f5b32d34b092e78e454829890c7f95022d03",
     "tests/studies/vector_mtp_properties.py": "ca652ebaba89f65cf2fa2d95bbcb74780a38ebd600263f35c1f06c5829883624",
     "tests/studies/vector_mtp_common.py": "697a6655226d863319d38e155af373552f8a534e4daaf58f1847f2e6f332ba73",
-    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
     "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
-    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
-    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
-    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
-    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
+    "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "a800fadfd065dec524bc75f758252b4e0d41b81c52237e4a84fb08e845f69ef5",
-    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
-    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
-    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+    "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
     "tests/canonical/lmtp_vector_adapter.R": "f66c67bb9986903d6942f408f7319560efcfe6f81a020267d3a2542f5df86453",
     "tests/canonical/vector_mtp_logratio.R": "05474ac5abe6fecb937be0a1f8df2967ad7fa2c8b0e96ddb957386146ef3e265",
     "tests/canonical/vector_mtp_runner.R": "a13bcf21cca762df083ed92a42cd1db9bd512e9db68373b21f94304eecaa701a"
@@ -168,16 +171,16 @@
     "tests/canonical/vector_mtp_runner.R": "a13bcf21cca762df083ed92a42cd1db9bd512e9db68373b21f94304eecaa701a",
     "tests/canonical/lmtp_vector_adapter.R": "f66c67bb9986903d6942f408f7319560efcfe6f81a020267d3a2542f5df86453",
     "tests/canonical/vector_mtp_logratio.R": "05474ac5abe6fecb937be0a1f8df2967ad7fa2c8b0e96ddb957386146ef3e265",
-    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+    "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
     "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
   "sha256": {
-    "replicates.parquet": "69eaf112099c4928e2c6f6e8b6c92ecea0c6d2d8f72a8faaaa3ef2cbfe02915e",
-    "summary.csv": "c58171d7b938e2482a46de2bd803f72df11f448e1cb0bce12fe02e897b94e62b",
-    "equivalence.csv": "a2d99895e8169cb44305465ce31a5e17f1d041ead8cd00de8b2456e9b1ee5bb8",
-    "performance-tests.csv": "269ca3eb34d400a82ebed4586654ce5c4170d9f07ef5ec3112d8063c124908ee",
-    "property-replicates.parquet": "6afcea905dee1cc2bec1eb8e342408289c060c4939c3f93a08184e38ab586f2e",
-    "properties.csv": "d18f53458057dd07e116e574c6612067dfcff5ba3eed780355a52ef1537dbc91"
+    "replicates.parquet": "fadf2cb1f0f13708090780a618953cdc677da056b3f503c24a535c152803c16a",
+    "summary.csv": "b0152e4b565d18a0828d10ebe6294d3b21317eced4f30d18b0effd3f6cce0355",
+    "equivalence.csv": "8b5eca3cfe3729bb156545b714b3c6a2d03818aaf3531843b6851566a1334b63",
+    "performance-tests.csv": "072d8ec4e343490e7955f10997e982cc9c3c2d94cd9a9f98ba9bfbaf4d00b269",
+    "property-replicates.parquet": "a27c4e08156ae2efaebae7d7ee99253d63d8f8efef4973f5b8993ab1b6781e83",
+    "properties.csv": "ccd6341d218c3ad5bdaa0a66075aaa72fbec8045f22a1bb11b558660ff298345"
   }
 }

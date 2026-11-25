@@ -24,16 +24,17 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
   influence curve: the truths are exact sums or quadratures to 1e-10 and every learner is
   correctly specified.  Diagnose it against ``tests/unit/test_hazard_mtp.py``, fix a defect,
   and re-run under a fresh declaration.
-* The density route is gated on the ``truncated`` law only (the dose truncated to [0, 5.5], the
-  shift capped at 5.5), where every gated route's influence-curve gap meets
-  ``hazard_mtp_properties.IC_GAP_BOUND`` and halves from n = 2,000 to n = 20,000
-  (``TestTheInfluenceCurveGap``).  The halving rule is the claim; the absolute bounds 0.30 and
-  0.10 are loose sanity bounds set after the scratch pilot.  The
-  ``untruncated_density`` rows are reported with no verdict and cannot be red: on the
-  untruncated law the shipped route's quantile tail bins are wider than the shift, and its gap
-  does not fall (0.26 SE at n = 20,000 in the committed ``ic_gap`` pilot).  That is the shipped
-  route's limitation, disclosed on the evidence page and reported to the project for a separate
-  fix of the shipped density route; it is not this study's.
+* The density route is gated on the ``truncated`` law (the dose truncated to [0, 5.5], the
+  shift capped at 5.5) and on the untruncated ``gaussian`` law (``untruncated_density``).  On
+  both, as on every gated fit label, the influence-curve gap meets
+  ``hazard_mtp_properties.IC_GAP_BOUND`` and halves from n = 2,000 to n = 20,000 in the
+  committed ``ic_gap`` pilot (``TestTheInfluenceCurveGap``).  The halving rule is the claim;
+  the absolute bounds 0.30 and 0.10 are loose sanity bounds set after the scratch pilot.
+  ``untruncated_density`` was first declared as reported rows with no verdict, because under
+  the earlier density route its quantile tail bins were wider than the shift and its gap did
+  not fall (0.26 SE at n = 20,000).  The corrected route splits those bins, the gap now halves,
+  and the fit is gated with its calibration cells, as the plan decided before this run; a red
+  ``untruncated_density`` calibration row takes the calibration route below.
 * A red calibration row, in the words of the plans guide (``guide/studies.md``, Red cells): "A
   red calibration row is a finite-sample red only when the 99% interval of its SE ratio
   contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. It then
@@ -74,8 +75,9 @@ is re-sized, re-drawn or downgraded after a verdict is seen.
   defect suspect (``convergence_defect_suspect``; the count adds the cell's lost replicates,
   so it can only over-state), does not pass, and blocks the pull request.  The summary also
   counts ``nonconverged_fits`` and ``unexpected_warning_fits`` per cell.
-* ``SparseInfluenceWarning`` is expected only on ``untruncated_density``.  On a gated fit label
-  it is counted in ``unexpected_warnings`` and reported; no verdict reads that count.
+* ``SparseInfluenceWarning`` is expected only on ``untruncated_density``, whose uncapped shift's
+  ratio is heavy in the top dose ranks.  On any other fit label it is counted in
+  ``unexpected_warnings`` and reported; no verdict reads that count.
 * A replication that raises is never redrawn.  A recordable failure costs its replicate under
   the declared bound of 0.01; a cell past its bound takes the route above with the count stated.
 """

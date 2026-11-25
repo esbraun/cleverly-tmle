@@ -97,7 +97,7 @@ def fits(exact_grid_law_module: Any) -> dict[str, Any]:
 
 def _unruled_curve(result: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     """The curve with the density-ratio rule dropped: the deliberate mutation."""
-    rules = tuple(rule for rule in positivity._TRUNCATION_RULES if rule[0] != "density_ratio")
+    rules = tuple(rule for rule in positivity._TRUNCATION_RULES if rule[0] != "policy_ratio")
     monkeypatch.setattr(positivity, "_TRUNCATION_RULES", rules)
     return positivity.truncation_curve(result, [0.3, 0.1])
 
@@ -137,7 +137,7 @@ def test_without_the_rule_the_curve_repeats_the_fit(
 
 
 def test_the_rule_is_on_the_propensity_axis_only(fits: dict[str, Any]) -> None:
-    assert positivity._refuse_unbounded_ratio(fits["vector dose density"], True) is None
+    assert positivity._refuse_policy_ratio(fits["vector dose density"], True) is None
 
 
 @pytest.mark.parametrize(("ratio", "noted"), [("density", True), ("classifier", False)])

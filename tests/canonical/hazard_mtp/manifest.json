@@ -5,11 +5,11 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.2.4",
-      "cleverly_commit": "7c81ba65fb8d8d6f60f22e8eb1bedb8a9316609c",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "336bac14303ac013267fa74db01d99da1c1e5f22",
       "cleverly_worktree_clean": true,
-      "python": "3.13.16",
-      "numpy": "2.5.4",
+      "python": "3.13.18",
+      "numpy": "2.5.5",
       "scipy": "1.18.1",
       "pandas": "3.1.1",
       "scikit_learn": "1.9.1",
@@ -114,10 +114,15 @@
         "vector",
         "classifier",
         1
+      ],
+      "untruncated_density": [
+        "gaussian",
+        "density",
+        1
       ]
     },
     "outcome_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
-    "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location density by maximum likelihood, read through the binned hazards (density route, truncated law; least squares on the reported untruncated row); logistic classifier on W1, W2, (F,) A (classifier route)",
+    "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location density by maximum likelihood, read through the binned hazards (density route, truncated law; least squares on the untruncated law); logistic classifier on W1, W2, (F,) A (classifier route)",
     "censoring_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
     "regimens": {
       "shift": "one level up (levels); A + 1 (gaussian, vector); A + 1 capped at 5.5 (truncated)",
@@ -151,27 +156,27 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_hazard_mtp.py": "261b796587a6fb82c977e597d417ebd5e36e156f1c878564bcadb48e22db5fe9",
-    "tests/studies/hazard_mtp_properties.py": "64d17bbe6f72ceb2fbb9926ba160c85c6975dc5b4db7d2a3effab54688260a6c",
-    "tests/studies/hazard_mtp_law.py": "c94d9ac745c7e60101ce23b67f2dc7a77e7e36d870e97540ff793361e7be77e2",
-    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
-    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
-    "src/cleverly/longitudinal/hazard.py": "dea4d9e78ce9aa2aa7a3913bf7fe0e0ec7a6a2741265d387af3a1f4880c3ec61",
+    "tests/studies/canonical_hazard_mtp.py": "a52311926b7980783758636ba8ccd3f207685e8832503c50573a6f175d41ca17",
+    "tests/studies/hazard_mtp_properties.py": "69d4bbb134591a42db56083feae71487ae8c04ff476fee95587d4e349e6282bc",
+    "tests/studies/hazard_mtp_law.py": "2efdd0502d02d0c412d6841518d079b4256cbd482b99daa266cfd0ed38197a4d",
+    "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
+    "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
+    "src/cleverly/longitudinal/hazard.py": "60f3ccd4efc96f2b4a308bbe496c30096cc99020c185c91c52ad7931f148e7ac",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
-    "tests/studies/evidence/properties.py": "1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505",
-    "tests/studies/evidence/property_verdicts.py": "80dd5aa45bdb65f5b8526861035d1012c389d0e6e492eb46febc40fa65a2316e",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
     "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5"
+    "tests/studies/evidence/simultaneous.py": "f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "533416d3c9472cacea996313c30faa474ccb512d4d936d293f9b9f77cc32f422",
-    "summary.csv": "721936182b78238f1d79569daa394be94aefa9519aeb36065a334a8b5bcbb9d8",
+    "replicates.parquet": "5f4e632a2d383abe036903e6586199b6ccf3dcdc86e5c7ff143f88690863fc68",
+    "summary.csv": "466634a22c677e2b0d9de89a634c4eac0bd612091414848a5dd0adc227cb1321",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "0e1ae83160f05452f661606c64cb38558a87d64329112c885c5d8fc9f1eabc48",
-    "property-replicates.parquet": "fc499b426f53b6214d477593ea276fe83635771e8730500c22a27f66256ea17c",
-    "properties.csv": "bc67b13f8191bd71bfd7592a70c52c6b2b1d9d7edbaf3685424369219d4f5d6e"
+    "performance-tests.csv": "dab20f7c6b92b183e4c63ccc78265de35857eb1caee4b612f15164015aca99b3",
+    "property-replicates.parquet": "2643114e615b103f408dd5e0ea4309845e618c42c691e60b91f5da127366dcde",
+    "properties.csv": "c1bc2de9ea7209b661c9da890fe6e353392cdb91ee5687aa3e5442e14cec6212"
   }
 }

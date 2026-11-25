@@ -1,0 +1,125 @@
+{
+  "schema_version": 2,
+  "study": "modified treatment policy on a point dose, corrected density and classifier ratios",
+  "slug": "mtp-density-tails",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "58538bfa7ce7a5395afa2137aa447db1b707e81e",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261163,
+    "resampling_seed": 2026116301,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "G": [
+        "policy_mean"
+      ],
+      "T": [
+        "policy_mean"
+      ],
+      "C": [
+        "policy_mean"
+      ],
+      "S": [
+        "policy_mean"
+      ],
+      "B": [
+        "policy_mean"
+      ],
+      "U": [
+        "policy_mean"
+      ]
+    },
+    "construction": "point TMLE of a modified treatment policy on a continuous dose",
+    "primary_route": "density, oracle hazard on the default grid, correct outcome regression, in sample",
+    "density_bins": "default_density_bins(n)",
+    "classifier_route": "ratio=None (resolved to the classifier), default stack, 5 outer folds, policy steps, q_bounds=[-1000.0, 1000.0]",
+    "longitudinal_route": "ratio=None at both continuous nodes, default stack, 5 outer folds",
+    "tol": 1e-10,
+    "max_iter": 100,
+    "laws": [
+      "G",
+      "T",
+      "C",
+      "S",
+      "B",
+      "U"
+    ],
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mtp_density_tails.py": "d60fa87c2ac724e39a3d892aaf21790d8d1af4cd0deeb4b2a508bc6ec0d31a61",
+    "tests/studies/mtp_density_tails_properties.py": "3750f729c63ded660e14040cfff24d8016635983c165710a35c8254eff4a5b88",
+    "tests/studies/mtp_density_tails_fits.py": "b43616193e2214a5a28c589815e74ef022d76cefc00966ec54a3dabf106a4001",
+    "tests/mtp_density_tails_law.py": "122297d44d40d473a2477a3a2b63378b9307b4bdd2b728387e4401e627b7a7b4",
+    "tests/studies/canonical_longitudinal_mtp.py": "5e387b3a8fdf9f19f6a093f6d72915b0624d413c5ba34f68b0d607157d6988fd",
+    "tests/studies/longitudinal_mtp_common.py": "779161e2c313b17246f094d464183e46d3673cfe287d64406b68a9bcdeccad42",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
+    "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/studies/mtp_study_tools.py": "b7bb5aefd466fbc69bd490ca2f8043c1b7654d209f0cdb54d5a3e8953cc903b9",
+    "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
+    "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
+    "src/cleverly/learners/density.py": "9827a72342b4be987f38885c334d135df7c45c5e46a7acc5b80f99bd8d95e667",
+    "src/cleverly/learners/density_ratio.py": "3fbf8e041a61eea66d9c7b36497de83e8700336a2ad297dcfd31d61a989eb13c",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "528955471b65def1fc948610e700713706c1ee8b21741aaefd03d46c662c1889",
+    "summary.csv": "52f3be91123aaefd96d5ea2374617a4006cc7ac96d0771290f5c76bced5c9283",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "829e20bdf1fded0fb6ae83fd0314175cdd2241d87b3741fcce64b3ebda8fe0e2",
+    "property-replicates.parquet": "715ba5a6b63e9c60f68fa6a154f2a8d3ddd9d62eea611ffb0d9617f659399eff",
+    "properties.csv": "0efa7af2263ee8c59bd6c718017884869bd4370841b800a0f31380cc45956e9a"
+  }
+}

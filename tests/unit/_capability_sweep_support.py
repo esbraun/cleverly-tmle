@@ -87,6 +87,7 @@ from tests.conftest import (
 )
 from tests.unit import _known_mechanism_support as known_mechanism
 from tests.unit import _learned_rule_support as learned_rule_support
+from tests.unit import _mtp_route_kinds as mtp_route_kinds
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import (
@@ -2632,6 +2633,14 @@ _BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
 
+#: The rows each modified-treatment-policy shape answers, on every route.
+_MTP_ROWS: dict[str, tuple[str, ...]] = {
+    "shift": (*_READ, "refute"),
+    "band": (*_READ, "refute"),
+    "panel": (*_READ, *_POINT),
+    "atoms": (*_READ, "refute", *_PLUGIN_BOUND),
+}
+
 #: One kind of fit per name: live point fits, two study fits, reconfigured results whose
 #: refit this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
@@ -2659,7 +2668,8 @@ KINDS: dict[str, Kind] = {
     # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
     "known_score": _kind(fit_known_score, *_LIVE, *_BOUND),
     "missing": _kind(fit_missing, "marginal_bounds", *_LIVE, *_TILT),
-    # A dose's density ratio reads no bound of g(W), so no truncation curve exists.
+    # A point policy fit on a dose has no bound on its density ratio, so the g(W) axis of
+    # the truncation curve is refused (the policy_ratio rule).
     "shift": _kind(fit_shift, *_READ, "refute"),
     "cde": _kind(fit_cde, *_LIVE),
     "multi_arm": _kind(fit_multi_arm, "marginal_bounds", *_ARM),
@@ -2771,6 +2781,7 @@ KINDS: dict[str, Kind] = {
     "drtmle+constant_pair": _kind(
         fit_drtmle_constant_pair, *_LIVE, "corrections", "evalue", "marginal_bounds"
     ),
+    # Two policy means of a dose: the g(W) truncation axis is refused (policy_ratio).
     "policy_means": _kind(fit_policy_means, *_READ, "refute"),
     "natural_course_study": _kind(fit_natural_course_study, "marginal_bounds", *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
@@ -2782,8 +2793,7 @@ KINDS: dict[str, Kind] = {
         *_BOUND,
         refits=False,
     ),
-    # A shift fit answers no bound row, and its density ratio reads no g(W) bound, so
-    # its truncation row refuses too.
+    # A shift fit answers no bound row, and its g(W) truncation axis is refused.
     "reconfigured_unbounded_scale": _kind(unbounded_scale, *_READ, refits=False),
     "reconfigured_unbounded_scale_ate": _kind(
         unbounded_scale_ate, "marginal_bounds", *_READ, "truncation_curve", *_BOUND, refits=False
@@ -2877,7 +2887,8 @@ KINDS: dict[str, Kind] = {
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
     ),
-    # A classifier ratio reads no bound of g(W), so no truncation curve exists.
+    # On the classifier route the ratio is the only treatment weight of a dose shift, so a
+    # g(W) bound moves nothing and the truncation row refuses it.
     "vector_policy": _kind(fit_vector_policy, *_READ, "refute"),
     # Every bound and refutation row refuses the adaptive working-model fit by name.
     "atmle": _kind(fit_atmle, "corrections", "nuisance_models", "score_equations", "support"),
@@ -2902,6 +2913,14 @@ KINDS: dict[str, Kind] = {
     "continuous_survival+restricted": _kind(
         fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
     ),
+    # The modified treatment policy fits of each shape on each density-ratio route
+    # (tests.unit._mtp_route_kinds). A point fit's g(W) truncation axis is refused; the
+    # longitudinal curve sweeps ratio_trim=; the omitted-variable rows answer on the dose
+    # whose declared atoms hold every observed and shifted dose.
+    **{
+        name: _kind(fit, *_MTP_ROWS[name.split("/")[1]])
+        for name, fit in mtp_route_kinds.FITS.items()
+    },
     "continuous_survival+influence_curve": _kind(
         fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
     ),
@@ -3285,6 +3304,15 @@ class Mutation:
     signature: str
 
 
+#: The point policy fits on a dose, whose g(W) truncation axis the policy_ratio rule refuses.
+_POINT_POLICY_KINDS = (
+    "shift",
+    "shift+missing",
+    "policy_means",
+    "vector_policy",
+    *(name for name in mtp_route_kinds.FITS if not name.startswith("mtp/panel/")),
+)
+
 #: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refuse.
 #: The regime, MSM, ratio and attributable kinds left this list when X82 part G gave
 #: them a tilt.
@@ -3324,24 +3352,20 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        # A shift, policy-mean or vector-policy fit whose ratio reads no bound would return
-        # a curve that repeats the fit (X124 B6). With missing outcomes the default axis
-        # still refuses; only mechanism=True runs.
+        # A policy fit whose ratio reads no bound would return a curve that repeats the
+        # fit. With missing outcomes the default axis still refuses; only mechanism=True runs.
         frozenset(
             {
                 "incremental",
                 "incremental+missing",
-                "shift",
-                "shift+missing",
-                "policy_means",
-                "vector_policy",
                 "reconfigured_unbounded_scale",
+                *_POINT_POLICY_KINDS,
             }
         ),
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
-        + r"the truncation curve re-targets the fitted nuisances|"
-        + r"this fit's policies divide by a density ratio)",
+        + r"the truncation curve re-targets the fitted nuisances"
+        + "|this fit's policies divide by a density ratio that no g\\(W\\) bound reaches)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -3387,6 +3411,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "separable",
                 # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
                 "learned_rule+level",
+                # Every policy fit reports its policy means first (X82 part C).
+                *mtp_route_kinds.FITS,
                 # The value at an intermediate level has no exact placebo null (X11 (j4)).
                 "optimal_rule+intermediate",
                 # The default continuous-time request reads cif_regimen, a risk with no
@@ -3444,6 +3470,7 @@ MUTATIONS: dict[str, Mutation] = {
         # refit would still divide by the declaration.
         # A TMLE fit with a declared mechanism has an outcome regression, so only the
         # predicate's known-mechanism rule refuses its benchmark (X35).
+        # The atoms kind adjusts for one covariate, which the benchmark cannot drop.
         frozenset(
             {
                 "split_plan",
@@ -3453,6 +3480,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule_ep_sieve",
                 "learned_rule_ep_learner",
                 "learned_rule+estimated_weights",
+                *(name for name in mtp_route_kinds.FITS if name.startswith("mtp/atoms/")),
                 # The bound of the value of the optimal rule runs, and its benchmark refit
                 # refuses (X11 (f3), (n2)).
                 "optimal_rule",

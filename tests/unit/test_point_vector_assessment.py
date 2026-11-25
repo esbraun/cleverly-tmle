@@ -85,8 +85,7 @@ def test_the_capability_table_is_the_scalar_dose_table() -> None:
     assert table == _capabilities(scalar)
     for operation in ("support", "score_equations", "nuisance_models"):
         assert table[operation][0], operation
-    # Both fits take the classifier ratio, which reads no bound of g(W): the curve would
-    # repeat the fit at every bound, so its row refuses on both.
+    # On the classifier route no g(W) bound reaches the ratio, at a vector or a dose.
     assert not table["truncation_curve"][0]
 
 
