@@ -7,7 +7,7 @@ tier red with nothing to fix.
 
 from __future__ import annotations
 
-from tests.notebook_freshness import stored_cell_text, text_moves, unreproduced
+from tests.notebook_freshness import REFIT_RELATIVE, stored_cell_text, text_moves, unreproduced
 
 TABLE = "ate      0.1524    0.0209   [0.1115, 0.1927]   <0.0001\nn = 1500\n"
 
@@ -83,3 +83,21 @@ def test_unreproduced_reports_moves_and_stale_exemptions() -> None:
     assert moved == {} and stale == ["c"]
     _, stale = unreproduced(stored, fresh, {"gone": "cell removed"})
     assert stale == ["gone"]
+
+
+def test_a_refit_cell_tolerates_solver_noise_and_still_catches_a_move() -> None:
+    # The drift CI showed for sequential-pricing's refit cells against a stamp from another machine.
+    stored = "kish 5325.470 2922.186 21.835 1973.710"
+    noisy = "kish 5325.445 2922.193 21.834 1973.717"
+    assert text_moves(stored, noisy), "the strict rule rejects several digits moving at once"
+    assert text_moves(stored, noisy, relative=REFIT_RELATIVE) == []
+    moved = "kish 5325.470 2922.186 21.835 1993.710"
+    assert text_moves(stored, moved, relative=REFIT_RELATIVE) == ["1973.710 -> 1993.710"]
+    assert text_moves("rows 1448", "rows 1449", relative=REFIT_RELATIVE) == ["1448 -> 1449"]
+
+
+def test_only_refit_cells_get_the_relative_tolerance() -> None:
+    stored = {"plain": "x 100.000 200.000", "refit": "x 100.000 200.000"}
+    fresh = {"plain": "x 100.004 200.004", "refit": "x 100.004 200.004"}
+    moved, _ = unreproduced(stored, fresh, {}, refit=["refit"])
+    assert list(moved) == ["plain"]

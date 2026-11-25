@@ -72,7 +72,11 @@ the refit test. That test checks every notebook at once, so run it by name.
 The fast tier compares what each executed cell prints, and the plain text of each value it
 displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
 left out. One last-digit rounding change per cell passes, so a library release that rounds
-differently does not fail; a count that changes, or a result that moves, fails. When it fails,
+differently does not fail; a count that changes, or a result that moves, fails. The slow tier
+compares refit cells, and the cells after them, within a relative tolerance of 1e-4, since their
+learner fits vary in about the sixth figure across machines.
+
+When it fails,
 re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
 to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
 callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces.

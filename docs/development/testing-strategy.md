@@ -248,7 +248,9 @@ A hash comparison cannot see a library change that moved a published number whil
 its bytes. The fast tier therefore compares the text each tutorial notebook's cells print with the
 text the notebook stores, and the slow tier does the same for the refit cells
 (`tests/notebook_freshness.py`). The comparison allows one last-digit rounding change per cell, so
-a library release that rounds differently passes and a moved result fails. When it fails,
+a library release that rounds differently passes and a moved result fails. In the slow tier, refit
+cells and the cells after them compare within a relative tolerance of 1e-4, because their learner
+fits vary in about the sixth figure from one machine to another. When it fails,
 re-execute the notebook and update the prose; never pin a library to keep an old output.
 `python scripts/execute_notebook.py <path> --check` re-executes a notebook, reports each cell
 whose printed text moved, and writes nothing. A notebook's stamp must also name the current
