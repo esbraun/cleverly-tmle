@@ -1465,7 +1465,17 @@ def _long_expansion(
     rows = np.repeat(np.arange(bins.size, dtype=np.int64), counts)
     offsets = np.repeat(np.cumsum(counts) - counts, counts)
     index = np.arange(rows.size, dtype=np.int64) - offsets
-    design = np.column_stack([covariates[rows], _bin_block(index, n_hazards, index_only)])
+    del offsets
+    # The design is filled in place, block by block, rather than stacked from whole blocks:
+    # the table is most of a fit's memory, and stacking held it twice.  Every entry is the
+    # value `np.column_stack([covariates[rows], _bin_block(index, ...)])` gives, in C order.
+    p = covariates.shape[1]
+    width = 1 if index_only else n_hazards
+    design = np.empty((rows.size, p + width), dtype=np.result_type(covariates, float))
+    design[:, :p] = covariates[rows]
+    design[:, p] = index
+    for b in range(1, width):
+        np.equal(index, b, out=design[:, p + b], casting="unsafe")
     target = (index == bins[rows]).astype(float)
     return design, target, rows
 
