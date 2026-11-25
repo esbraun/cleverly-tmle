@@ -55,10 +55,12 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 | `hazard_library` | `hazard_library` | `None` | exact times | the candidate models of each event's hazard, one chosen by cross-validation. `None` is three Cox models |
 | `censoring_library` | `censoring_library` | `None` | exact times | the same, for the hazard of leaving follow-up |
 
-Inside each training set, screening runs a cross-validated lasso that asks which covariates
-predict the outcome once the treatment is accounted for, as R's `tmle` does. It keeps those, and
-adds the next strongest until it has `min_retain`. Screening picks the covariates the fit adjusts for from the data, so report it
-([covariate screening](../technical-reference/point-treatment-tmle.md#covariate-screening)).
+Inside each training set, screening runs a cross-validated lasso that asks which covariates predict
+the outcome once the treatment is accounted for, as R's `tmle` does. It keeps those, and adds the
+next strongest until it has `min_retain`. Screening picks the covariates the fit adjusts for from
+the data, so report it. If it drops a common cause of treatment and outcome, the answer leans on the
+outcome model being right ([covariate
+screening](../technical-reference/point-treatment-tmle.md#covariate-screening)).
 
 The [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) states
 which `ratio` a fit picks under `None`.
@@ -107,7 +109,7 @@ bias left, toward zero.
 | `isotonic` | `isotonic` | `False` | over time | keep the risk curve and its band from going down over time |
 | `ratio_trim` | `ratio_trim` | `None` | over time | trim per-time density ratios at this quantile. A trim that moves a ratio removes the interval |
 | `node_bounds` | `node_bounds` | `None` | over time | a declared outcome range at chosen times |
-| `norm` | `norm` | `None` | exact times | how the correction weighs the times when it chooses its direction; `None` is `"covariance"` |
+| `norm` | `norm` | `None` | exact times | how the correction weighs the estimates at the different times when it chooses its direction: by their covariance (`None`), their variances alone, or equally |
 
 [Targeting and bounds](methods-learners.md) describes the main choices, and
 [stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
@@ -127,7 +129,7 @@ states their contracts.
 | `band_reference` | `band_reference` | `'normal'` | point, over time, dose curve | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 | `bootstrap_interval` | `bootstrap_interval` | `'percentile'` | over time, exact times | the bootstrap interval: percentiles of the replicates, or bias-corrected and accelerated (`"bca"`) |
 | `variance` | `variance` | `None` | over time, exact times | the variance behind the intervals; `None` is the fit's own. [How every method reports uncertainty](../technical-reference/inference.md) lists the choices |
-| `cluster_variance` | `cluster_variance` | `'influence_curve'` | point, over time | the variance of a clustered fit: from each row's contribution, or refit once per left-out cluster (`"jackknife"`) |
+| `cluster_variance` | `cluster_variance` | `'influence_curve'` | point, over time | the variance of a clustered fit: from each row's contribution, or refit once per left-out cluster (`"jackknife"`). Only longitudinal TMLE takes `"jackknife"`; a point fit refuses it for now |
 
 With `simultaneous=None` a fit with several estimates adds the band. Over time, where they fit only
 an event outcome, DR-TMLE reports an interval for each estimate and no band, and collaborative TMLE
