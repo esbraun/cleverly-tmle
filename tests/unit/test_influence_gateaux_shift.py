@@ -51,7 +51,7 @@ def _pieces() -> tuple[np.ndarray, InitialFit, object, PolicySet]:
     outcome = frame["Y"].to_numpy(dtype=float)
     index = np.rint(dose).astype(int)
 
-    density = ConditionalDensity(law.G[covariate], law.EDGES)
+    density = ConditionalDensity(law.bins(law.G[covariate]), law.EDGES, law.OCCUPIED)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         data = CausalData.from_arrays(
@@ -84,7 +84,7 @@ def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, objec
     index = np.rint(dose).astype(int)
     g_w, q_w = law.tilted_nuisances(weights)
 
-    density = ConditionalDensity(g_w[covariate], law.EDGES)
+    density = ConditionalDensity(law.bins(g_w[covariate]), law.EDGES, law.OCCUPIED)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         data = CausalData.from_arrays(

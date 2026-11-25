@@ -26,22 +26,24 @@ larger ``W`` and dose coefficients.
 :class:`~tests.studies.hazard_mtp_law.GaussianDoseHazard`, at
 :func:`~tests.studies.oracle_density_bins.oracle_bins` bins); ``gaussian_classifier`` (the
 classifier route on ``gaussian``, a logistic classifier on ``(W1, W2, A)``); ``gaussian_crossfit``
-(the same classifier at five folds, the cross-fitted variant); and ``vector`` (a mixed node, the
-classifier route).  The cross-fitted variant exercises the cross-fitting of the shifted-dose
+(the same classifier at five folds, the cross-fitted variant); ``vector`` (a mixed node, the
+classifier route); and ``untruncated_density`` (the binned density route on the untruncated
+``gaussian`` law).  The cross-fitted variant exercises the cross-fitting of the shifted-dose
 predictions (``cross_fit_predictions(..., predict_designs=)``), which does not depend on the
 ratio route, so one route covers it; the study's density learner reads the sample it is handed
 through its constructor, so the classifier carries the cross-fitted cell.  A vector held over
 several visits cannot be declared in the data container (plan X70 rev 2.5), so ``vector`` has
 one visit.
 
-**Why the density route is gated on the truncated law.**  On the untruncated Gaussian law the
-policy ratio grows exponentially in the dose, and the top quantile bins at ``oracle_bins(n)``
-are wider than the shift, so a dose and its pre-image share a bin and the binned ratio reads one
-where the true ratio is 5 to 8.  The influence curve of that fit then stays away from the
-efficient influence function as n grows (``tests/unit/test_hazard_mtp_study_design.py``,
-``TestTheInfluenceCurveGap``).  The reported fit label ``untruncated_density``
-(:data:`REPORTED_FITS`) keeps that fit as an ungated row, so the shipped route's tail binning is
-disclosed and not hidden.
+**The density route on both Gaussian laws.**  On the untruncated Gaussian law the policy ratio
+grows exponentially in the dose, and the top quantile bins at ``oracle_bins(n)`` are wider than
+the shift.  The study first declared ``untruncated_density`` as a reported, ungated fit, because
+the binned ratio then read one where the true ratio is 5 to 8 and the fit's influence-curve gap
+did not fall with n.  The corrected density route splits the wide tail bins and reads each
+row's density along a log-linear polygon across bins.  On it the gap halves from n = 2,000 to
+n = 20,000 within the sanity bounds, as on every other fit label
+(``tests/unit/test_hazard_mtp_study_design.py``, ``TestTheInfluenceCurveGap``), so
+``untruncated_density`` is gated with its calibration cells, as decided before the run.
 
 **Truths and bounds** are exact sums over the dose levels, or Gauss-Hermite quadratures over a
 Gaussian dose that reach ``1e-10``, computed by code that never calls the estimator.  The design
@@ -98,15 +100,8 @@ FITS: dict[str, tuple[str, str, int]] = {
     "gaussian_classifier": ("gaussian", "classifier", 1),
     "gaussian_crossfit": ("gaussian", "classifier", 5),
     "vector": ("vector", "classifier", 1),
-}
-#: The reported, ungated fit label: the density route on the untruncated Gaussian law, whose
-#: quantile tail bins are wider than the shift.
-REPORTED_FITS: dict[str, tuple[str, str, int]] = {
     "untruncated_density": ("gaussian", "density", 1),
 }
-ALL_FITS = {**FITS, **REPORTED_FITS}
-#: The replicates of the reported, ungated rows.
-REPORTED_REPLICATES = 800
 #: The primary scenarios: every fit label but the cross-fitted variant, which calibration reads.
 SCENARIOS = ("levels", "gaussian_density", "gaussian_classifier", "vector")
 
@@ -170,7 +165,7 @@ def truths(law_name: str) -> dict[str, float]:
 
 
 def law_of(fit_label: str) -> law.Law:
-    return law.LAWS[ALL_FITS[fit_label][0]]
+    return law.LAWS[FITS[fit_label][0]]
 
 
 ESTIMANDS = {scenario: estimand_names(FITS[scenario][0]) for scenario in SCENARIOS}
@@ -199,8 +194,6 @@ ROUTE_DR_LABELS = (
     "gaussian_crossfit_contrast",
     "vector_contrast",
 )
-#: The reported, ungated cells: the calibration of the density route on the untruncated law.
-REPORTED_LABELS = tuple(f"{fit}_{arm}" for fit in REPORTED_FITS for arm in ("contrast", "risk"))
 #: The joint labels: the band over every estimate of one fit.
 JOINT_LABELS = ("levels_curve", "gaussian_density_curve")
 RATE_SIZES = (1_000, 2_000, 8_000)
@@ -210,17 +203,14 @@ DIFFERENCE_FITS = ("levels", "gaussian_density")
 DIFFERENCE_ARMS = ("paired_difference", "hazard_fit", "iterated_fit", "isotonic_difference")
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
-    "interval_calibration": (
-        *(
-            cell
-            for label in CALIBRATION_LABELS
-            for cell in (
-                _cells(label, "correctly_specified", "shrunken_se_control", "noise_control")
-                if label in CONTROLLED_LABELS
-                else _cells(label, "correctly_specified")
-            )
-        ),
-        *(cell for label in REPORTED_LABELS for cell in _cells(label, "reported")),
+    "interval_calibration": tuple(
+        cell
+        for label in CALIBRATION_LABELS
+        for cell in (
+            _cells(label, "correctly_specified", "shrunken_se_control", "noise_control")
+            if label in CONTROLLED_LABELS
+            else _cells(label, "correctly_specified")
+        )
     ),
     "double_robustness": (
         *_cells(
@@ -301,7 +291,7 @@ CONFIGURATION = {
     "outcome_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
     "treatment_learner": "multinomial logistic on W1, W2 (levels); a truncated-normal location "
     "density by maximum likelihood, read through the binned hazards (density route, truncated "
-    "law; least squares on the reported untruncated row); logistic classifier on W1, W2, (F,) A "
+    "law; least squares on the untruncated law); logistic classifier on W1, W2, (F,) A "
     "(classifier route)",
     "censoring_learner": "unpenalized logistic regression on W1, W2, (F,) A per visit",
     "regimens": {
@@ -322,7 +312,7 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
     from sklearn.dummy import DummyClassifier
 
     current = law_of(fit_label)
-    _, ratio, _ = ALL_FITS[fit_label]
+    _, ratio, _ = FITS[fit_label]
     hazard_correct = configuration in {"both_correct", "outcome_correct"}
     mechanism_correct = configuration in {"both_correct", "mechanism_correct"}
     if not mechanism_correct and current.kind != "levels":
@@ -358,12 +348,13 @@ def learners(fit_label: str, frame: pd.DataFrame, configuration: str = "both_cor
 
 
 #: The warning classes a fit label is expected to raise, filtered by name, with why.  Every
-#: other warning a fit raises is counted in its rows (``unexpected_warnings``); on a gated fit
+#: other warning a fit raises is counted in its rows (``unexpected_warnings``); on any other fit
 #: label a ``SparseInfluenceWarning`` is unexpected and counted.
 EXPECTED_WARNINGS: dict[str, dict[str, str]] = {
     "untruncated_density": {
         "SparseInfluenceWarning": "the uncapped Gaussian shift's ratio is heavy in the top dose "
-        "ranks, so a few rows carry the influence curve's variance; the reported row reads it",
+        "ranks, so a few rows carry the influence curve's variance; the calibration cells read "
+        "the interval it describes",
     },
 }
 #: The support warning of a shift, filtered by its category and message: the uncapped shift
@@ -447,7 +438,7 @@ def fit_recorded(
     simultaneous: bool = False,
 ) -> tuple[Any, FitRecord]:
     """The subject's fit of one fit label's sample, with its :class:`FitRecord`."""
-    law_name, ratio, folds = ALL_FITS[fit_label]
+    law_name, ratio, folds = FITS[fit_label]
     settings: dict[str, Any] = {"ratio": ratio}
     if ratio == "density" and law.LAWS[law_name].continuous:
         settings["density_bins"] = oracle_bins(len(frame))

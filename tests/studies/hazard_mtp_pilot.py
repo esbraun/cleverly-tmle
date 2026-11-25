@@ -27,9 +27,8 @@ label                              what it measures
 n8000``                            the density route's standardized bias fall with n
 ``ic_gap``                         each fit label's influence-curve gap against the exact
                                    efficient influence function (5 draws at n = 2,000 and one
-                                   at n = 20,000, the reported ``untruncated_density`` too), and
-                                   one fit at n = 40,000 per gated fit label whose
-                                   influence-curve SD is read against the bound
+                                   at n = 20,000), and one fit at n = 40,000 per fit label
+                                   whose influence-curve SD is read against the bound
 ``calibration_<fit>``              the calibration fits of one fit label of
                                    :data:`~tests.studies.canonical_hazard_mtp.FITS`, n = 2,000,
                                    8,000 draws each
@@ -94,14 +93,13 @@ WRONG_LEARNER_FITS = (
 
 #: The n of the large fits whose influence-curve SD is read against the efficiency bound.
 BOUND_N = 40_000
-#: Every fit of the ``ic_gap`` label: ``(fit label, n, draw)``.  Each gated fit label and the
-#: reported one take :data:`~tests.studies.hazard_mtp_properties.IC_GAP_DRAWS` draws at the
-#: small size and one at the large size; each gated fit label takes one draw at
-#: :data:`BOUND_N`.
+#: Every fit of the ``ic_gap`` label: ``(fit label, n, draw)``.  Each fit label takes
+#: :data:`~tests.studies.hazard_mtp_properties.IC_GAP_DRAWS` draws at the small size, one at the
+#: large size and one at :data:`BOUND_N`.
 IC_GAP_JOBS: tuple[tuple[str, int, int], ...] = (
     *(
         (fit, n, r)
-        for fit in (*properties.CALIBRATION_FITS, *properties.REPORTED_FITS)
+        for fit in properties.CALIBRATION_FITS
         for n, draws in zip(properties.IC_GAP_SIZES, (properties.IC_GAP_DRAWS, 1), strict=True)
         for r in range(draws)
     ),

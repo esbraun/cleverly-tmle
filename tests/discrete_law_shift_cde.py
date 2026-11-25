@@ -163,7 +163,19 @@ POLICIES: dict[str, tuple[int, ...]] = {
 
 #: Bin edges that make the density a probability mass function: every bin one wide, each
 #: holding exactly one dose.  This is what a ``ConditionalDensity`` over this law carries.
-EDGES = np.array([-0.5, 0.5, 1.5, 2.5, 3.5])
+EDGES = np.array([-0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25])
+
+#: The bins of :data:`EDGES` that hold a dose; the others are the empty flanking bins.
+OCCUPIED = np.array([True, False, True, False, True, False, True])
+
+
+def bins(g: np.ndarray) -> np.ndarray:
+    """``(n, 7)`` bin probabilities over :data:`EDGES` from ``(n, 4)`` dose probabilities."""
+    g = np.asarray(g, dtype=float)
+    out = np.zeros((*g.shape[:-1], EDGES.size - 1))
+    out[..., OCCUPIED] = g
+    return out
+
 
 #: The support, ordered ``(w, a, z, k)``.  Row blocks of the sample follow this order.
 SUPPORT: tuple[tuple[int, int, int, int], ...] = tuple(
@@ -416,9 +428,9 @@ class DiscreteShiftCoarsenedLaw:
         return w, a
 
     def bin_probabilities(self, covariates: Any) -> np.ndarray:
-        """``g(. | w)`` as the ``(n, 4)`` matrix a ``ConditionalDensity`` carries."""
+        """``g(. | w)`` as the ``(n, 7)`` matrix a ``ConditionalDensity`` over EDGES carries."""
         w = np.rint(np.asarray(covariates, dtype=float).reshape(-1)).astype(int)
-        return np.asarray(G_EXACT[w], dtype=float)
+        return bins(G_EXACT[w])
 
     def missingness(self, covariates: Any, dose: Any) -> np.ndarray:
         """``P(Delta = 1 | A = dose, W)`` -- deliberately not a function of ``Z``."""

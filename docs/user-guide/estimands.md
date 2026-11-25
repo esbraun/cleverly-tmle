@@ -473,7 +473,6 @@ policies = (Shift(0.0, cap=None), Shift(0.25, cap=4.0), Shift(0.5, cap=4.0))
 result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
     method=quick,
-    density_bins=40,
     random_state=5,
 )
 ```
@@ -482,11 +481,69 @@ A shifted dose above the cap holds the row at its own dose. The example cap of 4
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
 
-The correction step needs the ratio of the density of each policy dose to the density of the
-observed dose. By default the fit estimates the dose density in `density_bins` bins. With
-`ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
-policy copy, and the ratio comes from its predicted odds. The classifier route fits no density,
-so it suits a flexible classifier when the bins are too coarse.
+The correction step needs, for each row, how much more or less common the policy dose is than
+the dose the row received: a ratio of two densities of the dose given the covariates. By default
+the fit learns that ratio directly. It stacks each observed row with its policy copy, the
+treatment learner learns to tell the two apart, and the ratio comes from its predicted odds.
+
+The learner also sees, for each row, whether the policy moved its dose, so a cap or a piecewise
+policy is learned where it holds the dose. When you declare the dose's range, the learner also
+sees whether the dose the policy moves from lies inside it. Without a declared range the fit
+treats the smallest or largest dose it trains on as an edge, but only on the side where some moved
+dose would have come from beyond it, as with a shift up and the smallest dose. That edge is a guess
+of where the doses stop. Declare the range with `treatment_support=` (below) when you know it, such
+as a dose that cannot fall below zero. A declaration always wins, so a dose with no limit can pass
+`Support(-np.inf, np.inf)` to turn the edge off.
+
+This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
+recorded on many rows, such as zero. The result's summary prints the route it used and why
+(`Policy ratio`). A learner that reads its input columns by position can set the class attribute
+`policy_steps = "omit"` to receive the plain design.
+
+The fit warns, with a `DataWarning` that names the range, when a few doses sit far from the rest
+beyond an empty stretch of the dose. The learned odds can smooth over such a cluster, so pass
+`ratio="density"` there. In the design study the warning fired on every sample of 20,000 rows of
+a dose with such a cluster, and on 12 of 20 samples of 2,000. It never fired on two smooth doses in
+80 samples, and once in 40 samples of a heavy-tailed dose. A cluster of one or two doses is not
+reported. `cleverly.learners.isolated_dose_clusters` runs the same check on any column of doses.
+
+With `ratio="density"` the fit estimates the density on a grid of dose intervals instead.
+`density_bins` sets their number, and setting it also selects this route. The fit adds narrower
+intervals where the doses thin out, then draws a smooth curve through the interval probabilities,
+so even a small shift changes the ratio. The estimate is only as good as the treatment learner
+behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
+the narrow outer intervals poorly.
+
+Gradient boosting can also misfit a few rows in a thin tail. In
+the [design study](../technical-reference/method-evidence/mtp-density-tails.md#reported-readings),
+at 2,000 rows the default booster's ratio was far off on up to 3 of 20 samples for four of six
+dose shapes, most often for a dose capped at the top of its range. In each such sample a handful
+of rows carried most of the error. When the tail matters to the policy, compare the estimate with
+a second treatment learner.
+
+```python
+density_fit = dose_study.estimate(
+    ModifiedTreatmentPolicyEffect(policies),
+    method=quick,
+    ratio="density",
+    density_bins=40,
+    random_state=5,
+)
+```
+
+The fit also uses the density route when it reads no policy ratio, as a dose-response curve does,
+beside a declared treatment mechanism, and with an estimator that only reads a density. The
+[resolution table](../technical-reference/scope-and-refusals.md#density-ratio-route) lists
+which route each fit takes.
+
+When the possible doses depend on the covariates, declare that range with
+`Support(lower, upper)` from `cleverly.interventions`, where each bound is a number or a function
+of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TMLE.fit`.
+
+On the density route it lets the fit tell a hard limit from doses that are merely rare. Without it the fit
+spreads density past the limit, which distorts the ratio near it. On the default route the declared
+range tells the learner where the dose a policy moves from leaves the possible doses. Without it
+the fit uses the smallest or largest dose it trains on, only on the side the policy reaches past.
 [Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
 states both routes.
 

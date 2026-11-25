@@ -18,7 +18,8 @@ column from the record and every committed column from the study's row files.
 The committed ``properties.csv`` and ``performance-tests.csv`` stay as the record of the
 identity interval.  A study rerun under the shipped interval records it in its own rows and has
 no audit: ``learned-rule-arms`` left this list when its conservative coverage cell went red on
-logit and was rerun under the shipped interval, so the screen reads its rows directly.  Write
+logit and was rerun under the shipped interval, so the screen reads its rows directly, and
+``mtp-pricing`` left it when it was regenerated under the shipped intervals.  Write
 or refresh an audit file with::
 
     python -m tests.studies.evidence.interval_audit canonical-stratified-tmle
@@ -427,30 +428,10 @@ def _stratified_drtmle_foldwise_audit() -> Audit:
     return Audit(truth={"stratified_both_correct": means})
 
 
-def _pricing_audit() -> Audit:
-    # No scan: a longitudinal level whose last-node regression reads a constant outcome takes
-    # ``constant_node_plugin``, which the committed rows already record.  The range check
-    # reads the committed estimate.  The package cells of ``interval_calibration`` are levels
-    # of the binary outcome too; the ``revenue`` cell's outcome is continuous.
-    record = record_for("mtp-pricing")
-    return Audit(
-        truth={
-            scenario: tuple(name for name in names if name.startswith("ey_regimen["))
-            for scenario, names in record.scenarios.items()
-        },
-        cells=tuple(
-            f"interval_calibration/{cell}"
-            for cell in record.property_cells["interval_calibration"]
-            if cell.endswith("__correctly_specified") and not cell.startswith("revenue_")
-        ),
-    )
-
-
 #: Study slug to the factory of its audit declaration.
 AUDITS: dict[str, Callable[[], Audit]] = {
     "canonical-stratified-tmle": _stratified_audit,
     "composite-missing-drtmle": _composite_audit,
-    "mtp-pricing": _pricing_audit,
     "stratified-drtmle-foldwise": _stratified_drtmle_foldwise_audit,
 }
 

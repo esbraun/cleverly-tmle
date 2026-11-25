@@ -1,22 +1,23 @@
 === mtp-policy-variance declared run
-command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' tests/canonical/mtp_policy_variance/regenerate.py --output 'C:\Users\erics\study-runs\mtp-policy-variance-20261113T1715Z' --jobs 16
-commit: a1c62db0601796d5c61b2c8ee14f77d075043f32; upstream a1c62db0601796d5c61b2c8ee14f77d075043f32
+command: /home/user/cleverly-tmle/.venv/bin/python tests/canonical/mtp_policy_variance/regenerate.py --output /home/user/fix9-mtp-policy-variance/declared-2-r2 --jobs 4
+commit: 58538bfa7ce7a5395afa2137aa447db1b707e81e; upstream 58538bfa7ce7a5395afa2137aa447db1b707e81e
 clean tree: True
-cleverly 0.2.4 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
-python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 112, sha256 abd701a921e373fce350777589111aafe00d4dd021197fb228e5726e03d9d302
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 3b2e4b9d018e2e621589ee4235c41336fd3bf2d9d2bbf83d53967cea0ebfca65
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-cores: 16
-started: 2026-11-13T17:03:17+00:00
-finished: 2026-11-13T23:43:01+00:00
-wall seconds: 23981.3
+cores: 4
+started: 2026-11-21T04:17:58+00:00
+note: resumed from /root/.cache/cleverly/runs/mtp-policy-variance/24299861167e, reused the Python phase
+finished: 2026-11-21T08:22:49+00:00
+wall seconds: 14690.8
 exit code: 0
-sha256 coverage-controls.csv: 2cc9d48e81958cc3e800d38c372ccf469c8723fdce741b2e945da22f13ac3e7b
+sha256 coverage-controls.csv: 28094bd9d5b72ea7e7151f32e66c10517c4b28eb1b9062b3ed23bd3917531aa7
 sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
-sha256 manifest.json: e9537625e0eb56da260891e3176b5c1966f5b2097437ec08e21a8834b26ed2b3
-sha256 performance-tests.csv: 535d2943d8d4cfe3829bc8894633f0163509c9b0cbadb13858efb967004402ca
-sha256 properties.csv: 1eee220ea3f49878a319f7d9f41b4a480ac3a4b91ba75a0682d193725237c2df
-sha256 property-replicates.parquet: c84ae7b719c1bb08a3139906504a593f9b8c38c73fd7eb2caade93ee5437af15
-sha256 replicates.parquet: 38b4d4907a0484aac0bbebb27f80e2ead2b7db76e54de6857db4463dacea7c24
-sha256 summary.csv: 9c5066ae354b9ac9992d52cc3c82affcc2b8fd1fe4d04eb970990e87917d6b0f
+sha256 manifest.json: 40b0098a44d70f2369bee88d01596b908385852df9dff0b052beabedae34d810
+sha256 performance-tests.csv: a264c4f09308c9ae00d1b8fd3e54d0d75c3c0dd5a5dc1d18ff13156755e04684
+sha256 properties.csv: e3b4017b0a112002914e830c45a736544982845047b993672ea0b14dd3418643
+sha256 property-replicates.parquet: b1ebec1f8c0bcfb9ec1688212ad4fb8fb99abc9b60cd0a766c87b38cb41827b7
+sha256 replicates.parquet: cfb793d0ee2773a9b938b50f221bbbc5a53bd6625529b4a5897f965fa68b598d
+sha256 summary.csv: fbe32e6efbdb40e23094c4f180c77c78e69ec036c56119a7811ea2e8683a37e6
 
