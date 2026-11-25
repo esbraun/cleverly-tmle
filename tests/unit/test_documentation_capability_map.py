@@ -22,122 +22,47 @@ MAP = ROOT / "docs" / "user-guide" / "capabilities.md"
 
 #: Matrix family (its first cell, verbatim) to the first cell of its map row.
 MAP_ROWS: dict[str, str] = {
-    "Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts": (
-        "What would the average outcome be if everyone got each option, and how do the options "
-        "compare?"
-    ),
-    "ATT and ATC": (
-        "What was the effect among the people who got the treatment, or among those who did not?"
-    ),
-    "Known treatment mechanism": (
-        "The chance of treatment was set by design, as in a randomized trial. Can the analysis "
-        "use it?"
-    ),
-    "Natural-course mean, PAR, and PAF": (
-        "How much of the outcome would go away if no one were exposed?"
-    ),
-    "Missing outcomes and controlled direct effects": (
-        "Some outcomes are missing, or a variable after treatment should be held fixed"
-    ),
-    "Deterministic and dynamic regimes": (
-        'What if everyone followed a rule, such as "treat when the score is above 5"?'
-    ),
+    "Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts": "What would the average outcome be if everyone got each option (each arm), and how do the options compare?",
+    "ATT and ATC": "What was the effect among the people who got the treatment, or among those who did not?",
+    "Known treatment mechanism": "The chance of treatment was set by design, as in a randomized trial. Can the analysis use it?",
+    "Natural-course mean, PAR, and PAF": "How much of the outcome would go away if no one were exposed?",
+    "Missing outcomes and controlled direct effects": "Some outcomes are missing, or you want the effect with a later variable held at one value (a controlled direct effect)",
+    "Deterministic and dynamic regimes": 'What if everyone followed a rule, such as "treat when the score is above 5"?',
     "Known stochastic regimes": "What if treatment were assigned at random with chances I choose?",
-    "Value of a learned treatment rule": (
-        "How well would a treatment rule learned from these data work, and how does it compare "
-        "with a fixed plan?"
-    ),
-    "Continuous modified treatment policies": (
-        "What if everyone's dose were raised by a fixed amount, or capped?"
-    ),
-    "Modified treatment policies on a vector treatment": (
-        "The treatment has several continuous parts, such as a price and a discount"
-    ),
-    "Continuous policies at declared boundaries, with learned and tuned inputs": (
-        "The dose change depends on declared limits, or on inputs learned or tuned from the data"
-    ),
-    "Incremental propensity-score interventions": (
-        "What if everyone's odds of treatment were doubled?"
-    ),
-    "Incremental interventions over time": (
-        "What if the odds of treatment were changed at every time?"
-    ),
+    "Value of a learned treatment rule": "How well would a treatment rule learned from these data work, and how does it compare with a fixed plan?",
+    "Continuous modified treatment policies": "What if everyone's dose were raised by a fixed amount, or capped?",
+    "Modified treatment policies on a vector treatment": "The treatment has several continuous parts, such as a price and a discount",
+    "Continuous policies at declared boundaries, with learned and tuned inputs": "The changed dose must stay inside limits you declare, or uses a cap learned from the data",
+    "Incremental propensity-score interventions": "What if everyone's odds of treatment were doubled?",
+    "Incremental interventions over time": "What if the odds of treatment were changed at every time?",
     "Categorical incremental interventions": "The same, for a treatment with three or more levels",
-    "Point and longitudinal MSM projections": (
-        "How does the average outcome trend across options, or across plans over time, "
-        "summarized by a line or curve?"
-    ),
+    "Point and longitudinal MSM projections": "How does the average outcome trend across options, or across plans over time, summarized by a line or curve?",
     "Conditional effects on a declared basis": "How does the effect change with a baseline column?",
-    "Targeting curves of a priority score": (
-        "Does a priority score put the people who benefit most first?"
-    ),
-    "External scores": (
-        "Does a score built elsewhere predict who benefits, and is one score better than another?"
-    ),
-    "Longitudinal end-of-study TMLE": (
-        "What would the end-of-study outcome be under each treatment plan?"
-    ),
-    "Sequentially doubly robust longitudinal estimation": (
-        "The same, with an estimator that stays on target when the models at each step are only "
-        "partly right"
-    ),
-    "Sequential g-computation and IPW over time": "What do the simpler reference estimators say?",
-    "Structural nested mean model": (
-        "What is the effect of each treatment time, and does it vary with a covariate?"
-    ),
-    "Parametric g-formula over time": (
-        "What does a fully modelled forward simulation say, or a plan that fixes a continuous dose?"
-    ),
-    "Longitudinal survival and competing risks": (
-        "The same, when treatment changes over follow-up, or when another event can come first"
-    ),
-    "Longitudinal repeated outcomes, `IPSI`": ("The same, under a change in the odds of treatment"),
-    "Longitudinal repeated outcomes, `SDR`": (
-        "The same, with the sequentially doubly robust estimator"
-    ),
-    "Longitudinal evidence at three to five decisions": (
-        "How far does the evidence for analyses over time reach, in number of treatment times?"
-    ),
-    "Longitudinal repeated outcomes": (
-        "The outcome is measured at every time, not only at the end"
-    ),
-    "Point-treatment survival": (
-        "What is the risk of the event by each check time under each treatment?"
-    ),
-    "Hazard targeting beyond a held baseline treatment": (
-        "Can one correction step fit the whole risk curve at once, through the event rate at "
-        "each time?"
-    ),
+    "Targeting curves of a priority score": "Does a priority score put the people who benefit most first?",
+    "External scores": "Does a score built elsewhere predict who benefits, and is one score better than another?",
+    "Longitudinal end-of-study TMLE": "What would the end-of-study outcome be under each treatment plan?",
+    "Sequentially doubly robust longitudinal estimation": "The same, with an estimator that stays on target when, at each time, either the outcome model or the treatment model is right",
+    "Sequential g-computation and IPW over time": "What do simpler estimators say, beside the targeted one?",
+    "Structural nested mean model": "What is the effect of each treatment time, and does it vary with a covariate?",
+    "Parametric g-formula over time": "Can I simulate forward from models of every covariate, or fix a continuous dose at each time?",
+    "Longitudinal survival and competing risks": "The same, when treatment changes over follow-up, or when another event can come first",
+    "Longitudinal repeated outcomes, `IPSI`": "The same, under a change in the odds of treatment",
+    "Longitudinal repeated outcomes, `SDR`": "The same, with the sequentially doubly robust estimator",
+    "Longitudinal evidence at three to five decisions": "How far does the evidence for analyses over time reach, in number of treatment times?",
+    "Longitudinal repeated outcomes": "The outcome is measured at every time, not only at the end",
+    "Point-treatment survival": "What is the risk of the event by each check time under each treatment?",
+    "Hazard targeting beyond a held baseline treatment": "Can the risk curve never dip, with one correction step for every check time at once?",
     "Collaborative TMLE": "Can the data choose which covariates the treatment model uses?",
-    "Collaborative TMLE of a risk curve": (
-        "Can the data choose the treatment and censoring models?"
-    ),
-    "Drift-corrected survival TMLE": (
-        "Can the risk interval stay valid when one set of models is wrong?"
-    ),
-    "Continuous-time survival and competing risks": (
-        "Can I use the exact event times instead of a grid?"
-    ),
-    "DR-TMLE": "Can the interval stay valid when one of the two models is wrong?",
-    "Adaptive-propensity IPTW": (
-        "Can I weight by the treatment model alone, adapted to the outcome?"
-    ),
-    "Adaptive TMLE for a trial with external data": (
-        "A small randomized trial has outside rows from a registry or an earlier study. Can they "
-        "sharpen the trial's effect without biasing it?"
-    ),
-    "Smoothed dose-response curve": (
-        "How does the average outcome change across a range of doses?"
-    ),
-    "Cross-fitting and CV-TMLE": (
-        "How are the models trained out of fold, and when are the folds reused?"
-    ),
-    "Targeting and fitting options": (
-        "How does the correction step stop, and which other fitting options exist?"
-    ),
-    "Inference, diagnostics, and sensitivity": (
-        "How are intervals, bands, diagnostics and sensitivity analyses computed?"
-    ),
+    "Collaborative TMLE of a risk curve": "Can the data choose the treatment and censoring models?",
+    "Drift-corrected survival TMLE": "Can the risk interval stay valid when the event model, or the treatment and censoring models, are wrong?",
+    "Continuous-time survival and competing risks": "Can I use the exact event times instead of a grid?",
+    "DR-TMLE": "The default interval needs both models close to right. Can it hold when one is wrong?",
+    "Adaptive-propensity IPTW": "Can I estimate with treatment weights alone (IPTW), with no outcome model?",
+    "Adaptive TMLE for a trial with external data": "Can outside rows, such as a registry, sharpen a small trial's estimate, correcting for how they differ?",
+    "Smoothed dose-response curve": "How does the average outcome change across a range of doses?",
+    "Cross-fitting and CV-TMLE": "How are the models trained out of fold, and when are the folds reused?",
+    "Targeting and fitting options": "How does the correction step stop, and which other fitting options exist?",
+    "Inference, diagnostics, and sensitivity": "How are intervals, bands, diagnostics and sensitivity analyses computed?",
 }
 
 

@@ -379,7 +379,7 @@ one.
 - Use the [estimands and interventions guide](../user-guide/estimands.md) to choose a question.
 - Use the [methods and learners guide](../user-guide/methods-learners.md) before you change the
   default learners.
-- Read [what cleverly can estimate](../user-guide/capabilities.md) for every kind of question the package answers,
+- Read [what cleverly can estimate](../user-guide/capabilities.md) for the questions the package answers,
   and why it refuses a request it cannot answer correctly.
 - Consult the [technical reference](../technical-reference/index.md) for equations, assumptions,
   citations, implementation provenance, and correctness evidence.
