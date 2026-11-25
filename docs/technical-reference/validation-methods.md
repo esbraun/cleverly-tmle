@@ -2980,7 +2980,7 @@ checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
 ships the operations in the table below, one row each. The negative-control outcome and the
-future-treatment control test a design, and [Negative controls](#negative-controls) states their
+future-treatment control test a design, and the negative-controls subsection below states their
 boundaries; the others test the implementation. Each operation prints a statistic against a stated
 reference. It prints `passed` or `failed` only where the evidence registry covers the fit, and
 `no pass or fail` otherwise. `summary()` gives one row per test, the statistic behind each
@@ -2997,7 +2997,7 @@ reading, and one note per test with its purpose, its conditions and its rung in 
 | `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
-| `future_treatment` | fits a point-treatment TMLE of a declared control `C` on the longitudinal treatment at node `t + 1`, adjusted for the history | the control fit's own Wald test of the exact null, as for the negative-control outcome | the design: no unmeasured confounding of the later treatment, under the control conditions [Negative controls](#negative-controls) states |
+| `future_treatment` | fits a point-treatment TMLE of a declared control `C` on the longitudinal treatment at node `t + 1`, adjusted for the history | the control fit's own Wald test of the exact null, as for the negative-control outcome | the design: no unmeasured confounding of the later treatment, under the control conditions the negative-controls subsection below states |
 
 The placebo reads an MSM coefficient of a point treatment against its value under the placebo
 law. The table names the two cases. The code reads the case from the realised design and weight
