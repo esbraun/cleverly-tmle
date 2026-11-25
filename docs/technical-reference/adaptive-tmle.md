@@ -270,8 +270,8 @@ as $\tilde Q = \sum_s \Pi(s \mid W, A)\,Q(s, W, A)$.
 
 These are the nonparametric-model gradients of the projection parameters. The model that knows the
 trial randomization has a smaller tangent space. When the external rows' bias is nonzero, $D_w$ is
-not orthogonal to that model's scores, so $D_w$ is a gradient there and not its efficient influence
-function. A known trial probability $P(A = 1 \mid W, S = 1)$ restricts the model but fixes none of
+in general not orthogonal to that model's scores, so $D_w$ is a gradient there and not its
+efficient influence function. A known trial probability $P(A = 1 \mid W, S = 1)$ restricts the model but fixes none of
 $g$, $\Pi$ and $\pi$, so it removes no product from the remainder below. The deliberate mutation
 `test_a_trial_treatment_mechanism_in_the_clever_covariate_leaves_a_first_order_remainder` in
 `tests/unit/test_atmle_exact.py` puts the trial's mechanism in place of the pooled $g$ and leaves a

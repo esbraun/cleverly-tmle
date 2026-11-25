@@ -140,9 +140,9 @@ the difference itself depends on the arm, the external rows add little.
 The pooled fit estimates each patient's chance of treatment from all rows, so it does not take the
 trial's known chance. When you know that chance, give it to the trial-alone fit with
 `PointTreatment(treatment_probabilities=...)`. Its interval then needs no model of who got treated,
-as long as the outcome model is fitted on other rows than it predicts (cross-fitting) or is a fixed
-formula such as `LinearRegression`. Knowing the chance does not make the narrowest possible interval
-for the effect any narrower.
+as long as no outcome is missing and the outcome model is fitted on other rows than it predicts
+(cross-fitting) or is a fixed formula such as `LinearRegression`. Knowing the chance does not
+improve the best precision any method can reach for this effect.
 [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
 gives the conditions.
 

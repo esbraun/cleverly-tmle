@@ -123,7 +123,7 @@ def test_an_unsupported_role_is_refused_with_its_record(field: str) -> None:
     from cleverly.study import TRIAL_ROLE_REFUSALS
 
     records = dict(TRIAL_ROLE_REFUSALS)
-    value: Any = ("W",) if field == "strata" else "W"
+    value: Any = {"strata": ("W",), "treatment_probabilities": {0: "W", 1: "W"}}.get(field, "W")
     with pytest.raises(CapabilityError) as caught:
         _design(**{field: value})
     assert caught.value.refusal == records[field]

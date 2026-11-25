@@ -3015,7 +3015,7 @@ reports the `working_model_projection` status. A testable form of the condition 
 | adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
 | a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
 | adaptive TMLE with sampling weights, clusters, strata, a held intermediate or a missing treatment | regularity | a weighted or clustered form of the working-model selection and of the projection the interval covers, a projection per stratum, and a held-intermediate or missing-treatment form of the decomposition. `TrialWithExternalData` refuses each role when it is declared |
-| adaptive TMLE that uses the trial's known randomization probability | efficiency | an estimator of the working-model parameter that attains the smaller influence function of the model that knows $P(A = 1 \mid W, S = 1)$. $D_w$ is not orthogonal to that model's scores when the external rows' bias is nonzero, and no projection or estimator is derived here. `TrialWithExternalData(treatment_probabilities=...)` refuses |
+| adaptive TMLE that uses the trial's known randomization probability | efficiency | an estimator of the working-model parameter that attains the smaller influence function of the model that knows $P(A = 1 \mid W, S = 1)$. When the external rows' bias is nonzero, $D_w$ is in general not orthogonal to that model's scores, and no projection or estimator is derived here. `TrialWithExternalData(treatment_probabilities=...)` refuses |
 
 ### F41. Intervals for a constant arm cell or an estimate on its bound
 
