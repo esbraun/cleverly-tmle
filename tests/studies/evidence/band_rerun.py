@@ -216,6 +216,21 @@ REGENERATED = {
         "continuous MSM dose cells, at 58538bf plus the constant-arm band fix 9bb2e74",
     ),
 }
+#: Each :data:`REGENERATED` study whose run used the plain driver form, and why its record
+#: holds.  That form writes the artifacts into the study directory before the manifest records
+#: ``git status``, so its manifest always records ``cleverly_worktree_clean: false``.  Such a
+#: study is accepted with that flag only while every module and reference hash its manifest
+#: records equals the bytes of that file at the listed run commit (read where history exists),
+#: and only with the refit witness named here, which ``tests/canonical/provenance-revisions.md``
+#: records in full.
+PLAIN_FORM = {
+    "longitudinal-mtp": (
+        "the local queue ran it from a checkout of 58538bf with the plain driver; a refit of "
+        "replicates 0 and 1 of every property key at 58538bf matches 46 of the 48 committed rows "
+        "within 1e-12 standard errors, and the two in-sample extra-trees control rows within "
+        "0.07, with every coverage indicator equal"
+    ),
+}
 #: The text that shows a study's band options are explicit, for each excluded study.
 EXCLUSION_WITNESS = {
     "longitudinal-sdr": 'BandOptions(band_scale="logit", kind="mammen", n_replicates=10_000',
@@ -1310,8 +1325,9 @@ def regenerated_findings(slug: str, manifest: Mapping[str, Any] | None = None) -
     """Why a :data:`REGENERATED` study's manifest is not the full regeneration it lists.
 
     ``manifest`` defaults to the study's committed one.  It must carry no composite and no
-    generation mode, record a clean tree at the listed run commit, and that commit must descend
-    from :data:`WAVE_INSTALL_COMMIT`.  A shallow checkout cannot read the ancestry; the listed
+    generation mode, record a clean tree at the listed run commit (or, for a :data:`PLAIN_FORM`
+    study, record hashes that all match that commit), and that commit must descend from
+    :data:`WAVE_INSTALL_COMMIT`.  A shallow checkout cannot read the ancestry; the listed
     commit is then held to the manifest alone, and a checkout with history checks the rest.
     """
     if slug not in REGENERATED:
@@ -1327,11 +1343,35 @@ def regenerated_findings(slug: str, manifest: Mapping[str, Any] | None = None) -
         out.append(
             f"its manifest records {subject.get('cleverly_commit')}, not the run {commit[:7]}"
         )
-    if subject.get("cleverly_worktree_clean") is not True:
+    clean = subject.get("cleverly_worktree_clean")
+    plain = slug in PLAIN_FORM and clean is False
+    if clean is not True and not plain:
         out.append("its manifest does not record a clean tree")
     known = git("cat-file", "-e", f"{WAVE_INSTALL_COMMIT}^{{commit}}").returncode == 0
     if known and git("merge-base", "--is-ancestor", WAVE_INSTALL_COMMIT, commit).returncode != 0:
         out.append(f"the run {commit[:7]} does not descend from {WAVE_INSTALL_COMMIT[:7]}")
+    if plain and known:
+        out.extend(_plain_form_findings(manifest, commit))
+    return out
+
+
+def _plain_form_findings(manifest: Mapping[str, Any], commit: str) -> list[str]:
+    """Each recorded module or reference hash that is not the file's hash at ``commit``."""
+    recorded = {
+        **manifest.get("study_module_sha256", {}),
+        **manifest.get("reference_sha256", {}),
+    }
+    out = []
+    for name, digest in sorted(recorded.items()):
+        shown = subprocess.run(
+            ["git", "-C", str(ROOT), "show", f"{commit}:{name}"], capture_output=True
+        )
+        if shown.returncode != 0:
+            out.append(f"{name} is not in the run {commit[:7]}")
+        elif hashlib.sha256(shown.stdout).hexdigest() != digest:
+            out.append(f"the manifest's {name} is not the file at the run {commit[:7]}")
+    if not recorded:
+        out.append("its plain-form manifest records no module hashes to check")
     return out
 
 

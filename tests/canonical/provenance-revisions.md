@@ -331,6 +331,21 @@ now counts such a skipped band as not covered, with the refused-band sentinel, a
 The edit is result-neutral for every committed record: the new branch runs only
 where the old code raised, and a run that raised wrote no record.
 
+## The plain-form `longitudinal-mtp` regeneration (Fix-9)
+
+`longitudinal-mtp` is a planned study of the band wave, so `band_rerun.REGENERATED` holds its
+Fix-9 regeneration to a full run at the listed commit `58538bfa`. Its driver has only the plain
+form, which writes the artifacts into the study directory before `write_manifest` reads
+`git status`. Its manifest therefore records `cleverly_worktree_clean: false`, as every plain-form
+manifest does. `band_rerun.PLAIN_FORM` accepts that flag for this study alone, and only while every
+hash in its `study_module_sha256` and `reference_sha256` equals the file at `58538bfa`. All 27 do.
+Witness: on Linux, replicates 0 and 1 of each of the 20 fit sets and the band (48 rows) were
+refit at `58538bfa` and compared with the committed `property-replicates.parquet`, which Windows
+wrote. 46 rows agree within 1e-12 standard errors in estimate and standard error. The two
+`crossfit_overfitting/in_sample_control` rows, which interpolate with in-sample extra-trees, differ
+by 0.067 and 0.007 standard errors. Every `covered` is equal. A code change would move the other
+46 rows as well.
+
 ## Completed manifest provenance
 
 The stacked missing-outcome natural-course manifest initially omitted two Python helpers that

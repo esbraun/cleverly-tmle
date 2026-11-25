@@ -131,6 +131,37 @@ def test_a_regenerated_study_holds_only_as_a_full_regeneration(tmp_path: Path) -
     assert not band_rerun.regenerated("adaptive-iptw")
 
 
+def test_a_plain_form_study_holds_only_while_its_hashes_are_the_run_commit() -> None:
+    """The plain-form exception reads the run's own record, not the flag alone.
+
+    A plain-form manifest records an unclean tree by construction, so the guard holds it to
+    every module and reference hash it records, read against the listed run commit.  One
+    altered hash, an unknown tree state, or a study not listed in ``PLAIN_FORM`` each fail.
+    """
+    known = band_rerun.git("cat-file", "-e", f"{band_rerun.WAVE_INSTALL_COMMIT}^{{commit}}")
+    if known.returncode != 0:
+        pytest.skip("a shallow checkout holds no history to read the run commit from")
+    for slug in band_rerun.PLAIN_FORM:
+        assert slug in band_rerun.REGENERATED, slug
+        record = band_rerun.record_for(slug)
+        manifest = json.loads((record.artifacts / "manifest.json").read_bytes())
+        assert manifest["generated_with"]["subject"]["cleverly_worktree_clean"] is False
+        assert band_rerun.regenerated_findings(slug, manifest) == []
+        altered = copy.deepcopy(manifest)
+        name = next(iter(altered["study_module_sha256"]))
+        altered["study_module_sha256"][name] = "0" * 64
+        assert band_rerun.regenerated_findings(slug, altered) == [
+            f"the manifest's {name} is not the file at the run "
+            f"{band_rerun.REGENERATED[slug][0][:7]}"
+        ]
+        unknown = copy.deepcopy(manifest)
+        unknown["generated_with"]["subject"]["cleverly_worktree_clean"] = None
+        assert "its manifest does not record a clean tree" in band_rerun.regenerated_findings(
+            slug, unknown
+        )
+    assert REGENERATED_SLUG not in band_rerun.PLAIN_FORM
+
+
 def test_every_regenerated_study_descends_from_the_wave_install() -> None:
     """The ancestry half of the guard, which a shallow checkout cannot read."""
     known = band_rerun.git("cat-file", "-e", f"{band_rerun.WAVE_INSTALL_COMMIT}^{{commit}}")
