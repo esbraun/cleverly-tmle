@@ -26,7 +26,7 @@ from cleverly.datasets import make_linear_ate
 from cleverly.exceptions import CapabilityError
 from cleverly.plotting import _evalue as module
 from cleverly.plotting import confounding, notes
-from cleverly.plotting._core import subtitle_text
+from cleverly.plotting._core import key_labels, subtitle_text
 from cleverly.sensitivity import EValue, evalue_from_rr
 from tests.unit._direct_effect_support import binary_cde_frame, fit_cde
 from tests.unit._plotting_checks import assert_style, assert_text_inside
@@ -247,6 +247,8 @@ class TestNotes:
         assert recorded[0] == module.CURVE_NOTE
         assert all(note.text in recorded for note in above.summary().notes)
         assert not any("experimental" in line.lower() for line in recorded)
+        assert above.limit_descriptive is False
+        assert above.limit_reading is None or above.limit_reading.sentence not in recorded
 
     def test_a_per_arm_evalue_says_what_it_reads(self, per_arm: EValue) -> None:
         recorded = notes(confounding(per_arm))
@@ -298,6 +300,9 @@ class TestConventions:
         ax = fig.axes[0]
         assert ax.get_title(loc="left") == "Mine"
         assert (ax.get_xlabel(), ax.get_ylabel()) == ("Link to the offer", "Link to the score")
+        right = above.plot(legend="right")
+        assert "Could explain the estimate away" in key_labels(right)
+        assert_text_inside(right)
 
     def test_a_supplied_axes_is_drawn_on(self, above: EValue) -> None:
         fig, ax = plt.subplots()

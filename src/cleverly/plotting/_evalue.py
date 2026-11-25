@@ -30,6 +30,7 @@ import numpy as np
 
 from .._summary._render import number_text
 from . import _core
+from ._confounding import GID_DIAGONAL, _header
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from matplotlib.axes import Axes
@@ -40,7 +41,6 @@ GID_EVALUE_ESTIMATE = "cleverly-evalue-estimate"
 GID_EVALUE_LIMIT = "cleverly-evalue-limit"
 GID_EVALUE_MARK = "cleverly-evalue-mark"
 GID_EVALUE_LABEL = "cleverly-evalue-label"
-GID_DIAGONAL = "cleverly-diagonal"
 
 TITLE = "Confounding that could explain the estimate away"
 
@@ -251,7 +251,7 @@ def evalue_curves(
     limit_drawn = float(data.limit) > 1.0
     level = _core.level_text(float(data.level))
 
-    fig, axis = _core.figure_for(ax, figsize=(6.4, 5.6))
+    fig, axis = _core.figure_for(ax, figsize=(5.6, 5.6))
     _core.style_axes(axis, grid="none")
     _curve(
         axis, threshold, top, _core.PALETTE[0], "Could explain the estimate away",
@@ -283,7 +283,7 @@ def evalue_curves(
         f"E-values {number_text(point, 2)} for the estimate and "
         f"{number_text(float(data.limit), 2)} for the {level} limit; {data.estimand}, {scale}"
     )
-    _core.header(axis, TITLE, subtitle)
+    _header(axis, TITLE, subtitle, 1.0)
     _core.add_notes(axis, _notes(data, below, limit_drawn))
     return fig
 
