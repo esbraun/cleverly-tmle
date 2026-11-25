@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-projection-methods",
       "cleverly_version": "0.2.7",
-      "cleverly_commit": "32f9d8acc6df602869ed380ee508913646b32846",
+      "cleverly_commit": "d2e5a0e5fcea53c0a3ef908f91e4b483461c6fe8",
       "cleverly_worktree_clean": true,
       "python": "3.13.14",
       "numpy": "2.5.5",
@@ -23,7 +23,7 @@
     "n": 4000,
     "seed": 20261531,
     "resampling_seed": 20261532,
-    "publication_policy": "gated",
+    "publication_policy": "reporting",
     "failure_bound": {
       "cleverly-projection-methods": 0.01
     },
@@ -46,14 +46,23 @@
       "slow": "logistic GLM on (W1, W2) plus the logit offset n^(-1/3) W2 (1 + W1), a constructed error"
     },
     "groups": {
-      "dr_known_4k": "n=4000, R=5600, drtmle, outcome wrong, mechanism known",
-      "dr_both_4k": "n=4000, R=2400, drtmle, outcome correct, mechanism glm",
-      "dr_slow_1k": "n=1000, R=1000, drtmle, outcome wrong, mechanism slow",
-      "dr_slow_4k": "n=4000, R=1000, drtmle, outcome wrong, mechanism slow",
-      "dr_slow_16k": "n=16000, R=1000, drtmle, outcome wrong, mechanism slow",
-      "dr_glm_4k": "n=4000, R=2400, drtmle, outcome wrong, mechanism glm",
-      "ctmle_points_4k": "n=4000, R=2400, ctmle, outcome correct, mechanism per_arm"
+      "dr_known_4k": "n=4000, R=5600, drtmle, outcome wrong, mechanism known, stream property",
+      "dr_both_4k": "n=4000, R=2400, drtmle, outcome correct, mechanism glm, stream property",
+      "dr_slow_4k": "n=4000, R=1000, drtmle, outcome wrong, mechanism slow, stream property_r3",
+      "dr_slow_16k": "n=16000, R=1000, drtmle, outcome wrong, mechanism slow, stream property_r3",
+      "dr_slow_64k": "n=64000, R=1000, drtmle, outcome wrong, mechanism slow, stream property_r3",
+      "dr_glm_4k": "n=4000, R=17600, drtmle, outcome wrong, mechanism glm, stream property_r3",
+      "ctmle_points_4k": "n=4000, R=2400, ctmle, outcome correct, mechanism per_arm, stream property"
     },
+    "declarations": {
+      "first_run": "declared at 32f9d8ac, run at c566a4c2; red: dr_glm__intercept__conservative and dr_slow_n1000__intercept__first_order (diagnosis: rows/P1/pilot-diagnosis-pr3.md, published on the study page)",
+      "second_run": "declared under plan rev 3 at this run's commit (generated_with.subject.cleverly_commit): dr_glm_4k at R=17600 and the ladder at 4000, 16000 and 64000 rows on property_r3, the other groups on property; publication_policy reporting"
+    },
+    "streams": {
+      "property": "property_sample, fold_partition",
+      "property_r3": "property_r3_sample, property_r3_fold_partition"
+    },
+    "first_run_check": "first-run check: the unchanged groups ['dr_known_4k', 'dr_both_4k', 'ctmle_points_4k'] and the primary equal the first run c566a4c2 exactly",
     "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
@@ -82,10 +91,12 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/projection_methods.py": "efcf7326de1fdc71d8ac7851fed7e25755c06c9e3f483ff889f66b766ec11891",
-    "tests/studies/projection_methods_law.py": "0c67b34f6727641b7f207ba33c30cfe302519dcc6698fc7cce25579bee4d873f",
+    "tests/studies/projection_methods.py": "a40e2b4789a54dd47ff18f4b50def1b40d6ee639b767ddc3a74064109d60ef03",
+    "tests/studies/projection_methods_law.py": "35f2f05514f590a7568fe4a7ec9bba441e89671fd13d46c49f530f915c357e19",
     "tests/studies/projection_methods_pilot.py": "211055db9a378fff437f4ed9d45f75b997e2c3effaaf072c3290c0d040ce9e47",
-    "tests/studies/projection_methods_properties.py": "feea2153ce024bec475301977e5a285bcf9d8f59e75b6dc0b2051ee52d4fe239",
+    "tests/studies/projection_methods_properties.py": "f7a2c88703e9305b72bade4467fd07d994f9119348f6aaef7b4c64173b3dc965",
+    "tests/studies/projection_methods_limit.py": "bd9d971758f449ec83c8e9b56ac85e66cea81f634464795fa11228c00a67dac7",
+    "tests/canonical/projection_methods/first_run.py": "4fae085cc7d6b20e675d402b09676f4e30fefe1f6b2c7cef344383cbe1425966",
     "tests/studies/drtmle_one_wrong.py": "dd0133d6aa4e845fd90ee38a59c416610103f6b18b28b22e5a8b00c5016f40f0",
     "tests/studies/point_reading.py": "0cfac12441058a841922a1d1a324db4dca35ed5e74738cba30c1c186b781b5e1",
     "tests/studies/repeated_sizing.py": "1530cdae8779eeb2df585c501bf5ce0a925c74955ced6d6d533e92408df7d0a5",
@@ -112,7 +123,7 @@
     "summary.csv": "a5812bbbeb3c783a10612165a3d3c999cdfa3368ee6549d3be8caa5fcf080a52",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "3d4191e3303787164d85c1dea050dfe74807c53ecd0468df963354327df224ad",
-    "property-replicates.parquet": "86c4fe799e852fa9c4920cd85e4eddc6291f65621d409046118374301cf89425",
-    "properties.csv": "f028b92aa654edf616cca37d67a482143576d9e38ce222865c098d3943797e4b"
+    "property-replicates.parquet": "44d1459f2ec8f7575d562339871fd8af9c15b51f54c470f195393bf7063c72bf",
+    "properties.csv": "ce7d5d1b83b499e58c0ea54960e064d3b016d79f5cd1119d1440baefea3c68bf"
   }
 }
