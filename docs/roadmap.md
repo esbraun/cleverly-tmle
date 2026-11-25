@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
 | [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
 | [X110](#x110-user-guide-intervals-assessment-sensitivity-and-refutation) User guide: intervals, assessment, sensitivity and refutation | docs | no new theory | the shipped assessment, sensitivity and refutation surface |
 | [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | X110 for the tutorial links |
@@ -100,7 +99,7 @@ different pages and run in parallel.
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | X108 |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the pricing notebook |
 | [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X108; X124 for the separable method table |
-| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | X108; X123 for the learned-rule contrast; the open MTP density-ratio fix, for the raise section |
+| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the raise section |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X108; X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
@@ -667,33 +666,6 @@ and study records that state something the code does not do. No number moves.
   confounder surface, the refutation operations) get a test that ties the owner page to the code.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
-### X123. Public API gaps the documentation needs
-
-Some options ship on an engine class but the typed method objects refuse them, so a reader of the
-guides cannot use them, and one warning advises a keyword the reader's route refuses.
-
-- (a) Route `bootstrap_interval`, `variance`, `cluster_variance`, `max_memory_bytes` and, on a
-  continuous-time fit, `hazard_library`, `censoring_library`, `restricted_horizons`, `norm` and
-  `tilt` through the method objects, or refuse each with a refusal that names the engine route.
-  The sparse-influence warning then advises only what the caller's route accepts.
-- (b) The smoothed dose-response curve through `CausalStudy`, with its protocol, labels and
-  assessment.
-- (c) The structural nested mean fit on the study route, with its protocol, and a helper that
-  returns a blip effect for named feature values with its interval.
-- (d) A typed contrast of a learned rule's value against a known regime, where its interval follows
-  from the shipped influence curves; otherwise an explicit refusal that says what is missing.
-  Shipped as `LearnedRuleContrast` and `OptimalRuleContrast`, with known stochastic regimes and
-  the natural course as comparators ([X11](#x11-learned-policy-follow-ups) part (c)). Their
-  study `T58` passed and registered rows for each report.
-- (e) A public figure for the E-value.
-- (f) The trial's known treatment probability on the trial-with-external-data design, or a refusal
-  of the field with its reason.
-- (g) Restricted means (RMST, RMTL by cause) on `RegimeMean` and `RegimeContrast` for
-  time-to-event designs, binned and exact.
-
-Acceptance: a test for each route or refusal; a new interval claim reads experimental until its
-registered study.
 
 ### X108. Example notebooks: shared upkeep, word budget and freshness guards
 
