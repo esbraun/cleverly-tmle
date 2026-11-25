@@ -1472,7 +1472,9 @@ def _long_expansion(
     p = covariates.shape[1]
     width = 1 if index_only else n_hazards
     design = np.empty((rows.size, p + width), dtype=np.result_type(covariates, float))
-    design[:, :p] = covariates[rows]
+    for j in range(p):
+        # Column by column: `covariates[rows]` would be a second table-sized temporary.
+        np.take(covariates[:, j], rows, out=design[:, j])
     design[:, p] = index
     for b in range(1, width):
         np.equal(index, b, out=design[:, p + b], casting="unsafe")

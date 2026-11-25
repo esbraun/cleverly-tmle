@@ -49,15 +49,17 @@ def test_indicator_block_is_not_empty() -> None:
     assert design[:, 2:].sum() > 0
 
 
-def test_table_is_held_once() -> None:
+@pytest.mark.parametrize(("n_bins", "ceiling"), [(60, 1.3), (10, 1.6)])
+def test_table_is_held_once(n_bins: int, ceiling: float) -> None:
     rng = np.random.default_rng(7)
     covariates = rng.standard_normal((5_000, 4))
-    bins = rng.integers(0, 60, 5_000)
+    bins = rng.integers(0, n_bins, 5_000)
     tracemalloc.start()
     try:
-        design, _, _ = density_module._long_expansion(covariates, bins, 59)
+        design, _, _ = density_module._long_expansion(covariates, bins, n_bins - 1)
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
-    # Stacking whole blocks peaked at about two tables; the in-place build at about 1.1.
-    assert peak < 1.3 * design.nbytes
+    # Stacking whole blocks peaked at about two tables. The in-place build holds the table
+    # plus the record index vectors, which weigh more when the table is narrow (few bins).
+    assert peak < ceiling * design.nbytes
