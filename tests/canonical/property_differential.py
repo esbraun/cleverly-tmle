@@ -97,9 +97,10 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: (``mtp_density_tails_properties``), and ``longitudinal_sdr_properties``, whose committed rows
 #: leave the clause ``P_D large-size bias bound under the small`` without a binding witness. The
 #: three X40 studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
-#: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance`` and the two
-#: few-cluster floor studies bind to their committed rows, so they are subjects by slug; the
-#: floor studies read their declared subset of those rows (:func:`declared_subset`).
+#: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance``, the two
+#: few-cluster floor studies and ``few-cluster-adaptive-learners`` bind to their committed rows,
+#: so they are subjects by slug; the floor studies read their declared subset of those rows
+#: (:func:`declared_subset`).
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.mtp_density_tails_properties",

@@ -868,7 +868,11 @@ every row; the same edits refit bitwise equal for `hazard-mtp` and `vector-mtp`.
 Merging main again at `a5d13ce6` (#743 to #747: sampled refutation, the 0.2.8 release and the
 band-less bootstrap replicate of the continuous-time TMLE) changes no module that any Fix-9
 study's manifest records, and neither does merging main at `d30703e6` (#750, the
-`learned-rule-ep-declared` registration).
+`learned-rule-ep-declared` registration). Merging main at `f14f1a02` (#749 and #751) adds one
+class attribute, `cleverly_learner_family = "parametric"`, to `KnownLongitudinalMechanism` in
+`tests/studies/canonical_ltmle.py` and to `QuasiBinomialGLM` in `tests/studies/fractional_glm.py`.
+Only `cleverly._support.learner_family` reads it, to set support labels and keys, and no Fix-9
+study row records one, so no seed, fit or verdict moves.
 
 ## The `CONFIGURATION` publish step of `learned-rule-ep-declared`
 

@@ -496,6 +496,7 @@ row. A move to `gated` is a separate registry decision.
 | [Ratio trimming on LTMLE and SDR](option-ratio-trim.md) | 9 | 0 |
 | [Markov-order windows on LTMLE](option-markov-order.md) | 15 | 0 |
 | [the clustered interval floor of cross-fitted LTMLE](few-cluster-floor-cross-fitted-ltmle.md) | 211 | 0 |
+| [few-cluster intervals with the default learner library](few-cluster-adaptive-learners.md) | 21 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 81 | 0 |
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 76 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |

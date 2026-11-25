@@ -48,6 +48,7 @@ few-cluster-cross-fitted-longitudinal-tmle
 few-cluster-fold-variance
 few-cluster-floor-tmle
 few-cluster-floor-cross-fitted-ltmle
+few-cluster-adaptive-learners
 fold-evaluated-point-treatment-cv-tmle
 fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle

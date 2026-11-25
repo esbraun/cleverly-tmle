@@ -622,8 +622,8 @@ a draw as a lost replicate. The withheld bootstrap warns and returns the fit, an
 The registered study [continuous-time survival TMLE](method-evidence/continuous-time-survival.md)
 gates the default cross-fitted fit at n = 1,000 on one law with two causes, at the median and the
 upper quartile of the observed event times. An estimate reads `supported` when its fit matches
-that configuration: cross-fitted, the default libraries and settings, two causes (see below for
-one and three), a risk or a
+that configuration: cross-fitted (see below for in-sample fits), the default libraries and settings,
+two causes (see below for one and three), a risk or a
 risk difference, at a time by which 40% to 85% of the observed events of any cause have happened
 (`cleverly.survival.result.continuous_survival_support`), and the two floors of the switched-variance
 study below. Its record was regenerated under the switched default: all 12 primary rows pass, with
@@ -666,6 +666,14 @@ horizon, passed every row, so a risk or risk difference of a fit without restric
 needs 500 units (`MEASURED_N`), not the 1,000 the first study gated, and a fit with restricted
 horizons keeps 1,000. A supported risk or risk difference names this study in its evidence beside
 the study that measured its configuration.
+
+An in-sample fit (`cross_fit=False`) is measured by this study's gated in-sample cell, the base
+law with two causes and no restricted horizon at n = 1,000, where every primary row passed with
+coverage 0.937 to 0.951 and SE ratio 0.954 to 1.003. Its risks and risk differences read
+`supported` under the conditions above with two causes, no restricted horizon and at least 1,000
+units (`IN_SAMPLE_N`), and name this study alone. An in-sample fit with fewer units, with one or
+three causes, or with a restricted horizon reads experimental, since the other studies gate
+cross-fitted fits.
 
 The registered study [continuous-time survival with one and three
 causes](method-evidence/continuous-survival-causes.md) fits the default cross-fitted

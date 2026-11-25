@@ -673,6 +673,13 @@ ep-assessment,risk_comparison,assessment reading,control_concentrated
 ep-cate,bias,bias equivalent,bias
 ep-cate,oracle_comparison,oracle comparison bound,contract
 ep-crr,oracle_comparison,oracle comparison bound,bias
+few-cluster-adaptive-learners,adaptive_learners,bias equivalent,mixed/1
+few-cluster-adaptive-learners,adaptive_learners,must fail,se_high
+few-cluster-adaptive-learners,adaptive_learners,paired iid/cluster se ratio under its ceiling,pair_collapse
+few-cluster-adaptive-learners,adaptive_learners,paired non-inferiority,mixed/10
+few-cluster-adaptive-learners,adaptive_learners,paired positive se ratio at most the sanity ceiling,se_high
+few-cluster-adaptive-learners,adaptive_learners,shown coverage lower end,contract
+few-cluster-adaptive-learners,adaptive_learners,variance ratio lower end,se/0.05
 few-cluster-cross-fitted-ltmle,few_cluster_reference,bias equivalent,bias
 few-cluster-cross-fitted-ltmle,few_cluster_reference,coverage floor,se_low
 few-cluster-cross-fitted-ltmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse

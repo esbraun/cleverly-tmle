@@ -598,8 +598,11 @@ fold-evaluated, the counts from which
 [`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes each fit.
 
 Every other estimate keeps 10 and takes `"few_cluster_estimand_plugin"` below it, because the study
-cells read the ATE alone. The registered few-cluster evidence uses parametric nuisance learners
-only. [Clusters](inference.md#clusters) gives the rules,
+cells read the ATE alone. The floor studies use parametric nuisance learners;
+[`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures
+stacked `TMLE` with the default learner library at 10, 20 and 40 clusters. A fold-evaluated fit
+with a data-adaptive learner below 40 clusters is not measured and reads experimental.
+[Clusters](inference.md#clusters) gives the rules,
 [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the measured limits
 and keeps fits below 4, and
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the

@@ -211,13 +211,14 @@ The floors, read from the switched rows in `floors.csv`, are written as constant
 | `variance_rel_sd` (`MEASURED_REL_SD`) | 0.2458 | the three red V2 rows have median `variance_rel_sd` 0.246, 0.289 and 0.318, so the floor stops at the largest rung below them, that of V2's treated cause 2 at $t = 2.32$ |
 | event share (`SHARE_FLOOR_DEFAULT`) | 0.40 | 8 of the 30 first-quartile rows fail the calibration rule, so the floor does not fall to 0.25, and no first-quartile floor (`MEASURED_REL_SD_EARLY`) is read |
 | size (`MEASURED_N`) | 500 | every gated `v3_half_n` row passes, and its 5 lost fits are inside the bound; the cell fits no restricted horizon, so a fit with restricted horizons keeps 1,000 (`FUNCTIONALS_N`) |
+| in-sample size (`IN_SAMPLE_N`) | 1,000 | every gated `v4_in_sample` row passes; the cell is the only in-sample measurement of two causes without a restricted horizon, so an in-sample fit reads supported from 1,000 units with two causes and no restricted horizon, and names this study alone |
 
 Beside the other conditions of [continuous-time survival](../continuous-time-survival.md#evidence),
 a risk or risk difference whose `variance_rel_sd` lies above 0.2458, whose time has fewer than 40%
 of the observed events behind it, or whose fit has fewer than 500 units reads experimental. A
 supported risk or risk difference names this study in its evidence.
 `tests/unit/test_continuous_survival_variance_design.py` checks each constant against
-`floors.csv`.
+`floors.csv`, and `IN_SAMPLE_N` against the `v4_in_sample` rows there.
 
 At 3,600 replicates the harm clause passes with probability 0.997 or more when every true switched
 row is inside the band, and fires with probability 0.89 at a true SE ratio of 1.12. The benefit
