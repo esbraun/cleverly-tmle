@@ -64,7 +64,7 @@ first column; textbooks use the names in parentheses.
 
 | condition | what it requires | how you check it |
 | --- | --- | --- |
-| well-defined treatment (consistency) | every offer means the same thing, so a patient's observed score is the score they would have under the offer they got. A phone call for some patients and a home visit for others would break it | judgment: one well-defined offer |
+| well-defined treatment (consistency) | every offer means the same thing, so a patient's observed score is the score they would have under the offer they got. A phone call for some patients and a home visit for others would break it if the two work differently | judgment: one well-defined offer |
 | no interference | one patient's offer does not change another patient's score | judgment: the program design |
 | no hidden confounding (no unmeasured confounding) | among patients with the same covariates, who got the offer is unrelated to the scores they would have had | judgment; no test on these data can confirm it |
 | overlap (positivity) | each kind of patient had some chance of each option | partly from the data: the fitted offer chances |
@@ -127,9 +127,9 @@ column role, including weights, clusters and missing outcomes.
 ## Why a simple comparison misleads
 
 In the simulation, `discharge_risk` raises both the chance of an offer and the score, while
-`prior_utilization` and `medication_burden` each raise one of the two and lower the other. The code below compares the mean
-scores of offered and other patients in one million simulated patients, so sampling noise cannot
-explain any gap.
+`prior_utilization` and `medication_burden` each raise one of the two and lower the other. The code
+below compares the mean scores of offered and other patients in one million simulated patients, so
+sampling noise cannot explain any gap.
 
 ```python
 # A fresh draw of the simulated data, with its original column names (A: offer, Y: score).
@@ -147,15 +147,16 @@ The simple difference is 1.62 points, against a true effect of 1.50. The extra 0
 
 The fit needs two helper models, which the package calls nuisance models: an outcome model, which
 predicts the score from the offer and the covariates, and a treatment model, which predicts the
-chance of an offer from the covariates. Targeted maximum likelihood estimation (TMLE), the default method, fits the outcome model, then
-adjusts its predictions using the treatment model, giving more weight to patients who got the
-option that was unlikely for patients like them. When the treatment model is close to right, the
-adjustment removes the bias a slightly wrong outcome model would leave. Here
-both models are simple, a linear regression and an unpenalized logistic regression (`C=np.inf`),
-because that is how the data were simulated, and each model is fitted on every row
+chance of an offer from the covariates. Targeted maximum likelihood estimation (TMLE), the default
+method, fits the outcome model, then adjusts its predictions using the treatment model, giving more
+weight to patients who got the option that was unlikely for patients like them. When the treatment
+model is close to right, the adjustment removes most of the bias a slightly wrong outcome model
+would leave. Here both models are simple, a linear regression and an unpenalized logistic regression
+(`C=np.inf`), because that is how the data were simulated, and each model is fitted on every row
 (`cross_fit=False`). For a score with no fixed range, like this one, fitting on every row with
-simple models is also the only route the package offers. [Why TMLE with these settings](#why-tmle-with-these-settings) gives the
-reasons, and [on your own data](#on-your-own-data) shows what to change.
+simple models is also the only route the package offers. [Why TMLE with these
+settings](#why-tmle-with-these-settings) gives the reasons, and [on your own
+data](#on-your-own-data) shows what to change.
 
 ```python
 result = effect.estimate(
@@ -189,17 +190,18 @@ gives both constructions. The probability limits are [0.01471, 0.9853]. The pack
 the score to between 0 and 1 for the adjustment step and maps the estimate back.
 :::
 
-The `support` column of `result.to_frame()` says whether the package's own simulation studies
-cover a fit set up like this one. `supported` means they do. `experimental` means they do not, or
-a condition the summary's notes name, such as few clusters, applies; the estimate is computed the same way, but no study
-backs its interval, so report it with that caveat.
+The `support` column of `result.to_frame()` says whether the package's own simulation studies cover
+a fit set up like this one. `supported` means they do. `experimental` means they do not, or a
+condition the summary's notes name, such as few clusters, applies; the estimate is computed the same
+way, but no study backs its interval, so report it with that caveat.
 
 ```python
 print(result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper", "support"]])
 ```
 
-This fit reads `supported`. [Read the support label](../user-guide/results-assessment.md#read-the-support-label)
-says how to find the study behind a label.
+This fit reads `supported`. [Read the support
+label](../user-guide/results-assessment.md#read-the-support-label) says how to find the study behind
+a label.
 
 ## Check the fit and its sensitivity
 
@@ -213,9 +215,9 @@ print(assessment.summary())
 ```
 
 Nothing needs attention: the only pass-or-fail check, equations solved, passed. TMLE's adjustment
-step is built to make one equation hold, the one that makes its interval valid in large samples;
-if it failed, the interval could not be trusted. Passing does not show that either helper model is
-right.
+step is built to make its estimating equations hold, which makes its interval valid in large
+samples; if they failed, the interval could not be trusted. Passing does not show that either
+helper model is right.
 
 The overlap row says no patient's offer chance reached a limit, so the
 estimate does not lean on the bounds. The Not run table lists the checks the default call skips;
@@ -226,10 +228,11 @@ explains the three tables.
 
 The unmeasured-confounding row reports 0.514. A missing confounder has two strengths. On the score
 side, it is the share of the score's variation left after adjustment that the confounder would
-explain. On the offer side, it is how much the confounder would add to explaining who got the
-offer, measured on the weights TMLE gives each patient. A confounder with both strengths at 0.514 could, at worst, move the estimate to zero; one
-with both below 0.514 could not.
-[Omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+explain. On the offer side, it is how much the confounder would add to explaining who got the offer,
+measured on the average squared weight TMLE gives each patient. A confounder with both strengths at
+0.514 could, at worst, move the estimate to zero; one with both below 0.514 could not.
+[Omitted-variable
+bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 give the exact definitions.
 
 Whether 0.514 is large depends on your covariates. The benchmark measures how strong a missing
@@ -282,8 +285,9 @@ discharged population the sample represents, and the offer, not completed naviga
 The four conditions hold here because the data were simulated that way; on real data each needs an
 argument from how the program ran. The ATE is an average, so it says nothing about which patients
 gain most, and it belongs to this population. One simulated sample also cannot show that the
-interval covers the truth 95% of the time; the package's evidence for that comes from its
-simulation studies, listed in the last Details block above.
+interval covers the truth 95% of the time. The package's evidence for that comes from its
+simulation studies, listed in the last Details block above, and none of them uses an unbounded
+score like this one.
 
 ## On your own data
 
@@ -356,7 +360,8 @@ it reports the estimate without an interval; the
 [inference status](../technical-reference/inference.md#inference-status) table names the
 settings that report one. DR-TMLE (`drtmle`) adds corrections meant to keep the interval valid
 when one helper model is wrong; the package establishes this only in some cases, such as known
-treatment probabilities, and the ordinary TMLE interval holds wherever DR-TMLE's does
+treatment probabilities, and in every case an analyst can name before a fit, the ordinary TMLE
+interval holds wherever DR-TMLE's does
 ([DR-TMLE](../technical-reference/dr-tmle/index.md)). Adaptive-propensity weighting
 (`adaptive_iptw`) fits no outcome model and reports an interval only when the treatment
 probabilities are known, as in a trial
