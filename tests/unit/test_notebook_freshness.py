@@ -96,3 +96,27 @@ def test_machine_noise_in_a_fitted_cell_passes_and_a_move_still_fails() -> None:
     assert text_moves("psi 0.1025 0.1154", "psi 0.1026 0.1155") == [
         "0.1154 -> 0.1155 (a second last-place change in one cell)"
     ], "changes a reading would show still count against the one-rounding budget"
+
+
+def test_a_hardware_sensitive_cell_passes_cpu_drift_and_a_move_still_fails() -> None:
+    # The drift a CI runner printed for dose-response's boosted fit, from its stored run: several
+    # last-place changes and a 0.2% change in one cell.
+    stored = "support 548.1 517.5 360.1 46.8 estimate 0.542 -0.059 1.268"
+    fresh = "support 547.9 517.3 359.4 46.9 estimate 0.541 -0.060 1.270"
+    assert text_moves(stored, fresh) != [], "the default rule refuses it"
+    assert text_moves(stored, fresh, hardware_sensitive=True) == []
+    moved = "support 548.1 517.5 366.1 46.8 estimate 0.542 -0.059 1.268"
+    assert text_moves(stored, moved, hardware_sensitive=True) == ["360.1 -> 366.1"], (
+        "a move of more than a percent still fails"
+    )
+    assert text_moves("followers 1623", "followers 1622", hardware_sensitive=True) == [
+        "1623 -> 1622"
+    ], "a count must still be equal"
+
+
+def test_a_hardware_sensitive_cell_is_stale_only_once_it_is_gone() -> None:
+    stored = {"estimate": "psi 0.542", "support": "n 548.1"}
+    fresh = {"estimate": "psi 0.541", "support": "n 548.1"}
+    hardware = {"estimate": "boosting", "support": "boosting", "gone": "boosting"}
+    moved, stale = unreproduced(stored, fresh, {}, hardware)
+    assert moved == {} and stale == ["gone"]

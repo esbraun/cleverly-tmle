@@ -995,19 +995,23 @@ def _assert_stored_text_reproduces(path: Path, printed: Mapping[str, str]) -> No
         for cell in notebook["cells"]
         if cell["cell_type"] == "code"
     }
-    exempt = getattr(callback_module(path.stem), "UNREPRODUCED_CELLS", {})
-    moved, stale = unreproduced(stored, printed, exempt)
+    module = callback_module(path.stem)
+    exempt = getattr(module, "UNREPRODUCED_CELLS", {})
+    hardware = getattr(module, "HARDWARE_SENSITIVE_CELLS", {})
+    moved, stale = unreproduced(stored, printed, exempt, hardware)
     assert not moved, (
         f"{_tutorial_id(path)}: a fresh run prints different output from the stored one in "
         f"{moved}. Re-execute the notebook with scripts/execute_notebook.py, read the difference, "
         "and update every reading that quotes a moved number"
     )
     assert not stale, (
-        f"UNREPRODUCED_CELLS in tests/unit/tutorial_semantics/{module_name(path.stem)}.py names "
-        f"{stale}, which now reproduce or no longer exist"
+        f"UNREPRODUCED_CELLS or HARDWARE_SENSITIVE_CELLS in tests/unit/tutorial_semantics/"
+        f"{module_name(path.stem)}.py names {stale}, which now reproduce or no longer exist"
     )
     for cell, reason in exempt.items():
         assert str(reason).strip(), f"UNREPRODUCED_CELLS gives no reason for {cell}"
+    for cell, reason in hardware.items():
+        assert str(reason).strip(), f"HARDWARE_SENSITIVE_CELLS gives no reason for {cell}"
 
 
 @pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
