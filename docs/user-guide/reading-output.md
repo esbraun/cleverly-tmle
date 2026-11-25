@@ -1,8 +1,8 @@
 # Read cleverly's output
 
 Every tutorial prints the same three kinds of output: the study description, the summary of the
-causal question, and the summary of an estimate. [Results, inference, and assessment](results-assessment.md)
-covers the estimate summary and its checks in more depth.
+causal question, and the summary of an estimate. [Read and save results](results-assessment.md)
+covers the estimate summary in more depth, and [Check a fitted result](assessment.md) its checks.
 
 ## The study description
 

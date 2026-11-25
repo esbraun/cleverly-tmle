@@ -1062,7 +1062,7 @@ The "Longitudinal refutation" part of
 every test.
 
 `result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
-the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+the first node, as [Sensitivity analysis](sensitivity.md) shows. An
 end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as
 [Check sensitivity to a missing confounder](survival.md#check-sensitivity-to-a-missing-confounder) describes.
 

@@ -253,7 +253,7 @@ the offer and the check-up. A missing confounder as strong as age would have str
 0.015 and 0.007, both below 0.075, so it could not move the estimate to 0. In words for a report: a hidden factor as
 strong as age on both sides would fall far short of erasing the estimate. To run both inside `assess()`, pass `include_refits=True` and
 `arguments={"benchmark": {"covariates": ["age"]}}`; `random_state=` seeds the refits
-([sensitivity analysis](user-guide/results-assessment.md#sensitivity-analysis)).
+([check a fitted result](user-guide/assessment.md)).
 
 An overlap plot draws each group's predicted chance of the offer. Where one group has people and the
 other has none, or chances pile up near 0 or 1, the comparison there rests on extrapolation. Here
