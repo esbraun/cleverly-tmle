@@ -789,6 +789,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
+    from tests.studies.learned_rule_contrast_comparators import (
+        STUDY as LEARNED_RULE_CONTRAST_COMPARATORS,
+    )
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
@@ -888,6 +891,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
         LEARNED_RULE_OPTIMAL_COMPOSITIONS,
+        LEARNED_RULE_CONTRAST_COMPARATORS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         PROJECTION_COMPOSITIONS,

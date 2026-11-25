@@ -91,6 +91,7 @@ learned-rule-arms
 learned-rule-optimal-value
 learned-rule-intermediate
 learned-rule-optimal-compositions
+learned-rule-contrast-comparators
 learned-regimen-ltmle
 conditional-projection
 projection-compositions

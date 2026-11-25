@@ -269,7 +269,12 @@ from ..interventions import (
     Support,
     as_interventions,
 )
-from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
+from ..interventions.base import (
+    refuse_mixed_interventions,
+    refuse_natural_course,
+    refuse_regime_densities,
+    split_natural_course,
+)
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_ARM_REMEDY,
@@ -291,6 +296,7 @@ from ..interventions.learned import (
     learned_rule_split,
     learned_rule_treat,
     mean_over_splits,
+    natural_course_of,
     optimal_rule_requested,
     refuse_learned_rule_composition,
     stacked_fold_estimates,
@@ -1078,7 +1084,13 @@ class TMLE:
         on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
         its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
         or the regime minus the rule with ``reference=`` naming the rule (experimental; the
-        contrast's curve is the difference of the two curves).  Such a fit builds no
+        contrast's curve is the difference of the two curves).  A
+        :class:`~cleverly.interventions.NaturalCourse` in ``interventions=`` is the observed
+        course: the fit reports its mean ``E[Y]`` (``ey_natural_course``), under the
+        report's fold weights, and the rule's contrast with it, from the stacked curves,
+        outside the joint fluctuation (experimental).  The interval is exact when the
+        outcome model is consistent or the mechanism is declared; with a misspecified
+        outcome model and a fitted mechanism no conservativeness result holds.  Such a fit builds no
         simultaneous band over those estimates, and ``summary()`` says why.  It refuses
         ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, a continuous
         treatment, missing outcomes, and a rule learner on more than two arms or with
@@ -1558,7 +1570,16 @@ class TMLE:
         self.outcome_by_arm = outcome_by_arm
         self.conditional_form = conditional_form
         self.estimands = estimands
-        self.interventions = as_interventions(interventions)
+        # A natural course is accepted only beside a learned rule, where the fit reports its
+        # mean outside the regime set; anywhere else it refuses before any regime is built.
+        regimes, natural_course = split_natural_course(interventions)
+        if natural_course is not None and learned_rule is None:
+            declared = (
+                interventions if isinstance(interventions, (list, tuple)) else [interventions]
+            )
+            refuse_natural_course(list(declared), holder="interventions=")
+        self.interventions = as_interventions(regimes)
+        self.natural_course = natural_course
         self.policies = tuple(policies or ())
         self.incremental = tuple(incremental or ())
         refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
@@ -3707,6 +3728,9 @@ class TMLE:
                     weighted=data.is_weighted,
                     strata=data.strata_names,
                     known_regimes=[str(item.name) for item in self.interventions],
+                    natural_course=(
+                        None if self.natural_course is None else str(self.natural_course.name)
+                    ),
                 ),
             }
         result = TMLEResult(
@@ -6065,7 +6089,11 @@ class TMLE:
         The learned rule is code ``0`` and the known regimes of ``interventions=`` follow it
         (X11 (c)).  With ``reference=`` naming the learned rule, or with no known regime, the
         code is ``0``, and each contrast is a known regime minus the rule.  Otherwise it is
-        ``1``, and each contrast is the rule minus a known regime.
+        ``1``, and each contrast is the rule minus a known regime.  The contrast with a
+        natural course takes its sign from ``reference=`` alone
+        (:meth:`_natural_course_flip`), so a fit whose one comparator is the natural course,
+        whose regime set holds the rule alone and so has code ``0``, still reports the rule
+        minus the natural course.
         :func:`~cleverly.interventions.learned.learned_rule_configuration_refusal` has
         already refused any other ``reference=``.
         """
@@ -6075,6 +6103,14 @@ class TMLE:
         ):
             return 0.0
         return 1.0
+
+    def _natural_course_flip(self) -> bool:
+        """Whether the natural-course contrast is the natural course minus the rule.
+
+        ``True`` only when ``reference=`` names the learned rule, as for the known regimes.
+        """
+        rule = self.learned_rule
+        return rule is not None and self.reference is not None and str(self.reference) == rule.name
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
@@ -7751,6 +7787,12 @@ class TMLE:
             ),
             natural_course=natural_course,
             known_score=known_score,
+            learned_natural_course=(
+                None
+                if (natural := natural_course_of(self)) is None or regimes is None
+                else str(natural.name)
+            ),
+            natural_course_flip=self._natural_course_flip(),
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

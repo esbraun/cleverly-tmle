@@ -1207,7 +1207,10 @@ def _t_rows() -> tuple[SupportRow, ...]:
         "The key also covers compositions no cell measured: reference= naming the learned "
         "rule (sign-flipped contrasts), known dynamic Rule regimes and more than two known "
         "regimes. Each rests on the unit witnesses W-c1 and W-c2 and the linearity argument, as "
-        "T38.split_mean does for its repeat count.",
+        "T38.split_mean does for its repeat count. A Stochastic regime, a subclass of Static "
+        "or Rule and a user-written known density key known_stochastic_regimes, and a "
+        "NaturalCourse() keys natural_course, so none of them matches these rows; the rows T58 "
+        "of the learned-rule-contrast-comparators study cover them.",
         "On the misspecified_limit law (conservative_coverage) the cells claim coverage of each "
         "parameter at or above 0.92 when the outcome model cannot represent the treated arm, "
         "not SE calibration, and the study does not show that these intervals are "
@@ -1268,6 +1271,91 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 limits=[contrast_measured[report], *contrast_limits],
             )
         )
+    # X123 (d): the learned rule beside known stochastic regimes (``known_stochastic_regimes``)
+    # and the natural course (``natural_course``), each beside ``known_regimes``. Three rows per
+    # report, as ``SUPPORT_ROWS`` of ``tests/studies/learned_rule_contrast_comparators.py``
+    # declared them before the run, because each declared condition held: the primary tests of
+    # the row's tags, every ``interval_calibration`` verdict of its tags under that report, every
+    # ``conservative_coverage`` and ``contrast_covariance`` verdict of its contrasts under that
+    # report, and, for the combined and stochastic rows, the ``targeting_necessity`` verdicts. A
+    # row labels every estimate of a fit. The numbers are the committed results
+    # (``tests/canonical/learned_rule_contrast_comparators``).
+    comparator_limits = [
+        "The study measures the pointwise intervals of the plug-in rule (LearnedRule()) at "
+        "n = 2,000 with 10 equal folds, repeats=1, pooled targeting, the RM30 interaction "
+        "logistic outcome model and a correct logistic treatment model fitted by maximum "
+        "likelihood, on two RM30 laws, in two fits per draw: beside Static(0), coin (treat "
+        "with probability 0.5), offer (treat with probability 0.5 where W1 > 0) and "
+        "NaturalCourse(), and beside NaturalCourse() alone. Binary outcome and treatment, iid "
+        "rows, no weights. The key holds neither n, the fold count, the learner nor the "
+        "density, so another n, V, learner or known density reads supported and was not "
+        "measured.",
+        "The primary tests (1,600 draws, all eleven parameters) read coverage 0.939 to 0.955, "
+        "SE ratios 0.974 to 1.035 and standardized biases -0.018 to +0.029. The necessity pair "
+        "reads the contrast against offer: the targeted fit with the drop_w1 learner reads "
+        "standardized bias -0.020 and its untargeted plug-in +3.58.",
+        "On the misspecified_limit law (conservative_coverage, 4,000 draws) the cells claim "
+        "coverage of each contrast at or above 0.92 when the outcome model cannot represent the "
+        "treated arm, not SE calibration or conservativeness. The contrasts read coverage "
+        "0.943 to 0.949 and SE ratios 0.979 to 1.007 under either report.",
+        "The covariance is needed: read at correlation one the contrasts cover 0.047 to 0.529, "
+        "and read as independent their SE ratios are 1.34 to 2.25.",
+        "One misspecified_limit draw of 4,000 raised five lbfgs convergence warnings and six "
+        "necessity draws of 1,200 one or two; each was kept, and removing them moves no verdict. "
+        "No primary or calibration draw warned. Pointwise intervals only. No comparator: no "
+        "maintained package fits a cross-validated TMLE of a learned rule beside these "
+        "comparators.",
+    ]
+    comparator_measured = {
+        "stochastic": (
+            "The non_exceptional calibration positives (10,000 draws) of coin, offer and the "
+            "contrasts against Static(0), coin and offer read SE ratios of 1.010, 1.012, 0.994, "
+            "0.987 and 0.977 with coverage 0.953, 0.955, 0.947 to 0.948. The contrast against "
+            "offer reads 0.977 with 99% interval 0.959 to 0.996 under either report, inside the "
+            "band, so its SE is about 2% small at n = 2,000. The misspecified-law cells measure "
+            "coverage only; the shared-g projection term is predicted negligible on that law."
+        ),
+        "natural_course": (
+            "The non_exceptional calibration positives (10,000 draws) of the natural-course mean "
+            "and the contrast against it read SE ratios of 1.008 to 1.010 and 0.986 to 0.989 "
+            "with coverage 0.952 and 0.947, from either fit and report. With a misspecified "
+            "outcome model and a maximum-likelihood g there is no conservativeness result: the "
+            "reported variance misses Var(P) - 2 Cov(D_N, P), of either sign, predicted about "
+            "0.998 as an SE ratio on misspecified_limit, where the contrasts read 0.980 to 0.983 "
+            "and coverage 0.946 to 0.947. A natural course beside a static or rule regime shares "
+            "this key without being fitted; its learned column moves through the joint "
+            "fluctuation by about 0.05 SE, and the row rests that composition on the stacking "
+            "argument."
+        ),
+    }
+    comparator_rows = {
+        "combined": (
+            ("known_regimes", "known_stochastic_regimes", "natural_course"),
+            [comparator_measured["stochastic"], comparator_measured["natural_course"]],
+        ),
+        "stochastic": (
+            ("known_regimes", "known_stochastic_regimes"),
+            [comparator_measured["stochastic"]],
+        ),
+        "natural_course": (
+            ("known_regimes", "natural_course"),
+            [comparator_measured["natural_course"]],
+        ),
+    }
+    for comparator_row, (comparator_qualifiers, comparator_texts) in comparator_rows.items():
+        for report in ("fold_evaluated", "stacked"):
+            rows.append(
+                point_row(
+                    f"T58.{comparator_row}.{report}",
+                    ["learned-rule-contrast-comparators"],
+                    families=("P11",),
+                    splitting=(report,),
+                    qualifiers=comparator_qualifiers,
+                    cells=["non_exceptional", "misspecified_limit"],
+                    # Roadmap: X123.
+                    limits=[*comparator_texts, *comparator_limits],
+                )
+            )
     # X11 (f) (X11 PR I): the value of the optimal rule, the fixed parameter Psi_d0, read from the
     # fold-evaluated CV-TMLE of the learned-rule value, keyed family ``P12``. One row, for the
     # fold-evaluated report on rows with the known treatment mechanism, because the study's

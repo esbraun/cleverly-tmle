@@ -224,6 +224,10 @@ AXIS_ESTIMANDS: frozenset[str] = frozenset(
 #: representer and a known regime's representer (X11 (n2)).
 LEARNED_RULE_CONTRAST_STEM = "ate_learned_rule"
 
+#: The stem of the natural course beside a learned rule.  Its mean reads the observed law
+#: alone, so the bound refuses it as having nothing to bound.
+NATURAL_COURSE_STEM = "ey_natural_course"
+
 #: The stem of the learned-rule value (X11 part (n)).  With the fold rules held fixed it is
 #: the regime functional of the stochastic regime that averages them, so it reuses the
 #: regime fluctuation group and reads its representer from :func:`_combined_rule_regimes`.
@@ -1534,12 +1538,23 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         The reported parameter and the arms it is a functional of.
     """
     stem = parameter_stem(estimand)
+    if stem == NATURAL_COURSE_STEM:
+        raise CapabilityError(
+            f"the omitted-variable bound of {estimand!r} has nothing to bound: the natural "
+            "course's mean E[Y] reads the observed outcomes alone and no outcome regression "
+            "or treatment mechanism, so no omitted confounder biases it.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Bound ey_learned_rule[...] or ey_known_regime[...] of this fit, whose values "
+                "an omitted confounder can bias."
+            ),
+        )
     if stem == LEARNED_RULE_CONTRAST_STEM:
         raise CapabilityError(
             f"the omitted-variable bound of {estimand!r}, a contrast of the learned rule "
-            "with a known regime, is not built. With the fold rules held fixed it is a "
-            "linear functional whose representer is the combined representer of the rules "
-            "minus the known regime's, and no witness checks its bias against that "
+            "with a known regime or the natural course, is not built. With the fold rules held "
+            "fixed it is a linear functional whose representer is the combined representer of "
+            "the rules minus the comparator's, and no witness checks its bias against that "
             "difference (X11 (n2) in docs/roadmap.md).",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=(
