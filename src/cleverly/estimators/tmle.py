@@ -1265,9 +1265,11 @@ class TMLE:
         ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
         :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared treatment
         mechanism) and one stacked or in-sample split whose every fold holds two clusters,
-        and it is refused otherwise. The fit costs one refit per cluster and builds no
-        simultaneous band. The option is experimental until its validation study is
-        registered.
+        and it is refused otherwise. The fit would cost one refit per cluster and build no
+        simultaneous band. ``TMLE`` refuses ``"jackknife"`` on every fit today, before any
+        learner: the in-sample family failed its floor study (roadmap F28), and the stacked
+        cross-fitted family waits for its interval floor to be redeclared (roadmap X54).
+        ``LTMLE`` offers the option.
     random_state, n_jobs:
         Reproducibility and parallelism. ``n_jobs`` also runs the jackknife refits in
         parallel.

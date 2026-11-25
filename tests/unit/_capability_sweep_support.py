@@ -2822,6 +2822,7 @@ KINDS: dict[str, Kind] = {
         fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
     ),
     "ctmle_ordered": _kind(fit_ctmle_ordered, "marginal_bounds", *_LIVE),
+    # The default axis refuses as on "shift"; the row defers on mechanism=True, which runs.
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
@@ -3455,6 +3456,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
+        # A policy fit whose ratio reads no bound would return a curve that repeats the
+        # fit. With missing outcomes the default axis still refuses; only mechanism=True runs.
         frozenset(
             {
                 "incremental",
@@ -3466,7 +3469,7 @@ MUTATIONS: dict[str, Mutation] = {
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
         + r"the truncation curve re-targets the fitted nuisances"
-        + "|on a modified treatment policy of a continuous or vector dose)",
+        + "|this fit's policies divide by a density ratio that no g\\(W\\) bound reaches)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",

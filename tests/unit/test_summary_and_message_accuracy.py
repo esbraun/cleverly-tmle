@@ -195,7 +195,7 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
 
     REMEDY = (
         "fit strategy='oat' with every selector setting (selection_folds, "
-        "selection_inner_folds, loss, penalty, ctmle_estimand) at its default, or the "
+        "selection_inner_folds, loss, penalty, selection_estimand) at its default, or the "
         "ordinary TMLE in sample, TMLE(cross_fit=False), neither of which draws a "
         "selection split"
     )

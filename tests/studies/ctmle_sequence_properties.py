@@ -456,7 +456,7 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         selection_folds=3,
         selection_inner_folds=2,
         estimands=("ate",),
-        ctmle_estimand="ate",
+        selection_estimand="ate",
         simultaneous=False,
         stratify_folds=STRATIFY_FOLDS,
         max_iter=100,

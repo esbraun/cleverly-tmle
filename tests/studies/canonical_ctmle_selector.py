@@ -176,7 +176,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             selection_inner_folds=2,
             penalty=False,
             estimands=("ate",),
-            ctmle_estimand="ate",
+            selection_estimand="ate",
             simultaneous=False,
             g_bounds=G_BOUNDS,
             # The outcome is binary here, so no ``q_bounds``: the scaler is already the

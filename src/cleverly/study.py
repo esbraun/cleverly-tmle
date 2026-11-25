@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -911,6 +911,77 @@ TRIAL_BINARY_TREATMENT_REFUSAL = Refusal(
 )
 
 
+def _trial_role_refusal(role: str, reason: str) -> Refusal:
+    """The record of one ``TrialWithExternalData`` role the adaptive TMLE has no form for."""
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"Adaptive TMLE for a trial with external data {reason}",
+        alternative=f"Fit the trial rows alone with PointTreatment({role}=...).",
+        roadmap="F40",
+    )
+
+
+def _trial_role_declared(value: object, default: object) -> bool:
+    """Whether a refused role holds anything other than its default.
+
+    Compared with the default rather than read for truth, so an array of weights is refused
+    instead of raising on its ambiguous truth value, and ``0`` or ``{}`` is refused too.
+    """
+    if value is None or default is None:
+        return value is not default
+    if isinstance(value, (list, tuple)) and isinstance(default, tuple):
+        return tuple(value) != default
+    # A value of another type than the default, an array among them, is a declaration.
+    return type(value) is not type(default) or bool(value != default)
+
+
+#: The roles of :class:`PointTreatment` that the pooled design declares only to refuse, in the
+#: order ``TrialWithExternalData.__post_init__`` checks them: the field, then its record.
+TRIAL_ROLE_REFUSALS: Final[tuple[tuple[str, Refusal], ...]] = (
+    (
+        "weights",
+        _trial_role_refusal(
+            "weights",
+            "fits its working-model selection and the projection its interval covers "
+            "without weights; no weighted form is derived here.",
+        ),
+    ),
+    (
+        "cluster",
+        _trial_role_refusal(
+            "cluster",
+            "treats the pooled rows as independent: its cross-validated working-model "
+            "selection does not split by cluster, and its influence curve is not summed "
+            "within clusters; no clustered form is derived here.",
+        ),
+    ),
+    (
+        "strata",
+        _trial_role_refusal(
+            "strata",
+            "reports the effect over the population that population= names; a stratum effect "
+            "would need its own working-model projection, which no form here derives.",
+        ),
+    ),
+    (
+        "intermediate",
+        _trial_role_refusal(
+            "intermediate",
+            "identifies the total effect of the randomized treatment; a direct effect with an "
+            "intermediate held fixed has no adaptive form here.",
+        ),
+    ),
+    (
+        "treatment_missingness",
+        _trial_role_refusal(
+            "treatment_missingness",
+            "reads the treatment of every row; a missing-treatment mechanism has no adaptive "
+            "form here.",
+        ),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class TrialWithExternalData:
     """Declare a randomized trial pooled with external data on the same outcome.
@@ -944,13 +1015,25 @@ class TrialWithExternalData:
         assumes nothing about why external outcomes are missing.
     outcome_family : {"auto", "gaussian", "binomial"}, default="auto"
         Outcome family. ``"auto"`` infers it from observed values.
+    weights : str or None, default=None
+        Refused when set: the adaptive TMLE has no weighted form here
+        (``cleverly.study.TRIAL_ROLE_REFUSALS``).
+    cluster : str or None, default=None
+        Refused when set: the adaptive TMLE treats the pooled rows as independent.
+    strata : sequence of str, default=()
+        Refused when not empty: a stratum effect would need its own working-model projection.
+    intermediate : str or None, default=None
+        Refused when set: the design identifies the total effect of the treatment.
+    treatment_missingness : str or None, default=None
+        Refused when set: the adaptive TMLE reads the treatment of every row.
 
     Raises
     ------
     DataError
         When two roles name one column, or ``adjustment`` is empty or repeats a column.
     CapabilityError
-        When ``treatment`` names more than one column.
+        When ``treatment`` names more than one column, or one of the refused roles above
+        is set.
 
     See Also
     --------
@@ -975,8 +1058,20 @@ class TrialWithExternalData:
     trial: Any = 1
     missingness: str | None = None
     outcome_family: Family = "auto"
+    weights: str | None = field(default=None, kw_only=True)
+    cluster: str | None = field(default=None, kw_only=True)
+    strata: Sequence[str] = field(default=(), kw_only=True)
+    intermediate: str | None = field(default=None, kw_only=True)
+    treatment_missingness: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        # Every refused role has a plain default; a default_factory would read MISSING here.
+        defaults = {item.name: item.default for item in fields(self)}
+        for role, refusal in TRIAL_ROLE_REFUSALS:
+            if _trial_role_declared(getattr(self, role), defaults[role]):
+                raise CapabilityError.from_refusal(refusal)
+        # An empty list of strata declares nothing; store it as the default.
+        object.__setattr__(self, "strata", ())
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         if not isinstance(self.treatment, str):
             raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
@@ -2602,8 +2697,11 @@ class LearnedRuleValue:
     The fit needs cross-fitting with at least two folds.  The fold-evaluated report,
     ``CrossFitting(fold_evaluation=True)``, weights each fold by ``1/V``.  The default
     ``CrossFitting()`` gives the stacked report, which weights each fold by its share of
-    the rows (of the weight mass under weights), and reads experimental until its study
-    registers.
+    the rows (of the weight mass under weights).  The ``learned-rule-stacked`` study registers
+    the stacked report of the plug-in rule on rows, with a known weight and with clusters,
+    with ``repeats=1`` and pooled targeting.  Strata, fold targeting, a rule-learner loss,
+    repeats above 1, weights declared estimated, weights with clusters, and fewer than 40
+    clusters (the t reference) read experimental.
 
     With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
     the binary intermediate is held at ``z``: each fold learns the best treatment given
@@ -6118,6 +6216,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "collaborative_tmle",
                 collaborative,
                 None if collaborative else collaborative_blocker,
+                # Every strategy but the derivative one refuses id= before its first learner.
+                only=(
+                    "strategy='derivative'"
+                    if collaborative
+                    and isinstance(design, PointTreatment)
+                    and design.cluster is not None
+                    else None
+                ),
             ),
             MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),

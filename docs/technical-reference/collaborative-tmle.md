@@ -1145,7 +1145,7 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `target_weights`, `screen_treatment` | `False` | none |
 | `stopping`, `step_bound`, `iterate`, `outcome_by_arm`, `patience` | `"relative"`, `None`, `"last"`, `False`, `None`. The stacked equations assume the solved fluctuation and one outcome model | none |
 | `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
-| `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
+| `preorder`, `ordering`, `candidates`, `selection_estimand` | `None`, `None`, `None`, `"ate"` | none |
 | `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0`, `ey1`, `ey_obs`, `par` and `paf` | none |
 | `treatment` | arm-coded, one column, any arm count. `ParametricOutcome(arm_columns=K - 1)` | none |
 | `weights` | none, or fixed weights with `target_weights=False` | none |

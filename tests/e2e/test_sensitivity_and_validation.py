@@ -811,6 +811,7 @@ class TestTruncationCurve:
         )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
+        assert not result.diagnostics.capability("truncation_curve").available
         with pytest.raises(CapabilityError, match="fits no propensity g\\(W\\)") as refusal:
             result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
         assert "ratio_trim=" in str(refusal.value)
