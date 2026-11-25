@@ -74,8 +74,10 @@ TILE_BYTES: Final[int] = 64 * 1024**2
 #: density reading's temporaries, the clever covariate and the fluctuation.  Measured 18.7 to
 #: 19.0 (tracemalloc, 1,000 to 50,000 rows, 176 to 6,528 nodes).
 _TILE_ARRAYS: Final[int] = 20
-#: Per-row arrays each cell holds through targeting and the band (mask, weights, clever
-#: covariate, plug-ins of both rules, influence curves).  Measured about 6.
+#: Per-row arrays each cell holds through targeting and the band: its plug-ins on both rules
+#: and its influence curves (the mask, weights and clever covariate are rebuilt per stage,
+#: :class:`_CellRows`).  Measured 3.9 (20,000 rows, 600 cells); counted at 8 for the stage
+#: temporaries one cell holds at a time.
 _CELL_ARRAYS: Final[int] = 8
 #: The node memory prediction's margin over its measured terms, applied above the held
 #: predictions, for allocations that move with library versions (a learner's copies of its
@@ -107,7 +109,11 @@ def _clever_nodes(node_weight: FloatArray, g_block: FloatArray) -> FloatArray:
 
 @dataclass(eq=False)
 class _Cell:
-    """One pair in one stratum, with what the observed dose determines."""
+    """One pair in one stratum, with the scalars the observed dose determines.
+
+    The cell's per-row arrays (mask, weights, clever covariate) are rebuilt from the data
+    when needed (:class:`_CellRows`), so a fit with many strata holds none of them per cell.
+    """
 
     pair: int
     h: float
@@ -115,11 +121,6 @@ class _Cell:
     label: str | None
     stratum: int
     index: int = -1
-    mask: Any = None
-    row_weights: Any = None
-    weight_obs: Any = None
-    h_obs: Any = None
-    omega: Any = None
     observed_zero: bool = False
     epsilon: float = 0.0
     score: float = float("nan")
@@ -128,6 +129,29 @@ class _Cell:
     @property
     def solved(self) -> bool:
         return not self.observed_zero and self.converged
+
+
+@dataclass(frozen=True)
+class _CellRows:
+    """One cell's per-row arrays, rebuilt from the data whenever a stage needs them."""
+
+    mask: FloatArray
+    row_weights: FloatArray
+    weight_obs: FloatArray
+    h_obs: FloatArray
+    omega: FloatArray
+
+    @classmethod
+    def of(
+        cls, cell: _Cell, curve: DoseResponse, data: CausalData, codes: IntArray, g_obs: FloatArray
+    ) -> _CellRows:
+        mask = (codes == cell.stratum).astype(float)
+        row_weights = data.weights * mask
+        weight_obs = curve.weight(cell.h, cell.a0, data.treatment)
+        with np.errstate(divide="ignore"):  # a zero density at a weighted dose refuses after
+            h_obs = _clever_observed(weight_obs, g_obs)
+        omega = np.asarray(row_weights, dtype=float)
+        return cls(mask, row_weights, weight_obs, h_obs, omega / omega.mean())
 
 
 @dataclass(frozen=True)
@@ -1135,9 +1159,10 @@ class DoseResponseTMLE:
     max_memory_bytes : int or None
         The memory the quadrature stage may use, in bytes.  With ``None`` the fit refuses
         only a request whose node predictions are predicted above
-        :data:`NODE_MEMORY_BUDGET` (4 GiB) both by today's count and by the count of the
-        tiled pass, so no request the fit accepted before is refused.  A number replaces that
-        rule by the tiled pass's prediction against this budget.
+        :data:`NODE_MEMORY_BUDGET` (4 GiB) both by the count of an untiled pass (every
+        node's design, prediction and density held whole) and by the count of the tiled
+        pass (:func:`node_memory`), so no request an untiled pass would accept is refused.
+        A number replaces that rule by the tiled pass's prediction against this budget.
     """
 
     def __init__(
@@ -1374,7 +1399,7 @@ class DoseResponseTMLE:
             n_jobs=int(self.n_jobs),
             n_folds=int(self.n_folds) if self.cross_fit else 1,
         )
-        # Today's count: every node's design, prediction and density, held whole, in the
+        # The untiled count: every node's design, prediction and density, held whole, in the
         # parent and in each parallel worker.
         copies = 1 if self.n_jobs == 1 else 1 + max(int(self.n_jobs), 1)
         old = int(n_nodes) * data.n * 8 * (data.covariates.shape[1] + 3) * copies
@@ -1428,19 +1453,14 @@ class DoseResponseTMLE:
         for index, cell in enumerate(cells):
             cell.index = index
         for cell in cells:
-            mask = (codes == cell.stratum).astype(float)
-            cell.mask = mask
-            cell.row_weights = data.weights * mask
-            cell.weight_obs = curve.weight(cell.h, cell.a0, data.treatment)
-            cell.observed_zero = bool(np.any((g_obs <= 0.0) & (cell.weight_obs != 0.0)))
+            rows = _CellRows.of(cell, curve, data, codes, g_obs)
+            cell.observed_zero = bool(np.any((g_obs <= 0.0) & (rows.weight_obs != 0.0)))
             if cell.observed_zero:
                 continue
-            cell.h_obs = _clever_observed(cell.weight_obs, g_obs)
-            omega = np.asarray(cell.row_weights, dtype=float)
-            cell.omega = omega / omega.mean()
             cell.epsilon, cell.score, cell.converged = solve_fluctuation(
-                y, q_obs, cell.h_obs, cell.omega, fluctuation=self.fluctuation
+                y, q_obs, rows.h_obs, rows.omega, fluctuation=self.fluctuation
             )
+            del rows
         observing = _untargeted_observer is not None
         passes = [
             _node_pass(
@@ -1478,9 +1498,10 @@ class DoseResponseTMLE:
                         f"{name}: the fitted density is zero at doses {np.round(bad, 6).tolist()} "
                         "inside the kernel's support; narrow the dose interval"
                     )
+                rows = _CellRows.of(cell, curve, data, codes, g_obs)
                 if observing:
                     assert _untargeted_observer is not None
-                    _untargeted_observer(found.untargeted[cell.index], cell.row_weights)
+                    _untargeted_observer(found.untargeted[cell.index], rows.row_weights)
                 if not cell.converged:
                     # A data error, not a programming one: the Newton steps ran out on this
                     # sample, and a repeated-sampling study records the draw
@@ -1491,16 +1512,16 @@ class DoseResponseTMLE:
                         "the submodel, so widen the bandwidth or narrow the dose interval"
                     )
                 integral = found.integral[cell.index]
-                omega = cell.omega
+                omega = rows.omega
                 psi = float(np.mean(omega * integral))
-                targeted_obs = _fluctuate(q_obs, cell.h_obs, cell.epsilon, self.fluctuation, BOUND)
-                influence = influence_curve(y, targeted_obs, cell.h_obs, integral, psi, omega)
-                inside = cell.mask > 0.0
+                targeted_obs = _fluctuate(q_obs, rows.h_obs, cell.epsilon, self.fluctuation, BOUND)
+                influence = influence_curve(y, targeted_obs, rows.h_obs, integral, psi, omega)
+                inside = rows.mask > 0.0
                 minimum = found.minimum[cell.stratum, used]
                 report = support_from(
-                    cell.h_obs[inside],
+                    rows.h_obs[inside],
                     g_obs[inside],
-                    cell.weight_obs[inside],
+                    rows.weight_obs[inside],
                     float(minimum.min()) if minimum.size and inside.any() else None,
                 )
                 below = report.kish < curve.support_floor

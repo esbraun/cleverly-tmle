@@ -161,7 +161,9 @@ exceeds 0.05, and warns with `DataWarning`. A tree-based $\bar Q$ puts its own j
 slowly.
 
 The fit refuses before any learner runs when $D$ leaves the observed dose range, since the binned
-density is zero outside it, and when the nodes would need more than 4 GB. It refuses after the
+density is zero outside it, and when the quadrature stage is predicted to need more than 4 GiB
+(`max_memory_bytes=` sets another budget; the
+[refusal table](scope-and-refusals.md) gives the count). It refuses after the
 nuisance fit, naming the pair, when the fitted density is zero where a weight is nonzero, and when
 a pair's fluctuation does not solve its score. Both raise `DataError`. Declare
 $D$ with a margin inside the expected dose range, and choose it without reading the sample: an

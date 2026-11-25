@@ -1462,13 +1462,17 @@ def _sparse_route(learner: Any, records: int, n_covariates: int) -> bool:
 
 
 def _record_columns(n_covariates: int, n_hazards: int, index_only: bool, sparse: bool) -> int:
-    """Eight-byte columns per record a guard counts: the dense width, or the CSR bytes over 8.
+    """Eight-byte columns per record a guard counts: the dense width, or the sparse build over 8.
 
     A sparse record holds at most the covariates, the bin index and one indicator, each as an
-    8-byte value and a 4-byte column index, plus its 4-byte row pointer.
+    8-byte value and a 4-byte column index, plus its 4-byte row pointer.  The build beside the
+    CSR arrays holds 8-byte record vectors (unit, bin, target, and one column's chosen rows,
+    units and positions at a time, ten in all with their copies) and a one-byte mask per
+    covariate: ``p + 84`` bytes a record.  Measured CSR build peaks came to 0.85 to 0.94 of
+    the count (tracemalloc, 1 to 20 covariates, 12 to 200 bins).
     """
     if sparse:
-        return -(-((n_covariates + 2) * 12 + 4) // 8)
+        return -(-((n_covariates + 2) * 12 + 4 + n_covariates + 84) // 8)
     return n_covariates + _bin_block(np.zeros(1, dtype=np.int64), n_hazards, index_only).shape[1]
 
 

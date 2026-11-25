@@ -8,6 +8,7 @@ row mix-up must fail the comparison, and the refusals keep the order of a rule-b
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
@@ -28,7 +29,7 @@ from cleverly.learners.density import bin_edges, default_density_bins
 CURVE = DoseResponse(doses=(0.8, 1.5, 2.2), bandwidths=(0.5, 0.8), support=(0.3, 2.7))
 
 
-def _frame(n: int, seed: int = 3) -> pd.DataFrame:
+def _frame(n: int, seed: int = 3, v_share: float = 0.4) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     w = rng.normal(size=(n, 2))
     a = np.clip(1.5 + 0.6 * w[:, 0] + rng.normal(size=n), 0.0, 3.0)
@@ -36,12 +37,12 @@ def _frame(n: int, seed: int = 3) -> pd.DataFrame:
     frame = pd.DataFrame(w, columns=["W0", "W1"])
     frame["A"] = a
     frame["Y"] = mu + rng.normal(size=n)
-    frame["V"] = (rng.uniform(size=n) < 0.4).astype(float)
+    frame["V"] = (rng.uniform(size=n) < v_share).astype(float)
     frame["wt"] = rng.uniform(0.5, 2.0, n)
     return frame
 
 
-def _nuisance(n: int) -> tuple[DoseResponseTMLE, Any, Any, list[Any]]:
+def _nuisance(n: int, v_share: float = 0.4) -> tuple[DoseResponseTMLE, Any, Any, list[Any]]:
     estimator = DoseResponseTMLE(
         CURVE,
         outcome_learner=LinearRegression(),
@@ -52,7 +53,7 @@ def _nuisance(n: int) -> tuple[DoseResponseTMLE, Any, Any, list[Any]]:
     )
     engine_ = estimator._engine()
     data = engine_._prepare(
-        _frame(n),
+        _frame(n, v_share=v_share),
         outcome="Y",
         treatment="A",
         covariates=["W0", "W1", "V"],
@@ -305,3 +306,149 @@ def test_the_first_cell_in_stratum_order_refuses(monkeypatch: pytest.MonkeyPatch
 def test_a_zero_density_at_a_refined_node_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     message = _refusing_target(monkeypatch, (_refined_only_node(),), set())
     assert "the fitted density is zero at doses" in message
+
+
+@pytest.mark.parametrize(
+    ("cross_fit", "n_jobs", "outcome"),
+    [(True, 1, "linear"), (True, 2, "linear"), (False, 1, "linear"), (True, 1, "logistic")],
+)
+def test_each_rows_node_prediction_comes_from_its_own_fold(
+    cross_fit: bool, n_jobs: int, outcome: str
+) -> None:
+    """Per-fold storage against an independent path: the prediction at the observed dose.
+
+    A third of the rows have their observed dose at a node, so for those rows the stored
+    prediction at that node and the observed prediction come from the same fold's model on
+    the same covariate row.  ``outcome.observed`` is predicted apart from the nodes, so a
+    row stored under another fold or another position fails here, whatever ``block`` does.
+    """
+    nodes = (0.6, 1.1, 1.7, 2.3)
+    frame = _frame(1_203, seed=11)
+    rng = np.random.default_rng(12)
+    at_node = rng.uniform(size=len(frame)) < 1 / 3
+    frame.loc[at_node, "A"] = rng.choice(nodes, size=int(at_node.sum()))
+    if outcome == "logistic":
+        frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(float)
+    learner = LinearRegression() if outcome == "linear" else LogisticRegression(max_iter=1000)
+    estimator = DoseResponseTMLE(
+        CURVE,
+        outcome_learner=learner,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        q_bounds=None if outcome == "logistic" else (-6.0, 7.0),
+        fluctuation="linear" if outcome == "linear" else "logistic",
+        cross_fit=cross_fit,
+        random_state=0,
+    )
+    engine_ = estimator._engine()
+    data = engine_._prepare(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=["W0", "W1", "V"],
+        delta=None,
+        weights=None,
+        id=None,
+        intermediate=None,
+        strata=None,
+        treatment_kind="continuous",
+    )
+    with thread_limit(1):
+        nuisance = fit_nuisances(
+            data,
+            outcome_learner=learner,
+            treatment_learner=LogisticRegression(max_iter=1000),
+            missingness_learner=None,
+            intermediate_learner=None,
+            folds=engine_._folds(data, 0),
+            scaler=engine_._scaler(data),
+            density_bins=8,
+            n_jobs=n_jobs,
+            dose_nodes=nodes,
+        )
+    stored = nuisance.node_predictions
+    assert len(stored.tests) == (5 if cross_fit else 1)
+    q = stored.block(np.arange(data.n), 0, len(nodes))
+    observed = np.asarray(nuisance.outcome.observed, dtype=float)
+    rows = np.flatnonzero(at_node)
+    column = np.searchsorted(nodes, data.treatment[rows])
+    np.testing.assert_allclose(q[rows, column], observed[rows], rtol=0, atol=1e-12)
+    # Mutation controls: rows stored under the wrong position, or under another fold of the
+    # same size, fail the comparison.
+    tests = list(stored.tests)
+    tests[0] = tests[0][::-1]
+    mutations = [tests]
+    if cross_fit:
+        swapped = list(stored.tests)
+        assert swapped[0].size == swapped[1].size
+        swapped[0], swapped[1] = swapped[1], swapped[0]
+        mutations.append(swapped)
+    for wrong in mutations:
+        moved = NodePredictions(tuple(wrong), stored.matrices).block(np.arange(data.n), 0, 4)
+        assert np.max(np.abs(moved[rows, column] - observed[rows])) > 1e-6
+
+
+def test_the_untargeted_observer_sees_each_cells_untiled_plug_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W9: the seam gets, per rule and cell in report order, ``Q(nodes) @ weights`` and weights."""
+    monkeypatch.setattr(engine, "TILE_BYTES", 1)
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+    monkeypatch.setattr(engine, "_untargeted_observer", lambda q, w: seen.append((q, w)))
+    with thread_limit(1):
+        estimator, data, nuisance, rules = _nuisance(1_025)
+        offsets = [0, rules[0].n_nodes]
+        estimator._target(data, nuisance, list(zip(rules, offsets, strict=True)), UNCLASSIFIED)
+        expected = []
+        for rule, offset in zip(rules, offsets, strict=True):
+            q_nodes = nuisance.node_predictions.block(
+                np.arange(data.n), offset, offset + rule.n_nodes
+            )
+            for code in range(data.n_strata):
+                weights = data.weights * (data.strata == code).astype(float)
+                for p in range(len(CURVE.pairs)):
+                    expected.append((q_nodes @ rule.weights[p], weights))
+    assert len(seen) == len(expected) == 2 * data.n_strata * len(CURVE.pairs)
+    for (q, w), (want_q, want_w) in zip(seen, expected, strict=True):
+        assert q.tobytes() == want_q.tobytes()
+        assert w.tobytes() == want_w.tobytes()
+
+
+@pytest.mark.parametrize("strata", [True, False])
+def test_the_support_minimum_reads_each_stratums_rows(
+    monkeypatch: pytest.MonkeyPatch, strata: bool
+) -> None:
+    """The smallest density at a used node over a stratum's rows, from 64-row tiles.
+
+    A rare stratum (about 3% of rows) leaves most tiles wholly in the other stratum, some
+    mixed and some without it, so every branch of the tile minimum runs; without strata every
+    tile is whole.  The reference reads the density at every node over every row.
+    """
+    monkeypatch.setattr(engine, "TILE_BYTES", 1)
+    with thread_limit(1):
+        estimator, data, nuisance, rules = _nuisance(1_025, v_share=0.03)
+        if not strata:
+            data = dataclasses.replace(data, strata=None)
+        found = estimator._target(data, nuisance, [(rules[0], 0)], UNCLASSIFIED)
+    rule = rules[0]
+    g_nodes = np.column_stack([nuisance.density.density_at(np.full(data.n, d)) for d in rule.nodes])
+    g_obs = nuisance.density.density_at(data.treatment)
+    codes = np.zeros(data.n, dtype=np.int64) if data.strata is None else data.strata
+    _, supports, _ = found[0]
+    labels = (
+        [None] if data.strata is None else [data.stratum_label(c) for c in range(data.n_strata)]
+    )
+    by_name = {s.name: s for s in supports}
+    checked = 0
+    for code, label in enumerate(labels):
+        rows = codes == code
+        assert rows.any()
+        for p, (h, a0) in enumerate(CURVE.pairs):
+            used = rule.weights[p] != 0.0
+            node_min = float(g_nodes[np.ix_(rows, used)].min())
+            loaded = rows & (CURVE.weight(h, a0, data.treatment) != 0.0)
+            want = min(node_min, float(g_obs[loaded].min())) if loaded.any() else node_min
+            got = by_name[engine._pair_cell_name(h, a0, label)].min_density
+            assert got == want
+            checked += node_min < float(g_obs[loaded].min()) if loaded.any() else 1
+    # Nonzero witness: the node minimum decides the reported minimum somewhere.
+    assert checked > 0

@@ -798,17 +798,114 @@ def test_the_default_memory_rule_refuses_nothing_the_old_count_accepted() -> Non
                             assert new < old, (n, nodes, p, cells, jobs)
 
 
+def _preflight(monkeypatch: pytest.MonkeyPatch, *, new: int, old: int, budget: int | None) -> None:
+    """Run the fit's preflight with the tiled count ``new`` and today's count ``old`` set."""
+    from types import SimpleNamespace
+
+    import cleverly.estimators.dose_response as module
+
+    # Today's count is n_nodes * n * 8 * (p + 3) at one job: one row and five covariates
+    # make it 64 bytes a node.
+    assert old % 64 == 0
+    monkeypatch.setattr(module, "node_memory", lambda **_: new)
+    engine = SimpleNamespace(
+        curve=SimpleNamespace(pairs=[(1.0, 1.0)]),
+        n_jobs=1,
+        n_folds=5,
+        cross_fit=True,
+        max_memory_bytes=budget,
+    )
+    data = SimpleNamespace(strata=None, n=1, covariates=np.zeros((1, 5)))
+    DoseResponseTMLE._preflight_memory(engine, data, old // 64, 1)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
-    ("n", "bins", "pairs", "strata"), [(2_000, 10, 3, False), (6_000, None, 12, True)]
+    ("new", "old", "refused"),
+    [
+        (6_400, 6_400, False),  # both at the budget
+        (6_401, 6_464, True),  # both a byte (a node) above
+        (6_401, 6_400, False),  # only the tiled count above
+        (6_400, 6_464, False),  # only today's count above
+        (10**9, 6_400, False),
+        (6_400, 64 * 10**7, False),
+    ],
+)
+def test_the_default_rule_refuses_only_when_both_counts_exceed_the_budget(
+    monkeypatch: pytest.MonkeyPatch, new: int, old: int, refused: bool
+) -> None:
+    import cleverly.estimators.dose_response as module
+
+    monkeypatch.setattr(module, "NODE_MEMORY_BUDGET", 6_400)
+    if refused:
+        with pytest.raises(DataError, match="of the default budget"):
+            _preflight(monkeypatch, new=new, old=old, budget=None)
+    else:
+        _preflight(monkeypatch, new=new, old=old, budget=None)
+
+
+@pytest.mark.parametrize(("new", "refused"), [(5_000, False), (5_001, True)])
+def test_an_explicit_budget_reads_only_the_tiled_count(
+    monkeypatch: pytest.MonkeyPatch, new: int, refused: bool
+) -> None:
+    """Today's count is far above the budget and has no say; the tiled count alone decides."""
+    if refused:
+        with pytest.raises(DataError, match="budget max_memory_bytes sets"):
+            _preflight(monkeypatch, new=new, old=64 * 10**6, budget=5_000)
+    else:
+        _preflight(monkeypatch, new=new, old=64 * 10**6, budget=5_000)
+
+
+def test_the_node_memory_count_holds_every_node_prediction() -> None:
+    """The held term is ``K n 8``: at one job only it moves with the node count."""
+    from cleverly.estimators.dose_response import node_memory
+
+    def count(nodes: int) -> int:
+        return node_memory(
+            n=50_000, n_nodes=nodes, rule_nodes=120, width=5, cells=3, n_jobs=1, n_folds=5
+        )
+
+    assert count(300) - count(200) == 100 * 50_000 * 8
+
+
+@pytest.mark.parametrize(
+    ("n", "bins", "pairs", "strata", "whole"),
+    [
+        (2_000, 10, 3, False, False),
+        (6_000, None, 12, True, False),
+        (6_000, None, 12, True, True),
+    ],
 )
 def test_the_node_memory_prediction_covers_the_measured_peak(
-    monkeypatch: pytest.MonkeyPatch, n: int, bins: int | None, pairs: int, strata: bool
+    monkeypatch: pytest.MonkeyPatch,
+    n: int,
+    bins: int | None,
+    pairs: int,
+    strata: bool,
+    whole: bool,
 ) -> None:
-    """The tracemalloc peak from the outcome fit's start to the band's end, against D3's count."""
+    """The tracemalloc peak from the outcome fit's start to the band's end, against D3's count.
+
+    Tiles are forced small (256 KiB), so the count is tight on these sizes.  The mutation
+    control (``whole``) gathers every row's node predictions as one ``(n, K)`` matrix during
+    the node pass, as the untiled pass did, and the measured peak then passes the count.
+    """
     import tracemalloc
 
     import cleverly.estimators._nuisance as nuisance_module
     import cleverly.estimators.dose_response as module
+
+    monkeypatch.setattr(module, "TILE_BYTES", 256 * 1024)
+    if whole:
+        passing = module._node_pass
+
+        def gathered(curve, density, nodes, rule, offset, *args, **kwargs):  # type: ignore[no-untyped-def]
+            rows = np.concatenate(nodes.tests)
+            held = nodes.block(rows, offset, offset + rule.n_nodes)
+            out = passing(curve, density, nodes, rule, offset, *args, **kwargs)
+            del held
+            return out
+
+        monkeypatch.setattr(module, "_node_pass", gathered)
 
     seen: dict[str, int] = {}
     fitting = nuisance_module.cross_fit_companion
@@ -863,7 +960,10 @@ def test_the_node_memory_prediction_covers_the_measured_peak(
         )
     finally:
         tracemalloc.stop()
-    assert seen["peak"] <= seen["predicted"] <= 1.5 * seen["peak"]
+    if whole:
+        assert seen["peak"] > seen["predicted"]
+    else:
+        assert seen["peak"] <= seen["predicted"] <= 1.5 * seen["peak"]
 
 
 def test_the_support_report_reads_the_clever_covariate(fitted) -> None:  # type: ignore[no-untyped-def]

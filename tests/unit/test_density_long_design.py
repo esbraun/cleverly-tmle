@@ -137,6 +137,63 @@ def test_only_liblinear_logistic_regression_takes_the_sparse_design() -> None:
 
 
 def test_the_guard_counts_the_sparse_bytes() -> None:
-    # Nonzero witness: a sparse record is counted at its CSR size, not the dense width.
-    assert density_module._record_columns(4, 59, False, True) == 10
+    # Nonzero witness: a sparse record is counted at its sparse build, not the dense width.
+    assert density_module._record_columns(4, 59, False, True) == 21
     assert density_module._record_columns(4, 59, False, False) == 4 + 59
+
+
+def _sparse_build_peak(n: int, n_bins: int, p: int) -> tuple[int, int]:
+    """(tracemalloc peak of the CSR build, records) on a fixture with a zero in each column."""
+    rng = np.random.default_rng(n + n_bins + p)
+    covariates = rng.standard_normal((n, p))
+    covariates[rng.random((n, p)) < 0.2] = 0.0
+    bins = rng.integers(0, n_bins, n)
+    tracemalloc.start()
+    try:
+        base = tracemalloc.get_traced_memory()[0]
+        _, _, rows = density_module._long_expansion(covariates, bins, n_bins - 1, False, True)
+        peak = tracemalloc.get_traced_memory()[1] - base
+    finally:
+        tracemalloc.stop()
+    return peak, rows.size
+
+
+@pytest.mark.parametrize(("n", "n_bins", "p"), [(6_000, 60, 4), (6_000, 12, 1), (3_000, 40, 20)])
+def test_the_sparse_guard_covers_the_build_it_admits(n: int, n_bins: int, p: int) -> None:
+    """W5: the guard's sparse bytes are at least the CSR build's peak and at most 1.5x it.
+
+    The mutation control is the count of the CSR arrays alone, which the build's record
+    vectors pass on every fixture.
+    """
+    peak, records = _sparse_build_peak(n, n_bins, p)
+    counted = records * density_module._record_columns(p, n_bins - 1, False, True) * 8
+    assert peak <= counted <= 1.5 * peak
+    csr_only = records * -(-((p + 2) * 12 + 4) // 8) * 8
+    assert csr_only < peak
+
+
+def test_the_sparse_guard_refuses_one_byte_short(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A liblinear density fit completes at exactly the sparse count and refuses one byte below."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.exceptions import MethodConfigurationError
+    from cleverly.learners.crossfit import Folds
+
+    learner = LogisticRegression(solver="liblinear", random_state=0)
+    rng = np.random.default_rng(5)
+    n = 600
+    w = rng.standard_normal((n, 3))
+    a = rng.standard_normal(n)
+    folds = Folds(np.zeros(n, dtype=np.int64), 1)
+    grid = density_module._grid(a, None, 12, None, None)
+    records, columns, _ = density_module._table_size(learner, 3, grid, None)
+    assert columns < 3 + grid.n_hazards  # the sparse count, below the dense width
+    needed = records * columns * 8
+
+    def fit(free: int) -> None:
+        monkeypatch.setattr(density_module, "available_memory", lambda: free)
+        density_module.fit_conditional_density(learner, w, a, np.ones(n), folds, n_bins=12)
+
+    fit(needed)
+    with pytest.raises(MethodConfigurationError, match="needs"):
+        fit(needed - 1)

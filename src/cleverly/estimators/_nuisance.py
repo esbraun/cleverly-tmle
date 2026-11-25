@@ -2955,6 +2955,8 @@ def fit_nuisances(
         if dose_nodes is not None:
             if outcome_by_arm:
                 raise ValueError("a dose-response curve has no per-arm outcome regression")
+            if len(levels) != 1:
+                raise ValueError("a dose-response curve reads its nodes at one level")
             node_keys = tuple(_design_key(code, levels[0]) for code in counterfactual)
             node_folds = []
         if outcome_by_arm:
