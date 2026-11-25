@@ -361,6 +361,13 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
+| Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
+| External scores | No tutorial fits `assess_score` |
+| Hazard targeting beyond a held baseline treatment | No tutorial fits it |
+| Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
+| Drift-corrected survival TMLE | No tutorial fits it |
+| Continuous-time survival and competing risks | plots draws one fit's risk curve and its overlap figure. No tutorial reads its estimates |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |
