@@ -96,7 +96,7 @@ FLAGGED_EXPERIMENTAL = {
         "0.93 to 0.95"
     ),
     "X40-sdr-heavy-ratios": (
-        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9408 and a coverage of 0.9357 "
+        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9412 and a coverage of 0.9347 "
         "at n = 4,000"
     ),
 }

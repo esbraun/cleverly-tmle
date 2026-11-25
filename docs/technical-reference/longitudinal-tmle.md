@@ -2825,9 +2825,9 @@ and `G24.mtp.in_sample` license it; at three nodes it stays experimental, becaus
 configuration was held out for the screen that chose the regressions.
 
 **The `SDR` interval.** At n = 4,000 under plan `p4`, the `p4_sdr` cell of `mtp-boundaries` reads a
-standard-error ratio of 0.9408 (99% interval 0.9060 to 0.9775) and coverage of 0.9357 with a
+standard-error ratio of 0.9412 (99% interval 0.9087 to 0.9764) and coverage of 0.9347 with a
 pseudo-outcome learner that projects onto [0, 1]; the re-run in `mtp-policy-variance` reads 0.919
-(0.891 to 0.950) and 0.937. The `LTMLE` cell of the same plan reads 0.9572. The shortfall grows
+(0.891 to 0.950) and 0.937. The `LTMLE` cell of the same plan reads 0.9569. The shortfall grows
 when the pseudo-outcome regression is not projected. On 240 paired draws a projected rich basis
 gives an SE ratio of 0.982 and coverage of 0.950, and the same basis unprojected gives 0.799 and
 0.904 (`tests/diagnostics/fix5_heavy_ratios/probe4.csv`). The default `SuperLearner` pseudo learner
