@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -36,15 +37,48 @@ WALL_CLOCK = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?"
 )
 
+#: The file name a kernel gives each cell, which a warning's stream text quotes.  It carries the
+#: kernel's process id, so it differs on every run and is never a result.
+KERNEL_CELL_FILE = re.compile(r"[^\s\"']*ipykernel_\d+[/\\]+\d+\.py")
+
+#: The ``text/plain`` repr a kernel stores beside a figure's image, such as
+#: ``<Figure size 700x450 with 1 Axes>``.  Its pixel size follows ``figure.dpi``, which a
+#: platform's matplotlibrc sets, and the published page shows the image, not this text.
+FIGURE_REPR = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
+
+#: Native thread pools default to every core, which differs between machines.  The kernel runs
+#: with one thread so that a learner's floating-point reductions do not depend on the machine.
+SINGLE_THREAD_ENVIRONMENT = {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+}
+
+
+def kernel_environment() -> dict[str, str]:
+    """The environment the kernel starts with: this process's, made machine-independent.
+
+    Native thread pools run one thread (:data:`SINGLE_THREAD_ENVIRONMENT`), and matplotlib reads
+    its own bundled defaults rather than a machine's matplotlibrc.  A site or user rc file can
+    set ``figure.dpi`` or a font, which would change every published figure and its repr on that
+    machine alone.
+    """
+    import matplotlib
+
+    defaults = Path(matplotlib.get_data_path()) / "matplotlibrc"
+    return {**os.environ, **SINGLE_THREAD_ENVIRONMENT, "MATPLOTLIBRC": str(defaults)}
+
+
 #: :class:`~nbclient.NotebookClient` skips cells tagged ``skip-execution`` by default.  A
 #: private tag that the preflight rejects forces every nonblank code cell through the kernel.
 NEVER_SKIP_TAG = "__cleverly_never_skip__"
 
 
 def _mask_wall_clock(value: Any) -> Any:
-    """Mask package provenance clocks recursively and preserve other values."""
+    """Mask package provenance clocks and kernel cell file names, and preserve other values."""
     if isinstance(value, str):
-        return WALL_CLOCK.sub(r"\g<prefix><wall clock>", value)
+        masked = WALL_CLOCK.sub(r"\g<prefix><wall clock>", value)
+        return KERNEL_CELL_FILE.sub("<kernel cell>", masked)
     if isinstance(value, list):
         return [_mask_wall_clock(item) for item in value]
     if isinstance(value, dict):
@@ -76,12 +110,37 @@ def _merged_streams(outputs: Any) -> list[Any]:
     return merged
 
 
+def _is_figure_repr(payload: Any) -> bool:
+    """Whether a ``text/plain`` payload is the repr a kernel stores beside a figure's image."""
+    text = "".join(payload) if isinstance(payload, list) else str(payload)
+    return text.lstrip().startswith(FIGURE_REPR)
+
+
+def _streams_last(outputs: list[Any]) -> list[Any]:
+    """Move the ``stderr`` stream after every other output of the cell.
+
+    A kernel sends ``stdout`` and ``stderr`` on separate channels, so whether a warning lands
+    before or after the printed table depends on timing, not on the code.  ``stdout`` keeps its
+    place among the displays, because that order is what the code prints.
+    """
+    errors = [o for o in outputs if o.get("output_type") == "stream" and o.get("name") == "stderr"]
+    if not errors:
+        return outputs
+    rest = [
+        o for o in outputs if not (o.get("output_type") == "stream" and o.get("name") == "stderr")
+    ]
+    joined = {**errors[0], "text": "".join(o["text"] for o in errors)}
+    return [*rest, joined]
+
+
 def comparable_outputs(notebook: Any) -> dict[str, list[str]]:
     """Map each cell id to its canonical non-image outputs.
 
     Raster and vector images are left out because renderers can change their bytes without moving
-    an estimate.  Stream text and every non-image MIME payload remain, including HTML and JSON
-    tables that a documentation build can publish.  Adjacent same-name streams merge first, as
+    an estimate, and so is the ``text/plain`` figure repr stored beside an image, whose pixel
+    size follows the platform's ``figure.dpi``.  A kernel's cell file name in a warning is
+    masked.  Stream text and every non-image MIME payload remain, including HTML and JSON tables
+    that a documentation build can publish.  Adjacent same-name streams merge first, as
     :func:`_merged_streams` explains, and before the wall-clock mask so that a clock split across
     two chunks is still masked.
     """
@@ -90,17 +149,20 @@ def comparable_outputs(notebook: Any) -> dict[str, list[str]]:
         if cell["cell_type"] != "code":
             continue
         outputs = []
-        for output in _merged_streams(cell.get("outputs", ())):
+        for output in _streams_last(_merged_streams(cell.get("outputs", ()))):
             comparable: dict[str, Any] = {"output_type": output.get("output_type")}
             if "name" in output:
                 comparable["name"] = output["name"]
             if "text" in output:
                 comparable["text"] = output["text"]
             if "data" in output:
+                data = output["data"]
+                has_image = any(mime.startswith("image/") for mime in data)
                 comparable["data"] = {
                     mime: payload
-                    for mime, payload in output["data"].items()
+                    for mime, payload in data.items()
                     if not mime.startswith("image/")
+                    and not (mime == "text/plain" and has_image and _is_figure_repr(payload))
                 }
             for key in ("ename", "evalue", "traceback"):
                 if key in output:
@@ -184,7 +246,7 @@ def execute_notebook(notebook: Any, *, timeout: int, repository_root: Path) -> N
         resources={"metadata": {"path": str(repository_root)}},
         skip_cells_with_tag=NEVER_SKIP_TAG,
         force_raise_errors=True,
-    ).execute()
+    ).execute(env=kernel_environment())
 
 
 def write_notebook(notebook: Any, path: Path) -> None:

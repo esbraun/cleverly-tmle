@@ -242,7 +242,7 @@ def _check_odds_bounds(namespace: dict[str, Any]) -> None:
     frame = namespace["frame"]
     offered = frame["transition_navigation"] == 1
     assert treated[3].lower < float(frame["transition_score"][offered].mean()) - 0.05
-    # "stay above zero through gamma = 3 and fall to -0.0032 at gamma = 4".
+    # "stay above zero through gamma = 3 and fall to -0.0044 at gamma = 4".
     assert bounds.rows[2].lower_limit > 0.0 > bounds.rows[3].lower_limit
     assert bounds.limit_breakdown == 4.0
     assert bounds.breakdown is None
