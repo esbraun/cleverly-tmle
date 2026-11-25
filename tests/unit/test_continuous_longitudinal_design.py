@@ -513,6 +513,29 @@ def test_the_anchored_reading_pools_each_group(monkeypatch: pytest.MonkeyPatch) 
     assert (passes["mechanism"] <= passes["primary"]).all()  # review S2
 
 
+def test_opposite_biases_in_a_group_fail_the_per_row_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review D1(c): rows at +0.15 and -0.15 SD cancel in the group's signed mean, so the
+    anchored pass carries them while each row's own bias does not."""
+    calibrated = (0.95, 1.0, 0.0)
+    values = dict.fromkeys(pilot.GROUPS, calibrated)
+    table = _coverage(values)
+    table[["coverage", "se_ratio", "standardized_bias"]] = calibrated
+    mechanism = table["cell"] == "mechanism_correct"
+    signs = np.where(np.arange(int(mechanism.sum())) % 2, 0.15, -0.15)
+    table.loc[mechanism, "standardized_bias"] = signs
+    monkeypatch.setattr(pilot, "coverage_table", lambda rows: table)
+    declared = (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES)
+    pooled = pilot.pooled_table(pd.DataFrame()).set_index("group")
+    assert pooled.loc["mechanism_correct", "standardized_bias"] == pytest.approx(0.0)
+    assert pilot.anchored_family_pass(pd.DataFrame(), *declared) >= sizing.FAMILY_WISE_PASS
+    assert pilot.per_row_family_pass(pd.DataFrame(), *declared) < sizing.FAMILY_WISE_PASS
+    own = pilot.own_passes(pd.DataFrame(), *declared)
+    assert (own.loc[own["cell"] == "mechanism_correct", "own_pass"] < 0.95).all()
+    assert (own.loc[own["cell"] != "mechanism_correct", "own_pass"] > 0.999).all()
+
+
 def test_the_regeneration_refuses_a_failing_anchored_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

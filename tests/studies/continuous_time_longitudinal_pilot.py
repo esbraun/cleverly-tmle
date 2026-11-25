@@ -32,9 +32,11 @@ declared run:
   the 60 gated rows' plug-in pass probabilities (:func:`row_pass`, rows taken as independent) at
   those counts must reach ``FAMILY_WISE_PASS`` 0.95, each row read at its group's pooled
   coverage, SE ratio and standardized bias (:func:`pooled_table`: ``cont_cf`` static, ``day_cf``
-  static, ``day_cf`` rule, ``mechanism_correct``).  The row-level product (:func:`family_pass`)
-  and every rung's passes (:func:`anchored_passes`) are reports; no rung is chosen from them,
-  and the plan's move of rows with coverage below 0.925 to reported is not applied;
+  static, ``day_cf`` rule, ``mechanism_correct``).  The product with each row's own bias and the
+  pooled coverage and SE ratio (:func:`per_row_family_pass`, :func:`own_passes`), the row-level
+  product (:func:`family_pass`) and every rung's passes (:func:`anchored_passes`) are reports;
+  no rung is chosen from them, and the plan's move of rows with coverage below 0.925 to
+  reported is not applied;
 * **the at-target family pass** (:func:`at_target_pass`): both calibration rows at SE ratio 1
   and coverage 0.95 at the primary count (0.995 for the pair at 3,200), and each calibration
   row's plug-in pass at the declared count (:func:`calibration_checks`): a row below 0.90
@@ -570,8 +572,11 @@ def anchored_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> fl
     pooled coverage, SE ratio and standardized bias (the anchored reading).
 
     A 400-draw row reads its coverage with an SE near 0.011 and its SE ratio with a relative SD
-    near 0.035, so a product of 60 row-level point readings is pessimistic; the anchored reading
-    follows the ``continuous-survival-bootstrap`` pilot, and :func:`family_pass` stays a report.
+    near 0.035, so a product of 60 row-level point readings is pessimistic.  No earlier study
+    pooled readings across rows: the ``continuous-survival-bootstrap`` pilot anchored each row's
+    SE ratio to an external study row by row and read no bias.  Averaging signed biases lets
+    opposite biases cancel within a group, so :func:`per_row_family_pass`, which reads each row's
+    own bias, is reported beside it.
     """
     pooled = pooled_table(rows).set_index("group")
     product = 1.0
@@ -583,8 +588,41 @@ def anchored_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> fl
     return float(product)
 
 
+def own_passes(rows: pd.DataFrame, primary: int, mechanism: int) -> pd.DataFrame:
+    """Each gated row's plug-in pass probability at the two counts, read at its group's pooled
+    coverage and SE ratio and at its own pilot standardized bias (the per-row bias reading).
+
+    Coverage and the SE ratio plausibly share a group value up to pilot noise; bias is a property
+    of each estimand, and a signed group mean lets opposite biases cancel.
+    """
+    table = coverage_table(rows)
+    gated = table.loc[table["gated"]].reset_index(drop=True)
+    pooled = pooled_table(rows).set_index("group")
+    records = []
+    for cell, name, bias in zip(
+        gated["cell"], gated["estimand"], gated["standardized_bias"], strict=True
+    ):
+        group = pooled.loc[group_of(cell, name)]
+        count = mechanism if cell == "mechanism_correct" else primary
+        records.append(
+            {
+                "cell": cell,
+                "estimand": name,
+                "standardized_bias": float(bias),
+                "own_pass": row_pass(count, group["coverage"], group["se_ratio"], float(bias)),
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
+def per_row_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
+    """The product of the 60 gated rows' :func:`own_passes`: a report beside the anchored pass."""
+    return float(np.prod(own_passes(rows, primary, mechanism)["own_pass"].to_numpy()))
+
+
 def anchored_passes(rows: pd.DataFrame) -> pd.DataFrame:
-    """The anchored and row-level family pass and the cost of every pair of rungs: a report.
+    """The anchored, per-row bias and row-level family pass and the cost of every pair of rungs:
+    a report.
 
     The counts are declared (Eric's choice, 2026-11-25), so no rung is chosen from it.
     """
@@ -593,6 +631,7 @@ def anchored_passes(rows: pd.DataFrame) -> pd.DataFrame:
             "primary": primary,
             "mechanism": mechanism,
             "anchored": anchored_family_pass(rows, primary, mechanism),
+            "per_row_bias": per_row_family_pass(rows, primary, mechanism),
             "row_level": family_pass(rows, primary, mechanism),
             "cpu_hours": cost(rows, primary, mechanism),
         }

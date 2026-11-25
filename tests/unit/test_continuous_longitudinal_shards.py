@@ -204,6 +204,40 @@ def test_the_merge_refuses_a_gap_an_overlap_and_an_incomplete_shard(stand_in: Pa
         _smoke(stand_in / "merged", "--merge", str(first), str(second))
 
 
+def test_the_merge_refuses_smoke_shards_for_a_declared_run(stand_in: Path) -> None:
+    """Review SH3: a smoke shard never joins a declared record."""
+    shards = [stand_in / "shard-1", stand_in / "shard-2"]
+    for index, shard in enumerate(shards, start=1):
+        _smoke(shard, "--shard", f"{index}/2")
+    key = regenerate.run_key(REPLICATES, study.PRIMARY_N)
+    assert regenerate.merge_refusals(shards, key, REPLICATES, declared=False) == []
+    reasons = regenerate.merge_refusals(shards, key, REPLICATES, declared=True)
+    assert [reason for reason in reasons if "is a smoke shard" in reason] == [
+        f"shard {index}/2 in {shard} is a smoke shard" for index, shard in enumerate(shards, 1)
+    ]
+
+
+def test_the_merge_warns_when_the_shards_ran_on_different_machines(
+    stand_in: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review SH1: the resume key holds no CPU model or BLAS kernel, so shard.json does."""
+    shards = [stand_in / "shard-1", stand_in / "shard-2"]
+    for index, shard in enumerate(shards, start=1):
+        _smoke(shard, "--shard", f"{index}/2")
+    stamp = shards[1] / regenerate.SHARD_FILE
+    record = json.loads(stamp.read_text(encoding="utf-8"))
+    assert record["machine"] == regenerate.machine() and record["machine"]["cpu"]
+    capsys.readouterr()
+    _smoke(stand_in / "same", "--merge", *map(str, shards))
+    assert "different machines" not in capsys.readouterr().err
+    record["machine"] = {"cpu": "another CPU", "blas": ["openblas 0.0 Haswell"]}
+    stamp.write_text(json.dumps(record), encoding="utf-8")
+    _smoke(stand_in / "mixed", "--merge", *map(str, shards))
+    assert "warning: the shards ran on different machines" in capsys.readouterr().err
+    machines = json.loads((stand_in / "mixed" / "manifest.json").read_text(encoding="utf-8"))
+    assert machines["generated_with"]["shards"][1]["machine"]["cpu"] == "another CPU"
+
+
 def test_a_declared_run_takes_its_five_flags_only() -> None:
     assert regenerate.FLAGS == ("--output", "--jobs", "--fresh", "--shard", "--merge")
     message = "takes --output, --jobs, --fresh, --shard, --merge only"

@@ -133,10 +133,16 @@ static, `day_cf` static, `day_cf` rule and `mechanism_correct`. A product of 60 
 readings from 400 draws each would be pessimistic, since each row's coverage carries an SE near
 0.011.
 
-The second pilot's pooled readings put that pass at 0.997. At the pilot's seconds per fit the
-declared run costs 159.5 CPU-hours, below the plan's hold of 200, and runs as three shards of
-53.2 CPU-hours. `tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the
-measurements and every count's pass as a report.
+The second pilot's pooled readings put that pass at 0.997. A group mean of signed biases lets
+opposite biases cancel, so the pilot also reads each row at its own bias with the pooled coverage
+and SE ratio. That pass is 0.544: five rows pass below 0.96 on their own bias, the rule regime's
+cause-1 risks and the cause-1 day-30 risk of never and difference of always minus never in
+`mechanism_correct`. How the declaration treats those rows is pending.
+
+At the pilot's seconds per fit the declared run costs 159.5 CPU-hours, below the plan's hold of
+200, and runs as three shards of 53.2 CPU-hours.
+`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements and
+every count's pass as a report.
 
 A first pilot failed the family rule: on static rows the estimated SE ran 7 to 8% above the
 Monte Carlo spread at every n. The default treatment model was one logistic fit pooled over

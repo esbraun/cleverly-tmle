@@ -18,9 +18,10 @@ ran at this commit under this run's resume key (one tree, declaration and stack)
 hold every key exactly once, with no overlap and no gap.  It joins their checkpoints in the
 scratch the shared driver keys by the run and runs the declared run from them, which fits
 nothing and writes the artifacts and the manifest as an unsharded run does; the manifest adds
-``generated_with.shards``, each shard's commit and runtime.  A replicate's seed is a function of
-its key, so the artifacts are those of an unsharded run on the same draws, save the wall-clock
-``seconds`` readings, which no rerun reproduces
+``generated_with.shards``, each shard's commit, runtime and machine (CPU model and BLAS kernel,
+which the resume key does not hold; the merge warns when they differ).  A replicate's seed is a
+function of its key, so on one machine type the artifacts are those of an unsharded run on the
+same draws, save the wall-clock ``seconds`` readings, which no rerun reproduces
 (``tests/unit/test_continuous_longitudinal_shards.py``).  ``pilot-diagnosis.md`` gives each
 shard's cost.  The laws, cells, learners,
 sizes, rules and controls are those of :mod:`tests.studies.continuous_time_longitudinal` and its
@@ -46,11 +47,15 @@ with the declaration (:func:`pilot_refusals`):
   Eric's choice on 2026-11-25 (2,400 is the ``mechanism_correct`` rung paired with 3,200), and
   all 60 primary rows are gated, the 12 rule rows among them.  The check reads each gated row at
   its group's pooled coverage, SE ratio and standardized bias (``cont_cf`` static, ``day_cf``
-  static, ``day_cf`` rule, ``mechanism_correct``; ``pilot.anchored_family_pass``), as the
-  ``continuous-survival-bootstrap`` pilot did, because a product of 60 row-level 400-draw point
-  readings is pessimistic.  It chooses no rung, so a pilot extension can make it refuse but
-  cannot change the counts; every rung's anchored and row-level passes are a report in
-  ``pilot-diagnosis.md``.  The plan's move of rows whose pilot coverage is below 0.925 to
+  static, ``day_cf`` rule, ``mechanism_correct``; ``pilot.anchored_family_pass``), because a
+  product of 60 row-level 400-draw point readings is pessimistic.  No earlier study pooled across
+  rows: the ``continuous-survival-bootstrap`` pilot anchored each row's SE ratio to an external
+  study row by row and read no bias.  A signed group mean lets opposite biases cancel, so the
+  pass with each row's own bias and the pooled coverage and SE ratio
+  (``pilot.per_row_family_pass``, 0.544 at the declared counts against the anchored 0.997) is
+  reported beside it.  The check chooses no rung, so a pilot extension can make it refuse but
+  cannot change the counts; every rung's anchored, per-row bias and row-level passes are a
+  report in ``pilot-diagnosis.md``.  The plan's move of rows whose pilot coverage is below 0.925 to
   reported is not applied, by Eric's choice on the same date;
 * each calibration row's plug-in pass at the primary count is at least 0.90, or its cell holds
   the 800-draw extension; after the extension a row still below 0.90 needs a diagnosis named in a
@@ -142,6 +147,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import platform
 import re
 import shutil
 import sys
@@ -375,6 +381,34 @@ def _guard(smoke: bool) -> None:
         raise SystemExit("refused:\n  " + "\n  ".join(refused))
 
 
+def machine() -> dict[str, Any]:
+    """The CPU model and the BLAS kernel this process runs, which the resume key does not hold.
+
+    Shards on different CPU generations can differ at rounding level, which can change a
+    targeting step count, so the merge warns when the shards' machines differ (review SH1).
+    """
+    import numpy  # noqa: F401  (loads the BLAS that threadpoolctl reports)
+    from threadpoolctl import threadpool_info
+
+    cpu = platform.processor() or platform.machine()
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("model name"):
+                cpu = line.split(":", 1)[1].strip()
+                break
+    blas = sorted(
+        " ".join(
+            str(part)
+            for part in (info["internal_api"], info["version"], info.get("architecture"))
+            if part
+        )
+        for info in threadpool_info()
+        if info["user_api"] == "blas"
+    )
+    return {"cpu": cpu, "blas": blas}
+
+
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -384,8 +418,8 @@ def shard_run(shard: tuple[int, int], argv: Sequence[str], *, smoke: bool) -> No
 
     The output holds the shard's checkpoints, its rows (``rows.csv.gz``), its failure records
     when a fit failed, ``run.log`` and ``shard.json``, which names the shard, the resume key it
-    ran under (its commit among it) and each invocation's runtime, and says whether every key
-    is fitted.  A crashed shard resumes when run again into the same ``--output``; ``--fresh``
+    ran under (its commit among it), the machine (:func:`machine`) and each invocation's
+    runtime, and says whether every key is fitted.  A crashed shard resumes when run again into the same ``--output``; ``--fresh``
     discards what the output holds first.
     """
     known = _arguments(argv, smoke)
@@ -428,6 +462,7 @@ def shard_run(shard: tuple[int, int], argv: Sequence[str], *, smoke: bool) -> No
         "key": driver.digest(key),
         "run_key": driver.canonical(key),
         "keys": len(expected),
+        "machine": machine(),
         "complete": False,
         "runs": runs,
         "seconds": sum(entry["seconds"] for entry in runs),
@@ -561,9 +596,20 @@ def merge_run(directories: Sequence[Path], argv: Sequence[str], *, smoke: bool) 
             "commit": record["head"],
             "seconds": record["seconds"],
             "invocations": len(record["runs"]),
+            "machine": record["machine"],
         }
         for record in records
     ]
+    machines = {json.dumps(record["machine"], sort_keys=True) for record in records}
+    if len(machines) > 1:
+        # Not refused: the record stays valid, but rounding can differ between CPU generations,
+        # so the merged rows may not equal an unsharded run's on one machine (review SH1).
+        print(
+            "warning: the shards ran on different machines: "
+            + "; ".join(f"{record['shard']}: {record['machine']}" for record in records),
+            file=sys.stderr,
+            flush=True,
+        )
     print(f"merging {len(records)} shards through {scratch}", flush=True)
     forwarded = [argument for argument in argv if argument != "--fresh"]
     sys.argv = [sys.argv[0], *forwarded]
