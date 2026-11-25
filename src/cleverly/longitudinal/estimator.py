@@ -10142,6 +10142,8 @@ class IPSI(_SequentialEstimator):
     """
 
     _estimator: ClassVar[str] = "ipsi"
+    _retention_guard: ClassVar[bool] = True
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads the density route only"
 
     def __init__(
         self,

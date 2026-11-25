@@ -193,11 +193,12 @@ FITS: dict[str, Callable[[], Any]] = {
 def refute_passing(route: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutate ``refute`` so that it refits a copy of its refit estimator set to ``route``.
 
-    The source of :func:`~cleverly.validation.refute` is edited where it reads the estimator
-    it refits (``_bandless(result)``, ``result.estimator`` without the band) and the edited
-    function replaces it in its module, which the facades import from at call time.
+    The source of ``_refute_fit``, the body every :func:`~cleverly.validation.refute` call
+    runs, is edited where it reads the estimator it refits (``_bandless(result)``,
+    ``result.estimator`` without the band), and the edited function replaces it in its module,
+    where ``refute`` looks it up at call time.
     """
-    source = textwrap.dedent(inspect.getsource(refute_module.refute))
+    source = textwrap.dedent(inspect.getsource(refute_module._refute_fit))
     marker = "    estimator = _bandless(result)\n"
     assert source.count(marker) == 1, "refute no longer reads its refit estimator once"
     edited = source.replace(
@@ -209,4 +210,4 @@ def refute_passing(route: str, monkeypatch: pytest.MonkeyPatch) -> None:
         compile("from __future__ import annotations\n" + edited, "<mutated refute>", "exec"),
         namespace,
     )
-    monkeypatch.setattr(refute_module, "refute", namespace["refute"])
+    monkeypatch.setattr(refute_module, "_refute_fit", namespace["_refute_fit"])
