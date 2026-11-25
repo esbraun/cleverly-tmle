@@ -10,7 +10,7 @@ thread limits. Learners follow the relevant scikit-learn fit and predict contrac
    cleverly.SuperLearner
    cleverly.learners.default_library
    cleverly.learners.SuperLearnerDiagnostics
-   cleverly.learners.CorrelationScreener
+   cleverly.learners.screen_by_outcome
    cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism

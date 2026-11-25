@@ -620,7 +620,7 @@ counts, so each arm must appear in two distinct clusters. See
 | `target_weights=` | whether the fluctuation carries the covariate as a weight or as a regressor | no. The weighted and clever-covariate forms solve the same equation |
 | `g_bounds=` | the treatment-mechanism truncation. `"auto"` is target-aware | it changes the finite-sample procedure. Report it with the support diagnostics |
 | `q_bounds=`, `submodel_alpha=` | the outcome scaling, and the logistic submodel bound | no. A cross-fitted fit of a continuous outcome refuses `q_bounds=None` |
-| `screen_treatment=`, `screen_threshold=`, `min_retain=` | covariate screening for the treatment mechanism | no |
+| `screen_treatment=`, `min_retain=` | keeps the treatment-mechanism covariates that predict the outcome with the treatment held fixed. See [covariate screening](#covariate-screening) | no. It changes the treatment-mechanism estimator |
 | `stopping=` | the rule that decides the score equation is solved. `"relative"` is the shipped test | it changes when the targeting stops and how the result judges the residual. See [stopping rules](#stopping-rules-step-bound-and-best-iterate) |
 | `step_bound=`, `step_search=` | the longest step of one iteration, and whether a line search sets its length | it changes the path of the iteration. The score equation is the same |
 | `iterate=` | which iterate of the walk the fit reports | it changes the reported fit only when the walk oscillates |
@@ -1222,6 +1222,58 @@ A refusal covers each composition that has no meaning.
 [Scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals) gives each text.
 The R fixture `ctmle_wg.json` checks the candidate pool of the restriction. See
 [treatment-mechanism covariates and the candidate pool](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool).
+
+### Covariate screening
+
+`screen_treatment=True` fits the treatment mechanism on a subset of $W_g$ chosen by the outcome.
+Inside each training set, $Y$ and every column of $[W_g,\ W_g \cdot T]$ are regressed on a basis
+$B(A)$ of the treatment, and a lasso of the outcome residual on the covariate residuals, weighted
+and standardized, chooses its penalty by cross-validation at the minimum (`lambda.min`). A
+covariate is kept when its main term or any of its products with $T$ is nonzero.
+`min_retain=` is the fewest kept; `None` is R's `min(ceil(n_eff / 20), p)`, with
+`n_eff = min(5 * smallest arm count, n)` on a discrete treatment and `n_eff = n` otherwise, so the
+default keeps every covariate unless $p$ is large next to the effective sample size. Below the
+floor, covariates are added in the order they enter the lasso path, then by their residual
+correlation with the outcome.
+
+| treatment | $B(A)$, held fixed | $T$, the interaction terms |
+| --- | --- | --- |
+| binary or categorical | intercept and drop-first arm indicators | the arm indicators |
+| continuous dose | intercept and a cubic spline with four interior quantile knots | the centred dose |
+| vector | each component's basis above | each component's terms above |
+
+The rule holds the treatment fixed because an exposure-only covariate (an instrument) predicts
+the outcome marginally through $A$, so a marginal outcome screen keeps it. Shortreed and
+Ertefaie (2017, Section 3) weight their propensity penalty by an outcome regression on $X$ and
+$A$ for this reason, adding treatment-covariate interactions under effect heterogeneity
+(Section 5). Brookhart et al. (2006, pages 1152 and 1155 to 1156) define the covariate roles by
+an outcome model that includes the exposure. Both report that exposure-only covariates inflate
+the variance without reducing bias, and that outcome-only covariates reduce it.
+
+A confounder dropped from the treatment mechanism leaves the estimate consistent when the
+outcome regression is consistent. The remainder is then first order in the outcome-regression
+error, so the influence-curve interval also needs that error to be $o_P(n^{-1/2})$, which a
+data-adaptive regression does not give ([DR-TMLE](dr-tmle/index.md) addresses this case). The
+estimate is biased when the outcome regression is not consistent. Brookhart et al. (2006, page 1156) advise
+against excluding an exposure-related covariate in a moderate-sized study unless it is known to
+be unrelated to the outcome. `lambda.min` errs towards keeping covariates, which reduces the
+risk of that bias and lets some exposure-only or noise covariates through. The
+selection is data-adaptive, so the plug-in robustness value refuses it (`screened` and
+`treatment_design` in [validation methods](validation-methods.md)).
+
+| | R `tmle` 2.1.1 `.prescreenW.g` | this package |
+| --- | --- | --- |
+| outcome model | lasso of $Y^\*$ on $W$ alone, family of $Q$ | lasso of the residuals after $B(A)$, squared loss, with $W \cdot T$ |
+| floor default | `min(ceil(n_eff / 20), p)` | the same; `n_eff = n` for a dose or vector, where R's binary rule gives 5 |
+| fill below the floor | `order(abs(cor(A, W)))`, ascending | lasso path entry, then residual correlation |
+| outcome-missingness model | screened with the same set | not screened |
+| where | the whole sample | each training set; the reported set is the whole-sample support |
+
+Partialling on $B(A)$ is done once per training set, and the penalty search then runs on the
+residuals. Inner folds keep each cluster whole and otherwise assign a unit by a fixed hash of
+its index, so the screen reads neither treatment nor outcome to split. The witnesses with their
+mutation controls are in `tests/unit/test_outcome_screen.py`: each law was checked on 200 seeds,
+the witness holding on every seed and each control failing on every seed.
 
 ### Known treatment mechanism
 

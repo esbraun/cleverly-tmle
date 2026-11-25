@@ -37,13 +37,12 @@ from .density import (
 from .glm import GLM
 from .library import default_library
 from .parametric import ParametricFitDiagnostics, ParametricMechanism, ParametricOutcome
-from .screeners import CorrelationScreener, screen_by_correlation
+from .screeners import screen_by_outcome
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
 
 __all__ = [
     "GLM",
     "ConditionalDensity",
-    "CorrelationScreener",
     "CrossFitPlan",
     "DensityDiagnostics",
     "DoseCluster",
@@ -70,7 +69,7 @@ __all__ = [
     "refresh_thread_pools",
     "refuse_scheme",
     "resolve_n_folds",
-    "screen_by_correlation",
+    "screen_by_outcome",
     "set_thread_limit",
     "supports_sample_weight",
     "thread_limit",

@@ -69,6 +69,7 @@ import numpy as np
 from .._refusal import RefusalReason
 from .._typing import BoolArray, FloatArray
 from ..estimators._mechanism_fit import MechanismFit
+from ..learners.screeners import ScreenMask
 from ._second_order import PluginStack, StackFold, representer_derivatives
 
 __all__ = [
@@ -277,11 +278,11 @@ def _resolved_penalty(fit: MechanismFit) -> str:
 
 def _learner_refusal(fit: MechanismFit) -> MechanismRefusal | None:
     """Checks 1 to 6: the fit-level rule, read off one fold's record."""
-    if "CorrelationScreener" in fit.step_names:
+    if ScreenMask.__name__ in fit.step_names:
         return _refusal(
             "screened",
-            "screen_treatment=True selects the covariates of the treatment model inside each "
-            "fold, so the mechanism is not one fixed parametric model",
+            "screen_treatment=True selects the covariates of the treatment model on the "
+            "outcome inside each fold, so the mechanism is not one fixed parametric model",
             learner=True,
         )
     if fit.kind == "logistic" and fit.is_cv:

@@ -65,8 +65,8 @@ from cleverly.estimators._nuisance import (
     InnerDesigns,
     NuisanceEstimates,
     Propensity,
-    _screened,
     fit_inner_designs,
+    outcome_screen,
 )
 from cleverly.estimators._strata import (
     refuse_untrainable_leave_two_out,
@@ -1449,7 +1449,6 @@ class TestAScreenedMechanismIsScreenedInEverySlab:
                 simultaneous=False,
                 random_state=0,
                 screen_treatment=True,
-                screen_threshold=0.2,
                 min_retain=1,
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
@@ -1459,24 +1458,33 @@ class TestAScreenedMechanismIsScreenedInEverySlab:
         data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=covariates)
         assignment = np.asarray(nuisance.folds.assignment)
 
-        def gap(learner: Any) -> float:
+        screen = outcome_screen(data, 1)
+
+        def gap(learner: Any, screened: bool) -> float:
             worst = 0.0
             for slab in range(FOLDS):
                 for other in range(FOLDS):
                     if other == slab:
                         continue
                     outside = (assignment != slab) & (assignment != other)
-                    model = sklearn.base.clone(learner).fit(
-                        data.mechanism_covariates[outside], data.treatment[outside]
+                    keep = (
+                        screen.support(np.flatnonzero(outside))
+                        if screened
+                        else np.ones(len(covariates), dtype=bool)
                     )
-                    expected = model.predict_proba(data.mechanism_covariates[assignment == other])
+                    model = sklearn.base.clone(learner).fit(
+                        data.mechanism_covariates[outside][:, keep], data.treatment[outside]
+                    )
+                    expected = model.predict_proba(
+                        data.mechanism_covariates[assignment == other][:, keep]
+                    )
                     got = nuisance.inner.propensity[slab].arm(1.0)[assignment == other]
                     worst = max(worst, _largest(got - expected[:, 1]))
             return worst
 
         plain = sklearn.linear_model.LogisticRegression(max_iter=1000)
-        assert gap(_screened(plain, 0.2, 1)) <= 1e-12
-        assert gap(plain) > 1e-3, "the screen dropped nothing, so the check is vacuous"
+        assert gap(plain, screened=True) <= 1e-12
+        assert gap(plain, screened=False) > 1e-3, "the screen dropped nothing: a vacuous check"
 
 
 class TestAnAlternationThatRunsOutOfRoundsIsAFailure:

@@ -482,11 +482,13 @@ class ModelSpec:
         the rule that chose it.  ``"classifier"`` with ``density_bins`` or a ``bin_design``
         learner is refused, and a study refuses it where no policy ratio is estimated.
     screen_treatment : bool
-        Whether to screen treatment-mechanism covariates by correlation.
-    screen_threshold : float
-        Absolute correlation threshold used by screening.
+        Whether to keep only the treatment-model covariates that predict the outcome with
+        the treatment held fixed, selected inside each training set by a cross-validated
+        lasso (:func:`~cleverly.learners.screen_by_outcome`), as R's ``prescreenW.g``.
     min_retain : int or None
-        Minimum number of covariates retained by screening.
+        The fewest covariates screening keeps.  ``None`` is R's
+        ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless ``p`` is large
+        next to the effective sample size.
     hazard_pooling : {"node", "pooled"}
         How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
         per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
@@ -535,7 +537,6 @@ class ModelSpec:
     density_bins: int | None = None
     ratio: Literal["density", "classifier"] | None = None
     screen_treatment: bool = False
-    screen_threshold: float = 0.1
     min_retain: int | None = None
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
@@ -981,7 +982,6 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "density_bins": "density_bins",
         "ratio": "ratio",
         "screen_treatment": "screen_treatment",
-        "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
         "hazard_pooling": "hazard_pooling",
         "outcome_by_arm": "outcome_by_arm",
@@ -1044,7 +1044,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
     ("models", "intermediate_learner", "intermediate_learner"),
     ("models", "screen_treatment", "screen_treatment"),
-    ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
     ("models", "outcome_by_arm", "outcome_by_arm"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
@@ -1356,7 +1355,6 @@ class TMLEMethod:
                 "density_bins": models.density_bins,
                 "ratio": models.ratio,
                 "screen_treatment": models.screen_treatment,
-                "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
                 "outcome_by_arm": models.outcome_by_arm,
                 "cross_fit": cross.enabled,

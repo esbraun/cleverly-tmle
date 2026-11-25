@@ -171,7 +171,7 @@ def _qualified(param: str, step_name: str | None) -> str:
     """The name a fit parameter must take to reach a pipeline's final step.
 
     Screening wraps a learner in a :class:`~sklearn.pipeline.Pipeline`
-    (:func:`cleverly.estimators._nuisance._screened`), and a bare ``groups=`` handed to
+    (:func:`cleverly.learners.screeners.learner_for_rows`), and a bare ``groups=`` handed to
     a pipeline is not an error -- it is silently ignored.  Every fit parameter therefore
     goes through here rather than being spelled out at the call site, so a wrapped
     learner cannot quietly stop receiving one.
