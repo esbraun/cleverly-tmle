@@ -251,7 +251,7 @@ def _row(name: str, result: LongitudinalResult) -> tuple[str, str, str | None, s
     restricted = result.restricted_index.get(name)
     if restricted is not None:
         regimen, versus, cause, node, measure = restricted
-        return measure, regimen, versus, cause, result._time_of(node)
+        return measure, regimen, versus, cause, result._restriction_time(node)
     key = (result.parameter_index or {}).get(name)
     if key is None:
         inside = name.partition("[")[2].removesuffix("]")

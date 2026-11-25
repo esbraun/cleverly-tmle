@@ -130,7 +130,7 @@ gain = CausalStudy(frame, design=design).estimate(
     cross_fit=False,
 )
 rmst = gain.rmst("arm1", 4, versus="arm0")
-print(rmst.name, rmst.ci)
+print(rmst.name, rmst.ci, rmst.support.label)
 ```
 
 `rmst_regimen[arm1 vs arm0 @ t=4]` is the event-free time that treating everyone adds, on
@@ -147,10 +147,10 @@ below the one from exact event times, and exceeds it by less than the longest ga
 times, counting from time 0. The name keeps the cut-off's position on the grid, as for a risk,
 and the `time` column of `to_frame()` gives `tau` itself. Its interval is the plain symmetric
 interval of a sum of risks, unlike the exact-time one below, which stays inside 0 to `tau`.
-Whether it reads `supported` depends on the design that was checked by simulation:
-[Read and save results](results-assessment.md) explains the labels, and
+This example's interval reads `experimental`, because no simulation study checked four check
+times fitted in sample. The RMST difference reads `supported` on the five-time design that the
 [point-treatment survival](../technical-reference/method-evidence/point-treatment-survival.md)
-gives the evidence for this design.
+study checked, and [Read and save results](results-assessment.md) explains the labels.
 
 A fit with every grid time in `horizons=` also gives ratios, and computes the RMST of any cut-off
 from its risks without declaring it. Neither call refits anything.

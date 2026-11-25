@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from ..exceptions import CapabilityError
 from . import _core, _truth
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -1476,13 +1477,22 @@ def _restricted(
 
         A time whose risks the result does not hold (a study result with declared
         ``horizons=``, or a contrast result's levels) is left out, so the stored restricted
-        means are drawn alone there.
+        means are drawn alone there.  Only those two refusals skip a time; any other error
+        propagates rather than thinning the curve without a word.
         """
         drawn = []
         for h in horizons:
             try:
                 drawn.append((float(h), compute(name, h, versus=against, **extra)))
-            except (ValueError, KeyError) as error:
+            except CapabilityError as error:
+                if "holds no risk curve" not in str(error):
+                    raise
+                failures.append(error)
+            except ValueError as error:
+                if type(error) is not ValueError or "needs the risk at every horizon" not in str(
+                    error
+                ):
+                    raise
                 failures.append(error)
         return drawn
 

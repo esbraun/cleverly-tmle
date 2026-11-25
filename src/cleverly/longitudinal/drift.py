@@ -1318,7 +1318,7 @@ RESTRICTED_MEAN_CONDITION = (
 RMST_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     RESTRICTED_MEAN_CONDITION,
-    alternative="Fit LTMLE(survival_model='hazard', targeting='one_step') for the RMST.",
+    alternative="Fit LTMLE(restricted_horizons=(tau,)) for the restricted means.",
     roadmap="X62",
 )
 TRUNCATION_REFUSAL = _gap(

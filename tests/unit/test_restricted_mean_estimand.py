@@ -659,7 +659,7 @@ class TestSupport:
 
     @pytest.mark.parametrize(
         "case",
-        ["four_node_held", "competing_rmtl", "hazard", "sdr"],
+        ["uneven_grid_held", "competing_rmtl", "hazard", "sdr"],
     )
     def test_every_other_binned_fit_reads_experimental(self, case: str) -> None:
         if case == "competing_rmtl":
@@ -671,7 +671,7 @@ class TestSupport:
             name = "rmtl_regimen[one vs zero, first @ t=4]"
         else:
             settings: dict[str, Any] = {
-                "four_node_held": {},
+                "uneven_grid_held": {},
                 "hazard": {"survival_model": "hazard", "pseudo_learner": None},
                 "sdr": {"method": "sdr"},
             }[case]
@@ -681,7 +681,26 @@ class TestSupport:
             name = "rmst_regimen[one vs zero @ t=4]"
         support = result.estimates[name].support
         assert support.label == "experimental"
-        assert "Row " in support.reason or "row" in support.reason
+        # Each case names the row it matched, or the nearest row and how it differs, so a case
+        # that read experimental for an unrelated reason fails here.
+        expected = {
+            "uneven_grid_held": (
+                "Row G14.continuous_time licenses no restricted mean difference for this estimate."
+            ),
+            "competing_rmtl": (
+                "Row G14.competing licenses no restricted mean difference for this estimate."
+            ),
+            "hazard": (
+                "No registered study covers this configuration. Nearest row: "
+                "G14.continuous_time (point-treatment-survival), differing on options "
+                "(survival_model='hazard')."
+            ),
+            "sdr": (
+                "No registered study covers this configuration. Nearest row: "
+                "G14.continuous_time (point-treatment-survival), differing on engine."
+            ),
+        }[case]
+        assert support.reason == expected
 
 
 # ------------------------------------------------------------------ 11. refusals
@@ -856,6 +875,36 @@ class TestRefusals:
             "for each regimen's own restricted mean."
         )
 
+    def test_rg8_covers_the_reference_and_a_difference_read(self) -> None:
+        result = _estimate(RegimeContrast(PLANS, reference="zero", restricted_horizons=(7.0,)))
+        condition = (
+            "this result reports contrasts against 'zero' only, so it holds no risk curve of "
+            "'{}' to sum."
+        )
+        level = _refusal(
+            lambda: result.rmst("zero", 7.0), CapabilityError, condition.format("zero")
+        )
+        assert level.refusal.reason == "api_redirection"
+        flipped = _refusal(
+            lambda: result.rmst("zero", 7.0, versus="one"),
+            CapabilityError,
+            condition.format("zero"),
+        )
+        assert flipped.refusal.alternative == (
+            "Read result.rmst('one', 7, versus='zero'), declared with "
+            "RegimeContrast(..., restricted_horizons=(7,)), and negate it."
+        )
+        undeclared = _refusal(
+            lambda: result.rmst("one", 4.0, versus="zero"),
+            CapabilityError,
+            condition.format("one"),
+        )
+        assert undeclared.refusal.alternative == (
+            "Declare RegimeContrast(..., restricted_horizons=(4,)) to store this difference "
+            "against 'zero', or declare RegimeMean(..., restricted_horizons=(4,)) for each "
+            "regimen's own restricted mean."
+        )
+
     def test_rg9_an_undeclared_time_the_result_cannot_sum(self) -> None:
         result = _estimate(RegimeMean(PLANS, horizons=(2.5,)))
         _refusal(
@@ -1023,6 +1072,26 @@ class TestPlotsAndSummary:
         assert len(figure.axes) == 1
         assert self._times(figure) == [[7.0]]
 
+    def test_any_other_failure_at_one_time_stops_the_curve(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cleverly.exceptions import DataError
+        from cleverly.plotting import curve
+
+        declared = _estimate(
+            RegimeMean(PLANS, horizons=(2.5,), restricted_horizons=(7.0,)), grid=UNEVEN_FIVE
+        )
+        original = type(declared).rmst
+
+        def failing(self: Any, regimen: str, horizon: Any, **kwargs: Any) -> Any:
+            if float(horizon) == 7.0:
+                raise DataError("an unrelated failure")
+            return original(self, regimen, horizon, **kwargs)
+
+        monkeypatch.setattr(type(declared), "rmst", failing)
+        with pytest.raises(DataError, match="an unrelated failure"):
+            curve(declared, measure="rmst")
+
     def test_the_summary_says_what_each_restricted_mean_is(self, uneven_contrast: Any) -> None:
         from cleverly.longitudinal._summary import meaning
 
@@ -1054,3 +1123,30 @@ def test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means() -> None:
             draws.append(repeat.estimates[name].psi)
         # The two draws differ, so a pooled value copied into each draw would fail above.
         assert draws[0] != draws[1]
+
+
+@pytest.mark.parametrize("route", ["engine", "study"])
+def test_a_unit_grid_restriction_time_past_the_last_grid_time_reports_its_time(
+    route: str,
+) -> None:
+    """On a unit grid ``tau = K + 1`` is a valid restriction time with no grid entry.
+
+    ``to_frame``, ``summary`` and the meaning read its time from the node, not from the grid,
+    which has no entry ``K + 1``.
+    """
+    from cleverly.longitudinal._summary import meaning
+
+    grid = (1.0, 2.0, 3.0, 4.0)
+    if route == "engine":
+        result = _quiet(lambda: _engine(restricted_horizons=(5,)).fit(_container(grid)))
+    else:
+        result = _estimate(RegimeMean(PLANS, restricted_horizons=(5,)), grid=grid)
+    name = "rmst_regimen[one @ t=5]"
+    assert name in result.restricted_index
+    frame = result.to_frame()
+    assert frame.loc[frame["estimand"] == name, "time"].tolist() == [5.0]
+    assert "t=5" in str(result.summary())
+    assert "5" in meaning(result, name)
+    # The stored value is tau minus the four risks, each with unit weight.
+    risks = sum(result.estimates[f"risk_regimen[one @ t={k}]"].psi for k in range(1, 5))
+    assert result.estimates[name].psi == pytest.approx(5.0 - risks, abs=1e-12)

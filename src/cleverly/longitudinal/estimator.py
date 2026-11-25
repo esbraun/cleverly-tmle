@@ -2728,29 +2728,56 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return float(grid[node - 1])
 
     def _risk_names(
-        self, regimen: str, horizon: int, causes: Sequence[str | None], what: str
+        self,
+        regimen: str,
+        horizon: int,
+        causes: Sequence[str | None],
+        what: str,
+        *,
+        versus: str | None = None,
     ) -> list[str]:
         """The names of the levels at nodes ``1`` to ``horizon - 1``, one per cause.
 
-        ``horizon`` is the node index :math:`m` that :meth:`_restriction` returns.
+        ``horizon`` is the node index :math:`m` that :meth:`_restriction` returns, and
+        ``versus`` the comparison regimen of the read, which only the refusal names.
         """
         levels = self._levels()
         regimens = sorted({key[0] for key in levels})
         if regimen not in regimens:
             reference = self.config.reference
-            contrast = f"{regimen} vs {reference}"
-            if any(key[0] == contrast for key in (self.parameter_index or {}).values()):
-                # A contrast study result holds the risk differences only (R-g8).
-                raise CapabilityError(
-                    f"this result reports contrasts against {reference!r} only, so it holds "
-                    f"no risk curve of {regimen!r} to sum.",
-                    reason=RefusalReason.API_REDIRECTION,
-                    alternative=(
+            contrasts = {
+                key[0] for key in (self.parameter_index or {}).values() if " vs " in key[0]
+            }
+            sides = {side for label in contrasts for side in label.split(" vs ")}
+            if regimen in sides:
+                # A contrast study result holds the risk differences only (R-g8), so no
+                # regimen on either side of a contrast, the reference included, has a curve.
+                if versus is None:
+                    alternative = (
                         f"Read result.rmst(regimen, tau, versus={reference!r}) from "
                         "RegimeContrast(..., restricted_horizons=(tau,)), or declare "
                         "RegimeMean(..., restricted_horizons=(tau,)) for each regimen's own "
                         "restricted mean."
-                    ),
+                    )
+                elif regimen == reference:
+                    tau = f"{self._restriction_time(horizon):g}"
+                    alternative = (
+                        f"Read result.rmst({versus!r}, {tau}, versus={reference!r}), declared "
+                        f"with RegimeContrast(..., restricted_horizons=({tau},)), and negate it."
+                    )
+                else:
+                    tau = f"{self._restriction_time(horizon):g}"
+                    alternative = (
+                        f"Declare RegimeContrast(..., restricted_horizons=({tau},)) to store "
+                        f"this difference against {reference!r}, or declare "
+                        f"RegimeMean(..., restricted_horizons=({tau},)) for each regimen's own "
+                        "restricted mean."
+                    )
+                raise CapabilityError(
+                    f"this result reports contrasts against {reference!r} only, so it holds "
+                    f"no risk curve of {regimen!r} to sum.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative=alternative,
                 )
             raise KeyError(f"unknown regimen {regimen!r}; this fit reports {regimens}")
         reported = sorted({key[2] for key in levels if key[0] == regimen})
@@ -2896,7 +2923,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         )
         what = measure.upper()
         sign = -1.0 if measure == "rmst" else 1.0
-        names = self._risk_names(regimen, node, causes, what)
+        names = self._risk_names(regimen, node, causes, what, versus=versus)
         per_name = [spacing for spacing in spacings for _ in causes]
         weights: dict[str, float] = {}
         for risk, spacing in zip(names, per_name, strict=True):
@@ -2905,7 +2932,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         label = regimen
         scale: Scale = "level"
         if versus is not None:
-            others = self._risk_names(versus, node, causes, what)
+            others = self._risk_names(versus, node, causes, what, versus=regimen)
             for other, spacing in zip(others, per_name, strict=True):
                 weights[other] = weights.get(other, 0.0) - sign * spacing
             constant = 0.0
@@ -3714,7 +3741,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             payload["time"] = [
                 self._time_of(index[name][2])
                 if name in index
-                else self._time_of(self.restricted_index[name][3])
+                else self._restriction_time(self.restricted_index[name][3])
                 if name in self.restricted_index
                 else None
                 for name in self.estimates

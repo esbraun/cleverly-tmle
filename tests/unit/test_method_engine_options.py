@@ -679,6 +679,12 @@ class TestRefusals:
         arm, tau = "t", 1.0
         assert result.rmst(arm, tau).psi == direct.rmst(arm, tau).psi
         assert np.isfinite(result.rmtl(arm, tau).psi)
+        # Additivity on the exact-time route: with one event the restricted mean survival time
+        # and the time lost add up to tau, for each arm and for the difference.
+        for regimen, versus, total in (("t", None, tau), ("c", None, tau), ("t", "c", 0.0)):
+            rmst = result.rmst(regimen, tau, versus=versus).psi
+            rmtl = result.rmtl(regimen, tau, versus=versus).psi
+            assert rmst + rmtl == pytest.approx(total, abs=1e-10)
         # R-g10: an undeclared restriction time names the estimand route too.
         error = _refuses(lambda: result.rmst(arm, 0.5), CapabilityError, "is not one of")
         assert "declare restricted_horizons=(0.5,) on RegimeMean or RegimeContrast" in str(
