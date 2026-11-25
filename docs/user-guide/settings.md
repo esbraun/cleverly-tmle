@@ -5,7 +5,7 @@ when a guide page names it, or before you change one. [Methods and learners](met
 explains how to choose among them.
 
 You can pass a setting in two ways. Give `estimate` the keyword in the "keyword" column, or build
-the group object and pass it inside a method object. The two lines below fit the same way:
+the group object and pass it inside a method object. These two give the same fit:
 
 ```python
 from sklearn.linear_model import LinearRegression
@@ -25,8 +25,8 @@ name of the setting they set: `cross_fit`, `stratify_folds`, `targeting` and `cv
 The "used on" column names the fits whose engine reads the setting: *point* is a single treatment
 decision (`PointTreatment`), *over time* a longitudinal design or a time-to-event design on a grid
 of check times, *exact times* a `TimeToEvent(grid="continuous")` fit, and *trial* a trial with
-external data. A fit refuses a setting it does not read when you change it from its default,
-rather than ignoring it. Some methods change a default; the last section lists each case.
+external data. When you change a setting from its default, a fit that does not read it raises an
+error rather than ignoring it. Some methods change a default; the last section lists each case.
 
 ## Models and learners
 
@@ -45,18 +45,20 @@ Super Learner over boosting, a random forest and a lasso
 | `competing_learner` | `competing_learner` | `None` | over time | the model of the competing event that `eliminate=` prevents. `None` uses the censoring learner |
 | `density_bins` | `density_bins` | `None` | point, over time | the number of core bins of a continuous-dose density. `None` grows with the sample |
 | `ratio` | `ratio` | `None` | point, over time | how a dose policy's density ratio is estimated: `"density"` or `"classifier"`. `None` chooses per fit |
-| `screen_treatment` | `screen_treatment` | `False` | point | drop covariates from the treatment model whose correlation with the treatment is below the threshold |
-| `screen_threshold` | `screen_threshold` | `0.1` | point | the absolute correlation that screening keeps |
-| `min_retain` | `min_retain` | `None` | point | the fewest covariates screening keeps |
+| `screen_treatment` | `screen_treatment` | `False` | point | drop covariates the screen rejects from the treatment model; with `min_retain=None` the screen keeps every covariate |
+| `screen_threshold` | `screen_threshold` | `0.1` | point | keep a covariate whose correlation test with the treatment has a p-value below this |
+| `min_retain` | `min_retain` | `None` | point | the fewest covariates screening keeps, topped up by the strongest. `None` keeps all of them |
 | `hazard_pooling` | `hazard_pooling` | `'node'` | over time | one censoring model per time (`"node"`), or one pooled over every time (`"pooled"`) |
 | `outcome_by_arm` | `outcome_by_arm` | `False` | point | one outcome model per treatment option, each fitted on that option's rows |
 | `survival_model` | `survival_model` | `None` | over time | how a survival curve is modelled: `"iterated_mean"` regressions or `"hazard"` targeting. `None` is the method's own choice |
 
-Screening keeps each covariate whose absolute correlation with the treatment reaches
-`screen_threshold`, and at least `min_retain` of them, before the treatment model is fitted. It
-narrows the adjustment set by the data, so report it. A dose policy's density ratio divides two
-fitted densities under `ratio="density"`, and reads the odds of a classifier that tells observed
-from shifted doses under `"classifier"`; the [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route)
+Screening tests each covariate's correlation with the treatment and keeps those with a p-value
+below `screen_threshold`, before the treatment model is fitted. If fewer than `min_retain` pass,
+it keeps the `min_retain` strongest. Left at `None`, `min_retain` keeps every covariate, so set it
+for the screen to drop any. Screening narrows the adjustment set by the data, so report it.
+
+A dose policy's density ratio divides two fitted densities under `ratio="density"`, and reads
+the odds of a classifier that tells observed from shifted doses under `"classifier"`; the [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route)
 states when `None` picks each. An exact-times fit chooses its hazard models on the engine
 (`ContinuousSurvivalTMLE(hazard_library=...)`), not through `ModelSpec`.
 
@@ -84,10 +86,10 @@ outcome model leaves. These settings control it.
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
 | `fluctuation` | `fluctuation` | `'logistic'` | point | the form of the correction: `"logistic"` keeps predictions inside the outcome's range, `"linear"` does not |
-| `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until the score equation is solved (`"iterative"`), or take small steps along one path (`"one_step"`) |
-| `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` chooses it from the target |
+| `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until its bias term is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
+| `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the ATT and ATC |
 | `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome needs it |
-| `nuisance_bound` | `nuisance_bound` | `0.01` | point | the lower bound of auxiliary regressions |
+| `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of an observed intermediate variable) |
 | `submodel_alpha` | `submodel_alpha` | `0.9995` | point, over time | how far inside the range the logistic correction keeps predictions. Not the interval's `alpha` |
 | `target_weights` | `target_weights` | `False` | point | whether observation weights enter the correction |
 | `step_size` | `step_size` | `0.001` | point, over time, exact times | the step of `algorithm="one_step"` |
@@ -98,7 +100,7 @@ outcome model leaves. These settings control it.
 | `step_search` | `step_search` | `True` | point, over time | under `step_bound`, search for the best step length |
 | `iterate` | `iterate` | `'last'` | point, over time | report the last round (`"last"`) or the round with the smallest score (`"best"`) |
 | `conditional_form` | `conditional_form` | `'arm_mean'` | point | how the ATT and ATC average after the correction; `"known_score"` needs declared treatment chances |
-| `isotonic` | `isotonic` | `False` | over time | keep a survival curve and its band from decreasing |
+| `isotonic` | `isotonic` | `False` | over time | keep the risk curve and its band from going down over time |
 | `ratio_trim` | `ratio_trim` | `None` | over time | trim per-time density ratios at this quantile. A trim that moves a ratio removes the interval |
 | `node_bounds` | `node_bounds` | `None` | over time | a declared outcome range at chosen times |
 
@@ -119,9 +121,9 @@ states their contracts.
 | `band_scale` | `band_scale` | `'logit'` | point, over time, exact times | build the band of a probability on the logit scale, so it stays inside 0 to 1, or on the estimate's own scale (`"identity"`) |
 | `band_reference` | `band_reference` | `'normal'` | point, over time | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 
-With `simultaneous=None` a fit with several estimates reports the band, except two risk-curve fits:
-collaborative TMLE and the drift-corrected DR-TMLE on a time-to-event design, which report
-pointwise intervals only. Each bootstrap replicate refits every model, so `n_bootstrap=200`
+With `simultaneous=None` a fit with several estimates adds the band where it can. Collaborative
+TMLE and DR-TMLE on an event outcome over time report pointwise intervals only, and a fit with
+repeated outer splits and the selecting collaborative TMLE strategies report no band. Each bootstrap replicate refits every model, so `n_bootstrap=200`
 multiplies the run time by about 200; [count the fits](methods-learners.md) before a long run.
 `band_scale="identity"` gives a symmetric band; `band_reference="t"` widens the band of an
 estimate with few effective rows. [How every method reports uncertainty](../technical-reference/inference.md)
@@ -157,7 +159,7 @@ Each method object takes the five groups above and the options below. `TMLEMetho
 | `selection_inner_folds` | `2` | the inner folds a learner uses during the selection |
 | `loss` | `'auto'` | the loss that scores candidates |
 | `penalty` | `True` | whether a larger candidate pays a complexity penalty |
-| `selection_estimand` | `'ate'` | the quantity the selection targets |
+| `selection_estimand` | `'ate'` | the quantity the selection targets. Over time, `'ate'` selects for each treatment option |
 | `oat_design` | `None` | the treatment design of `strategy="oat"`; `None` fits one model per treatment option |
 | `lambdas` | `None` | the penalty grid of `strategy="lasso"`, or the penalty pair of `strategy="derivative"` |
 | `treatment_candidates` | `None` | the declared learners of `strategy="learners"`, least to most flexible |
@@ -166,16 +168,16 @@ Each method object takes the five groups above and the options below. `TMLEMetho
 
 ### DR-TMLE
 
-`DRTMLEMethod` adds equations that keep the interval valid when one of the two models is wrong.
+`DRTMLEMethod` adds equations that keep the interval valid when one of the two models is wrong, provided the other is right and its extra regressions fit well.
 
 | setting | default | what it changes |
 | --- | --- | --- |
 | `guard` | `('Q', 'g')` | which extra equations to solve: against a wrong outcome model, a wrong treatment model, or both |
-| `reduction` | `'univariate'` | the form of the reduced regressions |
+| `reduction` | `'univariate'` | the form of the extra regressions, which regress the outcome and the treatment on each other's fitted values |
 | `reduced_outcome_learner` | `None` | the reduced regression of the outcome |
 | `reduced_treatment_learner` | `None` | the reduced regression of the treatment |
 | `reduced_mechanism_residual_learner` | `None` | the reduced regression of the treatment model's residual |
-| `reduced_crossfit` | `'foldwise'` | keep each fold's reduced regressions apart from its data (`"foldwise"`), or R `drtmle`'s pooled form |
+| `reduced_crossfit` | `'foldwise'` | keep each fold's reduced regressions apart from its data (`"foldwise"`), or R `drtmle`'s pooled form (`"pooled"`) |
 | `update_order` | `'drtmle'` | the order of the extra updates |
 | `evaluation` | `None` | separate data for a companion fit |
 | `randomized` | `False` | whether treatment was randomized, for a fit with missing outcomes |
@@ -243,5 +245,7 @@ Each method object takes the five groups above and the options below. `TMLEMetho
 | `step_size` | exact times | `0.1` |
 | `tol` | exact times | `None` |
 
-The three reference estimators for analyses over time also fit a main-terms GLM for every learner
+Over time, collaborative TMLE and DR-TMLE fit only an event outcome with one treatment at the
+start. On exact times, `tol=None` stops the correction once the mean of each score is within 1/(√n log n)
+of its standard deviation. The three reference estimators for analyses over time also fit a main-terms GLM for every learner
 left at `None`, in place of the default library ([report the sequential baselines](longitudinal.md)).

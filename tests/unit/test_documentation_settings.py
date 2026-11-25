@@ -150,8 +150,13 @@ EXTRA: dict[tuple[str, str], dict[str, Any]] = {
     ("cross_fitting", "stratify_by"): {"enabled": False},
 }
 
-#: Group fields whose longitudinal translation a method resolves to its own default.
-RESOLVED_KEYS = ("simultaneous", "survival_model", "max_iter")
+#: An engine keyword to the field it carries, where the two names differ.
+_FIELD_OF_KEY = {
+    keyword: field
+    for group in GROUP_FIELDS
+    for keyword, field in SHORTCUTS[group].items()
+    if keyword != field
+}
 
 
 # --- parsing -------------------------------------------------------------------------------
@@ -221,9 +226,9 @@ def _translation(method: TMLEMethod, longitudinal: bool) -> dict[str, Any] | Non
         return None
 
 
-def _reads(group: str, field: str, longitudinal: bool) -> bool:
+def _reads(group: str, field: str, longitudinal: bool, base: TMLEMethod | None = None) -> bool:
     """Whether the point or longitudinal translation carries a changed value of the field."""
-    base = TMLEMethod()
+    base = base or TMLEMethod()
     extra = EXTRA.get((group, field), {})
     reference = dataclasses.replace(
         base, **{group: dataclasses.replace(getattr(base, group), **extra)}
@@ -276,12 +281,19 @@ def expected_changes() -> set[tuple[str, str, str]]:
                 ours = getattr(getattr(method, group), field.name)
                 if repr(ours) != repr(getattr(getattr(base, group), field.name)):
                     out.add((field.name, name, repr(ours)))
+    for name in METHODS:
+        method = getattr(cleverly, name)()
+        # The same groups on the default method: what differs is the method's own resolution.
+        reference = TMLEMethod(**{group: getattr(method, group) for group in GROUP_FIELDS})
+        for longitudinal, place in ((False, "at a point"), (True, "over time")):
+            ours = _translation(method, longitudinal)
+            theirs = _translation(reference, longitudinal)
+            if ours is None or theirs is None:
+                continue
+            for key in sorted(ours.keys() & theirs.keys()):
+                if repr(ours[key]) != repr(theirs[key]):
+                    out.add((_FIELD_OF_KEY.get(key, key), f"{name} {place}", repr(ours[key])))
     base_over_time = base.estimator_kwargs(longitudinal=True)
-    for name in ("CollaborativeTMLEMethod", "DRTMLEMethod"):
-        over_time = getattr(cleverly, name)().estimator_kwargs(longitudinal=True)
-        for key in RESOLVED_KEYS:
-            if repr(over_time[key]) != repr(base_over_time[key]):
-                out.add((key, f"{name} over time", repr(over_time[key])))
     if repr(base_over_time["g_bounds"]) != repr(base.targeting.g_bounds):
         out.add(("g_bounds", "over time", repr(base_over_time["g_bounds"])))
     exact = continuous_kwargs(base)
@@ -368,6 +380,32 @@ def change_problems(text: str) -> list[str]:
     return problems
 
 
+def silent_problems(method: TMLEMethod | None = None) -> list[str]:
+    """Settings a point or longitudinal fit accepts without reading them.
+
+    The page says a fit refuses a setting it does not read when the setting is changed from its
+    default. ``method`` replaces the default method, for the mutation control.
+    """
+    base = method or TMLEMethod()
+    problems = []
+    for group in GROUP_FIELDS:
+        for field in dataclasses.fields(getattr(base, group)):
+            extra = EXTRA.get((group, field.name), {})
+            changed = dataclasses.replace(
+                base,
+                **{
+                    group: dataclasses.replace(
+                        getattr(base, group), **extra, **{field.name: SAMPLE[group][field.name]}
+                    )
+                },
+            )
+            for longitudinal, kind in ((False, "point"), (True, "over time")):
+                after = _translation(changed, longitudinal)
+                if after is not None and not _reads(group, field.name, longitudinal, base):
+                    problems.append(f"{field.name} is accepted and ignored on {kind}")
+    return problems
+
+
 def test_group_tables_match_the_dataclasses():
     problems = group_problems(PAGE.read_text(encoding="utf-8"))
     assert not problems, "\n".join(problems)
@@ -397,6 +435,21 @@ def test_changed_defaults_match_the_translations():
         (method_problems, "| `patience` | `None` |", "| `patience` | `3` |"),
         (method_problems, "| `normalization` |", "| `weights` |"),
         (change_problems, "| `n_folds` | `AdaptiveTMLEMethod` | `5` |\n", ""),
+        (
+            change_problems,
+            "| `DRTMLEMethod` over time | `200` |",
+            "| `DRTMLEMethod` over time | `100` |",
+        ),
+        (
+            change_problems,
+            "| `max_iter` | `DRTMLEMethod` over time |",
+            "| `max_iter` | `CollaborativeTMLEMethod` over time |",
+        ),
+        (
+            group_problems,
+            "| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial |",
+            "| `alpha` | `alpha` | `0.05` | point, over time, trial |",
+        ),
     ],
 )
 def test_each_check_fails_on_a_doctored_page(check, old, new):
@@ -404,3 +457,25 @@ def test_each_check_fails_on_a_doctored_page(check, old, new):
     text = PAGE.read_text(encoding="utf-8")
     assert text.count(old) == 1, old
     assert check(text.replace(old, new))
+
+
+def test_a_fit_refuses_a_setting_it_does_not_read():
+    problems = silent_problems()
+    assert not problems, "\n".join(problems)
+
+
+class _IgnoresCensoring(TMLEMethod):
+    """A doctored method whose point translation drops a learner it should refuse."""
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        if not longitudinal and self.models.censoring_learner is not None:
+            models = dataclasses.replace(self.models, censoring_learner=None)
+            return dataclasses.replace(self, models=models).estimator_kwargs()
+        return super().estimator_kwargs(longitudinal=longitudinal)
+
+
+def test_silent_check_fails_on_a_method_that_ignores_a_setting():
+    """Deliberate-mutation control: a translation that drops a setting must be found."""
+    assert silent_problems(_IgnoresCensoring()) == [
+        "censoring_learner is accepted and ignored on point"
+    ]

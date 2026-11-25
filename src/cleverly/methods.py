@@ -484,9 +484,11 @@ class ModelSpec:
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
-        Absolute correlation threshold used by screening.
+        Screening keeps a covariate whose correlation test against the treatment has a
+        p-value below this.
     min_retain : int or None
-        Minimum number of covariates retained by screening.
+        Minimum number of covariates retained by screening, topped up by the strongest.
+        ``None`` retains every covariate, so screening drops none.
     hazard_pooling : {"node", "pooled"}
         How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
         per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
@@ -503,7 +505,7 @@ class ModelSpec:
         cause-specific hazards of a held baseline treatment; see
         :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the method's own
         model: ``"hazard"`` for :class:`CollaborativeTMLEMethod` and :class:`DRTMLEMethod` on
-        a time-to-event design (the :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        an event outcome over time (the :class:`~cleverly.longitudinal.SurvivalCTMLE` and
         :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and ``"iterated_mean"``
         everywhere else.  A point-treatment fit refuses ``"hazard"``.
 
@@ -813,9 +815,10 @@ class Inference:
     simultaneous : bool or None, default=None
         Whether multi-parameter results include simultaneous bands.  ``None`` is the
         method's own default: no band for :class:`CollaborativeTMLEMethod` and
-        :class:`DRTMLEMethod` on a time-to-event design (the
+        :class:`DRTMLEMethod` on an event outcome over time (the
         :class:`~cleverly.longitudinal.SurvivalCTMLE` and
-        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and a band everywhere else.
+        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and a band wherever the
+        engine can build one elsewhere.
     n_multiplier : int, default=10_000
         Multiplier draws for simultaneous bands, on every engine.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
@@ -1092,6 +1095,15 @@ _POINT_NODE_BOUNDS = Refusal(
 )
 
 
+def _point_over_time_learners(names: list[str]) -> Refusal:
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"{', '.join(names)} fit the backward regressions, follow-up and competing events of a "
+        "fit over time, and a point-treatment fit has none of them.",
+        alternative="Remove them, or declare a longitudinal or TimeToEvent design.",
+    )
+
+
 def _differs_from_default(value: Any, default: Any) -> bool:
     """Compare normalized settings without asking learner objects to compare to ``None``."""
     if default is None:
@@ -1346,6 +1358,13 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
+        over_time = [
+            name
+            for name in ("pseudo_learner", "censoring_learner", "competing_learner")
+            if getattr(models, name) is not None
+        ]
+        if over_time:
+            raise MethodConfigurationError.from_refusal(_point_over_time_learners(over_time))
         if models.survival_model not in (None, "iterated_mean") or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "

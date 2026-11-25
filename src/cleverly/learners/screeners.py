@@ -115,10 +115,10 @@ class CorrelationScreener(BaseEstimator, SelectorMixin):
     Parameters
     ----------
     threshold : float
-        Absolute correlation a covariate must reach to be retained.
+        A covariate is retained when the p-value of its correlation test is below this.
     min_retain : int or None
-        Smallest number of covariates to keep, whatever the threshold rejects.
-        ``None`` keeps only what clears it.
+        Smallest number of covariates to keep, topped up by the strongest whatever the
+        threshold rejects. ``None`` keeps every covariate.
     """
 
     def __init__(

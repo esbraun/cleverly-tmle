@@ -9,7 +9,7 @@ question; none changes the quantity you asked for.
 | --- | --- | --- | --- |
 | `TMLEMethod` | `"tmle"` | the default: TMLE for one treatment, longitudinal TMLE over time, and the survival fits | this page |
 | `CollaborativeTMLEMethod` | `"collaborative_tmle"` | let the data choose which covariates the treatment model uses | this section |
-| `DRTMLEMethod` | `"drtmle"` | keep the interval valid when the outcome model or the treatment model is wrong | this section |
+| `DRTMLEMethod` | `"drtmle"` | keep the interval valid when the outcome model or the treatment model, but not both, is wrong | this section |
 | `AdaptiveIPTWMethod` | `"adaptive_iptw"` | weight by the treatment model alone, adapted to the outcome, for one treatment | this section |
 | `AdaptiveTMLEMethod` | `"atmle"` | a trial pooled with outside rows | [a small trial with external data](trial-with-external-data.md) |
 | `EPMethod` | `"ep"` | a conditional effect curve without choosing a basis | [conditional effects](conditional-effects.md) |
@@ -20,8 +20,9 @@ question; none changes the quantity you asked for.
 | `ParametricGFormulaMethod` | `"parametric_gformula"` | the parametric g-formula over time | [analyses over time](longitudinal.md) |
 
 The three reference estimators fit a longitudinal design or a time-to-event design on a grid of
-check times, and a point-treatment fit refuses them. On a time-to-event design with a grid,
-`CollaborativeTMLEMethod` and `DRTMLEMethod` run their survival forms
+check times, and a point-treatment fit refuses them. Over time,
+`CollaborativeTMLEMethod` and `DRTMLEMethod` fit only an event outcome with one treatment at the
+start, in their survival forms
 ([time-to-event outcomes](survival.md)). A fit on exact event times
 (`TimeToEvent(grid="continuous")`) takes `TMLEMethod` only. `effect.available_methods()` lists
 every method for your question, with the reason for each one that cannot fit. The
@@ -138,9 +139,11 @@ workflow.
 | `"derivative"` | selects nothing; adds one extra covariate per option along the lasso penalty | one TMLE |
 | `"oat"` | fits, for each option, a treatment model on that option's predicted outcome | one treatment model per option |
 
-The selecting strategies report no confidence interval, p-value or standard error, and each
-estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. `"derivative"` reports
-the ordinary TMLE interval, and `"oat"` with the two parametric models below can report one. The
+The selecting strategies (`"greedy"`, `"ordered"`, `"discrete"`, `"lasso"` and `"learners"`)
+report no confidence interval, p-value or standard error, and each estimate keeps
+`plugin_std_error` and `plugin_interval` as a diagnostic. `"derivative"` reports the ordinary
+TMLE interval. `"oat"` reports none with flexible learners, and can report one when both models
+are the parametric `ParametricOutcome` and `ParametricMechanism`. The
 [inference status table](../technical-reference/inference.md) says which fit reports an interval and
 why, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for
 each strategy.
@@ -513,8 +516,8 @@ By default the correction step runs once over the stacked held-out predictions o
 (`targeting_scheme="pooled"`). `targeting_scheme="fold"` runs it inside each validation fold, so
 no fold's correction reads another fold's rows. `fold_evaluation=True` (keyword
 `cv_evaluation=True`) reports the fold-evaluated estimate: each fold's estimate on its own rows,
-averaged over the folds, with a variance computed the same way. A learned-rule value uses it
-([learned treatment rules](estimands.md)). Both are point-treatment settings. Under
+averaged over the folds, with a variance computed the same way. A learned-rule value can be
+scored this way too ([learned treatment rules](estimands.md)). Both are point-treatment settings. Under
 `fold_evaluation=True` the risk ratio, odds ratio and MSM coefficients are refused;
 [variations](../technical-reference/cv-tmle.md) gives the estimators and their refusals.
 
