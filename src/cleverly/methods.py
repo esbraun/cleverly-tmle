@@ -23,6 +23,13 @@ from ._typing import (
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
+from .inference.cluster_jackknife import (
+    CLUSTER_VARIANCES,
+    IPSI_JACKKNIFE_CONSTRUCTION,
+    SDR_JACKKNIFE_CONSTRUCTION,
+    ClusterVariance,
+    jackknife_learner_refusal,
+)
 from .inference.multiplier import (
     DEFAULT_BAND_REFERENCE,
     DEFAULT_BAND_SCALE,
@@ -36,6 +43,7 @@ from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 from .longitudinal.pooled_hazards import check_hazard_pooling
 from .longitudinal.ratio_trim import check_ratio_trim
+from .utils.memory import check_max_memory_bytes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ._summary import Summary
@@ -46,16 +54,20 @@ __all__ = [
     "ATMLE_CV_OFF_REFUSAL",
     "ATMLE_FIELDS",
     "ATMLE_REPEATS_REFUSAL",
+    "BASELINE_BCA_REFUSAL",
     "BASELINE_HAZARD_POOLING_REFUSAL",
     "BASELINE_POINT_REFUSAL",
+    "BASELINE_POLICY_VARIANCE_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DOSE_RESPONSE_FIELDS",
     "DOSE_RESPONSE_FOLD_FIELDS",
     "DOSE_RESPONSE_FOLD_REFUSAL",
     "DOSE_RESPONSE_GAP_FIELDS",
+    "ENGINE_ONLY",
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
+    "IPSI_POLICY_VARIANCE_REFUSAL",
     "IPSI_RATIO_TRIM_REFUSAL",
     "IPW_POINT_REFUSAL",
     "LTMLE_TILT_REFUSAL",
@@ -85,6 +97,7 @@ __all__ = [
     "Targeting",
     "baseline_no_fluctuation_refusal",
     "dose_response_estimator_kwargs",
+    "memory_budget_refusal",
     "node_bounds_refusal",
     "sdr_no_fluctuation_refusal",
 ]
@@ -506,6 +519,15 @@ class ModelSpec:
         :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
         model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
         ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
+    hazard_library : tuple or None
+        The hazard learners of every cause on ``TimeToEvent(grid="continuous")``, from which
+        cross-validation selects; see :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
+        ``None`` takes three unstratified Cox models. Any other design refuses it, because a
+        binned fit regresses with ``outcome_learner``.
+    censoring_library : tuple or None
+        The hazard learners of the censoring hazard on ``TimeToEvent(grid="continuous")``.
+        ``None`` takes the same three Cox models. Any other design refuses it, because a
+        binned fit models censoring with ``censoring_learner``.
 
     See Also
     --------
@@ -541,9 +563,27 @@ class ModelSpec:
     hazard_pooling: str = "node"
     outcome_by_arm: bool = False
     survival_model: SurvivalModel | None = None
+    hazard_library: tuple[Any, ...] | None = None
+    censoring_library: tuple[Any, ...] | None = None
 
     def __post_init__(self) -> None:
         check_hazard_pooling(self.hazard_pooling)
+        for name in ("hazard_library", "censoring_library"):
+            library = getattr(self, name)
+            if library is None:
+                continue
+            if isinstance(library, (str, bytes)) or not isinstance(library, Iterable):
+                raise MethodConfigurationError(
+                    f"{name}= takes a sequence of hazard learners or None; got {library!r}",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+            library = tuple(library)
+            if not library:
+                raise MethodConfigurationError(
+                    f"{name}= holds at least one hazard learner; None takes the default library",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+            object.__setattr__(self, name, library)
         for name in (
             "outcome_learner",
             "treatment_learner",
@@ -746,6 +786,12 @@ class Targeting:
         ``survival_model="hazard"`` the bounds are on each cause-specific hazard, and a named
         node bounds every cause. A point-treatment fit, ``SDR``, ``IPSI`` and the baselines
         refuse it. See :class:`~cleverly.longitudinal.LTMLE`.
+    norm : {"covariance", "variance", "euclidean"} or None, default=None
+        The inner product of the universal submodel of the continuous-time one-step TMLE on
+        ``TimeToEvent(grid="continuous")``; see
+        :class:`~cleverly.survival.ContinuousSurvivalTMLE`. ``None`` is that engine's default,
+        ``"covariance"``. Any other design refuses a value, because no other fit walks a
+        universal submodel.
 
     See Also
     --------
@@ -789,8 +835,14 @@ class Targeting:
     isotonic: bool = False
     ratio_trim: float | None = None
     node_bounds: Mapping[Any, Any] | None = None
+    norm: Literal["covariance", "variance", "euclidean"] | None = None
 
     def __post_init__(self) -> None:
+        if self.norm not in (None, "covariance", "variance", "euclidean"):
+            raise MethodConfigurationError(
+                f"norm must be 'covariance', 'variance', 'euclidean' or None; got {self.norm!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         check_iterate(self.iterate, self.fluctuation)
         check_stopping_rule(self.stopping, self.fluctuation)
         check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.algorithm)
@@ -826,6 +878,29 @@ class Inference:
         ``"normal"`` bands every estimate at the multiplier critical value; ``"t"`` bands each
         estimate at the same tail of its own Student t reference, with degrees of freedom
         from its influence curve (:func:`~cleverly.inference.simultaneous_bands`).
+    bootstrap_interval : {"percentile", "bca"}, default="percentile"
+        The interval the full-refit bootstrap reports: the percentile interval of the
+        replicate estimates, or the bias-corrected and accelerated interval, with the
+        acceleration read from the estimate's influence curve. ``"bca"`` needs
+        ``n_bootstrap``. A longitudinal TMLE, SDR or IPSI fit and the continuous-time TMLE
+        take it. A point-treatment fit and the sequential baselines refuse ``"bca"``.
+    variance : {"influence_curve", "policy_weighted", "switched"} or None, default=None
+        The variance of the reported intervals. ``None`` is the engine's default. A
+        longitudinal TMLE or SDR fit takes ``"influence_curve"`` (its default) or
+        ``"policy_weighted"`` (see :class:`~cleverly.longitudinal.LTMLE`). The continuous-time
+        TMLE takes ``"switched"`` (its default) or ``"influence_curve"`` (see
+        :class:`~cleverly.survival.ContinuousSurvivalTMLE`). A value the selected engine does
+        not take is refused. A point-treatment fit refuses every value; IPSI and the
+        baselines take ``"influence_curve"`` and refuse ``"policy_weighted"``.
+        With ``"policy_weighted"`` an unset ``simultaneous`` reads ``False``, because that
+        fit has no covariance to band.
+    cluster_variance : {"influence_curve", "jackknife"}, default="influence_curve"
+        The variance of a clustered fit. ``"jackknife"`` refits once per cluster with that
+        cluster left out (:mod:`cleverly.inference.cluster_jackknife`). A longitudinal TMLE
+        fit takes it, with the conditions :class:`~cleverly.longitudinal.LTMLE` states. The
+        point-treatment engines refuse it, each with its own reason
+        (:mod:`cleverly.inference.cluster_jackknife`), and SDR, IPSI and the baselines refuse
+        it.
 
     See Also
     --------
@@ -863,6 +938,49 @@ class Inference:
     multiplier_kind: MultiplierKind = DEFAULT_KIND
     band_scale: BandScale = DEFAULT_BAND_SCALE
     band_reference: BandReference = DEFAULT_BAND_REFERENCE
+    bootstrap_interval: Literal["percentile", "bca"] = "percentile"
+    variance: Literal["influence_curve", "policy_weighted", "switched"] | None = None
+    cluster_variance: ClusterVariance = "influence_curve"
+
+    def __post_init__(self) -> None:
+        if self.bootstrap_interval not in ("percentile", "bca"):
+            raise MethodConfigurationError(
+                "bootstrap_interval must be 'percentile' or 'bca'; got "
+                f"{self.bootstrap_interval!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if self.variance not in (None, "influence_curve", "policy_weighted", "switched"):
+            raise MethodConfigurationError(
+                "variance must be 'influence_curve', 'policy_weighted', 'switched' or None; "
+                f"got {self.variance!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if self.cluster_variance not in CLUSTER_VARIANCES:
+            raise MethodConfigurationError(
+                f"cluster_variance must be one of {list(CLUSTER_VARIANCES)}; got "
+                f"{self.cluster_variance!r}",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if self.bootstrap_interval != "percentile" and not self.n_bootstrap:
+            raise MethodConfigurationError(
+                f"bootstrap_interval={self.bootstrap_interval!r} names an interval of the "
+                "full-refit bootstrap, and n_bootstrap=0 runs none. Set n_bootstrap= too, "
+                "such as n_bootstrap=199.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if self.cluster_variance == "jackknife" and (
+            self.n_bootstrap or self.variance == "policy_weighted"
+        ):
+            other = "n_bootstrap" if self.n_bootstrap else f"variance={self.variance!r}"
+            raise MethodConfigurationError(
+                f"cluster_variance='jackknife' and {other} both replace the influence-curve "
+                "variance, so the fit would report two variances for one interval.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Choose one variance: the default variance= and n_bootstrap=0, or "
+                    "cluster_variance='influence_curve'."
+                ),
+            )
 
 
 @dataclass(frozen=True)
@@ -877,6 +995,14 @@ class Runtime:
         User-defined identifier stored in provenance.
     n_jobs : int, default=1
         Maximum parallel jobs requested by the fit.
+    max_memory_bytes : int or None, default=None
+        The memory budget, in bytes, of the memory guard that a longitudinal TMLE, SDR or IPSI
+        fit and the continuous-time TMLE run before any learner. ``None`` reads the memory
+        available when the fit starts. The budget sets how a fit runs, never what it returns;
+        see :class:`~cleverly.longitudinal.LTMLE` and
+        :class:`~cleverly.survival.ContinuousSurvivalTMLE`. Every other fit runs no memory
+        guard and refuses a value. The ``max_memory_bytes=`` keyword of
+        :meth:`cleverly.IdentifiedEffect.targeting_curve` is a separate budget, for the curve.
 
     See Also
     --------
@@ -895,6 +1021,10 @@ class Runtime:
     random_state: int | None = None
     run_id: str | None = None
     n_jobs: int = 1
+    max_memory_bytes: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "max_memory_bytes", check_max_memory_bytes(self.max_memory_bytes))
 
 
 @runtime_checkable
@@ -986,6 +1116,8 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "hazard_pooling": "hazard_pooling",
         "outcome_by_arm": "outcome_by_arm",
         "survival_model": "survival_model",
+        "hazard_library": "hazard_library",
+        "censoring_library": "censoring_library",
     },
     "cross_fitting": {
         "cross_fit": "enabled",
@@ -1016,6 +1148,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "conditional_form": "conditional_form",
         "isotonic": "isotonic",
         "node_bounds": "node_bounds",
+        "norm": "norm",
     },
     "inference": {
         "alpha": "alpha",
@@ -1026,11 +1159,15 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "multiplier_kind": "multiplier_kind",
         "band_scale": "band_scale",
         "band_reference": "band_reference",
+        "bootstrap_interval": "bootstrap_interval",
+        "variance": "variance",
+        "cluster_variance": "cluster_variance",
     },
     "runtime": {
         "random_state": "random_state",
         "run_id": "run_id",
         "n_jobs": "n_jobs",
+        "max_memory_bytes": "max_memory_bytes",
     },
 }
 
@@ -1085,6 +1222,203 @@ _POINT_NODE_BOUNDS = Refusal(
     "iterated-mean fit, and a point-treatment functional has no such nodes.",
     alternative="Remove it, or declare a longitudinal or TimeToEvent design.",
 )
+
+#: The refusal of ``variance=`` on a point-treatment fit, which reports the influence-curve
+#: variance and has no variance choice.
+_POINT_VARIANCE = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "variance= chooses the variance of a longitudinal fit ('influence_curve' or "
+    "'policy_weighted') or of the continuous-time TMLE ('switched' or 'influence_curve'). A "
+    "point-treatment fit reports the influence-curve variance and takes no variance choice.",
+    alternative=(
+        "Remove it, or declare the point treatment as a one-node LongitudinalTreatment for "
+        "variance='policy_weighted'."
+    ),
+)
+
+#: The refusal of ``bootstrap_interval="bca"`` on a point-treatment fit.
+_POINT_BOOTSTRAP_INTERVAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "bootstrap_interval='bca' reads the bias-corrected and accelerated interval from the "
+    "full-refit bootstrap of a longitudinal or continuous-time fit. The point-treatment TMLE's "
+    "bootstrap reports the percentile interval only.",
+    alternative="Remove it, or declare the point treatment as a one-node LongitudinalTreatment.",
+)
+
+#: The refusal of a continuous-time setting on a binned or point-treatment fit. ``{names}``
+#: lists the settings given.
+_CONTINUOUS_ONLY_TEXT = (
+    "hazard_library=, censoring_library= and norm= configure the continuous-time one-step TMLE "
+    "of TimeToEvent(grid='continuous'). This fit regresses with outcome_learner= and "
+    "censoring_learner= and fits no universal submodel: {names}."
+)
+
+#: The continuous-time settings, as ``(group, field, public name)``, that every other fit
+#: refuses. They are read only by :func:`cleverly.survival.data.continuous_kwargs`.
+_CONTINUOUS_ONLY: tuple[tuple[str, str, str], ...] = (
+    ("models", "hazard_library", "hazard_library"),
+    ("models", "censoring_library", "censoring_library"),
+    ("targeting", "norm", "norm"),
+)
+
+#: The refusal of ``variance="switched"`` on a binned longitudinal fit.
+_LONGITUDINAL_SWITCHED = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "variance='switched' raises the continuous-time TMLE's variance to the predictable "
+    "variation of its martingale part where the curve is sparse. A binned longitudinal fit "
+    "takes variance='influence_curve' or 'policy_weighted'.",
+    alternative=(
+        "Use variance='policy_weighted' for a modified treatment policy, or declare "
+        "TimeToEvent(grid='continuous')."
+    ),
+)
+
+#: The policy-weighted fold refusal, spelled for the method route: the engine's own text asks
+#: for ``n_folds=1``, which a method spells ``cross_fit=False``.
+_POLICY_VARIANCE_CROSS_FIT = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the policy-weighted variance needs fold-wise variance regressions, which no registered "
+    "study measures.",
+    alternative="Pass cross_fit=False (n_folds=1 on the engine).",
+)
+
+#: Why IPSI refuses ``variance="policy_weighted"``, on the engine and on :class:`IPSIMethod`.
+IPSI_POLICY_VARIANCE_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "variance='policy_weighted' computes the variance of an influence curve made of node "
+    "residuals weighted by the policy ratio. IPSI's influence function (Kennedy 2019, "
+    "Theorem 2) adds a term for the estimated treatment mechanism, which that computation does "
+    "not read, so no policy-weighted variance is derived for it.",
+    alternative="Use the default variance (variance='influence_curve').",
+)
+
+#: Why the sequential baselines refuse ``variance="policy_weighted"``.
+BASELINE_POLICY_VARIANCE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "variance='policy_weighted' is the variance of the targeted LTMLE and SDR fits. The "
+    "sequential g-computation, IPW and parametric g-formula baselines report their own "
+    "variance, and would ignore the setting.",
+    alternative="Remove it, or fit LTMLE or SDR.",
+)
+
+#: Why the sequential baselines refuse ``bootstrap_interval="bca"``.
+BASELINE_BCA_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "bootstrap_interval='bca' asks for the bias-corrected and accelerated bootstrap interval. "
+    "The sequential g-computation, IPW and parametric g-formula baselines report the "
+    "percentile bootstrap interval only, under the experimental label.",
+    alternative="Fit LTMLE or SDR (method='tmle' or method='sdr') for the BCa interval.",
+)
+
+#: Why the sequential baselines refuse ``cluster_variance="jackknife"``.
+_BASELINE_JACKKNIFE = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    "cluster_variance='jackknife' ships for LTMLE (experimental). The sequential "
+    "g-computation, IPW and parametric g-formula baselines report the cluster-robust "
+    "influence-curve variance only.",
+    alternative="Use cluster_variance='influence_curve', or fit method='tmle'.",
+)
+
+
+def memory_budget_refusal(estimator: str, verb: str = "runs") -> Refusal:
+    """The refusal of ``max_memory_bytes=`` on a fit that runs no memory guard.
+
+    Parameters
+    ----------
+    estimator : str
+        The fit, as the condition names it, such as ``"A point-treatment fit"``.
+    verb : str
+        ``"runs"``, or ``"run"`` when ``estimator`` names several fits.
+
+    Returns
+    -------
+    Refusal
+        Code ``invalid_declaration``.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "max_memory_bytes= is the budget of the memory guard of the LTMLE, SDR and IPSI fits and "
+        f"of the continuous-time TMLE. {estimator} {verb} no memory guard, so the setting would "
+        "change nothing. The max_memory_bytes= keyword of targeting_curve() is a separate "
+        "budget for the curve.",
+        alternative="Remove it.",
+    )
+
+
+#: The engine settings that no method object carries, each with the refusal
+#: :meth:`TMLEMethod.with_overrides` raises for it. ``tests.unit.test_method_engine_options``
+#: checks that every engine parameter is either translated, set by the study, or listed here.
+ENGINE_ONLY: Mapping[str, Refusal] = {
+    "restricted_horizons": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "restricted_horizons= adds the restricted mean time lost to each cause, and its "
+        "differences, to the targets the continuous-time walk solves. It declares targets, not "
+        "a method setting, and no CausalStudy estimand declares a restricted mean yet.",
+        alternative=(
+            "On a binned grid, read result.rmst(regimen, horizon). With exact times, fit "
+            "cleverly.survival.ContinuousSurvivalTMLE(horizons, restricted_horizons=(tau,), "
+            "arms=..., reference=..., plus the method's settings).fit_data(study.data), and "
+            "read result.rmst(arm, tau) or result.rmtl(arm, tau)."
+        ),
+    ),
+    "tilt": Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "tilt='factual' reproduces the concrete 1.0.5 update, which tilts only each unit's "
+        "received arm. That update loses the double robustness of the walk: the factual-tilt "
+        "controls of the continuous-survival-causes study stay biased when the event hazards "
+        "are wrong. It exists as a mutation control, and no method object carries it.",
+    ),
+}
+
+
+def _refuse_continuous_only(method: TMLEMethod) -> None:
+    """Refuse a continuous-time setting on a fit that is not the continuous-time TMLE."""
+    given = [
+        public
+        for group_name, field_name, public in _CONTINUOUS_ONLY
+        if getattr(getattr(method, group_name), field_name) is not None
+    ]
+    if given:
+        raise MethodConfigurationError(
+            _CONTINUOUS_ONLY_TEXT.format(names=given),
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Remove them, or declare TimeToEvent(grid='continuous').",
+        )
+
+
+def _refuse_unguarded_memory(method: TMLEMethod, estimator: str, verb: str = "runs") -> None:
+    """Refuse ``max_memory_bytes=`` on an engine that runs no memory guard."""
+    if method.runtime.max_memory_bytes is not None:
+        raise MethodConfigurationError.from_refusal(memory_budget_refusal(estimator, verb))
+
+
+def _refuse_jackknife(method: TMLEMethod, refusal: Refusal) -> None:
+    """Refuse ``cluster_variance="jackknife"`` on an engine that has no jackknife."""
+    if method.inference.cluster_variance != "influence_curve":
+        raise MethodConfigurationError.from_refusal(refusal)
+
+
+def _refuse_baseline_inference(method: TMLEMethod) -> None:
+    """Refuse the interval settings the sequential baselines do not read.
+
+    Raised at construction and again by the translation, the path every route runs, so a
+    subclass that skips the construction check cannot drop a declaration silently.
+    """
+    _refuse_jackknife(method, _BASELINE_JACKKNIFE)
+    if method.inference.variance == "policy_weighted":
+        raise MethodConfigurationError.from_refusal(BASELINE_POLICY_VARIANCE_REFUSAL)
+    if method.inference.bootstrap_interval != "percentile":
+        raise MethodConfigurationError.from_refusal(BASELINE_BCA_REFUSAL)
+    _refuse_unguarded_memory(
+        method, "The sequential g-computation, IPW and parametric g-formula baselines", "run"
+    )
+
+
+def _refuse_ipsi_variance(method: TMLEMethod) -> None:
+    """Refuse the variances IPSI has no derivation for."""
+    _refuse_jackknife(method, jackknife_learner_refusal(IPSI_JACKKNIFE_CONSTRUCTION))
+    if method.inference.variance == "policy_weighted":
+        raise MethodConfigurationError.from_refusal(IPSI_POLICY_VARIANCE_REFUSAL)
 
 
 def _differs_from_default(value: Any, default: Any) -> bool:
@@ -1224,17 +1558,25 @@ class TMLEMethod:
         ``alpha=`` sets :attr:`Inference.alpha`, the reported interval's significance
         level. Use ``submodel_alpha=`` for :attr:`Targeting.submodel_alpha`, the separate
         logistic-submodel bound.
+
+        An engine setting that no configuration group carries, such as
+        ``restricted_horizons=`` or ``tilt=``, raises the refusal that :data:`ENGINE_ONLY`
+        records for it.
         """
         groups = SHORTCUTS
         known = {name for fields in groups.values() for name in fields}
         unknown = sorted(set(overrides) - known)
+        for name in unknown:
+            if name in ENGINE_ONLY:
+                raise MethodConfigurationError.from_refusal(ENGINE_ONLY[name])
         if unknown:
             raise MethodConfigurationError(
                 f"unsupported tmle option(s): {unknown}.",
                 reason=RefusalReason.INVALID_DECLARATION,
                 alternative=(
-                    "Study-design roles belong on PointTreatment; advanced method options "
-                    "require a typed method object."
+                    "Study-design roles belong on the design. cleverly.methods.SHORTCUTS lists "
+                    "the method keywords, and cleverly.methods.ENGINE_ONLY the engine settings "
+                    "that no method object carries."
                 ),
             )
         method = self
@@ -1270,6 +1612,7 @@ class TMLEMethod:
         inference = self.inference
         runtime = self.runtime
         split_plan = cross.split_plan
+        _refuse_continuous_only(self)
         common = {
             "outcome_learner": models.outcome_learner,
             "n_folds": cross.n_folds,
@@ -1326,8 +1669,21 @@ class TMLEMethod:
                     "step_size": targeting.step_size,
                     "isotonic": targeting.isotonic,
                     "node_bounds": targeting.node_bounds,
+                    "bootstrap_interval": inference.bootstrap_interval,
+                    "cluster_variance": inference.cluster_variance,
+                    "max_memory_bytes": runtime.max_memory_bytes,
                 }
             )
+            if inference.variance == "switched":
+                raise MethodConfigurationError.from_refusal(_LONGITUDINAL_SWITCHED)
+            common["variance"] = inference.variance or "influence_curve"
+            if inference.variance == "policy_weighted":
+                if cross.enabled:
+                    raise MethodConfigurationError.from_refusal(_POLICY_VARIANCE_CROSS_FIT)
+                if inference.simultaneous is None:
+                    # The policy-weighted fit defines each variance as a maximum, which is
+                    # not a covariance, so it has no band to build.
+                    common["simultaneous"] = False
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
             # point-treatment policy and has no sequential meaning.
             if common["g_bounds"] == "auto":
@@ -1341,6 +1697,14 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
+        if inference.variance is not None:
+            raise MethodConfigurationError.from_refusal(_POINT_VARIANCE)
+        if inference.bootstrap_interval != "percentile":
+            raise MethodConfigurationError.from_refusal(_POINT_BOOTSTRAP_INTERVAL)
+        if runtime.max_memory_bytes is not None:
+            raise MethodConfigurationError.from_refusal(
+                memory_budget_refusal("A point-treatment fit")
+            )
         if models.survival_model not in (None, "iterated_mean") or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "
@@ -1375,6 +1739,7 @@ class TMLEMethod:
                 "conditional_form": targeting.conditional_form,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
+                "cluster_variance": inference.cluster_variance,
             }
         )
         return common
@@ -1735,6 +2100,8 @@ default="greedy"
         if longitudinal:
             defaults = CollaborativeTMLEMethod()
             kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            _refuse_unguarded_memory(self, "SurvivalCTMLE")
+            del kwargs["max_memory_bytes"]
             if self.models.survival_model is None:
                 kwargs["survival_model"] = "hazard"
             if self.inference.simultaneous is None:
@@ -1898,6 +2265,8 @@ class DRTMLEMethod(TMLEMethod):
         """
         if longitudinal:
             kwargs = TMLEMethod.estimator_kwargs(self, longitudinal=True)
+            _refuse_unguarded_memory(self, "SurvivalDRTMLE")
+            del kwargs["max_memory_bytes"]
             if self.models.survival_model is None:
                 kwargs["survival_model"] = "hazard"
             if self.inference.simultaneous is None:
@@ -2336,6 +2705,12 @@ DOSE_RESPONSE_GAP_FIELDS: Mapping[tuple[str, str], str] = MappingProxyType(
         ("inference", "bootstrap_resampling"): (
             "the curve reports influence-curve intervals and a multiplier band, and no bootstrap"
         ),
+        ("inference", "bootstrap_interval"): (
+            "the curve reports influence-curve intervals and a multiplier band, and no bootstrap"
+        ),
+        ("runtime", "max_memory_bytes"): (
+            "the curve checks its quadrature nodes against its own fixed memory budget"
+        ),
         ("models", "screen_treatment"): (
             "the dose density reads every adjustment column, or the declared "
             "treatment_adjustment= subset"
@@ -2376,7 +2751,8 @@ _DOSE_RESPONSE_UNREAD_REASONS: dict[str, str] = {
         "and no mechanism bound enters its clever covariate"
     ),
     "inference": (
-        "the curve's estimates carry no range, so its band is built on the identity scale"
+        "the curve reports influence-curve intervals and a multiplier band on the identity "
+        "scale, from unclustered rows"
     ),
 }
 
@@ -2515,6 +2891,11 @@ class SDRMethod(TMLEMethod):
 
     name: str = "sdr"
 
+    def __post_init__(self) -> None:
+        """Refuse the cluster jackknife, which the SDR recursion has no linearization for."""
+        super().__post_init__()
+        _refuse_jackknife(self, jackknife_learner_refusal(SDR_JACKKNIFE_CONSTRUCTION))
+
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for the longitudinal SDR engine.
 
@@ -2552,7 +2933,9 @@ class SDRMethod(TMLEMethod):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
         _refuse_node_bounds(self, "the SDR estimator")
         _refuse_curve_settings(self, "SDR")
+        _refuse_jackknife(self, jackknife_learner_refusal(SDR_JACKKNIFE_CONSTRUCTION))
         kwargs = super().estimator_kwargs(longitudinal=True)
+        del kwargs["cluster_variance"]
         for engine_name in (
             "alpha",
             "max_iter",
@@ -2591,6 +2974,11 @@ class _BaselineMethod(TMLEMethod):
     _point_refusal: ClassVar[Refusal] = BASELINE_POINT_REFUSAL
 
     cross_fitting: CrossFitting = CrossFitting(enabled=False)
+
+    def __post_init__(self) -> None:
+        """Refuse the interval and memory settings the baselines do not read."""
+        super().__post_init__()
+        _refuse_baseline_inference(self)
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for a longitudinal baseline engine.
@@ -2636,7 +3024,12 @@ class _BaselineMethod(TMLEMethod):
                 )
         _refuse_node_bounds(self, "the sequential g-computation and IPW estimators")
         _refuse_curve_settings(self, _BASELINE_ENGINES[self.name])
+        _refuse_baseline_inference(self)
         kwargs = super().estimator_kwargs(longitudinal=True)
+        # Neither engine parameter exists on a baseline; the refusal above guarantees both are
+        # at their defaults. ``variance`` and ``bootstrap_interval`` stay, so the engine's own
+        # refusals back this one up.
+        del kwargs["cluster_variance"], kwargs["max_memory_bytes"]
         for engine_name in (
             "alpha",
             "max_iter",
@@ -2850,6 +3243,7 @@ class ParametricGFormulaMethod(_BaselineMethod):
     hazard_learner: Any = None
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         _validate_learner(self.covariate_learner, "covariate_learner")
         _validate_learner(self.hazard_learner, "hazard_learner")
 
@@ -2949,6 +3343,11 @@ class IPSIMethod(TMLEMethod):
 
     name: str = "ipsi"
 
+    def __post_init__(self) -> None:
+        """Refuse the cluster jackknife and the policy-weighted variance, which IPSI lacks."""
+        super().__post_init__()
+        _refuse_ipsi_variance(self)
+
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for the longitudinal IPSI engine.
 
@@ -2988,7 +3387,11 @@ class IPSIMethod(TMLEMethod):
             raise MethodConfigurationError.from_refusal(IPSI_RATIO_TRIM_REFUSAL)
         _refuse_node_bounds(self, "IPSI")
         _refuse_curve_settings(self, "IPSI")
+        _refuse_ipsi_variance(self)
         kwargs = super().estimator_kwargs(longitudinal=True)
+        # IPSI names variance= itself and refuses "policy_weighted" there too, so the
+        # resolved "influence_curve" passes through as a backstop.
+        del kwargs["cluster_variance"]
         for engine_name in (
             "alpha",
             "max_iter",

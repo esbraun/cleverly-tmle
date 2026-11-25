@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from typing import (
@@ -107,7 +106,6 @@ from .longitudinal import (
     SurvivalDRTMLE,
 )
 from .longitudinal import estimator as _sequential
-from .longitudinal._memory_guard import LongitudinalMemoryError
 from .longitudinal.data import check_markov_order, markov_restriction
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
@@ -155,7 +153,6 @@ from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol, protocol_summary_lines
 from .provenance import fingerprint_array
 from .survival import ContinuousSurvivalResult, ContinuousSurvivalTMLE
-from .survival._memory import ContinuousSurvivalMemoryError
 from .survival.data import ContinuousSurvivalData, continuous_kwargs, static_arms
 from .targets import TARGETS
 from .targets.base import (
@@ -7422,15 +7419,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if self.functional.axis == "dose_response":
             return self._dose_response_estimator(normalized)._planned_fits(self._study.data)
         if isinstance(self._study.data, ContinuousSurvivalData):
-            engine, settings = self._continuous_engine(normalized)
-            with self._spelled_memory_refusal(settings):
-                return engine._planned_fit_data(self._study.data)
+            return self._continuous_engine(normalized)._planned_fit_data(self._study.data)
         if self.functional.longitudinal:
-            with self._spelled_longitudinal_memory_refusal(normalized):
-                return cast(
-                    "PlannedFits",
-                    self._longitudinal_engine(normalized)._planned_fits(self._study.data),
-                )
+            return cast(
+                "PlannedFits",
+                self._longitudinal_engine(normalized)._planned_fits(self._study.data),
+            )
         if isinstance(normalized, EPMethod):
             assert isinstance(self._study.data, CausalData)
             return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
@@ -7903,103 +7897,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
-        engine, settings = self._continuous_engine(method)
-        with self._spelled_memory_refusal(settings):
-            return engine.fit_data(data)
+        return self._continuous_engine(method).fit_data(data)
 
-    @contextlib.contextmanager
-    def _spelled_memory_refusal(self, settings: dict[str, Any]) -> Iterator[None]:
-        """Spell the engine call of a continuous-time memory refusal in its alternative.
-
-        :meth:`_estimate_continuous` and :meth:`planned_fits` both run the engine's memory
-        check, so both raise the same record.
-        """
-        functional = self.functional
-        try:
-            yield
-        except ContinuousSurvivalMemoryError as error:
-            # The facade has no memory setting; spell the engine call that reproduces this fit,
-            # so a user can set the budget there.
-            spelled = ", ".join(
-                [repr(tuple(functional.horizons or ()))]
-                + [f"{key}={value!r}" for key, value in settings.items()]
-                + ["max_memory_bytes=..."]
-            )
-            seeded = settings.get("random_state") is not None
-            alternative = (
-                f"{error.refusal.alternative} On a study, fit the same estimator directly, with "
-                "these settings (an object shown by its printed form is passed as itself): "
-                f"cleverly.survival.ContinuousSurvivalTMLE({spelled}).fit_data(study.data). "
-                + (
-                    "With this seed it returns the result this study would."
-                    if seeded
-                    else "Without random_state each fit draws its own seed; set it to "
-                    "reproduce a study's result."
-                )
-            )
-            spelled_error = ContinuousSurvivalMemoryError(
-                refusal=replace(error.refusal, alternative=alternative)
-            )
-            spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
-            raise spelled_error from error
-
-    @contextlib.contextmanager
-    def _spelled_longitudinal_memory_refusal(self, method: EstimationMethod) -> Iterator[None]:
-        """Spell the engine call of a longitudinal memory refusal in its alternative (X106 J2d).
-
-        :meth:`_estimate_longitudinal` and :meth:`planned_fits` both run the engine's memory
-        guard, so both raise the same record.
-        """
-        try:
-            yield
-        except LongitudinalMemoryError as error:
-            # The facade has no memory setting; spell the engine call that reproduces this fit,
-            # so a user can set the budget there.
-            functional = self.functional
-            engine = type(self._longitudinal_engine(method)).__name__
-            settings = method.estimator_kwargs(longitudinal=True)
-            spelled = ", ".join(
-                [repr(functional.interventions)]
-                + [
-                    f"reference={functional.reference!r}",
-                    f"horizons={functional.horizons!r}",
-                    f"msm={functional.msm!r}",
-                ]
-                + [f"{key}={value!r}" for key, value in settings.items()]
-                + ["max_memory_bytes=..."]
-            )
-            seeded = settings.get("random_state") is not None
-            alternative = (
-                f"{error.refusal.alternative} On a study, fit the same estimator directly, with "
-                "these settings (an object shown by its printed form is passed as itself): "
-                f"cleverly.longitudinal.{engine}({spelled}).fit(study.data). "
-                + (
-                    "With this seed it returns the result this study would."
-                    if seeded
-                    else "Without random_state each fit draws its own seed; set it to "
-                    "reproduce a study's result."
-                )
-            )
-            spelled_error = LongitudinalMemoryError(
-                refusal=replace(error.refusal, alternative=alternative)
-            )
-            spelled_error.predicted, spelled_error.budget = error.predicted, error.budget
-            raise spelled_error from error
-
-    def _continuous_engine(
-        self, method: EstimationMethod
-    ) -> tuple[ContinuousSurvivalTMLE, dict[str, Any]]:
+    def _continuous_engine(self, method: EstimationMethod) -> ContinuousSurvivalTMLE:
         """The engine :meth:`_estimate_continuous` fits and :meth:`planned_fits` counts."""
         functional = self.functional
-        settings = {
-            "arms": functional.interventions,
-            "reference": functional.reference,
+        return ContinuousSurvivalTMLE(
+            functional.horizons or (),
+            arms=functional.interventions,
+            reference=functional.reference,
             **continuous_kwargs(method),
-        }
-        engine = ContinuousSurvivalTMLE(functional.horizons or (), **settings)
-        # Spelled in a memory refusal's call, where the variance decides the final pass's memory.
-        settings["variance"] = engine.variance
-        return engine, settings
+        )
 
     def _longitudinal_engine(self, method: EstimationMethod) -> Any:
         """The engine :meth:`_estimate_longitudinal` fits and :meth:`planned_fits` counts."""
@@ -8033,8 +7941,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
         estimator = self._longitudinal_engine(method)
-        with self._spelled_longitudinal_memory_refusal(method):
-            raw = estimator.fit(self._study.data)
+        raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
             "ate_regime": ("ate_regimen[", "risk_difference["),

@@ -709,8 +709,9 @@ rule.
 
 ### Cluster jackknife
 
-`LTMLE(cluster_variance="jackknife")` replaces the cluster influence-curve variance of every
-reported estimate with the delete-one-cluster jackknife. `TMLE` takes the same argument and, after
+`LTMLE(cluster_variance="jackknife")`, or `Inference(cluster_variance="jackknife")` on a study,
+replaces the cluster influence-curve variance of every reported estimate with the delete-one-cluster
+jackknife. `TMLE` takes the same argument and, after
 the floor studies, refuses it on every fit (the last table of this section). For each of the $J$ positive-mass clusters the fit refits every nuisance and redoes the
 targeting with that cluster removed, giving $\hat\theta^{-g}$ on each estimate's inference scale.
 The reported covariance is
@@ -741,7 +742,8 @@ learner with code `inference_gap` and roadmap
 | a plain `"tmle"` fit with one split: not fold-evaluated, not fold-targeted, `repeats=1`, no learned rule, incremental intervention, effect-modification projection, policy-weighted variance, or vector or continuous treatment | each of these centres its variance within folds, aggregates over splits, or moves its target with the refit |
 | `n_bootstrap=0` | the bootstrap and the jackknife both replace the variance (`invalid_declaration`) |
 
-`SDR` and `IPSI` take no `cluster_variance` argument.
+`SDR` and `IPSI` take no `cluster_variance` argument, and `SDRMethod` and `IPSIMethod` refuse
+`Inference(cluster_variance="jackknife")` at construction with the same reason.
 
 A refit that raises, or that withholds an estimate's interval for a reason other than an
 estimate outside its bounds, leaves that estimate's jackknife undefined. The estimate then takes
