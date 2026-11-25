@@ -27,7 +27,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 
@@ -54,7 +54,12 @@ from ..learners._fitting import (
 )
 from ..learners.crossfit import _IN_SAMPLE_REMEDY, _POST_DRAW_REMEDY, Folds
 from ..learners.density import ConditionalDensity, MixedDensity, fit_conditional_density
-from ..learners.screeners import CorrelationScreener
+from ..learners.screeners import (
+    OutcomeScreen,
+    ScreenedLearner,
+    default_min_retain,
+    learner_for_rows,
+)
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..msm import MSMSet
 from ..utils.bounds import OutcomeScaler, bound
@@ -1221,7 +1226,9 @@ def cross_fit_companion(
         if mean_one_weights:
             row_weights = np.array(weights, dtype=float, copy=True)
             row_weights[rows] = row_weights[rows] / float(np.mean(row_weights[rows]))
-        return fit_on_rows(learner, design, target, row_weights, rows, task, groups)
+        # A screened treatment learner selects its covariates on these training rows.
+        model = learner_for_rows(learner, rows, design.shape[1])
+        return fit_on_rows(model, design, target, row_weights, rows, task, groups)
 
     def predict(model: Learner, matrix: FloatArray) -> FloatArray:
         if isinstance(model, ConstantFit):
@@ -1433,20 +1440,60 @@ def _clip(values: FloatArray, clip: tuple[float, float] | None) -> FloatArray:
     return np.clip(np.asarray(values, dtype=float), clip[0], clip[1])
 
 
-def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Learner:
-    """Wrap a learner so covariates are screened inside each training fold.
+def outcome_screen(data: CausalData, min_retain: int | None) -> OutcomeScreen:
+    """The outcome screen of ``screen_treatment=True`` on ``data``.
 
-    Screening must happen *inside* the fold: choosing covariates on the full sample
-    and then cross-fitting leaks the held-out rows into the model-selection step.
+    It reads the treatment-model covariates, the treatment (its components on a vector),
+    the outcome, and the rows whose outcome is observed and treatment recorded.  The floor
+    ``min_retain=None`` resolves on the whole sample, as R's ``tmle`` resolves it.
     """
-    from sklearn.pipeline import Pipeline
-
-    return Pipeline(
-        [
-            ("screen", CorrelationScreener(threshold=threshold, min_retain=min_retain)),
-            ("model", learner),
-        ]
+    covariates = np.asarray(data.mechanism_covariates, dtype=float)
+    if data.treatment_kind == "vector":
+        assert data.treatment_components is not None
+        treatment = np.asarray(data.treatment_components, dtype=float)
+        discrete: tuple[bool, ...] = tuple(bool(levels) for levels in data.component_levels)
+    else:
+        treatment = np.asarray(data.treatment, dtype=float).reshape(-1, 1)
+        discrete = (not data.is_continuous_treatment,)
+    eligible = np.asarray(data.observed, dtype=bool).copy()
+    if data.has_missing_treatment:
+        eligible &= np.asarray(data.treatment_recorded, dtype=bool)
+    eligible &= np.isfinite(np.asarray(data.outcome, dtype=float))
+    eligible &= np.isfinite(treatment).all(axis=1)
+    p = covariates.shape[1]
+    if min_retain is None:
+        counts = None
+        if discrete == (True,):
+            codes = treatment[eligible, 0]
+            counts = np.unique(codes, return_counts=True)[1].tolist()
+        floor = default_min_retain(p, int(eligible.sum()), counts)
+    else:
+        floor = max(1, min(int(min_retain), max(p, 1)))
+    outcome = np.where(eligible, np.asarray(data.outcome, dtype=float), 0.0)
+    return OutcomeScreen(
+        covariates,
+        np.where(np.isfinite(treatment), treatment, 0.0),
+        discrete,
+        outcome,
+        eligible,
+        np.asarray(data.weights, dtype=float),
+        data.cluster,
+        floor,
     )
+
+
+def screened_learner(
+    learner: Learner, data: CausalData, screen_treatment: bool, min_retain: int | None
+) -> Learner:
+    """``learner``, screened by :func:`outcome_screen` when ``screen_treatment``.
+
+    Each fit loop selects the covariates of its own training set
+    (:func:`~cleverly.learners.screeners.learner_for_rows`): screening inside the fold
+    keeps the held-out rows out of the model-selection step.
+    """
+    if not screen_treatment or not data.mechanism_covariate_names:
+        return learner
+    return cast("Learner", ScreenedLearner(learner, outcome_screen(data, min_retain)))
 
 
 @dataclass(frozen=True)
@@ -2248,7 +2295,6 @@ def fit_nuisances(
     intermediate_value: float | None = None,
     extra_levels: Sequence[float] = (),
     screen_treatment: bool = False,
-    screen_threshold: float = 0.1,
     min_retain: int | None = None,
     policies: Sequence[Policy] = (),
     incremental: Sequence[Incremental] = (),
@@ -2411,11 +2457,7 @@ def fit_nuisances(
         )
 
     # --- treatment mechanism -------------------------------------------------
-    treatment_model = (
-        _screened(treatment_learner, screen_threshold, min_retain)
-        if screen_treatment
-        else treatment_learner
-    )
+    treatment_model = screened_learner(treatment_learner, data, screen_treatment, min_retain)
     # A vector treatment with a continuous component has no arms; see ``vector`` above.
     arms = () if vector else data.arm_codes
     density: ConditionalDensity | MixedDensity | None = None
@@ -2642,8 +2684,11 @@ def fit_nuisances(
         propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
     retained = data.mechanism_covariate_names
-    if screen_treatment:
-        retained = _retained_covariates(data, screen_threshold, min_retain)
+    if isinstance(treatment_model, ScreenedLearner):
+        # The whole-sample support, reported so the user can see what the screen does;
+        # the fits themselves screen inside each training set.
+        keep = treatment_model.screen.support()
+        retained = tuple(name for name, flag in zip(retained, keep, strict=True) if flag)
 
     # --- treatment observation mechanism ------------------------------------
     treatment_observation = None
@@ -3006,7 +3051,6 @@ def plan_nuisances(
     intermediate_learner: Learner | None,
     folds: Folds | None,
     screen_treatment: bool = False,
-    screen_threshold: float = 0.1,
     min_retain: int | None = None,
     has_policies: bool = False,
     policies: Sequence[object] = (),
@@ -3040,11 +3084,10 @@ def plan_nuisances(
     folds : Folds or None
         The outer split, or ``None`` with ``nominal_folds``.
     screen_treatment : bool
-        Whether the treatment learner is wrapped in the correlation screener.
-    screen_threshold : float
-        The screener's threshold.
+        Whether the treatment learner is screened (:func:`outcome_screen`).  The screen
+        fits no learner, so the counts do not read it.
     min_retain : int or None
-        The screener's floor.
+        The screen's floor.
     has_policies : bool
         Whether the fit declares policies.
     policies : sequence of object
@@ -3116,11 +3159,9 @@ def plan_nuisances(
             seed_fixed=seed_fixed,
         )
 
-    treatment_model = (
-        _screened(treatment_learner, screen_threshold, min_retain)
-        if screen_treatment
-        else treatment_learner
-    )
+    # The screen selects columns and fits no learner, so the counts read the bare learner.
+    del screen_treatment, min_retain
+    treatment_model = treatment_learner
     if vector and data.component_atoms and folds is not None:
         check_component_atoms(
             np.asarray(data.treatment_components, dtype=float),
@@ -3765,31 +3806,6 @@ def fit_fold_mechanisms(
         treatment_observation=np.stack(observation) if observation else None,
         missingness=np.stack(missingness) if missingness else None,
     )
-
-
-def _retained_covariates(
-    data: CausalData, threshold: float, min_retain: int | None
-) -> tuple[str, ...]:
-    """Which covariates a full-sample screen would keep, for reporting only.
-
-    The fits themselves screen inside each fold; this is the whole-sample answer,
-    reported so the user can see what the screen is doing.
-    """
-    from ..learners.screeners import screen_by_correlation
-
-    # The recorded rows only, as the treatment model is fitted there.
-    rows = data.treatment_recorded if data.has_missing_treatment else slice(None)
-    names = data.mechanism_covariate_names
-    if not names:
-        return ()
-    keep = screen_by_correlation(
-        data.mechanism_covariates[rows],
-        data.treatment[rows],
-        threshold=threshold,
-        min_retain=min_retain,
-        sample_weight=data.weights[rows],
-    )
-    return tuple(name for name, flag in zip(names, keep, strict=True) if flag)
 
 
 def plan_vector_treatment(

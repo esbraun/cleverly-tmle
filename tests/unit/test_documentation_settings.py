@@ -40,6 +40,7 @@ from cleverly import (
 )
 from cleverly.learners import random_partition
 from cleverly.methods import ATMLE_FIELDS, DOSE_RESPONSE_FIELDS, SHORTCUTS
+from cleverly.survival import CoxHazard
 from cleverly.survival.data import _READ, continuous_kwargs
 
 PAGE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "settings.md"
@@ -97,11 +98,12 @@ SAMPLE: dict[str, dict[str, Any]] = {
         "density_bins": 10,
         "ratio": "density",
         "screen_treatment": True,
-        "screen_threshold": 0.2,
         "min_retain": 2,
         "hazard_pooling": "pooled",
         "outcome_by_arm": True,
         "survival_model": "hazard",
+        "hazard_library": (CoxHazard("main"),),
+        "censoring_library": (CoxHazard("main"),),
     },
     "cross_fitting": {
         "enabled": False,
@@ -132,6 +134,7 @@ SAMPLE: dict[str, dict[str, Any]] = {
         "isotonic": True,
         "ratio_trim": 0.99,
         "node_bounds": {1: (0.0, 1.0)},
+        "norm": "variance",
     },
     "inference": {
         "alpha": 0.1,
@@ -142,14 +145,40 @@ SAMPLE: dict[str, dict[str, Any]] = {
         "multiplier_kind": "normal",
         "band_scale": "identity",
         "band_reference": "t",
+        "bootstrap_interval": "bca",
+        "variance": "policy_weighted",
+        "cluster_variance": "jackknife",
     },
-    "runtime": {"random_state": 3, "run_id": "label", "n_jobs": 2},
+    "runtime": {"random_state": 3, "run_id": "label", "n_jobs": 2, "max_memory_bytes": 10**9},
 }
-EXTRA: dict[tuple[str, str], dict[str, Any]] = {
-    ("targeting", "step_search"): {"step_bound": 0.5},
+EXTRA: dict[tuple[str, str], dict[str, dict[str, Any]]] = {
+    ("targeting", "step_search"): {"targeting": {"step_bound": 0.5}},
+    ("inference", "bootstrap_interval"): {"inference": {"n_bootstrap": 50}},
     # Only "none" is accepted when folds are drawn; an in-sample fit carries the declaration.
-    ("cross_fitting", "stratify_by"): {"enabled": False},
+    ("cross_fitting", "stratify_by"): {"cross_fitting": {"enabled": False}},
+    # The policy-weighted variance needs an in-sample fit.
+    ("inference", "variance"): {"cross_fitting": {"enabled": False}},
 }
+
+
+def _with(base: TMLEMethod, changes: dict[str, dict[str, Any]]) -> TMLEMethod:
+    """``base`` with each group's fields replaced as ``changes`` gives them."""
+    return dataclasses.replace(
+        base,
+        **{
+            group: dataclasses.replace(getattr(base, group), **fields)
+            for group, fields in changes.items()
+        },
+    )
+
+
+def _pair(base: TMLEMethod, group: str, field: str) -> tuple[TMLEMethod, TMLEMethod]:
+    """The method with the field's companions, and the same with the field changed too."""
+    extra = EXTRA.get((group, field), {})
+    reference = _with(base, extra)
+    changed = _with(reference, {group: {**extra.get(group, {}), field: SAMPLE[group][field]}})
+    return reference, changed
+
 
 #: An engine keyword to the field it carries, where the two names differ.
 _FIELD_OF_KEY = {
@@ -229,19 +258,7 @@ def _translation(method: TMLEMethod, longitudinal: bool) -> dict[str, Any] | Non
 
 def _reads(group: str, field: str, longitudinal: bool, base: TMLEMethod | None = None) -> bool:
     """Whether the point or longitudinal translation carries a changed value of the field."""
-    base = base or TMLEMethod()
-    extra = EXTRA.get((group, field), {})
-    reference = dataclasses.replace(
-        base, **{group: dataclasses.replace(getattr(base, group), **extra)}
-    )
-    changed = dataclasses.replace(
-        base,
-        **{
-            group: dataclasses.replace(
-                getattr(base, group), **extra, **{field: SAMPLE[group][field]}
-            )
-        },
-    )
+    reference, changed = _pair(base or TMLEMethod(), group, field)
     after = _translation(changed, longitudinal)
     before = _translation(reference, longitudinal)
     if after is None or before is None:
@@ -393,15 +410,7 @@ def silent_problems(method: TMLEMethod | None = None) -> list[str]:
     problems = []
     for group in GROUP_FIELDS:
         for field in dataclasses.fields(getattr(base, group)):
-            extra = EXTRA.get((group, field.name), {})
-            changed = dataclasses.replace(
-                base,
-                **{
-                    group: dataclasses.replace(
-                        getattr(base, group), **extra, **{field.name: SAMPLE[group][field.name]}
-                    )
-                },
-            )
+            _reference, changed = _pair(base, group, field.name)
             for longitudinal, kind in ((False, "point"), (True, "over time")):
                 after = _translation(changed, longitudinal)
                 if after is not None and not _reads(group, field.name, longitudinal, base):

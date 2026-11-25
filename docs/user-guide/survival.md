@@ -209,13 +209,14 @@ about ten seconds at 1,000 people.
 The fit works through the people in small groups, so its memory grows with the number of people
 and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
 people and two horizons, it needs about 0.7 GB. About 0.4 GB of that is working space for the
-default standard errors (`variance="switched"` on `ContinuousSurvivalTMLE`), which does not grow
+default standard errors (`variance="switched"`), which does not grow
 with the number of people; `variance="influence_curve"` skips that step and needs about 0.3 GB.
 Before fitting anything, the fit checks that the machine has the memory it needs free and stops
 with an error when it does not; on macOS, which does not report free memory, it checks only a
 limit you set. Between passes it keeps as many groups as the free memory holds and recomputes the
-rest, so a larger limit makes a large fit faster and never changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
-whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+rest, so a larger limit makes a large fit faster and never changes its result. Pass
+`max_memory_bytes=` to `estimate()` to set the limit, as the
+[Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
@@ -596,7 +597,7 @@ reads the baseline covariates, or draw the treatment with known probabilities th
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
 memory use passes 2 GiB is refused before any model is fitted. On a machine with more memory,
-`LTMLE(..., max_memory_bytes=...)` sets a different limit, higher or lower.
+`max_memory_bytes=` on `LTMLE` or on `estimate()` sets a different limit, higher or lower.
 
 If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
@@ -719,7 +720,7 @@ model and the risks, so it costs about as long as the fit itself. A person drawn
 resample stays in one group when the fit splits the rows to fit predictions on the other rows, so
 a copy never predicts its twin. The bootstrap interval of each risk sits in `estimate.bootstrap`
 and in the `bootstrap_ci_lower` and `bootstrap_ci_upper` columns of `result.to_frame()`;
-`bootstrap_interval="bca"` on `ContinuousSurvivalTMLE` gives the BCa interval, which corrects the
+`bootstrap_interval="bca"` gives the BCa interval, which corrects the
 percentile interval for skew. If more than 1% of the refits fail, the fit warns, drops every
 bootstrap interval and keeps the usual ones. Below that share the bootstrap intervals use only the
 refits that worked, without a warning; the summary's bootstrap note gives the count, and

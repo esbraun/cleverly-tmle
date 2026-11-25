@@ -168,7 +168,9 @@ from ..inference.cluster import (
 )
 from ..inference.cluster_jackknife import (
     CLUSTER_VARIANCES,
+    IPSI_JACKKNIFE_CONSTRUCTION,
     JACKKNIFE_TRUNCATION_REFUSAL,
+    SDR_JACKKNIFE_CONSTRUCTION,
     jackknife_estimates,
     jackknife_fit,
     jackknife_fold_refusal,
@@ -254,10 +256,13 @@ from ..learners.glm import GLM
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..methods import (
+    BASELINE_BCA_REFUSAL,
     BASELINE_HAZARD_POOLING_REFUSAL,
+    BASELINE_POLICY_VARIANCE_REFUSAL,
     BASELINE_RATIO_TRIM_REFUSAL,
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
+    IPSI_POLICY_VARIANCE_REFUSAL,
     IPSI_RATIO_TRIM_REFUSAL,
     LTMLE_TILT_REFUSAL,
     NODE_BOUNDS_MSM_REFUSAL,
@@ -5436,10 +5441,7 @@ class _SequentialEstimator:
             return None
         engine = getattr(self, "_support_engine", (self._estimator,))[0]
         if engine != "tmle":
-            names = {
-                "sdr": "the SDR recursion, whose pseudo-outcomes are not a GLM's",
-                "ipsi": "an incremental propensity-score intervention",
-            }
+            names = {"sdr": SDR_JACKKNIFE_CONSTRUCTION, "ipsi": IPSI_JACKKNIFE_CONSTRUCTION}
             return jackknife_learner_refusal(names.get(engine, f"the {engine} construction"))
         if self.repeats != 1:
             return jackknife_learner_refusal(
@@ -10056,17 +10058,25 @@ class IPSI(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  The bootstrap publishes a
-        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
-        band beside the fit's own interval.  No registered row lists a bootstrap kind for
-        an ``IPSI`` fit, so they carry the label ``experimental``.
+        Full-refit bootstrap replicates, ``0`` for none.  The bootstrap publishes the
+        interval that ``bootstrap_interval`` names and a sup-t band beside the fit's own
+        interval.  No registered row lists a bootstrap kind for an ``IPSI`` fit, so they carry
+        the label ``experimental``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile", "bca"}
+        The bootstrap interval, as for :class:`LTMLE`.  ``"bca"`` needs ``n_bootstrap``.
     hazard_pooling : {"node", "pooled"}
         The pooling, as for :class:`LTMLE`.
     repeats : int
         How many independent draws of the outer split the fit combines by their median,
         as for :class:`LTMLE`.
+    variance : {"influence_curve"}
+        The variance of the reported intervals.  ``"policy_weighted"`` raises
+        :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.IPSI_POLICY_VARIANCE_REFUSAL`): that variance reads node
+        residuals only, and IPSI's influence function adds a term for the estimated treatment
+        mechanism.
     max_memory_bytes : int or None
         The budget of the memory guard, as for :class:`SDR`.
     **refused : Any
@@ -10075,9 +10085,7 @@ class IPSI(_SequentialEstimator):
         :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
         point-treatment keyword that :class:`LTMLE` refuses.  ``ratio_trim`` other than
         ``None`` raises :class:`~cleverly.exceptions.CapabilityError`
-        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).  ``bootstrap_interval``
-        (``"percentile"`` or ``"bca"``) is not refused: it passes to the bootstrap, as for
-        :class:`LTMLE`.
+        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).
 
     See Also
     --------
@@ -10142,12 +10150,16 @@ class IPSI(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        bootstrap_interval: BootstrapInterval = "percentile",
         hazard_pooling: str = "node",
         repeats: int = 1,
+        variance: str = "influence_curve",
         max_memory_bytes: int | None = None,
         **refused: Any,
     ) -> None:
         self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
+        if variance == "policy_weighted":
+            raise CapabilityError.from_refusal(IPSI_POLICY_VARIANCE_REFUSAL)
         if "node_bounds" in refused:
             raise MethodConfigurationError.from_refusal(node_bounds_refusal("IPSI"))
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
@@ -10179,8 +10191,10 @@ class IPSI(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            bootstrap_interval=bootstrap_interval,
             hazard_pooling=hazard_pooling,
             repeats=repeats,
+            variance=variance,
             **refused,
         )
 
@@ -10432,6 +10446,12 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             raise CapabilityError(refusal=BASELINE_RATIO_TRIM_REFUSAL)
         if refused.get("hazard_pooling", "node") != "node":
             raise CapabilityError(refusal=BASELINE_HAZARD_POOLING_REFUSAL)
+        # Both leak through ``**refused`` to the shared constructor, which would accept and
+        # ignore the first and publish an interval no baseline offers for the second.
+        if refused.get("variance", "influence_curve") == "policy_weighted":
+            raise CapabilityError(refusal=BASELINE_POLICY_VARIANCE_REFUSAL)
+        if refused.get("bootstrap_interval", "percentile") != "percentile":
+            raise CapabilityError(refusal=BASELINE_BCA_REFUSAL)
         super().__init__(
             regimens,
             reference=reference,
@@ -10569,16 +10589,17 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     n_bootstrap : int
         Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
         (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
-        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
-        band, with the label ``experimental``: no registered row lists a bootstrap kind for
-        this estimator.  When the fit withholds its interval
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
         (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
         as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
-    bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The bootstrap interval: the percentile interval, or the bias-corrected and
-        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     density_bins : int or None
         The bin count of a continuous node's diagnostic density.  Setting it makes
         ``ratio=None`` resolve to the density route.
@@ -10804,16 +10825,17 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     n_bootstrap : int
         Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
         (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
-        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
-        band, with the label ``experimental``: no registered row lists a bootstrap kind for
-        this estimator.  When the fit withholds its interval
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
         (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
         as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
-    bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The bootstrap interval: the percentile interval, or the bias-corrected and
-        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     **refused : Any
         ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
         which raise because the estimator fits no outcome regression and no density ratio;
@@ -11080,8 +11102,8 @@ class ParametricGFormula(_Baseline):
         ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
         ``bootstrap_resampling``, ``bootstrap_interval``, ``density_bins`` and ``ratio``.
         ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
-        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile or BCa
-        interval and a sup-t band, labelled ``experimental``, when the fit publishes its
+        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile interval
+        and a sup-t band, labelled ``experimental``, when the fit publishes its
         interval, and diagnostics only when it withholds it.
 
     See Also

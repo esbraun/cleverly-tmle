@@ -64,9 +64,11 @@ from ..learners.crossfit import Folds
 
 __all__ = [
     "CLUSTER_VARIANCES",
+    "IPSI_JACKKNIFE_CONSTRUCTION",
     "JACKKNIFE_FAMILY_REFUSALS",
     "JACKKNIFE_LEARNER_REFUSAL",
     "JACKKNIFE_TRUNCATION_REFUSAL",
+    "SDR_JACKKNIFE_CONSTRUCTION",
     "ClusterVariance",
     "JackknifeCovariance",
     "JackknifeVariance",
@@ -90,6 +92,13 @@ ClusterVariance = Literal["influence_curve", "jackknife"]
 
 #: The accepted values of ``cluster_variance=``.
 CLUSTER_VARIANCES: Final[tuple[str, ...]] = ("influence_curve", "jackknife")
+
+#: The construction :func:`jackknife_learner_refusal` names for an SDR fit, on the engine and on
+#: :class:`~cleverly.SDRMethod`, so both layers give one reason.
+SDR_JACKKNIFE_CONSTRUCTION: Final[str] = "the SDR recursion, whose pseudo-outcomes are not a GLM's"
+
+#: The construction :func:`jackknife_learner_refusal` names for an IPSI fit.
+IPSI_JACKKNIFE_CONSTRUCTION: Final[str] = "an incremental propensity-score intervention"
 
 #: The R5 refusal of a nuisance the jackknife has no linearization for. ``{what}`` names it.
 JACKKNIFE_LEARNER_REFUSAL: Final[str] = (

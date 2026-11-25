@@ -193,7 +193,10 @@ _READ: Final = frozenset(
         ("cross_fitting", "n_folds"),
         ("cross_fitting", "learner_folds"),
         ("models", "treatment_learner"),
+        ("models", "hazard_library"),
+        ("models", "censoring_library"),
         ("targeting", "g_bounds"),
+        ("targeting", "norm"),
         ("targeting", "max_iter"),
         ("targeting", "step_size"),
         ("targeting", "tol"),
@@ -203,9 +206,12 @@ _READ: Final = frozenset(
         ("inference", "multiplier_kind"),
         ("inference", "band_scale"),
         ("inference", "n_bootstrap"),
+        ("inference", "bootstrap_interval"),
+        ("inference", "variance"),
         ("runtime", "random_state"),
         ("runtime", "run_id"),
         ("runtime", "n_jobs"),
+        ("runtime", "max_memory_bytes"),
     }
 )
 _GROUPS: Final = ("models", "cross_fitting", "targeting", "inference", "runtime")
@@ -232,6 +238,10 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
     first step of 0.1, stopped by item 10's rule :math:`1 / (\sqrt n \log n)`.  A value equal
     to the binned default cannot be told apart from it, so ``tol=1e-10`` given explicitly
     also reads as item 10's rule; pass any other value to set the cutoff.
+
+    ``variance`` and ``norm`` left at ``None`` read as the engine's defaults, ``"switched"`` and
+    ``"covariance"``. ``hazard_library`` and ``censoring_library`` left at ``None`` take the
+    default library of three Cox models.
     """
     from ..methods import SHORTCUTS, TMLEMethod, _differs_from_default
 
@@ -259,8 +269,18 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         raise MethodConfigurationError(
             f"TimeToEvent(grid='continuous') cannot apply {sorted(refused)}: the one-step "
             "continuous-time TMLE reads cross_fit, n_folds, learner_folds, treatment_learner, "
-            "g_bounds, max_iter, step_size, tol, alpha, the band settings, n_bootstrap and the "
-            f"runtime settings only (roadmap {ROADMAP})."
+            "hazard_library, censoring_library, g_bounds, max_iter, step_size, tol, norm, "
+            "alpha, variance, the band settings, n_bootstrap, bootstrap_interval and the "
+            f"runtime settings only (roadmap {ROADMAP}).",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    inference = method.inference
+    if inference.variance == "policy_weighted":
+        raise MethodConfigurationError(
+            "variance='policy_weighted' reads a modified treatment policy's density ratio at "
+            "each row's policy dose, and the continuous-time TMLE contrasts two static arms. It "
+            "takes variance='switched' (the default) or 'influence_curve'.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     targeting = method.targeting
     g_bounds = targeting.g_bounds
@@ -276,7 +296,11 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
             g_bounds = low
         else:
             g_bounds = float(g_bounds)
-    inference = method.inference
+    optional = {
+        name: value
+        for name, value in (("variance", inference.variance), ("norm", targeting.norm))
+        if value is not None
+    }
     return {
         "cross_fit": method.cross_fitting.enabled,
         "n_folds": method.cross_fitting.n_folds,
@@ -304,4 +328,9 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         # multiply them.
         "n_jobs": method.runtime.n_jobs,
         "n_bootstrap": int(inference.n_bootstrap),
+        "bootstrap_interval": inference.bootstrap_interval,
+        "max_memory_bytes": method.runtime.max_memory_bytes,
+        "hazard_library": method.models.hazard_library,
+        "censoring_library": method.models.censoring_library,
+        **optional,
     }

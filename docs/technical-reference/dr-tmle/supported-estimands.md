@@ -106,7 +106,7 @@ that both of its parents take. Each row has evidence in `tests/unit/test_composi
 | `id=` | yes | yes |
 | `strata=` | yes, in one pooled outcome step | yes; see [baseline strata](#baseline-strata) |
 | `n_bootstrap=` | yes; a replicate resamples rows with their `Delta_A` | yes |
-| `screen_treatment=True` | yes, screened on the recorded rows | yes |
+| `screen_treatment=True` | yes, screened on the outcome over the rows whose treatment and outcome are recorded | yes |
 | `evaluation=` | not applicable | refused: the companion carries one treatment mechanism, and the composite has up to three factors |
 | `interventions=` (static and known `W`-dependent rules) | yes; the covariate is the arm covariate at the arm the rule assigns | refused, as on complete data |
 | `msm=` over the arms | yes; each coefficient projects the identified arm means | refused, as on complete data |

@@ -564,11 +564,21 @@ _UNREAD_VALUES: dict[str, Any] = {
     "n_bootstrap": 50,
     "bootstrap_resampling": "cluster",
     "band_scale": "identity",
+    "bootstrap_interval": "bca",
+    "variance": "policy_weighted",
+    "cluster_variance": "jackknife",
+    "hazard_library": (LogisticRegression(),),
+    "censoring_library": (LogisticRegression(),),
+    "norm": "euclidean",
+    "max_memory_bytes": 2**30,
 }
 
 
 #: Fields that are valid only beside another changed field, which is then refused first.
-_COMPANIONS: dict[str, dict[str, Any]] = {"step_search": {"step_bound": 0.5}}
+_COMPANIONS: dict[str, dict[str, Any]] = {
+    "step_search": {"step_bound": 0.5},
+    "bootstrap_interval": {"n_bootstrap": 50},
+}
 
 
 def test_every_method_field_is_classified() -> None:

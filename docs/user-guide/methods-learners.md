@@ -292,6 +292,21 @@ groups. A method object makes the normalized configuration serializable and revi
 [settings reference](settings.md) lists every setting of each group with its keyword, its default
 and the fits that use it.
 
+The groups also hold settings that only some estimators read. `Inference` takes
+`bootstrap_interval=`, `variance=` and `cluster_variance=`, and `Runtime` takes
+`max_memory_bytes=`, the memory limit the fit checks before it fits anything. A fit with exact event
+times also reads `ModelSpec(hazard_library=..., censoring_library=...)`, the candidate models for
+each hazard, and `Targeting(norm=...)`, the size measure its update steps use. Each has a keyword
+shortcut of the same name. When the chosen estimator cannot use a setting, the call stops before
+fitting and says what is missing, instead of fitting without it.
+
+Two settings of the exact-time
+estimator stay off the method object: `restricted_horizons=`, which adds quantities to estimate
+rather than changing how they are estimated, and `tilt=`, a test control. A study refuses both;
+for `restricted_horizons=` the error names the estimator call that computes it.
+[Engine settings on a method object](../technical-reference/scope-and-refusals.md#engine-settings-on-a-method-object)
+lists each refusal.
+
 This example fits a binary outcome, so its `Targeting` declares no `q_bounds`. Read [Two fold layers](#two-fold-layers) below before you copy the shape onto a continuous
 outcome, which needs its support declared there.
 

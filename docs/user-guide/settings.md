@@ -47,22 +47,20 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 | `competing_learner` | `competing_learner` | `None` | over time | the model of the competing event that `eliminate=` prevents. `None` uses the censoring learner |
 | `density_bins` | `density_bins` | `None` | point, over time, dose curve | the number of core bins of a continuous-dose density. `None` grows with the sample |
 | `ratio` | `ratio` | `None` | point, over time | how a dose policy's density ratio is estimated: `"density"` or `"classifier"`. `None` chooses per fit |
-| `screen_treatment` | `screen_treatment` | `False` | point | drop covariates the screen rejects from the treatment model; with `min_retain=None` the screen keeps every covariate |
-| `screen_threshold` | `screen_threshold` | `0.1` | point | keep a covariate whose correlation test with the treatment has a p-value below this |
-| `min_retain` | `min_retain` | `None` | point | the fewest covariates screening keeps, topped up by the strongest. `None` keeps all of them |
+| `screen_treatment` | `screen_treatment` | `False` | point | keep in the treatment model only the covariates that predict the outcome with the treatment held fixed |
+| `min_retain` | `min_retain` | `None` | point | the fewest covariates screening keeps. `None` is a twentieth of the effective sample size, rounded up and capped at the number of covariates |
 | `hazard_pooling` | `hazard_pooling` | `'node'` | over time | one censoring model per time (`"node"`), or one pooled over every time (`"pooled"`) |
 | `outcome_by_arm` | `outcome_by_arm` | `False` | point | one outcome model per treatment option, each fitted on that option's rows |
 | `survival_model` | `survival_model` | `None` | over time | how a survival curve is modelled: `"iterated_mean"` regressions or `"hazard"` targeting. `None` is the method's own choice |
+| `hazard_library` | `hazard_library` | `None` | exact times | the candidate models of each event's hazard, one chosen by cross-validation. `None` is three Cox models |
+| `censoring_library` | `censoring_library` | `None` | exact times | the same, for the hazard of leaving follow-up |
 
-Screening tests each covariate's correlation with the treatment and keeps those with a p-value
-below `screen_threshold`, before the treatment model is fitted. If fewer than `min_retain` pass,
-it keeps the `min_retain` strongest. Left at `None`, `min_retain` keeps every covariate, so set it
-for the screen to drop any. Screening picks the covariates the fit adjusts for from the data, so
-report it.
+Inside each training set, screening runs a cross-validated lasso that asks which covariates
+predict the outcome once the treatment is accounted for, as R's `tmle` does. It keeps those, and
+adds the next strongest until it has `min_retain`. Screening picks the covariates the fit adjusts for from the data, so report it.
 
 The [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) states
-which `ratio` a fit picks under `None`. An exact-times fit takes its hazard models through
-`ContinuousSurvivalTMLE(hazard_library=...)` instead of `ModelSpec`.
+which `ratio` a fit picks under `None`.
 
 ## Folds: `CrossFitting`
 
@@ -108,6 +106,7 @@ bias left, toward zero.
 | `isotonic` | `isotonic` | `False` | over time | keep the risk curve and its band from going down over time |
 | `ratio_trim` | `ratio_trim` | `None` | over time | trim per-time density ratios at this quantile. A trim that moves a ratio removes the interval |
 | `node_bounds` | `node_bounds` | `None` | over time | a declared outcome range at chosen times |
+| `norm` | `norm` | `None` | exact times | how the correction weighs the times when it chooses its direction; `None` is `"covariance"` |
 
 [Targeting and bounds](methods-learners.md) describes the main choices, and
 [stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
@@ -125,6 +124,9 @@ states their contracts.
 | `multiplier_kind` | `multiplier_kind` | `'mammen'` | point, over time, exact times, dose curve | the distribution of those draws |
 | `band_scale` | `band_scale` | `'logit'` | point, over time, exact times | build the band of a probability on the logit scale, so it stays inside 0 to 1, or on the estimate's own scale (`"identity"`) |
 | `band_reference` | `band_reference` | `'normal'` | point, over time, dose curve | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
+| `bootstrap_interval` | `bootstrap_interval` | `'percentile'` | over time, exact times | the bootstrap interval: percentiles of the replicates, or bias-corrected and accelerated (`"bca"`) |
+| `variance` | `variance` | `None` | over time, exact times | the variance behind the intervals; `None` is the fit's own. [How every method reports uncertainty](../technical-reference/inference.md) lists the choices |
+| `cluster_variance` | `cluster_variance` | `'influence_curve'` | point, over time | the variance of a clustered fit: from each row's contribution, or refit once per left-out cluster (`"jackknife"`) |
 
 With `simultaneous=None` a fit with several estimates adds the band. Over time, where they fit only
 an event outcome, DR-TMLE reports an interval for each estimate and no band, and collaborative TMLE
@@ -143,6 +145,7 @@ run.
 | `random_state` | `random_state` | `None` | point, over time, exact times, trial, dose curve | the seed of the folds, the learners and the resampling |
 | `run_id` | `run_id` | `None` | point, over time, exact times, trial, dose curve | a label of your own, stored with the result |
 | `n_jobs` | `n_jobs` | `1` | point, over time, exact times, dose curve | the most parallel jobs the fit starts |
+| `max_memory_bytes` | `max_memory_bytes` | `None` | over time, exact times | the memory budget a fit checks before any model is fitted; `None` reads the free memory. It changes how a fit runs, never what it returns |
 
 `n_jobs` does not set the threads each model uses inside a job;
 [`cleverly.learners.set_thread_limit`](../api/learners.md) does.

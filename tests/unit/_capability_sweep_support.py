@@ -2684,6 +2684,176 @@ def fit_continuous_survival_bootstrap() -> Any:
     return fit_continuous_survival(n_bootstrap=20, simultaneous=True, horizons=(1.0, 1.5))
 
 
+# ------------------------------------------- engine options declared on the study route
+
+
+def _ltmle_study(**overrides: Any) -> Any:
+    """``make_longitudinal(400, 12)`` fitted in sample through the study, with ``overrides``."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    roles = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+    if "cluster_variance" in overrides:
+        frame = frame.assign(site=np.arange(len(frame)) // 20)
+        roles["cluster"] = "site"
+    study = CausalStudy(frame, design=LongitudinalTreatment(**roles))
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        random_state=5,
+        simultaneous=False,
+        **overrides,
+    )
+
+
+def fit_study_ltmle_bca() -> Any:
+    """The in-sample regime fit with 19 bootstrap replicates and BCa intervals, by the study."""
+    return _ltmle_study(n_bootstrap=19, bootstrap_interval="bca")
+
+
+def fit_ltmle_bca() -> Any:
+    """The engine twin of :func:`fit_study_ltmle_bca`."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    return LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+        n_bootstrap=19,
+        bootstrap_interval="bca",
+    ).fit(
+        frame,
+        outcome="Y",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+    )
+
+
+def fit_study_ltmle_jackknife() -> Any:
+    """The in-sample regime fit on sites of 20 rows with the cluster jackknife, by the study."""
+    return _ltmle_study(cluster_variance="jackknife")
+
+
+def _policy_weighted_settings() -> dict[str, Any]:
+    """The pricing law's learners, with a logistic ratio classifier the refits can refit."""
+    from tests.studies import canonical_mtp_pricing as pricing
+    from tests.studies.fractional_glm import QuasiBinomialGLM
+
+    return {
+        "outcome_learner": QuasiBinomialGLM(),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "g_bounds": pricing.G_BOUNDS,
+        "ratio": "classifier",
+        "random_state": 0,
+    }
+
+
+def fit_study_ltmle_policy_weighted() -> Any:
+    """Two pricing policies at two nodes, n = 600, with the policy-weighted variance, by the study.
+
+    The fit is in sample, because the policy-weighted variance refuses fold-wise regressions.
+    """
+    from tests.studies import canonical_mtp_pricing as pricing
+    from tests.studies import mtp_pricing_common as common
+
+    frame = common.sample(600, 11, 2)
+    study = CausalStudy(frame, design=LongitudinalTreatment(outcome="Y", **pricing.roles(2)))
+    effect = study.identify(
+        RegimeContrast(common.regimens(pricing.LABELS, 2), reference="natural_prices")
+    )
+    return effect.estimate(
+        cross_fit=False, variance="policy_weighted", **_policy_weighted_settings()
+    )
+
+
+def fit_ltmle_policy_weighted() -> Any:
+    """The engine twin of :func:`fit_study_ltmle_policy_weighted`."""
+    from tests.studies import canonical_mtp_pricing as pricing
+    from tests.studies import mtp_pricing_common as common
+
+    frame = common.sample(600, 11, 2)
+    return LTMLE(
+        common.regimens(pricing.LABELS, 2),
+        reference="natural_prices",
+        n_folds=1,
+        simultaneous=False,
+        variance="policy_weighted",
+        **_policy_weighted_settings(),
+    ).fit(frame, outcome="Y", **pricing.roles(2))
+
+
+def fit_study_continuous_survival_settings() -> Any:
+    """The continuous-time study fit with every routed setting declared, n = 300.
+
+    The libraries, the norm, the influence-curve variance, 20 full-refit bootstrap replicates
+    with the BCa interval, and a memory budget, all through ``estimate()``.
+    """
+    from cleverly.survival import CoxHazard
+    from tests.unit.test_continuous_survival_memory import _law
+
+    t, d, a, w = _law(300, 1)
+    frame = pd.DataFrame({"time": t, "event": d, "Z": a, "W": w[:, 0]})
+    design = TimeToEvent(
+        time="time", event="event", treatment="Z", baseline=["W"], grid="continuous"
+    )
+    effect = CausalStudy(frame, design=design).identify(
+        RegimeContrast({"t": 1, "c": 0}, reference="c", horizons=[0.2, 1.0])
+    )
+    return effect.estimate(
+        random_state=0,
+        cross_fit=False,
+        n_multiplier=500,
+        hazard_library=(CoxHazard("main"),),
+        censoring_library=(CoxHazard("treatment"),),
+        norm="euclidean",
+        variance="influence_curve",
+        n_bootstrap=20,
+        bootstrap_interval="bca",
+        max_memory_bytes=2**33,
+    )
+
+
+def fit_study_ipsi_bca() -> Any:
+    """The in-sample odds-tilt fit with 19 bootstrap replicates and BCa intervals, by the study."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(IncrementalEffect([Incremental(1.0), Incremental(2.0)])).estimate(
+        method="ipsi",
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        random_state=5,
+        simultaneous=False,
+        n_bootstrap=19,
+        bootstrap_interval="bca",
+    )
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -2776,6 +2946,15 @@ _PLUGIN_BOUND = ("contour", "elements", "omitted_confounding", "robustness_value
 _BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
+
+#: Each study-route kind of X123 and the engine kind whose rows it must answer alike.
+STUDY_TWINS: dict[str, str] = {
+    "study_ltmle_bca": "ltmle_bca",
+    "study_ltmle_policy_weighted": "ltmle_policy_weighted",
+    "study_ltmle_jackknife": "ltmle_jackknife",
+    "study_ipsi_bca": "ipsi",
+    "study_continuous_survival_settings": "continuous_survival+bootstrap",
+}
 
 #: The rows each modified-treatment-policy shape answers, on every route.
 _MTP_ROWS: dict[str, tuple[str, ...]] = {
@@ -2972,6 +3151,19 @@ KINDS: dict[str, Kind] = {
     # A refit that raises makes the jackknife undefined: every estimate withholds its interval.
     # The point-TMLE jackknife is refused by the registered measurement (few-cluster-floor-tmle).
     "ltmle_jackknife_refit_withheld": _kind(fit_ltmle_jackknife_refit_withheld, *_READ, "refute"),
+    # X123: the engine options a study declares on the method object. Each study kind
+    # answers the rows its engine twin answers (STUDY_TWINS, checked in
+    # test_capability_row_sweep.py); TestParity in test_method_engine_options.py compares
+    # the results themselves.
+    "ltmle_bca": _kind(fit_ltmle_bca, *_READ, *_POINT),
+    "study_ltmle_bca": _kind(fit_study_ltmle_bca, *_READ, *_POINT),
+    "ltmle_policy_weighted": _kind(fit_ltmle_policy_weighted, *_READ, *_POINT),
+    "study_ltmle_policy_weighted": _kind(fit_study_ltmle_policy_weighted, *_READ, *_POINT),
+    "study_ltmle_jackknife": _kind(fit_study_ltmle_jackknife, *_READ, "refute"),
+    "study_ipsi_bca": _kind(fit_study_ipsi_bca, "nuisance_models", "support", *_POINT),
+    "study_continuous_survival_settings": _kind(
+        fit_study_continuous_survival_settings, *_READ, *_POINT, "evalue"
+    ),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -3580,6 +3772,11 @@ MUTATIONS: dict[str, Mutation] = {
                 "ltmle_jackknife",
                 "ltmle_jackknife_cross_fitted",
                 "ltmle_jackknife_refit_withheld",
+                "ltmle_bca",
+                "study_ltmle_bca",
+                "study_ltmle_jackknife",
+                # The engine reports the policy means first; the study reports the contrast.
+                "ltmle_policy_weighted",
                 "floor_mixed_ltmle",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
@@ -3610,6 +3807,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "continuous_survival+restricted",
                 "continuous_survival+influence_curve",
                 "continuous_survival+bootstrap",
+                "study_continuous_survival_settings",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A

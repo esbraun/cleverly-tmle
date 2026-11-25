@@ -511,12 +511,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.subset"): "point CausalData",
     ("data/causal_data.py", "RowDesign.rows"): "a counterfactual block, not a node slot",
     ("data/known_mechanism.py", "KnownNodeMechanisms.treatment_at"): "declared matrices",
-    ("estimators/_nuisance.py", "_retained_covariates"): "point CausalData",
     ("estimators/ctmle.py", "CTMLE._derivative_nuisances"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._intercept_propensity.proportions"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._fluctuate"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._lasso_propensities"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._ordering"): "point CausalData",
+    ("learners/screeners.py", "_TreatmentBasis.build"): "a plain treatment array of point data",
     ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
         "after survival_design_refusal refuses a non-categorical node"
     ),
