@@ -71,6 +71,41 @@ declaration commit, never after the run.  In the declared run the agreement is a
 ``comparison.csv`` (``emulation_agrees``); an exceedance goes to the diagnosis below and does
 not block reading the run.
 
+**The gates re-declared after the R smoke, before any declared run.**  The smoke at
+``005b1dad`` used 54% of the first log-ISE gate (``1e-3``), 31% of the first RMS gate
+(``1e-2``) and exceeded the first cutoff gate (``1e-10``, worst ``1.06e-8``).  Under the rule
+above all three are re-declared, and each now rests on the numerical precision of the two
+programs rather than on the smoke's gaps; the smoke only confirms the headroom.
+
+- *RMS gate* :data:`EMULATION_RMS_GATE` ``= 0.05``.  glmnet stops coordinate descent when no
+  coefficient update lowers the objective by more than ``thresh`` times the null deviance, so
+  at exit the objective is within about ``p * thresh * dev0`` of its minimum (``p`` columns).
+  For a quadratic objective that is a fitted-value error of RMS about
+  ``sqrt(2 p thresh) * sigma0``, with ``sigma0^2 = dev0 / n`` the weighted null deviance per
+  row.  Divided by the oracle's root ISE this scale is 0.011 to 0.025 across the cells (E1
+  0.011, E5 0.013, C4 0.013, C6 0.015, E8 0.025, where ``sigma0`` is 3 on the noise-2 law; one
+  smoke-stream draw each).  The gate is twice the largest.  It is a curve distance of
+  ``0.05^2 = 0.0025``, a quarter of a percent of :data:`CURVE_DISTANCE_THRESHOLD`.  The emulation
+  solves exactly, and the runner-local final stages are ``glm.fit`` at ``epsilon = 1e-14``, so
+  glmnet's stopping rule is the only solver tolerance between the two curves.
+- *Log-ISE gate* :data:`EMULATION_LOG_ISE_GATE` ``= 0.01``.  It bounds the shift a solver error
+  can put into ``D`` directly, so it is set from the smallest margin, ``log 1.25 = 0.223``
+  (non-inferiority and similarity): 0.01 is 4.5% of it, too small to change what a reading
+  means.  It is consistent with glmnet's precision because a curve error ``delta`` of relative
+  size ``r`` moves ``log ISE`` by ``2 r cos(e, delta) sqrt(ISE_oracle / ISE_hte3)`` to first
+  order, where ``e`` is hte3's estimation error.  At the precision scale ``r <= 0.025`` the gate
+  holds unless the solver's error is aligned with the estimation error (cosine above 0.2), which
+  a stopping rule that does not see the truth has no reason to produce.
+- *Cutoff gate* :data:`CUTOFF_TOLERANCE` ``= 2e-7``.  ``optim(method = "Brent")`` calls
+  ``optimize`` with ``tol = reltol = sqrt(.Machine$double.eps)``, about ``1.5e-8`` (not
+  ``optimize``'s own default ``.Machine$double.eps^0.25``), and the emulation ports the same
+  ``Brent_fmin`` at the same ``tol``.  ``Brent_fmin`` stops when the minimizer is bracketed to
+  ``t2 = 2 (sqrt(eps) |x| + tol / 3)``, at most about ``2.5e-8`` on ``[1/n, 0.5]``.  Two runs
+  whose risk sums differ in the last bits (R's ``mean`` against numpy's pairwise sum) can stop
+  anywhere in that bracket, up to about ``2 t2 = 5e-8`` apart; the gate is four times that.  A
+  cutoff moved by ``2e-7`` moves a weight ``1 / pi`` by at most ``5e-6`` of itself at the
+  smallest truncated propensity, far below either curve gate.
+
 **Lost replicates.**  A replicate whose Python fit or hte3 call fails is counted and published
 (``failed`` and ``failed_share`` in ``comparison.csv``, the records in ``failures.csv``), never
 refilled from later seeds.  A cell that loses more than :data:`FAILED_SHARE_LIMIT` of its
@@ -142,17 +177,20 @@ MUTATION_GATE_BELOW = 1e-3
 
 #: The emulation's agreement with hte3 in R, per replicate (see the module docstring): the
 #: log-ISE gap, the curve gap in units of the oracle's root ISE, and hte3's truncation cutoffs.
-EMULATION_LOG_ISE_GATE = 1e-3
-EMULATION_RMS_GATE = 1e-2
-CUTOFF_TOLERANCE = 1e-10
+#: Re-declared after the R smoke and before any declared run (module docstring); the first
+#: declared values were ``1e-3``, ``1e-2`` and ``1e-10``.
+EMULATION_LOG_ISE_GATE = 1e-2
+EMULATION_RMS_GATE = 5e-2
+CUTOFF_TOLERANCE = 2e-7
 #: The share of a gate the smoke may use before the gate is re-declared.
 GATE_USE_LIMIT = 0.10
 
 #: The share of a cell's declared replicates it may lose before it is reported, not gated.
 FAILED_SHARE_LIMIT = 0.05
 
-#: The smoke stops the local run when Python seconds per replicate exceed the pilot's by this.
-PILOT_TIME_FACTOR_LIMIT = 3.0
+#: The local budget of the declared run: the smoke stops the local queue when its re-costing
+#: projects more CPU-hours than this.  Python seconds against the pilot's are reported only.
+LOCAL_BUDGET_CPU_HOURS = 45.0
 
 
 GATED = "gated"
@@ -967,20 +1005,24 @@ SMOKE_POINTS = 200
 
 
 def recost(timings: pd.DataFrame, path: Path = PILOT_CSV) -> pd.DataFrame:
-    """The smoke's Python seconds per replicate against the pilot's, per reading cell.
+    """The declared run's CPU-hours projected from the smoke's seconds, per cell.
 
-    ``ratio`` above :data:`PILOT_TIME_FACTOR_LIMIT` stops the local run before the declared
-    run is costed from the pilot.  ``cpu_hours`` re-costs the declared run's Python and R
-    phases at the smoke's seconds and the replicates ``design_numbers`` gives.
+    ``cpu_hours`` is the cell's Python and R seconds per replicate at the smoke times the
+    replicates ``design_numbers`` gives; a mutation control reuses its parent's Python fits, so
+    only its R seconds count.  Their sum is checked against :data:`LOCAL_BUDGET_CPU_HOURS`
+    (:func:`projected_cpu_hours`).  ``ratio`` (Python seconds against the pilot's) is reported
+    only: the smoke may run on a slower or busier machine than the pilot did.
     """
     pilot = pilot_rows(path) or {}
     replicates = design_numbers(path)["replicates"]
     means = timings.groupby("cell")[["python_seconds", "r_seconds"]].mean()
     out = []
-    for cell in READING_CELLS:
+    for cell in CELLS:
         if cell.label not in means.index:
             continue
         python, r = (float(value) for value in means.loc[cell.label])
+        if cell.role == MUTATION:
+            python = 0.0
         piloted = pilot.get((cell.label, "seconds"), {}).get("mean", math.nan)
         out.append(
             {
@@ -993,3 +1035,8 @@ def recost(timings: pd.DataFrame, path: Path = PILOT_CSV) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(out)
+
+
+def projected_cpu_hours(recosted: pd.DataFrame) -> float:
+    """The declared run's projected CPU-hours: the sum of :func:`recost`'s cells."""
+    return float(recosted["cpu_hours"].sum())

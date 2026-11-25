@@ -33,7 +33,8 @@ without hte3's truncation, which is the mutation witness on C6), hte3's truncati
 against the emulation's, and the warnings and glmnet fits of the EP step; the first
 :data:`tests.studies.ep_hte3.SMOKE_POINTS` points of both curves; Sieve's index matrix per
 cell; seconds per fit and the re-costing against the pilot
-(:func:`tests.studies.ep_hte3.recost`); and the R session.  The local runner commits them under
+(:func:`tests.studies.ep_hte3.recost`), which stops the local queue when the declared run
+projects above :data:`tests.studies.ep_hte3.LOCAL_BUDGET_CPU_HOURS`; and the R session.  The local runner commits them under
 ``tests/canonical/hte3_ep/smoke/``, which the design test reads.
 
 A red reading is published red; :mod:`tests.studies.ep_hte3` holds the route it takes.
@@ -468,10 +469,12 @@ def write_smoke(result: dict[str, Any], output: Path) -> None:
     )
     print(recost.to_string(index=False, float_format=lambda value: f"{value:.2f}"))
     ratio = float(recost["ratio"].max())
-    stop = ratio > study.PILOT_TIME_FACTOR_LIMIT
+    print(f"Python seconds per replicate: at most {ratio:.2f} times the pilot's (reported only)")
+    projected = study.projected_cpu_hours(recost)
+    budget = study.LOCAL_BUDGET_CPU_HOURS
     print(
-        f"Python seconds per replicate: at most {ratio:.2f} times the pilot's"
-        + ("; STOP: above 3, report before any declared run" if stop else ""),
+        f"declared run projected at {projected:.1f} CPU-h against the local budget of {budget:g}"
+        + ("; STOP: over budget, report before any declared run" if projected > budget else ""),
         flush=True,
     )
     for cell in study.MUTATION_CELLS:
