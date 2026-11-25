@@ -25,7 +25,9 @@ far the family sat from its band.
 
 A band the package refuses to build (a logit band over an estimate on or outside its range)
 counts as not covered: its row records the critical value the band would have used and the
-sentinel statistic ``critical + 1.0`` (:data:`REFUSED_MARGIN`).  It is not a lost replicate,
+sentinel statistic ``critical + 1.0`` (:data:`REFUSED_MARGIN`).  A band the package skips
+because its family holds a constant arm cell (:func:`skipped_band_members`) counts the same way
+in :func:`joint_coverage_rows`.  It is not a lost replicate,
 and it adds no column; :func:`scale_coverage_rows` reports the refusals in a diagnostic cell,
 and :func:`joint_coverage_rows` records them the same way for a fit on the default band.
 
@@ -45,7 +47,11 @@ from typing import Any
 import numpy as np
 
 from cleverly.inference import kish_count
-from cleverly.inference.multiplier import out_of_range, simultaneous_bands
+from cleverly.inference.multiplier import (
+    constant_arm_members,
+    out_of_range,
+    simultaneous_bands,
+)
 from tests.studies.evidence.properties import PropertyCell
 
 #: The cell suffixes of a joint pair, and the role each answers to.
@@ -325,6 +331,18 @@ def refused_scale(result: Any, estimates: Mapping[str, Any]) -> str | None:
     return str(scale) if out_of_range(inferential, str(scale)) else None
 
 
+def skipped_band_members(result: Any, estimates: Mapping[str, Any]) -> tuple[str, ...]:
+    """The estimates of the fit whose constant arm cell made the package skip its band.
+
+    The package builds no band over a family that holds an estimate with status
+    ``"constant_arm_cell_plugin"`` (:func:`~cleverly.inference.multiplier.constant_arm_members`):
+    one arm's observed outcomes in its stratum take a single value, so that estimate's standard
+    error leaves the arm's variance out.  The family is every estimate of the fit, inside
+    ``estimates`` or not, as the fit decides it.
+    """
+    return constant_arm_members(dict(getattr(result, "estimates", estimates)))
+
+
 def refused_critical_value(result: Any, estimates: Mapping[str, Any]) -> float:
     """The critical value a refused band would have used.
 
@@ -415,26 +433,34 @@ def joint_coverage_rows(
     Raises
     ------
     AssertionError
-        If the fit reported no band and did not refuse one, a band over a different family,
-        or a row whose coverage indicator is not its statistic inside its critical value.
+        If the fit reported no band and neither refused nor skipped one, built a band over an
+        out-of-range estimate or a constant arm cell, built a band over a different family, or
+        a row whose coverage indicator is not its statistic inside its critical value.
 
     Notes
     -----
     A fit that refused its logit band (an estimate on or outside its range,
-    :func:`refused_scale`) gets the not-covered band row of the module docstring, with
-    :func:`refused_critical_value` as its critical value.
+    :func:`refused_scale`), or skipped its band over a constant arm cell
+    (:func:`skipped_band_members`), gets the not-covered band row of the module docstring, with
+    :func:`refused_critical_value` as its critical value.  The skipped band is a miss, not a
+    lost replicate, as the band-t-reference study counts it.
     """
     estimates = {name: result[name] for name in names}
     bands = result.simultaneous
     refused = refused_scale(result, estimates)
+    constant = skipped_band_members(result, estimates)
     if bands is None:
-        if refused is None:
+        if refused is None and not constant:
             raise AssertionError(f"the {label} fit reported no simultaneous band")
         critical = refused_critical_value(result, estimates)
         band_statistic, band_critical, band = critical + REFUSED_MARGIN, critical, False
     else:
         if refused is not None:
             raise AssertionError(f"the {label} fit built a band over an out-of-range estimate")
+        if constant:
+            raise AssertionError(
+                f"the {label} fit built a band over the constant arm cells {list(constant)}"
+            )
         if set(bands.bands) != set(names):
             raise AssertionError(
                 f"the {label} band covers {sorted(bands.bands)}, not {sorted(names)}"

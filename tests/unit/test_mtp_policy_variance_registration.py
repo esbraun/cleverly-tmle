@@ -105,7 +105,12 @@ def test_the_policy_notes_quote_the_committed_option_rows() -> None:
     from cleverly._support_rows import POLICY_NOTES
 
     published = pd.read_csv(ARTIFACTS / "properties.csv")
-    option = published.loc[published["cell"].str.endswith("__option")]
+    # The default-SuperLearner option row (``sdr_default_pseudo``) is quoted on its own, so the
+    # ranges read the declared-learner option families only.
+    option = published.loc[
+        published["cell"].str.endswith("__option")
+        & published["property"].isin(("policy_variance", "policy_calibration"))
+    ]
 
     def rows(*prefixes: str) -> pd.DataFrame:
         return option.loc[option["cell"].str.startswith(prefixes)]

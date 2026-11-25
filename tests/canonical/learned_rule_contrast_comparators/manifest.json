@@ -1,0 +1,167 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule contrasts with stochastic regimes and the natural course",
+  "slug": "learned-rule-contrast-comparators",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-contrast-comparators",
+      "cleverly_version": "0.2.8",
+      "cleverly_commit": "2dd4600430bdb94b087aee3c9dc796f8444c0fc4",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "declared_stack": {
+      "versions": {
+        "python": "3.13.7",
+        "numpy": "2.4.6",
+        "scipy": "1.18.0",
+        "pandas": "3.0.5",
+        "scikit_learn": "1.9.0",
+        "joblib": "1.5.3"
+      },
+      "differences": {
+        "python": {
+          "declared": "3.13.7",
+          "ran": "3.13.14"
+        },
+        "numpy": {
+          "declared": "2.4.6",
+          "ran": "2.5.5"
+        },
+        "scipy": {
+          "declared": "1.18.0",
+          "ran": "1.18.1"
+        },
+        "pandas": {
+          "declared": "3.0.5",
+          "ran": "3.1.1"
+        },
+        "scikit_learn": {
+          "declared": "1.9.0",
+          "ran": "1.9.1"
+        },
+        "joblib": {
+          "declared": "1.5.3",
+          "ran": "1.6.0"
+        }
+      }
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20265809,
+    "resampling_seed": 20265810,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-contrast-comparators": 0.01
+    },
+    "scenarios": {
+      "non_exceptional": [
+        "ey_learned_rule[learned rule]",
+        "ey_known_regime[always 0]",
+        "ey_known_regime[coin]",
+        "ey_known_regime[offer]",
+        "ey_natural_course[natural course]",
+        "ate_learned_rule[learned rule vs always 0]",
+        "ate_learned_rule[learned rule vs coin]",
+        "ate_learned_rule[learned rule vs offer]",
+        "ate_learned_rule[learned rule vs natural course]",
+        "natural course alone: ey_learned_rule[learned rule]",
+        "natural course alone: ate_learned_rule[learned rule vs natural course]"
+      ]
+    },
+    "fit_combined": "TMLE(learned_rule=LearnedRule(), interventions=[Static(0), Stochastic(coin), Stochastic(offer), NaturalCourse()], n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000; coin treats with probability 0.5, offer with probability 0.5 where W1 > 0; every other setting the constructor's default",
+    "fit_natural_course": "the same with interventions=[NaturalCourse()] alone, on the same draw and fold seed",
+    "stacked_fits": "each fit again with cv_evaluation=False, on the same draw and fold seed",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "parameters": {
+      "value": "ey_learned_rule[learned rule]",
+      "known_0": "ey_known_regime[always 0]",
+      "coin": "ey_known_regime[coin]",
+      "offer": "ey_known_regime[offer]",
+      "natural": "ey_natural_course[natural course]",
+      "contrast_0": "ate_learned_rule[learned rule vs always 0]",
+      "contrast_coin": "ate_learned_rule[learned rule vs coin]",
+      "contrast_offer": "ate_learned_rule[learned rule vs offer]",
+      "contrast_natural": "ate_learned_rule[learned rule vs natural course]",
+      "alone_value": "natural course alone: ey_learned_rule[learned rule]",
+      "alone_contrast_natural": "natural course alone: ate_learned_rule[learned rule vs natural course]"
+    },
+    "laws": {
+      "non_exceptional": "RM30 law with blip 0.1 + W1; calibration bands",
+      "misspecified_limit": "RM30 law with blip 0.8 W1 + W1^2 - 0.3; bias leg and coverage floor 0.92 only; the cells measure coverage, not conservativeness"
+    },
+    "truth": "per replication: refit each fold's rule (rule L4) and integrate its value on 4001 points of W1 for each W2, weighted by the report's fold weights; a known regime's truth is E sum_a g*(a | W) Qbar0(a, W) and the natural course's E Y, by the same rule; a contrast's is the difference",
+    "oracle_se": "sqrt(sum_v omega_v^2 Var D_v / n_v) of each curve at the fold rules; descriptive",
+    "conservative_coverage": "misspecified_limit: bias leg and coverage interval lower bound >= 0.92; control: SE x 0.60, coverage interval upper bound < 0.92",
+    "contrast_covariance": "each contrast with se = |se_L - se_K| (correlation one); coverage interval upper bound < 0.80",
+    "independent_se_diagnostic": "each contrast with se = sqrt(se_L^2 + se_K^2) (independence); diagnostic, no verdict",
+    "targeting_necessity": "RM30's drop_w1_learner, fit C fold-evaluated, contrast against offer: targeted against the untargeted difference of the initial plug-ins",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_contrast_comparators.py": "bbad8a3bdbf4b0c8d93e6c862373e102501793175f3a084231fc0f388b7fcc72",
+    "tests/studies/learned_rule_contrast_comparators_properties.py": "5ee330a48c12f1409dffa022642572202b21fc8943790aa3f6ebb3a56eed48fa",
+    "tests/studies/_learned_rule_contrast_comparators_law.py": "cd7a620f06b046f593e6d58eef782cf68bfd169c0d46ce01de3492625405d760",
+    "tests/studies/_learned_rule_law.py": "e2db2a8cf5db1850c1d484f41fe2fd081a2ccf83c464abfcad0f093da840d7ab",
+    "src/cleverly/estimators/tmle.py": "88cb1cde2ed0802f97e22e391436bea652ed016b7a79d4c3ff023f248f89d342",
+    "src/cleverly/estimators/_nuisance.py": "2516b3b31221006c32ef0954f31617e8da8d771fa119b55128a18f16c0b74dff",
+    "src/cleverly/interventions/learned.py": "3562621bc7cc50846af52cb181b99628f780933d8176f236212527365aa63198",
+    "src/cleverly/interventions/base.py": "96a1f884f5e79ffb575e325610a4867cf0422aa48e17dfc287cd2330cb1d42e0",
+    "src/cleverly/targets/base.py": "cdee5bd58e84e95aa529f10d2b60280c95ff88ee8b5556e0855dff4eb37b5f7a",
+    "src/cleverly/targets/builtin.py": "452146836fef37f31835aacb43037b00a9dba29300334e7cb8a43ea670fc0de0",
+    "src/cleverly/learners/crossfit.py": "ddbcd520291c144e06960ab526662855f6749727a9cd67603403cd09bd334c67",
+    "src/cleverly/_support.py": "55f57e82d5da10488d740eb0e228a02e49e61be9cd2073e41542f5fd69569453",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "0983217d38df582900a498db61afd9f6c63a2758ed190abf415c0c91d95fc3ab",
+    "tests/studies/evidence/property_verdicts.py": "91f9f50df353faf0e9024efbbe868bd0fcd277b4cb1bb1ded03a9fae7103d1f2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "699b8319d452cee0e5d6d9ce48e8e87a827cce8f6bcccfd927bdc99cefcab3df",
+    "summary.csv": "bbdc43135233888fc4827f02e212ad38c2bb57c7332b9aae19503fc19fb7993a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "89b84dd7daae5c9627587b43ddaed679676c9a1077b73e6a899944a26c9a3ea6",
+    "property-replicates.parquet": "3575653571db0a3f28c96698fe1e6d6eae8e98d0ecb95d65b696381a0c8931ae",
+    "properties.csv": "65971a7f7eeb8e5357683fe3824c57ff044821c07c399bf40cb297d15607890b",
+    "harness.csv.gz": "02dd738fff9cf701077da00f20b2216374282137ec45cdaf65f74488065b7c22"
+  }
+}

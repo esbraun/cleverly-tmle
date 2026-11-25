@@ -404,6 +404,16 @@ def _score_notes(check: ScoreCheck) -> list[Note]:
         notes.append(note("dr_curve", vocabulary.NOTE_TEXTS["dr_curve"]))
     if any(_is_correction(row) for row in check.rows):
         notes.append(note("correction_rows", vocabulary.NOTE_TEXTS["correction_rows"]))
+    if check.natural_course is not None:
+        notes.append(
+            note(
+                "natural_course_no_equation",
+                vocabulary.NOTE_TEXTS["natural_course_no_equation"].format(
+                    name=check.natural_course[:1].upper() + check.natural_course[1:],
+                    estimand="ey_natural_course",
+                ),
+            )
+        )
     held = _held_note(check, parts)
     if held is not None:
         notes.append(held)

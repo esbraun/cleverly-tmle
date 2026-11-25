@@ -691,6 +691,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_density_tails import STUDY as MTP_DENSITY_TAILS
     from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_pricing_censored import STUDY as MTP_PRICING_CENSORED
@@ -788,6 +789,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
+    from tests.studies.learned_rule_contrast_comparators import (
+        STUDY as LEARNED_RULE_CONTRAST_COMPARATORS,
+    )
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
@@ -813,6 +817,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.projection_evidence import STUDY as PROJECTION_EVIDENCE
+    from tests.studies.projection_methods import STUDY as PROJECTION_METHODS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_continuous_survival import (
         STUDY as REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
@@ -886,10 +891,12 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
         LEARNED_RULE_OPTIMAL_COMPOSITIONS,
+        LEARNED_RULE_CONTRAST_COMPARATORS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         PROJECTION_COMPOSITIONS,
         PROJECTION_EVIDENCE,
+        PROJECTION_METHODS,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,
@@ -924,6 +931,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
+        MTP_DENSITY_TAILS,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,

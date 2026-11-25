@@ -398,11 +398,11 @@ list the settings where neither runs.
 [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
-To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
-estimator itself, because `CausalStudy` has no way to declare the comparison yet:
-`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, where `Static(1)` treats everyone.
-The fit reports three rows: the learned rule's value, the fixed policy's value
-`ey_known_regime[always 1]`, and their difference `ate_learned_rule[learned rule vs always 1]`.
+To compare the learned rule with a fixed policy, such as treating everyone, ask for
+`LearnedRuleContrast(against=(Static(1),))`, where `Static(1)` treats everyone. The fit reports
+three rows: the learned rule's value, the fixed policy's value `ey_known_regime[always 1]`, and
+their difference `ate_learned_rule[learned rule vs always 1]`. The same `TMLE` call is
+`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, with the same numbers.
 
 Both values come from the same rows and the same fitted models, and the interval of the
 difference uses the correlation between the two estimates, measured on those rows. No published
@@ -413,13 +413,30 @@ each 95% interval covered its target 0.946 to 0.956 of the time over 5,600 sampl
 outcome model left out a term the treated outcomes needed, coverage stayed between 0.942 and
 0.951. That study measured a correct treatment model only.
 
-The three rows are marked supported when the treatment has two options, the fit uses the default
-cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
-or strata. Otherwise they
-are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
-its message names this spelling. Adding `estimands=["ey_optimal_rule"]` to the same `TMLE` call
-compares the best rule's value with the fixed policy instead, reported as
-`ate_optimal_rule[learned rule vs always 1]` and marked experimental.
+`against=` takes more than fixed policies. A `Stochastic` plan, such as offering treatment to
+half of the eligible people at random, is compared the same way. `NaturalCourse()` compares the
+learned rule with current practice: its row `ey_natural_course[natural course]` is the average
+outcome under the treatment people actually got, and the difference reads as the gain from
+switching to the rule. That interval is right when the outcome model is right or the treatment
+chances are supplied. When the outcome model is wrong and the treatment chances are estimated,
+no result says the interval errs on the safe side, so read it as approximate. A plain arm
+estimand such as `ate` refuses beside a learned rule, and its message names these spellings.
+`OptimalRuleContrast(against=(Static(1),))` compares the best rule's value with the fixed policy
+instead, reported as `ate_optimal_rule[learned rule vs always 1]`.
+
+Each row carries a support label. Rows comparing the learned rule with fixed policies read
+supported when the treatment has two options, the fit uses the default cross-fitting with one
+split and the rule comes from the outcome model, with no weights, clusters or strata. The
+best-rule comparison, `OptimalRuleContrast`, reads supported only when the treatment chances are
+supplied (`treatment_probabilities=`), and experimental when the fit estimates them
+([the value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)).
+Rows comparing the learned rule with a random plan or with current practice read supported in
+the same setting, from their own
+[study](../technical-reference/method-evidence/learned-rule-contrast-comparators.md).
+[Contrasts with known regimes](../technical-reference/point-treatment-tmle.md#learned-rules)
+lists which settings read supported, and the
+[refusal table](../technical-reference/scope-and-refusals.md#not-written-yet) lists the
+comparisons that refuse.
 
 To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
 such as whether a patient took a follow-up dose) at one of its values, declare the variable with
@@ -473,7 +490,6 @@ policies = (Shift(0.0, cap=None), Shift(0.25, cap=4.0), Shift(0.5, cap=4.0))
 result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
     method=quick,
-    density_bins=40,
     random_state=5,
 )
 ```
@@ -482,11 +498,69 @@ A shifted dose above the cap holds the row at its own dose. The example cap of 4
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
 
-The correction step needs the ratio of the density of each policy dose to the density of the
-observed dose. By default the fit estimates the dose density in `density_bins` bins. With
-`ratio="classifier"`, the treatment learner instead learns to tell each observed row from its
-policy copy, and the ratio comes from its predicted odds. The classifier route fits no density,
-so it suits a flexible classifier when the bins are too coarse.
+The correction step needs, for each row, how much more or less common the policy dose is than
+the dose the row received: a ratio of two densities of the dose given the covariates. By default
+the fit learns that ratio directly. It stacks each observed row with its policy copy, the
+treatment learner learns to tell the two apart, and the ratio comes from its predicted odds.
+
+The learner also sees, for each row, whether the policy moved its dose, so a cap or a piecewise
+policy is learned where it holds the dose. When you declare the dose's range, the learner also
+sees whether the dose the policy moves from lies inside it. Without a declared range the fit
+treats the smallest or largest dose it trains on as an edge, but only on the side where some moved
+dose would have come from beyond it, as with a shift up and the smallest dose. That edge is a guess
+of where the doses stop. Declare the range with `treatment_support=` (below) when you know it, such
+as a dose that cannot fall below zero. A declaration always wins, so a dose with no limit can pass
+`Support(-np.inf, np.inf)` to turn the edge off.
+
+This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
+recorded on many rows, such as zero. The result's summary prints the route it used and why
+(`Policy ratio`). A learner that reads its input columns by position can set the class attribute
+`policy_steps = "omit"` to receive the plain design.
+
+The fit warns, with a `DataWarning` that names the range, when a few doses sit far from the rest
+beyond an empty stretch of the dose. The learned odds can smooth over such a cluster, so pass
+`ratio="density"` there. In the design study the warning fired on every sample of 20,000 rows of
+a dose with such a cluster, and on 12 of 20 samples of 2,000. It never fired on two smooth doses in
+80 samples, and once in 40 samples of a heavy-tailed dose. A cluster of one or two doses is not
+reported. `cleverly.learners.isolated_dose_clusters` runs the same check on any column of doses.
+
+With `ratio="density"` the fit estimates the density on a grid of dose intervals instead.
+`density_bins` sets their number, and setting it also selects this route. The fit adds narrower
+intervals where the doses thin out, then draws a smooth curve through the interval probabilities,
+so even a small shift changes the ratio. The estimate is only as good as the treatment learner
+behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
+the narrow outer intervals poorly.
+
+Gradient boosting can also misfit a few rows in a thin tail. In
+the [design study](../technical-reference/method-evidence/mtp-density-tails.md#reported-readings),
+at 2,000 rows the default booster's ratio was far off on up to 3 of 20 samples for four of six
+dose shapes, most often for a dose capped at the top of its range. In each such sample a handful
+of rows carried most of the error. When the tail matters to the policy, compare the estimate with
+a second treatment learner.
+
+```python
+density_fit = dose_study.estimate(
+    ModifiedTreatmentPolicyEffect(policies),
+    method=quick,
+    ratio="density",
+    density_bins=40,
+    random_state=5,
+)
+```
+
+The fit also uses the density route when it reads no policy ratio, as a dose-response curve does,
+beside a declared treatment mechanism, and with an estimator that only reads a density. The
+[resolution table](../technical-reference/scope-and-refusals.md#density-ratio-route) lists
+which route each fit takes.
+
+When the possible doses depend on the covariates, declare that range with
+`Support(lower, upper)` from `cleverly.interventions`, where each bound is a number or a function
+of the covariates. Pass it as `treatment_support=` to `PointTreatment` or to `TMLE.fit`.
+
+On the density route it lets the fit tell a hard limit from doses that are merely rare. Without it the fit
+spreads density past the limit, which distorts the ratio near it. On the default route the declared
+range tells the learner where the dose a policy moves from leaves the possible doses. Without it
+the fit uses the smallest or largest dose it trains on, only on the side the policy reaches past.
 [Modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)
 states both routes.
 

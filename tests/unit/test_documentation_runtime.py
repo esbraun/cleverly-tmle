@@ -231,18 +231,6 @@ result = study.estimate(
 """
 )
 
-#: ``docs/workflow.md`` narrates an applied study, so its columns are applied names rather than
-#: a generator's.  Renaming here keeps the prose honest instead of rewriting the guide to say
-#: ``W1``.
-_WORKFLOW = (
-    _FRAME
-    + """
-data = frame.rename(
-    columns={"Y": "outcome", "A": "treatment", "W1": "age", "W2": "baseline_score", "W3": "site"}
-)
-"""
-)
-
 #: ``docs/user-guide/trial-with-external-data.md`` reads a file the reader owns, so ``read_csv``
 #: returns a small pooled frame of the columns the guide names: a trial of about 150 rows and
 #: external rows whose outcomes carry a shift that depends on ``prior_visits``. The prelude patches
@@ -327,7 +315,7 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/methods-learners.md": _EFFECT,
     "docs/user-guide/results-assessment.md": _RESULT,
     "docs/user-guide/trial-with-external-data.md": _TRIAL,
-    "docs/workflow.md": _WORKFLOW,
+    "docs/workflow.md": "",
 }
 
 TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"

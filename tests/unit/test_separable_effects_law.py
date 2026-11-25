@@ -959,3 +959,170 @@ def test_observation_weights_equal_duplicated_rows() -> None:
     one, two = _fit(data=weighted), _fit(data=duplicated)
     for name in (_name("sep", "relapse", 3), _name("sep", "death", 2), _name("a1", "relapse", 3)):
         assert one.estimates[name].psi == pytest.approx(two.estimates[name].psi, abs=1e-10)
+
+
+# ----------------------------------------------------------- the study's method table
+
+
+#: The longitudinal methods whose fits refuse a Separable regimen before any learner.
+NON_HAZARD_METHODS = ("sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
+
+
+def _competing_study(**design: Any) -> Any:
+    from cleverly import CausalStudy, TimeToEvent
+    from cleverly.datasets import make_heart_failure
+
+    frame = make_heart_failure(n=400, seed=11)[0]
+    declared = TimeToEvent(
+        time="day",
+        event="event",
+        treatment="dose",
+        baseline=("older", "prior_admissions"),
+        grid=(30, 60, 90),
+        causes={1: "readmission", 2: "death"},
+    )
+    return CausalStudy(frame, design=replace(declared, **design))
+
+
+def _separable_question(**design: Any) -> Any:
+    from cleverly import RegimeMean
+
+    plans = {
+        "high": 2,
+        "none": 0,
+        "split": Separable(arms={"readmission": 2, "death": 0}, first="death"),
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return _competing_study(**design).identify(RegimeMean(plans, horizons=(90,)))
+
+
+def _records(question: Any) -> dict[str, Any]:
+    return {record.name: record for record in question.available_methods()}
+
+
+def test_the_method_table_gives_the_separable_refusal_the_fits_raise() -> None:
+    """SE-S2: the five methods whose fits refuse a Separable plan read unavailable, with the
+    fit's sentence, and the hazard-engine ``tmle`` is the one longitudinal method that fits."""
+    records = _records(_separable_question())
+    assert records["tmle"].available
+    for name in NON_HAZARD_METHODS:
+        assert not records[name].available, name
+        assert records[name].refusal == separable_module.SEPARABLE_METHOD_REFUSAL
+    assert (
+        separable_module.SEPARABLE_METHOD_REFUSAL.condition
+        == separable_module.SEPARABLE_ENGINE_REFUSAL.condition
+    )
+    with pytest.raises(CapabilityError) as caught:
+        SDR({"a0": 0, "sep": SEPARABLE}, n_folds=1).fit(_data())
+    assert caught.value.refusal == separable_module.SEPARABLE_ENGINE_REFUSAL
+
+
+def test_a_static_plan_set_still_lists_the_other_methods() -> None:
+    """Control for the override: without a Separable plan the five methods fit."""
+    from cleverly import RegimeMean
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        question = _competing_study().identify(RegimeMean({"high": 2, "none": 0}, horizons=(90,)))
+    records = _records(question)
+    assert all(records[name].available for name in ("tmle", "sdr", "gcomp", "ipw"))
+
+
+def test_the_default_tmle_spec_refuses_and_the_hazard_one_step_spec_fits() -> None:
+    """``tmle`` fits per name: the default spec runs iterated means and refuses, and the
+    hazard engine with the one-step targeting fits."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly import ModelSpec, Targeting
+    from cleverly.methods import TMLEMethod
+
+    question = _separable_question()
+    with pytest.raises(CapabilityError) as caught:
+        question.estimate(method=TMLEMethod())
+    assert caught.value.refusal == separable_module.SEPARABLE_ENGINE_REFUSAL
+    learner = LogisticRegression(max_iter=1000)
+    method = TMLEMethod(
+        models=ModelSpec(
+            survival_model="hazard",
+            outcome_learner=learner,
+            treatment_learner=learner,
+            censoring_learner=learner,
+        ),
+        targeting=Targeting(algorithm="one_step"),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = question.estimate(method=method)
+    assert "cif_regimen[split, death @ t=3]" in result.estimates
+
+
+def test_an_eliminated_cause_makes_tmle_unavailable_with_the_fit_refusal() -> None:
+    records = _records(_separable_question(eliminate=("death",)))
+    assert not records["tmle"].available
+    assert records["tmle"].refusal.reason == "different_estimand"
+    law = _law()
+    with warnings.catch_warnings(), pytest.raises(CapabilityError) as caught:
+        warnings.simplefilter("ignore")
+        _ltmle().fit(law.frame(), eliminate=["death"], **law.fit_columns())
+    assert caught.value.refusal == records["tmle"].refusal
+
+
+def test_later_covariates_make_tmle_unavailable_with_the_fit_refusal() -> None:
+    """The later-covariate branch, reached from a study on a panel with a covariate at t=2."""
+    from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+
+    law = survival_law(causes=2, with_l2=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        study = CausalStudy(law.frame(), design=LongitudinalTreatment(**law.fit_columns()))
+        question = study.identify(RegimeMean({"a0": 0, "sep": SEPARABLE}))
+    records = _records(question)
+    assert not records["tmle"].available
+    data = LongitudinalData.from_frame(law.frame(), **law.fit_columns())
+    assert records["tmle"].refusal == separable_module.separable_data_refusal(data)
+    assert records["tmle"].refusal.reason == "inference_gap"
+
+
+def test_a_marginal_structural_model_makes_tmle_unavailable_with_the_fit_refusal() -> None:
+    """The estimand decides this refusal, so the table gives it before any fit."""
+    from cleverly import MSMProjection
+    from cleverly.msm import MSM
+
+    split = Separable(arms={"readmission": 2, "death": 0}, first="death")
+    plans = {"high": 2, "none": 0, "split": split}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        question = _competing_study().identify(
+            MSMProjection(MSM.linear(), regimens=plans, horizons=(90,))
+        )
+    records = _records(question)
+    assert not records["tmle"].available
+    assert records["tmle"].refusal == separable_module.SEPARABLE_COMBINATION_REFUSAL
+    with warnings.catch_warnings(), pytest.raises(CapabilityError) as caught:
+        warnings.simplefilter("ignore")
+        question.estimate(method="tmle")
+    # The estimate gate names the method and the estimand, then gives the record.
+    combination = separable_module.SEPARABLE_COMBINATION_REFUSAL
+    assert caught.value.refusal.condition.endswith(combination.condition)
+    assert caught.value.refusal.reason == combination.reason
+
+
+@pytest.mark.parametrize("branch", ["eliminated", "later_covariates"])
+def test_the_data_refusal_is_the_one_the_fit_raises(branch: str) -> None:
+    """The table and the fit read one function, so each data branch raises its record."""
+    if branch == "eliminated":
+        law = _law()
+        data = LongitudinalData.from_frame(law.frame(), eliminate=["death"], **law.fit_columns())
+        reason = "different_estimand"
+    else:
+        law = survival_law(causes=2, with_l2=True)
+        data = LongitudinalData.from_frame(law.frame(), **law.fit_columns())
+        reason = "inference_gap"
+    expected = separable_module.separable_data_refusal(data)
+    assert expected is not None and expected.reason == reason
+    with warnings.catch_warnings(), pytest.raises(CapabilityError) as caught:
+        warnings.simplefilter("ignore")
+        _ltmle().fit(data)
+    assert caught.value.refusal == expected
+    assert separable_module.separable_data_refusal(_data()) is None

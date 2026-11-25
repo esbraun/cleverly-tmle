@@ -41,11 +41,11 @@ def test_the_both_correct_cell_fails_on_coverage_alone() -> None:
     summary = _summary()
     cell = summary.loc[CELL]
     assert bool(cell["bias_equivalent"])
-    assert round(float(cell["coverage"]), 3) == 0.911
-    assert round(float(cell["coverage_ci_lower"]), 3) == 0.885 < 0.90
+    assert round(float(cell["coverage"]), 3) == 0.913
+    assert round(float(cell["coverage_ci_lower"]), 3) == 0.888 < 0.90
     assert round(float(cell["se_ratio"]), 3) == 0.946
     larger = summary.loc[("sequential_double_robustness", "both_correct__n_8000")]
-    assert round(float(larger["coverage"]), 3) == 0.950
+    assert round(float(larger["coverage"]), 3) == 0.951
     assert round(float(larger["se_ratio"]), 3) == 0.999
 
 

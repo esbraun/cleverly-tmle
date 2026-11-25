@@ -1378,8 +1378,17 @@ def needs_reduction(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     still ``"mean"`` -- the report is still ``ey1``, ``ey0`` and ``ate``, a different
     estimator behind the same parameters exactly as :class:`~cleverly.CTMLE` is -- so a
     predicate keyed on the group name alone would divert every ordinary fit in the package.
+
+    A difference-scale projection fitted by :class:`~cleverly.DRTMLE` carries the weighted
+    set (one regression per arm and basis term), and its group is ``"effect_modification"``:
+    equation (8) is then the projection's own score along :math:`\varphi(V) s(A)/g`, and (9)
+    and (10) are solved along ``p`` columns per arm (P1 PR 3).
     """
-    return group == "mean" and nuisance.reduced is not None
+    if nuisance.reduced is None:
+        return False
+    if group == "effect_modification":
+        return isinstance(nuisance.reduced, ReducedSet) and nuisance.reduced.n_terms is not None
+    return group == "mean"
 
 
 @dataclass(frozen=True)
@@ -1512,6 +1521,10 @@ class _Companion:
     #: ``True`` for the foldwise slabs, whose rows are the fitting rows: their blocks are the
     #: fit's own strata rather than a companion's.
     fitting_rows: bool = False
+    #: The fit's projection, which a foldwise slab over the fitting rows reads for its own
+    #: equation (8) covariate (P1 PR 3). ``None`` at evaluation rows: a projection takes no
+    #: evaluation companion.
+    effect_modification: Any = None
 
     @classmethod
     def of(
@@ -1578,6 +1591,7 @@ class _Companion:
             ),
             blocks=blocks,
             fitting_rows=True,
+            effect_modification=nuisance.effect_modification,
         )
 
     @property
@@ -1597,6 +1611,7 @@ class _Companion:
             scaler=self.scaler,
             folds=Folds.single(self.outcome[fold].n),
             reduced=self.reduced[fold] if self.reduced else None,
+            effect_modification=self.effect_modification,
         )
 
     def outcome_carry(

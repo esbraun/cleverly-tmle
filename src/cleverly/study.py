@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -72,8 +72,17 @@ from .inference.multiplier import (
     simultaneous_bands,
 )
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
-from .interventions.base import InterventionKind, refuse_mixed_interventions
-from .interventions.learned import LearnedRule, refuse_learned_rule_composition
+from .interventions.base import (
+    InterventionKind,
+    NaturalCourse,
+    refuse_mixed_interventions,
+    split_natural_course,
+)
+from .interventions.learned import (
+    LearnedRule,
+    natural_course_intermediate_refusal,
+    refuse_learned_rule_composition,
+)
 from .longitudinal import (
     IPSI,
     LTMLE,
@@ -95,7 +104,18 @@ from .longitudinal.estimator import (
     BASELINE_TILT_REFUSAL,
     IPW_MTP_REFUSAL,
 )
-from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
+from .longitudinal.regimen import (
+    declares_mtp,
+    declares_policy,
+    declares_separable,
+    declares_tilt,
+    tilt_nodes,
+)
+from .longitudinal.separable import (
+    SEPARABLE_COMBINATION_REFUSAL,
+    SEPARABLE_METHOD_REFUSAL,
+    separable_data_refusal,
+)
 from .methods import (
     ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL,
     BASELINE_POINT_REFUSAL,
@@ -179,6 +199,7 @@ __all__ = [
     "IdentifiedEffect",
     "IncrementalEffect",
     "IncrementalMean",
+    "LearnedRuleContrast",
     "LearnedRuleValue",
     "LongPanel",
     "LongitudinalTreatment",
@@ -187,6 +208,7 @@ __all__ = [
     "ModifiedTreatmentPolicyEffect",
     "NaturalCourseMean",
     "OddsRatio",
+    "OptimalRuleContrast",
     "OptimalRuleValue",
     "ParameterKey",
     "PointTreatment",
@@ -567,7 +589,7 @@ class PointTreatment:
         The declared conditional support of a continuous dose, as
         :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
         component to its support.  A modified treatment policy must assign each row a dose
-        inside it.
+        inside it, and the density route reads the dose's density over it.
     dose_atoms : sequence of float, or mapping of str to sequence of float
         The doses of a continuous treatment with a recorded point mass, as
         :meth:`cleverly.TMLE.fit` takes them.  A vector treatment maps each continuous
@@ -900,6 +922,77 @@ TRIAL_BINARY_TREATMENT_REFUSAL = Refusal(
 )
 
 
+def _trial_role_refusal(role: str, reason: str) -> Refusal:
+    """The record of one ``TrialWithExternalData`` role the adaptive TMLE has no form for."""
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"Adaptive TMLE for a trial with external data {reason}",
+        alternative=f"Fit the trial rows alone with PointTreatment({role}=...).",
+        roadmap="F40",
+    )
+
+
+def _trial_role_declared(value: object, default: object) -> bool:
+    """Whether a refused role holds anything other than its default.
+
+    Compared with the default rather than read for truth, so an array of weights is refused
+    instead of raising on its ambiguous truth value, and ``0`` or ``{}`` is refused too.
+    """
+    if value is None or default is None:
+        return value is not default
+    if isinstance(value, (list, tuple)) and isinstance(default, tuple):
+        return tuple(value) != default
+    # A value of another type than the default, an array among them, is a declaration.
+    return type(value) is not type(default) or bool(value != default)
+
+
+#: The roles of :class:`PointTreatment` that the pooled design declares only to refuse, in the
+#: order ``TrialWithExternalData.__post_init__`` checks them: the field, then its record.
+TRIAL_ROLE_REFUSALS: Final[tuple[tuple[str, Refusal], ...]] = (
+    (
+        "weights",
+        _trial_role_refusal(
+            "weights",
+            "fits its working-model selection and the projection its interval covers "
+            "without weights; no weighted form is derived here.",
+        ),
+    ),
+    (
+        "cluster",
+        _trial_role_refusal(
+            "cluster",
+            "treats the pooled rows as independent: its cross-validated working-model "
+            "selection does not split by cluster, and its influence curve is not summed "
+            "within clusters; no clustered form is derived here.",
+        ),
+    ),
+    (
+        "strata",
+        _trial_role_refusal(
+            "strata",
+            "reports the effect over the population that population= names; a stratum effect "
+            "would need its own working-model projection, which no form here derives.",
+        ),
+    ),
+    (
+        "intermediate",
+        _trial_role_refusal(
+            "intermediate",
+            "identifies the total effect of the randomized treatment; a direct effect with an "
+            "intermediate held fixed has no adaptive form here.",
+        ),
+    ),
+    (
+        "treatment_missingness",
+        _trial_role_refusal(
+            "treatment_missingness",
+            "reads the treatment of every row; a missing-treatment mechanism has no adaptive "
+            "form here.",
+        ),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class TrialWithExternalData:
     """Declare a randomized trial pooled with external data on the same outcome.
@@ -933,13 +1026,25 @@ class TrialWithExternalData:
         assumes nothing about why external outcomes are missing.
     outcome_family : {"auto", "gaussian", "binomial"}, default="auto"
         Outcome family. ``"auto"`` infers it from observed values.
+    weights : str or None, default=None
+        Refused when set: the adaptive TMLE has no weighted form here
+        (``cleverly.study.TRIAL_ROLE_REFUSALS``).
+    cluster : str or None, default=None
+        Refused when set: the adaptive TMLE treats the pooled rows as independent.
+    strata : sequence of str, default=()
+        Refused when not empty: a stratum effect would need its own working-model projection.
+    intermediate : str or None, default=None
+        Refused when set: the design identifies the total effect of the treatment.
+    treatment_missingness : str or None, default=None
+        Refused when set: the adaptive TMLE reads the treatment of every row.
 
     Raises
     ------
     DataError
         When two roles name one column, or ``adjustment`` is empty or repeats a column.
     CapabilityError
-        When ``treatment`` names more than one column.
+        When ``treatment`` names more than one column, or one of the refused roles above
+        is set.
 
     See Also
     --------
@@ -964,8 +1069,20 @@ class TrialWithExternalData:
     trial: Any = 1
     missingness: str | None = None
     outcome_family: Family = "auto"
+    weights: str | None = field(default=None, kw_only=True)
+    cluster: str | None = field(default=None, kw_only=True)
+    strata: Sequence[str] = field(default=(), kw_only=True)
+    intermediate: str | None = field(default=None, kw_only=True)
+    treatment_missingness: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        # Every refused role has a plain default; a default_factory would read MISSING here.
+        defaults = {item.name: item.default for item in fields(self)}
+        for role, refusal in TRIAL_ROLE_REFUSALS:
+            if _trial_role_declared(getattr(self, role), defaults[role]):
+                raise CapabilityError.from_refusal(refusal)
+        # An empty list of strata declares nothing; store it as the default.
+        object.__setattr__(self, "strata", ())
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         if not isinstance(self.treatment, str):
             raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
@@ -2591,8 +2708,11 @@ class LearnedRuleValue:
     The fit needs cross-fitting with at least two folds.  The fold-evaluated report,
     ``CrossFitting(fold_evaluation=True)``, weights each fold by ``1/V``.  The default
     ``CrossFitting()`` gives the stacked report, which weights each fold by its share of
-    the rows (of the weight mass under weights), and reads experimental until its study
-    registers.
+    the rows (of the weight mass under weights).  The ``learned-rule-stacked`` study registers
+    the stacked report of the plug-in rule on rows, with a known weight and with clusters,
+    with ``repeats=1`` and pooled targeting.  Strata, fold targeting, a rule-learner loss,
+    repeats above 1, weights declared estimated, weights with clusters, and fewer than 40
+    clusters (the t reference) read experimental.
 
     With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
     the binary intermediate is held at ``z``: each fold learns the best treatment given
@@ -2729,6 +2849,186 @@ class OptimalRuleValue:
             )
 
 
+def _check_against(owner: str, against: Any) -> None:
+    """Refuse an empty ``against`` and a second learned rule in it (R-d2, R-d5).
+
+    A mapping, an iterator or one bare item is refused where the estimand is identified,
+    with the message every point set of interventions gets.
+    """
+    if isinstance(against, (Mapping, Iterator, str, bytes)) or not isinstance(against, Iterable):
+        return
+    items = list(against)
+    if not items:
+        raise DataError(
+            f"{owner}(against=...) needs at least one comparator: a treatment level, a known "
+            "regime or NaturalCourse(). For the value of the learned rule alone, request "
+            "LearnedRuleValue()."
+        )
+    for position, item in enumerate(items, start=1):
+        if isinstance(item, LearnedRule):
+            raise CapabilityError(
+                f"{owner}.against holds a second learned rule, item {position}. A learned-rule "
+                "fit holds one learned column on its folds, so it cannot report a contrast of "
+                "two learned rules (X11 (c3) in docs/roadmap.md).",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Fit LearnedRuleValue(rule=...) for each rule. Their intervals do not hold "
+                    "jointly."
+                ),
+                roadmap="X11",
+            )
+
+
+@dataclass(frozen=True)
+class LearnedRuleContrast:
+    """Compare the rules learned inside each training fold with known regimes or current practice.
+
+    The question is "how much better does the learned rule do than a fixed plan, or than
+    what is done now?".  The fit learns a rule in each training fold, as
+    :class:`LearnedRuleValue` does, and reports its value ``ey_learned_rule``, each
+    comparator's value and each contrast ``ate_learned_rule[<rule> vs <comparator>]``, the
+    rule minus the comparator.  The learned value is data-adaptive: a weighted average over
+    the outer folds of the value of each fold's rule, ``1/V`` per fold under the
+    fold-evaluated report and the fold's share of the rows under the default stacked one.
+    The interval can under-cover when the effect is zero or near zero for a share of units.
+
+    A comparator is a treatment level (read as ``Static``), a ``Static``, a known ``Rule``,
+    a ``Stochastic`` or a user-written known regime, each reported as
+    ``ey_known_regime[<name>]``, or :class:`~cleverly.interventions.NaturalCourse`, the
+    observed course, reported as ``ey_natural_course[<name>]``.  Every comparator is fitted
+    on the learned rule's folds, and each contrast's interval comes from the difference of
+    the two influence curves, so it accounts for their correlation.
+
+    The contrast with a known regime has the conditions of the learned-rule value and of
+    the regime.  The contrast with the natural course is exact when the outcome regression
+    is consistent or the treatment mechanism is declared; with a misspecified outcome
+    regression and a fitted treatment mechanism no result says its variance is
+    conservative.  The support label of each fit, in the "Learned rules" section of
+    ``docs/technical-reference/point-treatment-tmle.md``, says which compositions a study
+    measured: a fixed plan, a known random plan or the natural course beside the rule reads
+    supported on rows under the default settings, from the ``learned-rule-contrast`` and
+    ``learned-rule-contrast-comparators`` studies.
+
+    Parameters
+    ----------
+    against : sequence
+        The comparators, at least one, as a tuple such as ``(0, NaturalCourse())``.
+    rule : LearnedRule
+        The rule class, and the label the reported parameters carry.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held in the
+        rule's value and in every known regime.  The natural course refuses it.
+
+    See Also
+    --------
+    LearnedRuleValue : The value of the learned rules alone.
+    OptimalRuleContrast : The value of the optimal rule against the same comparators.
+    RegimeContrast : The contrast of two known regimes, with no learned rule.
+    cleverly.interventions.NaturalCourse : The observed course as a comparator.
+
+    Examples
+    --------
+    >>> from cleverly import LearnedRuleContrast
+    >>> from cleverly.interventions import NaturalCourse
+    >>> estimand = LearnedRuleContrast(against=(0, NaturalCourse()))
+    >>> estimand.name, estimand.rule.name
+    ('ate_learned_rule', 'learned rule')
+    """
+
+    against: Any
+    rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
+    name: str = field(default="ate_learned_rule", init=False)
+    definition: str = field(
+        default=(
+            "value of the rules learned inside each training fold minus the value of each "
+            "comparator, on the same folds"
+        ),
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rule, LearnedRule):
+            raise DataError(
+                "LearnedRuleContrast(rule=...) takes a cleverly.interventions.LearnedRule, not "
+                f"{self.rule!r}"
+            )
+        _check_learned_rule_level("LearnedRuleContrast", self.intermediate)
+        _check_against("LearnedRuleContrast", self.against)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
+            )
+
+
+@dataclass(frozen=True)
+class OptimalRuleContrast:
+    """Compare the value of the optimal rule with known regimes or current practice.
+
+    The target is the fixed parameter :math:`\\Psi_{d_0}(P_0)` of :class:`OptimalRuleValue`
+    minus the value of each comparator.  The estimator is the fit of
+    :class:`LearnedRuleContrast` on the same data and settings, so the points and intervals
+    are that fit's, reported as ``ey_optimal_rule``, each comparator's value and
+    ``ate_optimal_rule[<rule> vs <comparator>]``.  It estimates the optimal contrast under
+    :class:`OptimalRuleValue`'s conditions: the fold rules converge to the optimal rule fast
+    enough, on a law where the effect is zero for almost no unit.  The known regime's value
+    and the natural course carry no regret.
+
+    The fold-evaluated fit beside a ``Static`` level, with known treatment probabilities,
+    reads supported; every other composition, a random plan or the natural course among
+    them, reads experimental.
+
+    Parameters
+    ----------
+    against : sequence
+        The comparators, at least one, as for :class:`LearnedRuleContrast`.
+    rule : LearnedRule
+        The rule class whose fold rules estimate the optimal rule, and the label the
+        reported parameters carry.
+    intermediate : float or None
+        The level, ``0.0`` or ``1.0``, at which a declared binary intermediate is held.  The
+        natural course refuses it.
+
+    See Also
+    --------
+    OptimalRuleValue : The value of the optimal rule alone.
+    LearnedRuleContrast : The contrast of the learned rules, a data-adaptive target.
+
+    Examples
+    --------
+    >>> from cleverly import OptimalRuleContrast
+    >>> estimand = OptimalRuleContrast(against=(0,))
+    >>> estimand.name, estimand.rule.name
+    ('ate_optimal_rule', 'learned rule')
+    """
+
+    against: Any
+    rule: LearnedRule = field(default_factory=LearnedRule)
+    intermediate: float | None = None
+    name: str = field(default="ate_optimal_rule", init=False)
+    definition: str = field(
+        default="value of the optimal rule minus the value of each comparator",
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rule, LearnedRule):
+            raise DataError(
+                "OptimalRuleContrast(rule=...) takes a cleverly.interventions.LearnedRule, not "
+                f"{self.rule!r}"
+            )
+        _check_learned_rule_level("OptimalRuleContrast", self.intermediate)
+        _check_against("OptimalRuleContrast", self.against)
+        if self.intermediate is not None:
+            object.__setattr__(
+                self,
+                "definition",
+                f"{self.definition}, with the intermediate held at {self.intermediate:g}",
+            )
+
+
 @dataclass(frozen=True)
 class ConditionalContrast:
     """Ask how the effect of the treatment changes with the modifiers ``V``.
@@ -2823,9 +3123,28 @@ class ConditionalContrast:
 
 
 #: The typed estimands whose fit learns a rule inside each training fold.
-LEARNED_RULE_ESTIMANDS: tuple[type[LearnedRuleValue], type[OptimalRuleValue]] = (
+LEARNED_RULE_ESTIMANDS: tuple[
+    type[LearnedRuleValue],
+    type[OptimalRuleValue],
+    type[LearnedRuleContrast],
+    type[OptimalRuleContrast],
+] = (
     LearnedRuleValue,
     OptimalRuleValue,
+    LearnedRuleContrast,
+    OptimalRuleContrast,
+)
+
+#: The learned-rule estimands that compare the rule with comparators (``against=``).
+LEARNED_RULE_CONTRASTS: tuple[type[LearnedRuleContrast], type[OptimalRuleContrast]] = (
+    LearnedRuleContrast,
+    OptimalRuleContrast,
+)
+
+#: The learned-rule estimands that target the value of the optimal rule.
+OPTIMAL_RULE_ESTIMANDS: tuple[type[OptimalRuleValue], type[OptimalRuleContrast]] = (
+    OptimalRuleValue,
+    OptimalRuleContrast,
 )
 
 
@@ -3065,6 +3384,8 @@ PointEstimand = (
     | RegimeContrast
     | LearnedRuleValue
     | OptimalRuleValue
+    | LearnedRuleContrast
+    | OptimalRuleContrast
     | ModifiedTreatmentPolicy
     | ModifiedTreatmentPolicyEffect
     | IncrementalMean
@@ -3094,6 +3415,9 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ate_regime": "RegimeContrast(regimens=...)",
     "ey_learned_rule": "LearnedRuleValue()",
     "ey_optimal_rule": "OptimalRuleValue()",
+    "ate_learned_rule": "LearnedRuleContrast(against=...)",
+    "ate_optimal_rule": "OptimalRuleContrast(against=...)",
+    "ey_natural_course": "LearnedRuleContrast(against=(NaturalCourse(),))",
     "ey_policy": "ModifiedTreatmentPolicy(policies=...)",
     "ate_policy": "ModifiedTreatmentPolicyEffect(policies=...)",
     "ey_ipsi": "IncrementalMean(interventions=...)",
@@ -3391,6 +3715,26 @@ class BackdoorMeanContrast:
             return f"E({self.outcome} | {', '.join(conditions)})"
 
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
+        if self.axis == "learned_rule" and self.target in ("ate_learned_rule", "ate_optimal_rule"):
+            # The value of the rule, then one clause per kind of comparator.
+            value = replace(
+                self,
+                target=self.target.replace("ate_", "ey_"),
+                interventions=self.interventions[:1],
+            ).expression
+            comparators = self.interventions[1:]
+            natural = [item for item in comparators if isinstance(item, NaturalCourse)]
+            clauses = []
+            if len(natural) < len(comparators):
+                clauses.append(
+                    f"E_W[sum_a g*(a | W) {regression('a')}] for each known regime g*, on the "
+                    "rule's folds"
+                )
+            if natural:
+                clauses.append(
+                    f"E({self.outcome}) for the natural course, under the same fold weights"
+                )
+            return f"{value}, minus the value of each comparator: {', and '.join(clauses)}"
         if self.axis == "learned_rule" and self.target == "ey_optimal_rule":
             # A fixed parameter: the value of the optimal rule, the best arm at each W.
             return (
@@ -4139,6 +4483,8 @@ def _declared_interventions(actual: Any) -> tuple[str, InterventionKind] | None:
         return "policies", "policy"
     if isinstance(actual, (IncrementalMean, IncrementalEffect)):
         return "interventions", "incremental"
+    if isinstance(actual, LEARNED_RULE_CONTRASTS):
+        return "against", "regime"
     return None
 
 
@@ -4322,8 +4668,9 @@ def _point_functional(
     interventions: tuple[Any, ...] = () if declared is None else tuple(getattr(actual, declared[0]))
     if isinstance(actual, LEARNED_RULE_ESTIMANDS):
         # The rule rides where a regime would, so the engine adapter reads it off the
-        # functional as it reads every other axis's declaration.
-        interventions = (actual.rule,)
+        # functional as it reads every other axis's declaration. The comparators of a
+        # contrast follow it, in their declared order, the natural course among them.
+        interventions = (actual.rule, *interventions)
     msm = actual.model if isinstance(actual, MSMProjection) else None
     projection = (
         _effect_modification_spec(actual, data) if isinstance(actual, ConditionalContrast) else None
@@ -4605,6 +4952,30 @@ _LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
     references=(
         "van der Laan & Gruber (2012)",
         "Díaz, Williams, Hoffman & Schenck (2023)",
+    ),
+)
+
+
+#: The identification of a regimen set with a :class:`~cleverly.longitudinal.Separable` plan.
+#: Stensrud, Young, Didelez, Robins and Hernán (2022), Section 5.1 (arXiv:1901.09472v3): the
+#: longitudinal conditions, the split of the treatment into a component for each cause, and
+#: the dismissible-component conditions Delta 1 and Delta 2.
+_LONGITUDINAL_SEPARABLE_IDENTIFICATION = Identification(
+    assumptions=(
+        *_LONGITUDINAL_IDENTIFICATION.assumptions,
+        "separable components: the treatment splits into a component that acts on the event "
+        "of interest and a component that acts on the competing event, and each could be set "
+        "to its own level",
+        "dismissible components (Delta 1 and Delta 2): the component for the competing event "
+        "changes the event of interest only through the competing event, and the component "
+        "for the event of interest changes the competing event only through the event of "
+        "interest",
+    ),
+    required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
+    dr_condition=_LONGITUDINAL_IDENTIFICATION.dr_condition,
+    references=(
+        "van der Laan & Gruber (2012)",
+        "Stensrud, Young, Didelez, Robins & Hernán (2022)",
     ),
 )
 
@@ -4922,7 +5293,7 @@ class ExplicitAdjustmentProvider:
             # The rows of the learned-rule refusal table that the data decide, before the generic
             # axis and design checks below: their sentences name other remedies.
             refuse_learned_rule_composition(
-                data, rule=actual.rule, optimal=isinstance(actual, OptimalRuleValue)
+                data, rule=actual.rule, optimal=isinstance(actual, OPTIMAL_RULE_ESTIMANDS)
             )
         # The kinds of the items are a property of the estimand, so they are checked before
         # the design.  Not in ``_point_functional``: the provenance matcher calls that inside
@@ -4953,6 +5324,20 @@ class ExplicitAdjustmentProvider:
                 problem = f"It received one item, {items!r}. Write one item as a one-item tuple"
             if problem is not None:
                 raise DataError(f"{holder} must be a sequence, such as a tuple. {problem}")
+            if isinstance(actual, LEARNED_RULE_CONTRASTS):
+                # The natural course is a comparator of the learned rule, not a regime, so it
+                # leaves the set before the regime checks, which refuse it anywhere else.
+                items, natural = split_natural_course(list(items), holder=holder)
+                if natural is not None and actual.intermediate is not None:
+                    raise CapabilityError.from_refusal(
+                        natural_course_intermediate_refusal(
+                            str(design.intermediate or "Z"),
+                            holder=(
+                                f"{type(actual).__name__}(intermediate={actual.intermediate:g})"
+                            ),
+                            level=actual.intermediate,
+                        )
+                    )
             refuse_mixed_interventions(items, kind=kind, holder=holder)
         if data.has_missing_treatment:
             refusal = missing_treatment_design_refusal(
@@ -5130,7 +5515,9 @@ class ExplicitAdjustmentProvider:
             history=history,
         )
         identification = (
-            _LONGITUDINAL_TILT_IDENTIFICATION
+            _LONGITUDINAL_SEPARABLE_IDENTIFICATION
+            if declares_separable(regimens)
+            else _LONGITUDINAL_TILT_IDENTIFICATION
             if declares_tilt(regimens)
             else _LONGITUDINAL_MTP_IDENTIFICATION
             if declares_mtp(regimens)
@@ -6054,6 +6441,23 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
+        if self.functional.longitudinal and declares_separable(self.functional.interventions):
+            # Every longitudinal estimator but the hazard-engine LTMLE refuses a Separable
+            # regimen before any learner, so the table gives each the record its fit raises,
+            # with the method-spec alternative.
+            sdr = ipsi = gcomp = ipw = gformula = False
+            sdr_reason = ipsi_reason = gcomp_reason = ipw_reason = gformula_reason = (
+                SEPARABLE_METHOD_REFUSAL
+            )
+            # The estimand, then the data, can refuse every separable fit, the hazard-engine
+            # LTMLE's too, in the order the fit checks them. Either replaces an earlier tmle
+            # reason on purpose: the fit raises it before any other.
+            data = getattr(self._study, "data", None)
+            data_refusal = None if data is None else separable_data_refusal(data)
+            if self.functional.msm is not None:
+                tmle, tmle_reason = False, SEPARABLE_COMBINATION_REFUSAL
+            elif data_refusal is not None:
+                tmle, tmle_reason = False, data_refusal
         iptw_reason = self._adaptive_iptw_refusal(design)
         if iptw_reason is None and estimated_declaration:
             iptw_reason = KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL
@@ -6064,6 +6468,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "collaborative_tmle",
                 collaborative,
                 None if collaborative else collaborative_blocker,
+                # Every strategy but the derivative one refuses id= before its first learner.
+                only=(
+                    "strategy='derivative'"
+                    if collaborative
+                    and isinstance(design, PointTreatment)
+                    and design.cluster is not None
+                    else None
+                ),
             ),
             MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
@@ -6207,7 +6619,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ``tmle`` needs a fixed basis: with ``model=None`` the target is not pathwise
         differentiable (R2), and a sieve sized by cross-validation makes it data-adaptive
         (R4).  ``ep`` fits the curve, with or without a model, but not a model whose size
-        cross-validation chooses.  Every other method has no projection target.
+        cross-validation chooses.  ``collaborative_tmle`` fits the same fixed basis by the
+        per-arm outcome-adaptive design, as a point estimate, and ``drtmle`` fits it on the
+        difference scale with one block of reduced regressions per basis term (P1 PR 3).
+        Every other method has no projection target.
         """
         estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
@@ -6231,6 +6646,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
                     ep_refusal = EP_CV_MODEL_REFUSAL
                 out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
+            elif record.name == "collaborative_tmle" and tmle_refusal is None:
+                out.append(self._collaborative_projection_record())
+            elif record.name == "drtmle" and tmle_refusal is None:
+                out.append(self._drtmle_projection_record(str(estimand.scale)))
             else:
                 out.append(
                     MethodAvailability(
@@ -6245,6 +6664,40 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     )
                 )
         return tuple(out)
+
+    def _collaborative_projection_record(self) -> MethodAvailability:
+        """The per-arm outcome-adaptive C-TMLE of a projection, points only (P1 PR 3).
+
+        The record reads the data: R-ct-data on strata or a missing outcome or treatment,
+        and the shipped refusal of a declared mechanism, which leaves the design nothing to
+        adapt. The strategy is an option of the method, so the fit raises R-ct-strategy
+        before any learner for every strategy but ``strategy="oat"`` with
+        ``oat_design="per_arm"``.
+        """
+        from .estimators.ctmle import PROJECTION_DATA_REFUSAL
+
+        data = None if self._study is None else self._study.data
+        design = getattr(self._study, "design", None)
+        if getattr(design, "treatment_probabilities", None) is not None:
+            return MethodAvailability("collaborative_tmle", False, KNOWN_CTMLE_REFUSAL)
+        if isinstance(data, CausalData) and (
+            data.has_strata or data.has_missing_outcome or data.has_missing_treatment
+        ):
+            return MethodAvailability("collaborative_tmle", False, PROJECTION_DATA_REFUSAL)
+        return MethodAvailability("collaborative_tmle", True, None)
+
+    def _drtmle_projection_record(self, scale: str) -> MethodAvailability:
+        """The DR-TMLE projection on the difference scale (P1 PR 3).
+
+        The record reads the scale and the data: R-dr-ratio on the log ratio, then R-dr-missing
+        and R-dr-strata. ``reduction``, ``targeting`` and ``evaluation`` are options of the
+        method, so the fit raises R-dr-bivariate and R-dr-one-step before any learner.
+        """
+        from .estimators.drtmle import projection_data_refusal
+
+        data = None if self._study is None else self._study.data
+        refusal = projection_data_refusal(scale, data if isinstance(data, CausalData) else None)
+        return MethodAvailability("drtmle", refusal is None, refusal)
 
     def _estimated_declaration(self) -> bool:
         """Whether the study's declared mechanism is read in the sample beside weights.
@@ -6898,7 +7351,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if functional.axis == "regime":
             kwargs["interventions"] = functional.interventions
         elif functional.axis == "learned_rule":
-            (kwargs["learned_rule"],) = functional.interventions
+            rule, *against = functional.interventions
+            kwargs["learned_rule"] = rule
+            if functional.target in ("ate_learned_rule", "ate_optimal_rule"):
+                # The comparators ride as interventions=, the natural course among them, which
+                # the engine splits off. The learned-rule contrast reports its default set:
+                # the value, each comparator's value and each contrast. The optimal contrast
+                # names ey_optimal_rule, which reports the same rows on the optimal family.
+                kwargs["interventions"] = list(against)
+                kwargs["estimands"] = (
+                    ("ey_optimal_rule",) if functional.target == "ate_optimal_rule" else None
+                )
         elif functional.axis == "policy":
             kwargs["policies"] = functional.interventions
         elif functional.axis == "ipsi":
@@ -7008,7 +7471,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 assert isinstance(state, (RegimeSet, PolicySet, IPSISet))
                 names = state.names
             reference_name = names[int(state.reference)] if hasattr(state, "reference") else None
-            if target.startswith("ey_"):
+            if self.functional.axis == "learned_rule" and target.startswith("ate_"):
+                base.update(self._learned_contrast_keys(result, tuple(names)))
+            elif target.startswith("ey_"):
                 for name in names:
                     alias = parameter_name(target, arm=name)
                     base[alias] = ParameterKey(alias, target, self.functional.axis, value=name)
@@ -7041,6 +7506,34 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 f"{list(selected)} != {list(result.estimates)}"
             )
         return selected
+
+    def _learned_contrast_keys(
+        self, result: TMLEResult, names: tuple[str, ...]
+    ) -> dict[str, ParameterKey]:
+        """The keys of a learned-rule or optimal-rule contrast fit, one per reported name.
+
+        ``names`` are the regime set's: the rule, then the known regimes.  The natural course
+        sits outside the set, so its name comes from the engine.
+        """
+        target = self.functional.target
+        axis = self.functional.axis
+        rule, known = names[0], names[1:]
+        natural = getattr(result.estimator, "natural_course", None)
+        comparators = (*known, *(() if natural is None else (str(natural.name),)))
+        value_stem = "ey_optimal_rule" if target == "ate_optimal_rule" else "ey_learned_rule"
+        keys: dict[str, ParameterKey] = {}
+        alias = parameter_name(value_stem, arm=rule)
+        keys[alias] = ParameterKey(alias, value_stem, axis, value=rule)
+        for name in known:
+            alias = parameter_name("ey_known_regime", arm=name)
+            keys[alias] = ParameterKey(alias, "ey_known_regime", axis, value=name)
+        if natural is not None:
+            alias = parameter_name("ey_natural_course", arm=str(natural.name))
+            keys[alias] = ParameterKey(alias, "ey_natural_course", axis, value=str(natural.name))
+        for name in comparators:
+            alias = parameter_name(target, arm=rule, versus=name)
+            keys[alias] = ParameterKey(alias, target, axis, value=rule, reference=name)
+        return keys
 
     def _estimate_continuous(self, method: EstimationMethod) -> ContinuousSurvivalResult:
         """Fit the continuous-time one-step TMLE (X91 part G)."""

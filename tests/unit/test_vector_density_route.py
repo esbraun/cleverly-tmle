@@ -1009,7 +1009,7 @@ def test_l3_the_resolution_warning_reads_each_dose() -> None:
     policy = JointPolicy(
         "tiny", components={"D1": Shift(0.01, cap=None), "D2": DOUBLE}, policy_kind="known"
     )
-    with mtp.exact_bins(GRIDS), pytest.warns(UserWarning, match="across a bin edge"):
+    with mtp.exact_bins(GRIDS), pytest.warns(UserWarning, match="inside one flat bin"):
         TMLE(policies=[policy], **density_settings()).fit(geo_data()).single()
 
 
@@ -1030,7 +1030,7 @@ def test_l3_the_resolution_warning_counts_only_the_rows_a_gated_map_moves() -> N
     with mtp.exact_bins(GRIDS), warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         loud = TMLE(policies=[gated], **density_settings()).fit(geo_data()).single()
-    assert not [w for w in caught if "across a bin edge" in str(w.message)]
+    assert not [w for w in caught if "inside one flat bin" in str(w.message)]
     with mtp.exact_bins(GRIDS), warnings.catch_warnings():
         warnings.simplefilter("ignore")
         quiet = TMLE(policies=[gated], **density_settings()).fit(geo_data()).single()
@@ -1051,7 +1051,9 @@ def test_l3_the_resolution_warning_counts_only_the_rows_a_gated_map_moves() -> N
         },
         policy_kind="known",
     )
-    pattern = rf"changes 'D1' on {int(moved.sum())} rows, and moves only 0\.0% of them"
+    pattern = (
+        rf"changes 'D1' on {int(moved.sum())} rows, and keeps 100\.0% of them inside one flat bin"
+    )
     with mtp.exact_bins(GRIDS), pytest.warns(UserWarning, match=pattern):
         TMLE(policies=[tiny], **density_settings()).fit(geo_data()).single()
 
@@ -1145,11 +1147,14 @@ def _two_doses() -> tuple[Any, Any, Any]:
 
     rng = np.random.default_rng(4)
     w = rng.normal(size=(400, 2))
-    doses = [rng.normal(size=400), rng.normal(size=400)]
+    # Uniform doses leave no empty stretch for the grid to refine, so each keeps exactly the
+    # ten core bins the retained bytes below are counted at.
+    doses = [rng.uniform(size=400), rng.uniform(size=400)]
     learner = LogisticRegression()
     tables = []
     for k, dose in enumerate(doses):
         grid = _grid(dose, None, 10, None, None)
+        assert grid.n_total == 10
         records, columns, _ = _table_size(learner, w.shape[1] + k, grid, None)
         tables.append(records * columns * 8)
     components = [(w.shape[1] + k, dose) for k, dose in enumerate(doses)]
@@ -1600,7 +1605,7 @@ def test_the_lookup_is_exactly_zero_outside_the_outer_edges() -> None:
     edges = np.array([0.0, 1.0, 3.0])
     probabilities = np.array([[0.25, 0.75], [0.5, 0.5]])
     values = np.array([[-1e-12, 0.0, 3.0, 3.0 + 1e-12], [np.nan, 0.5, 2.0, np.inf]])
-    found = _lookup(probabilities, edges, values)
+    found = _lookup(probabilities, edges, np.ones(2, dtype=bool), None, values)
     assert found[0, 0] == 0.0 and found[0, 3] == 0.0 and found[1, 0] == 0.0
     assert found[1, 3] == 0.0
     assert np.all(found[:, 1:3] > 0.0)

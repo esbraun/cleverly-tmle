@@ -1,6 +1,6 @@
 """V13 and V14: how strong would hidden confounding need to be, and how far does it move us.
 
-Two analyses answer the question and neither is an interval:
+Three analyses answer the question and none is an interval:
 
 - :class:`~cleverly.sensitivity.SensitivityContour` holds the bias-adjusted bound of the
   estimate over a grid of two confounder strengths, in the parametrisation of Chernozhukov,
@@ -12,9 +12,13 @@ Two analyses answer the question and neither is an interval:
 - :class:`~cleverly.sensitivity.SimulatedConfoundingResult` holds the refitted estimate under
   a simulated common cause of declared strengths, in the units of its own perturbation laws.
   It is a qualitative stress surface, not a bound.
+- :class:`~cleverly.sensitivity.EValue` holds the E-values of an estimate and of its
+  confidence limit nearest the null. The module ``_evalue`` draws the level sets of Ding and
+  VanderWeele's bounding factor at the two stored risk ratios.
 
-Both draw cells the object holds and nothing between them that the object does not. The
-null each outlines comes from the scale the object records, never from the estimand's name.
+The first two draw cells the object holds and nothing between them that the object does
+not. The null each outlines comes from the scale the object records, never from the
+estimand's name.
 """
 
 from __future__ import annotations
@@ -1316,16 +1320,21 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     covariates marked at their gains. For a
     :class:`~cleverly.sensitivity.SimulatedConfoundingResult` it maps the refitted estimate
     over the declared strengths of a simulated common cause, in the units of its own
-    perturbation laws, and says it is qualitative.
+    perturbation laws, and says it is qualitative. For an
+    :class:`~cleverly.sensitivity.EValue` it draws the pairs of confounder associations, on the
+    risk-ratio scale, that could explain the estimate away, and those that could move the
+    confidence limit nearest the null to the null, with each E-value where the two
+    associations are equal.
 
     Parameters
     ----------
-    obj : SensitivityContour or SimulatedConfoundingResult
+    obj : SensitivityContour, SimulatedConfoundingResult or EValue
         The analysis to draw.
     **kwargs
         For a contour: ``robustness=``, ``benchmarks=``, ``multiples=``, ``null=`` and
-        ``ax=``. For a surface: ``at=``, ``null=`` and ``ax=``. Both take the formatting
-        keywords ``title=``, ``subtitle=``, ``xlabel=``, ``ylabel=``, ``legend=`` and
+        ``ax=``. For a surface: ``at=``, ``null=`` and ``ax=``. For an E-value:
+        ``max_strength=``, the largest association both axes show, and ``ax=``. All take the
+        formatting keywords ``title=``, ``subtitle=``, ``xlabel=``, ``ylabel=``, ``legend=`` and
         ``figsize=``, as :func:`~cleverly.plotting.forest` describes them. ``xlabel=`` and
         ``ylabel=`` replace the words on the two strength axes, such as ``"Weight side"``
         and ``"Score side"`` for a page that names the two strengths that way.
@@ -1338,13 +1347,20 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     Raises
     ------
     TypeError
-        When ``obj`` is neither analysis.
+        When ``obj`` is none of these analyses.
+    CapabilityError
+        When ``obj`` holds one report per candidate of a variable-importance run, or an
+        E-value has no curve to draw because its estimate's E-value is not above 1.
+    ValueError
+        When an E-value's stored values do not match its risk ratio, or ``max_strength`` is
+        not a finite number above the estimate's E-value.
 
     See Also
     --------
     cleverly.plotting.sensitivity : Estimates across a declared sensitivity parameter.
     cleverly.sensitivity.contour_data : Build the grid of bias-adjusted bounds.
     cleverly.sensitivity.simulated_confounding : Build the simulated-confounding surface.
+    cleverly.sensitivity.evalue : Build the E-values of an estimate and its confidence limit.
 
     Notes
     -----
@@ -1353,7 +1369,9 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     condition applies, such as too few clusters: read :func:`~cleverly.plotting.notes` on
     the figure before you publish it. For this plot the notes define the two strengths, list
     benchmarks or calibrations that are not marked and why, and say that a
-    simulated-confounding map is qualitative: not a bound or an interval.
+    simulated-confounding map is qualitative: not a bound or an interval. For an E-value they
+    define the curves and repeat the E-value's own notes: its assumption, any conversion to
+    the risk-ratio scale, and whether its limit is descriptive or the estimate experimental.
 
     Examples
     --------
@@ -1382,14 +1400,27 @@ def confounding(obj: Any, **kwargs: Any) -> Figure:
     'Sensitivity to hidden confounding'
     >>> plt.close(fig)
     """
-    from ..sensitivity import SensitivityContour, SimulatedConfoundingResult
+    from ..assessment import CandidateReports
+    from ..sensitivity import EValue, SensitivityContour, SimulatedConfoundingResult
+    from ._evalue import evalue_curves
 
     if isinstance(obj, SensitivityContour):
         return contour(obj, **kwargs)
     if isinstance(obj, SimulatedConfoundingResult):
         return surface(obj, **kwargs)
+    if isinstance(obj, EValue):
+        return evalue_curves(obj, **kwargs)
+    if isinstance(obj, CandidateReports):
+        raise CapabilityError(
+            "confounding() draws the analysis of one estimate, and a variable-importance run "
+            f"holds one {obj.operation} report per candidate.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Call cleverly.plotting.confounding(reports[candidate]) for one candidate."
+            ),
+        )
     raise TypeError(
-        "confounding() takes a SensitivityContour or SimulatedConfoundingResult; "
+        "confounding() takes a SensitivityContour, SimulatedConfoundingResult or EValue; "
         f"got {type(obj).__name__}"
     )
 

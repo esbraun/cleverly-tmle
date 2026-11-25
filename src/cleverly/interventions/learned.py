@@ -75,6 +75,7 @@ __all__ = [
     "LEARNED_RULE_REMEDY",
     "LEARNED_RULE_TILT_REFUSAL",
     "LOSSES",
+    "NATURAL_COURSE_TARGET",
     "OPTIMAL_CONTRAST_TARGET",
     "OPTIMAL_REPLAY_TARGET_KIND",
     "OPTIMAL_RULE_BENCHMARK_REFUSAL",
@@ -99,6 +100,7 @@ __all__ = [
     "freeze_learned_rule",
     "frozen_level_refusal",
     "frozen_rule_replay",
+    "has_comparator",
     "in_sample_learner_condition",
     "learned_rule_configuration_refusal",
     "learned_rule_estimands",
@@ -109,6 +111,8 @@ __all__ = [
     "learned_rule_splits_refusal",
     "learned_rule_treat",
     "mean_over_splits",
+    "natural_course_intermediate_refusal",
+    "natural_course_of",
     "optimal_rule_requested",
     "realized_arms",
     "refuse_learned_rule_composition",
@@ -1133,6 +1137,9 @@ class LearnedRuleRecord:
     known_regimes : tuple of str
         The names of the known regimes declared beside the rule (``interventions=``), or
         ``()``.
+    natural_course : str or None
+        The name of the :class:`~cleverly.interventions.NaturalCourse` declared beside the
+        rule, or ``None``.
 
     Attributes
     ----------
@@ -1154,6 +1161,7 @@ class LearnedRuleRecord:
     weighted: bool = False
     strata: tuple[str, ...] = ()
     known_regimes: tuple[str, ...] = ()
+    natural_course: str | None = None
 
     @property
     def n_splits(self) -> int:
@@ -1434,11 +1442,15 @@ class LearnedRuleRecord:
                 "restricted to a stratum is that stratum's optimal rule, and the marginal "
                 "estimate is the share mixture of the stratum values."
             )
-        if self.known_regimes:
+        comparators = (
+            *self.known_regimes,
+            *(() if self.natural_course is None else (self.natural_course,)),
+        )
+        if comparators:
             out += (
                 " Each contrast ate_optimal_rule[...] targets the optimal value minus the "
-                f"value of a known regime ({', '.join(self.known_regimes)}), and it inherits "
-                "the regret of the learned rules, while the known regime's value carries "
+                f"value of a comparator ({', '.join(comparators)}), and it inherits "
+                "the regret of the learned rules, while the comparator's value carries "
                 "none."
             )
         return out
@@ -1926,6 +1938,7 @@ def learned_rule_record(
     weighted: bool = False,
     strata: Sequence[str] = (),
     known_regimes: Sequence[str] = (),
+    natural_course: str | None = None,
 ) -> LearnedRuleRecord:
     """Build the record of a learned-rule fit from the records of its splits.
 
@@ -1950,6 +1963,8 @@ def learned_rule_record(
         The baseline strata columns, or ``()``.
     known_regimes : sequence of str
         The names of the known regimes beside the rule, or ``()``.
+    natural_course : str or None
+        The name of the natural course beside the rule, or ``None``.
 
     Returns
     -------
@@ -1970,6 +1985,7 @@ def learned_rule_record(
         weighted=bool(weighted),
         strata=tuple(str(name) for name in strata),
         known_regimes=tuple(str(name) for name in known_regimes),
+        natural_course=None if natural_course is None else str(natural_course),
     )
 
 
@@ -1998,7 +2014,98 @@ CONTRAST_TARGETS: tuple[str, ...] = (
     "ey_known_regime",
     "ate_learned_rule",
     OPTIMAL_CONTRAST_TARGET,
+    "ey_natural_course",
 )
+
+#: The target of the natural-course mean declared beside a learned rule
+#: (:class:`~cleverly.interventions.NaturalCourse`).  It is reported only when one is declared.
+NATURAL_COURSE_TARGET = "ey_natural_course"
+
+
+def natural_course_of(estimator: Any) -> Any:
+    """The :class:`~cleverly.interventions.NaturalCourse` declared beside the rule, or ``None``.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+
+    Returns
+    -------
+    NaturalCourse or None
+        The declared natural course of a learned-rule fit, or ``None``.
+    """
+    if getattr(estimator, "learned_rule", None) is None:
+        return None
+    return getattr(estimator, "natural_course", None)
+
+
+def has_comparator(estimator: Any) -> bool:
+    """Whether a learned-rule fit declares any comparator beside the rule.
+
+    A comparator is a known regime of ``interventions=`` or a natural course.  Every check
+    of the learned-rule path that asks whether the fit reports contrasts reads this, so a
+    fit whose one comparator is the natural course reports its contrast.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+
+    Returns
+    -------
+    bool
+        ``True`` when a known regime or a natural course is declared.
+    """
+    return bool(getattr(estimator, "interventions", ())) or natural_course_of(estimator) is not None
+
+
+def natural_course_intermediate_refusal(
+    intermediate_name: str, *, holder: str, level: float | None = None
+) -> Refusal:
+    """The refusal of a natural course beside a learned rule that holds an intermediate.
+
+    The learned rule's value holds the intermediate at a level, and the natural course reads
+    the observed course, in which it is not held, so their difference is not a contrast of
+    two interventions.
+
+    Parameters
+    ----------
+    intermediate_name : str
+        The name of the intermediate column.
+    holder : str
+        The declaration that holds the level, such as
+        ``"LearnedRuleContrast(intermediate=1)"``.
+    level : float or None
+        The held level, or ``None`` when the fit holds each level in turn.
+
+    Returns
+    -------
+    Refusal
+        A ``different_estimand`` record.
+    """
+    held = "at each level z" if level is None else f"at {level:g}"
+    return Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
+        f"{holder} holds {intermediate_name} {held} in the learned rule's value, and "
+        f"NaturalCourse() reads the observed course, in which {intermediate_name} is not "
+        "held. Their difference mixes a controlled value with an uncontrolled one, which is "
+        "not a contrast of two interventions.",
+        alternative=(
+            "Compare with a known regime at the held level, such as Static(0), or drop "
+            "intermediate= to compare with the natural course."
+        ),
+    )
+
+
+def _comparator_names(estimator: Any) -> list[str]:
+    """The names of the declared comparators: the known regimes, then the natural course."""
+    names = [str(item.name) for item in tuple(getattr(estimator, "interventions", ()) or ())]
+    natural = natural_course_of(estimator)
+    if natural is not None:
+        names.append(str(natural.name))
+    return names
+
 
 #: The names that read the learned column as the value of the learned rules.  A fit of the
 #: value of the optimal rule reports none of them (X11 (f), (f3)).
@@ -2040,12 +2147,17 @@ def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, .
     """
     if getattr(estimator, "learned_rule", None) is None:
         return tuple(names)
-    known = bool(getattr(estimator, "interventions", ()))
+    known = has_comparator(estimator)
+    natural = natural_course_of(estimator) is not None
     if optimal_rule_requested(estimator):
         if not known:
             return (OPTIMAL_RULE_TARGET,)
         written = _requested(getattr(estimator, "estimands", None))
-        contrasts = ("ey_known_regime", OPTIMAL_CONTRAST_TARGET)
+        contrasts = (
+            "ey_known_regime",
+            *((NATURAL_COURSE_TARGET,) if natural else ()),
+            OPTIMAL_CONTRAST_TARGET,
+        )
         asked = tuple(name for name in contrasts if name in written)
         return (OPTIMAL_RULE_TARGET, *(asked or contrasts))
     rest = [
@@ -2053,6 +2165,7 @@ def learned_rule_estimands(estimator: Any, names: Sequence[str]) -> tuple[str, .
         for name in names
         if name not in ("ey_learned_rule", OPTIMAL_RULE_TARGET)
         and (known or name not in CONTRAST_TARGETS)
+        and (natural or name != NATURAL_COURSE_TARGET)
     ]
     return ("ey_learned_rule", *rest)
 
@@ -2109,7 +2222,9 @@ def learned_rule_retarget_refusal(estimator: Any, requested: Sequence[str]) -> R
     family = _family_refusal(estimator, requested)
     if family is not None:
         return family
-    if getattr(estimator, "interventions", ()):
+    if has_comparator(estimator) and (
+        natural_course_of(estimator) is not None or NATURAL_COURSE_TARGET not in requested
+    ):
         return None
     if not any(name in CONTRAST_TARGETS for name in requested):
         return None
@@ -2166,16 +2281,21 @@ def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) ->
     refused too, because every reported name would be ambiguous.  ``requested`` replaces
     the estimator's ``estimands=`` for a retarget, which names its own targets.
     """
-    interventions = tuple(getattr(estimator, "interventions", ()) or ())
     reference = getattr(estimator, "reference", None)
     rule = estimator.learned_rule
-    names = [str(item.name) for item in interventions]
-    if not interventions:
-        written = (
-            _requested(getattr(estimator, "estimands", None))
-            if requested is None
-            else tuple(requested)
+    names = _comparator_names(estimator)
+    written = (
+        _requested(getattr(estimator, "estimands", None)) if requested is None else tuple(requested)
+    )
+    if NATURAL_COURSE_TARGET in written and natural_course_of(estimator) is None:
+        # R-d9: the natural-course mean is reported only beside a declared natural course.
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "estimands= names ey_natural_course, and interventions= declares no "
+            "NaturalCourse(), so the fit has no natural-course mean to report.",
+            alternative="Add NaturalCourse() to interventions= beside the learned rule.",
         )
+    if not has_comparator(estimator):
         asked = [name for name in written if name in CONTRAST_TARGETS]
         if asked or reference is not None:
             named = [
@@ -2184,16 +2304,25 @@ def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) ->
             ]
             return Refusal(
                 RefusalReason.INVALID_DECLARATION,
-                f"{' and '.join(named)} on a learned-rule fit read a known regime declared "
-                "beside the rule with interventions=, and this fit declares none. Its one "
-                "estimand is the value of its learned column, which has no contrast.",
+                f"{' and '.join(named)} on a learned-rule fit read a comparator declared "
+                "beside the rule with interventions=, a known regime or NaturalCourse(), and "
+                "this fit declares none. Its one estimand is the value of its learned column, "
+                "which has no contrast.",
                 alternative=(
-                    "Declare the known regimes to compare against, for example "
-                    "interventions=[Static(1)], or drop "
+                    "Declare the comparators, for example interventions=[Static(1)] or "
+                    "interventions=[NaturalCourse()], or drop "
                     f"{' and '.join(named)} to fit the learned-rule value alone."
                 ),
             )
         return None
+    if len(set(names)) != len(names):
+        repeated = next(name for name in names if names.count(name) > 1)
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"two comparators of interventions= are both named {repeated!r}, so the reported "
+            "values and contrasts could not tell them apart.",
+            alternative="Give each comparator its own name=.",
+        )
     if rule.name in names:
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
@@ -2329,7 +2458,12 @@ def _optimal_configuration_refusal(estimator: Any) -> Refusal | None:
     rule, refuses as it does for the learned-rule value.
     """
     names = list(_requested(getattr(estimator, "estimands", None)))
-    admitted = (OPTIMAL_RULE_TARGET, "ey_known_regime", OPTIMAL_CONTRAST_TARGET)
+    admitted = (
+        OPTIMAL_RULE_TARGET,
+        "ey_known_regime",
+        NATURAL_COURSE_TARGET,
+        OPTIMAL_CONTRAST_TARGET,
+    )
     others = [name for name in names if name not in admitted]
     if others:
         contrast = (
@@ -2354,7 +2488,11 @@ def _optimal_configuration_refusal(estimator: Any) -> Refusal | None:
 
 
 def _data_refusal(
-    data: CausalData, rule: LearnedRule | None = None, *, optimal: bool = False
+    data: CausalData,
+    rule: LearnedRule | None = None,
+    *,
+    optimal: bool = False,
+    natural_course: bool = False,
 ) -> Refusal | None:
     """The data rows of the learned-rule refusal table: the declarations no setting repairs.
 
@@ -2362,6 +2500,8 @@ def _data_refusal(
     ``rule`` is the declared rule, which the row of a rule learner on more than two arms
     reads.  ``None`` skips that row.  ``optimal`` is whether the fit targets the value of
     the optimal rule, which the row of an EP rule's modifiers reads (R12).
+    ``natural_course`` is whether a natural course is declared beside the rule, which the
+    row of an intermediate reads.
     """
     if data.is_continuous_treatment:
         return _gap(
@@ -2452,6 +2592,10 @@ def _data_refusal(
     ep_refusal = _ep_modifier_refusal(data, rule, optimal=optimal)
     if ep_refusal is not None:
         return ep_refusal
+    if data.has_intermediate and natural_course:
+        return natural_course_intermediate_refusal(
+            str(data.intermediate_name or "Z"), holder="TMLE(learned_rule=...)"
+        )
     if data.has_strata and data.cluster is not None:
         return _gap(
             "a learned rule with baseline strata (strata=) and clusters (id=) is refused under "
@@ -2841,6 +2985,7 @@ def refuse_learned_rule_composition(
             ``loss="ep"`` with a modifier outside ``W`` (R6)     none, a declaration
             ``ey_optimal_rule`` with ``loss="ep"`` and           none, another estimand
             modifiers narrower than ``W`` (R12)
+            ``NaturalCourse()`` with ``intermediate=``           none, another estimand
     7       ``strata=`` with clusters, ``id=``                   X28
     8       ``repeats`` above 1 with clusters, ``id=``           X11 (i2)
     9       ``n_bootstrap`` above 0                              F27
@@ -2898,7 +3043,8 @@ def refuse_learned_rule_composition(
         rule = estimator.learned_rule
         optimal = optimal_rule_requested(estimator)
     if refusal is None:
-        refusal = _data_refusal(data, rule, optimal=optimal)
+        natural = estimator is not None and natural_course_of(estimator) is not None
+        refusal = _data_refusal(data, rule, optimal=optimal, natural_course=natural)
     if refusal is None and estimator is not None:
         refusal = learned_rule_scheme_refusal(estimator, data)
     if refusal is None and estimator is not None:

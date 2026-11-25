@@ -36,6 +36,8 @@ MISSINGNESS_MODEL: Final = "Missingness model"
 WEIGHTED: Final = " (weighted)"
 #: The model of whether a row's treatment was recorded.
 RECORDING_MODEL: Final = "Recording model"
+#: The route a policy fit estimates its density ratio by, and the rule that chose it.
+POLICY_RATIO: Final = "Policy ratio"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"
@@ -482,6 +484,8 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
         "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
+        "known_stochastic_regimes": "a random treatment plan reported beside the learned rule",
+        "natural_course": "current practice (the observed treatment) beside the learned rule",
         "rule_learner_blip": "a rule learner",
         "rule_learner_weighted_classification": "a rule learner",
         "rule_learner_ep": "a rule learner",
@@ -1120,6 +1124,7 @@ T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "row_not_converged": "warning",
         "equations_only": "note",
         "dr_curve": "note",
+        "natural_course_no_equation": "note",
         "held_to_nothing": "note",
         "correction_rows": "note",
         "default_bar": "note",
@@ -1149,6 +1154,11 @@ T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "it holds only in the cases cleverly.estimators.drtmle lists."
         ),
         "held_to_nothing": "Rows marked described are held to no allowed error: {reasons}",
+        "natural_course_no_equation": (
+            "{name} has no equation the correction step solves: its value is the mean of the "
+            "observed outcome, which uses no treatment model, so only its estimate's equation "
+            "({estimand}) is checked."
+        ),
         "correction_rows": (
             "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
             "its allowed error, and an identity row checks that the value the correction "
@@ -1549,6 +1559,7 @@ T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "calibration": "note",
         "collaborative_model": "note",
         "declared_treatment": "note",
+        "classifier_ratio": "note",
         "fit_status": "note",
         "selection": "note",
         "split_ratio": "note",
@@ -1593,6 +1604,10 @@ T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         "declared_treatment": (
             "The treatment probabilities were declared, not fitted, so the treatment rows "
             "compare the declaration with the treatment each row received."
+        ),
+        "classifier_ratio": (
+            "The policy weights come from a classifier that tells each row's policy dose from "
+            "its observed dose, so the fit has no separate treatment model to check here."
         ),
         "fit_status": "{sentences}",
         "selection": "{sentence}",
@@ -1688,6 +1703,7 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
+        "treatment": "No treatment model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
         "folds": (
             "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
@@ -2689,6 +2705,26 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
         ),
     ),
     (
+        "separable components:",
+        (
+            "treatment splits into two parts",
+            "The treatment can be split into a part that acts on the event of interest and a "
+            "part that acts on the competing event, and each part could be given on its own.",
+            "no",
+        ),
+    ),
+    (
+        "dismissible components",
+        (
+            "each part acts on one event",
+            "The part for the competing event changes the event of interest only by changing "
+            "the competing event, and the part for the event of interest changes the competing "
+            "event only by changing the event of interest. This fails, for example, when an "
+            "unrecorded cause affects both events.",
+            "no",
+        ),
+    ),
+    (
         "dropout is missing at random given the recorded history",
         (
             "follow-up loss at random",
@@ -3469,6 +3505,7 @@ T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "unsupported_rows": "warning",
         "score_load": "note",
         "score_load_rows": "note",
+        "natural_course_no_weights": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
@@ -3488,6 +3525,10 @@ T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "their effective size read the estimated model before any limit. It counts the "
             "rows that effectively carry the estimating equation, of the rows the equation "
             "reads, so it is not the effective size of the ratios."
+        ),
+        "natural_course_no_weights": (
+            "{name} has no row because it uses no treatment weights: its value is the mean of "
+            "the observed outcome."
         ),
         "score_load_rows": (
             "Score load counts the rows that effectively carry the estimating equation, of the "

@@ -483,14 +483,18 @@ class TestTheDeclaration:
         assert rows == []
 
 
-#: POST-RUN, not pre-registered.  The paired rows that the declared run turned red through the
+#: POST-RUN, not pre-registered.  The paired rows that the committed run turns red through the
 #: failure accounting's worst case alone, diagnosed after the run on the evidence page
-#: (``docs/technical-reference/method-evidence/dose-response-npcausal.md``, "Why three rows are
+#: (``docs/technical-reference/method-evidence/dose-response-npcausal.md``, "Why one row is
 #: red").  Each row's complete cases conclude equivalent, and the six replicates ``ctseff``
 #: lost, imputed at the accounting's unfavourable candidates, push the calibration excess past
 #: its margin.  The declaration's sizing read complete cases only and never priced that
-#: imputation in.  Only these rows, and only under :func:`_check_worst_case_only`, are admitted.
-POST_RUN_WORST_CASE = frozenset({"dose_response[h=2,a=2.5]", "dose_response[h=2.5,a=3.5]"})
+#: imputation in.  The first declared run read this signature at h=2, a=2.5 and h=2.5, a=3.5.
+#: The run regenerated on Fix-9's density reads it at h=2, a=3.5 alone: the pre-registered
+#: upper dose, whose calibration leg now passes on its complete cases, so the pre-registered
+#: signature no longer reads there.  Only these rows, and only under
+#: :func:`_check_worst_case_only`, are admitted.
+POST_RUN_WORST_CASE = frozenset({"dose_response[h=2,a=3.5]"})
 
 
 @dataclass(frozen=True)

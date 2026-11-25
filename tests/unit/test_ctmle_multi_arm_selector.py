@@ -20,7 +20,7 @@ def _fit(stem: str = "ate", **overrides):  # type: ignore[no-untyped-def]
         "selection_folds": 2,
         "selection_inner_folds": 2,
         "estimands": ("ey", "ate", "rr", "or"),
-        "ctmle_estimand": stem,
+        "selection_estimand": stem,
         "reference": "low",
         **overrides,
     }

@@ -47,9 +47,11 @@ STUDIES = registered()
 BY_SLUG = {study.slug: study for study in STUDIES}
 POLICIES = {study.slug: study.publication_policy for study in STUDIES}
 
-#: The one committed paired row that is red for its calibration leg alone.
+#: A study whose committed tables hold no failed fit, for the verdict-column checks.
 SHIFT = "shift-policies"
-SHIFT_RED = ("continuous_modified_policy", "ate_policy[+0.25 vs natural course]")
+#: A committed paired row that is red for its calibration leg alone, and its study.
+RED_STUDY = "canonical-stratified-msm-identity"
+RED_PAIRED = ("stratified_msm_identity", "msm[W][V=2]")
 
 
 @pytest.fixture(scope="module")
@@ -217,9 +219,10 @@ def test_an_accounted_paired_verdict_needs_its_gate(
 ) -> None:
     # The witness that the gate branch above is not vacuous: a dose-response-npcausal row
     # whose legs conclude equivalent is committed unaccounted, and only its gate explains it.
+    # Since the Fix-9 regeneration that row is h=2, a=3.5 (h=2, a=2.5 now survives the gate).
     study = BY_SLUG["dose-response-npcausal"]
     frame = tables[study.slug]["equivalence"]
-    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=2.5]")
+    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=3.5]")
     legs = paired_legs(row, study.margins, True)
     assert (legs.passed, legs.conclusion) == (True, "equivalent")
     gate = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")[
@@ -268,13 +271,13 @@ def test_fill_refuses_a_block_published_twice(tmp_path: Path) -> None:
 # --- deliberate mutations: the paired verdict ------------------------------------------------
 
 
-def _shift_tables(
+def _red_tables(
     tables: dict[str, dict[str, pd.DataFrame]],
 ) -> tuple[StudyRecord, dict[str, pd.DataFrame], pd.Series]:
-    study = BY_SLUG[SHIFT]
-    copied = {name: frame.copy() for name, frame in tables[SHIFT].items()}
+    study = BY_SLUG[RED_STUDY]
+    copied = {name: frame.copy() for name, frame in tables[RED_STUDY].items()}
     equivalence = copied["equivalence"]
-    red = (equivalence["scenario"] == SHIFT_RED[0]) & (equivalence["estimand"] == SHIFT_RED[1])
+    red = (equivalence["scenario"] == RED_PAIRED[0]) & (equivalence["estimand"] == RED_PAIRED[1])
     assert red.sum() == 1 and not bool(equivalence.loc[red, "passed"].iloc[0])
     return study, copied, red
 
@@ -282,10 +285,10 @@ def _shift_tables(
 def test_the_committed_red_paired_row_fails_on_its_calibration_leg(
     tables: dict[str, dict[str, pd.DataFrame]],
 ) -> None:
-    """A nonzero witness: the one paired row the roadmap once missed is red, and for this leg."""
-    study, copied, _ = _shift_tables(tables)
+    """A nonzero witness: a committed paired row is red, and for its calibration leg."""
+    study, copied, _ = _red_tables(tables)
     (row,) = [row for row in red_rows(study, copied) if row.key.kind == "paired"]
-    assert row.key.key == "/".join(SHIFT_RED)
+    assert row.key.key == "/".join(RED_PAIRED)
     assert row.fails_by == "inconclusive: calibration leg"
 
 
@@ -293,7 +296,7 @@ def test_the_committed_red_paired_row_fails_on_its_calibration_leg(
 def test_a_flipped_committed_paired_verdict_is_refused(
     tables: dict[str, dict[str, pd.DataFrame]], red_row: bool
 ) -> None:
-    study, copied, red = _shift_tables(tables)
+    study, copied, red = _red_tables(tables)
     equivalence = copied["equivalence"]
     target = equivalence.index[red if red_row else ~red][0]
     equivalence.loc[target, "passed"] = not bool(equivalence.loc[target, "passed"])
@@ -308,7 +311,7 @@ def test_the_legs_decide_the_verdict(tables: dict[str, dict[str, pd.DataFrame]])
     ledger must refuse the row.  A ``paired_legs`` that returned the committed verdict unread
     would accept it, and this test would fail.
     """
-    study, copied, red = _shift_tables(tables)
+    study, copied, red = _red_tables(tables)
     equivalence = copied["equivalence"]
     equivalence.loc[red, "calibration_excess_upper"] = study.margins.calibration_noninferiority / 2
     with pytest.raises(ValueError, match="but its legs conclude 'equivalent'"):
@@ -318,7 +321,7 @@ def test_the_legs_decide_the_verdict(tables: dict[str, dict[str, pd.DataFrame]])
 def test_a_committed_margin_must_match_the_registry(
     tables: dict[str, dict[str, pd.DataFrame]],
 ) -> None:
-    study, copied, red = _shift_tables(tables)
+    study, copied, red = _red_tables(tables)
     copied["equivalence"].loc[red, "rmse_noninferiority_margin"] += 1e-6
     with pytest.raises(ValueError, match="committed comparison margins disagree"):
         red_rows(study, copied)
@@ -331,13 +334,13 @@ def _one_leg(
     subject_valid: bool = True,
     committed: tuple[bool, str] = (False, "inconclusive"),
 ) -> list[RedRow]:
-    """The red paired rows of a copy of the shift row, moved so that one leg decides it.
+    """The red paired rows of a copy of the red row, moved so that one leg decides it.
 
     The calibration leg moves inside its margin first, so every other leg of the row holds and
     its legs would conclude ``equivalent``.  ``endpoints`` then moves one leg, and
     ``committed`` is the verdict that leg should produce.
     """
-    study, copied, red = _shift_tables(tables)
+    study, copied, red = _red_tables(tables)
     equivalence = copied["equivalence"]
     equivalence.loc[red, "calibration_excess_upper"] = study.margins.calibration_noninferiority / 2
     for column, value in endpoints.items():
@@ -348,8 +351,8 @@ def _one_leg(
         performance = copied["performance"]
         subject = (
             (performance["implementation"] == study.implementation)
-            & (performance["scenario"] == SHIFT_RED[0])
-            & (performance["estimand"] == SHIFT_RED[1])
+            & (performance["scenario"] == RED_PAIRED[0])
+            & (performance["estimand"] == RED_PAIRED[1])
         )
         assert subject.sum() == 1
         performance.loc[subject, "passed"] = False
@@ -357,13 +360,13 @@ def _one_leg(
 
 
 def _mean_margin(tables: dict[str, dict[str, pd.DataFrame]]) -> float:
-    _, copied, red = _shift_tables(tables)
+    _, copied, red = _red_tables(tables)
     return float(copied["equivalence"].loc[red, "mean_margin"].iloc[0])
 
 
 def test_the_rmse_leg_alone_makes_a_row_red(tables: dict[str, dict[str, pd.DataFrame]]) -> None:
     """A nonzero witness for the RMSE leg: a bound just above its margin is red."""
-    bound = BY_SLUG[SHIFT].margins.rmse_noninferiority * (1 + 1e-6)
+    bound = BY_SLUG[RED_STUDY].margins.rmse_noninferiority * (1 + 1e-6)
     (row,) = _one_leg(tables, {"rmse_ratio_upper": bound})
     assert row.fails_by == "inconclusive: RMSE leg"
 

@@ -75,7 +75,7 @@ class _Pieces:
         self.outcome = frame["Y"].to_numpy(dtype=float)
         index = np.rint(self.dose).astype(int)
 
-        density = ConditionalDensity(law.G_EXACT[self.covariate], law.EDGES)
+        density = ConditionalDensity(law.bins(law.G_EXACT[self.covariate]), law.EDGES, law.OCCUPIED)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             data = CausalData.from_arrays(

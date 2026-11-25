@@ -342,7 +342,12 @@ _LEARNED_RULE_CONTRAST_ID = Identification(
         "(g a maximum-likelihood fit in a correct model), if Corollary 3's D_g term is the "
         "projection of D_j on the mechanism's tangent space, each true curve is D_j minus "
         "that projection, the projection is linear, and the contrast's variance from "
-        "D_L - D_K would be conservative; that form of D_g is not checked (X11 (c))"
+        "D_L - D_K would be conservative; that form of D_g is not checked (X11 (c)). "
+        "Against a natural course (NaturalCourse()), whose mean reads no g, that argument does "
+        "not apply: the true curve is (D_L - P) - D_N, P the projection of D_L, so the "
+        "reported variance of D_L - D_N exceeds the true one by Var(P) - 2 Cov(D_N, P), which "
+        "takes either sign; the interval is exact when Qbar is consistent or g is declared, "
+        "and no conservativeness result holds otherwise"
     ),
     references=_LEARNED_RULE_ID.references,
 )
@@ -367,6 +372,28 @@ _OPTIMAL_RULE_CONTRAST_ID = Identification(
         "of Lemma 1; the known side carries none"
     ),
     references=_OPTIMAL_RULE_ID.references,
+)
+
+#: The natural course declared beside a learned rule (``ey_natural_course``), the estimand of
+#: ``ey_obs`` on the learned-rule axis.  It reads the observed law alone.
+_NATURAL_COURSE_ID = Identification(
+    assumptions=(
+        "none beyond the observed law: E[Y] is a functional of the observed distribution; a "
+        "learned-rule fit refuses missing outcomes, so every outcome is observed",
+        "its contrast with the learned rule reads Y under the observed treatment as current "
+        "practice, E[Y^{g0}] = E[Y], under consistency, beside the learned-rule conditions",
+    ),
+    # The nuisances of the fit that reports it, whose learned column needs both; the mean
+    # itself reads neither, as dr_condition says.
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "none: the mean is empirical and reads no nuisance. Its contrast's interval is exact "
+        "when Qbar is consistent or g is declared; with a misspecified Qbar and a "
+        "maximum-likelihood g the reported variance exceeds the true one by "
+        "Var(P) - 2 Cov(D_N, P), P the projection of the learned curve on the mechanism's "
+        "tangent space, which takes either sign, so no conservativeness result holds"
+    ),
+    references=_LEARNED_RULE_ID.references,
 )
 
 _IPSI_ID = Identification(
@@ -775,6 +802,30 @@ def _ey_known_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     ]
 
 
+def _ey_natural_course(ctx: TargetContext) -> list[ParameterEstimate]:
+    r"""``E[Y]``, the natural course declared beside a learned rule.
+
+    The estimand of ``ey_obs``, on the learned-rule axis.  The mean is
+    :attr:`~cleverly.targets.TargetContext.observed_mean` of the context's rows, so a
+    fold-evaluated fit averages the fold means :math:`\bar Y_v` with weight ``1/V`` and its
+    curve is :math:`Y - \bar Y_{v(i)}`, and a stacked fit reports :math:`\bar Y`.  It
+    reads no regime column and no fluctuation.  A fit without a natural course has none.
+    """
+    label = ctx.learned_natural_course
+    if label is None:
+        return []
+    mean = ctx.observed_mean
+    return [
+        ctx.finish(
+            parameter_name("ey_natural_course", arm=label),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(),
+        )
+    ]
+
+
 def _ate_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
     r"""The learned-rule value against each known regime, one contrast each (X11 (c)).
 
@@ -798,7 +849,12 @@ def _ate_optimal_rule(ctx: TargetContext) -> list[ParameterEstimate]:
 
 
 def _learned_column_contrasts(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
-    """The learned column against each known regime, under ``stem``, with the sign of ``ctx``."""
+    """The learned column against each comparator, under ``stem``, with the sign of ``ctx``.
+
+    The known regimes come first, in code order, then the natural course, whose contrast
+    reads the learned column only and takes its sign from
+    :attr:`~cleverly.targets.TargetContext.natural_course_flip`.
+    """
     learned = ctx.means[LEARNED_RULE_CODE]
     flip = ctx.reference == LEARNED_RULE_CODE
     out = []
@@ -814,6 +870,23 @@ def _learned_column_contrasts(ctx: TargetContext, stem: str) -> list[ParameterEs
                 first.influence_curve - second.influence_curve,
                 "difference",
                 reads=(arm, versus),
+            )
+        )
+    label = ctx.learned_natural_course
+    if label is not None:
+        natural = ctx.observed_mean
+        rule = ctx.label(LEARNED_RULE_CODE)
+        if ctx.natural_course_flip:
+            first, second, named = natural, learned, (label, rule)
+        else:
+            first, second, named = learned, natural, (rule, label)
+        out.append(
+            ctx.finish(
+                parameter_name(stem, arm=named[0], versus=named[1]),
+                first.psi - second.psi,
+                first.influence_curve - second.influence_curve,
+                "difference",
+                reads=(LEARNED_RULE_CODE,),
             )
         )
     return out
@@ -1178,6 +1251,20 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         ),
     ),
     Target(
+        name="ey_natural_course",
+        bounded="mean",
+        group="regime",
+        scale="level",
+        build=_ey_natural_course,
+        identification=_NATURAL_COURSE_ID,
+        parameter_axis="learned_rule",
+        in_default_set=True,
+        description=(
+            "natural-course outcome mean E[Y], the estimand of ey_obs, declared beside a "
+            "learned rule with NaturalCourse() and reported under the rule's fold weights"
+        ),
+    ),
+    Target(
         name="ate_learned_rule",
         bounded="difference",
         group="regime",
@@ -1187,8 +1274,9 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         parameter_axis="learned_rule",
         in_default_set=True,
         description=(
-            "contrast of the learned-rule value with each known regime declared beside it, "
-            "the learned rule minus the regime unless reference= names the learned rule"
+            "contrast of the learned-rule value with each known regime or natural course "
+            "declared beside it, the learned rule minus the comparator unless reference= "
+            "names the learned rule"
         ),
     ),
     Target(
