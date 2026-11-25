@@ -94,13 +94,17 @@ from tests.studies.evidence.registry import StudyRecord, registered
 DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows
-#: (none at present), and ``longitudinal_sdr_properties``, whose committed rows leave the clause
-#: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
-#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
-#: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance`` and the two
-#: few-cluster floor studies bind to their committed rows, so they are subjects by slug; the
-#: floor studies read their declared subset of those rows (:func:`declared_subset`).
-SYNTHETIC_MODULES = ("tests.studies.longitudinal_sdr_properties",)
+#: (``mtp_density_tails_properties``), and ``longitudinal_sdr_properties``, whose committed rows
+#: leave the clause ``P_D large-size bias bound under the small`` without a binding witness. The
+#: three X40 studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
+#: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance``, the two
+#: few-cluster floor studies and ``few-cluster-adaptive-learners`` bind to their committed rows,
+#: so they are subjects by slug; the floor studies read their declared subset of those rows
+#: (:func:`declared_subset`).
+SYNTHETIC_MODULES = (
+    "tests.studies.longitudinal_sdr_properties",
+    "tests.studies.mtp_density_tails_properties",
+)
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
@@ -826,6 +830,73 @@ def same_module(subject: str, family: str, clause_name: str, argument: str) -> l
     return problems
 
 
+def unmoved(subject: str, family: str, clause_name: str, argument: str) -> list[str]:
+    """Check that no kind moves the rows a clause reads, and that a control binds its threshold.
+
+    A count clause can read a cell whose estimates all sit at the truth with no spread, such as
+    the pooled G and T draws of ``mtp-density-tails``, none of which warns.  Every kind moves a
+    cell toward its truth or by a multiple of its own spread, or copies a positive cell into its
+    control, so no kind moves that cell, and its clause never decides a verdict alone.  The
+    threshold it reads is then bound by ``argument``, a clause of the same family over the same
+    threshold whose witness of this subject decides it.  The check reads every kind of the
+    binding search: :func:`kinds`, the targeted grid and the composed kinds.
+
+    Parameters
+    ----------
+    subject : str
+        A :data:`SUBJECTS` entry.
+    family : str
+        The property.
+    clause_name : str
+        The clause.
+    argument : str
+        The control clause, of the same family, that binds the threshold.
+
+    Returns
+    -------
+    list of str
+        The failed conditions.  Empty when the reason holds.
+    """
+    problems: list[str] = []
+    module, record = subject_of(subject)
+    rows = subject_rows(subject)
+    with reduced(record) as cheap:
+        summary = module.summarize_properties(rows)
+        ctx = property_failures.module_context(cheap, rows, summary, {}, module)
+        rule = property_failures.rule_for(family, module)
+        assert rule is not None, (subject, family)
+        clause = rule.clause(clause_name)
+        applying = summary.loc[summary["property"] == family]
+        cells = sorted(
+            str(row["cell"]) for _, row in applying.iterrows() if clause.applies(ctx, row)
+        )
+        if not cells:
+            problems.append(f"{clause_name} applies to no row")
+        read = (rows["property"] == family) & rows["cell"].isin(cells)
+        committed = rows.loc[read, "estimate"].to_numpy(dtype=float)
+        searched = (
+            *kinds(subject),
+            *property_failures.targeted_perturbations(),
+            *property_failures.composed_perturbations(),
+        )
+        for kind in searched:
+            moved = property_failures.perturbed(rows, kind, alpha=cheap.margins.alpha)
+            if not np.array_equal(moved.loc[read, "estimate"].to_numpy(dtype=float), committed):
+                problems.append(f"{kind} moves {', '.join(cells)}")
+    witnesses = read_bindings()
+    named = witnesses.loc[
+        (witnesses["subject"] == subject)
+        & (witnesses["property"] == family)
+        & (witnesses["clause"] == argument)
+    ]
+    if named.empty:
+        problems.append(f"{argument} has no witness of {subject}")
+    for kind in named["perturbation"]:
+        if (family, argument) not in judge(subject, kind).decisive:
+            problems.append(f"{kind} does not decide {argument}")
+    return problems
+
+
 #: The mean-error factors that :func:`implied_by` sweeps, from a sign flip to three times.
 IMPLIED_SWEEP = tuple(float(value) for value in np.linspace(-3.0, 3.0, 41))
 
@@ -924,6 +995,7 @@ REASON_CHECKS = {
     "fixed at size": fixed_at_size,
     "same module as": same_module,
     "implied by": implied_by,
+    "unmoved and bound by": unmoved,
 }
 
 
@@ -1161,6 +1233,21 @@ def test_each_stated_reason_holds(reason: tuple[str, ...] | None, shard: int | N
         assert implied_by(subject, family, clause, argument, shard=shard) == []
     else:
         assert REASON_CHECKS[code](subject, family, clause, argument) == []
+
+
+def test_an_unmoved_reason_fails_where_a_kind_moves_the_cell() -> None:
+    """Mutation control of :func:`unmoved`: the C draws all warn against a truth of 0.
+
+    Centring the positives on the truth moves that cell, so the reason refuses the C clause,
+    whose control binds it as the G and T control binds the G and T clause.
+    """
+    problems = unmoved(
+        "mtp-density-tails",
+        "cluster_warning",
+        "at least 26 of 30 C draws warn",
+        "gap-disabled helper misses the C clause",
+    )
+    assert any(problem.endswith("moves C__n_20000") for problem in problems), problems
 
 
 # ---- the binding search ------------------------------------------------------------------------

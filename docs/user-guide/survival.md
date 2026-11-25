@@ -234,6 +234,11 @@ covered 93% to 96% of the time at the same two times. So those fits can read `su
 only from 1,000 people. With four or more kinds of event every estimate reads `experimental`,
 because no study has checked such a fit.
 
+With `cross_fit=False`, where each model predicts the people it was trained on, the second study's
+in-sample setup covered 94% to 95% of the time with two kinds of event at 1,000 people. Such a fit
+reads `supported` from 1,000 people with two kinds of event and no restricted mean; any other
+in-sample fit reads `experimental`.
+
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
 the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests

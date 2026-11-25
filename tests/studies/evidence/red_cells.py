@@ -443,11 +443,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "targeting_necessity/static__targeted",
         "targeting_necessity/static__untargeted",
     ),
-    "RM18-comparator-density": _keys(
-        "shift-policies",
-        "paired",
-        "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
-    ),
     # The coverage cell of a misspecified arm, red on one draw set under the shipped logit
     # interval of a bounded mean, which the declared run reads.
     "learned-rule-arms-coverage-draws": _keys(
@@ -758,21 +753,17 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "property",
         "interval_calibration/H_S_minus_S_B_toc_0.1__correctly_specified",
     ),
-    # X93 S2, filed after the declared run.  The pre-registered upper-dose calibration red of
-    # ``dose-response-npcausal`` (``TestThePreregisteredRedSet`` in
-    # ``tests/unit/test_dose_response_npcausal_design.py``).
-    "X93-upper-dose-calibration": _keys(
-        "dose-response-npcausal",
-        "paired",
-        "linear_gaussian/dose_response[h=2,a=3.5]",
-    ),
     # X93 S2, post-run diagnosis: equivalent on complete cases, withdrawn by the failure
-    # accounting's worst case for the six replications ``ctseff`` failed.
+    # accounting's worst case for the six replications ``ctseff`` failed.  The first declared
+    # run read this signature at h=2, a=2.5 and h=2.5, a=3.5; the run regenerated on Fix-9's
+    # density reads it at h=2, a=3.5 alone, whose calibration leg passes on complete cases, so
+    # ``X93-upper-dose-calibration`` (the pre-registered complete-case calibration red there)
+    # holds no row (``TestThePreregisteredRedSet`` in
+    # ``tests/unit/test_dose_response_npcausal_design.py``).
     "X93-failure-worst-case": _keys(
         "dose-response-npcausal",
         "paired",
-        "linear_gaussian/dose_response[h=2,a=2.5]",
-        "linear_gaussian/dose_response[h=2.5,a=3.5]",
+        "linear_gaussian/dose_response[h=2,a=3.5]",
     ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
@@ -855,13 +846,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
     # shortfall and share the owner.  The heavy-weight fix closed the owner with ``variance="policy_weighted"``
     # (``mtp-policy-variance``); the rows stay red as standing records of the default interval.
+    # The regeneration under the shipped intervals (Fix-9) kept the ``cleverly`` estimates and
+    # standard errors, and the logit interval of the two ``cleverly`` level rows passes their
+    # floor, so those two left the owner; ``lmtp`` reports the identity interval.
     "mtp-pricing-calibration": (
         *_keys(
             "mtp-pricing",
             "truth",
             *(
-                f"{subject}/pricing_{engine}_tau5/{estimand}"
-                for subject in ("cleverly-mtp-pricing", "lmtp")
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/"
+                "ate_regimen[price_down vs natural_prices]"
+                for engine in ("ltmle", "sdr")
+            ),
+            *(
+                f"lmtp/pricing_{engine}_tau5/{estimand}"
                 for engine in ("ltmle", "sdr")
                 for estimand in (
                     "ey_regimen[price_down]",
@@ -870,14 +868,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             ),
         ),
     ),
-    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    # The learned-density arms of the price study, declared ``reporting`` before the run.  On the
+    # Fix-9 regeneration the five-node arm passes and left the owner.
     "mtp-pricing-learned-density": (
         *_keys(
             "mtp-pricing",
             "property",
             *(
                 f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
-                for tau in (2, 3, 5)
+                for tau in (2, 3)
             ),
         ),
     ),
@@ -907,6 +906,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "property",
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
+    ),
+    # Fix-9's regeneration of the stratified incremental and MSM study: property replicate 398
+    # holds a constant treated arm in stratum V = 2, Fix-3's constant_arm_cell_plugin status
+    # withholds those estimates' intervals, and the row check drops the whole fit group.  The
+    # stratum-0 cell is green on its complete case and red only by the worst-case clause, the
+    # refusal-limited reading of X26.
+    "F3-constant-arm-replicate": _keys(
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/v0_ate_x2__correctly_specified",
     ),
     # X21. The gradient-boosting mechanism of law P, declared ``reporting`` before the run
     # (``PRE_ROUTED_GROUPS`` of the study).

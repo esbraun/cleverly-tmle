@@ -99,10 +99,10 @@ def test_m12_dose_two_conditioned_on_the_value_instead_of_the_preimage_is_caught
 ) -> None:
     """Dose 2's density reads ``b_1`` in place of ``beta_1``.  Measured: 5.25 on both readings."""
     edit = (
-        "position, cell_codes, dose_values, dose_values[:, position], cell=cell",
+        "position, cell_codes, dose_values, at, cell=cell",
         "position, cell_codes, "
         "np.where(np.arange(len(doses)) < position, target[:, doses], dose_values), "
-        "dose_values[:, position], cell=cell",
+        "at, cell=cell",
     )
     mutate(monkeypatch, *_ENUMERATE, [edit])
     assert _geo_ordered() > CAUGHT
@@ -166,21 +166,20 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
     """
     edits = [
         (
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n",
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n"
-            "            flags: list[bool] = []\n",
+            "            grown: list[_Path] = []\n",
+            "            grown: list[_Path] = []\n            flags: list[bool] = []\n",
         ),
         (
             "                    grown.append(\n",
             "                    flags.append(piece.identity)\n                    grown.append(\n",
         ),
         (
-            "        for betas, valid, jacobian, collapsed in paths:\n            dose_values",
-            "        for path_index, (betas, valid, jacobian, collapsed) in enumerate(paths):\n"
-            "            dose_values",
+            "        for betas, valid, jacobian, collapsed, interval in paths:\n            dose_values",
+            "        for path_index, (betas, valid, jacobian, collapsed, interval) in "
+            "enumerate(paths):\n            dose_values",
         ),
         (
-            "position, cell_codes, dose_values, dose_values[:, position], cell=cell",
+            "position, cell_codes, dose_values, at, cell=cell",
             "position, "
             "target_codes if flags[path_index] else cell_codes, "
             "target[:, doses] if flags[path_index] else dose_values, "

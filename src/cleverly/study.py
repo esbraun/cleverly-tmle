@@ -95,7 +95,18 @@ from .longitudinal.estimator import (
     BASELINE_TILT_REFUSAL,
     IPW_MTP_REFUSAL,
 )
-from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
+from .longitudinal.regimen import (
+    declares_mtp,
+    declares_policy,
+    declares_separable,
+    declares_tilt,
+    tilt_nodes,
+)
+from .longitudinal.separable import (
+    SEPARABLE_COMBINATION_REFUSAL,
+    SEPARABLE_METHOD_REFUSAL,
+    separable_data_refusal,
+)
 from .methods import (
     ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL,
     BASELINE_POINT_REFUSAL,
@@ -567,7 +578,7 @@ class PointTreatment:
         The declared conditional support of a continuous dose, as
         :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
         component to its support.  A modified treatment policy must assign each row a dose
-        inside it.
+        inside it, and the density route reads the dose's density over it.
     dose_atoms : sequence of float, or mapping of str to sequence of float
         The doses of a continuous treatment with a recorded point mass, as
         :meth:`cleverly.TMLE.fit` takes them.  A vector treatment maps each continuous
@@ -4609,6 +4620,30 @@ _LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
 )
 
 
+#: The identification of a regimen set with a :class:`~cleverly.longitudinal.Separable` plan.
+#: Stensrud, Young, Didelez, Robins and Hernán (2022), Section 5.1 (arXiv:1901.09472v3): the
+#: longitudinal conditions, the split of the treatment into a component for each cause, and
+#: the dismissible-component conditions Delta 1 and Delta 2.
+_LONGITUDINAL_SEPARABLE_IDENTIFICATION = Identification(
+    assumptions=(
+        *_LONGITUDINAL_IDENTIFICATION.assumptions,
+        "separable components: the treatment splits into a component that acts on the event "
+        "of interest and a component that acts on the competing event, and each could be set "
+        "to its own level",
+        "dismissible components (Delta 1 and Delta 2): the component for the competing event "
+        "changes the event of interest only through the competing event, and the component "
+        "for the event of interest changes the competing event only through the event of "
+        "interest",
+    ),
+    required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
+    dr_condition=_LONGITUDINAL_IDENTIFICATION.dr_condition,
+    references=(
+        "van der Laan & Gruber (2012)",
+        "Stensrud, Young, Didelez, Robins & Hernán (2022)",
+    ),
+)
+
+
 #: The two readings of the longitudinal policy functional (X40 part (d)).  Díaz, Williams,
 #: Hoffman and Schenck (2023), Theorem 1: under strong sequential randomization (Assumption 3)
 #: the functional identifies the LMTP, and under standard sequential randomization
@@ -5130,7 +5165,9 @@ class ExplicitAdjustmentProvider:
             history=history,
         )
         identification = (
-            _LONGITUDINAL_TILT_IDENTIFICATION
+            _LONGITUDINAL_SEPARABLE_IDENTIFICATION
+            if declares_separable(regimens)
+            else _LONGITUDINAL_TILT_IDENTIFICATION
             if declares_tilt(regimens)
             else _LONGITUDINAL_MTP_IDENTIFICATION
             if declares_mtp(regimens)
@@ -6054,6 +6091,23 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
+        if self.functional.longitudinal and declares_separable(self.functional.interventions):
+            # Every longitudinal estimator but the hazard-engine LTMLE refuses a Separable
+            # regimen before any learner, so the table gives each the record its fit raises,
+            # with the method-spec alternative.
+            sdr = ipsi = gcomp = ipw = gformula = False
+            sdr_reason = ipsi_reason = gcomp_reason = ipw_reason = gformula_reason = (
+                SEPARABLE_METHOD_REFUSAL
+            )
+            # The estimand, then the data, can refuse every separable fit, the hazard-engine
+            # LTMLE's too, in the order the fit checks them. Either replaces an earlier tmle
+            # reason on purpose: the fit raises it before any other.
+            data = getattr(self._study, "data", None)
+            data_refusal = None if data is None else separable_data_refusal(data)
+            if self.functional.msm is not None:
+                tmle, tmle_reason = False, SEPARABLE_COMBINATION_REFUSAL
+            elif data_refusal is not None:
+                tmle, tmle_reason = False, data_refusal
         iptw_reason = self._adaptive_iptw_refusal(design)
         if iptw_reason is None and estimated_declaration:
             iptw_reason = KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL

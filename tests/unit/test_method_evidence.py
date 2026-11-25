@@ -1046,8 +1046,13 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
+        diagnostic = _diagnostic_families(study.slug)
         unclassified = sorted(
-            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+            families
+            - BIAS_GATED_PROPERTIES
+            - ENDPOINT_GATED_PROPERTIES
+            - GATED_IN_STUDY.get(study.slug, frozenset())
+            - diagnostic
         )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
@@ -1060,7 +1065,7 @@ class TestPublishedVerdicts:
         # row must not publish a verdict at all.  Every cell carries the diagnostic role,
         # which is what the rendered table reads to print "reported" instead of "pass", and
         # every cell publishes the coverage interval the family exists to report.
-        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+        for family in sorted(families & diagnostic):
             reported = published.loc[published["property"] == family]
             assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
                 f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
@@ -1421,8 +1426,8 @@ class TestPublishedVerdicts:
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
                 if row.role == property_verdicts.DIAGNOSTIC_ROLE:
-                    # A reported row of the family (``hazard-mtp``'s untruncated density
-                    # route) carries no claim, so it must not publish a red verdict.
+                    # A reported row of the family carries no claim, so it must not publish
+                    # a red verdict.
                     assert bool(row.passed) and bool(row.property_passed), (
                         f"{row.cell} is a diagnostic row and publishes a verdict"
                     )
@@ -1455,10 +1460,17 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
-                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
+                elif suffix in (
+                    "wrong_gamma_control",
+                    "validation_rule_control",
+                    "both_wrong_control",
+                    "pre_fix_control",
+                ):
                     # X82 SH: a smaller Gamma's end read against the declared truth must miss.
                     # X11 PR C (``learned-rule-learners``): a rule learned on the validation
                     # rows that evaluate it is optimistic and must miss its own value.
+                    # ``mtp-density-tails``: the DR arms' both-wrong and pre-fix controls must
+                    # read coverage below the band.
                     expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
@@ -1701,6 +1713,47 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
 
+        # ``mtp-density-tails``: restated from the declaration in ``regenerate.py``. A gated
+        # ``ic_gap`` row at 2,000 reads its median against the law's bound, and at 20,000 its
+        # largest gap against the law's bound and its median over the 2,000 median against the
+        # fall; each control fails its one named clause. The cluster rows read their warned
+        # draws against the floor on C and the ceiling on G and T.
+        gaps = published.loc[published["property"] == "ic_gap"]
+        if not gaps.empty:
+            module = study.properties()
+            for row in gaps.itertuples():
+                law_name = str(row.cell).split("__", 1)[0]
+                clauses = {
+                    "small": row.median_gap <= module.GAP_BOUND_SMALL.get(law_name, np.nan),
+                    "large": row.max_gap <= module.GAP_BOUND_LARGE.get(law_name, np.nan),
+                    "fall": row.gap_fall <= module.GAP_FALL,
+                }
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = not clauses[module.GAP_CONTROLS[str(row.cell)]]
+                elif str(row.cell).endswith("n_2000"):
+                    expected = clauses["small"]
+                else:
+                    expected = clauses["large"] and clauses["fall"]
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        clusters = published.loc[published["property"] == "cluster_warning"]
+        if not clusters.empty:
+            module = study.properties()
+            floor, ceiling = module.CLUSTER_C_FLOOR, module.CLUSTER_GT_CEILING
+            expectations = {
+                "C__n_20000": lambda warned: warned >= floor,
+                "GT__pooled": lambda warned: warned <= ceiling,
+                "C__gap_disabled_control": lambda warned: warned < floor,
+                "GT__eager_control": lambda warned: warned > ceiling,
+            }
+            for row in clusters.itertuples():
+                expected = expectations[str(row.cell)](row.warned_draws)
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
         # ``few-cluster-floor-tmle`` part (c), restated from the declaration in ``regenerate.py``.
         # A candidate row's own verdict holds unless its cell's draws exceed the failure bound
         # (``property-failure-accounting.csv``); the paired gain against (A) is the joint
@@ -2114,6 +2167,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # and the variance-ratio lower end; a deflated control must fail that rule; the IID
         # control to its median ratio's upper end. Checked row by row below.
         "fold_variance_calibration",
+        # ``mtp-density-tails``: an ``ic_gap`` positive answers to its law's gap bounds and the
+        # fall, each control to its one named clause; a ``cluster_warning`` row to its warned
+        # draws against the C floor or the G and T ceiling. Checked row by row above.
+        "ic_gap",
+        "cluster_warning",
         # ``few-cluster-floor-tmle`` part (c): a candidate pair's rows each hold their own
         # verdict, lost only when the pair's draws exceed the failure bound; the paired gain is
         # the joint clause. A pooled row answers to its pooled gain's lower end. Checked row by
@@ -2440,7 +2498,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
-        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict
+        # there. ``few-cluster-adaptive-learners`` gates a family of the same name, so
+        # :data:`GATED_IN_STUDY` takes it out of this set for that study.
         "adaptive_learners",
         # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
         # declared reading and no verdict (the interval is withheld for a fitted mechanism).
@@ -2507,6 +2567,19 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "reported_large_move",
     }
 )
+
+#: A family name that one study reports with no verdict and another gates.  The family of
+#: ``few-cluster-adaptive-learners`` shares its name with the sequential baselines' reported
+#: family, and its rows answer to the coverage floor, the bias, the variance ratio, the shown
+#: coverage, the paired non-inferiority and the IID-control SE ratios.
+GATED_IN_STUDY: dict[str, frozenset[str]] = {
+    "few-cluster-adaptive-learners": frozenset({"adaptive_learners"}),
+}
+
+
+def _diagnostic_families(slug: str) -> frozenset[str]:
+    """The families ``slug`` reports with no verdict."""
+    return DIAGNOSTIC_PROPERTIES - GATED_IN_STUDY.get(slug, frozenset())
 
 
 class TestNegativeControls:
@@ -2693,7 +2766,11 @@ class TestNegativeControls:
             published.loc[changed, "bias_equivalent"]
         ), "the mutation moved a bias endpoint, so it does not isolate the SE screen"
         untouched = summary.index.drop(changed)
-        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+        # The mutated summary is a complete-case one, so compare it with the committed rows'
+        # complete-case verdicts: the committed failure accounting can turn an untouched cell
+        # red on its worst case (canonical-stratified-incremental-msm's v0_ate_x2).
+        complete = _complete_case_summary(study.slug).set_index(["property", "cell"])
+        assert summary.loc[untouched, "passed"].equals(complete.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
         )
 
@@ -2985,8 +3062,9 @@ class TestTheStudyStillMeasuresTheCode:
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
+        diagnostic = _diagnostic_families(study.slug)
         for cell in declared_cells():
-            if cell.property in DIAGNOSTIC_PROPERTIES:
+            if cell.property in diagnostic:
                 continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
@@ -4509,7 +4587,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ()
+UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.mtp_density_tails_properties",)
 
 
 def _property_modules() -> list[Any]:
@@ -4713,7 +4791,7 @@ class TestPropertyDifferential:
             rule.clause(clause)
             code, _, argument = why.partition(": ")
             assert code in job.REASON_CHECKS, why
-            if code == "implied by":
+            if code in {"implied by", "unmoved and bound by"}:
                 rule.clause(argument)
             if code == "same module as":
                 assert argument in job.SUBJECTS, argument

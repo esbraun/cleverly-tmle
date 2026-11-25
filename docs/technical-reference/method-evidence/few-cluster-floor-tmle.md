@@ -1690,6 +1690,8 @@ from the committed results and checked at the precision printed.
   fails.
 - **Parametric learners.** Every fit uses unpenalized logistic regressions or a quasibinomial GLM.
   Wang et al. (2024), Remark 3, caution against flexible learners at about 20 clusters.
+  [`few-cluster-adaptive-learners`](few-cluster-adaptive-learners.md) measures the default learner
+  library at 10, 20 and 40 clusters.
 - **Two size laws and binary outcomes.** `equal10` and `unequal_informative` only, a binary
   treatment, no weights, strata or missing outcomes; the fold-evaluated fit on equal sizes only.
 - **One-node in-sample `LTMLE`.** The in-sample `LTMLE` cells fit one binary treatment node

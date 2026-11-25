@@ -228,6 +228,7 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("models", "competing_learner"): LogisticRegression(),
     ("models", "survival_model"): "hazard",
     ("models", "density_bins"): 8,
+    ("models", "ratio"): "classifier",
     ("models", "min_retain"): 2,
     ("models", "hazard_pooling"): "pooled",
     ("targeting", "q_bounds"): (0.01, 0.99),

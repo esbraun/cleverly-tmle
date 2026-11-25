@@ -87,6 +87,7 @@ from tests.conftest import (
 )
 from tests.unit import _known_mechanism_support as known_mechanism
 from tests.unit import _learned_rule_support as learned_rule_support
+from tests.unit import _mtp_route_kinds as mtp_route_kinds
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import (
@@ -595,6 +596,63 @@ def fit_clustered() -> Any:
     """``make_clustered(400, cluster_size=10, seed=7)``, 40 clusters of ten rows."""
     frame, _ = make_clustered(n=400, cluster_size=10, seed=7)
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def fit_clustered_adaptive() -> Any:
+    """A binary ``make_clustered(200, cluster_size=10)`` fit with a classification tree outcome.
+
+    20 clusters put the fit on the ``t`` tier, where row ``T11.in_sample`` covers it, and the
+    tree is a data-adaptive nuisance learner, so its key carries ``adaptive_nuisance`` (X54
+    part (h)). The qualifier moves only the support label
+    (:func:`cleverly._support.adaptive_nuisance_shortfall`), so every row that the 40-cluster
+    linear fit answers runs here.
+    """
+    from sklearn.tree import DecisionTreeClassifier
+
+    frame, _ = make_clustered(n=200, cluster_size=10, seed=7, family="binomial")
+    settings = linear_in_sample(
+        outcome_learner=DecisionTreeClassifier(max_depth=3, min_samples_leaf=10, random_state=0),
+        estimands=("ey1", "ey0", "ate"),
+    )
+    return TMLE(**settings).fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def fit_clustered_ltmle_adaptive() -> Any:
+    """A cross-fitted clustered ``LTMLE`` at 20 clusters with a regression tree outcome.
+
+    ``make_longitudinal(600, 12)`` in 20 clusters of 30 rows, five outer folds. 20 clusters put
+    the fit on the ``t`` tier, where row ``G07`` covers it, and the tree makes its key carry
+    ``adaptive_nuisance`` (X54 part (h)). A tree is outside the measured ground, so the label is
+    experimental (:data:`cleverly._support.ADAPTIVE_UNMEASURED_REASON`). The qualifier moves only
+    the support label, so every row that the in-sample ``ltmle`` kind answers runs here.
+    """
+    from sklearn.tree import DecisionTreeRegressor
+
+    frame, _ = make_longitudinal(n=600, seed=12)
+    frame["cluster"] = np.arange(len(frame)) // 30
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        reference="never",
+        outcome_learner=DecisionTreeRegressor(max_depth=3, min_samples_leaf=20, random_state=0),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=5,
+        learner_folds=2,
+        random_state=5,
+        simultaneous=False,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            id="cluster",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        )
 
 
 def fit_incremental() -> Any:
@@ -2575,6 +2633,14 @@ _BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
 
+#: The rows each modified-treatment-policy shape answers, on every route.
+_MTP_ROWS: dict[str, tuple[str, ...]] = {
+    "shift": (*_READ, "refute"),
+    "band": (*_READ, "refute"),
+    "panel": (*_READ, *_POINT),
+    "atoms": (*_READ, "refute", *_PLUGIN_BOUND),
+}
+
 #: One kind of fit per name: live point fits, two study fits, reconfigured results whose
 #: refit this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
@@ -2602,7 +2668,9 @@ KINDS: dict[str, Kind] = {
     # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
     "known_score": _kind(fit_known_score, *_LIVE, *_BOUND),
     "missing": _kind(fit_missing, "marginal_bounds", *_LIVE, *_TILT),
-    "shift": _kind(fit_shift, *_LIVE),
+    # A point policy fit on a dose has no bound on its density ratio, so the g(W) axis of
+    # the truncation curve is refused (the policy_ratio rule).
+    "shift": _kind(fit_shift, *_READ, "refute"),
     "cde": _kind(fit_cde, *_LIVE),
     "multi_arm": _kind(fit_multi_arm, "marginal_bounds", *_ARM),
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
@@ -2656,6 +2724,9 @@ KINDS: dict[str, Kind] = {
     "weighted": _kind(fit_weighted, "marginal_bounds", *_ARM),
     "stratified": _kind(fit_stratified, "marginal_bounds", *_ARM),
     "clustered": _kind(fit_clustered, "marginal_bounds", *_ARM),
+    # The t tier with an adaptive outcome learner: the adaptive_nuisance qualifier changes the
+    # support label alone, so every row of the clustered fit answers (X54 part (h)).
+    "clustered+adaptive_nuisance": _kind(fit_clustered_adaptive, "marginal_bounds", *_ARM),
     "drtmle": _kind(fit_drtmle, "marginal_bounds", *_LIVE, "corrections"),
     # Both refit the treatment mechanism on their own rows, because randomized=True.
     "drtmle+missing": _kind(fit_drtmle_missing, "marginal_bounds", *_LIVE, *_TILT, "corrections"),
@@ -2709,7 +2780,8 @@ KINDS: dict[str, Kind] = {
     "drtmle+constant_pair": _kind(
         fit_drtmle_constant_pair, *_LIVE, "corrections", "evalue", "marginal_bounds"
     ),
-    "policy_means": _kind(fit_policy_means, *_LIVE),
+    # Two policy means of a dose: the g(W) truncation axis is refused (policy_ratio).
+    "policy_means": _kind(fit_policy_means, *_READ, "refute"),
     "natural_course_study": _kind(fit_natural_course_study, "marginal_bounds", *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
     "reconfigured_stratified": _kind(
@@ -2720,10 +2792,8 @@ KINDS: dict[str, Kind] = {
         *_BOUND,
         refits=False,
     ),
-    # A shift fit answers no bound row.
-    "reconfigured_unbounded_scale": _kind(
-        unbounded_scale, *_READ, "truncation_curve", refits=False
-    ),
+    # A shift fit answers no bound row, and its g(W) truncation axis is refused.
+    "reconfigured_unbounded_scale": _kind(unbounded_scale, *_READ, refits=False),
     "reconfigured_unbounded_scale_ate": _kind(
         unbounded_scale_ate, "marginal_bounds", *_READ, "truncation_curve", *_BOUND, refits=False
     ),
@@ -2731,6 +2801,9 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, *_POINT),
+    # The t tier with an adaptive outcome learner on a cross-fitted clustered fit: the
+    # qualifier changes the support label alone (X54 part (h)).
+    "ltmle+adaptive_nuisance": _kind(fit_clustered_ltmle_adaptive, *_READ, *_POINT),
     # The declared mechanism read in the weighted sample: an estimated tilt, so the rows of
     # an estimated mechanism run. The benchmark refuses (its refit would divide by g0).
     "ltmle_known_sample_weights": _kind(fit_ltmle_known_sample_weights, *_READ, *_POINT),
@@ -2813,7 +2886,9 @@ KINDS: dict[str, Kind] = {
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
     ),
-    "vector_policy": _kind(fit_vector_policy, *_LIVE),
+    # On the classifier route the ratio is the only treatment weight of a dose shift, so a
+    # g(W) bound moves nothing and the truncation row refuses it.
+    "vector_policy": _kind(fit_vector_policy, *_READ, "refute"),
     # Every bound and refutation row refuses the adaptive working-model fit by name.
     "atmle": _kind(fit_atmle, "corrections", "nuisance_models", "score_equations", "support"),
     # SDR fits no fluctuation, so it solves no score equation.
@@ -2837,6 +2912,14 @@ KINDS: dict[str, Kind] = {
     "continuous_survival+restricted": _kind(
         fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
     ),
+    # The modified treatment policy fits of each shape on each density-ratio route
+    # (tests.unit._mtp_route_kinds). A point fit's g(W) truncation axis is refused; the
+    # longitudinal curve sweeps ratio_trim=; the omitted-variable rows answer on the dose
+    # whose declared atoms hold every observed and shifted dose.
+    **{
+        name: _kind(fit, *_MTP_ROWS[name.split("/")[1]])
+        for name, fit in mtp_route_kinds.FITS.items()
+    },
     "continuous_survival+influence_curve": _kind(
         fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
     ),
@@ -3220,6 +3303,15 @@ class Mutation:
     signature: str
 
 
+#: The point policy fits on a dose, whose g(W) truncation axis the policy_ratio rule refuses.
+_POINT_POLICY_KINDS = (
+    "shift",
+    "shift+missing",
+    "policy_means",
+    "vector_policy",
+    *(name for name in mtp_route_kinds.FITS if not name.startswith("mtp/panel/")),
+)
+
 #: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refuse.
 #: The regime, MSM, ratio and attributable kinds left this list when X82 part G gave
 #: them a tilt.
@@ -3259,10 +3351,18 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        frozenset({"incremental", "incremental+missing"}),
+        frozenset(
+            {
+                "incremental",
+                "incremental+missing",
+                "reconfigured_unbounded_scale",
+                *_POINT_POLICY_KINDS,
+            }
+        ),
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
-        + r"the truncation curve re-targets the fitted nuisances)",
+        + r"the truncation curve re-targets the fitted nuisances"
+        + "|on a modified treatment policy of a continuous or vector dose)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -3284,6 +3384,7 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle+adaptive_nuisance",
                 "ltmle_jackknife",
                 "ltmle_jackknife_cross_fitted",
                 "ltmle_jackknife_refit_withheld",
@@ -3307,6 +3408,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "separable",
                 # At a level of the intermediate the placebo has no fixed null (X11 (j4)).
                 "learned_rule+level",
+                # Every policy fit reports its policy means first (X82 part C).
+                *mtp_route_kinds.FITS,
                 # The value at an intermediate level has no exact placebo null (X11 (j4)).
                 "optimal_rule+intermediate",
                 # The default continuous-time request reads cif_regimen, a risk with no
@@ -3364,6 +3467,7 @@ MUTATIONS: dict[str, Mutation] = {
         # refit would still divide by the declaration.
         # A TMLE fit with a declared mechanism has an outcome regression, so only the
         # predicate's known-mechanism rule refuses its benchmark (X35).
+        # The atoms kind adjusts for one covariate, which the benchmark cannot drop.
         frozenset(
             {
                 "split_plan",
@@ -3373,6 +3477,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule_ep_sieve",
                 "learned_rule_ep_learner",
                 "learned_rule+estimated_weights",
+                *(name for name in mtp_route_kinds.FITS if name.startswith("mtp/atoms/")),
                 # The bound of the value of the optimal rule runs, and its benchmark refit
                 # refuses (X11 (f3), (n2)).
                 "optimal_rule",

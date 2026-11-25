@@ -691,6 +691,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_density_tails import STUDY as MTP_DENSITY_TAILS
     from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_pricing_censored import STUDY as MTP_PRICING_CENSORED
@@ -775,6 +776,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_cate import STUDY as EP_CATE
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
+    from tests.studies.few_cluster_adaptive_learners import STUDY as FEW_CLUSTER_ADAPTIVE_LEARNERS
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.few_cluster_floor_ltmle import STUDY as FEW_CLUSTER_FLOOR_LTMLE
     from tests.studies.few_cluster_floor_tmle import STUDY as FEW_CLUSTER_FLOOR_TMLE
@@ -923,6 +925,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
+        MTP_DENSITY_TAILS,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,
@@ -961,6 +964,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FEW_CLUSTER_FOLD_VARIANCE,
         FEW_CLUSTER_FLOOR_TMLE,
         FEW_CLUSTER_FLOOR_LTMLE,
+        FEW_CLUSTER_ADAPTIVE_LEARNERS,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

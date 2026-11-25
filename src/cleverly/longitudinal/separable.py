@@ -75,6 +75,7 @@ from typing import Any, Literal
 import numpy as np
 from scipy.special import expit, log_expit, xlogy
 
+from .._refusal import Refusal
 from .._typing import BoolArray, FloatArray, IntArray
 from .._warnings import warn as _warn
 from ..exceptions import CapabilityError, ConvergenceWarning, DataError, RefusalReason
@@ -82,12 +83,15 @@ from ..fluctuation._score import relative_score
 from ..fluctuation.iterative import TargetingFailure
 from ._fit_cache import frozen
 from .data import LongitudinalData
-from .hazard import SIGMA_FLOOR, HazardFit, event_indicators
+from .hazard import SIGMA_FLOOR, HazardFit, event_indicators, is_multinode
 from .regimen import Plan, Regimen, Separable
 from .sequential import RegimenFit
 
 __all__ = [
     "FACTORS",
+    "SEPARABLE_COMBINATION_REFUSAL",
+    "SEPARABLE_ENGINE_REFUSAL",
+    "SEPARABLE_METHOD_REFUSAL",
     "Separable",
     "SeparableInputs",
     "SeparablePlan",
@@ -96,6 +100,7 @@ __all__ = [
     "influence",
     "resolve_separable",
     "scores",
+    "separable_data_refusal",
     "separable_direction",
     "split_separable",
     "target_separable",
@@ -127,6 +132,88 @@ _AT_CLIP = 1e-9
 #: The share of the score norm that rows at the clip must carry for a stopped fit to read
 #: ``cell_separated``.
 _BOUND_SHARE = 0.5
+#: The refusal a :class:`Separable` regimen meets on every longitudinal estimator except
+#: ``LTMLE(survival_model="hazard")``, raised before any learner.
+SEPARABLE_ENGINE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "a Separable regimen needs the cause-specific hazards at two treatment levels, which only "
+    "LTMLE(survival_model='hazard') fits.",
+    alternative="Fit LTMLE(survival_model='hazard', targeting='one_step').",
+)
+
+#: The same refusal as the study's method table gives it, with the method-spec alternative.
+SEPARABLE_METHOD_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    SEPARABLE_ENGINE_REFUSAL.condition,
+    alternative=(
+        "Use method=TMLEMethod(models=ModelSpec(survival_model='hazard'), "
+        "targeting=Targeting(algorithm='one_step'))."
+    ),
+)
+
+
+#: The refusal of a :class:`Separable` regimen beside a learned regimen or ``msm=``.  The
+#: estimand decides it, so the study's method table gives it before any fit.
+SEPARABLE_COMBINATION_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "a Separable regimen is not combined with a learned regimen or a marginal structural model.",
+    alternative="Fit the separable regimens in their own fit.",
+    roadmap="X91",
+)
+
+
+def separable_data_refusal(data: LongitudinalData) -> Refusal | None:
+    """The refusal the data alone give every fit of a :class:`Separable` regimen.
+
+    ``LTMLE`` raises it before any learner, and the study's method table gives it to ``tmle``,
+    so the table and the fit agree.  The order is the fit's: an eliminated cause, covariates
+    measured after baseline, then a treatment at several nodes.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+
+    Returns
+    -------
+    Refusal or None
+        The first refusal, or ``None`` when the data admit a separable fit.
+    """
+    if data.eliminated:
+        return Refusal(
+            RefusalReason.DIFFERENT_ESTIMAND,
+            "a Separable regimen is not combined with eliminate=: eliminating the competing "
+            "cause removes it, so no component of the treatment acts on it.",
+            alternative="Fit the separable regimens without eliminate=.",
+        )
+    later = [name for block in data.time_varying_names for name in block]
+    if later:
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            "a Separable regimen is identified with baseline covariates only here. With "
+            f"covariates measured after baseline ({', '.join(later)}), Stensrud et al. "
+            "(2021), Equation (19), identify the separable effects, but no source gives the "
+            "efficient influence curve of that formula.",
+            alternative="Fit the separable regimens with baseline covariates only.",
+            roadmap="X91",
+        )
+    if is_multinode(data):
+        # H18: the separable engine targets the two hazard factors of one held baseline
+        # treatment, and a design with a treatment at several nodes has none.
+        return Refusal(
+            RefusalReason.API_REDIRECTION,
+            "a Separable regimen is built for one baseline treatment held over every node, "
+            f"and this design declares a treatment at {data.n_decisions} nodes. A separable "
+            "effect splits that one treatment into the components that act on each cause.",
+            alternative=(
+                "Declare one baseline treatment held over every node, as treatment='A', for "
+                "separable effects. A treatment at several nodes takes static regimens, "
+                "known rules and known policies."
+            ),
+        )
+    return None
+
+
 #: Newton-Raphson iterations of one factor's fluctuation fit at frozen covariates, and the
 #: largest logit move of a full step that ends the fit.
 _FIT_ITERATIONS = 100

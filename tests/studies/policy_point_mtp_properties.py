@@ -137,6 +137,10 @@ class OracleLogOdds(BaseEstimator):
         The policy whose ratio is the feature.
     """
 
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
+
     def __init__(self, label: str = "x1.25") -> None:
         self.label = label
 

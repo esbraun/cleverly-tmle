@@ -36,7 +36,6 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/tmle_learned_weighted/run_study.R` | `2ed957cb726ba1b9ac48f1ebd7374dfa0e3600faeb46b785031f80a7c73adb24` | `b64cab372d86a91a0182fbbadad1b7fc364f14c3f40e017167028d5b14e838f3` | result-neutral: the runner gained the empty-sample guard `if (!nrow(samples)) stop("samples contain no observations")`, which `tests/canonical/tmle_weighted/run_study.R` already carried. The guard raises only on a sample file with zero rows. The recorded run fitted 800 replications of 2,000 rows, so the branch never executes for the committed artifacts. Nothing else in the runner moved, and the edit restores parity between the two weighted runners. RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. The fitter is now built in the parent before a prescheduled `mclapply`, so `study_collect` retries and assembles the registered groups; a successful run writes the same rows in the same group order. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/tmle_mar_attributable/probe_scale_workaround.R` | `455671cbf4a26f1f99393233cc33804ab3b7b17095c8eee6df134d0886e004ff` | `7319d1d2fea7a867f01cdad3bbf6f3f8664c5c96666f6d4cb62a773e607399e8` | result-neutral: The probe now builds its per-index function in the parent before a prescheduled `mclapply`. The probe records no failure: every error in it stays fatal, so each probe call and exported column is unchanged. |
 | `tests/canonical/tmle_mar_natural_course/probe_scale_workaround.R` | `a91e13a077e164482a84bc54980eb1fcbc071fc3c0361078d9ae14daaf19f488` | `af8685fe61524d0a86e5894df714963d5a040b355996fe976333cd7f534c0b47` | result-neutral: only the header comment on check 5 changed. The former comment said the comparison would see a wrong scale, and the evidence page shows it would not. R ignores comments, so every fit call, check, and exported column is unchanged. The probe now builds its per-index function in the parent before a prescheduled `mclapply`. The probe records no failure: every error in it stays fatal, so each probe call and exported column is unchanged. |
-| `tests/canonical/policy_point_mtp_runner.R` | `e2553423aa1546d4efb7118bb611d03f3de3e1c83e61d72d05b53c4e1469fe97` | `7a362b80139b22bcf740bf4d2e0e33dbf2830a904329d35cf7763db7bb370b90` | result-neutral: line endings only. The run read a CRLF working copy, although `.gitattributes` sets `eol=lf`. The recorded hash is the sha256 of the committed LF blob with each line feed written as a carriage return and a line feed. The blob has not changed since the run commit `dc269d3e`, and R parses both files as the same source |
 | `tests/canonical/sdr_repeated/run_study.R` | `d31f588a598c093d84b74df50027c741dde1d215a9c339947b63f7284e8c414e` | `bcebf47ec6b4a7eb630ee91e7e354f337c7ed506e4f8b1a61faec45c15a4baf7` | result-neutral: the warning handler now raises `study_fatal_error` in place of a plain error, and `check_cells` runs before the handler and outside the stage. The change acts only on a warning or an unseen-cell refusal in an lmtp fit. The committed rows hold 2,400 lmtp replicates in each of the 26 cells, so neither occurred and no failure was recorded. A rerun that hits one stops the run instead of recording a failure |
 | `tests/canonical/study_harness.R` | `63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878` | `ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51` | result-neutral: RM39 runs each group in a forked child that leaves a checkpoint, retries a killed group, and resumes a rerun from the checkpoints. With no kill and no resume, `study_collect` assembles the checkpoints in group order and writes the same table with the same `write.csv` call. Each fit now runs after `set.seed` with the driver's seed. `tests/canonical/harness_fixture/determinism.csv` records for each harness runner that its fits leave `.Random.seed` untouched, or that its old and new code wrote identical bytes on 3 replicates. The fixture smoke records identical bytes from the old and the new harness (`tests/canonical/harness_fixture/smoke/results.json`, `old_new`). RM39a2 adds the failure functions to the shared block (`study_stage`, `study_fatal_error`, `study_invalid`, the failure records, the systematic stop, `study_finish`). They act only on an error that escapes a stage or on a row that breaks a rule, so a run without either writes the bytes of the `f1840adc` harness, and writes no failures file. A `std::bad_alloc` message is a memory kill, and an error that the stage expression raises itself records the call `none`. Both act only on a failed fit. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/ctmle3_oat/run_ctmle3_oat.R` | `13621c4382f45c6b3fc6585fc3650164e07a779df220befe035f91c97cd2603a` | `cca87af41512a5602e214fc24a5ea109a63fb398f1e0b9aea488f51e9797e09f` | result-neutral: the runner keeps its fit, its re-signal wrapper and its published row. It gains a byte-identical copy of the harness's RM39 functions and fits each group in a forked child that leaves a checkpoint. It assembles the table from those checkpoints in group order, which is the order its workers returned the groups before, and its refusals and its `write.csv` call are unchanged. A `std::bad_alloc` message is a memory kill, and an error that the stage expression raises itself records the call `none`. Both act only on a failed fit. Witness: `tests/canonical/harness_fixture/determinism.csv` records identical bytes from the runner at `572501b8` and from this file on 3 replicates in its image. RM39a2 grows the runner's copy of the shared block with the failure functions and wraps its comparator call in `study_stage`; the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
@@ -57,8 +56,6 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/lmtp_held_survival_adapter.R` | `c990f58bf514e3c8aaf2d7acbac8a997a7821f02e6544abd89ba3f61d8054e51` | `7db5edbde3f72e6071cc7dbaea915c7e7854d9ecbfe2b78af86e6b338f3f6b90` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/lmtp_point_adapter.R` | `ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5` | `45df3958124d92932dfdbf1837da47859edac203900855b33812bece38d7f666` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/lmtp_policy_adapter.R` | `3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0` | `d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. The X40 comparator follow-up adds the argument `refuse_bound = TRUE`. Every recorded caller omits it, so the prediction-bound check runs as before; only the `mtp-boundaries` and `mtp-pricing` runners pass `FALSE`, and their own exactness gate reads each pair. |
-| `tests/canonical/lmtp_policy_adapter.R` | `399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d` | `d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45` | result-neutral: the `vector-mtp` lmtp run (Study queue row 31, `40a39a1a`) ran the file before the X40 comparator follow-up added the argument `refuse_bound = TRUE` to `lmtp_policy_tmle`. `vector-mtp` never calls `lmtp_policy_tmle`: `lmtp_vector_adapter.R` sources the file only for `screen_policy_ratios`, which the edit leaves byte for byte unchanged. Witness: `git diff 40a39a1a -- tests/canonical/lmtp_policy_adapter.R` touches only the signature and the bound check of `lmtp_policy_tmle`. |
-| `tests/canonical/lmtp_mtp_adapter.R` | `ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788` | `65638b0db4fca5fa709720faf25da839350a6e32f11aa20723f9aadca534d583` | result-neutral: the X40 comparator follow-up adds the argument `refuse_bound = TRUE` to `lmtp_mtp_tmle` and passes it to `lmtp_policy_tmle`. A caller that omits it gets the check it had, so the `longitudinal-mtp` and `policy-point-mtp` fits read the same rows. Only the `mtp-boundaries` and `mtp-pricing` runners pass `FALSE`, and those studies regenerate with the change. The header comment also changed |
 | `tests/canonical/ltmle_regimen_adapter.R` | `d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6` | `cf332486a8349cf9f978e5a136ec0343db8e281b888e05abfb417c1c1247e765` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. A promoted warning now raises `study_fatal_error`, which stops the run as the plain `stop` did. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/multi_arm_ctmle3_oat/run_multi_arm_ctmle3_oat.R` | `32deed7cb1be55d1e685bac3a2ea04b32bb72fc41d98602fcd12941eeeb2e0ed` | `084348980713885690f901a3a9eb5ed7e72d2a1301309d1e7f245bc3396de850` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/multi_arm_drtmle/run_multi_arm_drtmle.R` | `6254070df7b2b40a8c221ff6a037e91b2109851302399332acdae15f40e183e4` | `5b289c565241b6284d8296021d88a62abe0fffb32a2db79a684c4ab0b702f902` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. A promoted warning now raises `study_fatal_error`, which stops the run as the plain `stop` did. The fitter is now built in the parent before a prescheduled `mclapply`, so `study_collect` retries and assembles the registered groups; a successful run writes the same rows in the same group order. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
@@ -316,6 +313,36 @@ no computation reads, and `tests/unit/test_band_t_reference_design.py`, which ga
 no configuration key names a record field. No module the main study's manifest lists changed
 between the two commits, and every other module the held-out manifest lists has the same bytes at
 both, so the two runs drew and fitted with the same code.
+
+## The constant-arm skip in `joint_coverage_rows` (Fix-9)
+
+Fix-9 changed `tests/studies/evidence/simultaneous.py` from
+`f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b` to
+`e127a51b6de3e6b502755d649f9b1047643bd7692a8f2b858b6c014f4ce03f85`. Since Fix-3 the package builds
+no band over a family that holds a `constant_arm_cell_plugin` estimate. `joint_coverage_rows` then
+raised `AssertionError`, which is not a recordable failure, so the property phase stopped. The
+`canonical-stratified-incremental-msm` run at `58538bfa` stopped this way at the ipsi calibration
+replicate 398, whose treated arm of stratum `V=2` has one observed outcome value. The row builder
+now counts such a skipped band as not covered, with the refused-band sentinel, as
+`band-t-reference` already does. It also raises if a fit builds a band over a constant arm cell.
+The edit is result-neutral for every committed record: the new branch runs only
+where the old code raised, and a run that raised wrote no record.
+
+## The plain-form `longitudinal-mtp` regeneration (Fix-9)
+
+`longitudinal-mtp` is a planned study of the band wave, so `band_rerun.REGENERATED` holds its
+Fix-9 regeneration to a full run at the listed commit `58538bfa`. Its driver has only the plain
+form, which writes the artifacts into the study directory before `write_manifest` reads
+`git status`. Its manifest therefore records `cleverly_worktree_clean: false`, as every plain-form
+manifest does. `band_rerun.PLAIN_FORM` accepts that flag for this study alone, and only while every
+hash in its `study_module_sha256` and `reference_sha256` equals the file at `58538bfa`. All 27 do.
+Witness: on Linux, replicates 0 and 1 of each of the 20 fit sets and the band (48 rows) were
+refit at `58538bfa` and compared with the committed `property-replicates.parquet`, which Windows
+wrote. 46 rows agree within 1e-12 standard errors in estimate and standard error. The two
+`crossfit_overfitting/in_sample_control` rows, which interpolate with in-sample extra-trees, differ
+by 0.067 and 0.007 standard errors. Every `covered` is equal. A code change on a path these 48 fits run would have moved those
+rows; a change on a path they do not reach would not show here. The hash check reads git history,
+so it runs locally; CI's shallow checkout skips it, as it skips the ancestry check.
 
 ## Completed manifest provenance
 
@@ -723,6 +750,14 @@ Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_composition
 a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
 table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.
 
+## Registration edit after the `mtp-density-tails` run (Fix-9)
+
+Registration set `calibration_efficiency_ratio=False` on the `StudyRecord` in
+`tests/studies/canonical_mtp_density_tails.py`. The study uses its efficiency bound only to scale
+the noise controls and the influence-curve gap, and no calibration cell publishes an efficiency
+ratio. The field is read by the documentation gate and the measured-values table, and by no
+verdict, seed or fit, so a regeneration would write the same rows.
+
 ## Registration edits after the `projection-evidence` and `score-assessment-compositions` runs (P1)
 
 The declared runs ran at `f60abdf7` (`projection-evidence`, recorded at `0635530b`) and at
@@ -779,6 +814,65 @@ Its edits are to the planned-fit counts (a `nominal` flag and the counted label)
 reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
 `85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
 control values, bit for bit.
+
+## Main merged into `hazard-mtp` after its gated run (Fix-9)
+
+The declared run ran at `336bac14`. Landing it merges main through `cb17f08f`, which changes four
+modules the manifest records: `src/cleverly/longitudinal/hazard.py`,
+`tests/studies/evidence/properties.py`, `tests/studies/evidence/property_verdicts.py` and
+`tests/studies/fractional_glm.py`. Each is identical at `1231ef9c`, `58538bfa` and `336bac14`, so
+main's edits since `1231ef9c` are the whole difference. The hazard edits (X106 J2c, J2e, J2g)
+free each horizon's state, share one read-only clever weight per regimen and count held cells
+by key, and the counts are the same cells. The evidence modules gather bootstrap indices from the
+same stream and add the `shown_only` few-cluster readings, which this study does not declare.
+`fractional_glm.py` changes only its docstring. The evidence: two primary replicates of each
+scenario and one replicate of every property fit set (96 primary and 57 property rows, the
+untruncated density fit included), refit at `58538bfa` and at the merged tree, are bitwise
+equal in every column. `tests/unit/test_method_evidence.py` re-summarizes the committed
+`property-replicates.parquet` with the merged modules and reads the committed `passed` and
+`property_passed` on every row of `properties.csv`.
+
+## Main merged into `vector-mtp` after its Fix-9 run
+
+The run ran at `58538bfa`. Landing it on a branch that merged main through `cb17f08f` changes
+three modules the manifest records: `tests/studies/evidence/properties.py`,
+`tests/studies/evidence/property_verdicts.py` and `tests/studies/fractional_glm.py`. Each is
+identical at `1231ef9c` and `58538bfa`, so main's edits since `1231ef9c` are the whole difference,
+the same edits the `hazard-mtp` section above describes: bootstrap indices gathered from the same
+stream, the `shown_only` few-cluster readings this study does not declare, and a docstring. The
+evidence: two primary samples of each scenario and one replicate of every property fit set (40
+primary and 36 property rows), refit at `58538bfa` and at the merged tree, are bitwise equal in
+every column. `tests/unit/test_method_evidence.py` re-summarizes the committed rows with the
+merged modules and reads the committed verdicts.
+
+## Main merged into the last six Fix-9 regenerations
+
+`mtp-boundaries`, `longitudinal-sdr`, `longitudinal-mtp`, `policy-point-mtp` and
+`dose-response-npcausal` ran at `58538bfa`, and `canonical-stratified-incremental-msm` at
+`9bb2e749`. Landing them on a branch that merged main through `cb17f08f` changes recorded
+modules of five of them: `tests/studies/evidence/properties.py` and
+`tests/studies/evidence/property_verdicts.py` for all five, and `tests/studies/fractional_glm.py`
+for all but `canonical-stratified-incremental-msm`, which does not record it.
+`dose-response-npcausal` records none of the three. Each module is identical at `1231ef9c`,
+`58538bfa` and `9bb2e749`, so main's edits since `1231ef9c` are the whole difference, the edits the
+`hazard-mtp` and `vector-mtp` sections above describe: `ratio_draws` gathers the bootstrap indices
+from the same stream column by column, `property_verdicts` adds the `shown_only` few-cluster
+readings and reads an empty property table from the declaration, and `fractional_glm.py` changes
+only its docstring. None of the six studies declares a few-cluster family, and no fit calls these
+functions: they summarize committed replicate rows. The evidence:
+`tests/unit/test_method_evidence.py`, run with `-k` on each slug, re-summarizes the committed
+replicate rows with the merged modules and reads the committed `passed` and `property_passed` on
+every row; the same edits refit bitwise equal for `hazard-mtp` and `vector-mtp`. The
+`longitudinal-sdr` and `longitudinal-mtp` manifests also record
+`tests/studies/evidence/simultaneous.py`, whose Fix-9 edit the constant-arm section above covers.
+Merging main again at `a5d13ce6` (#743 to #747: sampled refutation, the 0.2.8 release and the
+band-less bootstrap replicate of the continuous-time TMLE) changes no module that any Fix-9
+study's manifest records, and neither does merging main at `d30703e6` (#750, the
+`learned-rule-ep-declared` registration). Merging main at `f14f1a02` (#749 and #751) adds one
+class attribute, `cleverly_learner_family = "parametric"`, to `KnownLongitudinalMechanism` in
+`tests/studies/canonical_ltmle.py` and to `QuasiBinomialGLM` in `tests/studies/fractional_glm.py`.
+Only `cleverly._support.learner_family` reads it, to set support labels and keys, and no Fix-9
+study row records one, so no seed, fit or verdict moves.
 
 ## The `CONFIGURATION` publish step of `learned-rule-ep-declared`
 
