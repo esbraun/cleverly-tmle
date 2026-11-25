@@ -361,9 +361,11 @@ from .regimen import (
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .separable import (
+    SEPARABLE_ENGINE_REFUSAL,
     SeparablePlan,
     refuse_separable_companions,
     resolve_separable,
+    separable_data_refusal,
     split_separable,
     target_separable,
 )
@@ -5706,12 +5708,7 @@ class _SequentialEstimator:
 
         gap = RefusalReason.IMPLEMENTATION_GAP
         if self._estimator != "tmle" or getattr(self, "survival_model", None) != "hazard":
-            refuse(
-                "a Separable regimen needs the cause-specific hazards at two treatment "
-                "levels, which only LTMLE(survival_model='hazard') fits.",
-                "Fit LTMLE(survival_model='hazard', targeting='one_step').",
-                reason=RefusalReason.API_REDIRECTION,
-            )
+            raise CapabilityError.from_refusal(SEPARABLE_ENGINE_REFUSAL)
         if getattr(self, "targeting", None) != "one_step":
             refuse(
                 "a Separable regimen targets the two hazard factors at every horizon at "
@@ -5727,37 +5724,9 @@ class _SequentialEstimator:
                 "Fit the separable regimens in their own fit.",
                 reason=gap,
             )
-        if data.eliminated:
-            refuse(
-                "a Separable regimen is not combined with eliminate=: eliminating the "
-                "competing cause removes it, so no component of the treatment acts on it.",
-                "Fit the separable regimens without eliminate=.",
-                reason=RefusalReason.DIFFERENT_ESTIMAND,
-            )
-        later = [name for block in data.time_varying_names for name in block]
-        if later:
-            refuse(
-                "a Separable regimen is identified with baseline covariates only here. With "
-                f"covariates measured after baseline ({', '.join(later)}), Stensrud et al. "
-                "(2021), Equation (19), identify the separable effects, but no source gives "
-                "the efficient influence curve of that formula.",
-                "Fit the separable regimens with baseline covariates only.",
-                reason=RefusalReason.INFERENCE_GAP,
-            )
-        if is_multinode(data):
-            # H18: the separable engine targets the two hazard factors of one held baseline
-            # treatment, and a design with a treatment at several nodes has none.
-            raise CapabilityError(
-                "a Separable regimen is built for one baseline treatment held over every node, "
-                f"and this design declares a treatment at {data.n_decisions} nodes. A separable "
-                "effect splits that one treatment into the components that act on each cause.",
-                reason=RefusalReason.API_REDIRECTION,
-                alternative=(
-                    "Declare one baseline treatment held over every node, as treatment='A', for "
-                    "separable effects. A treatment at several nodes takes static regimens, "
-                    "known rules and known policies."
-                ),
-            )
+        refusal = separable_data_refusal(data)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(refusal)
         settings = (
             (getattr(self, "node_bounds", None) is not None, "node_bounds="),
             (getattr(self, "stopping", "relative") != "relative", "stopping="),

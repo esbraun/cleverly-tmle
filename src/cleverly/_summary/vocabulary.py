@@ -2689,6 +2689,26 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
         ),
     ),
     (
+        "separable components:",
+        (
+            "treatment splits into two parts",
+            "The treatment can be split into a part that acts on the event of interest and a "
+            "part that acts on the competing event, and each part could be given on its own.",
+            "no",
+        ),
+    ),
+    (
+        "dismissible components",
+        (
+            "each part acts on one event",
+            "The part for the competing event changes the event of interest only by changing "
+            "the competing event, and the part for the event of interest changes the competing "
+            "event only by changing the event of interest. This fails, for example, when an "
+            "unrecorded cause affects both events.",
+            "no",
+        ),
+    ),
+    (
         "dropout is missing at random given the recorded history",
         (
             "follow-up loss at random",
