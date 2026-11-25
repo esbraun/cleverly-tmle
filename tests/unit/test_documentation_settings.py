@@ -10,7 +10,8 @@ a fact the code owns, so this module derives it from the code and compares:
 * the keyword, against :data:`cleverly.methods.SHORTCUTS`;
 * the "used on" kinds, by translating a method that changes the field
   (:meth:`TMLEMethod.estimator_kwargs`) and from the read sets of the exact-times engine
-  (``cleverly.survival.data._READ``) and of the trial method (``ATMLE_FIELDS``);
+  (``cleverly.survival.data._READ``), of the trial method (``ATMLE_FIELDS``) and of the
+  dose-response curve (``DOSE_RESPONSE_FIELDS``);
 * the table of changed defaults, against each method's groups and the resolved translations.
 
 A field added to a group, a renamed keyword, a changed default or a newly routed setting fails
@@ -38,7 +39,7 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly.learners import random_partition
-from cleverly.methods import ATMLE_FIELDS, SHORTCUTS
+from cleverly.methods import ATMLE_FIELDS, DOSE_RESPONSE_FIELDS, SHORTCUTS
 from cleverly.survival.data import _READ, continuous_kwargs
 
 PAGE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "settings.md"
@@ -261,6 +262,8 @@ def used_on(group: str, field: str) -> set[str]:
         kinds.add("exact times")
     if (group, field) in ATMLE_FIELDS:
         kinds.add("trial")
+    if (group, field) in DOSE_RESPONSE_FIELDS:
+        kinds.add("dose curve")
     return kinds
 
 
@@ -447,8 +450,8 @@ def test_changed_defaults_match_the_translations():
         ),
         (
             group_problems,
-            "| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial |",
-            "| `alpha` | `alpha` | `0.05` | point, over time, trial |",
+            "| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial, dose curve |",
+            "| `alpha` | `alpha` | `0.05` | point, over time, trial, dose curve |",
         ),
     ],
 )

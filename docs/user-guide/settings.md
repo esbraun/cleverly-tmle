@@ -23,11 +23,12 @@ Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` i
 `study.identify(...)` returned ([quickstart](../getting-started/quickstart.md)). The five group
 objects are `ModelSpec`, `CrossFitting`, `Targeting`, `Inference` and `Runtime`.
 
-The "used on" column names the fits that read the setting: *point* is a single treatment
-decision (`PointTreatment`), *over time* treatments or outcomes recorded at several times,
-including a time to an event checked at set times, *exact times* a
-`TimeToEvent(grid="continuous")` fit, and *trial* a trial with external data. A kind of fit not
-in that column raises an error when you change the setting from its default.
+The "used on" column names the fits that read the setting: *point* is a single treatment decision
+(`PointTreatment`), *over time* treatments or outcomes recorded at several times, including a time
+to an event checked at set times, *exact times* a `TimeToEvent(grid="continuous")` fit, *trial* a
+trial with external data, and *dose curve* the average outcome across a range of doses
+(`DoseResponseCurve`). A kind of fit not in that column raises an error when you change the setting
+from its default.
 
 ## Models and learners: `ModelSpec`
 
@@ -37,14 +38,14 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial | the model of the outcome given the treatment and the covariates; on a time to an event checked at set times, the model of the event (or, under `survival_model="hazard"`, of its hazard, the event's chance at each time among those at risk) |
-| `treatment_learner` | `treatment_learner` | `None` | point, over time, exact times, trial | the model of who gets each treatment option, at each time over time |
+| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial, dose curve | the model of the outcome given the treatment and the covariates; on a time to an event checked at set times, the model of the event (or, under `survival_model="hazard"`, of its hazard, the event's chance at each time among those at risk) |
+| `treatment_learner` | `treatment_learner` | `None` | point, over time, exact times, trial, dose curve | the model of who gets each treatment option, at each time over time |
 | `missingness_learner` | `missingness_learner` | `None` | point, trial | the model of whose outcome is observed, and of whose treatment is observed when a missing treatment is declared |
 | `intermediate_learner` | `intermediate_learner` | `None` | point | the model of the variable after treatment that a controlled direct effect holds fixed |
 | `pseudo_learner` | `pseudo_learner` | `None` | over time | the regression that works backward through the times, with a real-valued target |
 | `censoring_learner` | `censoring_learner` | `None` | over time | the model of who stays in follow-up |
 | `competing_learner` | `competing_learner` | `None` | over time | the model of the competing event that `eliminate=` prevents. `None` uses the censoring learner |
-| `density_bins` | `density_bins` | `None` | point, over time | the number of core bins of a continuous-dose density. `None` grows with the sample |
+| `density_bins` | `density_bins` | `None` | point, over time, dose curve | the number of core bins of a continuous-dose density. `None` grows with the sample |
 | `ratio` | `ratio` | `None` | point, over time | how a dose policy's density ratio is estimated: `"density"` or `"classifier"`. `None` chooses per fit |
 | `screen_treatment` | `screen_treatment` | `False` | point | drop covariates the screen rejects from the treatment model; with `min_retain=None` the screen keeps every covariate |
 | `screen_threshold` | `screen_threshold` | `0.1` | point | keep a covariate whose correlation test with the treatment has a p-value below this |
@@ -69,9 +70,9 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `enabled` | `cross_fit` | `True` | point, over time, exact times, trial | whether each row's predictions come from models trained without that row |
-| `n_folds` | `n_folds` | `10` | point, over time, exact times, trial | the number of outer folds |
-| `learner_folds` | `learner_folds` | `5` | point, over time, exact times, trial | the folds a Super Learner uses inside each training set to weigh its candidates |
+| `enabled` | `cross_fit` | `True` | point, over time, exact times, trial, dose curve | whether each row's predictions come from models trained without that row |
+| `n_folds` | `n_folds` | `10` | point, over time, exact times, trial, dose curve | the number of outer folds |
+| `learner_folds` | `learner_folds` | `5` | point, over time, exact times, trial, dose curve | the folds a Super Learner uses inside each training set to weigh its candidates |
 | `repeats` | `repeats` | `1` | point, over time | independent fold draws, combined by their median; the value of a treatment rule learned from the data combines them by their mean |
 | `stratify_by` | `stratify_folds` | `'none'` | point | fold stratification, which no fit applies yet: a cross-fitted fit refuses any value but `"none"`, and an in-sample fit (`cross_fit=False`) ignores it |
 | `targeting_scheme` | `targeting_scheme` | `'pooled'` | point | one correction step over all folds (`"pooled"`), or one per fold (`"fold"`) |
@@ -89,10 +90,10 @@ bias left, toward zero.
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `fluctuation` | `fluctuation` | `'logistic'` | point | the form of the correction: `"logistic"` keeps predictions inside the outcome's range, `"linear"` does not |
+| `fluctuation` | `fluctuation` | `'logistic'` | point, dose curve | the form of the correction: `"logistic"` keeps predictions inside the outcome's range, `"linear"` does not |
 | `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until the score is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
 | `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the effect among the treated (ATT) or untreated (ATC); over time, (0.01, 1.0) |
-| `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it; give the range the outcome can logically take |
+| `q_bounds` | `q_bounds` | `None` | point, over time, dose curve | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it; give the range the outcome can logically take |
 | `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of the intermediate variable's level a direct effect fixes) |
 | `submodel_alpha` | `submodel_alpha` | `0.9995` | point, over time | how far inside the range the logistic correction keeps predictions. Not the interval's `alpha` |
 | `target_weights` | `target_weights` | `False` | point | whether observation weights enter the correction |
@@ -116,14 +117,14 @@ states their contracts.
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial | one minus the confidence level: `0.05` gives 95% intervals |
+| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial, dose curve | one minus the confidence level: `0.05` gives 95% intervals |
 | `n_bootstrap` | `n_bootstrap` | `0` | point, over time, exact times | full-refit bootstrap replicates. `0` uses the standard error from each row's contribution |
 | `bootstrap_resampling` | `bootstrap_resampling` | `'auto'` | point, over time | resample rows (`"iid"`) or clusters (`"cluster"`). `"auto"` resamples clusters when the design declares them |
-| `simultaneous` | `simultaneous` | `None` | point, over time, exact times | whether a fit with several estimates adds a band that covers all of them at once. `None` is the method's own choice |
-| `n_multiplier` | `n_multiplier` | `10000` | point, over time, exact times | the random draws behind the band |
-| `multiplier_kind` | `multiplier_kind` | `'mammen'` | point, over time, exact times | the distribution of those draws |
+| `simultaneous` | `simultaneous` | `None` | point, over time, exact times, dose curve | whether a fit with several estimates adds a band that covers all of them at once. `None` is the method's own choice |
+| `n_multiplier` | `n_multiplier` | `10000` | point, over time, exact times, dose curve | the random draws behind the band |
+| `multiplier_kind` | `multiplier_kind` | `'mammen'` | point, over time, exact times, dose curve | the distribution of those draws |
 | `band_scale` | `band_scale` | `'logit'` | point, over time, exact times | build the band of a probability on the logit scale, so it stays inside 0 to 1, or on the estimate's own scale (`"identity"`) |
-| `band_reference` | `band_reference` | `'normal'` | point, over time | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
+| `band_reference` | `band_reference` | `'normal'` | point, over time, dose curve | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 
 With `simultaneous=None` a fit with several estimates adds the band. Over time, where they fit only
 an event outcome, DR-TMLE reports an interval for each estimate and no band, and collaborative TMLE
@@ -139,9 +140,9 @@ run.
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `random_state` | `random_state` | `None` | point, over time, exact times, trial | the seed of the folds, the learners and the resampling |
-| `run_id` | `run_id` | `None` | point, over time, exact times, trial | a label of your own, stored with the result |
-| `n_jobs` | `n_jobs` | `1` | point, over time, exact times | the most parallel jobs the fit starts |
+| `random_state` | `random_state` | `None` | point, over time, exact times, trial, dose curve | the seed of the folds, the learners and the resampling |
+| `run_id` | `run_id` | `None` | point, over time, exact times, trial, dose curve | a label of your own, stored with the result |
+| `n_jobs` | `n_jobs` | `1` | point, over time, exact times, dose curve | the most parallel jobs the fit starts |
 
 `n_jobs` does not set the threads each model uses inside a job;
 [`cleverly.learners.set_thread_limit`](../api/learners.md) does.
