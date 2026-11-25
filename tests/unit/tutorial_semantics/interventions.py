@@ -47,9 +47,8 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "-0.2": "the lower end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
-    "0.2": "the upper end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
-    "0.9": "the size of the raise's printed movement of -0.9 standard errors (sensitivity-other)",
+    "refute-regimes-reading: -0.2": "the lower end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
+    "refute-regimes-reading: 0.2": "the upper end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
     # The mean density ratio of the shown dose configuration, quad_rboost40.
     "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
     # The density comparison, same quadratic Q.
@@ -77,6 +76,13 @@ UNPRINTED_DECIMALS = {
         "the fitted model's smallest offer probability, which the regime support "
         "report holds (min_support_propensity of offer to all); check() asserts it"
     ),
+}
+
+
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "sensitivity-other-reading: 0.9": ("sensitivity-other", "-0.9", "magnitude"),
 }
 
 

@@ -31,12 +31,18 @@ SENSITIVITY_LOG = _PROBES / "sensitivity_all.log"
 _PROBE = "reviews/notebook-review/probes/twins-birth-weight/generated_outcome_400.log"
 
 UNPRINTED_DECIMALS: dict[str, str] = {
-    "0.08": "the size of the printed paired shift, -0.0818 standard errors (refute)",
     "0.03182": f"bias reading of the generated-outcome test, 400 draws: {_PROBE}",
     "-0.06618": f"lower limit of that bias interval, 400 draws: {_PROBE}",
     "0.1298": f"upper limit of that bias interval, 400 draws: {_PROBE}",
     "-0.2": f"lower limit of the level-2 equivalence band: {_PROBE}",
     "0.2": f"upper limit of the level-2 equivalence band: {_PROBE}",
+}
+
+
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "refute-reading: 0.08": ("refute", "-0.0818", "magnitude"),
 }
 
 
