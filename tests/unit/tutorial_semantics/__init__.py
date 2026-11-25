@@ -66,9 +66,11 @@ __all__ = [
     "STATIC_ONLY",
     "RefitNamespace",
     "assert_protocol_recorded",
+    "assert_weights_lesson",
     "callback",
     "callback_module",
     "callback_modules",
+    "cap_moves",
     "changed_fields",
     "covers",
     "markdown_text",
@@ -917,3 +919,44 @@ def scoped_narration_mismatches(
                     "not print it, or it is already in scope)"
                 )
     return missing, stale
+
+
+def cap_moves(namespace: Mapping[str, Any], column: str = "lower_bound") -> Any:
+    """The "Weights and balance" lesson's cap curve: each estimate's move in standard errors.
+
+    One row per estimand and one column per cap, as the lesson's ``caps`` cell prints it.
+    """
+    curve = namespace["cap_curve"]
+    return curve.pivot(index="estimand", columns=column, values="move in SEs")
+
+
+def assert_weights_lesson(namespace: Mapping[str, Any], *, feedback: bool | None) -> None:
+    """Check the readings every "Weights and balance" lesson shares.
+
+    ``feedback`` says whether the fit has feedback rows (``True``), has none because it is a
+    survival fit (``False``), or has no balance table at all because its treatment is
+    continuous (``None``).  Each lesson's own callback checks its page's numbers.
+    """
+    rows = namespace["weight_rows"]
+    # "no weight hit the cap"
+    assert (rows["share_truncated"] == 0).all()
+    # "kish" counts fewer equally weighted rows than the fit holds.
+    influence = namespace["influence_rows"].loc[namespace["final_estimates"]]
+    assert (influence["kish"] < influence["n"]).all()
+    # The replay at the fit's own cap reproduces the fit.
+    curve = namespace["cap_curve"]
+    fitted = curve.loc[curve["is_fitted_bound"].astype(bool), "move in SEs"]
+    assert fitted.empty or fitted.abs().max() < 1e-9
+    if feedback is None:
+        return
+    largest = namespace["balance_by_check"].groupby("diagnostic")[["before", "after"]].max()
+    # "Weighting shrinks the largest gap" for the confounding and censoring checks.
+    for check in ("confounding", "censoring"):
+        assert largest.loc[check, "after"] < largest.loc[check, "before"]
+    assert largest.loc["confounding", "after"] < 0.1
+    if feedback:
+        # "The feedback rows ... grow ... by design".
+        assert largest.loc["feedback", "after"] > largest.loc["feedback", "before"]
+    else:
+        # "A survival fit has no feedback check".
+        assert "feedback" not in largest.index

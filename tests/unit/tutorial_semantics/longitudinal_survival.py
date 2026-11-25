@@ -18,6 +18,8 @@ from tests.unit.tutorial_semantics import (
     ROOT,
     adjustment_table,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     changed_fields,
     covers,
     stored_output,
@@ -442,3 +444,33 @@ def check(namespace: dict[str, Any]) -> None:
     assert age_move > readmission_t2.psi > 0.0
     assert namespace["reduced"].time_varying == ((), ())
     assert namespace["full_design"].time_varying == ((), ("identified_needs",))
+    _check_weights_lesson(namespace)
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights and balance period by period" lesson under "Go deeper"."""
+    assert_weights_lesson(namespace, feedback=False)
+    balance = namespace["balance_by_check"]
+    censoring = balance[balance["diagnostic"].eq("censoring")]
+    worst = censoring.loc[censoring["after"].idxmax()]
+    # "falls from 0.25 to 0.14, which is identified needs in the second period".
+    assert worst["covariate"] == "identified_needs" and worst["exposure"] == "censoring at 2"
+    rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
+    # "At the day-31 offer they reach 28.72 for never and 14.533 for always".
+    assert rows["never", 2] > rows["always", 2] > rows["always", 1]
+    moves = cap_moves(namespace)
+    # "Raising the floor to 0.02 moves nothing. At 0.05 only the two never risks by day 60
+    # move", each by under a tenth of a standard error.
+    assert moves[0.02].abs().max() < 1e-9
+    moved = moves.index[moves[0.05].abs() > 1e-9]
+    assert set(moved) <= {
+        "cif_regimen[never, readmission @ t=2]",
+        "cif_regimen[never, death @ t=2]",
+    }
+    assert moves[0.05].abs().max() < 0.1
+    # "only 72.8 and 77.9 behind the two death risks", fewer than behind the always
+    # readmission risk.
+    kish = namespace["influence_rows"]["kish"]
+    readmission = kish["cif_regimen[always, readmission @ t=2]"]
+    assert kish["cif_regimen[always, death @ t=2]"] < readmission
+    assert kish["cif_regimen[never, death @ t=2]"] < readmission
