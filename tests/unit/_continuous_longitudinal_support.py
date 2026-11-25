@@ -233,3 +233,79 @@ def exact_errors(
         psi = max(psi, float(np.max(np.abs(got - law.truth(regime, targets, cap)))))
         ic = max(ic, float(np.max(np.abs(curve - law.gateaux(regime, targets, cap)))))
     return {"psi": psi, "ic": ic}
+
+
+def _expit(x: float) -> float:
+    return float(1.0 / (1.0 + np.exp(-x)))
+
+
+def simulate_ct(
+    n: int, seed: int, *, end: float = 30.0, visit_rate: float = 0.10, visits: bool = True
+) -> Any:
+    """A draw of law CT (X6 plan 5.7): binary A and L at visits, two causes, censoring.
+
+    Parameters
+    ----------
+    n : int
+        Units.
+    seed : int
+        Seed.
+    end : float
+        The administrative end of follow-up, in days.
+    visit_rate : float
+        The visit intensity's base rate per day.
+    visits : bool
+        ``False`` draws no visit after baseline.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``id, start, stop, event, W1, W2, L, A``, one row per interval between visits.
+    """
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    rows = []
+    for unit in range(n):
+        w1, w2 = int(rng.random() < 0.5), int(rng.integers(1, 7))
+        l = int(rng.random() < _expit(-0.5 + 0.6 * w1))
+        a = int(rng.random() < _expit(-0.3 + 0.8 * l + 0.3 * w1))
+        start = t = 0.0
+        while True:
+            rates = np.array(
+                [
+                    0.010 * np.exp(-0.6 * a + 0.8 * l + 0.3 * w1),
+                    0.006 * np.exp(0.2 * a + 0.5 * l - 0.3 * w1 + 0.1 * w2),
+                    visit_rate * np.exp(0.4 * l - 0.3 * a) if visits else 0.0,
+                    0.008 * np.exp(0.6 * l - 0.4 * a),
+                ]
+            )
+            t = t + rng.exponential(1.0 / rates.sum())
+            row = {"id": unit, "start": start, "W1": w1, "W2": w2, "L": l, "A": a}
+            if t >= end:
+                rows.append({**row, "stop": end, "event": 0})
+                break
+            kind = int(rng.choice(4, p=rates / rates.sum()))
+            if kind in (0, 1):
+                rows.append({**row, "stop": t, "event": kind + 1})
+                break
+            if kind == 3:
+                rows.append({**row, "stop": t, "event": 0})
+                break
+            rows.append({**row, "stop": t, "event": 0})
+            l_new = int(rng.random() < _expit(-0.4 + 1.2 * l - 0.8 * a + 0.4 * w1))
+            a = int(rng.random() < _expit(-1.0 + 1.0 * l_new + 2.0 * a + 0.2 * w2 / 6))
+            l, start = l_new, t
+    return pd.DataFrame.from_records(rows)[["id", "start", "stop", "event", "W1", "W2", "L", "A"]]
+
+
+#: The columns of :func:`simulate_ct` for ``fit``.
+CT_COLUMNS: dict[str, Any] = {
+    "id": "id",
+    "start": "start",
+    "stop": "stop",
+    "event": "event",
+    "treatment": "A",
+    "baseline": ["W1", "W2"],
+    "time_varying": ["L"],
+}

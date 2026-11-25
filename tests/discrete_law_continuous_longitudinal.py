@@ -128,7 +128,7 @@ class Law:
                 emit()
                 return
             t, kind = self.schedule[step]
-            w, l, a, aprev, k, s = x
+            w, _, a, _, k, _ = x
             if kind == "D":
                 p1, p2 = self.p_d(t, x)
                 branch(p1, ("D", t, 1), emit)
@@ -404,20 +404,20 @@ def point_law(
         return (1 + lv + aprev) / 4
 
     def p_d(t: float, x: Window) -> tuple[float, float]:
-        w, l, a, aprev, k, s = x
+        w, l, a, aprev, k, _ = x
         lv = l if (l_moves or k == 0) else 0
         return _pair(w + 2 * lv + a + aprev + int(t))
 
     def p_v(t: float, x: Window) -> float:
-        w, l, a, *_ = x
+        w, l, *_ = x
         return 1.0 if certain_visits else (1 + w + l) / 4
 
     def p_l(t: float, x: Window) -> float:
-        w, l, a, *_ = x
+        _, l, a, *_ = x
         return (1 + l + a) / 4
 
     def p_c(t: float, x: Window) -> float:
-        w, l, a, *_ = x
+        w, _, a, *_ = x
         if t < 1:
             return (1 + w) / 4
         return (1 + (a if censor_reads_a else w)) / 4
@@ -461,18 +461,18 @@ def point_law_2(*, censor_reads_a: bool = True) -> Law:
         return (1 + l + aprev) / 4
 
     def p_d(t: float, x: Window) -> tuple[float, float]:
-        w, l, a, aprev, k, s = x
+        w, l, a, aprev, k, _ = x
         return _pair(w + 2 * l + a + aprev + k + int(t))
 
     def p_v(t: float, x: Window) -> float:
         return 1.0 if x[1] == 1 else 0.5
 
     def p_l(t: float, x: Window) -> float:
-        w, l, a, *_ = x
+        _, l, a, *_ = x
         return (1 + l + a) / 4
 
     def p_c(t: float, x: Window) -> float:
-        w, l, a, *_ = x
+        w, _, a, *_ = x
         return (1 + (a if censor_reads_a else w)) / 4
 
     return Law(
