@@ -108,7 +108,7 @@ longitudinal-repeated-crossfit,neutral,25,18,0.00875,,root_n_and_efficiency/ltml
 longitudinal-repeated-ipsi,neutral,49,49,0.00375,,,1,
 longitudinal-repeated-outcome,neutral,47,47,0.007857,,,1,
 longitudinal-repeated-sdr,neutral,55,55,0.013,,double_robustness/always_t3__mechanism_correct;double_robustness/rule_t3__mechanism_correct;repeated_outcome_necessity/rule_t3__repeated,1,
-longitudinal-sdr,neutral,25,22,0.01375,,power/static__alternative,1,
+longitudinal-sdr,neutral,25,6,0.0125,,power/static__alternative,1,
 mar-attributable-tmle,neutral,27,21,0.014167,,targeting_necessity/par__targeted,5,
 mar-drtmle,neutral,9,8,0.01,,corrected_mar_inference/both_correct,0,
 mar-natural-course-tmle,neutral,10,6,0.003333,,,0,

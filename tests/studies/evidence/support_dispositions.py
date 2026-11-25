@@ -650,7 +650,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         LIMIT,
         "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
         "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
-        "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+        "ate_regimen[always vs never], coverage is 0.913; bias 0.000011 to 0.0112, SE ratio "
         "0.9459",
         "",
     ),
