@@ -45,7 +45,8 @@ from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simu
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import frame_from_dict
-from ._nuisance import NodePredictions, NuisanceEstimates, fit_nuisances
+from ..utils.memory import check_max_memory_bytes
+from ._nuisance import _STACKED_ROWS, NodePredictions, NuisanceEstimates, fit_nuisances
 
 __all__ = [
     "DOSE_RESPONSE_BAND_MEASURED",
@@ -69,9 +70,17 @@ QUADRATURE_TOLERANCE: Final[float] = 0.05
 
 #: The working set one row tile of the node pass may hold, in bytes (:func:`_node_pass`).
 TILE_BYTES: Final[int] = 64 * 1024**2
-#: Row-by-node arrays the node pass holds at once per tile, measured: the gathered
-#: predictions, the density reading's temporaries, the clever covariate and the fluctuation.
-_TILE_ARRAYS: Final[int] = 32
+#: Row-by-node arrays the node pass holds at once per tile: the gathered predictions, the
+#: density reading's temporaries, the clever covariate and the fluctuation.  Measured 18.7 to
+#: 19.0 (tracemalloc, 1,000 to 50,000 rows, 176 to 6,528 nodes).
+_TILE_ARRAYS: Final[int] = 20
+#: Per-row arrays each cell holds through targeting and the band (mask, weights, clever
+#: covariate, plug-ins of both rules, influence curves).  Measured about 6.
+_CELL_ARRAYS: Final[int] = 8
+#: The node memory prediction's margin over its measured terms, applied above the held
+#: predictions, for allocations that move with library versions (a learner's copies of its
+#: design).  Measured peaks came to 0.73 to 0.94 of the prediction in one process (X106 D3).
+_MEMORY_MARGIN: Final[float] = 1.25
 #: Rows of a tile come in multiples of this, so a BLAS matrix-vector kernel that groups rows
 #: by any divisor of it treats every row as it treats it in the untiled matrix.
 _TILE_ROWS: Final[int] = 64
@@ -131,6 +140,12 @@ class _NodeReading:
     minimum: Any
 
 
+def _tile_height(rule_nodes: int) -> int:
+    """Rows per tile: a multiple of 64 keeping the working set near :data:`TILE_BYTES`."""
+    rows = TILE_BYTES // (rule_nodes * 8 * _TILE_ARRAYS) // _TILE_ROWS * _TILE_ROWS
+    return max(_TILE_ROWS, rows)
+
+
 def _tiles(nodes: NodePredictions, n: int, height: int) -> list[IntArray]:
     """Row tiles in fold order, ``height`` rows each, and the data's last rows last.
 
@@ -168,7 +183,7 @@ def _node_pass(
     """
     n = codes.size
     k = rule.n_nodes
-    height = max(_TILE_ROWS, TILE_BYTES // (k * 8 * _TILE_ARRAYS) // _TILE_ROWS * _TILE_ROWS)
+    height = _tile_height(k)
     node_weights = {cell.pair: curve.weight(cell.h, cell.a0, rule.nodes) for cell in cells}
     integral = {i: np.empty(n) for i, cell in enumerate(cells) if cell.solved}
     untargeted = {
@@ -176,6 +191,9 @@ def _node_pass(
     }
     zero = np.zeros(k, dtype=bool)
     minimum = np.full((n_strata, k), np.inf)
+    by_pair: dict[int, list[int]] = {}
+    for i, cell in enumerate(cells):
+        by_pair.setdefault(cell.pair, []).append(i)
     for rows in _tiles(nodes, n, height):
         q_block = nodes.block(rows, offset, offset + k)
         g_block = density._density_on(rows, rule.nodes)
@@ -187,19 +205,73 @@ def _node_pass(
                 np.minimum(minimum[s], g_block.min(axis=0), out=minimum[s])
             elif chosen.any():
                 np.minimum(minimum[s], g_block[chosen].min(axis=0), out=minimum[s])
-        clever: dict[int, FloatArray] = {}
-        for i, cell in enumerate(cells):
-            weights = rule.weights[cell.pair]
-            if i in untargeted:
-                untargeted[i][rows] = q_block @ weights
-            if i not in integral:
-                continue
-            h_block = clever.get(cell.pair)
-            if h_block is None:
-                h_block = clever[cell.pair] = _clever_nodes(node_weights[cell.pair], g_block)
-            targeted = _fluctuate(q_block, h_block, cell.epsilon, fluctuation, BOUND)
-            integral[i][rows] = targeted @ weights
+        # Pair by pair, so one pair's clever covariate is held at a time and serves its strata.
+        for pair, members in by_pair.items():
+            weights = rule.weights[pair]
+            h_block = None
+            for i in members:
+                if i in untargeted:
+                    untargeted[i][rows] = q_block @ weights
+                if i not in integral:
+                    continue
+                if h_block is None:
+                    h_block = _clever_nodes(node_weights[pair], g_block)
+                targeted = _fluctuate(q_block, h_block, cells[i].epsilon, fluctuation, BOUND)
+                integral[i][rows] = targeted @ weights
+                del targeted
+            del h_block
     return _NodeReading(integral, untargeted, zero, minimum)
+
+
+def node_memory(
+    *, n: int, n_nodes: int, rule_nodes: int, width: int, cells: int, n_jobs: int, n_folds: int
+) -> int:
+    """Predicted peak bytes of a dose-response fit from its outcome fit to its band's end.
+
+    The terms, each measured on the tiled pass (X106 D3): the per-fold node predictions,
+    ``K n 8``, held throughout; above them, the larger of the outcome stage (one stacked
+    prediction chunk, its design blocks and their stacked copy, and each fold's training
+    copy of the design; with parallel jobs, a fold's predictions in each worker and in
+    transfer) and the targeting stage (one row tile's working set, the cells' per-row arrays,
+    and the band's multiplier buffer).  The held density, its knots and the learners' own
+    training memory are outside it.  Measured peaks came to 0.73 to 0.94 of the
+    prediction.
+
+    Parameters
+    ----------
+    n : int
+        Rows.
+    n_nodes : int
+        Nodes of both rules, ``K``.
+    rule_nodes : int
+        Nodes of the larger rule, which sets the tile's width.
+    width : int
+        Columns of the outcome design.
+    cells : int
+        Pairs times strata.
+    n_jobs : int
+        Parallel jobs of the nuisance fits.
+    n_folds : int
+        Cross-fitting folds (one in sample).
+
+    Returns
+    -------
+    int
+        Bytes.
+    """
+    held = n_nodes * n * 8
+    outcome = _STACKED_ROWS * 8 * (3 * width + 2) + 2 * n * 8 * (width + 1)
+    if n_jobs > 1:
+        fold_rows = -(-n // max(n_folds, 1))
+        outcome += min(n_jobs, n_folds) * (2 * n_nodes * fold_rows * 8 + outcome)
+    height = max(
+        _TILE_ROWS, TILE_BYTES // (rule_nodes * 8 * _TILE_ARRAYS) // _TILE_ROWS * _TILE_ROWS
+    )
+    tile = _TILE_ARRAYS * rule_nodes * 8 * min(n, max(height, 2 * _TILE_ROWS - 1))
+    per_cell = _CELL_ARRAYS * n * 8 * cells
+    replicates = min(256, max(4, (32 << 20) // max(n * 8, 1)))
+    band = 2 * replicates * n * 8 + 2 * n * 8 * cells
+    return int(held + _MEMORY_MARGIN * max(outcome, tile + per_cell, band + per_cell))
 
 
 def _pair_cell_name(h: float, a0: float, stratum: str | None) -> str:
@@ -1060,6 +1132,12 @@ class DoseResponseTMLE:
         Seed of the split, the learners and the band.
     n_jobs : int
         Parallel jobs for the nuisance fits.
+    max_memory_bytes : int or None
+        The memory the quadrature stage may use, in bytes.  With ``None`` the fit refuses
+        only a request whose node predictions are predicted above
+        :data:`NODE_MEMORY_BUDGET` (4 GiB) both by today's count and by the count of the
+        tiled pass, so no request the fit accepted before is refused.  A number replaces that
+        rule by the tiled pass's prediction against this budget.
     """
 
     def __init__(
@@ -1078,6 +1156,7 @@ class DoseResponseTMLE:
         n_replicates: int = DEFAULT_N_REPLICATES,
         random_state: int | None = None,
         n_jobs: int = 1,
+        max_memory_bytes: int | None = None,
     ) -> None:
         if not isinstance(curve, DoseResponse):
             raise DataError("curve must be a cleverly.dose_response.DoseResponse")
@@ -1096,6 +1175,7 @@ class DoseResponseTMLE:
         self.n_replicates = n_replicates
         self.random_state = random_state
         self.n_jobs = n_jobs
+        self.max_memory_bytes = check_max_memory_bytes(max_memory_bytes)
 
     def _engine(self) -> Any:
         from .tmle import TMLE
@@ -1186,7 +1266,7 @@ class DoseResponseTMLE:
         rule = curve.quadrature(breaks)
         fine = curve.quadrature(breaks, refine=2)
         nodes = np.concatenate([rule.nodes, fine.nodes])
-        self._preflight_memory(data, nodes.size)
+        self._preflight_memory(data, nodes.size, max(rule.n_nodes, fine.n_nodes))
         folds = engine._folds(data, self.random_state)
         scaler = engine._scaler(data)
         outcome_task = "classification" if data.family == "binomial" else "regression"
@@ -1283,17 +1363,31 @@ class DoseResponseTMLE:
             backend=data.backend,
         )
 
-    def _preflight_memory(self, data: CausalData, n_nodes: int) -> None:
-        # Every node's counterfactual design, its prediction and its density, in the parent
-        # and again in each parallel worker that receives the designs.
-        columns = data.covariates.shape[1] + 1
+    def _preflight_memory(self, data: CausalData, n_nodes: int, rule_nodes: int) -> None:
+        cells = len(self.curve.pairs) * (1 if data.strata is None else int(data.n_strata))
+        new = node_memory(
+            n=data.n,
+            n_nodes=n_nodes,
+            rule_nodes=rule_nodes,
+            width=data.covariates.shape[1] + 1,
+            cells=cells,
+            n_jobs=int(self.n_jobs),
+            n_folds=int(self.n_folds) if self.cross_fit else 1,
+        )
+        # Today's count: every node's design, prediction and density, held whole, in the
+        # parent and in each parallel worker.
         copies = 1 if self.n_jobs == 1 else 1 + max(int(self.n_jobs), 1)
-        needed = int(n_nodes) * data.n * 8 * (columns + 2) * copies
-        if needed > NODE_MEMORY_BUDGET:
+        old = int(n_nodes) * data.n * 8 * (data.covariates.shape[1] + 3) * copies
+        budget = self.max_memory_bytes
+        refused = new > budget if budget is not None else min(new, old) > NODE_MEMORY_BUDGET
+        if refused:
+            limit = NODE_MEMORY_BUDGET if budget is None else budget
+            source = "the default budget" if budget is None else "the budget max_memory_bytes sets"
             raise DataError(
-                f"the quadrature nodes need about {needed / 1024**3:.1f} GB "
-                f"({n_nodes} nodes at {data.n} rows); declare fewer pairs or fewer "
-                "nodes_per_piece, or fewer density bins"
+                f"the quadrature nodes need about {new / 1024**3:.2f} GiB ({n_nodes} nodes at "
+                f"{data.n} rows), above the {limit / 1024**3:.2f} GiB of {source}; declare "
+                "fewer pairs or fewer nodes_per_piece, or fewer density bins, or pass "
+                "max_memory_bytes= (in bytes) to set the budget"
             )
 
     def _target(

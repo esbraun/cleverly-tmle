@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.special import expit
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly._support import UNCLASSIFIED
 from cleverly.dose_response import (
@@ -754,8 +754,116 @@ def test_the_memory_preflight_refuses_before_any_learner_fits(
     import cleverly.estimators.dose_response as module
 
     monkeypatch.setattr(module, "NODE_MEMORY_BUDGET", 1024)
-    with pytest.raises(DataError, match="GB"):
+    with pytest.raises(DataError, match=r"GiB of the default budget.*max_memory_bytes="):
         _refusing().fit(_sample(400, 4), outcome="Y", treatment="A", covariates=["W"])
+
+
+def test_an_explicit_memory_budget_reads_the_tiled_prediction() -> None:
+    with pytest.raises(DataError, match="GiB of the budget max_memory_bytes sets"):
+        _refusing(max_memory_bytes=1024).fit(
+            _sample(400, 4), outcome="Y", treatment="A", covariates=["W"]
+        )
+    for wrong in (0, -5, 1.5, True, "4GB"):
+        with pytest.raises(DataError, match="max_memory_bytes must be a positive integer"):
+            DoseResponseTMLE(FIT_CURVE, max_memory_bytes=wrong)  # type: ignore[arg-type]
+
+
+def test_the_default_memory_rule_refuses_nothing_the_old_count_accepted() -> None:
+    """X106 D3 keeps every request the 4 GiB preflight accepted (plan 2.1 R2).
+
+    The default refuses only when both counts exceed the budget.  Swept over sizes, rules,
+    covariate widths, pairs, strata and jobs, nothing with the old count inside 4 GiB is
+    refused, and where the old count passes 1 GiB the tiled count is below it.
+    """
+    from cleverly.estimators.dose_response import NODE_MEMORY_BUDGET, node_memory
+
+    for n in (500, 4_000, 30_000, 100_000, 300_000, 1_000_000):
+        for nodes in (30, 120, 480, 1_500, 3_408, 8_400):
+            for p in (1, 4, 20):
+                for cells in (1, 3, 40, 200, 256 * 3):
+                    for jobs in (1, 4):
+                        old = nodes * n * 8 * (p + 3) * (1 if jobs == 1 else 1 + jobs)
+                        new = node_memory(
+                            n=n,
+                            n_nodes=nodes,
+                            rule_nodes=2 * nodes // 3,
+                            width=p + 1,
+                            cells=cells,
+                            n_jobs=jobs,
+                            n_folds=5,
+                        )
+                        refused = min(new, old) > NODE_MEMORY_BUDGET
+                        assert not (refused and old <= NODE_MEMORY_BUDGET)
+                        if cells <= 3 and old > 2**30:
+                            assert new < old, (n, nodes, p, cells, jobs)
+
+
+@pytest.mark.parametrize(
+    ("n", "bins", "pairs", "strata"), [(2_000, 10, 3, False), (6_000, None, 12, True)]
+)
+def test_the_node_memory_prediction_covers_the_measured_peak(
+    monkeypatch: pytest.MonkeyPatch, n: int, bins: int | None, pairs: int, strata: bool
+) -> None:
+    """The tracemalloc peak from the outcome fit's start to the band's end, against D3's count."""
+    import tracemalloc
+
+    import cleverly.estimators._nuisance as nuisance_module
+    import cleverly.estimators.dose_response as module
+
+    seen: dict[str, int] = {}
+    fitting = nuisance_module.cross_fit_companion
+    banding = module.simultaneous_bands
+    count = module.node_memory
+
+    def companion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if kwargs.get("node_designs"):
+            seen["base"] = tracemalloc.get_traced_memory()[0]
+            tracemalloc.reset_peak()
+        return fitting(*args, **kwargs)
+
+    def band(*args, **kwargs):  # type: ignore[no-untyped-def]
+        out = banding(*args, **kwargs)
+        seen["peak"] = tracemalloc.get_traced_memory()[1] - seen["base"]
+        return out
+
+    def counted(**kwargs):  # type: ignore[no-untyped-def]
+        seen["predicted"] = count(**kwargs)
+        return seen["predicted"]
+
+    monkeypatch.setattr(nuisance_module, "cross_fit_companion", companion)
+    monkeypatch.setattr(module, "simultaneous_bands", band)
+    monkeypatch.setattr(module, "node_memory", counted)
+    rng = np.random.default_rng(1)
+    w = rng.normal(size=(n, 3))
+    a = np.clip(1.5 + 0.6 * w[:, 0] + rng.normal(size=n), 0.0, 3.0)
+    frame = pd.DataFrame(w, columns=["W0", "W1", "W2"])
+    frame["A"] = a
+    frame["Y"] = 0.3 + 0.2 * a + 0.2 * w[:, 1] + rng.normal(size=n)
+    frame["V"] = (w[:, 2] > 0).astype(float)
+    curve = DoseResponse(
+        doses=tuple(np.linspace(0.6, 2.4, pairs)), bandwidths=(0.5,), support=(0.3, 2.7)
+    )
+    estimator = DoseResponseTMLE(
+        curve,
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=300),
+        q_bounds=(-6.0, 7.0),
+        fluctuation="linear",
+        density_bins=bins,
+        random_state=0,
+    )
+    tracemalloc.start()
+    try:
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W0", "W1", "W2", "V"],
+            strata=["V"] if strata else None,
+        )
+    finally:
+        tracemalloc.stop()
+    assert seen["peak"] <= seen["predicted"] <= 1.5 * seen["peak"]
 
 
 def test_the_support_report_reads_the_clever_covariate(fitted) -> None:  # type: ignore[no-untyped-def]
