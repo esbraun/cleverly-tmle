@@ -1089,9 +1089,8 @@ the full set.
 
 The declaration restricts the observed-data model, and it does not change the estimand. The
 design carries a pinned text in `Identification.model_restrictions`. Every estimator on the design
-prints it under Assumptions in `summary(detail="full")`, and a low-level fit
-prints the same text from the data. The text
-reads, with $W_g$ written as `{name, name}`:
+prints it under Assumptions in `summary(detail="full")`, and a low-level fit prints the same text
+from the data. The text reads, with $W_g$ written as `{name, name}`:
 
 > statistical-model restriction, treatment-mechanism covariates {Wg}: the treatment mechanism
 > depends on the adjustment covariates only through {Wg}. It restricts the observed-data model and
@@ -2932,8 +2931,9 @@ The treatment name joins the columns with `+`.
 
 A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`. On a
 `CausalStudy` the message names `ModifiedTreatmentPolicy` and `ModifiedTreatmentPolicyEffect`
-with `JointPolicy` declarations, and on `CausalData` it names `TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical
-treatment, so it has arms and every arm-indexed estimand runs. A level is a tuple, and
+with `JointPolicy` declarations, and on `CausalData` it names
+`TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical treatment, so it
+has arms and every arm-indexed estimand runs. A level is a tuple, and
 `ey[(1, 2.0)]` is the mean when the intervention sets every component. The fit of every default
 estimand equals the fit of the same data with the tuples pre-combined into one column
 (`tests/unit/test_point_vector_treatment.py`, W12).

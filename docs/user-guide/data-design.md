@@ -44,8 +44,9 @@ study = CausalStudy(
   `experimental` label (the status table in [inference](../technical-reference/inference.md)).
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
-  cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
-  refuses `cluster=` at every setting except `strategy="derivative"`
+  cross-fitted fit counts, so each treatment arm must appear in at least two clusters.
+  Collaborative TMLE (C-TMLE), a variant that fits its treatment model in light of the outcome
+  model, refuses `cluster=` at every setting except `strategy="derivative"`
   ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
 
@@ -58,8 +59,8 @@ study = CausalStudy(
   A fit that averages one estimate per cross-fitting fold (`CrossFitting(fold_evaluation=True)`)
   uses the cluster count minus the number of folds, at every cluster count. Outside learned
   treatment rules, that fit needs clusters of equal size, or of equal total weight on a weighted
-  fit, and the effect among the treated also needs the same number of treated rows in each cluster. Otherwise it
-  refuses and points to the default, which estimates from all folds at once
+  fit, and the effect among the treated also needs the same number of treated rows in each
+  cluster. Otherwise it refuses and points to the default, which estimates from all folds at once
   ([clusters of unequal mass](../technical-reference/cv-tmle.md#clusters-of-unequal-mass)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
@@ -67,7 +68,8 @@ study = CausalStudy(
   Arm, regime, shift, incremental, MSM and natural-course targets fit strata, and so does
   DR-TMLE at every `guard`.
 
-  Scoring each fold on its own rows (`CrossFitting(fold_evaluation=True)`) also fits strata. It
+  A fit that averages one estimate per cross-fitting fold (`CrossFitting(fold_evaluation=True)`)
+  also fits strata. It
   reports the mean under each treatment option and their differences, the means under fixed plans,
   and a learned rule's value, on complete data without `cluster=`. A
   [simulation study](../technical-reference/method-evidence/fold-evaluated-strata.md) checks the
@@ -81,7 +83,7 @@ study = CausalStudy(
   values 0 and 1 as yes-or-no (`"binomial"`) and anything else as continuous (`"gaussian"`).
   Declare it when the sample could mislead, such as a score that happens to take only 0 and 1 in
   a small pilot. A continuous outcome, declared or read, needs its known range (`q_bounds`) for a
-  cross-fitted fit, as the first section says. A declared `"binomial"` checks that the recorded
+  cross-fitted fit, as the opening section says. A declared `"binomial"` checks that the recorded
   outcomes are 0 or 1.
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
   missing-outcome compositions. The next section gives the two missingness roles.
@@ -256,14 +258,6 @@ A declared missing treatment supports the arm means and their contrasts on in-sa
 and the treatment is that arm. The recording of the treatment may depend on the treatment, so the
 ATT, the ATC and the population-intervention targets are not identified and are refused.
 
-In sample, collaborative TMLE with `strategy="oat"` (`CollaborativeTMLEMethod`) also gives point
-estimates of the arm means and their contrasts. Its treatment model reads only the outcome
-model's prediction for each arm, so these estimates are on target only when the outcome model
-is right. They come with no interval
-([collaborative TMLE](../technical-reference/collaborative-tmle.md), section "Baseline strata and
-missing data in the per-arm design", and the status table in
-[inference](../technical-reference/inference.md)).
-
 ```python
 import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -305,6 +299,14 @@ The fit records the construction it ran as `composite`. The
 [composite contract](../technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)
 states the conditions, and [scope and refusals](../technical-reference/scope-and-refusals.md)
 lists the refused compositions.
+
+With a missing treatment, collaborative TMLE with `strategy="oat"` (`CollaborativeTMLEMethod`)
+also gives in-sample point estimates of the arm means and their contrasts. Its treatment model reads only the outcome
+model's prediction for each arm, so these estimates are on target only when the outcome model
+is right. They come with no interval
+([collaborative TMLE](../technical-reference/collaborative-tmle.md), section "Baseline strata and
+missing data in the per-arm design", and the status table in
+[inference](../technical-reference/inference.md)).
 
 ## Continuous treatment
 
