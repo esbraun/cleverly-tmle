@@ -21,7 +21,7 @@ by_object = TMLEMethod(
 
 Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` is what
 `study.identify(...)` returned. The five group objects are `ModelSpec`, `CrossFitting`,
-`Targeting`, `Inference` and `Runtime`, one per section below. Four keywords differ from the
+`Targeting`, `Inference` and `Runtime`; each section heading names its object. Four keywords differ from the
 name of the setting they set: `cross_fit`, `stratify_folds`, `targeting` and `cv_evaluation`.
 
 The "used on" column names the fits that read the setting: *point* is a single treatment
@@ -30,7 +30,7 @@ including a time to an event checked at set times, *exact times* a
 `TimeToEvent(grid="continuous")` fit, and *trial* a trial with external data. When you change a
 setting from its default, a fit that does not read it raises an error.
 
-## Models and learners
+## Models and learners: `ModelSpec`
 
 Every learner slot takes an unfitted scikit-learn estimator. `None` uses the default library, a
 Super Learner that weighs boosting, a random forest and a lasso by their cross-validated fit
@@ -38,7 +38,7 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial | the model of the outcome given the treatment and the covariates; on a grid survival fit, the model of the event (or of its hazard under `survival_model="hazard"`) |
+| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial | the model of the outcome given the treatment and the covariates; on a time to an event checked at set times, the model of the event (or of its hazard under `survival_model="hazard"`) |
 | `treatment_learner` | `treatment_learner` | `None` | point, over time, exact times, trial | the model of who gets each treatment option, at each time over time |
 | `missingness_learner` | `missingness_learner` | `None` | point, trial | the model of whose outcome is observed, and of whose treatment is observed when a missing treatment is declared |
 | `intermediate_learner` | `intermediate_learner` | `None` | point | the model of the variable after treatment that a controlled direct effect holds fixed |
@@ -60,12 +60,11 @@ it keeps the `min_retain` strongest. Left at `None`, `min_retain` keeps every co
 for the screen to drop any. Screening picks the covariates the fit adjusts for from the data, so
 report it.
 
-A dose policy's density ratio divides two fitted densities under `ratio="density"`, and reads
-the odds of a classifier that tells observed from shifted doses under `"classifier"`; the [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route)
-states when `None` picks each. An exact-times fit takes its hazard models through
-`ContinuousSurvivalTMLE(hazard_library=...)`, the class that runs it, instead of `ModelSpec`.
+The [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) states
+which `ratio` a fit picks under `None`. An exact-times fit takes its hazard models through
+`ContinuousSurvivalTMLE(hazard_library=...)` instead of `ModelSpec`.
 
-## Folds
+## Folds: `CrossFitting`
 
 Outer folds give each row a prediction from models trained without it (cross-fitting).
 
@@ -75,7 +74,7 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 | `n_folds` | `n_folds` | `10` | point, over time, exact times, trial | the number of outer folds |
 | `learner_folds` | `learner_folds` | `5` | point, over time, exact times, trial | the folds a Super Learner uses inside each training set to weigh its candidates |
 | `repeats` | `repeats` | `1` | point, over time | independent fold draws, combined by their median; the value of a treatment rule learned from the data combines them by their mean |
-| `stratify_by` | `stratify_folds` | `'none'` | point | the fold policy. Only `"none"` is accepted when folds are drawn |
+| `stratify_by` | `stratify_folds` | `'none'` | point | folds balanced on the treatment (`"treatment"`) or also the outcome. Only an in-sample fit (`cross_fit=False`) accepts a value other than `"none"` |
 | `targeting_scheme` | `targeting_scheme` | `'pooled'` | point | one correction step over all folds (`"pooled"`), or one per fold (`"fold"`) |
 | `fold_evaluation` | `cv_evaluation` | `False` | point | also report the estimate evaluated fold by fold |
 | `split_plan` | `split_plan` | `None` | point, trial | reuse the outer folds of an earlier fit |
@@ -83,17 +82,17 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 [Two fold layers](methods-learners.md) explains the two layers and the refusals, and
 [CV-TMLE and cross-fitting](../technical-reference/cv-tmle.md) states the contracts.
 
-## The correction step
+## The correction step: `Targeting`
 
 After the models are fitted, a correction step uses the treatment model to remove the bias the
-outcome model leaves. These settings control it.
+outcome model leaves.
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
 | `fluctuation` | `fluctuation` | `'logistic'` | point | the form of the correction: `"logistic"` keeps predictions inside the outcome's range, `"linear"` does not |
 | `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until its bias term is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
-| `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the effect among the treated (ATT) or untreated (ATC) |
-| `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it |
+| `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the effect among the treated (ATT) or untreated (ATC); over time, (0.01, 1.0) |
+| `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it; give the range the outcome can logically take |
 | `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of an observed intermediate variable) |
 | `submodel_alpha` | `submodel_alpha` | `0.9995` | point, over time | how far inside the range the logistic correction keeps predictions. Not the interval's `alpha` |
 | `target_weights` | `target_weights` | `False` | point | whether observation weights enter the correction |
@@ -113,13 +112,13 @@ outcome model leaves. These settings control it.
 [stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
 states their contracts.
 
-## Intervals and bands
+## Intervals and bands: `Inference`
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
 | `alpha` | `alpha` | `0.05` | point, over time, exact times, trial | one minus the confidence level: `0.05` gives 95% intervals |
 | `n_bootstrap` | `n_bootstrap` | `0` | point, over time, exact times | full-refit bootstrap replicates. `0` uses the standard error from each row's contribution |
-| `bootstrap_resampling` | `bootstrap_resampling` | `'auto'` | point, over time | resample rows (`"iid"`) or clusters (`"cluster"`). `"auto"` follows the design |
+| `bootstrap_resampling` | `bootstrap_resampling` | `'auto'` | point, over time | resample rows (`"iid"`) or clusters (`"cluster"`). `"auto"` resamples clusters when the design declares them |
 | `simultaneous` | `simultaneous` | `None` | point, over time, exact times | whether a fit with several estimates adds a band that covers all of them at once. `None` is the method's own choice |
 | `n_multiplier` | `n_multiplier` | `10000` | point, over time, exact times | the random draws behind the band |
 | `multiplier_kind` | `multiplier_kind` | `'mammen'` | point, over time, exact times | the distribution of those draws |
@@ -127,7 +126,7 @@ states their contracts.
 | `band_reference` | `band_reference` | `'normal'` | point, over time | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 
 With `simultaneous=None` a fit with several estimates adds the band where it can. Collaborative
-TMLE and DR-TMLE on an event outcome over time report pointwise intervals only, and a fit with
+TMLE and DR-TMLE over time, which fit only an event outcome, report pointwise intervals only, and a fit with
 repeated outer splits and the collaborative TMLE strategies that select a model report no band.
 [How every method reports uncertainty](../technical-reference/inference.md) states when each
 interval and band holds.
@@ -135,7 +134,7 @@ interval and band holds.
 Each bootstrap replicate refits every model, so `n_bootstrap=200` multiplies the run time by about
 200; [count the fits](methods-learners.md) before a long run.
 
-## Seeds, run labels and parallel jobs
+## Seeds, run labels and parallel jobs: `Runtime`
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |

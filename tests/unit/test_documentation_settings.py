@@ -45,11 +45,11 @@ PAGE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "settings.m
 
 #: Section heading on the page to the group it documents, as ``(attribute, class)``.
 GROUP_SECTIONS: dict[str, tuple[str, type]] = {
-    "Models and learners": ("models", ModelSpec),
-    "Folds": ("cross_fitting", CrossFitting),
-    "The correction step": ("targeting", Targeting),
-    "Intervals and bands": ("inference", Inference),
-    "Seeds, run labels and parallel jobs": ("runtime", Runtime),
+    "Models and learners: `ModelSpec`": ("models", ModelSpec),
+    "Folds: `CrossFitting`": ("cross_fitting", CrossFitting),
+    "The correction step: `Targeting`": ("targeting", Targeting),
+    "Intervals and bands: `Inference`": ("inference", Inference),
+    "Seeds, run labels and parallel jobs: `Runtime`": ("runtime", Runtime),
 }
 
 #: ``###`` heading under "Method options" to the method class it documents.
