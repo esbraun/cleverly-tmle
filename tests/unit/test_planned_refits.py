@@ -470,7 +470,23 @@ def test_w3_the_capability_kinds_refuse_alike(kind: str, monkeypatch: pytest.Mon
             arguments["tests"] = tests
         expected = _refute_refusal(monkeypatch, lambda a=arguments: facade.refute(**a))
         got = _raised(lambda a=arguments: facade.planned_refits(**a))
-        assert got == expected, (tests, got, expected)
+        assert got == _previewed(expected), (tests, got, expected)
+
+
+def _previewed(refusal: tuple[Any, ...] | None) -> tuple[Any, ...] | None:
+    """``refute``'s refusal as the facade's preview raises it: the record, named for the
+    preview (X124 B5). A record raised bare by the call keeps its text."""
+    if refusal is None:
+        return None
+    kind, reason, condition = refusal
+    for facade_kind in ("diagnostic",):
+        prefix = f"{facade_kind} 'refute' is "
+        if condition.startswith(prefix):
+            condition = (
+                f"{facade_kind} 'planned_refits' previews 'refute', which is "
+                f"{condition[len(prefix) :]}"
+            )
+    return (kind, reason, condition)
 
 
 # ----------------------------------------------------------------- W4 seed spread

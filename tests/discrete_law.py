@@ -162,6 +162,9 @@ LEARNED_RULE_Q = np.array([[0.40, 0.70], [0.50, 0.20], [0.60, 0.80]])
 #: ``ey_known_regime[...]`` reports, and the arm each puts all its mass on.
 KNOWN_REGIME_ARMS = {"always 1": 1, "always 0": 0}
 
+#: The label of the natural course declared beside the learned rule.
+NATURAL_COURSE_LABEL = "natural course"
+
 
 #: The incremental interventions the ``ipsi`` estimands are checked against, as odds
 #: multipliers.  Unlike :data:`REGIMES` these are *not* densities: the density
@@ -368,11 +371,18 @@ def functional(probs: Any, estimand: str) -> Any:
     if estimand.startswith("ey_known_regime["):
         arm = KNOWN_REGIME_ARMS[estimand[len("ey_known_regime[") : -1]]
         return (p_w * q[:, arm]).sum()
+    # The natural course beside the learned rule is E[Y] = sum_{w, a} P(W = w, A = a, Y = 1),
+    # written from the joint cells and not from psi_observed, so the branch is its own.
+    if estimand == f"ey_natural_course[{NATURAL_COURSE_LABEL}]":
+        return p[:, :, 1].sum()
     if estimand.startswith("ate_learned_rule["):
         learned, known = estimand[len("ate_learned_rule[") : -1].split(" vs ")
-        return functional(p, f"ey_learned_rule[{learned}]") - functional(
-            p, f"ey_known_regime[{known}]"
+        comparator = (
+            f"ey_natural_course[{known}]"
+            if known == NATURAL_COURSE_LABEL
+            else f"ey_known_regime[{known}]"
         )
+        return functional(p, f"ey_learned_rule[{learned}]") - functional(p, comparator)
     # Psi_d0(P) = sum_w P(W = w) max_a E[Y | A = a, W = w], the value of the optimal rule of
     # the law itself (X11 (f)). The best arm is read off the real part, so a complex step
     # differentiates the value at that arm: away from a tie between the two arms of a cell
@@ -470,6 +480,7 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ey_regime": tuple(f"ey_regime[{label}]" for label in REGIMES),
     "ey_learned_rule": (f"ey_learned_rule[{LEARNED_RULE_LABEL}]",),
     "ey_known_regime": tuple(f"ey_known_regime[{label}]" for label in KNOWN_REGIME_ARMS),
+    "ey_natural_course": (f"ey_natural_course[{NATURAL_COURSE_LABEL}]",),
     "ate_learned_rule": tuple(
         f"ate_learned_rule[{LEARNED_RULE_LABEL} vs {label}]" for label in KNOWN_REGIME_ARMS
     ),
@@ -555,6 +566,7 @@ TRUTH = {
         *PER_ARM_NAMES["ate_regime"],
         *PER_ARM_NAMES["ey_learned_rule"],
         *PER_ARM_NAMES["ey_known_regime"],
+        *PER_ARM_NAMES["ey_natural_course"],
         *PER_ARM_NAMES["ate_learned_rule"],
         *PER_ARM_NAMES["ey_optimal_rule"],
         *PER_ARM_NAMES["ate_optimal_rule"],

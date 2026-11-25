@@ -107,7 +107,7 @@ These fits gave the same output at the base commit `287a1fb5` and at `1d66d65`:
 | --- | --- |
 | `greedy`, `ordered`, `discrete` | in sample and cross-fitted |
 | `discrete` with the full adjustment set | the admitted fit |
-| `penalty=False`, `fluctuation="linear"`, `ctmle_estimand="ey"`, `repeats` | one fit each |
+| `penalty=False`, `fluctuation="linear"`, `selection_estimand="ey"`, `repeats` | one fit each |
 | `greedy` at three arms, `oat`, observation weights | one fit each |
 
 | timing | result |

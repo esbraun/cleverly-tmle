@@ -581,6 +581,12 @@ Some configurations have no coverage study for their confidence limit yet. The
 [E-value reference](../technical-reference/validation-methods.md#e-value)
 lists them. Each prints its confidence-limit E-value as descriptive, and `EValue.limit_descriptive` is true.
 
+`result.sensitivity.evalue().plot()` draws the trade-off behind the E-value. Each curve holds the
+weakest pairs of links, one between a hidden confounder and the treatment and one between it and
+the outcome, that could explain the estimate, or its interval limit, away. Each link is a risk
+ratio. The E-value is the point where the two links are equal. The
+[plotting reference](../api/plotting.md) lists the figure's options.
+
 The omitted-confounding row says "at the default strengths" when you omit both strength arguments.
 It names the omitted strength when you supply only one. The effective arguments retain both numeric values.
 

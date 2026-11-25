@@ -87,25 +87,36 @@ def _check_policy(namespace: dict[str, Any]) -> None:
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:
-    """The drawn curve passes through the E-value on the diagonal, and a wrong curve would not."""
-    evalue, partner = namespace["evalue"], namespace["partner_strength"]
+    """The drawn curves pass through the E-values on the diagonal, and a wrong curve would not."""
+    from cleverly.plotting._evalue import GID_EVALUE_ESTIMATE, GID_EVALUE_LIMIT
+
+    evalue, fig = namespace["evalue"], namespace["evalue_fig"]
     ratio, limit_ratio = evalue.risk_ratio, evalue.risk_ratio_ci[0]
     assert 1.4 < ratio < 1.7
     assert 1.0 < limit_ratio < ratio
     # E-value = RR + sqrt(RR (RR - 1)), where the two links are equal.
     assert abs(evalue.point - (ratio + np.sqrt(ratio * (ratio - 1.0)))) < 1e-9
     assert abs(evalue.limit - (limit_ratio + np.sqrt(limit_ratio * (limit_ratio - 1.0)))) < 1e-9
-    for ratio_i, value in ((ratio, evalue.point), (limit_ratio, evalue.limit)):
-        assert abs(partner(ratio_i, np.array([value]))[0] - value) < 1e-9
+
+    def factor(x: Any, y: Any) -> Any:
+        """The bounding factor x * y / (x + y - 1) of the two links."""
+        return x * y / (x + y - 1.0)
+
+    lines = {line.get_gid(): line.get_xydata() for line in fig.axes[0].lines}
+    for gid, ratio_i, value in (
+        (GID_EVALUE_ESTIMATE, ratio, evalue.point),
+        (GID_EVALUE_LIMIT, limit_ratio, evalue.limit),
+    ):
+        curve = np.asarray(lines[gid])
+        assert np.allclose(factor(curve[:, 0], curve[:, 1]), ratio_i, rtol=1e-9)
+        assert abs(factor(value, value) - ratio_i) < 1e-9
         # A pair of links below the curve gives a bias factor under the ratio, so it does not
-        # explain the estimate away. The factor is x * y / (x + y - 1).
-        x, y = value + 0.5, partner(ratio_i, np.array([value + 0.5]))[0] - 0.2
-        assert x * y / (x + y - 1.0) < ratio_i
-        assert x * (y + 0.4) / (x + y + 0.4 - 1.0) > ratio_i
+        # explain the estimate away; one above it does.
+        x = value + 0.5
+        y = float(np.interp(x, curve[:, 0], curve[:, 1]))
+        assert factor(x, y - 0.2) < ratio_i < factor(x, y + 0.2)
     assert evalue.limit < evalue.point
-    assert namespace["evalue_fig"].axes[0].get_title(loc="left") == (
-        "How strong would a missing confounder have to be?"
-    )
+    assert figure_title(fig) == "Confounding that could explain the estimate away"
 
 
 def _check_gamma(namespace: dict[str, Any]) -> None:

@@ -82,6 +82,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_mechanism_plugin",
+    "reduced_regression_plugin",
     "estimated_weight_plugin",
     "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
@@ -641,6 +642,45 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "On complete data, pass the known treatment probabilities "
                 "(treatment_probabilities=) and fit those estimates on their own to get an "
                 "interval, or fit tmle or drtmle for an interval."
+            ),
+        ),
+        "reduced_regression_plugin": StatusRecord(
+            plain_reason=(
+                "DR-TMLE fits its extra regressions on the fitted values of an estimated "
+                "treatment model. Its estimate of a projection coefficient can then carry a bias "
+                "of the same order as that model's error, unless conditions hold that no fit can "
+                "check. The point estimate stands. For an interval, pass the known treatment "
+                "probabilities, or fit method='tmle' with model=."
+            ),
+            reason=(
+                "A DRTMLE fit of a conditional contrast's projection with an estimated treatment "
+                "mechanism reports no confidence interval, no p-value and no standard error. For "
+                "each "
+                "basis term its remainder holds "
+                "P_0[(phi_j (Qbar_0 - Qbar) - E[phi_j (Qbar_0 - Qbar) | g_0]) (g_0 - g_n) / g_0], "
+                "which is linear in g_n - g_0 (docs/technical-reference/dr-tmle/theorem.md, 'The "
+                "conditioning terms are linear in one error'). It vanishes when the mechanism is "
+                "declared known, when g_n keeps the level sets of g_0, when phi_j (Qbar_0 - Qbar) "
+                "is a function of g_0, or, with a wrong treatment model, when the error of Qbar_n "
+                "is a function of Qbar_0. No fit can check the last three. The scalar DR-TMLE "
+                "keeps its interval under a contract that predates the rule of guide/science.md; "
+                "theorem.md's route table records both. P1 in docs/roadmap.md reopens this. The "
+                "plug-in standard error remains as a diagnostic under plugin_std_error and "
+                "plugin_interval."
+            ),
+            assessment_note=(
+                "the plug-in interval is not valid inference here: the treatment mechanism is "
+                "estimated, and the conditioning term of the reduced regressions cannot be "
+                "checked; P1 in the roadmap is the condition that reopens it"
+            ),
+            bootstrap_note=(
+                "a diagnostic: the bootstrap resamples the same estimator, so its range rests on "
+                "the same remainder"
+            ),
+            diagnostic_noun="reduced-regression plug-in diagnostic",
+            reopened_by="P1",
+            alternative=(
+                "Pass treatment_probabilities= on complete data, or fit method='tmle' with model=."
             ),
         ),
         "estimated_weight_plugin": StatusRecord(

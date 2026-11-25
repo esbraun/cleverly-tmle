@@ -214,7 +214,17 @@ from .tmle import TMLE
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .._summary import Detail, Summary
 
-__all__ = ["DRTMLE", "ReducedFit"]
+__all__ = [
+    "DRTMLE",
+    "PROJECTION_BIVARIATE_REFUSAL",
+    "PROJECTION_MISSING_REFUSAL",
+    "PROJECTION_ONE_STEP_REFUSAL",
+    "PROJECTION_RATIO_REFUSAL",
+    "PROJECTION_STRATA_REFUSAL",
+    "ReducedFit",
+    "projection_data_refusal",
+    "projection_refusal",
+]
 
 #: The two source-defined routes through a round. ``"drtmle"`` is the canonical R
 #: package's round order and the default; ``"benkeser"`` is the published six-step recursion.
@@ -346,6 +356,123 @@ class ReducedFit:
         fluctuation = result.repeats[0].fluctuations.get("mean")
         reduction = getattr(fluctuation, "reduction", None)
         return None if reduction is None else reduction.evaluation
+
+
+#: R-dr-ratio of the P1 PR 3 plan: the log ratio has no weighted reductions.
+PROJECTION_RATIO_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "DRTMLE fits a projection on the difference scale only. A log-ratio coefficient weights "
+    "the arm regressions by expit(phi(V)'beta), which moves with the coefficients, so its "
+    "reduced regressions would regress on a target the fit changes, and no derivation here "
+    "covers that.",
+    alternative="Fit scale='difference' with method='drtmle', or the log ratio with method='tmle'.",
+    roadmap="P1",
+)
+
+#: R-dr-bivariate.
+PROJECTION_BIVARIATE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "DRTMLE fits a projection with reduction='univariate' only. The bivariate reduction "
+    "conditions on (Qbar, g), and no derivation here says what it must condition on when each "
+    "basis term weights the target.",
+    alternative="Use reduction='univariate'.",
+    roadmap="P1",
+)
+
+#: R-dr-missing.
+PROJECTION_MISSING_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "DRTMLE fits a projection on complete outcomes and treatments only. The randomized "
+    "missing-outcome and composite routes would need one block of reduced regressions per "
+    "basis term over the response or composite mechanism, and none is built.",
+    alternative=(
+        "Fit method='tmle' with model=: missing outcomes in sample or cross-fitted, a missing "
+        "treatment in sample."
+    ),
+    roadmap="P1",
+)
+
+#: R-dr-strata.
+PROJECTION_STRATA_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "DRTMLE fits a projection without strata=. The stratified projection fluctuation has no "
+    "reduced regressions per stratum and basis term.",
+    alternative="Fit method='tmle' with strata=, or add the stratum to the basis as a modifier.",
+    roadmap="P1",
+)
+
+#: R-dr-one-step.
+PROJECTION_ONE_STEP_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "DRTMLE fits a projection with the iterative alternation and no evaluation companion. The "
+    "one-step update and the companion carry one scalar per arm, and the projection needs one "
+    "per arm and basis term.",
+    alternative="Use targeting='iterative' and drop evaluation=.",
+    roadmap="P1",
+)
+
+
+def projection_data_refusal(scale: str, data: Any) -> Refusal | None:
+    """The refusal of a DRTMLE projection that the scale and the data decide, or ``None``.
+
+    R-dr-ratio on the log ratio, then R-dr-missing and R-dr-strata (P1 PR 3 plan, 1.5).  The
+    study's availability rule reads these, because it knows the estimand and the data but not
+    the method's options.
+
+    Parameters
+    ----------
+    scale : str
+        The contrast's scale.
+    data : CausalData or None
+        The data, or ``None`` when only the scale is known.
+
+    Returns
+    -------
+    Refusal or None
+        The first refusal, or ``None``.
+    """
+    if scale != "difference":
+        return PROJECTION_RATIO_REFUSAL
+    if data is None:
+        return None
+    if bool(getattr(data, "has_missing_outcome", False)) or bool(
+        getattr(data, "has_missing_treatment", False)
+    ):
+        return PROJECTION_MISSING_REFUSAL
+    if bool(getattr(data, "has_strata", False)):
+        return PROJECTION_STRATA_REFUSAL
+    return None
+
+
+def projection_refusal(estimator: Any, data: Any) -> Refusal | None:
+    """The refusal a DRTMLE fit of a conditional contrast's projection meets, or ``None``.
+
+    In the plan's order: R-dr-ratio, R-dr-bivariate, R-dr-missing, R-dr-strata and
+    R-dr-one-step, each before any learner.
+
+    Parameters
+    ----------
+    estimator : DRTMLE
+        The estimator; its projection, ``reduction``, ``targeting`` and ``evaluation`` are read.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    Refusal or None
+        The first refusal, or ``None`` for an admitted fit.
+    """
+    scale = str(estimator.effect_modification.scale)
+    if scale != "difference":
+        return PROJECTION_RATIO_REFUSAL
+    if estimator.reduction != "univariate":
+        return PROJECTION_BIVARIATE_REFUSAL
+    refusal = projection_data_refusal(scale, data)
+    if refusal is not None:
+        return refusal
+    if estimator.targeting == "one_step" or estimator.evaluation is not None:
+        return PROJECTION_ONE_STEP_REFUSAL
+    return None
 
 
 def drtmle_axis_refusal(keyword: str) -> Refusal:
@@ -705,9 +832,17 @@ class DRTMLE(TMLE):
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
         """
         estimated = bool(self.guard) and data.declares_estimated_weights
+        # A guarded projection with an estimated mechanism keeps the conditioning term of
+        # the reduced regressions, which no fit can check (P1 PR 3 plan, 2.1).
+        projection = (
+            bool(self.guard)
+            and self.effect_modification is not None
+            and data.known_treatment is None
+        )
         return precedent_status(
             [
                 "estimated_weight_plugin" if estimated else "influence_curve",
+                "reduced_regression_plugin" if projection else "influence_curve",
                 super()._inference_status(data),
             ]
         )
@@ -1521,6 +1656,13 @@ class DRTMLE(TMLE):
             # `_reduction_inputs` is what writes them there.
             companion=nuisance.companion,
             n_jobs=self.n_jobs,
+            # A difference-scale projection weights Q_r and g_{r,2} by each basis term
+            # (P1 PR 3); the arm means pass no basis and are unchanged.
+            basis=(
+                None
+                if nuisance.effect_modification is None
+                else np.asarray(nuisance.effect_modification.design, dtype=float)
+            ),
         )
 
     def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
@@ -1582,6 +1724,12 @@ class DRTMLE(TMLE):
                 alternative="Fit a plain TMLE, which is derived there.",
                 roadmap="F5",
             )
+        if self.effect_modification is not None:
+            # The projection resolves its own target (P1 PR 3): the arm-mean estimand list
+            # and its ATT and ATC refusal do not apply.
+            refusal = projection_refusal(self, data)
+            if refusal is not None:
+                raise CapabilityError.from_refusal(refusal)
         route = missing_data_route(self, data)
         if self.guard and self.reduction == "bivariate" and route == "randomized_missing_outcome":
             raise CapabilityError(
@@ -1658,6 +1806,10 @@ class DRTMLE(TMLE):
                 alternative=refusal.alternative,
                 roadmap=refusal.roadmap,
             )
+        if self.effect_modification is not None:
+            if self.guard:
+                self._refuse_classifier_regression_slots(route)
+            return
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         if data.has_missing_treatment and (self.estimands is None or self.estimands == "all"):
             # The default and "all" lists drop the targets a missing treatment leaves

@@ -227,20 +227,20 @@ def test_estimator_variants_refuse_before_nuisance_fitting(
 
 
 @pytest.mark.parametrize(
-    ("estimands", "ctmle_estimand"),
+    ("estimands", "selection_estimand"),
     [
         pytest.param(("ey_obs", "ey0", "ey1", "ate"), "ate", id="joint-ate"),
         pytest.param(("ey_obs", "ey0", "paf"), "ey0", id="joint-ey0"),
     ],
 )
 def test_a_selector_strategy_refuses_before_nuisance_fitting(
-    estimands: tuple[str, ...], ctmle_estimand: str
+    estimands: tuple[str, ...], selection_estimand: str
 ) -> None:
     """The greedy selector reaches the method clause, with its selection estimand requested."""
     estimator = CTMLE(
         strategy="greedy",
         estimands=estimands,
-        ctmle_estimand=ctmle_estimand,
+        selection_estimand=selection_estimand,
         cross_fit=False,
         **never_fit_learners(),
     )

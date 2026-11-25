@@ -316,11 +316,16 @@ class MethodAvailability:
         The record of the refusal when ``available`` is false: its reason code, the failed
         condition and the alternative. :attr:`reason` is its text, and a selection of the
         method raises the same record.
+    only : str or None, default=None
+        When ``available`` is true but the method's default configuration refuses, the one
+        configuration that fits, such as ``"strategy='derivative'"``. ``None`` when the
+        default fits.
     """
 
     name: str
     available: bool
     refusal: Refusal | None = None
+    only: str | None = None
 
     @property
     def reason(self) -> str | None:
@@ -408,7 +413,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
         Returns
         -------
         dataframe
-            Columns ``method``, ``available``, ``reason_code`` and ``reason``.
+            Columns ``method``, ``available``, ``only``, ``reason_code`` and ``reason``.
         """
         from .utils.frames import frame_from_dict
 
@@ -416,6 +421,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
             {
                 "method": [record.name for record in self],
                 "available": [record.available for record in self],
+                "only": [record.only for record in self],
                 "reason_code": [
                     None
                     if record.refusal is None
@@ -1187,7 +1193,9 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 _POINT_RATIO_TRIM = Refusal(
     RefusalReason.API_REDIRECTION,
     "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
-    "does. A point-treatment fit bounds its mechanism with g_bounds=.",
+    "does. A point-treatment fit bounds its fitted treatment probabilities with g_bounds=, "
+    "which reach a policy's ratio only through a categorical value the policy changes; no "
+    "option trims the ratio itself.",
     alternative=(
         "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
     ),
@@ -2125,7 +2133,7 @@ default="greedy"
             "selection_inner_folds": self.selection_inner_folds,
             "loss": self.loss,
             "penalty": self.penalty,
-            "ctmle_estimand": self.selection_estimand,
+            "selection_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
@@ -2678,8 +2686,11 @@ class SDRMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str
@@ -3113,8 +3124,11 @@ class IPSIMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str
