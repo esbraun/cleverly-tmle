@@ -219,9 +219,10 @@ def test_an_accounted_paired_verdict_needs_its_gate(
 ) -> None:
     # The witness that the gate branch above is not vacuous: a dose-response-npcausal row
     # whose legs conclude equivalent is committed unaccounted, and only its gate explains it.
+    # Since the Fix-9 regeneration that row is h=2, a=3.5 (h=2, a=2.5 now survives the gate).
     study = BY_SLUG["dose-response-npcausal"]
     frame = tables[study.slug]["equivalence"]
-    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=2.5]")
+    row = next(row for row in frame.itertuples() if row.estimand == "dose_response[h=2,a=3.5]")
     legs = paired_legs(row, study.margins, True)
     assert (legs.passed, legs.conclusion) == (True, "equivalent")
     gate = failures.cell_gates(tables[study.slug]["accounting"], "equivalence")[

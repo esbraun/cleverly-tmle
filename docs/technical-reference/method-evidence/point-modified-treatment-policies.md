@@ -173,6 +173,10 @@ the committed results and checked at the precision printed.
 | `margin:inverse_displacement` | 0.1000 | minimum inverse displacement |
 | `margin:type_i_ceiling` | 0.1000 | type-I upper bound |
 | `margin:minimum_power` | 0.8000 | power lower bound |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limits
 

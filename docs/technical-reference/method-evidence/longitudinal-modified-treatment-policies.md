@@ -280,6 +280,10 @@ the committed results and checked at the precision printed.
 | `margin:minimum_power` | 0.8000 | power lower bound |
 | `margin:overfit_se_floor` | 0.8500 | cross-fitted tree SE-ratio lower bound |
 | `margin:overfit_coverage_gain` | 0.1500 | minimum paired coverage gain |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limits
 

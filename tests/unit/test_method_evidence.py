@@ -2746,7 +2746,11 @@ class TestNegativeControls:
             published.loc[changed, "bias_equivalent"]
         ), "the mutation moved a bias endpoint, so it does not isolate the SE screen"
         untouched = summary.index.drop(changed)
-        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+        # The mutated summary is a complete-case one, so compare it with the committed rows'
+        # complete-case verdicts: the committed failure accounting can turn an untouched cell
+        # red on its worst case (canonical-stratified-incremental-msm's v0_ate_x2).
+        complete = _complete_case_summary(study.slug).set_index(["property", "cell"])
+        assert summary.loc[untouched, "passed"].equals(complete.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
         )
 
