@@ -775,6 +775,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_cate import STUDY as EP_CATE
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
+    from tests.studies.few_cluster_adaptive_learners import STUDY as FEW_CLUSTER_ADAPTIVE_LEARNERS
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.few_cluster_floor_ltmle import STUDY as FEW_CLUSTER_FLOOR_LTMLE
     from tests.studies.few_cluster_floor_tmle import STUDY as FEW_CLUSTER_FLOOR_TMLE
@@ -790,6 +791,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
+    from tests.studies.learned_rule_ep_declared import STUDY as LEARNED_RULE_EP_DECLARED
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
@@ -820,6 +822,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as REFUTER_CALIBRATION_LONGITUDINAL,
     )
     from tests.studies.refuter_calibration_point import STUDY as REFUTER_CALIBRATION_POINT
+    from tests.studies.refuter_sampled import STUDY as REFUTER_SAMPLED
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
     from tests.studies.score_assessment import STUDY as SCORE_ASSESSMENT
     from tests.studies.score_assessment_compositions import (
@@ -893,6 +896,7 @@ def registered() -> tuple[StudyRecord, ...]:
         EP_CRR,
         EP_ASSESSMENT,
         LEARNED_RULE_EP,
+        LEARNED_RULE_EP_DECLARED,
         ELIMINATED_COMPETING_EVENTS,
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
@@ -960,6 +964,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FEW_CLUSTER_FOLD_VARIANCE,
         FEW_CLUSTER_FLOOR_TMLE,
         FEW_CLUSTER_FLOOR_LTMLE,
+        FEW_CLUSTER_ADAPTIVE_LEARNERS,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -999,6 +1004,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REFUTER_CALIBRATION_POINT,
         REFUTER_CALIBRATION_BAND,
         REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
+        REFUTER_SAMPLED,
         DEFAULT_SIMULTANEOUS_BANDS,
         BAND_T_REFERENCE,
         BAND_T_REFERENCE_HELD_OUT,

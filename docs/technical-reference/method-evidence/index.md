@@ -48,6 +48,7 @@ few-cluster-cross-fitted-longitudinal-tmle
 few-cluster-fold-variance
 few-cluster-floor-tmle
 few-cluster-floor-cross-fitted-ltmle
+few-cluster-adaptive-learners
 fold-evaluated-point-treatment-cv-tmle
 fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle
@@ -99,6 +100,7 @@ ep-cate
 ep-crr
 ep-assessment
 learned-rule-ep
+learned-rule-ep-declared
 targeting-curves
 score-assessment
 score-assessment-compositions
@@ -197,6 +199,7 @@ refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
 refuter-calibration-continuous-survival
+refuter-sampled
 default-simultaneous-bands
 band-t-reference
 band-t-reference-held-out

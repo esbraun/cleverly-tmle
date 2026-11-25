@@ -712,7 +712,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # replications the Gaussian row cannot resolve its coverage floor or bias margin, and the
     # binary row cannot resolve its SE-ratio screen. The band-rank study's PJ1 sanity row
     # (X82 SJ) covers 191 of 200, a 99% lower limit of 0.903 above the floor, and its bias
-    # interval crosses the margin.
+    # interval crosses the margin. The sampled-refutation study's sanity row (X106 H) is the
+    # point study's T1 Gaussian fit again: its bias and SE-ratio intervals cross their margins
+    # at 200 replications, and the study's 1,000 I2-F trials of the same fit read 1.015.
     "X82-short-study-sanity": (
         *_keys(
             "refuter-calibration-longitudinal",
@@ -730,6 +732,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "refuter-calibration-band",
             "truth",
             "cleverly-refute-band/point/ate",
+        ),
+        *_keys(
+            "refuter-sampled",
+            "truth",
+            "cleverly-refute-sampled/gaussian/ate",
         ),
     ),
     # The sanity phase of the continuous-time survival refutation study (X101): 200

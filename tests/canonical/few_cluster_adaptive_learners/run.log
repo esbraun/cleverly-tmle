@@ -1,0 +1,22 @@
+=== few-cluster-adaptive-learners declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\tests\canonical\few_cluster_adaptive_learners\regenerate.py' --output 'C:\Users\erics\x54erun\out6' --jobs 16
+commit: 516cf0bea7cfb26750b99b34e50d1c9e8bd09f45; upstream 516cf0bea7cfb26750b99b34e50d1c9e8bd09f45
+clean tree: True
+cleverly 0.2.5 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 112, sha256 47851f89a1f3a194e94f6d72b7785d0ed8eeab0198ecb9cf9ec82944e5d16976
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-11-23T06:28:44+00:00
+note: resumed from C:\Users\erics\AppData\Local\cleverly\runs\few-cluster-adaptive-learners\e2e1e6dc7ca9, reused the Python phase
+finished: 2026-11-24T05:59:27+00:00
+wall seconds: 84633.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 4632f6605b768b70156ae5e3caeef2c156e611b6c482c9b20f9cfc88c7d5b3cc
+sha256 performance-tests.csv: c475b44d5435a63c34a37cf87b218e698eacd8d7b2333b068ed9ba85a1de2802
+sha256 properties.csv: 7904bb60ef299d429ab65a17fcdb45da70a0ef0fe5d3f646b72ea434892e063d
+sha256 property-replicates.parquet: 61ac5d855eae7bd75a3742a4e9a4dba788adcfe83a121d5c369d96d573f1e35c
+sha256 replicates.parquet: 5738a220f7466d3608cb9b5f80c49b5afba489cdade5abea53c114c014ea2c22
+sha256 summary.csv: 9190137c235e8232b50d1b075beb8706e791e7f78054b7d64c0f5f0004be32cb
+

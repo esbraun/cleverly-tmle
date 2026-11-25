@@ -30,6 +30,8 @@ from ._support import (
 from .learners.glm import GLM
 
 __all__ = [
+    "ADAPTIVE_LEARNER_CELLS",
+    "ADAPTIVE_LEARNER_STUDY",
     "BAND_CELLS",
     "BAND_OPTION_DRAWS",
     "DEFAULT_BAND_DRAWS",
@@ -1552,21 +1554,30 @@ def _t_rows() -> tuple[SupportRow, ...]:
     # ``interval_calibration`` positive at n = 16,000, the shrunken-SE and noise controls, and the
     # fold-locality control. The sizing reading admitted the rows (``T49_ADMITTED`` of
     # ``tests/studies/learned_rule_ep_properties.py``), and every row carries its ``T49_LIMITS``
-    # sentence. The support key holds neither the sieve nor the final learner, so
-    # ``ep_rule_condition`` of ``cleverly.interventions.learned`` labels a declared one
-    # experimental. Weights, clusters, fold targeting, repeats above 1, known regimes, a
-    # continuous outcome and an estimated g for the optimal value key other axes or qualifiers,
-    # and three or more arms, an intermediate and strata refuse. The numbers are the committed
-    # results (``tests/canonical/learned_rule_ep``).
+    # sentence. The support key holds neither the sieve nor the final learner. The registered
+    # ``learned-rule-ep-declared`` study measured a declared fixed-size sieve and a declared
+    # final learner (P1 PR 1 part (v)): every gated cell passed, so both rows cite it, and any
+    # declared sieve or final learner reads supported (plan 8.5). Its optimal-value cell with
+    # the learner states no verdict, so ``ep_rule_condition`` of
+    # ``cleverly.interventions.learned`` labels that one fit experimental. Weights, clusters,
+    # fold targeting, repeats above 1, known regimes, a continuous outcome and an estimated g
+    # for the optimal value key other axes or qualifiers, and three or more arms, an
+    # intermediate and strata refuse. The numbers are the committed results
+    # (``tests/canonical/learned_rule_ep`` and ``tests/canonical/learned_rule_ep_declared``).
     ep_limits = [
         "The study measures LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], ...)) with "
         "sieve=None, the default sieve of six cosines of W1 plus the indicator of W2 with its "
         "size chosen by cross-validation over the inner folds, and the least-squares final "
         "stage, on unweighted rows with ten folds, pooled targeting, repeats=1 and no id, at "
         "two RM30 laws with the main-terms logistic outcome learner and a correct logistic "
-        "treatment learner. A declared sieve or final learner reads experimental. The key holds "
-        "neither the modifiers, the law, the learners nor n, so another modifier set, law, "
-        "learner or n reads supported and rests on the theory alone.",
+        "treatment learner. The key holds neither the modifiers, the law, the learners nor n, "
+        "so another modifier set, law, learner or n reads supported and rests on the theory "
+        "alone.",
+        "A declared sieve or final learner is measured with a fixed-size B-spline sieve and with "
+        "a shallow gradient-boosting final learner (max_depth=2), each at n = 16,000 at both "
+        "laws (learned-rule-ep-declared). The interval needs the fold rules to converge to a "
+        "fixed rule (C3), which is a condition on the user's learner that the package cannot "
+        "check; a more variable learner may need a larger n.",
         "Calibrated at n = 16,000 at these laws; at n = 4,000 the sizing pilot read an SE ratio "
         "of 0.970 and coverage 0.9365, about 6.5% excess error variance from learning the "
         "rule. The size moved from 4,000 to 16,000 after that pilot and before any declared "
@@ -1584,7 +1595,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
     rows.append(
         point_row(
             "T51",
-            ["learned-rule-ep"],
+            ["learned-rule-ep", "learned-rule-ep-declared"],
             families=("P11",),
             splitting=("fold_evaluated",),
             qualifiers=["rule_learner_ep"],
@@ -1593,13 +1604,21 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "misspecified_limit",
                 "non_exceptional__declared",
                 "misspecified_limit__declared",
+                "S_nonexc_2k",
+                "S_misspec_2k",
+                "L_nonexc_2k",
+                "L_misspec_2k",
+                "nonexc__S",
+                "misspec__S",
+                "nonexc__L",
+                "misspec__L",
             ],
             # Roadmap: P1.
             limits=[
                 "The target is the fold average of the value of the rules the fit learned, not "
                 "the value of the optimal rule. Only the T51.optimal cell sees whether the EP "
                 "rule is a good rule: a learner that treats nobody still covers its own value.",
-                *ep_limits[:2],
+                *ep_limits[:3],
                 "At n = 16,000 the SE ratio is 0.999 (99% interval 0.978 to 1.020) at "
                 "non_exceptional and 1.008 (0.988 to 1.030) at misspecified_limit, with "
                 "coverage 0.951 and 0.954 (7,200 draws each). At n = 2,000 it is 0.994 and "
@@ -1607,7 +1626,13 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "with coverage 0.948 and 0.918 (2,000 draws each), so at n = 1,000 at the "
                 "misspecified law the SE is about 9% small. The key holds no sample size, so a "
                 "smaller fit also reads supported.",
-                *ep_limits[2:],
+                "With the declared sieve (S) and the declared learner (L), at n = 16,000 the SE "
+                "ratio is 0.996 and 0.992 for S and 0.998 and 0.996 for L at non_exceptional and "
+                "misspecified_limit, with coverage 0.948 to 0.950 (12,000 draws each). At "
+                "n = 2,000 the SE ratios are 0.929 and 0.952 for S and 1.010 and 0.954 for L, "
+                "with coverage 0.9305 to 0.954 (2,000 draws each), so at that size the SE is up "
+                "to about 7% small.",
+                *ep_limits[3:],
                 "The value gain over the plug-in rule is descriptive and carries no test.",
             ],
         )
@@ -1615,18 +1640,24 @@ def _t_rows() -> tuple[SupportRow, ...]:
     rows.append(
         point_row(
             "T51.optimal",
-            ["learned-rule-ep"],
+            ["learned-rule-ep", "learned-rule-ep-declared"],
             families=("P12",),
             splitting=("fold_evaluated",),
             qualifiers=["known_mechanism", "rule_learner_ep"],
-            cells=["optimal_known_g__declared"],
+            cells=["optimal_known_g__declared", "optimal__S"],
             # Roadmap: P1.
             limits=[
                 "The study measures the value of the optimal rule (estimands=['ey_optimal_rule']) "
                 "with the EP rule given both adjustment columns and the treatment mechanism "
                 "known (treatment_probabilities=), at the non_exceptional law only, at "
                 "n = 16,000. An estimated g drops known_mechanism and reads experimental.",
-                *ep_limits[:2],
+                ep_limits[0],
+                ep_limits[2],
+                "A declared sieve is measured with a fixed-size B-spline sieve "
+                "(learned-rule-ep-declared): SE ratio 0.997 (99% interval 0.981 to 1.014) and "
+                "coverage 0.947 (12,000 draws), with a bias of -0.00046 that is the regret of the "
+                "rules learned at n = 16,000. A declared final learner reads experimental for the "
+                "optimal value: no limit is claimed for it, and its cell states no verdict.",
                 "The interval covers the optimal value only up to the regret of the EP limit "
                 "rule, the sign of the projection of the effect on the largest default member, "
                 "which differs from the optimal rule on 0.98% of the population and gives up "
@@ -1636,7 +1667,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 "the margin. On a law where the sign of the effect is not that of a function in "
                 "the sieve, the regret does not vanish and the interval covers the value of the "
                 "limit rule instead.",
-                *ep_limits[2:],
+                *ep_limits[3:],
             ],
         )
     )
@@ -3024,12 +3055,30 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The study that measures the clustered interval with the default learner library (X54 part
+#: (h)), and the ``t``-tier rows whose fits its gated cells reach: stacked ``TMLE`` below 40
+#: clusters and cross-fitted ``LTMLE`` at 20. At 40 clusters a fit is on the clustered tier,
+#: whose row ``T10.unweighted`` rests on its own unequal-size evidence and never reads the
+#: qualifier, so the study's equal-size cells at 40 are not cited there. Every gated row
+#: passes, so a fit with
+#: ``adaptive_nuisance`` on these rows keeps the row's label when its key also carries
+#: ``adaptive_nuisance_measured``: every adaptive learner is the default library and the fit
+#: reads at least 10 clusters (stacked ``TMLE``) or 20 (``LTMLE``)
+#: (:func:`cleverly._support.adaptive_nuisance_shortfall`). The in-sample cells are reported
+#: only, so no in-sample row names the study.
+ADAPTIVE_LEARNER_STUDY: Final[str] = "few-cluster-adaptive-learners"
+ADAPTIVE_LEARNER_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T11.stacked": ("adaptive_learners",),
+    "G07": ("adaptive_learners",),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
 
     The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS`,
-    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES` and
-    :data:`TAIL_NOTES`. A ``t`` band cell measured the band at
+    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES`,
+    :data:`TAIL_NOTES` and :data:`ADAPTIVE_LEARNER_CELLS`. A ``t`` band cell measured the band at
     :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
@@ -3053,6 +3102,12 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
                 kinds=row.kinds | {"wald_policy"},
                 evidence=tuple(dict.fromkeys((*row.evidence, POLICY_STUDY))),
                 cells=tuple(dict.fromkeys((*row.cells, *POLICY_CELLS[row.id]))),
+            )
+        if ADAPTIVE_LEARNER_CELLS.get(row.id):
+            row = replace(
+                row,
+                evidence=tuple(dict.fromkeys((*row.evidence, ADAPTIVE_LEARNER_STUDY))),
+                cells=tuple(dict.fromkeys((*row.cells, *ADAPTIVE_LEARNER_CELLS[row.id]))),
             )
         if T_BAND_CELLS.get(row.id):
             options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()
@@ -7219,6 +7274,11 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
     "refuter-calibration-continuous-survival": (
         "It measures the size and power of refutation verdict rules. A verdict is no estimate, "
         "and VERDICT_EVIDENCE, not a support row, records what the study licenses."
+    ),
+    "refuter-sampled": (
+        "It measures the size and power of refutation verdict rules on a sample of the units. A "
+        "verdict is no estimate, and a sampled call reads the existing VERDICT_EVIDENCE rows at "
+        "its sampled baseline's configuration."
     ),
     "learned-rule-cvtmle-boundary": (
         "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "

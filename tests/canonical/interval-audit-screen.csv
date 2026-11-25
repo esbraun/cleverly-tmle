@@ -61,6 +61,7 @@ ep-assessment,neutral,2,2,1.0,,calibration/strong_2k__slope;risk_comparison/stro
 ep-cate,neutral,2,0,0.0,,,0,
 ep-crr,neutral,0,0,0.0,,,0,
 evalue-limit-coverage,neutral,2,2,0.012,,,0,
+few-cluster-adaptive-learners,neutral,1,1,0.00375,,,0,
 few-cluster-cross-fitted-ltmle,neutral,7,7,0.007,,,0,
 few-cluster-floor-cross-fitted-ltmle,declared,67,67,0.028,floor_equal40_j10/ey_regimen[always];floor_equal40_j10/ey_regimen[treat then continue if l2 positive],few_cluster_candidate/ltmle_cross_fitted__unequal40__j14__cluster_jackknife;few_cluster_reference/ltmle_cross_fitted__unequal40__j14__t_reference,0,"the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the identity interval on its t reference; the range-logit scale applies to an unclustered mean only (ParameterEstimate.interval_scale)"
 few-cluster-floor-tmle,declared,2,2,0.02,floor_unequal_informative_j10/ey_regimen[always],,0,"the flagged rows are arm means (ey_regimen[...], bounded means) of clustered fits: every fit of the few-cluster floor study is clustered (id=), and a clustered mean keeps the identity interval on its t reference; the range-logit scale applies to an unclustered mean only (ParameterEstimate.interval_scale)"
@@ -88,6 +89,7 @@ learned-rule-contrast,neutral,17,16,0.001667,,,0,
 learned-rule-cvtmle,neutral,7,7,0.001883,,,0,
 learned-rule-cvtmle-boundary,neutral,2,2,0.001167,,,0,
 learned-rule-ep,neutral,5,5,0.000694,,,0,
+learned-rule-ep-declared,neutral,9,0,0.0,,,0,
 learned-rule-in-sample,neutral,5,5,0.003333,,,0,
 learned-rule-intermediate,neutral,8,8,0.005,,,0,
 learned-rule-learners,neutral,4,4,0.000833,,,0,
@@ -148,6 +150,7 @@ refuter-calibration-band,neutral,0,0,0.0,,,0,
 refuter-calibration-continuous-survival,neutral,0,0,0.0,,,0,
 refuter-calibration-longitudinal,neutral,0,0,0.0,,,0,
 refuter-calibration-point,neutral,0,0,0.0,,,0,
+refuter-sampled,neutral,0,0,0.0,,,0,
 repeated-crossfit-tmle,neutral,16,11,0.005,,power/alternative,0,
 score-assessment,declared,3,3,0.835,interval_calibration/paired_trial_2k_SB_calibration_slope__correctly_specified,interval_calibration/paired_trial_2k_SB_calibration_slope__correctly_specified;power/paired_wald__c_0.13,0,"the flagged cell is a calibration slope of a CATE score, not a package interval of a mean"
 score-assessment-compositions,declared,5,5,0.0325,interval_calibration/assess_arms3_4k_SB_calibration_slope__k3_cal;interval_calibration/assess_insample_2k_SB_calibration_slope__in_cal;interval_calibration/assess_missing_4k_S_calibration_slope__mis_cal,interval_calibration/assess_arms3_4k_SB_calibration_slope__k3_cal;interval_calibration/assess_insample_2k_SB_calibration_slope__in_cal;interval_calibration/assess_missing_4k_S_calibration_slope__mis_cal,0,"the flagged cells are calibration slopes of a CATE score, not package intervals of a mean"

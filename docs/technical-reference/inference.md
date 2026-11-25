@@ -596,8 +596,30 @@ the same parameter. A learned-rule fit is exempt, because its target is defined 
 average. [CV-TMLE](cv-tmle.md#clusters-of-unequal-mass) gives the trigger, the measured bias and
 the reason the stacked point is the only fold aggregation without it.
 
-Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
-registered few-cluster evidence uses parametric nuisance learners only.
+Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters.
+[`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures the
+default learner library for every nuisance at 10, 20 and 40 clusters. Stacked `TMLE` on two laws,
+one with both nuisances nonlinear, and cross-fitted `LTMLE` at 20 clusters pass every gated
+clause: the coverage floor, the bias margin, a variance-ratio lower end of 0.8649, a shown-coverage
+lower end of 0.92 and, on the first law, paired non-inferiority to a GLM fit on the same draws.
+The measured ground is stacked `TMLE` at 10 to 40 clusters and cross-fitted `LTMLE` at 20
+clusters, with the default library: there a fit keeps its row's label (`T11.stacked` below 40
+clusters, or `G07` from 20 clusters). The study covers equal clusters of 10 rows (40 units for
+`LTMLE`) and binary outcomes only, so Remark 3 remains the source's caution for other designs.
+
+On the $t$ tier every other fit with a data-adaptive outcome or treatment learner is experimental
+with its interval shown; the reduced-regression learners of `DRTMLE` are not read. A
+scikit-learn pipeline of fixed polynomial or scaling transforms before a parametric model counts
+as parametric (`cleverly._support.nuisance_family`). A cross-fitted
+fit outside the measured ground reads "not measured with an adaptive learner": another adaptive
+learner (a scikit-learn tree, or a Super Learner with a library named), cross-fitted `LTMLE`
+below 20 clusters, and the fold-evaluated, `DRTMLE` and `SDR` fits with an adaptive outcome or
+treatment learner. An in-sample fit, the default library among them, has no Donsker
+argument: each learner, and each Super Learner candidate, predicts from its fit to the full
+sample, so the residuals the interval reads shrink at any cluster count. The study's in-sample
+cells read coverage 0.906 to 0.919 and a variance ratio of 0.72 to 0.88. The support key records
+the cases as the qualifiers `adaptive_nuisance` and `adaptive_nuisance_measured`
+(`cleverly._support.adaptive_nuisance_shortfall`).
 
 The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
 reported baseline stratum. Its upper bound is one below the fit's interval floor.

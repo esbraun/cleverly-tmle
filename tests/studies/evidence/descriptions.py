@@ -6678,6 +6678,107 @@ def _refuter_continuous_survival_cells() -> None:
 _refuter_continuous_survival_cells()
 
 
+def _refuter_sampled_cells() -> None:
+    """The sampled-refutation study (X106 H): size, relative size, power and the mutation."""
+    slug = "refuter-sampled"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point refutation study's linear Gaussian law at n = 2,000; TMLE at five folds, "
+        "refuted on its whole data"
+    )
+    IMPLEMENTATIONS["cleverly-refute-sampled"] = (
+        "`cleverly` fit that the sampled refutation rules read"
+    )
+    PROPERTIES["refuter_size_relative"] = (
+        "a refutation rule on a sample of m units rejects at the rate of the same rule on a fit "
+        "of m units, within 0.05"
+    )
+    PROPERTIES["refuter_mutation"] = (
+        "a subset reading that takes the full fit's SE and unit count fails both size gates"
+    )
+    PROPERTIES["refuter_reported"] = "a refutation rate reported with no verdict"
+    cells = {
+        "I2-F": "independent rows, n = 2,000 and m = 2,000 (a limit that does not bind)",
+        "I2-H": "independent rows, n = 4,000 and a sample of m = 2,000",
+        "I2-T": "independent rows, n = 20,000 and a sample of m = 2,000",
+        "I1-F": "independent rows, n = 1,000 and m = 1,000 (a limit that does not bind)",
+        "I1-T": "independent rows, n = 10,000 and a sample of m = 1,000",
+        "C-F": "400 clusters of five, with m = 400 clusters (a limit that does not bind)",
+        "C-H": "800 clusters of five and a sample of m = 400 whole clusters",
+        "C-T": "4,000 clusters of five and a sample of m = 400 whole clusters",
+        "P-4k": "independent rows, n = 4,000, refuted in full",
+        "P-20k": "independent rows, n = 20,000, refuted in full",
+    }
+    readings = {
+        "placebo": "the placebo t rule against the exact null 0",
+        "subset": "the subset rho rule against the sampled baseline",
+        "negative_control": "the negative-control rule on an outcome the treatment does not move",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo rule, with 5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE halved",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE doubled",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.45",
+    }
+    weak = {
+        "placebo_stale_rows": "the placebo rule, with 2.5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE times 0.75",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE times 1.43",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.15",
+    }
+    size = "no more than 73 rejections in 1,000 trials"
+    power = "at least 38 detections in 50 trials"
+    relative = (
+        "the 90% interval of the sampled rate minus the full-data rate lies inside -0.05 to 0.05"
+    )
+    diagnostic = "none. The row is a diagnostic and states no verdict"
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, words in cells.items():
+        for reading, text in readings.items():
+            row = (f"{words}: {text}", size)
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_size", f"{cell}__{reading}")] = row
+            else:
+                table[("refuter_reported", f"{cell}__{reading}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            if cell.endswith(("-H", "-T")):
+                table[("refuter_size_relative", f"{cell}__{reading}")] = (
+                    f"{words}: {text}, beside its full-data partner",
+                    relative,
+                )
+                table[("refuter_size_relative", f"{cell}__{reading}__partner")] = (
+                    f"the full-data partner of {words}: {text}",
+                    diagnostic,
+                )
+        for defect, text in defects.items():
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{words}: {text}", power)
+            else:
+                table[("refuter_reported", f"{cell}__{defect}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            table[("refuter_reported", f"{cell}__{defect}_weak")] = (
+                f"{words}: the rejection rate of {weak[defect]}",
+                diagnostic,
+            )
+    for cell in ("I2-T", "I1-T", "C-T"):
+        table[("refuter_mutation", f"{cell}__subset_full_reference")] = (
+            f"{cells[cell]}: the subset rule read against the full-data fit, the mutation that "
+            "skips the sampled baseline",
+            "the rejection count exceeds 73 of 1,000, and the 90% interval of its rate minus "
+            "the full cell's subset rate lies wholly outside -0.05 to 0.05",
+        )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_sampled_cells()
+
+
 # ------------------------------------------------------------------ X82 SH limit coverage
 
 
@@ -8064,8 +8165,8 @@ STUDY_ARM_CELLS.update(
 _EP_RULE_SLUG = "learned-rule-ep"
 IMPLEMENTATIONS["cleverly-learned-rule-ep"] = (
     "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of "
-    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the "
-    "default sieve's size chosen by cross-validation over five inner folds"
+    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, from the "
+    "sieve and final stage the law names"
 )
 STUDY_ESTIMANDS[_EP_RULE_SLUG, "ey_learned_rule[learned rule]"] = (
     "fold average of the value of the rule that the EP curve fitted on each fold's training rows "
@@ -8132,6 +8233,76 @@ STUDY_ARM_CELLS.update(
             "have no fixed sign",
             "none. The cell reports its coverage with the declared reading: an upper 99% "
             "coverage endpoint below 0.95 reads under-coverage",
+        ),
+    }
+)
+
+
+#: ``learned-rule-ep-declared`` (P1 PR 1): the learned-rule value when the EP rule is fitted
+#: from a declared sieve (``S``) or a declared final learner (``L``). The laws and learners are
+#: those of ``learned-rule-ep``; the cell names are those of
+#: ``tests/studies/learned_rule_ep_declared.py``.
+_EP_DECLARED_SLUG = "learned-rule-ep-declared"
+_EP_DECLARED_CURVES = {
+    "S": (
+        "`LearnedRule(loss='ep')` on the declared sieve Additive(BSpline(['W1'], 4), "
+        "Indicators('W2')) at its fixed size 4"
+    ),
+    "L": (
+        "`LearnedRule(loss='ep')` on the default sieve with its size chosen by cross-validation "
+        "and the declared final learner HistGradientBoostingRegressor(max_depth=2)"
+    ),
+}
+_EP_DECLARED_LAWS = {"nonexc": "non_exceptional", "misspec": "misspecified_limit"}
+STUDY_ESTIMANDS[_EP_DECLARED_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the value of the rule that the EP curve, from the declared sieve or final "
+    "learner, fitted on each fold's training rows sets"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_EP_DECLARED_SLUG, f"{curve}_{label}_2k"): (
+            f"{_EP_RULE_LAWS[law].removeprefix('the ')}, with {words}"
+        )
+        for curve, words in _EP_DECLARED_CURVES.items()
+        for label, law in _EP_DECLARED_LAWS.items()
+    }
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (_EP_DECLARED_SLUG, "interval_calibration", f"{label}__{curve}"): (
+                f"{_EP_RULE_LAWS[law]}, with {words}: the declared fit at n = 16,000 with the "
+                "study's logistic nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for curve, words in _EP_DECLARED_CURVES.items()
+            for label, law in _EP_DECLARED_LAWS.items()
+        },
+        (_EP_DECLARED_SLUG, "interval_calibration", "optimal__S"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            f"{_EP_DECLARED_CURVES['S']} on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115: the declared fit at "
+            "n = 16,000",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "optimal__L"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            f"{_EP_DECLARED_CURVES['L']} on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115: the declared fit at "
+            "n = 16,000, which measures the learner's regret",
+            "none. The cell reports its coverage, its SE ratio with its interval and the mean "
+            "regret, with no verdict",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "nonexc_S__shrunken_se_control"): (
+            f"{_EP_RULE_LAWS['non_exceptional']}, with {_EP_DECLARED_CURVES['S']}: the "
+            "reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "nonexc_L__validation_rule_control"): (
+            f"{_EP_RULE_LAWS['non_exceptional']}, with {_EP_DECLARED_CURVES['L']}: the same "
+            "fit at n = 2,000 with each fold's EP curve fitted on that fold's own validation "
+            "rows, so the rule has seen the rows that evaluate it",
+            "the coverage interval must fall below the calibration band",
         ),
     }
 )
@@ -12665,3 +12836,105 @@ for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
             ),
         }
     )
+
+#: ``few-cluster-adaptive-learners`` (X54 part (h)): the clustered interval on t with J - 2
+#: degrees of freedom when every nuisance is fitted by the default learner library, at 10, 20
+#: and 40 clusters. The cells and arms are those of
+#: ``tests/studies/few_cluster_adaptive_learners.py``. The family name ``adaptive_learners`` is
+#: shared with ``sequential-baselines``, so the cells are scoped to this study.
+_FCAL_SLUG = "few-cluster-adaptive-learners"
+STUDY_SCENARIOS[(_FCAL_SLUG, "equal10_j20_stacked")] = (
+    "20 clusters of 10 rows with a cluster latent in the outcome, a stacked TMLE with five "
+    "grouped folds and the default learner library for both nuisances, the shipped report"
+)
+_FCAL_LAWS = {
+    "equal10": "clusters of 10 rows, a cluster latent in the outcome (L1)",
+    "nonlinear10": "clusters of 10 rows, both nuisances nonlinear in W (L2)",
+    "equal40": "clusters of 40 units on the end-of-study longitudinal law (L3)",
+}
+_FCAL_FITS = {
+    "tmle_in_sample": "in-sample TMLE, the default learner library",
+    "tmle_stacked": "stacked TMLE with five grouped folds, the default learner library",
+    "glm_in_sample": "in-sample TMLE, main-terms logistic outcome and propensity",
+    "glm_stacked": "stacked TMLE with five grouped folds, main-terms logistic nuisances",
+    "interpolating_control": "in-sample TMLE, an unpruned tree outcome and a logistic propensity",
+    "stacked_control": (
+        "stacked TMLE whose out-of-fold outcome predictions come from an unpruned random forest "
+        "fitted on the full sample"
+    ),
+    "ltmle_crossfit": "cross-fitted LTMLE with five folds, the default library for every node",
+    "ltmle_glm": "cross-fitted LTMLE with five folds, a quasibinomial GLM for every node",
+}
+_FCAL_POSITIVE = (
+    "the exact 99% lower end of all-draw coverage at least 0.90, bias inside 0.25 empirical SD, "
+    "the 99% bootstrap lower end of the variance ratio at least 0.8649, and the exact 99% lower "
+    "end of shown coverage at least 0.92"
+)
+_FCAL_ARMS = {
+    "t_reference": "the shipped interval, t with J - 2 degrees of freedom",
+    "iid_t_control": "the same point and t quantile with the IID row standard error",
+    "wang_inflated": (
+        "Wang et al.'s inflation J / (J - 2) of the cluster variance on t with J - 2 degrees of "
+        "freedom"
+    ),
+    "glm_reference": "the shipped interval of the GLM fit on the same draws",
+    "interpolating_control": "the shipped interval of the interpolating outcome fit",
+    "stacked_control": "the shipped interval of the overfit out-of-fold outcome",
+}
+_FCAL_IID_REQUIRED = (
+    "on the shown draws, the 99% upper end of the paired ratio of mean IID SE to mean cluster SE "
+    "below 0.80, and the positive arm's shown-only SE-ratio upper end at most 1.20"
+)
+for _fcal_law, _fcal_counts in (("equal10", (10, 20, 40)), ("nonlinear10", (10, 20, 40))):
+    for _fcal_fit in (
+        "tmle_in_sample",
+        "tmle_stacked",
+        "glm_in_sample",
+        "glm_stacked",
+        "interpolating_control",
+        "stacked_control",
+    ):
+        for _fcal_j in _fcal_counts:
+            for _fcal_arm in _FCAL_ARMS:
+                _fcal_gated = _fcal_fit == "tmle_stacked" and _fcal_arm in {
+                    "t_reference",
+                    "iid_t_control",
+                }
+                if _fcal_fit == "stacked_control" and _fcal_arm == "stacked_control":
+                    _fcal_required = "the exact 99% upper end of all-draw coverage below 0.90"
+                elif _fcal_gated and _fcal_arm == "t_reference":
+                    _fcal_required = _FCAL_POSITIVE + (
+                        ", and the exact 99% lower end of the paired all-draw coverage "
+                        "difference to the GLM arm above -0.02"
+                        if _fcal_law == "equal10"
+                        else ""
+                    )
+                elif _fcal_gated:
+                    _fcal_required = _FCAL_IID_REQUIRED
+                else:
+                    _fcal_required = _DIAGNOSTIC_REQUIRED
+                STUDY_CELLS[
+                    (
+                        _FCAL_SLUG,
+                        "adaptive_learners",
+                        f"{_fcal_fit}__{_fcal_law}__j{_fcal_j}__{_fcal_arm}",
+                    )
+                ] = (
+                    f"{_FCAL_FITS[_fcal_fit]}, {_fcal_j} {_FCAL_LAWS[_fcal_law]}: "
+                    f"{_FCAL_ARMS[_fcal_arm]}",
+                    _fcal_required,
+                )
+for _fcal_fit in ("ltmle_crossfit", "ltmle_glm"):
+    for _fcal_arm in _FCAL_ARMS:
+        if _fcal_fit == "ltmle_crossfit" and _fcal_arm == "t_reference":
+            _fcal_required = _FCAL_POSITIVE
+        elif _fcal_fit == "ltmle_crossfit" and _fcal_arm == "iid_t_control":
+            _fcal_required = _FCAL_IID_REQUIRED
+        else:
+            _fcal_required = _DIAGNOSTIC_REQUIRED
+        STUDY_CELLS[
+            (_FCAL_SLUG, "adaptive_learners", f"{_fcal_fit}__equal40__j20__{_fcal_arm}")
+        ] = (
+            f"{_FCAL_FITS[_fcal_fit]}, 20 {_FCAL_LAWS['equal40']}: {_FCAL_ARMS[_fcal_arm]}",
+            _fcal_required,
+        )

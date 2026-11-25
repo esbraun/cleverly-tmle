@@ -1,0 +1,19 @@
+{
+  "scope": {
+    "failed_keys": 0,
+    "jobs": 3,
+    "keys_fitted": 11,
+    "primary_captured": true,
+    "property_calls": [
+      "properties"
+    ],
+    "recorder": 2,
+    "replay_absent": 0,
+    "replay_mismatch": 0,
+    "rows": 9,
+    "seconds_capture": 1.04,
+    "seconds_fit": 71.84,
+    "stage": "scope",
+    "study": "learned-rule-ep-declared"
+  }
+}

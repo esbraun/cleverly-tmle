@@ -251,6 +251,10 @@ CONFIGURATION = {
 class ExactLongitudinalPropensity(BaseEstimator):
     """The informative law's propensity at the one treatment node, from ``[W1, W2]``."""
 
+    #: A known mechanism fits nothing, so :func:`cleverly._support.learner_family` reads it as
+    #: parametric and a few-cluster fit with it carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
+
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ExactLongitudinalPropensity:
         del X, y, sample_weight
         self.classes_ = np.array([0.0, 1.0])

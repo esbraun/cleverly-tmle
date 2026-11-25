@@ -1,0 +1,23 @@
+wrote /home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.csv
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 135, in <module>
+    main()
+    ~~~~^^
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 131, in main
+    print(f"calibration R from the pilot: {declared_replicates(summary)}", flush=True)
+                                           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 108, in declared_replicates
+    out[str(arm).removeprefix("__")] = repeated_sizing.calibration_replicates(
+                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        study.STUDY.margins,
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        family_pass=ARM_FAMILY_PASS,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/cleverly-tmle/tests/studies/repeated_sizing.py", line 759, in calibration_replicates
+    raise ValueError("no budget up to 50,000 replications meets the calibration rule")
+ValueError: no budget up to 50,000 replications meets the calibration rule

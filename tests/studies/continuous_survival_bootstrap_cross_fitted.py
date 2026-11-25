@@ -141,9 +141,9 @@ def draw_and_fit(
 
 
 def calibration(rows: pd.DataFrame) -> pd.DataFrame:
-    """The calibration table of :func:`~tests.studies.continuous_survival_bootstrap.calibration`
-    with no gated cell: every row reported."""
-    return gated.calibration(rows, STUDY, None)
+    """The calibration table of :func:`~tests.studies.continuous_survival_bootstrap.calibration`:
+    every row reported, read by the rule with no verdict."""
+    return gated.calibration(rows, STUDY)
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
