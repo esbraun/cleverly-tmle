@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "study": "Projection methods (DR-TMLE, per-arm C-TMLE)",
+  "slug": "projection-methods",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-projection-methods",
+      "cleverly_version": "0.2.7",
+      "cleverly_commit": "32f9d8acc6df602869ed380ee508913646b32846",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 4000,
+    "seed": 20261531,
+    "resampling_seed": 20261532,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-projection-methods": 0.01
+    },
+    "scenarios": {
+      "dr_known_4k": [
+        "cate_projection[(intercept)]"
+      ]
+    },
+    "law_P": "W1, W2 ~ N(0, 1); g0 = expit(0.6 W1 + 0.3 W2); Qbar0(a, W) = expit(-0.2 + a (0.5 + 0.6 W1) - W1 + 2 W2)",
+    "basis": "Linear(['W1']) on the difference scale, in sample",
+    "drtmle": "guard=('Q', 'g'), univariate reduction, cubic reduced regressions, g_bounds=(0.01, 0.99)",
+    "ctmle": "strategy='oat', oat_design='per_arm', logistic per-arm design",
+    "outcome_learners": {
+      "wrong": "logistic GLM on (A, W1)",
+      "correct": "logistic GLM on (A, W1, W2, A W1)"
+    },
+    "mechanism_learners": {
+      "known": "the declared g0, by treatment_probabilities",
+      "glm": "logistic GLM on (W1, W2)",
+      "slow": "logistic GLM on (W1, W2) plus the logit offset n^(-1/3) W2 (1 + W1), a constructed error"
+    },
+    "groups": {
+      "dr_known_4k": "n=4000, R=5600, drtmle, outcome wrong, mechanism known",
+      "dr_both_4k": "n=4000, R=2400, drtmle, outcome correct, mechanism glm",
+      "dr_slow_1k": "n=1000, R=1000, drtmle, outcome wrong, mechanism slow",
+      "dr_slow_4k": "n=4000, R=1000, drtmle, outcome wrong, mechanism slow",
+      "dr_slow_16k": "n=16000, R=1000, drtmle, outcome wrong, mechanism slow",
+      "dr_glm_4k": "n=4000, R=2400, drtmle, outcome wrong, mechanism glm",
+      "ctmle_points_4k": "n=4000, R=2400, ctmle, outcome correct, mechanism per_arm"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/projection_methods.py": "efcf7326de1fdc71d8ac7851fed7e25755c06c9e3f483ff889f66b766ec11891",
+    "tests/studies/projection_methods_law.py": "0c67b34f6727641b7f207ba33c30cfe302519dcc6698fc7cce25579bee4d873f",
+    "tests/studies/projection_methods_pilot.py": "211055db9a378fff437f4ed9d45f75b997e2c3effaaf072c3290c0d040ce9e47",
+    "tests/studies/projection_methods_properties.py": "feea2153ce024bec475301977e5a285bcf9d8f59e75b6dc0b2051ee52d4fe239",
+    "tests/studies/drtmle_one_wrong.py": "dd0133d6aa4e845fd90ee38a59c416610103f6b18b28b22e5a8b00c5016f40f0",
+    "tests/studies/point_reading.py": "0cfac12441058a841922a1d1a324db4dca35ed5e74738cba30c1c186b781b5e1",
+    "tests/studies/repeated_sizing.py": "1530cdae8779eeb2df585c501bf5ce0a925c74955ced6d6d533e92408df7d0a5",
+    "tests/studies/evidence/properties.py": "0983217d38df582900a498db61afd9f6c63a2758ed190abf415c0c91d95fc3ab",
+    "tests/studies/evidence/property_verdicts.py": "91f9f50df353faf0e9024efbbe868bd0fcd277b4cb1bb1ded03a9fae7103d1f2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "src/cleverly/estimators/drtmle.py": "4def81d077383534fdcd5b8eb1358e4df4e223c22b8aef0f3e2c4ff1f0512fa9",
+    "src/cleverly/estimators/reduced.py": "362e77cc39513b8120b90749659fe3f799d00cb784dd89461ccdee7d71608286",
+    "src/cleverly/estimators/targeting.py": "a183fcd5e5510241bfa1a59a4fa7a947d2b66c0663523070affe5a97bc420d83",
+    "src/cleverly/estimators/ctmle.py": "c797f02011dbfac7514f86c44a31ec02e0d8b6dd91ec418e80dd6c7328845d83",
+    "src/cleverly/estimators/tmle.py": "8baeaf9cf6324276b9c89d14d2f5718083d08930a48f4717e15178142363d5a5",
+    "src/cleverly/estimators/_nuisance.py": "2516b3b31221006c32ef0954f31617e8da8d771fa119b55128a18f16c0b74dff",
+    "src/cleverly/fluctuation/submodel.py": "7598b2d03ac6d0dea603aad101ccab5bc54f86220db4adda62bcbe70eabf1dda",
+    "src/cleverly/fluctuation/reduced.py": "c8e3424171a86b9eaa768fa1c2f264b27dc1ee87c327546e2b0a72768b88b50c",
+    "src/cleverly/inference/influence.py": "7555b3be17d6427dd5c05d2c24af7338efbb0fab73f3d9b9824f2a9dae9d280d",
+    "src/cleverly/effect_modification.py": "cd6daea60a2605ad3afe5425b930c1d8c2af1fb8ecca953c851dccab65ede04b",
+    "src/cleverly/_inference_status.py": "df0a53bb90a969f92a8bad0112de7abb02b130d6b2971a989cbfd812df1cb91e",
+    "src/cleverly/_support_rows.py": "95eb07e946db7203488adf8c909a863736de83ad4a5e36221921394b6e879c09"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "3f1e7ee1be20b15036472b6684ae4eeaaf3113caac60d52381a19d2187d11508",
+    "summary.csv": "a5812bbbeb3c783a10612165a3d3c999cdfa3368ee6549d3be8caa5fcf080a52",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "3d4191e3303787164d85c1dea050dfe74807c53ecd0468df963354327df224ad",
+    "property-replicates.parquet": "86c4fe799e852fa9c4920cd85e4eddc6291f65621d409046118374301cf89425",
+    "properties.csv": "f028b92aa654edf616cca37d67a482143576d9e38ce222865c098d3943797e4b"
+  }
+}
