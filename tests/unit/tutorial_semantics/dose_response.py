@@ -17,6 +17,14 @@ from tests.unit.tutorial_semantics import figure_title
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS: tuple[str, ...] = ()
 
+#: Cells read under the looser freshness rule of :mod:`tests.notebook_freshness`.
+_BOOSTED = (
+    "reads the boosted outcome fit: HistGradientBoostingClassifier sums its histograms in float32, "
+    "which round with the CPU's vector instructions, and one CI runner moved these numbers by up "
+    "to 0.2% (tests.notebook_freshness)"
+)
+HARDWARE_SENSITIVE_CELLS = {"estimate": _BOOSTED, "compare": _BOOSTED, "support": _BOOSTED}
+
 
 def _rows(namespace: dict[str, Any], h: float) -> Any:
     table = namespace["table"]

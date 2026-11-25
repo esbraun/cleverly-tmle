@@ -79,7 +79,10 @@ A count that changes, or a result that moves, fails.
 When it fails,
 re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
 to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
-callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces.
+callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces. A cell whose learner turns that
+machine noise into a larger change, such as a histogram gradient-boosting fit, whose float32 sums round
+with the CPU, goes in `HARDWARE_SENSITIVE_CELLS`, with the reason. Its decimals may then differ by 1% of
+their size or one last digit each, and counts must still match.
 
 A reading may quote only the code cells of its own section: from the nearest heading above it to
 the next heading of the same or a higher level, together with the code cells directly in the

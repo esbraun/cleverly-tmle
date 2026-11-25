@@ -25,6 +25,15 @@ tolerance.  So a rounding change from a library release passes, while a result t
 by one unit in several places at once, fails; a re-estimated effect moves in its second or third
 figure, far beyond 1e-4.  When a dependency release moves an output, the response is a re-execution that reads the
 difference and updates the prose, never a pin.
+
+A cell whose learner amplifies that machine noise is declared in its callback's
+``HARDWARE_SENSITIVE_CELLS``, with the reason.  Such a cell's decimals agree within
+:data:`HARDWARE_TOLERANCE` (1e-2) of their size or one unit in the last place, with no limit on
+how many differ.  Histogram gradient boosting is the known case: its histograms are float32 sums
+whose rounding depends on the CPU's vector instructions, and a different split cascades through
+the trees.  ``dose-response`` printed 359.4 on one CI runner where its stored run printed 360.1,
+a 0.2% change, while the same commit reproduced exactly on 3.12 and 3.13 elsewhere.  Counts must
+still be equal, and a move of a percent or more still fails.
 """
 
 from __future__ import annotations
@@ -45,6 +54,9 @@ FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
 
 #: The fraction of its size within which a decimal agrees (module docstring).
 RELATIVE_TOLERANCE = 1e-4
+
+#: The fraction of its size within which a decimal of a ``HARDWARE_SENSITIVE_CELLS`` cell agrees.
+HARDWARE_TOLERANCE = 1e-2
 
 #: The version line that every ``setup`` cell prints.
 VERSION_LINE = re.compile(r"^cleverly \d+\.\d+\.\d+\S*$", re.MULTILINE)
@@ -93,11 +105,13 @@ def _is_rounded(token: str) -> bool:
     return "." in token or "e" in token.lower()
 
 
-def text_moves(stored: str, fresh: str) -> list[str]:
+def text_moves(stored: str, fresh: str, *, hardware_sensitive: bool = False) -> list[str]:
     """Each difference between a stored and a fresh cell text that is more than one rounding.
 
     Returns an empty list when the texts agree under the rule in the module docstring.
+    ``hardware_sensitive`` applies the looser rule of a ``HARDWARE_SENSITIVE_CELLS`` cell.
     """
+    tolerance = HARDWARE_TOLERANCE if hardware_sensitive else RELATIVE_TOLERANCE
     left, right = _normalized(stored), _normalized(fresh)
     if left == right:
         return []
@@ -112,12 +126,12 @@ def text_moves(stored: str, fresh: str) -> list[str]:
             moves.append(f"{old} -> {new}")
             continue
         gap = abs(float(old) - float(new))
-        if gap <= RELATIVE_TOLERANCE * max(abs(float(old)), abs(float(new))):
+        if gap <= tolerance * max(abs(float(old)), abs(float(new))):
             continue
         unit = max(_last_place(old), _last_place(new))
         if gap <= unit * (1.0 + 1e-9):
             rounding += 1
-            if rounding > 1:
+            if rounding > 1 and not hardware_sensitive:
                 moves.append(f"{old} -> {new} (a second last-place change in one cell)")
         else:
             moves.append(f"{old} -> {new}")
@@ -125,22 +139,29 @@ def text_moves(stored: str, fresh: str) -> list[str]:
 
 
 def unreproduced(
-    stored: Mapping[str, str], fresh: Mapping[str, str], exempt: Mapping[str, str]
+    stored: Mapping[str, str],
+    fresh: Mapping[str, str],
+    exempt: Mapping[str, str],
+    hardware_sensitive: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Cells whose fresh text moved, and ``exempt`` entries that no longer need their exemption.
 
     ``stored`` and ``fresh`` map a cell id to its text; only cells present in ``fresh`` (the
     cells the run executed) are compared.  An ``exempt`` cell is not reported as moved; it is
-    reported as stale when it was executed and reproduces, or when it no longer exists.
+    reported as stale when it was executed and reproduces, or when it no longer exists.  A
+    ``hardware_sensitive`` cell is compared under the looser rule, and is reported as stale only
+    when it no longer exists, since it reproduces exactly on the machine that stored it.
     """
+    loose = hardware_sensitive or {}
     moved = {}
     stale = []
     for cell, text in fresh.items():
-        moves = text_moves(stored.get(cell, ""), text)
+        moves = text_moves(stored.get(cell, ""), text, hardware_sensitive=cell in loose)
         if cell in exempt:
             if not moves:
                 stale.append(cell)
         elif moves:
             moved[cell] = moves
     stale.extend(sorted(cell for cell in exempt if cell not in stored))
+    stale.extend(sorted(cell for cell in loose if cell not in stored))
     return moved, stale
