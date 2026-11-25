@@ -132,18 +132,18 @@ class _NodeReading:
 
 
 def _tiles(nodes: NodePredictions, n: int, height: int) -> list[IntArray]:
-    """Row tiles in fold order: ``height`` rows each, and the last ``n mod 64`` rows last.
+    """Row tiles in fold order, ``height`` rows each, and the data's last rows last.
 
     Every tile but the last holds a multiple of 64 rows.  The last holds the data's final
-    ``n mod 64`` rows in order, which are the rows an untiled ``(n, K)`` matrix-vector
-    product leaves to its kernel's tail.
+    ``64 + n mod 64`` rows in order (every row when there are fewer): the ``n mod 64`` rows an
+    untiled ``(n, K)`` matrix-vector product leaves to its kernel's tail, behind 64 rows so
+    that the product is never a one-row call, which NumPy hands to a dot product instead.
     """
-    tail = n % _TILE_ROWS
+    last = max(n - n % _TILE_ROWS - _TILE_ROWS, 0)
     stream = np.concatenate(nodes.tests)
-    stream = stream[stream < n - tail]
+    stream = stream[stream < last]
     tiles = [stream[start : start + height] for start in range(0, stream.size, height)]
-    if tail:
-        tiles.append(np.arange(n - tail, n))
+    tiles.append(np.arange(last, n))
     return tiles
 
 

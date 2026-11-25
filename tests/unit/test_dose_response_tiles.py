@@ -112,15 +112,17 @@ def _untiled(estimator: DoseResponseTMLE, data: Any, nuisance: Any, rule: Any, o
     return out
 
 
+@pytest.mark.parametrize("n", [1_001, 1_025])
 @pytest.mark.parametrize("tile_bytes", [1, 10**6, engine.TILE_BYTES])
 def test_tiles_give_the_untiled_numbers_bitwise(
-    monkeypatch: pytest.MonkeyPatch, tile_bytes: int
+    monkeypatch: pytest.MonkeyPatch, tile_bytes: int, n: int
 ) -> None:
-    # n is not a multiple of 64, so the kernel's tail rows sit in the last tile; the smallest
-    # budget cuts 64-row tiles, which cross fold boundaries.
+    # n is not a multiple of 64, so the kernel's tail rows sit in the last tile (one tail row
+    # at n = 1,025, which a one-row tile would hand to a dot product); the smallest budget
+    # cuts 64-row tiles, which cross fold boundaries.
     monkeypatch.setattr(engine, "TILE_BYTES", tile_bytes)
     with thread_limit(1):
-        estimator, data, nuisance, rules = _nuisance(1_001)
+        estimator, data, nuisance, rules = _nuisance(n)
         found = estimator._target(
             data, nuisance, [(rules[0], 0), (rules[1], rules[0].n_nodes)], UNCLASSIFIED
         )
@@ -166,7 +168,7 @@ def test_the_tiles_cover_every_row_once_with_the_tail_last() -> None:
     tiles = engine._tiles(stored, n, 64)
     assert np.array_equal(np.sort(np.concatenate(tiles)), np.arange(n))
     assert all(tile.size % 64 == 0 for tile in tiles[:-1])
-    np.testing.assert_array_equal(tiles[-1], np.arange(192, 200))
+    np.testing.assert_array_equal(tiles[-1], np.arange(128, 200))
 
 
 # ------------------------------------------------------------------------ refusal order
