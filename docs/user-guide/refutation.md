@@ -2,25 +2,28 @@
 
 A refutation test changes the problem so that the right answer is known in advance, refits the whole
 analysis, and checks the estimate against that answer. Shuffle the treatment, for example, and the
-effect should be about zero. A test can expose a bug, a standard error that is too small because
-rows are not independent (repeated visits of one person treated as separate people, say), or a
-setting that does not suit the data, which shows up as bias or poor coverage on simulated data like
-yours.
+effect should be about zero. A test can expose a bug, or a setting that does not suit the data, which
+shows up as bias or poor coverage on simulated data like yours; coverage is the share of 95%
+intervals that hold the true value, which should be near 95%. It cannot detect rows that depend on
+each other when you have not declared it, such as repeated visits of one person entered as separate
+people: declare those as clusters ([data and study design](data-design.md)).
 
 A refutation cannot show that no confounder is missing. A confounder is a variable that affects both
 the treatment and the outcome, and a missing one is a confounder the data do not record;
 [sensitivity analysis](sensitivity.md) asks how strong one would have to be. Passing these tests
 says that the analysis returns known answers on data like yours, not that your estimate is causal.
 
-## Run the default checks
+## The example fit
 
 The examples on this page use one small simulated fit of an average treatment effect: the change in
 the mean outcome `Y` if every row got the treatment `A`, compared with none. The fit names the
 outcome, the treatment and the covariates to adjust for (`PointTreatment`). It uses two models: an
 outcome model (`outcome_learner`), which predicts `Y` from `A` and the covariates, and a treatment
-model (`treatment_learner`), which predicts each row's chance of `A`. With `cross_fit=False` both
-are fitted on every row. If you have your own fitted result, skip this block and use your result in
-place of `ate_result`.
+model (`treatment_learner`), which predicts each row's chance of `A`. TMLE, the default method,
+combines them: it corrects the outcome model's predictions with the treatment model. Both models are
+fitted on every row (`cross_fit=False`), as a continuous outcome with no fixed range requires. If you
+have your own fitted result, skip this block and use your result, with its own settings, in place of
+`ate_result`.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -42,9 +45,11 @@ ate_result = gaussian_study.estimate(
 )
 ```
 
+## Run the default checks
+
 With no arguments, `refute()` runs three tests on the `ate` estimate. (`estimand=` names another
-estimate, by its row name in the summary.) `cleverly.validation.refute(result, ...)` takes the same
-arguments.
+estimate, by its row name in the fit's summary.) `cleverly.validation.refute(result, ...)` takes the
+same arguments.
 
 ```python
 report = ate_result.diagnostics.refute(random_state=21)
@@ -57,21 +62,24 @@ long as one fit on a large one.
 
 - `placebo` shuffles the treatment, so the refits should show no effect: 0 for a difference, or 1
   for a ratio, which the test reads as 0 on the log scale. The report tests the mean of the refits
-  against that value with a t statistic. It checks the code path, not the confounding in your data.
+  against that value with a t statistic. It checks that the software returns no effect when there is
+  none; it says nothing about confounding in your data.
 - `random_common_cause` adds a column of pure noise to the covariates, so the estimate should
   barely move. It prints how far the estimate moved, in standard errors, and no fit gets a pass or
-  fail for it today. `seed_spread=True` adds as many refits at fresh seeds without the noise
-  column, to show how far a new random split of the rows into folds alone moves the estimate. (A
-  cross-fitted fit splits the rows into folds and predicts each row from models trained without its
-  fold.)
+  fail for it.
 - `subset` refits on random 70% samples (`subset_fraction=0.7`), so the spread of the refits should
   match what the standard error predicts for samples of that size.
 
 ## Read the report
 
-On this fit the summary reads, shortened:
+On this fit the summary reads, without its notes:
 
 ```text
+                               Refutation tests
+==============================================================================
+Estimate tested:  ate = 1.2864          Repeats per test:                   20
+Tests run:        3                     Result:                no pass or fail
+==============================================================================
 test                     mean         SD   expected           result
 ------------------------------------------------------------------------------
 shuffled treatment    -0.0320     0.2372   about 0            no pass or fail
@@ -88,29 +96,62 @@ added noise column   SD of the shifts, in std. errors         0.073         -
 random subsamples    spread ratio (refit SD / expected SD)    0.870    0.4760
 ```
 
-Compare each `mean` (or `SD`, for the subsamples) with the `expected` column, and read the
-statistics below it. The shuffled-treatment refits average -0.03, and their t statistic has a
-p-value of 0.55, so they agree with no effect. The noise column moved the estimate by 0.004 standard
-errors. The subsample refits spread 0.87 times as much as the standard error predicts, with a
-p-value of 0.48. A placebo mean far from 0, or a spread ratio far from 1, each with a small p-value,
-would point to a problem in the analysis.
+All three tests look healthy. The header gives the estimate under test, 1.286, which is also what
+the noise column should leave unchanged. Compare each `mean` (or `SD`, for the subsamples) with the
+`expected` column, and read the statistics below it:
 
-The `result` column prints `passed` or `failed` only where a simulation study or an exact reference
-backs that test for this kind of fit. Here none does, so each prints `no pass or fail` and you judge
-the numbers. Such a test's `passed` is `None`, and so is `report.passed` unless another test failed.
-`bool(report)` raises `TypeError` for a report without a pass or fail, so test `report.passed`
-against `True` and `False`. The "Verdicts and evidence" part of [refutation
+- The shuffled-treatment refits average -0.03, and their t statistic has a p-value of 0.55, so they
+  agree with no effect. Beside it, `mean std. error / refit SD` compares the standard errors the
+  shuffled refits reported with how much they actually varied; near 1 the two agree. It has no
+  p-value or cutoff, and 20 refits measure a spread only roughly: rerun with more
+  (`n_replicates=200`) before you read a low value, which on this fit brings it close to 1.
+- The noise column moved the estimate by 0.004 standard errors, and `SD of the shifts` says the 20
+  refits' shifts varied by 0.07 standard errors. Neither has a fixed cutoff. Both are in standard
+  errors, so set them against the interval, which spans about four standard errors: shifts of a few
+  hundredths are negligible.
+- The subsample refits spread 0.87 times as much as the standard error predicts, with a p-value of
+  0.48, so the standard error is about the right size.
+
+A placebo mean far from 0, or a spread ratio far from 1, each with a small p-value, would point to a
+problem in the analysis. The `result` column prints `passed` or `failed` only where a simulation
+study or an exact reference backs that test for this kind of fit. Here none does, so each prints `no
+pass or fail` and you compare the numbers as above. The "Verdicts and evidence" part of [refutation
 operations](../technical-reference/validation-methods.md#refutation-operations) says which fits get
-a pass or fail. Without `random_state`, the call uses the fit's seed, or draws one for an unseeded
-fit, and records it in the report under `random_state`; passing that value back repeats the report.
+a pass or fail, and [use the report in code](#use-the-report-in-code) covers `report.passed`.
+
+## Count the refits before a long test
+
+The tests below refit hundreds of times. To see what a refutation will cost before you run it, call
+`planned_refits()` with the same arguments you would pass to `refute()`. It fits nothing, and it
+raises the same error `refute()` would raise before its first refit.
+
+```python
+plan = ate_result.diagnostics.planned_refits(tests=("placebo", "subset", "random_common_cause"))
+print(plan.summary())
+```
+
+```text
+test                     draws     refits   model fits   candidate fits
+------------------------------------------------------------------------------
+placebo                     20         20   at most 40       at most 40
+subset                      20         20   at most 40       at most 40
+random_common_cause         20         20           40               40
+```
+
+Each refit here fits two models. Tests that refit drawn data, such as `placebo`, `subset` and the
+generated outcomes, show an upper bound, because a refit can skip a model when the rows drawn for it
+hold only one value of a yes/no outcome or treatment. [The technical
+reference](../technical-reference/validation-methods.md#refutation-operations) says which counts are
+exact.
 
 ## Check against a known answer
 
 Three tests replace the outcome with one where we know the answer. `dummy_outcome` draws an outcome
 unrelated to the treatment and the covariates, so the true effect is zero. `simulated_outcome` draws
-an outcome from a process you declare, with an effect you set. `plasmode` also resamples your
-covariate rows and draws the treatment from a model fitted to your data, then draws the outcome from
-the `simulated_outcome` process, so the test runs on simulated data built to resemble yours.
+an outcome with an effect you set, plus a covariate term that adds confounding the analysis must
+remove and random noise. `plasmode` also resamples your covariate rows and draws the treatment from a
+model fitted to your data, then draws the outcome the same way, so the test runs on simulated data
+built to resemble yours.
 
 ```python
 from cleverly.validation import GaussianAdjustmentOutcome
@@ -124,8 +165,11 @@ print(generated.summary())
 draws = generated.draws_frame("simulated_outcome")
 ```
 
-That call draws 400 outcomes, each with a true effect of 0.5, and refits the analysis on each; this
-small fit takes a few seconds. Its summary reads, shortened:
+The example sets an effect of 0.5, half the default noise standard deviation of 1. To make the
+simulated outcome resemble yours, set `effect` near your estimate and the noise near your outcome's
+leftover spread, with `noise=GaussianNoise(standard_deviation=...)` from `cleverly.validation`. That
+call draws 400 outcomes, each with a true effect of 0.5, and refits the analysis on each; this small
+fit takes a few seconds. Its summary reads, shortened:
 
 ```text
 test               reading    estimate           95% CI  allowed band  inside
@@ -140,22 +184,23 @@ estimates, in units of their standard deviation (`std. bias`). The `SE ratio` di
 reported standard error by the actual spread of the estimates, and `coverage` is the share of 95%
 intervals that held the truth. A number passes when its 95% interval lies inside its band: a bias
 within 0.20 standard deviations of the estimates, a ratio between 0.85 and 1.15, and a coverage
-between 0.88 and 0.99. Here all three are inside, so the test passed: on outcomes drawn from this
-process, the analysis recovers the effect and its interval is honest.
+between 0.88 and 0.99. Here all three are inside, so the test passed: on outcomes simulated this
+way, the analysis recovers the effect, its standard error matches the real spread, and its
+intervals cover about 95% of the time.
 
-`outcome_bands=` sets other bands, as an `EquivalenceBands`. Each test makes 400 draws by default;
-fewer print the numbers with no pass or fail, and fewer than 10 are refused ([refutation
-operations](../technical-reference/validation-methods.md#refutation-operations)). Each row in
-`draws` records one draw: its seed, the estimate and standard error, the kind of process that drew
-it (`family`), or the refit failure. The result holds only for the process you declared, which is
-not your real outcome.
+`outcome_bands=` sets other bands (an `EquivalenceBands` object, one band per number). Each test
+makes 400 draws by default; fewer print the numbers with no pass or fail, and fewer than 10 are
+refused. Each row in `draws` records one draw: its seed, the estimate and standard error, the kind
+of simulated outcome that drew it (`family`), or the refit failure. The result holds only for the
+simulated outcome you declared, which is not your real outcome.
 
-### Which outcome to declare
+### Which simulated outcome fits your data
 
-Declare the process that matches your outcome. The test refuses a process of another kind, such as
-the default Gaussian process on a yes/no outcome. A declared range (`q_bounds`) is the known range
-of a continuous outcome, which a cross-fitted fit of a continuous outcome with TMLE, the default
-method, must have.
+Declare the kind of simulated outcome that matches your outcome. The test refuses one of another
+kind, such as the default Gaussian outcome on a yes/no outcome. A declared range (`q_bounds`) is the
+known range of a continuous outcome, which you pass when you fit; a cross-fitted TMLE fit of a
+continuous outcome must have one. `result.method.targeting.q_bounds` shows yours, and `None` means
+you declared none.
 
 | your outcome | `simulated_outcome` and `plasmode` | `dummy_outcome` |
 | --- | --- | --- |
@@ -165,23 +210,15 @@ method, must have.
 | an event over time | `LogisticHazardOutcome` | `LogisticHazardOutcome(effect=0, adjustment_scale=0)` |
 | competing events over time | `MultinomialHazardOutcome` | the same with every effect 0 and `adjustment_scale=0` |
 
-A fit that declares `q_bounds` takes only the bounded process, which draws inside those bounds with
-its mean strictly inside them, and a fit without them refuses the bounded process.
+A fit that declares `q_bounds` takes only the bounded outcome, which draws inside those bounds with
+its mean strictly inside them, and a fit without them refuses the bounded outcome. On a yes/no
+outcome, `simulated_outcome` with the default `BernoulliAdjustmentOutcome` reads the bias only,
+because a nonzero effect then differs from row to row; [all three numbers on a yes-or-no
+outcome](#all-three-numbers-on-a-yes-or-no-outcome) shows how to get the standard-error ratio and
+the coverage too. [Which fits take a generated outcome](#which-fits-take-a-generated-outcome) lists
+the fits.
 
-These tests keep your covariate rows and redraw only the outcome. The standard-error ratio and the
-coverage therefore print only when the quantity you estimate takes the same value at every row of
-the generated data; otherwise the test reads the bias alone. A difference of two arms does so under
-the Gaussian process and under `link="identity"`. Under the default logit link of
-`BernoulliAdjustmentOutcome` or `BoundedAdjustmentOutcome`, a nonzero effect varies from row to row,
-so a generated yes/no outcome with the default link reads the bias only. For all three readings on a
-yes/no outcome, declare `link="identity"`, as [all three readings on a yes-or-no
-outcome](#all-three-readings-on-a-yes-or-no-outcome) shows, or run `plasmode`, which reads all three
-for every target on a fit that reports an interval. The "Generated point outcomes" part of
-[refutation operations](../technical-reference/validation-methods.md#refutation-operations) gives
-the rule for each target, and [Which fits take a generated
-outcome](#which-fits-take-a-generated-outcome) the fits.
-
-## Check for hidden bias with a control outcome
+## Test a control outcome the treatment cannot affect
 
 A negative control outcome is an outcome that the treatment cannot affect but that shares the
 confounding of your real outcome, such as a health measure recorded before the program started. Pass
@@ -206,7 +243,10 @@ print(controlled.summary())
 test                           mean         SD   expected   result
 ------------------------------------------------------------------------------
 negative-control outcome     0.1082          -   about 0    no pass or fail
-...
+==============================================================================
+Test statistics
+test                       statistic                        value    p-value
+------------------------------------------------------------------------------
 negative-control outcome   z of the estimate against 0      0.784     0.4330
 ```
 
@@ -214,23 +254,14 @@ The estimate of 0.11 has a z statistic of 0.78 (p-value 0.43), so it agrees with
 nonzero estimate flags leftover bias or a bad control, and the test cannot say which; a zero
 estimate does not prove that nothing is missing.
 
-The test needs that array, so it is not one of the defaults, and a survival or competing-risk fit
-refuses it. `negative_control_kind="pre_treatment"` declares a control measured before the
-treatment. The call then refuses a control equal to a covariate you adjust for, or one the
-covariates predict so well that less than `negative_control_floor` of its variance is left (by
-default 0.01, so 1%). The "Negative controls" part of [refutation
+The test needs that array, so it is not one of the defaults, and a fit of the time to an event
+(survival or competing risks) refuses it. `negative_control_kind="pre_treatment"` declares a control
+measured before the treatment. The call then refuses a control equal to a covariate you adjust for,
+or one the covariates predict so well that less than `negative_control_floor` of its variance is
+left (by default 0.01, so 1%). The "Negative controls" part of [refutation
 operations](../technical-reference/validation-methods.md#refutation-operations) gives every refusal,
 and [A later treatment as a control](#a-later-treatment-as-a-control) covers the control test for a
 treatment over time.
-
-## Check stability on bootstrap samples
-
-`bootstrap_stability` refits on bootstrap samples, which draw people with replacement. Each copy of
-a person keeps that person's fold and the fit's seeds, so the shift of the mean against the original
-fit carries no noise from new folds or seeds. The report shows that shift and the spread of the
-refits for you to judge. A shift that is large next to the standard error says the estimate depends
-on which people happen to be in the sample. It needs at least 2 draws, and a fit given `split_plan=`
-refuses it.
 
 ## Check stability under measurement error
 
@@ -250,31 +281,36 @@ measurement = ate_result.diagnostics.refute(
     n_replicates=40,
     random_state=21,
 )
+print(measurement.summary())
 measurement_draws = measurement.draws_frame("bootstrap_measurement_error")
 ```
 
-Here noise with a standard deviation of 0.1 times each covariate's own moves the mean of the 40
-refits from 1.29 to 1.27, with an SD of 0.11, for you to judge. Name your own covariates in
-`variables=` and choose a noise size you find plausible for them; [More on measurement
-error](#more-on-measurement-error) gives the rest.
-
-## Count the refits first
-
-To see what a refutation will cost before you run it, call
-`ate_result.diagnostics.planned_refits(...)` with the same arguments you would pass to `refute()`.
-It fits nothing. It returns one row per test with the number of refits and the model fits they make,
-and it raises the same error `refute()` would raise before its first refit. Tests that refit drawn
-data, such as `placebo`, `subset` and the generated outcomes, show an upper bound, because a drawn
-fold where a yes/no target has one class needs no model. [The technical
-reference](../technical-reference/validation-methods.md#refutation-operations) says which counts are
-exact.
-
-```python
-plan = ate_result.diagnostics.planned_refits(tests=("placebo", "subset", "random_common_cause"))
-print(plan.summary())
+```text
+test                    mean         SD   expected            result
+------------------------------------------------------------------------------
+measurement error       1.27       0.11   moves from 1.2864   no pass or fail
 ```
 
+Noise with a standard deviation of 0.1 times each covariate's own moves the mean of the 40 refits
+from 1.29 to 1.27. Error in a covariate weakens the adjustment for it, so the estimate drifts toward
+the one you would get without adjusting for it, and the report gives no pass or fail. The yardstick is
+your conclusion: the interval of the fit runs from 1.03 to 1.54, so a drift of 0.02 would not move
+it near 0. Name your own covariates in `variables=` and choose a noise size you find plausible for
+them; [More on measurement error](#more-on-measurement-error) gives the rest.
+
 ## Go deeper
+
+### Use the report in code
+
+A test with no pass or fail has `passed` equal to `None`, and so does `report.passed` unless another
+test failed. `bool(report)` raises `TypeError` for a report without a pass or fail, so test
+`report.passed` against `True` and `False`. Without `random_state`, the call uses the fit's seed, or
+draws one for an unseeded fit, and records it in the report under `random_state`; passing that value
+back repeats the report.
+
+`seed_spread=True` adds as many `random_common_cause` refits at fresh seeds without the noise
+column. On a cross-fitted fit, which splits the rows into folds and predicts each row from models
+trained without its fold, those refits show how far a new random split alone moves the estimate.
 
 ### Estimates with no no-effect value
 
@@ -283,15 +319,26 @@ mean outcome of one arm (one treatment group) or the natural course (`NaturalCou
 outcome under the treatments people actually got), has none. On such an estimate a call that
 includes `placebo` or the negative control raises before any refit and names the tests to drop.
 `tests=("random_common_cause", "subset")` runs the other two, and they keep their descriptive
-readings for these targets. In a combined report the row defers on `tests` instead ([refutation
+numbers for these estimates. In the combined report of `assess()`, the refutation row instead waits
+under `Not run`, and its next step asks you to pass `tests=` without those two ([refutation
 operations](../technical-reference/validation-methods.md#refutation-operations)).
 
-### All three readings on a yes-or-no outcome
+### All three numbers on a yes-or-no outcome
+
+The tests that keep your covariate rows, `dummy_outcome` and `simulated_outcome`, redraw only the
+outcome. The standard-error ratio and the coverage therefore print only when the quantity you
+estimate takes the same value at every row of the generated data; otherwise the test reads the bias
+alone. A difference of two treatment groups (arms) does so under the Gaussian outcome and under
+`link="identity"`. Under the default logit link (the outcome's log-odds are linear in the effect and
+the covariates) of `BernoulliAdjustmentOutcome` or `BoundedAdjustmentOutcome`, a nonzero effect
+varies from row to row, so a generated yes/no outcome with the default link reads the bias only.
+`plasmode` reads all three for every estimate on a fit that reports an interval. The "Generated point
+outcomes" part of [refutation operations](../technical-reference/validation-methods.md#refutation-operations)
+gives the rule for each estimate.
 
 Under `link="identity"`, the chance of the outcome is the intercept plus the effect for treated rows
 plus a covariate term scaled by `adjustment_scale`. Choose values that keep every row's chance
-between 0 and 1; the test refuses a declaration that leaves that range on any row (the "Generated
-point outcomes" part of [refutation
+between 0 and 1; the test refuses a declaration that leaves that range on any row ([refutation
 operations](../technical-reference/validation-methods.md#refutation-operations)).
 
 ```python
@@ -325,14 +372,14 @@ The summary then lists the bias, the SE ratio and the coverage, each against its
 
 | fit | what runs | what prints |
 | --- | --- | --- |
-| one treatment, fitted with `TMLE`, collaborative TMLE, `DRTMLE` or `AdaptiveIPTW` | all three tests on arm differences and levels, ratios, the natural course, regimes, policies and working-model coefficients; an incremental target through `plasmode` only | a pass or fail at 400 draws or more. Bias only where the quantity varies across rows, as with the default logit link, or on a fit that reports no interval |
-| a continuous dose | `simulated_outcome` on a policy target, with the scalar `effect`; no `plasmode` | as above |
-| a treatment over time, with an end-of-study or repeated outcome | `dummy_outcome`, and `simulated_outcome` on a fixed regimen, each with the Gaussian process on a fit with no `q_bounds` and one fold (`n_folds=1`); `plasmode` | the numbers, with no pass or fail. `simulated_outcome` reads the bias only on a level, and `dummy_outcome` alone runs on a policy that is not fixed |
+| one treatment, fitted with `TMLE`, collaborative TMLE, `DRTMLE` or `AdaptiveIPTW` | all three tests on differences and means of treatment groups, ratios, the natural course (the mean under the treatments people got), treatment rules (regimes), policies and the coefficients of a trend line across treatment levels (working-model coefficients); an incremental estimate, which changes each row's odds of treatment, through `plasmode` only | a pass or fail at 400 draws or more. Bias only where the quantity varies across rows, as with the default logit link, or on a fit that reports no interval |
+| a continuous dose | `simulated_outcome` on a policy estimate, with the scalar `effect`; no `plasmode` | as above |
+| a treatment over time, with an end-of-study or repeated outcome | `dummy_outcome`, and `simulated_outcome` on a fixed regimen, each with the Gaussian outcome on a fit with no `q_bounds` and one fold (`n_folds=1`); `plasmode` | the numbers, with no pass or fail. `simulated_outcome` reads the bias only on a level, and `dummy_outcome` alone runs on a policy that is not fixed |
 | a treatment over time, with survival or competing events | `dummy_outcome` and `simulated_outcome` with the hazard declarations; `plasmode` | the numbers, with no pass or fail. A hazard that reads the covariates gives the bias only |
 | a structural nested mean model; a continuous-time survival fit | refused | nothing |
 
 Collaborative TMLE, `DRTMLE` and `AdaptiveIPTW` are variants of the method that build or guard the
-treatment model differently; an incremental target changes each row's odds of treatment. Each case
+treatment model differently. Each case
 of the refusal table in [refutation
 operations](../technical-reference/validation-methods.md#refutation-operations) names what the test
 needs instead, and `plasmode` refuses some fits that the other two take, such as a weighted fit.
@@ -350,11 +397,39 @@ a fit of one treatment refuses it.
 `future_treatment_control=`, one value per person, measured before the treatment at node
 `future_treatment_node + 1` and outside the history the fit adjusts that treatment for (the earlier
 treatments and covariates). If nothing unrecorded drives that later treatment, it should not depend
-on the control once the history is taken into account, and the test checks that. The reading holds
+on the control once the history is taken into account, and the test checks that. The test means something
 only when the control was measured before that treatment and neither affects it nor responds to it;
 the code cannot check this, so the report states the condition. The "Negative controls" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) gives
 every refusal.
+
+### Stability on bootstrap samples
+
+`bootstrap_stability` refits on bootstrap samples, which draw people with replacement. Each copy of
+a person keeps that person's fold and the fit's seeds, so the shift of the mean against the original
+fit carries no noise from new folds or seeds.
+
+```python
+stability = ate_result.diagnostics.refute(
+    tests=("bootstrap_stability",), n_replicates=40, random_state=21
+)
+print(stability.summary())
+```
+
+```text
+test                      mean         SD   expected          result
+------------------------------------------------------------------------------
+bootstrap stability       1.26       0.11   SD about 0.1107   no pass or fail
+...
+bootstrap stability   shift from the original fit     -0.025          -
+```
+
+The report shows the shift of the mean and the spread of the refits; no study sets a threshold for
+either. A shift that is large next to the standard error says the estimate is not
+stable under resampling. Here the shift is -0.025 against a standard error of 0.13. The spread tends
+to exceed the standard error, because each resample trains on fewer distinct people, so the note
+under the report points to `subset` as the calibrated check of the standard error. The test needs at
+least 2 draws, and a fit given its own fold assignment (`split_plan=`) refuses it.
 
 ### More on measurement error
 
@@ -414,8 +489,8 @@ which fits get a pass or fail.
 | `random_common_cause` | adds a column of pure noise | nothing | 20 |
 | `subset` | refits on random samples | nothing | 20 |
 | `negative_control_outcome` | estimates the effect on an outcome the treatment cannot affect | `negative_control_outcome=` | one fit |
-| `dummy_outcome` | replaces the outcome with noise unrelated to the treatment and covariates | a process, except on a continuous fit with no `q_bounds` | 400 |
-| `simulated_outcome` | replaces the outcome with one whose effect you set | a process, except on a continuous fit with no `q_bounds` | 400 |
+| `dummy_outcome` | replaces the outcome with noise unrelated to the treatment and covariates | a simulated outcome, except on a continuous fit with no `q_bounds` | 400 |
+| `simulated_outcome` | replaces the outcome with one whose effect you set | a simulated outcome, except on a continuous fit with no `q_bounds` | 400 |
 | `plasmode` | also resamples the covariates and redraws the treatment | as `simulated_outcome` | 400 |
 | `bootstrap_measurement_error` | resamples people and adds declared noise to covariates | `bootstrap_measurement_error=` | 100 |
 | `bootstrap_stability` | resamples people with no noise | nothing | 100 |
@@ -432,8 +507,8 @@ which fits get a pass or fail.
 | `noise_nodes` | a noise column at every time point of a fit over time |
 | `negative_control_outcome`, `negative_control_kind`, `negative_control_floor` | the control outcome, when it was measured, and the least share of its variance the covariates must leave |
 | `future_treatment_control`, `future_treatment_node` | the control of `future_treatment` and the node before the later treatment |
-| `dummy_outcome`, `simulated_outcome` | the processes the generated outcomes draw from |
-| `outcome_bands` | the bands the generated-outcome readings must fall in |
+| `dummy_outcome`, `simulated_outcome` | the simulated outcomes the tests draw |
+| `outcome_bands` | the bands the generated-outcome numbers must fall in |
 | `bootstrap_measurement_error`, `measurement_error_rule` | the declared covariate noise, and the rule behind its tail probability |
 | `sample_limit`, `sampling` | refute a random sample of people or clusters |
 | `random_state` | the seed of every draw |
