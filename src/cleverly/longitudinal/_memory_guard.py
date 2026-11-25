@@ -118,7 +118,8 @@ class FitCounts:
     width : int
         Columns of the widest history design.
     bins : int
-        Density bins at continuous nodes, 0 without them or on the classifier route.
+        Density bins at continuous nodes after the outer bins are refined
+        (:func:`refined_bins`), 0 without them or on the classifier route.
     msm : bool
         Whether the fit projects on a regimen working model.
     repeats : int
@@ -1499,6 +1500,44 @@ def density_route(estimator: Any) -> str:
     return "_index" if _index_only(clone) else ""
 
 
+def refined_bins(data: Any, nominal: int) -> int:
+    """The most bins a binned density at any continuous node of ``data`` fits.
+
+    :func:`~cleverly.learners.density.bin_edges` refines the outer core bins of ``nominal``,
+    so a node can fit more bins than ``density_bins`` names.  Each node's edges are read from
+    its observed doses off its declared atoms, the rows its density fits.  The grid is a
+    function of the sample alone, so it is read before any learner.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    nominal : int
+        The core bin count: ``density_bins``, or its default at ``n``.
+
+    Returns
+    -------
+    int
+        The largest bin count over the continuous nodes, at least ``nominal``.
+    """
+    from ..learners.density import bin_edges
+
+    most = nominal
+    for time in range(1, int(data.n_times) + 1):
+        # A mixed node's vector has no one dose column; its continuous component is counted
+        # at ``nominal``.
+        if data.node_kind(time) != "continuous":
+            continue
+        dose = np.asarray(data.node_codes(time), dtype=float)
+        dose = dose[np.isfinite(dose)]
+        atoms = data.node_atoms(time)
+        if atoms:
+            dose = dose[~np.isin(dose, np.asarray(atoms, dtype=float))]
+        if dose.size > 1:
+            most = max(most, len(bin_edges(dose, nominal)) - 1)
+    return most
+
+
 def fit_counts(
     estimator: Any,
     data: Any,
@@ -1568,7 +1607,7 @@ def fit_counts(
             family += density_route(estimator)
     bins = 0
     if continuous and not family.endswith("_classifier"):
-        bins = int(estimator.density_bins or default_density_bins(n))
+        bins = refined_bins(data, int(estimator.density_bins or default_density_bins(n)))
     # The widest design any node builds: without a Markov order that is the last node, but a
     # window can drop an early node's wide covariate block.
     width = max(data.history_width(t, include_current=True) for t in range(1, n_times + 1))

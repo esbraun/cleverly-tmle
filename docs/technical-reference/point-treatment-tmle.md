@@ -1350,8 +1350,8 @@ $g^d/g$, and the plug-in reads the observed treatment. A declared $g_0$ is the d
 $g_n=g_0$. The remainder is a product of the ratio error and the outcome error, so it is zero.
 The shipped curve at $(\bar Q_\infty,g_0)$ is therefore exact. The fit evaluates the discrete formula at the
 declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the fit
-whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
-is refused beside a declaration.
+whose learner returns $g_0$, at two and three arms. An explicit `ratio="classifier"` learns the ratio, so it
+is refused beside a declaration, and the default `ratio=None` resolves to the density route.
 
 **Weights.** A weighted fit estimates the parameter of the tilted law $dP_w = w\,dP/E[w]$
 (see the module docstring of `cleverly.data.weighting`) and divides by that law's mechanism. By Bayes' rule
@@ -1459,7 +1459,7 @@ sweep.
 | --- | --- | --- |
 | `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects or fits the mechanism, and the declaration leaves nothing to select or fit |
 | a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
-| `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
+| `policies=` with an explicit `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
 | `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |
 | `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
 | `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
@@ -2725,10 +2725,39 @@ treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_til
 levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
 mixtures of the branch means and curves, with the known probabilities as weights.
 
-`ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
-Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
-and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
+On a continuous or vector dose the default `ratio=None` resolves to `ratio="classifier"`, which
+replaces the density with the stacked classification of Section 5.4 of Díaz et al. (2023). The
+treatment learner classifies an observed row against its policy copy, and the ratio is the odds
+$u / (1 - u)$. `ratio="density"`, a set `density_bins=`, a learner that declares `bin_design`,
+and the estimators that read the density only resolve to the binned density instead.
+[The density-ratio route](scope-and-refusals.md#density-ratio-route) gives every rule, the record
+the result keeps, and the warning of an isolated dose cluster on the classifier route. This route fits no density, so the support report gives
 `min_density` and `unsupported` as `None` and says that they are not measured.
+
+On a dose of one column the stacked design is $[a$, the declared atoms' indicators, the step
+columns, $h]$. By Equation (3) the true ratio jumps in $a$ only where an indicator jumps: per
+smooth piece $k$ of a branch's lowered map, $s_k(a) = 1\{b_k(a)$ finite, $b_k(a) \in I_k,
+L \le b_k(a) \le U\}$, and per identity piece $j$, $t_j(a) = 1\{a \in J_j\}$. A smooth
+classifier cannot place those jumps from $a$ alone, so they are appended as columns (a learner
+with `policy_steps = "omit"` gets none).
+
+$[L, U]$ is the declared support. Without one, each fold
+reads a side of its fitted training rows' observed range, off the declared atoms and at risk at a
+longitudinal node, only when some training row's image $b_k(a)$ passes it, and reads the other
+side as infinite. The heuristic keeps the step one shift inside a bounded dose's edge, which the
+sample's extreme approaches, and leaves a held-out row beyond a side no training row reaches
+without a spurious zero; the columns are features, so the estimand does not change. A column
+constant on a fold's training rows, or equal there to an atom indicator, is dropped. A vector
+dose takes no step columns. Witnesses W11a to W11e are in `tests/unit/test_classifier_policy_steps.py`.
+
+The study that will gate this default, `mtp-density-tails`, is declared and has not run yet. It
+gates the classifier route's interval calibration on two laws: G, a Gaussian dose with an
+unbounded ratio, and T, the same dose truncated with a capped shift. S is a dose with Student-t
+tails of 5 degrees of freedom, whose influence curve has an infinite fourth moment. Its SE ratio
+then spreads more widely than the calibration rule's sizing allows at any feasible replicate
+count.
+The study therefore reports calibration on S as a reading with no verdict, and makes no gated
+claim for it ([`tests/studies/canonical_mtp_density_tails.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/studies/canonical_mtp_density_tails.py)).
 
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
 class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
@@ -2736,19 +2765,23 @@ inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gat
 checks the tilt on `tests/discrete_law.py`. The registered study is
 [`policy-point-mtp`](method-evidence/point-modified-treatment-policies.md).
 
-The bin count limits the density route at a point treatment as it does at a longitudinal node. The
-default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
-growing count is necessary for a consistent density, and the hazard learner must also be
-consistent.
+The density route at a point treatment uses the grid and the reading of a longitudinal node
+([the grid and reading paragraphs](longitudinal-tmle.md#modified-treatment-policies-at-a-node)):
+an equal-mass core of `density_bins` bins, refined in the outer bins, read as a corrected log
+frequency polygon whose segments break at empty bins, at bins of probability at most $10^{-10}$
+and at a declared support. The default `density_bins=None` grows the core count with the sample,
+`max(20, ceil(2 n^(1/3)))`, and the hazard learner must also be consistent. An explicit
+`density_bins=` is used as given, and the memory paragraph there applies here too.
 
-An explicit `density_bins=` is used as given. The memory paragraph of the
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
-too. A coarse count
-inflates the influence curve where the tail bins are wide, so the intervals are conservative.
-When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
-`density_bins=` higher. The
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
-measurements.
+`treatment_support=Support(lower, upper)` declares the support of the dose given the covariates.
+Besides the refusals of a dose or a policy outside it, it drives the reading: each row's bins are
+cut at its own bounds and the density is zero outside them, so a support edge that moves with the
+covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). Where few
+bins cover a region in which the density changes fast, the reading's discretisation error enters
+the ratio. Set `density_bins=` higher there, or use the classifier route with a flexible
+classifier. The ratio enters the clever covariate unnormalised: the fit does not
+divide by its sample mean, so it is not the self-normalised weighting of Haneuse and Rotnitzky
+(2013), which is a different estimator.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
@@ -2839,7 +2872,7 @@ node of `LTMLE` and `SDR`.
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
 | `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
-| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`). The density of the dose is read over each row's support |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.
@@ -2925,8 +2958,9 @@ the same data read as a scalar dose, where that reading exists
 | assessment and sensitivity rows | the capability table of a vector fit equals that of a scalar dose fit. A truncation row equals the refit at its bound. The simulated common-cause surface takes one strength axis for each component. The placebo permutes whole component rows | `tests/unit/test_point_vector_assessment.py`, `tests/unit/test_vector_simulated_confounding.py` |
 | `CausalStudy` | `PointTreatment(treatment=[...], continuous_treatment=[...])` with `ModifiedTreatmentPolicy`. `ModelSpec(ratio=...)` selects the route, and `density_bins` reaches the density route | `tests/unit/test_vector_study_spine.py` |
 
-`ModelSpec(ratio="classifier")` and the shortcut `ratio="classifier"` on a method reach both the
-point and the longitudinal engine. A study refuses `ratio="classifier"` where it estimates no
+`ModelSpec(ratio=...)` and the shortcut `ratio=` on a method reach both the
+point and the longitudinal engine, and the default `None` resolves per fit as an estimator does. A
+study refuses an explicit `ratio="classifier"` where it estimates no
 policy ratio, such as an `ATE`, a declared mechanism, `DRTMLEMethod`, `CollaborativeTMLEMethod`
 and `IPSIMethod`. Each refusal runs before any learner.
 

@@ -1,0 +1,157 @@
+property,cell,role,requested,failed,rate,bound,allowed,leg,complete_case,worst_case,imputation,leg_passed,gate_passed,reason
+interval_calibration,v0_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.004581932465794969,0.003431311913562496,"range: SE at min, estimates j=1 at min",True,True,within bound
+interval_calibration,v0_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.0032990053623661586,0.0027861029777825896,support: j=0 covered,True,True,within bound
+interval_calibration,v0_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.19325381706183686,0.19340993239139814,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.2192456718330278,0.21932440139360665,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,False,worst case fails
+interval_calibration,v0_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.0016368479552377746,-0.0013895004818629264,"range: SE at min, estimates j=1 at min",False,False,worst case fails
+interval_calibration,v0_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.002196831667925059,0.0016849779124763486,support: j=0 covered,True,False,worst case fails
+interval_calibration,v0_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,False,worst case fails
+interval_calibration,v0_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.20469603736042397,0.2042382467860545,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.22191711642382328,0.2210448337163946,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.012908208228212592,0.011885308703206032,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.010016766654084464,0.010001680332418328,support: j=1 covered,True,True,within bound
+interval_calibration,v0_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.18386359170010547,0.1839266178498593,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.1901681678911099,0.18859005272353657,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.018685597310981628,0.019118257770273317,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01348700888041332,0.013470173437283628,support: j=1 covered,True,True,within bound
+interval_calibration,v0_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.19620524412518037,0.19577428366086835,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.1942916472069941,0.19300411297341147,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.009542661956594811,0.006133817217698123,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.013922707979270199,0.01390565287258827,support: j=1 covered,True,True,within bound
+interval_calibration,v0_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.176740517898072,0.17730023597116906,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v0_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v0_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.1872480016017677,0.18635643989302764,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v0_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.02185010614372085,0.022115051983539358,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.011748381473177694,0.011732422458443414,support: j=1 covered,True,True,within bound
+interval_calibration,v1_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.18441336987725643,0.18402177362723815,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.1979988091310646,0.19707773011116314,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.01845825422246028,0.01924318870976771,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.012182399231713159,0.01216622145074342,support: j=1 covered,True,True,within bound
+interval_calibration,v1_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.18606986672316594,0.18643739620997168,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.19398111789769334,0.19311666387422644,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.02649323459660602,0.02204991058817729,"range: SE at min, estimates j=0 at min",True,True,within bound
+interval_calibration,v1_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01654516338775147,0.01652678587694878,support: j=1 covered,True,True,within bound
+interval_calibration,v1_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.2058030111103537,0.20712832803810854,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.20414246672354341,0.202728315422542,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.022152655524858123,0.022087392229218406,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01661273271728536,0.016086145698424703,support: j=0 covered,True,True,within bound
+interval_calibration,v1_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.16289969076096134,0.16225254437742498,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.19652220206018478,0.19585558232682865,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.016377065215405495,0.012093334778240039,"range: SE at min, estimates j=1 at min",True,True,within bound
+interval_calibration,v1_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.014381472485243685,0.01385733111172971,support: j=0 covered,True,True,within bound
+interval_calibration,v1_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.2163572321546503,0.216124311963366,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v1_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v1_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.21092292372314603,0.21000478415902513,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v1_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.02648436430091905,0.02225370970950602,"range: SE at min, estimates j=1 at min",True,True,within bound
+interval_calibration,v2_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01566947829953902,0.015651542412084662,support: j=1 covered,True,True,within bound
+interval_calibration,v2_ate_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.19933039100108396,0.19906739345905278,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ate_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.20365386074953862,0.20338523555862642,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ate_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.02150208853212232,0.020183108489856494,"range: SE at min, estimates j=0 at min",True,True,within bound
+interval_calibration,v2_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.010016766654084464,0.010001680332418328,support: j=1 covered,True,True,within bound
+interval_calibration,v2_ate_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.20452939036945506,0.20483025001477695,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ate_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.2049414228439317,0.20500635360312447,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ate_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.012817589586049394,0.013701126867331936,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01479531074016327,0.01477781566210401,support: j=1 covered,True,True,within bound
+interval_calibration,v2_ey_natural__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.21057012844798761,0.2101242949604022,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_natural__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.19141305294803945,0.18952666263720308,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_natural__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.0164652193704109,0.015563070493632702,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.014381472485243685,0.01385733111172971,support: j=0 covered,True,True,within bound
+interval_calibration,v2_ey_x05__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.20285439352169876,0.20140213723559963,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x05__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.19248259514848998,0.19141457588125144,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x05__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,se ratio in calibration band,0.017593265907604794,0.01751401640961814,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,coverage in calibration band,0.01654516338775147,0.01652678587694878,support: j=1 covered,True,True,within bound
+interval_calibration,v2_ey_x2__correctly_specified,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,noise se ratio below band,0.18104637919871613,0.17973397174949401,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x2__noise_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+interval_calibration,v2_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+interval_calibration,v2_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,se ratio below band,0.19302884527481423,0.19312226508525232,"range: SE at max, estimates at mean",True,True,within bound
+interval_calibration,v2_ey_x2__shrunken_se_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+simultaneous_coverage,ipsi_strata__pointwise_joint_control,control,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+simultaneous_coverage,ipsi_strata__pointwise_joint_control,control,2000,1,0.0005,0.01,20,joint coverage below nominal,0.2733188806545932,0.2731539202323917,support: j=1 covered,True,True,within bound
+simultaneous_coverage,ipsi_strata__pointwise_joint_control,control,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound
+simultaneous_coverage,ipsi_strata__simultaneous_band,positive,2000,1,0.0005,0.01,20,failure bound,1.0,20.0,,True,True,within bound
+simultaneous_coverage,ipsi_strata__simultaneous_band,positive,2000,1,0.0005,0.01,20,joint coverage in calibration band,0.014381472485243685,0.01385733111172971,support: j=0 covered,True,True,within bound
+simultaneous_coverage,ipsi_strata__simultaneous_band,positive,2000,1,0.0005,0.01,20,informative-failure witness,1.6707714187023033,0.5562781390695347,replicate 398: largest absolute standardized value,True,True,within bound

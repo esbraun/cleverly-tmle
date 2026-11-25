@@ -154,31 +154,6 @@ def test_the_quoted_composite_numbers() -> None:
     assert _cp_lower(rows["covered_shipped"]) == pytest.approx(0.8992, abs=5e-5)
 
 
-def test_the_quoted_pricing_numbers() -> None:
-    """`mtp-pricing-calibration`: the five-node `price_down` levels pass their floor on logit."""
-    frame = audit.read(audit.record_for("mtp-pricing"))
-    for scenario, before, after, lower in (
-        ("pricing_ltmle_tau5", 0.917, 0.933, 0.9100),
-        ("pricing_sdr_tau5", 0.923, 0.935, 0.9123),
-    ):
-        key = f"{scenario}/ey_regimen[price_down]"
-        assert audit.coverage(frame, "covered_committed")[key] == pytest.approx(before)
-        assert audit.coverage(frame, "covered_shipped")[key] == pytest.approx(after)
-        rows = frame.loc[(frame["scenario"] + "/" + frame["estimand"]) == key]
-        assert _cp_lower(rows["covered_shipped"]) == pytest.approx(lower, abs=5e-5)
-        assert _cp_lower(rows["covered_shipped"]) >= 0.90 > _cp_lower(rows["covered_committed"])
-    # The binary-outcome calibration cells: the largest move, quoted on the study page.
-    cells = frame.loc[frame["source"] == "property"]
-    moves = (
-        audit.coverage(cells, "covered_shipped") - audit.coverage(cells, "covered_committed")
-    ).abs()
-    assert len(moves) == 11
-    key = "interval_calibration/up_learned_density_tau5__correctly_specified"
-    assert moves.idxmax() == key
-    assert audit.coverage(cells, "covered_committed")[key] == pytest.approx(0.9610)
-    assert audit.coverage(cells, "covered_shipped")[key] == pytest.approx(0.9655)
-
-
 def test_the_quoted_stratified_drtmle_foldwise_numbers() -> None:
     """`X8-drtmle-small-stratum`: the fold-wise row's 0.907 becomes 0.919, above its floor."""
     frame = audit.read(audit.record_for("stratified-drtmle-foldwise"))

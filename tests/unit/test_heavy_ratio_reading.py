@@ -39,17 +39,18 @@ def test_the_reading_rebuilds_from_the_committed_replications() -> None:
 @pytest.mark.parametrize(
     ("cell", "estimand", "coverage", "se_ratio", "rms_ratio", "correlation"),
     [
-        ("pricing_ltmle_tau5", "ey_regimen[price_down]", 0.917, 0.948, 0.983, -0.76),
-        ("pricing_sdr_tau5", "ey_regimen[price_down]", 0.923, 0.952, 0.987, -0.76),
+        ("pricing_ltmle_tau5", "ey_regimen[price_down]", 0.933, 0.948, 0.983, -0.76),
+        ("pricing_sdr_tau5", "ey_regimen[price_down]", 0.935, 0.952, 0.987, -0.76),
         (
             "pricing_ltmle_tau5",
             "ate_regimen[price_down vs natural_prices]",
-            0.916,
+            0.920,
             0.931,
             0.965,
             -0.75,
         ),
-        ("p4_sdr__correctly_specified", "interval_calibration", 0.936, 0.941, 0.978, 0.12),
+        # The Fix-9 regeneration of mtp-boundaries (dd308209) moved this reading from 0.936.
+        ("p4_sdr__correctly_specified", "interval_calibration", 0.9347, 0.941, 0.974, 0.11),
     ],
 )
 def test_the_cited_readings(
@@ -66,7 +67,9 @@ def test_the_pricing_misses_are_one_sided_and_tied_to_the_se() -> None:
     reading = _reading()
     down = reading[reading["estimand"].str.contains("price_down")]
     assert (down["miss_above"] > 10 * down["miss_below"]).all()
-    assert (down["coverage_q1"] < 0.75).all()
+    # The pricing rows' flags read the shipped interval (logit levels, MOVER contrasts); the
+    # lowest SE quartile covers 0.74 to 0.79 there, against 0.70 to 0.72 on the identity interval.
+    assert (down["coverage_q1"] < 0.80).all()
     assert (down["error_se_correlation"] < -0.7).all()
     up = reading[reading["estimand"] == "ey_regimen[price_up]"]
     assert (up["error_se_correlation"].abs() < 0.1).all()
