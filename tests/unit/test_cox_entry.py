@@ -117,3 +117,46 @@ def test_mutation_ignoring_entry_fails_the_hand_check(monkeypatch: pytest.Monkey
     model = CoxHazard("main").fit(X, TIME, EVENT, entry=ENTRY)
     eta = model.linear_predictor(X)
     assert np.max(np.abs(_jumps(model, GRID) - _hand_jumps(eta, ENTRY, GRID))) > 1e-3
+
+
+def _ct_segments() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The cause-1 hazard's segment rows of a law CT draw, with each row's entry at its visit."""
+    import warnings
+
+    from cleverly.survival import ContinuousLongitudinalData
+    from cleverly.survival import _longitudinal_nuisance as nuisance
+    from tests.unit._continuous_longitudinal_support import CT_COLUMNS, simulate_ct
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = ContinuousLongitudinalData.from_frame(simulate_ct(1000, 1), **CT_COLUMNS)
+    seg = nuisance.segments(data, 3, 30.0)
+    design = nuisance.design(data, np.asarray(data.treatment).astype(int), seg.visit)
+    return design, seg.stop, (seg.exit == 1).astype(float), seg.entry
+
+
+def test_an_entry_fit_converges_below_the_likelihood_rounding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review S2: near the maximum an entry fit takes the Newton step the likelihood cannot see.
+
+    With delayed entry each risk-set sum is a difference of two running sums, so the log
+    likelihood carries rounding noise above the halving test's slack, and on these rows the
+    fit stalled at a score near 1e-9 with a ``ConvergenceWarning``. A step whose predicted gain
+    is below the rounding level is now taken whole, and the fit reaches the score tolerance.
+    Mutation: no rounding allowance (the absolute slack alone); the warning returns.
+    """
+    import warnings
+
+    from cleverly.exceptions import ConvergenceWarning
+
+    X_ct, time, event, entry = _ct_segments()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        fit = CoxHazard("treatment").fit(X_ct, time, event, entry=entry)
+    assert fit.converged_
+    monkeypatch.setattr(cox, "_ENTRY_ROUNDING", 0.0)
+    with pytest.warns(ConvergenceWarning, match="did not reach a score"):
+        stalled = CoxHazard("treatment").fit(X_ct, time, event, entry=entry)
+    # Both stop at the maximum to rounding; only the convergence record differs.
+    np.testing.assert_allclose(stalled.coef_, fit.coef_, rtol=0.0, atol=1e-8)

@@ -51,6 +51,13 @@ _SCORE_TOL: Final = 1e-10
 _MAX_NEWTON: Final = 100
 #: A Newton step below this share of the coefficients' size is below rounding: converged.
 _STEP_TOL: Final = 1e-12
+#: With delayed entry, the relative rounding level of the log partial likelihood: each risk-set
+#: sum is a difference of two running sums, and the likelihood carries noise near
+#: ``1e-14 |l|``.  A Newton step whose predicted gain is below ``_ENTRY_ROUNDING * max(1, |l|)``
+#: cannot be checked by the likelihood, so it is taken whole.
+_ENTRY_ROUNDING: Final = 1e-13
+#: The largest Newton step, as a share of ``1 + max |beta|``, taken whole under that rule.
+_ENTRY_STEP: Final = 1e-6
 #: The widest spread (largest minus smallest) the standardized linear predictor may reach on
 #: the fitting rows.  Within it every shifted risk in a risk set is at least
 #: ``exp(-_SPREAD_MAX)``, a normal double, so the Breslow sums keep full relative precision.  The
@@ -329,6 +336,25 @@ class CoxHazard:
             # as +inf.  A regular fit's Newton step can leave the range too (one heavy-tailed
             # covariate), so leaving it is halved like a fall, never taken as a boundary.
             target = loglik - 0.5 * self.penalty * beta @ beta
+            if sets.entry_order is not None:
+                # Near the maximum a Newton step gains less than the likelihood's rounding,
+                # so the halving test below reads noise and would stall the fit short of its
+                # score tolerance.  Such a step is taken whole when it is small against the
+                # coefficients (a separating direction's step stays large) and its likelihood
+                # is resolved; the score and step tolerances then end the fit.  Without entry
+                # nothing changes.
+                gain = 0.5 * float(grad @ step)
+                small = float(np.max(np.abs(step))) <= _ENTRY_STEP * (
+                    1.0 + float(np.max(np.abs(beta)))
+                )
+                if small and gain <= _ENTRY_ROUNDING * max(1.0, abs(float(target))):
+                    trial = beta + step
+                    if bool(np.ptp(Zs @ trial) <= _SPREAD_MAX):
+                        with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+                            resolved_value = _loglik(trial, Zs, sets)
+                        if np.isfinite(resolved_value):
+                            beta = trial
+                            continue
             accepted = False
             for halving in range(30):
                 trial = beta + step
