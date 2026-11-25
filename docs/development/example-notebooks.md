@@ -68,6 +68,7 @@ the refit test. That test checks every notebook at once, so run it by name.
 | `test_every_narrated_decimal_reads_an_output_in_its_own_section` | a decimal that no code cell of the reading's own section prints, or a stale `NARRATION_SOURCES` entry (below). This test also reads the TWINS notebook |
 | `test_every_static_only_notebook_calls_the_current_api` | TWINS only: a `cleverly` call whose arguments the current signature refuses |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
+| `test_every_notebook_passes_the_gated_reader_measures` | a gated measure of the [reader review](writing-for-readers.md#the-reader-review) that fails, such as more main-path words than the page's budget, or a page without exactly one level-two "Go deeper" heading after its `interpret` cell |
 
 The fast tier compares what each executed cell prints, and the plain text of each value it
 displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
@@ -108,8 +109,8 @@ three.
 | Set up the analysis | the study description, the roles of the columns, and the conditions the answer needs. Mark each condition "the data can check this" or "this needs judgment" | `protocol`, `identify` |
 | Estimate the effect | each fit, with each setting explained in a short list | one id for each fit |
 | Check the fit | the overlap check and the model checks, read in plain words | `assessment` |
-| Try to break the result | the refutation checks | the refutation cell |
-| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
+| Try to break the result | the refutation checks. They may open "Go deeper" instead, as the word-budget paragraph below says | the refutation cell |
+| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit. It may move under "Go deeper" only on the condition the word-budget paragraph below gives | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
 | How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes. It may open "Go deeper" when the main path needs its words | `method-evidence` |
 | Go deeper | theory, comparisons between estimators, and the further checks that [the checks rule](#which-checks-a-page-runs) allows for this fit | the comparison cells, and `failure-mode` only when it is not the point of the page |
@@ -120,6 +121,14 @@ example is the failure mode that the [examples index](../examples/index.md) name
 such as "what happens when a model is wrong". Put it after the estimate and give it its own
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.
+
+The main path, everything before "Go deeper", has a word budget that the fast tier gates (the
+[reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes
+after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed
+instead of given a larger one. "Try to break the result" may open "Go deeper" as a lesson, as it
+does on several pages. When trimming is not enough, "What if a confounder is missing?" may move
+there too, on one condition: the conclusion (`interpret`) says in plain words what it found and
+which conditions no check on the page covers.
 
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
