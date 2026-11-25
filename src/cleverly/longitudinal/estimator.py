@@ -10589,16 +10589,17 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     n_bootstrap : int
         Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
         (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
-        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
-        band, with the label ``experimental``: no registered row lists a bootstrap kind for
-        this estimator.  When the fit withholds its interval
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
         (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
         as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
-    bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The bootstrap interval: the percentile interval, or the bias-corrected and
-        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     density_bins : int or None
         The bin count of a continuous node's diagnostic density.  Setting it makes
         ``ratio=None`` resolve to the density route.
@@ -10824,16 +10825,17 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     n_bootstrap : int
         Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
         (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
-        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
-        band, with the label ``experimental``: no registered row lists a bootstrap kind for
-        this estimator.  When the fit withholds its interval
+        percentile interval and a sup-t band, with the label ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.  When the fit withholds its interval
         (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
         as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
-    bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The bootstrap interval: the percentile interval, or the bias-corrected and
-        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
+    bootstrap_interval : {"percentile"}, default="percentile"
+        The bootstrap interval.  The baselines report the percentile interval only;
+        ``"bca"`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.BASELINE_BCA_REFUSAL`): fit :class:`LTMLE` or :class:`SDR`
+        for the BCa interval.
     **refused : Any
         ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
         which raise because the estimator fits no outcome regression and no density ratio;
@@ -11100,8 +11102,8 @@ class ParametricGFormula(_Baseline):
         ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
         ``bootstrap_resampling``, ``bootstrap_interval``, ``density_bins`` and ``ratio``.
         ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
-        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile or BCa
-        interval and a sup-t band, labelled ``experimental``, when the fit publishes its
+        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile interval
+        and a sup-t band, labelled ``experimental``, when the fit publishes its
         interval, and diagnostics only when it withholds it.
 
     See Also

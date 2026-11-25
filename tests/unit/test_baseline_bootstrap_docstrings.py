@@ -1,7 +1,7 @@
 """The bootstrap docstrings of IPSI and the baselines say what the bootstrap publishes (X124).
 
 They said the draws report "a bootstrap sd and no percentile inference", while a fit that
-publishes its interval also publishes a percentile (or BCa) bootstrap interval under the
+publishes its interval also publishes a percentile bootstrap interval under the
 ``experimental`` label, and a baseline fit that withholds its interval reports the bootstrap
 as diagnostics. Each test pairs the behaviour with the docstring that describes it.
 """
@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from cleverly.datasets import make_longitudinal
+from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental
 from cleverly.learners import GLM
 from cleverly.longitudinal import IPSI
@@ -22,7 +23,7 @@ from cleverly.longitudinal.estimator import (
     SequentialGComputation,
     SequentialIPW,
 )
-from cleverly.methods import IPSIMethod, SDRMethod
+from cleverly.methods import BASELINE_BCA_REFUSAL, IPSIMethod, SDRMethod
 from tests.unit._inference_status_support import LONGITUDINAL_NODES, longitudinal_learners
 
 
@@ -37,7 +38,7 @@ def _fit(build: Any, panel: Any) -> Any:
         return build().fit(panel, outcome="Y", **LONGITUDINAL_NODES)
 
 
-@pytest.mark.parametrize("interval", ["percentile", "bca"])
+@pytest.mark.parametrize("interval", ["percentile"])
 def test_an_inferential_baseline_publishes_an_experimental_bootstrap_interval(
     panel: Any, interval: str
 ) -> None:
@@ -56,6 +57,13 @@ def test_an_inferential_baseline_publishes_an_experimental_bootstrap_interval(
     assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(frame.columns)
     assert set(frame["bootstrap_interval"]) == {interval}
     assert set(frame["bootstrap_support"]) == {"experimental"}
+
+
+def test_a_baseline_refuses_the_bca_interval() -> None:
+    """The baselines publish the percentile interval only; BCa redirects to LTMLE or SDR."""
+    with pytest.raises(CapabilityError) as raised:
+        SequentialGComputation({"always": 1, "never": 0}, n_bootstrap=5, bootstrap_interval="bca")
+    assert raised.value.refusal is BASELINE_BCA_REFUSAL
 
 
 def test_an_adaptive_baseline_reports_the_bootstrap_as_diagnostics(panel: Any) -> None:
