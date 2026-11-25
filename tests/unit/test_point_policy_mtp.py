@@ -213,6 +213,8 @@ def test_a_continuous_shift_at_node_one_equals_identity_shifts_on_copied_columns
         "treatment_learner": LogisticRegression(max_iter=1000),
         "censoring_learner": _FirstCopy(LogisticRegression(max_iter=1000)),
         "simultaneous": False,
+        # The identity reads the fitted densities, which the density route keeps.
+        "ratio": "density",
     }
     columns = {"baseline": ["W"], "censoring": ["C1", "C2", "C3"], "outcome": ["Y1", "Y2", "Y3"]}
     frame = _dose_panel()

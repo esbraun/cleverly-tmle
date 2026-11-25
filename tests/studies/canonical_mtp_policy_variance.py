@@ -376,7 +376,7 @@ def boundaries_fit(
         "treatment_learner": clone(law_b.OracleRatio() if ratio == "classifier" else g),
         "n_folds": 1,
         "g_bounds": boundaries.G_BOUNDS,
-        "density_bins": boundaries.oracle_bins(len(frame)),
+        "density_bins": boundaries.oracle_bins(len(frame)) if ratio == "density" else None,
         "ratio": ratio,
         "simultaneous": False,
         "random_state": 0,

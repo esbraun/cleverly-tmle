@@ -17,14 +17,22 @@ from cleverly.data import CausalData
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.fluctuation.submodel import submodel_for
 from cleverly.interventions import PolicySet, Shift, check_policy_support
-from cleverly.learners.density import ConditionalDensity
+from cleverly.learners.density import ConditionalDensity, bin_occupancy
 
-#: Doses 0, 1, 2, 3 with edges at the half-integers, so every bin is one wide and the
-#: "density" is the probability mass function itself.  That is what makes the expected
-#: clever covariate a ratio of two numbers a reader can check.
-EDGES = np.array([-0.5, 0.5, 1.5, 2.5, 3.5])
+#: Doses 0, 1, 2, 3, each alone in a bin half a unit wide and flanked by empty bins, so every
+#: support bin reads its probability over the same width and the expected clever covariate
+#: is a ratio of two numbers a reader can check.
+EDGES = np.array([-0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25])
+OCCUPIED = np.array([True, False, True, False, True, False, True])
 G = np.array([0.4, 0.3, 0.2, 0.1])
 N = 40
+
+
+def _bins(g: np.ndarray) -> np.ndarray:
+    """``(n, 7)`` bin probabilities from ``(n, 4)`` dose probabilities."""
+    out = np.zeros((g.shape[0], EDGES.size - 1))
+    out[:, OCCUPIED] = g
+    return out
 
 
 def _setup() -> tuple[CausalData, ConditionalDensity, np.ndarray]:
@@ -35,7 +43,7 @@ def _setup() -> tuple[CausalData, ConditionalDensity, np.ndarray]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         data = CausalData.from_arrays(outcome, treatment, covariates, treatment_kind="continuous")
-    return data, ConditionalDensity(np.tile(G, (N, 1)), EDGES), treatment
+    return data, ConditionalDensity(_bins(np.tile(G, (N, 1))), EDGES, OCCUPIED), treatment
 
 
 def _shifts(*shifts: Shift) -> PolicySet:
@@ -92,13 +100,15 @@ class TestTheCleverCovariate:
         # would put a NaN through the Newton solve; zero is the honest value and
         # min_density reports the zero denominator.
         data, _, treatment = _setup()
-        holed = np.tile(np.array([0.5, 0.5, 0.0, 0.0]), (N, 1))
+        holed = _bins(np.tile(np.array([0.5, 0.5, 0.0, 0.0]), (N, 1)))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             shifts = PolicySet.evaluate(
-                (Shift(1.0, cap=3.0),), data, ConditionalDensity(holed, EDGES)
+                (Shift(1.0, cap=3.0),), data, ConditionalDensity(holed, EDGES, OCCUPIED)
             )
-            support = check_policy_support(shifts, ConditionalDensity(holed, EDGES), treatment)
+            support = check_policy_support(
+                shifts, ConditionalDensity(holed, EDGES, OCCUPIED), treatment
+            )
         assert np.all(np.isfinite(shifts.ratio))
         assert support["+1"].min_density == 0.0
         assert support["+1"].unsupported == 3 * N // 4
@@ -363,7 +373,10 @@ def test_exact_supported_mass_counts_assigned_doses(
         treatment = treatment[(treatment < 0.25) | (treatment > 0.5)]
     n = len(treatment)
     probabilities = [1 / 3, 0, 1 / 3, 1 / 3] if gap else [0.25] * 4
-    density = ConditionalDensity(np.tile(probabilities, (n, 1)), np.linspace(0, 1, 5))
+    edges = np.linspace(0, 1, 5)
+    density = ConditionalDensity(
+        np.tile(probabilities, (n, 1)), edges, bin_occupancy(treatment, edges)
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         data = CausalData.from_arrays(

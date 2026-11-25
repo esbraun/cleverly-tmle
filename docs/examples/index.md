@@ -45,7 +45,7 @@ treatment was unlikely.
 
 ## The health program
 
-Fourteen examples follow one imaginary health program. A regional health plan offers
+Most examples follow one imaginary health program. A regional health plan offers
 **care-transition navigation** to adults who leave a participating hospital for home: a bedside
 plan for the transition and two scheduled navigator contacts within 30 days. Hospital teams decided
 who got the offer, so the data are observational, and each analysis adjusts for patient
@@ -163,7 +163,15 @@ built in the notebook.
 All four retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists the
 generators of the first three and their true answers.
 
-## A real-data example
+## Pages outside the two programs
+
+Two simulated pages tell their own story. On [who gains most from a
+coupon](conditional-effects.ipynb), a retailer's marketing team chose who got a coupon, and the page
+asks how the coupon's effect on buying changes with the customer's age. On [a medicine with two
+effects](separable-effects.ipynb), a heart-failure clinic chooses the dose of a water pill at
+discharge, and the page separates the pill's effect on readmission from its effect on death. The
+[plot results](plots.ipynb) page draws its figures from health-program data and from other simulated
+data.
 
 The [twins analysis](twins-causal-inference.ipynb) uses US birth certificates of twin pairs. It
 estimates how much smoking in pregnancy lowered the birth weight of twins whose mother smoked, in
@@ -174,7 +182,8 @@ gestational age, and how strong a missing confounder would have to be to change 
 ## The methods behind each example
 
 Each technical reference page gives exactly what each method estimates, its conditions, and the
-simulation studies that check it.
+simulation studies that check it. The [plot results](plots.ipynb) page has no row: it draws the
+figures of fits that the pages below explain.
 
 | example | method | reference |
 | --- | --- | --- |
@@ -196,6 +205,7 @@ simulation studies that check it.
 | [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds | [parametric g-formula](../technical-reference/parametric-gformula.md) and [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) |
 | [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [who gains most from a coupon](conditional-effects.ipynb) | the EP learner of a conditional effect curve, with a rule learned on half the customers and valued on the other half, and a targeting curve of a priority score | [conditional effects](../technical-reference/conditional-effects.md) |
 | [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [a medicine with two effects](separable-effects.ipynb) | TMLE for separable effects: the risk of each of two competing events when the part of a treatment that acts on one event and the part that acts on the other are set to different doses | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 

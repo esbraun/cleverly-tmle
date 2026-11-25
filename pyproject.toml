@@ -92,6 +92,13 @@ Repository = "https://github.com/esbraun/cleverly-tmle"
 Issues = "https://github.com/esbraun/cleverly-tmle/issues"
 Changelog = "https://github.com/esbraun/cleverly-tmle/releases"
 
+[tool.uv]
+# fonttools 4.69.0 (matplotlib's font dependency) was published on 2026-11-25 with cp311 wheels
+# only and no sdist. pip passes over a release with no file for its interpreter; uv refuses it, so
+# the `tests` job's Python 3.13 row, which resolves the newest releases, failed at install. Drop
+# this line once that release carries files for every supported Python.
+constraint-dependencies = ["fonttools!=4.69.0"]
+
 [tool.hatch.version]
 path = "src/cleverly/_version.py"
 
@@ -119,6 +126,10 @@ addopts = '-ra --strict-markers -m "not slow"'
 markers = [
     "slow: a tutorial notebook's refit cells, run by `pytest -m slow` and the CI slow-tests job",
 ]
+# A passing test's `tmp_path` is removed when the test ends; a failing test's stays for
+# inspection. pytest otherwise keeps every one until the session ends, and a CI shard runs
+# thousands of tests on a runner whose disk and memory are fixed.
+tmp_path_retention_policy = "failed"
 filterwarnings = [
     "error::RuntimeWarning",
     "ignore::DeprecationWarning",

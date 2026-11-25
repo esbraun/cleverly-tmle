@@ -1285,8 +1285,11 @@ class DoseResponseTMLE:
         """The density bins, their edges and the two quadrature rules, after the memory check."""
         n_bins = default_density_bins(data.n) if self.density_bins is None else self.density_bins
         edges = bin_edges(data.treatment, n_bins, name=data.treatment_name)
-        rule = self.curve.quadrature(edges)
-        fine = self.curve.quadrature(edges, refine=2)
+        # The density is log-linear between a bin edge and a bin centre, so both break the
+        # rule and every piece integrates a smooth integrand.
+        breaks = np.concatenate([edges, 0.5 * (edges[:-1] + edges[1:])])
+        rule = self.curve.quadrature(breaks)
+        fine = self.curve.quadrature(breaks, refine=2)
         self._preflight_memory(data, rule.n_nodes + fine.n_nodes)
         return n_bins, edges, rule, fine
 

@@ -8,6 +8,7 @@ from dataclasses import fields as dataclass_fields
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
 
+from ._ratio_route import refuse_classifier_settings
 from ._typing import (
     ConditionalForm,
     FluctuationKind,
@@ -308,11 +309,16 @@ class MethodAvailability:
         The record of the refusal when ``available`` is false: its reason code, the failed
         condition and the alternative. :attr:`reason` is its text, and a selection of the
         method raises the same record.
+    only : str or None, default=None
+        When ``available`` is true but the method's default configuration refuses, the one
+        configuration that fits, such as ``"strategy='derivative'"``. ``None`` when the
+        default fits.
     """
 
     name: str
     available: bool
     refusal: Refusal | None = None
+    only: str | None = None
 
     @property
     def reason(self) -> str | None:
@@ -400,7 +406,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
         Returns
         -------
         dataframe
-            Columns ``method``, ``available``, ``reason_code`` and ``reason``.
+            Columns ``method``, ``available``, ``only``, ``reason_code`` and ``reason``.
         """
         from .utils.frames import frame_from_dict
 
@@ -408,6 +414,7 @@ class MethodAvailabilities(tuple[MethodAvailability, ...]):
             {
                 "method": [record.name for record in self],
                 "available": [record.available for record in self],
+                "only": [record.only for record in self],
                 "reason_code": [
                     None
                     if record.refusal is None
@@ -456,15 +463,24 @@ class ModelSpec:
         Learner of the prevented-cause factor of a design that declares ``eliminate=``.
         ``None`` uses the censoring learner.
     density_bins : int or None
-        Number of bins for a continuous-treatment conditional density.  ``None`` grows the
-        count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
-        a consistent density, and the hazard learner must also be consistent.
-    ratio : {"density", "classifier"}
+        The core bin count of a continuous-treatment conditional density: that many
+        equal-mass bins, whose wide outer bins are then refined so that each refined bin
+        still holds at least 20 rows (:func:`~cleverly.learners.bin_edges`).  ``None`` grows
+        the core count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is
+        necessary for a consistent density, and the hazard learner must also be consistent.
+        It applies only where the density route runs, and setting it makes ``ratio=None``
+        resolve to that route.
+    ratio : {"density", "classifier"} or None
         How a modified treatment policy's density ratio is estimated.  ``"density"`` divides
         two fitted conditional densities.  ``"classifier"`` reads the odds of a stacked
         classifier (Díaz et al. 2023, Section 5.4).  It applies to a point fit with
         ``ModifiedTreatmentPolicy`` and to a longitudinal fit with a continuous or vector
-        node.  A study refuses ``"classifier"`` where no policy ratio is estimated.
+        node.  ``None``, the default, chooses per fit: the classifier for a policy on a
+        continuous or vector dose, and the density otherwise, or when ``density_bins`` is
+        set, the treatment learner declares ``bin_design``, the treatment mechanism is
+        declared, or the method reads the density only.  The result records the route and
+        the rule that chose it.  ``"classifier"`` with ``density_bins`` or a ``bin_design``
+        learner is refused, and a study refuses it where no policy ratio is estimated.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
@@ -517,7 +533,7 @@ class ModelSpec:
     censoring_learner: Any = None
     competing_learner: Any = None
     density_bins: int | None = None
-    ratio: Literal["density", "classifier"] = "density"
+    ratio: Literal["density", "classifier"] | None = None
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
@@ -537,10 +553,11 @@ class ModelSpec:
             "competing_learner",
         ):
             _validate_learner(getattr(self, name), name)
-        if self.ratio not in ("density", "classifier"):
+        if self.ratio not in (None, "density", "classifier"):
             raise MethodConfigurationError(
-                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}"
+                f"ratio must be None, 'density' or 'classifier'; got {self.ratio!r}"
             )
+        refuse_classifier_settings(self.ratio, self.density_bins, self.treatment_learner)
 
 
 @dataclass(frozen=True)
@@ -1045,7 +1062,9 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 _POINT_RATIO_TRIM = Refusal(
     RefusalReason.API_REDIRECTION,
     "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
-    "does. A point-treatment fit bounds its mechanism with g_bounds=.",
+    "does. A point-treatment fit bounds its fitted treatment probabilities with g_bounds=, "
+    "which reach a policy's ratio only through a categorical value the policy changes; no "
+    "option trims the ratio itself.",
     alternative=(
         "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
     ),
@@ -1178,7 +1197,7 @@ class TMLEMethod:
         )
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
-        if self.models.ratio != "density" and self._ratio_refusal is not None:
+        if self.models.ratio == "classifier" and self._ratio_refusal is not None:
             raise MethodConfigurationError.from_refusal(self._ratio_refusal)
         if self.models.density_bins is not None and self._density_bins_refusal is not None:
             raise MethodConfigurationError.from_refusal(self._density_bins_refusal)
@@ -1753,7 +1772,7 @@ default="greedy"
             "selection_inner_folds": self.selection_inner_folds,
             "loss": self.loss,
             "penalty": self.penalty,
-            "ctmle_estimand": self.selection_estimand,
+            "selection_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
@@ -2470,8 +2489,11 @@ class SDRMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str
@@ -2887,8 +2909,11 @@ class IPSIMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile or BCa
+        interval (``bootstrap_interval``) and a sup-t band beside the fit's own interval.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str

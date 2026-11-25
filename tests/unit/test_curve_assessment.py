@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
 from cleverly._curve_assessment import STABILITY_WARNING, CurveDiagnostics
-from cleverly.assessment import CURVE_OPERATIONS
+from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL
 from cleverly.bases import Linear, Modifiers
 from cleverly.exceptions import CapabilityError
 
@@ -80,7 +80,7 @@ def test_the_rows_are_the_curve_family(fitted: Any) -> None:
     rows = {row.operation: row for row in fitted.diagnostics.capabilities}
     assert set(CURVE_OPERATIONS) <= set(rows)
     assert all(rows[name].available for name in (*CURVE_OPERATIONS, "support"))
-    assert not rows["refute"].available and rows["refute"].refusal.roadmap == "P1"
+    assert not rows["refute"].available and rows["refute"].refusal == CURVE_REFUTE_REFUSAL
     assert rows["calibration"].execution == "refit" and rows["calibration"].accepts_random_state
 
 

@@ -494,6 +494,10 @@ class QuadraticLogistic(BaseEstimator, ClassifierMixin):
         ``[A_t, W, L_1..L_t, A_1..A_{t-1}]``).
     """
 
+    #: Reads the stacked design by position, so it takes the design without the policy's
+    #: step columns (``classifier_ratio(steps=)``).
+    policy_steps = "omit"
+
     def __init__(self, law: str = "point") -> None:
         self.law = law
 

@@ -447,8 +447,10 @@ class TargetContext:
     #: :meth:`~cleverly.inference.influence.CorrectionParts.total` selects on the guard --
     #: for a fit that solved the
     #: extra score equations; ``None`` for every other fit.  Subtracted from the ``mean``
-    #: group's curves and reaching nothing else -- the other groups have no reduced-
-    #: dimension derivation, and a fit declaring one is refused before it gets here.
+    #: group's curves, and from a difference-scale projection's coefficient curves, where
+    #: each arm holds ``(n, p)``: one correction per basis term (P1 PR 3).  The other groups
+    #: have no reduced-dimension derivation, and a fit declaring one is refused before it
+    #: gets here.
     corrections: dict[float, FloatArray] | None = None
     #: ``(n, S + 1, S)`` shift clever covariates, for the ``mtp`` fluctuation; ``None``
     #: otherwise.  Carried only to select the mean function: unlike ``regimes``, whose
@@ -502,6 +504,15 @@ class TargetContext:
     #: for the known-score ATT and ATC (``conditional_form="known_score"``); ``None``
     #: otherwise, and then the conditional effects average over the conditioning arm.
     known_score: dict[float, FloatArray] | None = None
+    #: The name of the :class:`~cleverly.interventions.NaturalCourse` declared beside a
+    #: learned rule, whose mean :attr:`observed_mean` gives on the rows of this context, or
+    #: ``None``.  It is not a code of :attr:`means`: it sits outside the regime set and its
+    #: fluctuation.
+    learned_natural_course: str | None = None
+    #: Whether the learned rule's contrast with the natural course is the natural course
+    #: minus the rule (``reference=`` naming the rule).  The regime set's reference code
+    #: cannot carry it: a set that holds the rule alone has code ``0`` only.
+    natural_course_flip: bool = False
     #: The codes of :attr:`means` that each finished estimate reads, keyed by its name.
     #: A target records them through the ``reads`` argument of :meth:`finish`, from its own
     #: definition: ``ey[a]`` reads ``a``, a contrast reads its arm and the reference,
@@ -573,6 +584,7 @@ class TargetContext:
                 self.weights,
                 self.scaler,
                 self.observed,
+                self.corrections,
             )
         if self.msm_design is not None:
             assert self.msm_weights is not None

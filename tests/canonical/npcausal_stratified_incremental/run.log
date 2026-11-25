@@ -1,22 +1,25 @@
 === canonical-stratified-incremental-msm declared run
-command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-fk1uxw\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-fk1uxw\tests\canonical\npcausal_stratified_incremental\regenerate.py' --output C:/Users/erics/Documents/fk1uxw-run/declared --jobs 16
-commit: 1510e6ff4c0435dc13cf3d6526ef16ce9c4da71b; upstream 1510e6ff4c0435dc13cf3d6526ef16ce9c4da71b
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\.venv\Scripts\python.exe' tests/canonical/npcausal_stratified_incremental/regenerate.py --output 'C:\Users\erics\fix9\Q6\declared-2' --jobs 8
+commit: 9bb2e749b52e6a138362c1b521cd0f721f762d71; upstream 9bb2e749b52e6a138362c1b521cd0f721f762d71
 clean tree: True
-cleverly 0.2.1 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-fk1uxw\src\cleverly\__init__.py
+cleverly 0.2.6 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_015s36CovjrPUAHmto78haDg\src\cleverly\__init__.py
 python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
-installed distributions: 112, sha256 31cbf6ef0d5d434bec9b3af92229510289e87d448467cb9b3d70973e4b43e48c
+installed distributions: 129, sha256 a0e6ac5044b13fdc62a26ed5ee6886f9ee1e6af120abfa9eca00816b5a02d57b
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 cores: 16
-started: 2026-11-10T21:53:37+00:00
-note: resumed from /cache/canonical-stratified-incremental-msm/6dae237188c3/run_study__reference-results, reused 0 groups
-finished: 2026-11-10T22:35:43+00:00
-wall seconds: 2525.7
+started: 2026-11-22T23:23:37+00:00
+note: resumed from /cache/canonical-stratified-incremental-msm/59ad0d22903a/run_study__reference-results, reused 0 groups
+finished: 2026-11-23T00:20:13+00:00
+wall seconds: 3396.1
 exit code: 0
-sha256 equivalence.csv: ad4348d7f4994ce1fd169e9b134151038aac95b8a2afbb9ec24091d3cca57a7b
-sha256 manifest.json: c7cb3aea2036353a9f21fff21aef181bf41cde69c6a71dcd4f90b8793c88fef8
-sha256 performance-tests.csv: b492231a2b892811f0227323c651ccc2bf5c09fc45dc8aea2f60b001bdaeb101
-sha256 properties.csv: 79cf826b7ea9289ecdf8edb71109a43a3eb9a2578fb340bf0f723d6127a4e554
-sha256 property-replicates.parquet: aa30fcfe103d40892ece6426614f04eaef542405ccc393924b5e2c7afdb00e07
-sha256 replicates.parquet: 0789a12419da408069a01c57b1320e6d9305837b08d120defe0ac83af66072f7
-sha256 summary.csv: 7003a0e4d16e6b0a69a70a0ab69545e351f6eb03c93c118038d7b5f0729d70e6
+sha256 equivalence.csv: 2e12c05a10ecdccc5fd41d32146b9fdac57e6322666b1c18d88ddb7af77cfb0d
+sha256 manifest.json: 7857aa7047efbd95908182ae53c5abf4de98dde9551f8f1209274ebbd28df26d
+sha256 performance-tests.csv: e9f304321a7deb095d55719ab52902a3b07837d5631fc92471762992e4b4500f
+sha256 properties.csv: ee6d2229f4b6cf33e19c5a9716982f89f507f31824ddcd6836369b2394168304
+sha256 property-failure-accounting.csv: c4fc288ec8ed94ebaede787df190b3e815752cfec8ea7f89adb6fbe4231d608b
+sha256 property-failure-witnesses.parquet: 7ff26e57262f95dc59d19e281632f42262bb3a72ed5ef1c1a706b62a7769e1a7
+sha256 property-failures.csv: 175adba5921746ac4aec3c28b29fd86fde6b7146770b97066e6821b4ad736133
+sha256 property-replicates.parquet: 1097c39ab58a0e460007f235a62a921648494c908116fa13ffc5d21b91803b96
+sha256 replicates.parquet: 7ea19c36d420551830db37baffd0d72fcd4a4905b8d2ccd73aaafa54a2972fdb
+sha256 summary.csv: 2b01911b2b1cdf11364e52beb3b020a5996c5c59c329ba183bb6510400854cd4
 

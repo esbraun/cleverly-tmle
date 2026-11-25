@@ -171,6 +171,11 @@ def labelled() -> ScoreCheck:
     return replace(tmle(), inference="estimated_mechanism_plugin")
 
 
+def natural_course() -> ScoreCheck:
+    """A learned-rule fit with the natural course beside the rule, which no equation reads."""
+    return replace(tmle(), natural_course="natural course")
+
+
 def corrections() -> CorrectionCheck:
     """The corrections of an in-sample doubly robust fit, which the theorem covers."""
     return _drtmle().diagnostics.corrections()
@@ -255,6 +260,7 @@ FIXTURES = {
     "score_missing_outcome": _equations(missing_outcome),
     "score_declared_drtmle": _equations(declared_drtmle),
     "score_splits": _equations(splits),
+    "score_natural_course": _equations(natural_course),
     "corrections_in_sample": _corrections(corrections),
     "corrections_cross_fitted": _corrections(corrections_cross_fitted),
     "corrections_splits": _corrections(corrections_splits),

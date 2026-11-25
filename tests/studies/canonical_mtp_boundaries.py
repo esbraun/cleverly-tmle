@@ -354,7 +354,7 @@ def fit(
         "treatment_learner": clone(g if treatment_learner is None else treatment_learner),
         "n_folds": 1,
         "g_bounds": G_BOUNDS,
-        "density_bins": oracle_bins(len(frame)),
+        "density_bins": oracle_bins(len(frame)) if ratio == "density" else None,
         "ratio": ratio,
         "simultaneous": False,
         "random_state": 0,

@@ -298,8 +298,8 @@ def _density_as_mass(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def mutated(*args: Any, **kwargs: Any) -> Any:
         return [
-            (betas, reach, np.where(reach, 1.0, 0.0))
-            for betas, reach, _ in original(*args, **kwargs)
+            (betas, reach, np.where(reach, 1.0, 0.0), interval)
+            for betas, reach, _, interval in original(*args, **kwargs)
         ]
 
     monkeypatch.setattr(joint_module, "_collapse_paths", mutated)
@@ -613,17 +613,20 @@ def test_a_scalar_treatment_refuses_atoms_by_component() -> None:
 # ------------------------------------------------------------------ T-b6
 
 #: ``[psi, sum of squared curve, first curve entry, last curve entry]`` of each fit on
-#: ``geo.sample(3000, 5)`` with no atom declared, recorded on the commit before M4.
+#: ``geo.sample(3000, 5)`` with no atom declared, recorded on the commit before M4.  The density
+#: rows were re-recorded when the binned density became a corrected log polygon: each bin of
+#: the flanked grid reads its probability over its width, and the sum of squares moved by
+#: 2e-12 relative, a rounding change; psi and both curve ends kept their bits.
 PINS: dict[str, list[float]] = {
-    "TMLE:density:ordered": [0.6795959341905007, 1630.71023404607, 0.20677032878069634, 0.2833688503160503],
-    "TMLE:density:full": [0.6521542386800482, 1432.4819687041706, 0.23421202429114885, 0.3108105458265028],
-    "TMLE:density:random": [0.6736423173455979, 1117.7813408640945, 0.2127239456255991, 0.28932246716095306],
-    "LTMLE:density:ordered": [0.6795959341905392, 1630.710862579851, 0.2067720521432973, 0.28336856905855967],
-    "LTMLE:density:full": [0.6521542386800482, 1432.478172475145, 0.23420939768358817, 0.31080872428291473],
-    "LTMLE:density:random": [0.6736423173456257, 1117.780194835638, 0.21272397079219563, 0.2893215845884334],
-    "SDR:density:ordered": [0.6795959341905515, 1630.7105856832231, 0.20676770217308482, 0.2833670287724114],
-    "SDR:density:full": [0.6521542386800482, 1432.4781724751451, 0.23420939768358817, 0.31080872428291473],
-    "SDR:density:random": [0.6736423173456285, 1117.7922117481398, 0.21272131901800784, 0.2893206456173344],
+    "TMLE:density:ordered": [0.6795959341905007, 1630.7102340495162, 0.20677032878069634, 0.2833688503160501],
+    "TMLE:density:full": [0.6521542386800482, 1432.4819687056813, 0.23421202429114885, 0.3108105458265026],
+    "TMLE:density:random": [0.6736423173455979, 1117.7813408662519, 0.21272394562559915, 0.2893224671609529],
+    "LTMLE:density:ordered": [0.6795959341905392, 1630.7108625832973, 0.2067720521432973, 0.28336856905855967],
+    "LTMLE:density:full": [0.6521542386800482, 1432.4781724766553, 0.23420939768358817, 0.31080872428291473],
+    "LTMLE:density:random": [0.6736423173456257, 1117.7801948377953, 0.21272397079219563, 0.2893215845884334],
+    "SDR:density:ordered": [0.6795959341905514, 1630.710585686669, 0.20676770217308493, 0.2833670287724115],
+    "SDR:density:full": [0.6521542386800482, 1432.4781724766553, 0.23420939768358817, 0.31080872428291473],
+    "SDR:density:random": [0.6736423173456285, 1117.7922117502972, 0.21272131901800784, 0.2893206456173344],
     "TMLE:classifier:ordered": [0.6795959341905007, 1630.7102340460697, 0.20677032878069634, 0.2833688503160503],
     "TMLE:classifier:full": [0.6521542386800482, 1432.4819687041709, 0.23421202429114885, 0.3108105458265028],
     "TMLE:classifier:random": [0.6736423173455979, 1117.7813408640945, 0.2127239456255991, 0.28932246716095306],

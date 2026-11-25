@@ -318,6 +318,10 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
             "known regime beside a learned rule: no study request declares one, and a direct TMLE "
             "fit carries no identification metadata, so the surface never meets it"
         ),
+        "ey_natural_course": (
+            "natural course beside a learned rule: the replay refuses a learned-rule fit with any "
+            "comparator fit-wide (X11 (n2))"
+        ),
         "ate_learned_rule": (
             "known regime beside a learned rule: no study request declares one, and a direct TMLE "
             "fit carries no identification metadata, so the surface never meets it"

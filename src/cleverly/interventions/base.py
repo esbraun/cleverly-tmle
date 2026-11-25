@@ -66,14 +66,19 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 
 __all__ = [
+    "NATURAL_COURSE_ALONE_REFUSAL",
     "Intervention",
+    "NaturalCourse",
     "RegimeSet",
     "Rule",
     "Static",
     "Stochastic",
     "as_interventions",
+    "natural_course_in_regimes",
     "refuse_mixed_interventions",
+    "refuse_natural_course",
     "refuse_regime_densities",
+    "split_natural_course",
 ]
 
 #: How close to one a supplied stochastic density's row sums must be.  Loose enough for
@@ -424,6 +429,151 @@ class Stochastic:
         return values
 
 
+@dataclass(frozen=True)
+class NaturalCourse:
+    """The observed course of treatment, a comparator for a learned rule.
+
+    Its value is the observed-course outcome mean :math:`E[Y]`, the estimand of
+    :class:`~cleverly.NaturalCourseMean`.  Beside a learned rule it answers "how much
+    would the rule gain over current practice": a learned-rule fit reports
+    ``ey_natural_course[<name>]`` and the contrast ``ate_learned_rule[<rule> vs <name>]``.
+    It reads the observed law alone, so it needs no treatment mechanism and enters no
+    fluctuation.
+
+    It is not a regime: it assigns no distribution over the arms from the covariates, and
+    it has no ``density``.  It is accepted only beside a learned rule, in
+    :class:`~cleverly.LearnedRuleContrast`, :class:`~cleverly.OptimalRuleContrast` and
+    ``TMLE(learned_rule=..., interventions=[...])``.  A regime set refuses it.
+
+    The contrast's interval is exact when the outcome regression is consistent or the
+    treatment mechanism is known.  With a misspecified outcome regression and a treatment
+    mechanism fitted by maximum likelihood, no result says the reported variance is
+    conservative: the observed mean does not read the fitted mechanism, so the projection
+    that makes a contrast between two regimes conservative does not apply.
+
+    Parameters
+    ----------
+    name : str
+        Label used in reported parameter names.
+
+    See Also
+    --------
+    cleverly.LearnedRuleContrast : The contrast of a learned rule with its comparators.
+    cleverly.NaturalCourseMean : The observed-course mean on its own.
+
+    Examples
+    --------
+    >>> from cleverly.interventions import NaturalCourse
+    >>> NaturalCourse().name
+    'natural course'
+    """
+
+    name: str = "natural course"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise DataError(f"NaturalCourse(name=...) takes a non-empty string; got {self.name!r}")
+
+
+#: R-d8b: a natural course alone on a fit without a learned rule.
+NATURAL_COURSE_ALONE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "NaturalCourse() is the observed course, not a regime, and it is the only comparator "
+    "declared, on a fit without a learned rule.",
+    alternative="NaturalCourseMean() (estimands=['ey_obs'] on the engine) gives E[Y].",
+)
+
+
+def natural_course_in_regimes(holder: str) -> CapabilityError:
+    """The refusal of a natural course in a regime set without a learned rule.
+
+    Parameters
+    ----------
+    holder : str
+        The field, keyword or regimen that the message names.
+
+    Returns
+    -------
+    CapabilityError
+        An ``implementation_gap`` error, roadmap X11.
+    """
+    return CapabilityError(
+        f"{holder} holds NaturalCourse(), the observed course, beside known regimes. A regime "
+        "fit has no natural-course column, so it does not report a known regime's "
+        "difference from current practice (X11 (c4) in docs/roadmap.md).",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=(
+            "PopulationAttributableRisk(reference=a) gives E[Y] - E[Y^a] for a static arm, "
+            "NaturalCourseMean() gives E[Y], and LearnedRuleContrast(against=(NaturalCourse(),)) "
+            "compares a learned rule with it."
+        ),
+        roadmap="X11",
+    )
+
+
+def refuse_natural_course(items: Sequence[object], *, holder: str) -> None:
+    """Refuse a :class:`NaturalCourse` in a set that is not beside a learned rule.
+
+    It runs first wherever a set of regimes is read, before a bare value becomes a
+    :class:`Static` level, so no path wraps a natural course as a treatment level.
+
+    Parameters
+    ----------
+    items : sequence of object
+        The items of the set.
+    holder : str
+        The field or keyword that the message names.
+
+    Raises
+    ------
+    CapabilityError
+        If an item is a :class:`NaturalCourse`.
+    """
+    if not any(isinstance(item, NaturalCourse) for item in items):
+        return
+    if all(isinstance(item, NaturalCourse) for item in items):
+        raise CapabilityError.from_refusal(NATURAL_COURSE_ALONE_REFUSAL)
+    raise natural_course_in_regimes(holder)
+
+
+def split_natural_course(
+    value: Any, *, holder: str = "interventions="
+) -> tuple[Any, NaturalCourse | None]:
+    """Split the comparators beside a learned rule into regimes and one natural course.
+
+    Parameters
+    ----------
+    value : Any
+        The ``interventions=`` argument, or the ``against=`` field of a typed contrast.
+    holder : str
+        The field or keyword that the message names.
+
+    Returns
+    -------
+    tuple
+        The other items, as a list (or ``value`` unchanged when it holds no natural course),
+        and the natural course, or ``None``.
+
+    Raises
+    ------
+    DataError
+        If two natural courses are declared.
+    """
+    if value is None or not isinstance(value, (list, tuple)):
+        if isinstance(value, NaturalCourse):
+            return [], value
+        return value, None
+    natural = [item for item in value if isinstance(item, NaturalCourse)]
+    if not natural:
+        return value, None
+    if len(natural) > 1:
+        raise DataError(
+            f"{holder} declares {len(natural)} NaturalCourse() items. The observed course is "
+            "one comparator, so declare it once."
+        )
+    return [item for item in value if not isinstance(item, NaturalCourse)], natural[0]
+
+
 def check_regime_density(
     values: FloatArray, *, label: str, shape: tuple[int, ...] | None = None
 ) -> None:
@@ -553,7 +703,20 @@ def refuse_mixed_interventions(
 
     text = _KIND_TEXT[kind]
     items = list(items)
+    if kind == "regime":
+        # First, before the bare-value branch below would read it as a level.
+        refuse_natural_course(items, holder=holder)
     for position, item in enumerate(items, start=1):
+        if isinstance(item, NaturalCourse):
+            raise CapabilityError(
+                f"{holder} accepts {text.accepts}, and item {position}, NaturalCourse(), is "
+                "the observed course, which is a comparator of a learned rule only.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "LearnedRuleContrast(against=(NaturalCourse(),)) compares a learned rule "
+                    "with it, and NaturalCourseMean() gives E[Y]."
+                ),
+            )
         if isinstance(item, LearnedRule):
             # Not wrapped as a Static level: a learned rule has no fixed density, and its
             # value is a target of its own.
@@ -563,9 +726,11 @@ def refuse_mixed_interventions(
                 "shift or a tilt.",
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=(
-                    "LearnedRuleValue holds it in a CausalStudy, and "
-                    "TMLE(learned_rule=...) takes it on the estimator, with "
-                    f"{LEARNED_RULE_CONFIGURATION}. The learned-rule refusal table in "
+                    "LearnedRuleContrast(against=(...)) compares a learned rule with known "
+                    "regimes or the natural course in a CausalStudy, and LearnedRuleValue() "
+                    "gives its value alone. TMLE(learned_rule=..., interventions=[...]) takes "
+                    f"both on the estimator, with {LEARNED_RULE_CONFIGURATION}. The "
+                    "learned-rule refusal table in "
                     "docs/technical-reference/point-treatment-tmle.md lists the rest."
                 ),
             )
@@ -1080,6 +1245,8 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
     if value is None:
         return ()
     items = list(value) if isinstance(value, (list, tuple)) else [value]
+    # A natural course first: the last row of the table would read it as a level.
+    refuse_natural_course(items, holder="interventions=")
     refuse_mixed_interventions(items, kind="regime", holder="interventions=")
     out: list[Intervention] = []
     for item in items:
