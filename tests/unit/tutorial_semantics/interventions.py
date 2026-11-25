@@ -84,7 +84,7 @@ UNPRINTED_DECIMALS = {
 #: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
 #: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
 DERIVED_DECIMALS = {
-    "sensitivity-other-reading: 0.9": ("sensitivity-other", "-0.9", "magnitude"),
+    "sensitivity-other-reading: 1.1": ("sensitivity-other", "-1.1", "magnitude"),
 }
 
 
