@@ -45,7 +45,10 @@ from .data.known_mechanism import (
 
 __all__ = [
     "ADAPTIVE_IN_SAMPLE_REASON",
+    "ADAPTIVE_MEASURED",
+    "ADAPTIVE_MEASURED_CLUSTERS",
     "ADAPTIVE_NUISANCE",
+    "ADAPTIVE_UNMEASURED_REASON",
     "DEFAULT_BAND_OPTION",
     "KEY_AXES",
     "LEARNER_FAMILY_MARKER",
@@ -73,6 +76,7 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "default_library_learner",
     "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
@@ -349,8 +353,10 @@ class SupportKey:
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
         weighted sample. A clustered key on the ``t`` tier adds ``adaptive_nuisance`` when a
-        nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`); a row that
-        does not declare it still covers the fit (:data:`SOFT_QUALIFIERS`).
+        nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`), and with it
+        ``adaptive_nuisance_measured`` inside the ground ``few-cluster-adaptive-learners``
+        measured (:data:`ADAPTIVE_MEASURED`); a row that does not declare either still covers
+        the fit (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
@@ -604,16 +610,25 @@ def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
 #: The qualifier of a clustered fit on the ``t`` tier whose nuisance learners include a
 #: data-adaptive one (X54 part (h)). :func:`adaptive_nuisance` decides it. A row that does not
 #: declare it still covers a fit that carries it (:data:`SOFT_QUALIFIERS`), so the qualifier
-#: changes a label only through :func:`adaptive_nuisance_shortfall`, by theory for an in-sample
-#: fit. ``few-cluster-adaptive-learners`` measures the default learner library at 10, 20 and 40
-#: clusters, and every stacked ``TMLE`` and cross-fitted ``LTMLE`` row passes, so a
-#: cross-fitted fit keeps its row's label.
+#: changes a label only through :func:`adaptive_nuisance_shortfall`.
 ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
+
+#: The qualifier of an ``adaptive_nuisance`` fit inside the ground that
+#: ``few-cluster-adaptive-learners`` measured: every adaptive learner is the default library
+#: (:func:`default_library_learner`), and the fit reads at least
+#: :data:`ADAPTIVE_MEASURED_CLUSTERS` positive-mass clusters for its kind. The rows the study
+#: reaches (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`) keep their label only for a
+#: fit that carries it.
+ADAPTIVE_MEASURED: Final[str] = "adaptive_nuisance_measured"
+
+#: The fewest clusters the study measured the default library at: stacked ``TMLE`` at 10, 20
+#: and 40, and cross-fitted ``LTMLE`` at 20.
+ADAPTIVE_MEASURED_CLUSTERS: Final[Mapping[str, int]] = {"point": 10, "longitudinal": 20}
 
 #: Qualifiers that a row which does not declare them still covers. Each records a property of
 #: the fit that a registered study reads as a measured limit, not as a configuration the rows
 #: must name.
-SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE})
+SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED})
 
 #: The theory reason of an in-sample ``t``-tier fit with an adaptive nuisance learner.
 ADAPTIVE_IN_SAMPLE_REASON: Final[str] = (
@@ -621,9 +636,19 @@ ADAPTIVE_IN_SAMPLE_REASON: Final[str] = (
     "in-sample fit with an adaptive nuisance learner has no Donsker argument: each learner, "
     "and each Super Learner candidate, predicts from its fit to the full sample, so the "
     "residuals the interval reads shrink at any cluster count. Cross-fitting "
-    "(cross_fit=True) removes that term: few-cluster-adaptive-learners measures the default "
-    "learner library cross-fitted at 10, 20 and 40 clusters, and reports its in-sample cells "
-    "below nominal coverage."
+    "(cross_fit=True) removes that term: few-cluster-adaptive-learners measures stacked TMLE "
+    "at 10 to 40 clusters and cross-fitted LTMLE at 20 clusters, with the default library, "
+    "and reports its in-sample cells below nominal coverage."
+)
+
+#: The reason of a cross-fitted ``t``-tier fit with an adaptive nuisance learner outside the
+#: measured ground.
+ADAPTIVE_UNMEASURED_REASON: Final[str] = (
+    "Row {row} is measured with parametric nuisance learners only below 40 clusters, and this "
+    "composition is not measured with an adaptive learner. few-cluster-adaptive-learners "
+    "measures stacked TMLE at 10 to 40 clusters and cross-fitted LTMLE at 20 clusters, with "
+    "the default library (a SuperLearner with no library named). Another adaptive learner, "
+    "fewer clusters, and the fold-evaluated, DR-TMLE and SDR estimators have no measurement."
 )
 
 
@@ -689,14 +714,53 @@ def adaptive_nuisance(learners: Iterable[Any]) -> bool:
     return any(nuisance_family(learner) == "adaptive" for learner in learners)
 
 
+def default_library_learner(learner: Any) -> bool:
+    """Whether ``learner`` is the default learner library.
+
+    The default library is ``None``, or a SuperLearner with no library named.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator.
+
+    Returns
+    -------
+    bool
+        ``True`` for the default library.
+    """
+    from .learners.super_learner import SuperLearner
+
+    return learner is None or (type(learner) is SuperLearner and learner.library is None)
+
+
+def _adaptive_qualifiers(key: SupportKey, learners: Sequence[Any], data: Any) -> frozenset[str]:
+    """The X54 part (h) qualifiers of a ``t``-tier fit that uses ``learners``.
+
+    ``adaptive_nuisance`` when one of them is adaptive, and with it ``adaptive_nuisance_measured``
+    when every adaptive one is the default library and the fit reads at least
+    :data:`ADAPTIVE_MEASURED_CLUSTERS` clusters for its kind.
+    """
+    if key.dependence != "t" or not adaptive_nuisance(learners):
+        return frozenset()
+    adaptive = [learner for learner in learners if nuisance_family(learner) == "adaptive"]
+    floor = ADAPTIVE_MEASURED_CLUSTERS["point" if key.kind == "point" else "longitudinal"]
+    clusters = _positive_mass_clusters(data)
+    if all(default_library_learner(learner) for learner in adaptive) and (
+        clusters is not None and clusters >= floor
+    ):
+        return frozenset({ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED})
+    return frozenset({ADAPTIVE_NUISANCE})
+
+
 def _point_nuisance_learners(estimator: Any, data: Any) -> list[Any]:
     """The learners a point fit uses: outcome, then treatment, missingness and intermediate.
 
     The treatment learner is not used when the data declare the treatment probabilities. The
     missingness learner falls back to the treatment learner, as the estimator resolves it, and
     is used only with a missing outcome or treatment. The DR-TMLE reduced regressions are not
-    read: no study measures a DR-TMLE fit with adaptive learners at few clusters, so no
-    shortfall can name its row.
+    read: a DR-TMLE row is never one ``few-cluster-adaptive-learners`` reaches, so a DR-TMLE fit
+    with an adaptive outcome or treatment learner already takes the unmeasured shortfall.
     """
     used = [estimator.outcome_learner]
     treatment = getattr(estimator, "treatment_learner", None)
@@ -1111,9 +1175,9 @@ def point_key(
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
     key = _with_dependence(key, data)
-    if key.dependence == "t" and adaptive_nuisance(_point_nuisance_learners(estimator, data)):
-        # X54 part (h): the clustered evidence of every row fits parametric nuisances.
-        key = replace(key, qualifiers=key.qualifiers | {ADAPTIVE_NUISANCE})
+    # X54 part (h): the clustered evidence of every row fits parametric nuisances.
+    adaptive = _adaptive_qualifiers(key, _point_nuisance_learners(estimator, data), data)
+    key = replace(key, qualifiers=key.qualifiers | adaptive)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),
@@ -1291,11 +1355,11 @@ def longitudinal_key(
         ),
     )
     key = _with_dependence(key, data)
-    if key.dependence == "t" and adaptive_nuisance(
-        _longitudinal_nuisance_learners(estimator, data, key.qualifiers)
-    ):
-        # X54 part (h), as for a point fit.
-        key = replace(key, qualifiers=key.qualifiers | {ADAPTIVE_NUISANCE})
+    # X54 part (h), as for a point fit.
+    adaptive = _adaptive_qualifiers(
+        key, _longitudinal_nuisance_learners(estimator, data, key.qualifiers), data
+    )
+    key = replace(key, qualifiers=key.qualifiers | adaptive)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "pseudo": _learner_type(estimator.pseudo_learner),
@@ -1735,14 +1799,18 @@ def support_for(
 
 
 def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> str | None:
-    """The shortfall of an in-sample clustered fit with an adaptive nuisance learner, if any.
+    """The shortfall of a clustered fit with an adaptive nuisance learner, if any.
 
-    It applies to every kind but ``point``, on an in-sample ``t``-tier fit whose key carries
-    ``adaptive_nuisance`` and has a row: :data:`ADAPTIVE_IN_SAMPLE_REASON`, by theory. No Donsker
-    argument covers the fit at any cluster count, and its row's evidence fits parametric
-    nuisances (X54 part (h)). The sentence makes the estimate experimental; its interval stays
-    shown. A cross-fitted fit takes none: ``few-cluster-adaptive-learners`` measures the default
-    learner library there, and every gated row passes.
+    It applies to every kind but ``point``, on a ``t``-tier fit whose key carries
+    ``adaptive_nuisance`` and has a row. An in-sample fit takes
+    :data:`ADAPTIVE_IN_SAMPLE_REASON`, by theory: no Donsker argument covers it at any cluster
+    count. A cross-fitted fit takes none when its row is one
+    ``few-cluster-adaptive-learners`` reaches
+    (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`) and its key carries
+    ``adaptive_nuisance_measured``: stacked ``TMLE`` at 10 to 40 clusters and cross-fitted
+    ``LTMLE`` at 20 or more, with the default library. Every other one takes
+    :data:`ADAPTIVE_UNMEASURED_REASON`. The sentence makes the estimate experimental; its
+    interval stays shown.
 
     Parameters
     ----------
@@ -1756,13 +1824,19 @@ def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> s
     str or None
         The sentence, or ``None`` when no shortfall applies.
     """
+    from ._support_rows import ADAPTIVE_LEARNER_CELLS
+
     row = classification.row
     key = classification.key
     if row is None or kind == "point" or ADAPTIVE_NUISANCE not in key.qualifiers:
         return None
-    if key.dependence == "t" and "in_sample" in key.splitting:
+    if key.dependence != "t":
+        return None
+    if "in_sample" in key.splitting:
         return ADAPTIVE_IN_SAMPLE_REASON.format(row=row.id)
-    return None
+    if row.id in ADAPTIVE_LEARNER_CELLS and ADAPTIVE_MEASURED in key.qualifiers:
+        return None
+    return ADAPTIVE_UNMEASURED_REASON.format(row=row.id)
 
 
 def classify(

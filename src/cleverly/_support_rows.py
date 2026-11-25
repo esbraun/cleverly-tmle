@@ -3029,7 +3029,10 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
 #: The study that measures the clustered interval with the default learner library (X54 part
 #: (h)), and the rows whose fits its gated cells reach: stacked ``TMLE`` below 40 clusters and at
 #: 40, and cross-fitted ``LTMLE`` at 20. Every gated row passes, so a fit with
-#: ``adaptive_nuisance`` on these rows keeps the row's label. The in-sample cells are reported
+#: ``adaptive_nuisance`` on these rows keeps the row's label when its key also carries
+#: ``adaptive_nuisance_measured``: every adaptive learner is the default library and the fit
+#: reads at least 10 clusters (stacked ``TMLE``) or 20 (``LTMLE``)
+#: (:func:`cleverly._support.adaptive_nuisance_shortfall`). The in-sample cells are reported
 #: only, so no in-sample row names the study.
 ADAPTIVE_LEARNER_STUDY: Final[str] = "few-cluster-adaptive-learners"
 ADAPTIVE_LEARNER_CELLS: Final[Mapping[str, tuple[str, ...]]] = {

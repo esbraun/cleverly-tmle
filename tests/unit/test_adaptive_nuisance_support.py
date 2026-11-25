@@ -1,20 +1,22 @@
 """The ``adaptive_nuisance`` support qualifier (X54 part (h)).
 
 A clustered fit on the ``t`` tier whose nuisance learners include a data-adaptive one carries
-the qualifier. It is soft: a row that does not declare it still covers the fit. The label moves
-in one way only: an in-sample fit is experimental by theory
-(:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`). ``few-cluster-adaptive-learners``
-measures the default learner library at 10, 20 and 40 clusters, and every stacked ``TMLE`` and
-cross-fitted ``LTMLE`` row passes, so those fits keep their rows' label, and the study is
-evidence of ``T11.stacked``, ``T10.unweighted`` and ``G07``. These tests pin each branch with a
-witness, the label with its text, and that every plot and every refute, validate and sensitivity
-operation answers on an in-sample, stacked and ``LTMLE`` fit with the qualifier as it does
-without it, because the qualifier changes no number.
+the qualifier. It is soft: a row that does not declare it still covers the fit. An in-sample fit
+is experimental by theory (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`).
+``few-cluster-adaptive-learners`` measures stacked ``TMLE`` at 10 to 40 clusters and
+cross-fitted ``LTMLE`` at 20 clusters, with the default library, and every gated row passes. A
+fit inside that ground (``adaptive_nuisance_measured``) keeps the label of ``T11.stacked``,
+``T10.unweighted`` or ``G07``; every other cross-fitted adaptive fit on the ``t`` tier is
+experimental, not measured (:data:`cleverly._support.ADAPTIVE_UNMEASURED_REASON`). These tests
+pin each branch with a witness, the label with its text, and that every plot and every refute,
+validate and sensitivity operation answers on an in-sample, stacked and ``LTMLE`` fit with the
+qualifier as it does without it, because the qualifier changes no number.
 """
 
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import matplotlib
@@ -31,13 +33,19 @@ import cleverly.plotting as plotting
 from cleverly import _support
 from cleverly._support import (
     ADAPTIVE_IN_SAMPLE_REASON,
+    ADAPTIVE_MEASURED,
     ADAPTIVE_NUISANCE,
+    ADAPTIVE_UNMEASURED_REASON,
     SOFT_QUALIFIERS,
     adaptive_nuisance,
+    adaptive_nuisance_shortfall,
     classify,
+    classify_key,
+    default_library_learner,
     nuisance_family,
     registered_rows,
 )
+from cleverly._support_rows import ADAPTIVE_LEARNER_CELLS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.learners import GLM, SuperLearner
@@ -70,6 +78,13 @@ def test_the_family_of_each_learner_kind() -> None:
     assert nuisance_family(DecisionTreeClassifier()) == "adaptive"
     assert nuisance_family(None) == "adaptive"
     assert adaptive_nuisance([GLM(), None]) and not adaptive_nuisance([GLM(), GLM()])
+
+
+def test_the_default_library_is_none_or_a_super_learner_with_no_library() -> None:
+    assert default_library_learner(None) and default_library_learner(SuperLearner())
+    # Witnesses: an adaptive library named, and a single adaptive learner.
+    assert not default_library_learner(SuperLearner(library=[DecisionTreeClassifier()]))
+    assert not default_library_learner(DecisionTreeClassifier())
 
 
 @pytest.mark.parametrize(
@@ -126,9 +141,9 @@ def test_a_row_without_the_qualifier_still_covers_the_fit() -> None:
     assert ADAPTIVE_NUISANCE in adaptive.key.qualifiers
     assert adaptive.row is not None and parametric.row is not None
     assert adaptive.row.id == parametric.row.id == "T11.in_sample"
-    assert frozenset({ADAPTIVE_NUISANCE}) == SOFT_QUALIFIERS
-    # No registered row declares the qualifier, so it never narrows a row's coverage.
-    assert not any(ADAPTIVE_NUISANCE in row.key.qualifiers for row in registered_rows())
+    assert frozenset({ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED}) == SOFT_QUALIFIERS
+    # No registered row declares either qualifier, so neither narrows a row's coverage.
+    assert not any(SOFT_QUALIFIERS & row.key.qualifiers for row in registered_rows())
 
 
 def test_a_hard_qualifier_is_still_a_difference() -> None:
@@ -177,6 +192,73 @@ def test_the_study_is_evidence_of_the_rows_its_gated_fits_reach() -> None:
     assert study.STUDY.slug not in rows["T11.in_sample"].evidence
 
 
+# ------------------------------------------------------------------ the measured ground
+
+
+def _stacked(**learners: Any) -> TMLE:
+    return TMLE(cross_fit=True, simultaneous=False, **learners)
+
+
+@pytest.mark.parametrize(
+    ("learners", "clusters", "measured"),
+    [
+        ({}, 10, True),
+        ({}, 20, True),
+        ({"treatment_learner": GLM()}, 20, True),
+        ({"outcome_learner": DecisionTreeClassifier()}, 10, False),
+        ({"outcome_learner": SuperLearner(library=[DecisionTreeClassifier()])}, 20, False),
+    ],
+    ids=["default_10", "default_20", "default_q_glm_g", "tree_10", "named_library_20"],
+)
+def test_a_stacked_fit_is_measured_with_the_default_library_alone(
+    learners: dict[str, Any], clusters: int, measured: bool
+) -> None:
+    """The default library at 10 clusters keeps ``T11.stacked``; another learner is unmeasured."""
+    classification = _classify(_stacked(**learners), clusters=clusters)
+    assert classification.row is not None and classification.row.id == "T11.stacked"
+    assert ADAPTIVE_NUISANCE in classification.key.qualifiers
+    assert (ADAPTIVE_MEASURED in classification.key.qualifiers) is measured
+    expected = None if measured else ADAPTIVE_UNMEASURED_REASON.format(row="T11.stacked")
+    assert adaptive_nuisance_shortfall(classification, "wald_t") == expected
+
+
+@pytest.mark.parametrize(("clusters", "measured"), [(20, True), (12, False), (4, False)])
+def test_the_ltmle_default_library_is_measured_from_20_clusters(
+    clusters: int, measured: bool
+) -> None:
+    """The study's own cross-fitted ``LTMLE``, stopped at the classifier, at three counts."""
+    frame = study.draw(study.LTMLE_LAW, clusters, 0)
+    observed = support_cases.capture(lambda: study.fit_one("ltmle_crossfit", frame))
+    classification = classify_key(observed.key, observed.learners)
+    assert classification.row is not None and classification.row.id == "G07"
+    assert classification.key.dependence == "t"
+    expected = None if measured else ADAPTIVE_UNMEASURED_REASON.format(row="G07")
+    assert adaptive_nuisance_shortfall(classification, "wald_t") == expected
+
+
+_UNMEASURED_ROWS = ("T11.fold_evaluated", "T37.few_cluster", "D05", "G26.clusters_20")
+
+
+@pytest.mark.parametrize("row", _UNMEASURED_ROWS)
+def test_a_row_the_study_does_not_reach_is_unmeasured_even_with_the_default_library(
+    row: str,
+) -> None:
+    """Fold-evaluated ``TMLE``, DR-TMLE and SDR: the measured qualifier does not carry over."""
+    case = next(case for case in support_cases.CASES if case.row == row)
+    classification = support_cases.classification(case)
+    assert classification.row is not None and classification.row.id == row
+    assert classification.key.dependence == "t"
+    assert row not in ADAPTIVE_LEARNER_CELLS
+    key = replace(
+        classification.key,
+        qualifiers=classification.key.qualifiers | {ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED},
+    )
+    labelled = replace(classification, key=key)
+    assert adaptive_nuisance_shortfall(labelled, "wald_t") == ADAPTIVE_UNMEASURED_REASON.format(
+        row=row
+    )
+
+
 # ---------------------------------------------------------------------------------- labels
 
 
@@ -197,12 +279,15 @@ def _tree() -> DecisionTreeClassifier:
     return DecisionTreeClassifier(max_depth=3, min_samples_leaf=10, random_state=0)
 
 
-def test_a_cross_fitted_adaptive_fit_keeps_its_row_label() -> None:
-    """The registered run passes every stacked count, so the stacked fit stays supported."""
+def test_a_stacked_tree_fit_is_not_measured_below_40_clusters() -> None:
+    """The study measured the default library, so a stacked tree fit is experimental."""
     estimate = _clustered(_tree(), stacked=True)["ate"]
-    assert estimate.support.label == "supported"
+    assert estimate.support.label == "experimental"
     assert estimate.support.row == "T11.stacked"
-    assert "few-cluster-adaptive-learners" in estimate.support.evidence
+    assert ADAPTIVE_UNMEASURED_REASON.format(row="T11.stacked") in estimate.support.reason
+    assert "F28" in estimate.support.evidence
+    assert np.all(np.isfinite(estimate.ci))
+    # At 40 clusters the fit leaves the t tier, and the qualifier with it.
     at_forty = _clustered(_tree(), clusters=40, stacked=True)["ate"]
     assert at_forty.support.label == "supported"
     assert at_forty.support.row == "T10.unweighted"
@@ -263,20 +348,20 @@ def in_sample() -> Any:
 
 @pytest.fixture
 def stacked() -> Any:
-    """The stacked adaptive fit, supported on ``T11.stacked``."""
+    """The stacked tree fit, experimental on ``T11.stacked`` because it is not measured."""
     result = _clustered(_tree(), stacked=True)
-    assert result["ate"].support.label == "supported"
+    assert result["ate"].support.label == "experimental"
     return result
 
 
 @pytest.fixture
 def ltmle() -> Any:
-    """The cross-fitted clustered LTMLE with an adaptive outcome learner (the sweep kind)."""
+    """The cross-fitted clustered LTMLE with a tree outcome (the sweep kind), not measured."""
     result = sweep.fit_clustered_ltmle_adaptive()
     for name in list(result.keys()):
-        assert result[name].support.label == "supported", name
+        assert result[name].support.label == "experimental", name
         assert result[name].support.row == "G07"
-        assert "few-cluster-adaptive-learners" in result[name].support.evidence
+        assert ADAPTIVE_UNMEASURED_REASON.format(row="G07") in result[name].support.reason
     return result
 
 
@@ -338,13 +423,13 @@ def test_every_drawing_plot_draws_the_labelled_ltmle_fit(ltmle: Any, plot: str) 
 def test_the_sensitivity_plots_draw_and_note_the_label(
     fixture: str, request: pytest.FixtureRequest
 ) -> None:
-    """The truncation plot names the experimental label of the in-sample fit; both draw."""
+    """The truncation plot names the experimental label of each fit; both plots draw."""
     result = request.getfixturevalue(fixture)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         truncation, contour = _sensitivity_plots(result)
     noted = any("experimental" in line for line in plotting.notes(truncation))
-    assert noted is (fixture == "in_sample")
+    assert noted
     plt.close(truncation)
     plt.close(contour)
 

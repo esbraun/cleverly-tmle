@@ -621,8 +621,9 @@ def fit_clustered_ltmle_adaptive() -> Any:
 
     ``make_longitudinal(600, 12)`` in 20 clusters of 30 rows, five outer folds. 20 clusters put
     the fit on the ``t`` tier, where row ``G07`` covers it, and the tree makes its key carry
-    ``adaptive_nuisance`` (X54 part (h)). The qualifier moves only the support label, so every
-    row that the in-sample ``ltmle`` kind answers runs here.
+    ``adaptive_nuisance`` (X54 part (h)). A tree is outside the measured ground, so the label is
+    experimental (:data:`cleverly._support.ADAPTIVE_UNMEASURED_REASON`). The qualifier moves only
+    the support label, so every row that the in-sample ``ltmle`` kind answers runs here.
     """
     from sklearn.tree import DecisionTreeRegressor
 
