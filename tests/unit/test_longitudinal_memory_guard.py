@@ -208,17 +208,20 @@ def test_the_refined_grid_is_counted_and_a_nominal_count_breaks_the_mtp_bound(
     """The density counts the bins of the refined grid, not ``density_bins``.
 
     ``bin_edges`` splits the wide outer core bins, so the ``mtp`` case's 40 core bins fit 49.
-    Counted at 40, its prediction falls below the traced peak.
+    Counted at 40, its prediction fell below the traced peak until X106 D1a built the hazard
+    design once instead of twice (2.24 and 1.55 times the peak since), so the control is the
+    size of the drop: the refined count adds at least a third to the prediction.
     """
     case, family, _ = TRACED["mtp"]
     peak, counts = support.traced(case, N)
     assert counts.family == family
     assert counts.bins > case["B"]
-    assert _bound_holds(peak, _memory_guard.predicted_bytes(counts))
+    predicted = _memory_guard.predicted_bytes(counts)
+    assert _bound_holds(peak, predicted)
     monkeypatch.setattr(_memory_guard, "refined_bins", lambda data, nominal: nominal)
     _, nominal = support.traced(case, N)
     assert nominal.bins == case["B"]
-    assert not _bound_holds(peak, _memory_guard.predicted_bytes(nominal))
+    assert _memory_guard.predicted_bytes(nominal) < 0.75 * predicted
 
 
 def test_the_two_cause_survival_bound() -> None:
@@ -1459,8 +1462,8 @@ def test_the_message_omits_counts_at_one_and_names_bins() -> None:
     assert 'ratio="classifier" (no binned density)' in str(error.refusal.alternative)
     assert (
         "At one worker it can exceed the true peak by up to 3.5 times, more on fits under about "
-        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a liblinear treatment "
-        "learner." in text
+        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a binned density."
+        in text
     )
     # The classifier route builds no binned density, so neither bins remedy appears.
     classifier = replace(counts, family="ltmle_continuous_classifier", bins=0)
