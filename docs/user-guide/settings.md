@@ -19,10 +19,9 @@ by_object = TMLEMethod(
 )
 ```
 
-Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` is what
-`study.identify(...)` returned. The five group objects are `ModelSpec`, `CrossFitting`,
-`Targeting`, `Inference` and `Runtime`; each section heading names its object. Four keywords differ from the
-name of the setting they set: `cross_fit`, `stratify_folds`, `targeting` and `cv_evaluation`.
+Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` is the question
+`study.identify(...)` returned ([quickstart](../getting-started/quickstart.md)). The five group
+objects are `ModelSpec`, `CrossFitting`, `Targeting`, `Inference` and `Runtime`.
 
 The "used on" column names the fits that read the setting: *point* is a single treatment
 decision (`PointTreatment`), *over time* treatments or outcomes recorded at several times,
@@ -38,7 +37,7 @@ Super Learner that weighs boosting, a random forest and a lasso by their cross-v
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
-| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial | the model of the outcome given the treatment and the covariates; on a time to an event checked at set times, the model of the event (or of its hazard under `survival_model="hazard"`) |
+| `outcome_learner` | `outcome_learner` | `None` | point, over time, trial | the model of the outcome given the treatment and the covariates; on a time to an event checked at set times, the model of the event (or, under `survival_model="hazard"`, of its hazard, the event's chance at each time among those at risk) |
 | `treatment_learner` | `treatment_learner` | `None` | point, over time, exact times, trial | the model of who gets each treatment option, at each time over time |
 | `missingness_learner` | `missingness_learner` | `None` | point, trial | the model of whose outcome is observed, and of whose treatment is observed when a missing treatment is declared |
 | `intermediate_learner` | `intermediate_learner` | `None` | point | the model of the variable after treatment that a controlled direct effect holds fixed |
@@ -85,12 +84,13 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 ## The correction step: `Targeting`
 
 After the models are fitted, a correction step uses the treatment model to remove the bias the
-outcome model leaves.
+outcome model leaves. Each round shrinks the score, an average over the rows that measures the
+bias left, toward zero.
 
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
 | `fluctuation` | `fluctuation` | `'logistic'` | point | the form of the correction: `"logistic"` keeps predictions inside the outcome's range, `"linear"` does not |
-| `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until its bias term is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
+| `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until the score is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
 | `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the effect among the treated (ATT) or untreated (ATC); over time, (0.01, 1.0) |
 | `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it; give the range the outcome can logically take |
 | `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of an observed intermediate variable) |
@@ -125,14 +125,14 @@ states their contracts.
 | `band_scale` | `band_scale` | `'logit'` | point, over time, exact times | build the band of a probability on the logit scale, so it stays inside 0 to 1, or on the estimate's own scale (`"identity"`) |
 | `band_reference` | `band_reference` | `'normal'` | point, over time | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 
-With `simultaneous=None` a fit with several estimates adds the band where it can. Collaborative
-TMLE and DR-TMLE over time, which fit only an event outcome, report pointwise intervals only, and a fit with
-repeated outer splits and the collaborative TMLE strategies that select a model report no band.
-[How every method reports uncertainty](../technical-reference/inference.md) states when each
-interval and band holds.
+With `simultaneous=None` a fit with several estimates adds the band where it can. Collaborative TMLE
+and DR-TMLE over time, which fit only an event outcome, report an interval for each estimate but no
+band, and a fit with repeated outer splits and the collaborative TMLE strategies that select a model
+report no band. [How every method reports uncertainty](../technical-reference/inference.md) states
+when each interval and band holds.
 
-Each bootstrap replicate refits every model, so `n_bootstrap=200` multiplies the run time by about
-200; [count the fits](methods-learners.md) before a long run.
+Each bootstrap replicate refits every model; [count the fits](methods-learners.md) before a long
+run.
 
 ## Seeds, run labels and parallel jobs: `Runtime`
 
@@ -147,9 +147,10 @@ Each bootstrap replicate refits every model, so `n_bootstrap=200` multiplies the
 
 ## Method options
 
-Each method object takes the five groups above and the options below. `TMLEMethod` (the default),
-`SDRMethod` (sequential doubly robust), `IPSIMethod` (incremental propensity scores) and
-`GComputationMethod` (sequential g-computation) take no options of their own.
+Each method object takes the five groups above and the options below. `TMLEMethod` (the default,
+targeted maximum likelihood estimation), `SDRMethod` (sequential doubly robust), `IPSIMethod`
+(incremental propensity scores) and `GComputationMethod` (sequential g-computation) take no options
+of their own.
 
 ### Collaborative TMLE
 
