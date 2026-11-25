@@ -98,8 +98,9 @@ CALIBRATION_N = PRIMARY_N
 #: smallest multiple of 400 at which every cell, read at its own pilot SE ratio with that ratio's
 #: pilot error, passes with probability 0.95 as a family. At ideal ratios that rule gives 6,400
 #: (``test_learned_rule_contrast_comparators_design``). The design test applies it to the
-#: pilot's ratios, and the count is raised to its value before the declared run.
-CALIBRATION_REPLICATES = 6_400
+#: pilot's ratios, and the count is raised to its value before the declared run. Raised
+#: from 6,400 to 10,000 by the per-arm rule on the 4,000-draw pilot before any declared draw.
+CALIBRATION_REPLICATES = 10_000
 #: The largest calibration count a pilot may raise the count to: the 95th percentile, as a
 #: multiple of 400, of the per-arm count over pilots of sixteen cells at a true SE ratio of 1
 #: with the pilot's own error, so a well-behaved pilot fits. The study's budget is set at this
