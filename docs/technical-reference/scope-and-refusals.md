@@ -309,7 +309,7 @@ The [contract page](adaptive-tmle.md) states the estimator.
 | `CrossFitting(repeats)` above 1 | `MethodConfigurationError`, `inference_gap` | no source combines adaptive working-model fits across splits |
 | `form="cv"` with fewer than three folds, or with cross-fitting off | `MethodConfigurationError`, `invalid_declaration` | the form selects and targets each fold on the other folds. Use three or more folds or `form="pooled"` |
 | a setting of `ModelSpec`, `CrossFitting`, `Targeting`, `Inference` or `Runtime` that the method does not read | `MethodConfigurationError`, `invalid_declaration` | each is refused by name, with its reason |
-| `weights=`, `cluster=`, `strata=`, `intermediate=` or `treatment_missingness=` | not a field of the design | no source derives them |
+| `weights=`, `cluster=`, `strata=`, `intermediate=` or `treatment_missingness=` on `TrialWithExternalData` | `CapabilityError`, `implementation_gap`, roadmap F40, when the design is declared | the adaptive TMLE has no weighted, clustered, stratum, held-intermediate or missing-treatment form. Fit the trial rows alone with `PointTreatment`, which takes each role |
 | a null in the trial-membership column; a frame with no trial row, no external row, or one trial arm; an arm whose outcomes are all missing | `DataError` | the effect would be extrapolated |
 | every sensitivity analysis, the refutation operations and the truncation curve | `CapabilityError`, `inference_gap` or `api_redirection` | the bounds assume a point-treatment fit. Each call names its reason |
 

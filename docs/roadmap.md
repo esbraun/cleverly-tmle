@@ -2680,6 +2680,7 @@ reports the `working_model_projection` status. A testable form of the condition 
 | an interval for the trial effect, from a testable oracle-approximation condition | adaptive-optimum inference | a rate for the approximation error of the selected working model that the data can check, and a limit law under it. Theorem 1 assumes the rate and does not test it |
 | adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
 | a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
+| adaptive TMLE with sampling weights, clusters, strata, a held intermediate or a missing treatment | regularity | a weighted or clustered form of the working-model selection and of the projection the interval covers, a projection per stratum, and a held-intermediate or missing-treatment form of the decomposition. `TrialWithExternalData` refuses each role when it is declared |
 
 ### F41. Intervals for a constant arm cell or an estimate on its bound
 

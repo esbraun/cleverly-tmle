@@ -900,6 +900,63 @@ TRIAL_BINARY_TREATMENT_REFUSAL = Refusal(
 )
 
 
+def _trial_role_refusal(role: str, reason: str) -> Refusal:
+    """The record of one ``TrialWithExternalData`` role the adaptive TMLE has no form for."""
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"Adaptive TMLE for a trial with external data {reason}",
+        alternative=f"Fit the trial rows alone with PointTreatment({role}=...).",
+        roadmap="F40",
+    )
+
+
+#: The roles of :class:`PointTreatment` that the pooled design declares only to refuse, in the
+#: order ``TrialWithExternalData.__post_init__`` checks them: the field, then its record.
+TRIAL_ROLE_REFUSALS: Final[tuple[tuple[str, Refusal], ...]] = (
+    (
+        "weights",
+        _trial_role_refusal(
+            "weights",
+            "fits its working-model selection and the projection its interval covers "
+            "without weights; no weighted form is derived here.",
+        ),
+    ),
+    (
+        "cluster",
+        _trial_role_refusal(
+            "cluster",
+            "treats the pooled rows as independent: its cross-validated working-model "
+            "selection does not split by cluster, and its influence curve is not summed "
+            "within clusters; no clustered form is derived here.",
+        ),
+    ),
+    (
+        "strata",
+        _trial_role_refusal(
+            "strata",
+            "reports the effect over the population that population= names; a stratum effect "
+            "would need its own working-model projection, which no form here derives.",
+        ),
+    ),
+    (
+        "intermediate",
+        _trial_role_refusal(
+            "intermediate",
+            "identifies the total effect of the randomized treatment; a direct effect with an "
+            "intermediate held fixed has no adaptive form here.",
+        ),
+    ),
+    (
+        "treatment_missingness",
+        _trial_role_refusal(
+            "treatment_missingness",
+            "reads the treatment of every row; a missing-treatment mechanism has no adaptive "
+            "form here.",
+        ),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class TrialWithExternalData:
     """Declare a randomized trial pooled with external data on the same outcome.
@@ -933,13 +990,25 @@ class TrialWithExternalData:
         assumes nothing about why external outcomes are missing.
     outcome_family : {"auto", "gaussian", "binomial"}, default="auto"
         Outcome family. ``"auto"`` infers it from observed values.
+    weights : str or None, default=None
+        Refused when set: the adaptive TMLE has no weighted form here
+        (``cleverly.study.TRIAL_ROLE_REFUSALS``).
+    cluster : str or None, default=None
+        Refused when set: the adaptive TMLE treats the pooled rows as independent.
+    strata : sequence of str, default=()
+        Refused when not empty: a stratum effect would need its own working-model projection.
+    intermediate : str or None, default=None
+        Refused when set: the design identifies the total effect of the treatment.
+    treatment_missingness : str or None, default=None
+        Refused when set: the adaptive TMLE reads the treatment of every row.
 
     Raises
     ------
     DataError
         When two roles name one column, or ``adjustment`` is empty or repeats a column.
     CapabilityError
-        When ``treatment`` names more than one column.
+        When ``treatment`` names more than one column, or one of the refused roles above
+        is set.
 
     See Also
     --------
@@ -964,8 +1033,16 @@ class TrialWithExternalData:
     trial: Any = 1
     missingness: str | None = None
     outcome_family: Family = "auto"
+    weights: str | None = field(default=None, kw_only=True)
+    cluster: str | None = field(default=None, kw_only=True)
+    strata: Sequence[str] = field(default=(), kw_only=True)
+    intermediate: str | None = field(default=None, kw_only=True)
+    treatment_missingness: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        for role, refusal in TRIAL_ROLE_REFUSALS:
+            if getattr(self, role):
+                raise CapabilityError.from_refusal(refusal)
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         if not isinstance(self.treatment, str):
             raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
