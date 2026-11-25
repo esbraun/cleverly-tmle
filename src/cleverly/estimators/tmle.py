@@ -4066,8 +4066,8 @@ class TMLE:
         learned = in_sample_learner_condition(self, data)
         if learned is not None:
             conditions.append(learned)
-        # A cross-fitted EP rule fit with a declared sieve or final learner (P1 part (c)) runs,
-        # and the registered study measured only the default sieve with least squares.
+        # A cross-fitted EP rule fit of the optimal value with a declared final learner (P1)
+        # runs; the registered study measured it without a verdict.
         curve = ep_rule_condition(self)
         if curve is not None:
             conditions.append(curve)

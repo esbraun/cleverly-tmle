@@ -57,6 +57,9 @@ PROPERTY_CELLS = study.PROPERTY_CELLS
 #: The share of a cell's requested replications that the accounting lets a run lose.
 FAILURE_BOUND = 0.01
 
+#: The factor of the shrunken-SE control, which ``claims.thresholds`` publishes.
+SHRUNKEN_SE_FACTOR = study.SHRUNKEN_SE_FACTOR
+
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 

@@ -2468,6 +2468,43 @@ def _learned_rule_ep_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional"), case("misspecified_limit"), optimal)
 
 
+def _learned_rule_ep_declared_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-ep-declared`` (P1 PR 1): ``T51`` and ``T51.optimal``.
+
+    ``T51`` runs the study's own fit of each declared curve (``S``, the declared sieve, and
+    ``L``, the declared final learner) on a draw of each law at the primary size, and
+    ``T51.optimal`` its optimal-value fit with the declared sieve and ``g0`` supplied, each up
+    to the classifier. The optimal-value fit with the declared learner states no verdict, so it
+    has no case.
+    """
+    module, slug = "learned_rule_ep_declared", "learned-rule-ep-declared"
+
+    def case(cell: str) -> RowCase:
+        return _observed(
+            "T51",
+            slug,
+            cell,
+            "learned_rule_ep_declared.py:419",
+            module,
+            lambda study: study.draw_from_seed(cell, 2_000, 0)[0],
+            lambda study, frame: study.measured(frame, *study.scenario_of(cell), 0),
+        )
+
+    optimal = _observed(
+        "T51.optimal",
+        slug,
+        "optimal__S",
+        "learned_rule_ep_declared.py:419",
+        module,
+        lambda study: study.base.draw("non_exceptional", 2_000, 0),
+        lambda study, frame: study.measured(frame, "S", "non_exceptional", 0, optimal=True),
+    )
+    return (
+        *(case(cell) for cell in ("S_nonexc_2k", "S_misspec_2k", "L_nonexc_2k", "L_misspec_2k")),
+        optimal,
+    )
+
+
 def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
     """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
 
@@ -3620,6 +3657,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_split_mean_cases(),
     *_learned_rule_learners_cases(),
     *_learned_rule_ep_cases(),
+    *_learned_rule_ep_declared_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),

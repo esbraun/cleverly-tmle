@@ -18,14 +18,14 @@ learners, ten outer folds, ``cv_evaluation=True``, pooled targeting and ``g_boun
 the shipped study's; truth per replicate is rule L4 (each fold's rule refitted through
 ``fit_fold_rule``), so ``truth_varies_by_replicate``.
 
-The calibration ``R`` needs the 1,400-draw pilots per cell
-(:mod:`tests.studies.learned_rule_ep_declared_pilot`), which have not run;
-:data:`BUDGETED_R` is the plan's budget, which the declaration commit replaces by the computed
-``R`` when larger.  Fix-3 PR 2 is on main: the package forms the interval of every value this
-study estimates, an unclustered mean of a binary outcome, on the logit scale
-(``interval_scale == "range_logit"``), and ``covered`` reads that interval.  The standard error,
-and with it every SE ratio and the pilot's ``R``, does not depend on the interval.  It is not
-registered: it joins :func:`tests.studies.evidence.registry.registered` with its declared run.
+The calibration ``R`` is :data:`BUDGETED_R`, 12,000 per cell, the point reading of the two
+pooled pilots (:mod:`tests.studies.learned_rule_ep_declared_pilot`).  The package forms the
+interval of every value this study estimates, an unclustered mean of a binary outcome, on the
+logit scale (``interval_scale == "range_logit"``), and ``covered`` reads that interval.  The
+standard error, and with it every SE ratio and the pilot's ``R``, does not depend on the
+interval.  The declared run at ``9bd7aa90`` is registered in
+:func:`tests.studies.evidence.registry.registered`; its artifacts are in
+``tests/canonical/learned_rule_ep_declared``.
 """
 
 from __future__ import annotations
@@ -216,6 +216,52 @@ STUDY = StudyRecord(
     publication_policy="gated",
     truth_varies_by_replicate=True,
 )
+
+#: The estimator configuration the manifest records.  The declared run's publish step set it
+#: in memory to this dictionary (``tests/canonical/provenance-revisions.md``).
+CONFIGURATION = {
+    "fit": (
+        "TMLE(learned_rule=declared_rule(curve, random_state=<fold seed>), n_folds=10, "
+        "cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', "
+        "random_state=<fold seed>); primary n = 2000, interval_calibration n = 16000 "
+        "(the validation-rule control n = 2000); rows only, repeats=1"
+    ),
+    "rule_S": (
+        "LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], domains={'W1': (-1, 1)}, "
+        "levels={'W2': (0, 1)}), sieve=Sieve(Additive(BSpline(['W1'], 4), Indicators('W2')), "
+        "size=4)): the declared sieve, no size chosen"
+    ),
+    "rule_L": (
+        "LearnedRule(loss='ep', modifiers=<the same>, learner=HistGradientBoostingRegressor("
+        "max_depth=2, learning_rate=0.1, max_iter=100, early_stopping=False, "
+        "random_state=<fold seed>)): the declared final learner, the default sieve's size "
+        "chosen by cross-validation"
+    ),
+    "optimal_value": (
+        "the same fit with estimands=['ey_optimal_rule'] and treatment_probabilities=g0 at "
+        "non_exceptional (optimal_known_g)"
+    ),
+    "paired_limit_fit": (
+        "each S cell: the same estimator, sample and outer folds with every row's rule fixed at "
+        "the S limit rule of its law; truth the limit rule's value"
+    ),
+    "outcome_learner": (
+        "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), "
+        "LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)"
+    ),
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": "RM30 non_exceptional and misspecified_limit; optimal_known_g at non_exceptional",
+    "calibration_r": "12,000 per calibration cell (BUDGETED_R), the point reading of the pooled pilots",
+    "truth": (
+        "per replication: refit each fold's rule through fit_fold_rule with the recorded inner "
+        "seed, require the fit's rule on every validation row, and average the fold rules' "
+        "values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2"
+    ),
+    "fold_seed": (
+        "primary: stream_seed(record, 'fold_partition', 'primary', scenario, replicate); "
+        "property cells: fold_seed(cell, replicate) on the property stream"
+    ),
+}
 
 #: The pilot streams.  ``pilot_2`` is the second, independent pilot that the sizing rule pools
 #: with the first when the first alone gives no budget (the precedent of the per-arm C-TMLE

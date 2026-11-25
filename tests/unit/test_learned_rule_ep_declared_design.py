@@ -1,7 +1,8 @@
 """The design of ``learned-rule-ep-declared`` (P1 plan rev 2.2, section 5.2), without a run.
 
-The declared sieve's limit is computed by quadrature on the RM30 grid; the calibration ``R``
-needs the 1,400-draw pilots per cell, which have not run.  The harness, the paired limit fit,
+The declared sieve's limit is computed by quadrature on the RM30 grid; the calibration ``R`` is
+the point reading of the two pooled pilots, and the manifest's configuration is the module's
+:data:`~tests.studies.learned_rule_ep_declared.CONFIGURATION`.  The harness, the paired limit fit,
 the streams, the summary and the cost gate are checked here on small fits (design review
 B3, B4, S3, S4, S6, S7).
 """
@@ -377,3 +378,12 @@ def test_the_second_pilot_pools_only_distinct_pilot_streams() -> None:
     with pytest.raises(ValueError, match="not a pilot stream"):
         pilot.pilot_rows(stream="property")
     assert study.verified(study.VERIFY_EVERY + 1, "pilot_2")
+
+
+def test_the_configuration_is_the_one_the_manifest_records() -> None:
+    """The publish step set ``CONFIGURATION`` in memory; the module now carries it verbatim."""
+    import json
+
+    manifest = json.loads((study.STUDY.artifacts / "manifest.json").read_text(encoding="utf-8"))
+    recorded = manifest["configuration"]
+    assert {key: recorded[key] for key in study.CONFIGURATION} == study.CONFIGURATION

@@ -98,6 +98,7 @@ ep-cate
 ep-crr
 ep-assessment
 learned-rule-ep
+learned-rule-ep-declared
 targeting-curves
 score-assessment
 score-assessment-compositions
