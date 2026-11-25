@@ -9,10 +9,14 @@ reads stacked `TMLE` at 10, 20 and 40 clusters and cross-fitted `LTMLE` at 20.
 
 **Status of this page.** The study is registered, and its run has completed. No other
 implementation fits a few-cluster TMLE with a Super Learner and a $t$ reference, so the study has
-no comparator. The publication policy is `reporting`. Every gated row passes, so a stacked `TMLE`
-or a cross-fitted `LTMLE` with the default library keeps its row's label (`T11.stacked`,
-`T10.unweighted` at 40 clusters, `G07`). The in-sample fits are reported only: an in-sample fit
-with a data-adaptive learner stays experimental by theory. No row is red, so the study holds no row
+no comparator. The publication policy is `reporting`.
+
+Every gated row passes, so stacked `TMLE`
+at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, keep
+their row's label (`T11.stacked`, `T10.unweighted` at 40 clusters, and `G07` from 20 clusters).
+Another adaptive learner, `LTMLE` below 20 clusters and the fold-evaluated, `DRTMLE` and `SDR`
+fits are not measured, and read experimental. The in-sample fits are reported only: an in-sample
+fit with a data-adaptive learner stays experimental by theory. No row is red, so the study holds no row
 in the [red-cell ledger](red-cells.md).
 
 | part | what it is | status |
@@ -221,7 +225,8 @@ from the committed results and checked at the precision printed.
 - **Equal clusters and binary outcomes.** Clusters of 10 rows on two laws, and 40 units on one
   longitudinal law; a binary treatment and outcome, and no weights, strata or missing outcomes.
 - **Three counts.** 10, 20 and 40 clusters for stacked `TMLE`, and 20 for cross-fitted `LTMLE`.
-  The fold-evaluated fit and `DRTMLE` are not measured with these learners.
+  The fold-evaluated fit, `DRTMLE` and `SDR` are not measured with these learners, nor `LTMLE`
+  below 20 clusters, and each reads experimental.
 - **One library.** The default library only. Another adaptive library is not measured, and Remark
   3 remains the source's caution for it.
 - **No overfit `LTMLE` control.** The `LTMLE` cell reads the stacked point control of L1 at 20

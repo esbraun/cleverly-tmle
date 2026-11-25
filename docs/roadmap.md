@@ -70,7 +70,7 @@ tier is the one the legend lists.
 | scale | the scaling and efficiency work of [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths). The owner put it ahead of every fix and feature not already in progress on 2026-11-14 |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X6. Most trial endpoints are times to an event |
-| 3 | gaps in shipped functionality, in this order: X54 parts (j) and (k), X11, X81, X80, X75 |
+| 3 | gaps in shipped functionality, in this order: X54 parts (h), (j) and (k), X11, X81, X80, X75 |
 | 4 | one engine for the Riesz representer of later targets |
 | 5 | further estimands, designs and nuisance learners, in this order: X5, X2, X7, X99, X94 |
 | 6 | compositions of advanced options. An item here starts when a user or a higher item needs it |
@@ -1171,10 +1171,12 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (a) to (i) are delivered ([delivered items](roadmap-delivered.md)).
+cells. Parts (a) to (g) and (i), and part (h) for the default learner library, are delivered
+([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
 | --- | --- | --- |
+| (h) | data-adaptive nuisance learners at few clusters outside the measured ground | a registered study for each composition. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md) measures stacked `TMLE` at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, and that part is delivered. Unmeasured, and experimental with the reason "not measured with an adaptive learner": fold-evaluated `TMLE`, `DRTMLE`, `SDR`, cross-fitted `LTMLE` below 20 clusters, and any adaptive learner other than the default library. An in-sample fit with an adaptive learner stays experimental by theory |
 | (j) | redeclare the stacked family (d5 estimated SE tail at 10 clusters; slack at J15/J20) | a redeclaration fixed before its run, which owns the red `X54-stacked-d5-redeclaration` holds. The five-covariate estimated stacked fit reads SE ratio 1.158 [1.062, 1.390] at 10 clusters and 1.048 at 15 and 20, so its IID control cannot be licensed at 10. The redeclaration reads the SE tail (the largest standard errors, a median or trimmed SE ratio, near-separation of the five-covariate treatment GLM) and the slack at 15 and 20 clusters. It covers the stacked floor and its control reading only: the stacked part (c) result stands, (A) over (B) by 5 calibrated counts to 2. It decides the stacked jackknife, which stays refused until then. The stacked floor stays 10 |
 | (k) | cells for the unmeasured estimates below the default floors | a registered study whose cells read the arm means at every count from the family's contrast floor to one below its default floor: `ey1` and `ey0` of in-sample `TMLE` at 6 to 9, of fold-evaluated `TMLE` and declared-mechanism `DRTMLE` at 8 to 9, and `ey_regimen[always]` and `ey_regimen[never]` of in-sample `LTMLE` at 6 to 19 and of cross-fitted `LTMLE` at 4 to 19. The same counts leave unmeasured the ATT and ATC, the `rr` and `or` ratios, a second `LTMLE` contrast such as a rule against never, survival and competing-risk curves, working-model coefficients, and the always-versus-never contrast on a panel design other than the measured one (more nodes, a node with three levels, another censoring pattern). A study that adds any of them names its cells and counts here. The floor studies measured the contrast at every count and arm means only on their primaries: in-sample `LTMLE` `ey_regimen[never]` covers 0.914 [0.889, 0.935] at 10 clusters, where the ATE covers 0.931. Until then those estimates, and any other estimate than the measured contrast, keep the default floor under `few_cluster_estimand_plugin`, and no page claims them below it |
 
@@ -2543,10 +2545,11 @@ An in-sample fit on the $t$ tier with a data-adaptive nuisance learner keeps the
 label by theory: each learner predicts from its fit to the full sample, so no Donsker argument
 covers it. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md)
 reports its in-sample cells with the default learner library at coverage 0.906 to 0.919 and a
-variance ratio of 0.72 to 0.88 from 10 to 40 clusters, while the cross-fitted fits pass.
+variance ratio of 0.72 to 0.88 from 10 to 40 clusters, while stacked `TMLE` at 10 to 40 clusters
+and cross-fitted `LTMLE` at 20 clusters, with the default library, pass.
 
-[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (j) and (k)
-hold the remaining small-sample work. The cluster-as-unit theory is the same at 4 clusters as
+[X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (h), (j) and
+(k) hold the remaining small-sample work. The cluster-as-unit theory is the same at 4 clusters as
 at 10, so that work needs evidence and not a theorem. F28 stays the owner id of the clustered red
 cells.
 

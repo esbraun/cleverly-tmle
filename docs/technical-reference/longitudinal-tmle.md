@@ -2557,9 +2557,10 @@ unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, P
 (2024), Remark 3, caution against complex learners at about 20 clusters.
 [`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures a
 cross-fitted `LTMLE` with the default learner library for every outcome node at 20 clusters, and
-it passes every gated clause. An in-sample `LTMLE` below 40 clusters with a data-adaptive nuisance
-learner is experimental, with its interval shown, as [clusters](inference.md#clusters) explains
-for point fits.
+it passes every gated clause, so the cross-fitted fit with the default library keeps its label
+from 20 clusters. Below 40 clusters an in-sample `LTMLE` with a data-adaptive nuisance learner,
+and a cross-fitted one below 20 clusters or with another adaptive learner, is experimental with
+its interval shown, as [clusters](inference.md#clusters) explains.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
 cluster-summed curve and the status are the same for every target, a
