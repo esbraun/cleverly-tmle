@@ -29,6 +29,20 @@ from tests.unit.tutorial_semantics import (
     stored_output,
 )
 
+#: Decimals the readings write that no stored output prints, each with its reason.
+UNPRINTED_DECIMALS = {
+    "1.0": "intermediate=1.0 in the direct-effect cell, the visit value the effect sets",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "association-reading": {"0.5641": "data"},
+    "failure-reading": {"0.0872": "estimates"},
+    "assessment-heading": {"0.0095": "estimate", "0.01": "estimate"},
+}
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = ("sensitivity", "refutation")

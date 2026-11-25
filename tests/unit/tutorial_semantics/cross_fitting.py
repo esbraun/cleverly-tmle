@@ -45,6 +45,7 @@ _CLUSTERED = "tests/canonical/lmtp_clustered_tmle/properties.csv"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.6": "the printed share of patients below 0.1, 0.0063, as a percentage (assessment)",
     "0.93": f"cross-fitted mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
     "0.70": f"in-sample mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
     "-0.0024": f"in-sample mean estimate minus the truth, 200 draws: {_PROBE}/summary.log",
@@ -63,6 +64,13 @@ UNPRINTED_DECIMALS = {
     "0.06185": f"upper end of that bias interval: {_REFUTATION}/main_generated.log",
     "-0.03615": f"main bounded generated-outcome bias reading: {_REFUTATION}/main_generated.log",
     "-0.1341": f"lower end of that bias interval: {_REFUTATION}/main_generated.log",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.0114": "estimate", "0.9886": "estimate"},
 }
 
 

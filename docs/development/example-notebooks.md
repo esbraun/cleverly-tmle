@@ -60,11 +60,30 @@ the refit test. That test checks every notebook at once, so run it by name.
 | `test_every_notebook_has_an_internally_consistent_execution_artifact` | a code cell or an output that changed after the stamp, an error output, or non-contiguous execution counts |
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
-| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds. The test skips refit cells |
+| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, a claim in `check` that no longer holds, or a cell whose printed text no longer matches its stored output (below). The test skips refit cells |
 | `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that the callback module's `REFIT_CELLS` does not list, a listed cell that is no longer a refit cell, or a notebook callback module without `REFIT_CELLS` |
-| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, or a claim in `check` or `check_refits` that no longer holds |
+| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, a claim in `check` or `check_refits` that no longer holds, or any cell whose printed text no longer matches its stored output |
+| `test_every_notebook_was_executed_on_the_current_version` | a stamp or a `setup` version line that names another `cleverly` version. A release pull request re-executes every notebook |
 | `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
+| `test_every_narrated_decimal_reads_an_output_in_its_own_section` | a decimal that no code cell of the reading's own section prints, or a stale `NARRATION_SOURCES` entry (below). This test also reads the TWINS notebook |
+| `test_every_static_only_notebook_calls_the_current_api` | TWINS only: a `cleverly` call whose arguments the current signature refuses |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
+
+The fast tier compares what each executed cell prints, and the plain text of each value it
+displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
+left out. One last-digit rounding change per cell passes, so a library release that rounds
+differently does not fail; a count that changes, or a result that moves, fails. When it fails,
+re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
+to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
+callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces.
+
+A reading may quote only the code cells of its own section: from the nearest heading above it to
+the next heading of the same or a higher level, together with the code cells directly in the
+sections around it. Each lesson under "Go deeper" is its own section. The `title` and `interpret`
+cells summarize the page and may quote any cell. A reading that quotes another section names the
+cell in the callback's `NARRATION_SOURCES`, literal by literal, such as
+`{"assessment-heading": {"0.0114": "estimate"}}`. An entry fails when the literal leaves the
+reading, the named cell stops printing it, or the cell moves into the reading's section.
 
 The link test `tests/unit/test_documentation_links.py` also reads the markdown cells. Every relative
 link and every heading anchor in them must resolve.

@@ -81,6 +81,7 @@ _REFUTE_PROBE = "reviews/notebook-review/probes/point-treatment-tmle-refuters"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.05": f"the law's smallest true propensity, at least 0.05: {_PROBE}/truth.log (check asserts min g >= 0.05)",
     "0.98": f"mean SE over empirical SD of the Step 6 fit, 200 draws: {_PROBE}/summary.log",
     "1.9": f"share (0.0188) of the law's true propensity below 0.1: {_PROBE}/truth.log",
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8286 by Monte Carlo: {_PROBE}/truth.log",
@@ -94,6 +95,14 @@ UNPRINTED_DECIMALS = {
         PROBE_LITERALS,
         f"a value of the Step 10 review probe logs, {_REFUTE_PROBE}/standard.log and generated.log",
     ),
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.0114": "estimate", "0.9886": "estimate"},
+    "truncation-heading": {"0.9886": "estimate"},
 }
 
 

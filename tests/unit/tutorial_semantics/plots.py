@@ -14,6 +14,12 @@ import numpy as np
 
 from tests.unit.tutorial_semantics import covers, figure_title
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "fit-reading": {"1.000": "forest"},
+}
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = ("simulated-confounding",)

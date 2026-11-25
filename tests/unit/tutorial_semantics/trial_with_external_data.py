@@ -22,6 +22,13 @@ UNPRINTED_DECIMALS: dict[str, str] = {
 }
 
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "comparison-reading": {"0.014": "assessment"},
+}
+
+
 def _check_data(namespace: dict[str, Any]) -> None:
     frame, truth = namespace["frame"], namespace["truth"]
     assert frame.shape == (3000, 6)

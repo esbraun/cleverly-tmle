@@ -660,6 +660,8 @@ def narration_mismatches(
     last written place. It does not match ``0.2634`` or ``-0.2491``.
     The check is static: it reads the committed outputs, so a platform difference in a fresh run
     cannot move it.  The execution stamp ties those outputs to the code, and this ties the prose to them.
+    :func:`scoped_narration_mismatches` applies it per section, so a reading cannot borrow a
+    number that only another section prints.
 
     A scientific literal such as ``5.114e-04`` has a tolerance of half a unit in the mantissa's
     last place, times ten to its exponent.  An output matches it only if it also shows at least
@@ -696,3 +698,141 @@ def narration_mismatches(
         if not matched:
             missing.append(literal)
     return missing
+
+
+#: The markdown cells that summarize the whole page, so their decimals may read any stored
+#: output: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
+#: outline in ``docs/development/example-notebooks.md`` names them.
+SUMMARY_CELLS = frozenset({"title", "interpret"})
+
+_HEADING = re.compile(r"^(#{1,6})\s+\S")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+@dataclasses.dataclass(frozen=True)
+class NarrationScope:
+    """One stretch of a markdown cell and the code cells whose outputs it may quote.
+
+    Parameters
+    ----------
+    cell : str
+        The markdown cell id.
+    text : str
+        The stretch of the cell between two headings.
+    sources : tuple[str, ...]
+        The code cell ids in scope.
+    """
+
+    cell: str
+    text: str
+    sources: tuple[str, ...]
+
+
+def narration_scopes(path: Path) -> list[NarrationScope]:
+    """Split each markdown cell at its headings, and give each stretch its scope.
+
+    A stretch belongs to the innermost section open where it stands, from a heading of any level
+    to the next heading of the same or a higher level.  Its scope is the code cells that sit
+    directly in that section, before or after it, together with the code cells that sit directly
+    in each enclosing section (outside any of that section's subsections).  So each lesson under
+    "Go deeper" (level three) is its own scope, and a reading cannot quote a number that only
+    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell.
+    """
+    cells = _notebook(path)["cells"]
+    # Each section: (level, parent index or None).  Section 0 is the page before any heading.
+    sections: list[tuple[int, int | None]] = [(0, None)]
+    stack = [0]
+    direct: dict[int, list[str]] = {0: []}
+    stretches: list[tuple[str, str, int]] = []
+    for cell in cells:
+        if cell["cell_type"] == "code":
+            direct[stack[-1]].append(cell["id"])
+            continue
+        if cell["cell_type"] != "markdown":
+            continue
+        lines: list[str] = []
+        fenced = False
+        for line in _joined(cell.get("source", "")).splitlines():
+            if _FENCE.match(line):
+                fenced = not fenced
+            heading = None if fenced else _HEADING.match(line)
+            if heading:
+                if lines:
+                    stretches.append((cell["id"], "\n".join(lines), stack[-1]))
+                lines = []
+                level = len(heading.group(1))
+                while sections[stack[-1]][0] >= level:
+                    stack.pop()
+                sections.append((level, stack[-1]))
+                stack.append(len(sections) - 1)
+                direct[stack[-1]] = []
+            lines.append(line)
+        if lines:
+            stretches.append((cell["id"], "\n".join(lines), stack[-1]))
+    every = tuple(cell["id"] for cell in cells if cell["cell_type"] == "code")
+    scopes = []
+    for cell_id, text, section in stretches:
+        if cell_id in SUMMARY_CELLS:
+            scopes.append(NarrationScope(cell_id, text, every))
+            continue
+        sources: list[str] = []
+        index: int | None = section
+        while index is not None:
+            sources.extend(direct[index])
+            index = sections[index][1]
+        scopes.append(NarrationScope(cell_id, text, tuple(sources)))
+    return scopes
+
+
+def scoped_narration_mismatches(
+    path: Path,
+    unprinted: Mapping[str, str] | None = None,
+    declared: Mapping[str, Mapping[str, str]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Decimals that no output in their own scope prints, and stale declared cross-references.
+
+    ``declared`` is a callback module's ``NARRATION_SOURCES``: for a markdown cell id, each
+    literal the cell quotes from a code cell outside its scope, mapped to that code cell's id.
+    An entry is stale when the markdown cell is gone, the literal is no longer in that cell, the
+    named code cell does not print a match, or the named code cell is already in scope.
+
+    Returns
+    -------
+    tuple[list[str], list[str]]
+        ``"cell: literal"`` for each unmatched decimal, and a description of each stale entry.
+    """
+    cells = _notebook(path)["cells"]
+    outputs = {
+        cell["id"]: "\n".join(_output_text(output) for output in cell.get("outputs", ()))
+        for cell in cells
+        if cell["cell_type"] == "code"
+    }
+    declared = {cell: dict(entries) for cell, entries in (declared or {}).items()}
+    scopes = narration_scopes(path)
+    missing = []
+    used: set[tuple[str, str]] = set()
+    for scope in scopes:
+        printed = "\n".join(outputs[cell] for cell in scope.sources)
+        for literal in narration_mismatches(scope.text, printed, unprinted):
+            source = declared.get(scope.cell, {}).get(literal)
+            if (
+                source is not None
+                and source in outputs
+                and source not in scope.sources
+                and not narration_mismatches(literal, outputs[source])
+            ):
+                used.add((scope.cell, literal))
+                continue
+            missing.append(f"{scope.cell}: {literal}")
+    stale = []
+    markdown = {scope.cell for scope in scopes}
+    for cell, entries in declared.items():
+        for literal, source in entries.items():
+            if cell not in markdown:
+                stale.append(f"{cell} is not a markdown cell of the page")
+            elif (cell, literal) not in used:
+                stale.append(
+                    f"{cell}: {literal} from {source} (the literal is gone, the cell {source} does "
+                    "not print it, or it is already in scope)"
+                )
+    return missing, stale

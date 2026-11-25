@@ -49,6 +49,10 @@ _REFUTE = "reviews/notebook-review/probes/collaborative-tmle-refuters/probe.log"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.1": "a bound of the probe measure (share of g outside 0.1 to 0.9), not a result",
+    "0.9": "a bound of the probe measure (share of g outside 0.1 to 0.9), not a result",
+    "0.45": "intercept=0.45 of BernoulliAdjustmentOutcome in the generated cell, a setting of the simulated law",
+    "0.3": "adjustment_scale=0.3 of BernoulliAdjustmentOutcome in the generated cell, a setting of the simulated law",
     "+0.0006": f"mean error of both fits (+0.00055), 2,000 draws: {_PROBE}",
     "0.0358": f"ordinary TMLE empirical SD (0.03583), 2,000 draws: {_PROBE}",
     "0.0297": f"OAT C-TMLE empirical SD (0.02969), 2,000 draws: {_PROBE}",
@@ -65,6 +69,13 @@ UNPRINTED_DECIMALS = {
     "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
     "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
     "1.01": f"both placebo ratios of mean reported SE over SD (1.012, 1.010), 400 refits: {_REFUTE}",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "plan": {"0.7": "protocol"},
 }
 
 

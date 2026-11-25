@@ -31,11 +31,19 @@ SENSITIVITY_LOG = _PROBES / "sensitivity_all.log"
 _PROBE = "reviews/notebook-review/probes/twins-birth-weight/generated_outcome_400.log"
 
 UNPRINTED_DECIMALS: dict[str, str] = {
+    "0.08": "the size of the printed paired shift, -0.0818 standard errors (refute)",
     "0.03182": f"bias reading of the generated-outcome test, 400 draws: {_PROBE}",
     "-0.06618": f"lower limit of that bias interval, 400 draws: {_PROBE}",
     "0.1298": f"upper limit of that bias interval, 400 draws: {_PROBE}",
     "-0.2": f"lower limit of the level-2 equivalence band: {_PROBE}",
     "0.2": f"upper limit of the level-2 equivalence band: {_PROBE}",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.975": "att-fit"},
 }
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.

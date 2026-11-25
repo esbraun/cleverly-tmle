@@ -27,6 +27,10 @@ _PROBE = "reviews/notebook-review/probes/schedules-and-intensity"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.4": "the odds of an example patient, a 20% chance over a 50% chance",
+    "0.8": "the example patient's odds of 0.4, doubled",
+    "0.97": f"mean SE over the SD, together minus added up, 400 draws: {_PROBE}/sweep.log",
+    "0.2": "the printed movement -0.2 standard errors, read as a size without its sign",
     "1.03": f"mean SE over the SD, medium and high doubled, 400 draws: {_PROBE}/sweep.log",
     "0.99": f"mean SE over the SD, high doubled, 400 draws: {_PROBE}/sweep.log",
     "1.04": f"mean SE over the SD, more navigator time, 400 draws: {_PROBE}/sweep.log",
