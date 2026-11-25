@@ -1459,7 +1459,8 @@ def test_the_message_omits_counts_at_one_and_names_bins() -> None:
     assert 'ratio="classifier" (no binned density)' in str(error.refusal.alternative)
     assert (
         "At one worker it can exceed the true peak by up to 3.5 times, more on fits under about "
-        "20 MiB with the simultaneous band on, and more with n_jobs > 1." in text
+        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a liblinear treatment "
+        "learner." in text
     )
     # The classifier route builds no binned density, so neither bins remedy appears.
     classifier = replace(counts, family="ltmle_continuous_classifier", bins=0)

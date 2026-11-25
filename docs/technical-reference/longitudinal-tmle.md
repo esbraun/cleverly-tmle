@@ -3483,7 +3483,7 @@ fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's rang
 
 Because the largest reading without the band is 3.31, the refusal states: "At one worker it can
 exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with the simultaneous band
-on, and more with n_jobs > 1." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
+on, and more with n_jobs > 1 or a liblinear treatment learner." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
 two and four workers, 2 to 20 folds, and parallel bootstraps) the prediction reads 1.29 to 1.94
 times the measured resident footprint of the parent and every worker. The lowest, 1.29 to 1.30, are
 `SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`coldterm.out`).
@@ -3493,6 +3493,15 @@ learners, and other learners' own memory is not counted. With the default learne
 prediction read 0.94 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
 four for the one-node hazard fit, and two regimens; the `gap` rows of `fit.out`), so a fit with
 heavier learners can pass the check and still run out of memory.
+
+A treatment learner that is scikit-learn's `LogisticRegression` with `solver="liblinear"` fits
+the binned density on a sparse design, which holds each record's covariates, bin index and one
+bin indicator rather than every indicator, and gives the same model. The binned families still
+count the dense design, so for such a learner the prediction reads higher. On `LTMLE` shift fits
+with 2,000 units, four nodes, four regimens and three folds it read 2.64, 7.62 and 13.99 times
+the traced peak at 60, 200 and 320 bins, against 2.64 and 3.52 with the default solver at 60 and
+200 bins; `SDR` read 1.53, 3.99 and 6.66 (`rows/X106/D/evidence/` in the plans repository). No
+fit the dense design would pass is refused.
 
 The worker constants assume workers that start cold. A second call with `n_jobs > 1` in the same
 session finds its workers already started and outside the memory available, so it is over-counted
