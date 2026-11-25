@@ -455,6 +455,7 @@ def _check_weights_lesson(namespace: dict[str, Any]) -> None:
     worst = censoring.loc[censoring["after"].idxmax()]
     # "falls from 0.25 to 0.14, which is identified needs in the second period".
     assert worst["covariate"] == "identified_needs" and worst["exposure"] == "censoring at 2"
+    assert censoring.drop(index=worst.name)["after"].max() < worst["after"] - 0.01
     rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
     # "At the day-31 offer they reach 28.72 for never and 14.533 for always".
     assert rows["never", 2] > rows["always", 2] > rows["always", 1]

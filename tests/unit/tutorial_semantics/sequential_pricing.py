@@ -1524,6 +1524,12 @@ def _check_weights_lesson(namespace: dict[str, Any]) -> None:
     assert (rows["natural_prices"] == 1.0).all()
     for plan in ("price_up", "price_down"):
         assert rows[plan].is_monotonic_increasing
+    # "at 0.95, the largest 5% of ratios are trimmed", and "a trimmed fit reports no interval".
+    curve = namespace["cap_curve"]
+    at_95 = curve[curve["ratio_trim"].eq(0.95)]
+    assert at_95["trimmed_share"].between(0.04, 0.06).all()
+    trimmed = curve[curve["trimmed_share"] > 0]
+    assert (trimmed["inference_status"] == "trimmed_ratio_plugin").all()
     # "Even that moves each effect by at most 0.04 standard errors".
     assert cap_moves(namespace, "ratio_trim").abs().max().max() < 0.045
     # "The cut's effect rests on fewer".

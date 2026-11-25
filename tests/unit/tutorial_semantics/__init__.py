@@ -955,7 +955,7 @@ def assert_weights_lesson(namespace: Mapping[str, Any], *, feedback: bool | None
         assert largest.loc[check, "after"] < largest.loc[check, "before"]
     assert largest.loc["confounding", "after"] < 0.1
     if feedback:
-        # "The feedback rows ... grow ... by design".
+        # The feedback rows "need not shrink": on these pages they grow, the code's own effect.
         assert largest.loc["feedback", "after"] > largest.loc["feedback", "before"]
     else:
         # "A survival fit has no feedback check".
