@@ -26,7 +26,7 @@ canonical-multi-arm-ctmle-selector,declared,17,15,0.025,root_n_and_efficiency/n_
 canonical-multi-arm-drtmle,declared,16,15,0.025,root_n_and_efficiency/n_500,root_n_and_efficiency/n_500,0,"root_n_and_efficiency/n_500 reads ate[medium vs high], a difference, which this screen does not model; asymmetric_audit reads it under MOVER"
 canonical-multi-arm-tmle,neutral,11,10,0.0125,,double_robustness/outcome_correct;power/alternative;root_n_and_efficiency/n_2000;root_n_and_efficiency/n_500;root_n_and_efficiency/n_8000,1,
 canonical-stratified-drtmle,neutral,8,7,0.04875,,,0,
-canonical-stratified-incremental-msm,declared,31,31,0.0265,interval_calibration/logit_v0_w__correctly_specified,interval_calibration/logit_v0_w__correctly_specified,1,"logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
+canonical-stratified-incremental-msm,declared,32,5,0.04,interval_calibration/logit_v0_w__correctly_specified,interval_calibration/logit_v0_w__correctly_specified,1,"logit_v0_w is a working-model coefficient of the logit MSM, whose interval is unchanged"
 canonical-stratified-msm-identity,neutral,12,11,0.004,,,0,
 canonical-stratified-tmle,audited,28,28,0.033,stratified_binary/ey[1][V=2];interval_calibration/v2_ey1__correctly_specified,interval_calibration/v2_ey1__correctly_specified,2,interval-audit.parquet
 canonical-tmle,neutral,7,5,0.01,,power/alternative,0,

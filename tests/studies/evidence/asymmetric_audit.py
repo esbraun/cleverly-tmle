@@ -186,6 +186,7 @@ CURRENT: dict[str, str] = {
     "longitudinal-mtp": "regenerated under the shipped intervals (Fix-9)",
     "policy-point-mtp": "regenerated under the shipped intervals (Fix-9)",
     "dose-response-npcausal": "regenerated under the shipped intervals (Fix-9)",
+    "canonical-stratified-incremental-msm": "regenerated under the shipped intervals (Fix-9)",
     "mtp-density-tails": "its rows were written under the shipped intervals (Fix-9)",
     # First run after the intervals shipped (X101 declared run at 927379cf).
     "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "

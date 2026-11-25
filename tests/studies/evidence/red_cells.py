@@ -900,6 +900,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
+    # Fix-9's regeneration of the stratified incremental and MSM study: property replicate 398
+    # holds a constant treated arm in stratum V = 2, Fix-3's constant_arm_cell_plugin status
+    # withholds those estimates' intervals, and the row check drops the whole fit group.  The
+    # stratum-0 cell is green on its complete case and red only by the worst-case clause, the
+    # refusal-limited reading of X26.
+    "F3-constant-arm-replicate": _keys(
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/v0_ate_x2__correctly_specified",
+    ),
     # X21. The gradient-boosting mechanism of law P, declared ``reporting`` before the run
     # (``PRE_ROUTED_GROUPS`` of the study).
     "adaptive-iptw-flexible-learner": (

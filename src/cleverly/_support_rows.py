@@ -2640,6 +2640,10 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
 #: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
 #: row note prints each sentence after the limits of the row itself.
 MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T15": (
+        "F3-constant-arm-replicate: coverage 0.9222 to 0.9506, SE ratio 0.9316 to 1.0113, "
+        "failures 1 of 2000 (worst case fails)",
+    ),
     "T36.three_arm_stacked": (
         "X26-plugin-conservative: coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, "
         "failures 32 of 10000 (complete case fails)",

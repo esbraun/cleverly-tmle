@@ -145,6 +145,7 @@ The test fails on four states.
 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | parametric g-formula |
 | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
 | [`X26-refusal-limited`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
+| [`F3-constant-arm-replicate`](../../roadmap.md#red-cell-owners) | 1 | stratified incremental and MSM targeting |
 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 6 | boundary-binding price plans over follow-up lengths |
 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 2 | boundary-binding price plans over follow-up lengths |
 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
@@ -159,7 +160,7 @@ The test fails on four states.
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
-| total | 286 | 46 studies |
+| total | 287 | 46 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -175,6 +176,7 @@ same text as the "measured" column of its study page.
 | [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `interval_calibration/v2_ey1__correctly_specified` | positive | its own rule | coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to 0.9931 | [`F3-normal-reference`](../../roadmap.md#red-cell-owners) |
 | [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `simultaneous_coverage/strata__simultaneous_band` | positive | its own rule | joint coverage 0.9196 to 0.9462 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
 | [stratified incremental and MSM targeting](stratified-incremental-msm.md) | property | `interval_calibration/logit_v2_a__correctly_specified` | positive | its own rule | coverage 0.9372 to 0.9626, SE ratio 0.7982 to 0.9931 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) |
+| [stratified incremental and MSM targeting](stratified-incremental-msm.md) | property | `interval_calibration/v0_ate_x2__correctly_specified` | positive | failure accounting: worst case fails | coverage 0.9222 to 0.9506, SE ratio 0.9316 to 1.0113, failures 1 of 2000 (worst case fails) | [`F3-constant-arm-replicate`](../../roadmap.md#red-cell-owners) |
 | [identity-link MSM with baseline strata](stratified-msm-identity.md) | paired | `stratified_msm_identity/msm[W][V=2]` | paired | inconclusive: calibration leg | difference -0.000049 to 0.000037 within 0.000694, RMSE ratio bound 1.0047 vs 1.1000, coverage difference bound -0.0220 vs -0.0250, calibration excess bound 0.0523 vs 0.0500, resolution 0.0476 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [identity-link MSM with baseline strata](stratified-msm-identity.md) | property | `interval_calibration/identity_v2_a__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9515, SE ratio 0.9264 to 1.0042, empirical efficiency ratio 0.9925 to 1.0766, reported efficiency ratio 0.9937 to 1.0005 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) |
 | [DR-TMLE with baseline strata](stratified-dr-tmle.md) | truth | `cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]` | cleverly-stratified-drtmle | its truth gate | bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) |

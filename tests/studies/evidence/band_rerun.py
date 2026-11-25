@@ -210,6 +210,11 @@ REGENERATED = {
         "Fix-9: regenerated in full on the refined conditional density, which moves its "
         "continuous-dose and classifier-route fits",
     ),
+    "canonical-stratified-incremental-msm": (
+        "9bb2e749b52e6a138362c1b521cd0f721f762d71",
+        "Fix-9: regenerated in full on the refined conditional density, which moves its "
+        "continuous MSM dose cells, at 58538bf plus the constant-arm band fix 9bb2e74",
+    ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.
 EXCLUSION_WITNESS = {

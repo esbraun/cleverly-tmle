@@ -79,6 +79,9 @@ LIMIT_OWNERS = frozenset(
         "mtp-pricing-learned-density",
         "X26-plugin-conservative",
         "X26-refusal-limited",
+        # Fix-9's regeneration: one replicate lost to a constant arm cell in another stratum,
+        # green on the complete case, the refusal-limited reading of X26.
+        "F3-constant-arm-replicate",
         "adaptive-iptw-finite-sample",
         "adaptive-iptw-composite-l3",
         "X39-below-tail-size",
@@ -238,6 +241,17 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         EXPERIMENTAL,
         "",
         "Q6",
+    ),
+    (
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/v0_ate_x2__correctly_specified",
+        "T15",
+        ("wald",),
+        LIMIT,
+        "F3-constant-arm-replicate: coverage 0.9222 to 0.9506, SE ratio 0.9316 to 1.0113, "
+        "failures 1 of 2000 (worst case fails)",
+        "",
     ),
     (
         "canonical-stratified-msm-identity",
