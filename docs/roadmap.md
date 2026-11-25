@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X107](#x107-front-door-pages-getting-started-and-workflow) Front door pages: getting started and workflow | docs | no new theory | the shipped point-treatment study API |
 | [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
 | [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
 | [X109](#x109-user-guide-capability-map-and-configuration-reference) User guide: capability map and configuration reference | docs | no new theory | X123 for the engine-only options |
@@ -669,25 +668,6 @@ and study records that state something the code does not do. No number moves.
   confounder surface, the refutation operations) get a test that ties the owner page to the code.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
-### X107. Front door pages: getting started and workflow
-
-The quickstart calls its interval a Wald interval where the fit reports the skew-widened $t$, says
-no study covers its law where the fit reads `supported`, names assumptions differently from the
-printed summary, and does not run on a core install. The workflow page narrates a dataset it
-never defines and never reaches plots, the support label, refutation, the other designs and
-methods, learner cost or provenance.
-
-- (a) Correct the stale statements on both pages and in the README lines they share.
-- (b) The path to a reader's own data: one cross-fitted call, the default learner library and its
-  cost, one spelling of `q_bounds`, the benchmark and E-value readings, and a front door that routes
-  each other analysis family to its guide and example.
-- (c) The workflow covers plots, the support label, refutation and per-check sensitivity, the
-  other design roles and designs, the other methods and when to use them, `planned_fits`, the
-  accessors and the band default, and says steps 3 to 7 hold for analyses over time.
-
-Acceptance: the documentation procedure in `CLAUDE.md`, and the reader review for each rewritten
-page.
 
 ### X123. Public API gaps the documentation needs
 
