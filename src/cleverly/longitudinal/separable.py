@@ -89,6 +89,7 @@ from .sequential import RegimenFit
 
 __all__ = [
     "FACTORS",
+    "SEPARABLE_COMBINATION_REFUSAL",
     "SEPARABLE_ENGINE_REFUSAL",
     "SEPARABLE_METHOD_REFUSAL",
     "Separable",
@@ -149,6 +150,16 @@ SEPARABLE_METHOD_REFUSAL = Refusal(
         "Use method=TMLEMethod(models=ModelSpec(survival_model='hazard'), "
         "targeting=Targeting(algorithm='one_step'))."
     ),
+    roadmap="X91",
+)
+
+
+#: The refusal of a :class:`Separable` regimen beside a learned regimen or ``msm=``.  The
+#: estimand decides it, so the study's method table gives it before any fit.
+SEPARABLE_COMBINATION_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "a Separable regimen is not combined with a learned regimen or a marginal structural model.",
+    alternative="Fit the separable regimens in their own fit.",
     roadmap="X91",
 )
 

@@ -361,6 +361,7 @@ from .regimen import (
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .separable import (
+    SEPARABLE_COMBINATION_REFUSAL,
     SEPARABLE_ENGINE_REFUSAL,
     SeparablePlan,
     refuse_separable_companions,
@@ -5718,12 +5719,7 @@ class _SequentialEstimator:
                 reason=RefusalReason.API_REDIRECTION,
             )
         if learned is not None or self.msm is not None:
-            refuse(
-                "a Separable regimen is not combined with a learned regimen or a marginal "
-                "structural model.",
-                "Fit the separable regimens in their own fit.",
-                reason=gap,
-            )
+            raise CapabilityError.from_refusal(SEPARABLE_COMBINATION_REFUSAL)
         refusal = separable_data_refusal(data)
         if refusal is not None:
             raise CapabilityError.from_refusal(refusal)

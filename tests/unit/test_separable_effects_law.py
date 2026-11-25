@@ -1068,6 +1068,46 @@ def test_an_eliminated_cause_makes_tmle_unavailable_with_the_fit_refusal() -> No
     assert caught.value.refusal == records["tmle"].refusal
 
 
+def test_later_covariates_make_tmle_unavailable_with_the_fit_refusal() -> None:
+    """The later-covariate branch, reached from a study on a panel with a covariate at t=2."""
+    from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+
+    law = survival_law(causes=2, with_l2=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        study = CausalStudy(law.frame(), design=LongitudinalTreatment(**law.fit_columns()))
+        question = study.identify(RegimeMean({"a0": 0, "sep": SEPARABLE}))
+    records = _records(question)
+    assert not records["tmle"].available
+    data = LongitudinalData.from_frame(law.frame(), **law.fit_columns())
+    assert records["tmle"].refusal == separable_module.separable_data_refusal(data)
+    assert records["tmle"].refusal.reason == "inference_gap"
+
+
+def test_a_marginal_structural_model_makes_tmle_unavailable_with_the_fit_refusal() -> None:
+    """The estimand decides this refusal, so the table gives it before any fit."""
+    from cleverly import MSMProjection
+    from cleverly.msm import MSM
+
+    split = Separable(arms={"readmission": 2, "death": 0}, first="death")
+    plans = {"high": 2, "none": 0, "split": split}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        question = _competing_study().identify(
+            MSMProjection(MSM.linear(), regimens=plans, horizons=(90,))
+        )
+    records = _records(question)
+    assert not records["tmle"].available
+    assert records["tmle"].refusal == separable_module.SEPARABLE_COMBINATION_REFUSAL
+    with warnings.catch_warnings(), pytest.raises(CapabilityError) as caught:
+        warnings.simplefilter("ignore")
+        question.estimate(method="tmle")
+    # The estimate gate names the method and the estimand, then gives the record.
+    combination = separable_module.SEPARABLE_COMBINATION_REFUSAL
+    assert caught.value.refusal.condition.endswith(combination.condition)
+    assert caught.value.refusal.reason == combination.reason
+
+
 @pytest.mark.parametrize("branch", ["eliminated", "later_covariates"])
 def test_the_data_refusal_is_the_one_the_fit_raises(branch: str) -> None:
     """The table and the fit read one function, so each data branch raises its record."""

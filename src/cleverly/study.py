@@ -102,6 +102,11 @@ from .longitudinal.regimen import (
     declares_tilt,
     tilt_nodes,
 )
+from .longitudinal.separable import (
+    SEPARABLE_COMBINATION_REFUSAL,
+    SEPARABLE_METHOD_REFUSAL,
+    separable_data_refusal,
+)
 from .methods import (
     ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL,
     BASELINE_POINT_REFUSAL,
@@ -6090,16 +6095,18 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             # Every longitudinal estimator but the hazard-engine LTMLE refuses a Separable
             # regimen before any learner, so the table gives each the record its fit raises,
             # with the method-spec alternative.
-            from .longitudinal.separable import SEPARABLE_METHOD_REFUSAL, separable_data_refusal
-
             sdr = ipsi = gcomp = ipw = gformula = False
             sdr_reason = ipsi_reason = gcomp_reason = ipw_reason = gformula_reason = (
                 SEPARABLE_METHOD_REFUSAL
             )
-            # The data alone can refuse every separable fit, the hazard-engine LTMLE's too.
+            # The estimand, then the data, can refuse every separable fit, the hazard-engine
+            # LTMLE's too, in the order the fit checks them. Either replaces an earlier tmle
+            # reason on purpose: the fit raises it before any other.
             data = getattr(self._study, "data", None)
             data_refusal = None if data is None else separable_data_refusal(data)
-            if data_refusal is not None:
+            if self.functional.msm is not None:
+                tmle, tmle_reason = False, SEPARABLE_COMBINATION_REFUSAL
+            elif data_refusal is not None:
                 tmle, tmle_reason = False, data_refusal
         iptw_reason = self._adaptive_iptw_refusal(design)
         if iptw_reason is None and estimated_declaration:
