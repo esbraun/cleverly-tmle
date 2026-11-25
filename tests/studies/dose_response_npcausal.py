@@ -104,7 +104,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 from unittest import mock
 
@@ -306,27 +306,16 @@ def fit_with_initials(frame: pd.DataFrame, **overrides: Any) -> tuple[Any, dict[
     """The declared fit, and each pair's untargeted plug-in on the outcome's scale.
 
     The fit targets every pair on the declared rule and then on the doubled rule.  The observer
-    records the weighted plug-in of each of the first calls to ``target_pair``, the value the
-    fluctuation starts from, and passes every call through unchanged (the S1 construction).
+    records the weighted plug-in of each cell's untargeted node plug-in on the declared rule
+    (``_untargeted_observer``), the value the fluctuation starts from (the S1 construction).
     """
-    original: Callable[..., Any] = dose_engine.target_pair
     seen: list[float] = []
 
-    def observed(
-        y: np.ndarray,
-        q_obs: np.ndarray,
-        q_nodes: np.ndarray,
-        h_obs: np.ndarray,
-        h_nodes: np.ndarray,
-        pair_weights: np.ndarray,
-        row_weights: np.ndarray,
-        **options: Any,
-    ) -> Any:
+    def observed(untargeted: np.ndarray, row_weights: np.ndarray) -> None:
         omega = np.asarray(row_weights, dtype=float)
-        seen.append(float(np.sum(omega * (q_nodes @ pair_weights)) / np.sum(omega)))
-        return original(y, q_obs, q_nodes, h_obs, h_nodes, pair_weights, row_weights, **options)
+        seen.append(float(np.sum(omega * untargeted) / np.sum(omega)))
 
-    with mock.patch.object(dose_engine, "target_pair", observed):
+    with mock.patch.object(dose_engine, "_untargeted_observer", observed):
         result = estimator(**overrides).fit(
             frame, outcome="Y", treatment="A", covariates=list(COVARIATES)
         )

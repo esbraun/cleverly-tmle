@@ -24,6 +24,7 @@ from cleverly.dose_response import (
     kernel,
     pair_name,
 )
+from cleverly.estimators._nuisance import NodePredictions
 from cleverly.estimators.dose_response import (
     DOSE_RESPONSE_BAND_DRAWS,
     DOSE_RESPONSE_BAND_MEASURED,
@@ -570,6 +571,10 @@ class _Density:
     def density_at(self, a: np.ndarray) -> np.ndarray:
         return _g_exact(np.asarray(a, dtype=float), self.w)
 
+    def _density_on(self, rows: np.ndarray, doses: np.ndarray) -> np.ndarray:
+        a = np.tile(np.asarray(doses, dtype=float), rows.size)
+        return _g_exact(a, np.repeat(self.w[rows], doses.size)).reshape(rows.size, doses.size)
+
 
 class _Outcome:
     def __init__(self, observed: np.ndarray, arms: dict[float, np.ndarray]) -> None:
@@ -582,11 +587,12 @@ class _Nuisance:
         w = data.covariates[:, 0]
         a = data.treatment
         self.density = _Density(w)
-        self.outcome = _Outcome(
-            _q_wrong(a, w),
-            {float(k): _q_wrong(np.full(a.size, dose), w) for k, dose in enumerate(rule.nodes)}
-            | {float(rule.n_nodes): _q_wrong(np.full(a.size, rule.nodes[-1]), w)},
-        )
+        self.outcome = _Outcome(_q_wrong(a, w), {})
+        # One fold holding every row; the extra last column lets the node-offset mutation
+        # read one node over.
+        doses = np.append(rule.nodes, rule.nodes[-1])
+        matrix = np.column_stack([_q_wrong(np.full(a.size, dose), w) for dose in doses])
+        self.node_predictions = NodePredictions((np.arange(a.size),), (matrix,))
         from cleverly.estimators.tmle import TMLE
 
         self.scaler = TMLE(cross_fit=False)._scaler(data)
@@ -618,7 +624,7 @@ def _exact_target(offset: int = 0):  # type: ignore[no-untyped-def]
         treatment_kind="continuous",
     )
     rule = EXACT_CURVE.quadrature(EXACT_EDGES)
-    return estimator._target(data, _Nuisance(data, rule), rule, offset, UNCLASSIFIED)  # type: ignore[arg-type]
+    return estimator._target(data, _Nuisance(data, rule), [(rule, offset)], UNCLASSIFIED)[0]  # type: ignore[arg-type]
 
 
 def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression() -> None:
@@ -626,7 +632,7 @@ def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regres
 
     The remainder is a product with the density error, so it is zero; the score equation then
     makes the plug-in exact.  The untargeted plug-in misses, so the fluctuation is a nonzero
-    witness, and this runs through ``DoseResponseTMLE._target`` and ``target_pair``.
+    witness, and this runs through ``DoseResponseTMLE._target`` and its node pass.
     """
     estimates, _, scores = _exact_target()
     for h, a0 in EXACT_CURVE.pairs:
@@ -652,17 +658,17 @@ def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regres
 def _mutated(monkeypatch: pytest.MonkeyPatch, mutation: str) -> None:
     import cleverly.estimators.dose_response as module
 
-    original = module.target_pair
+    observed = module._clever_observed
+    at_nodes = module._clever_nodes
 
-    def wrapped(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if mutation == "drop_inverse_density":
-            h_obs = np.sign(h_obs) * np.minimum(np.abs(h_obs), 1.0)
-            h_nodes = np.sign(h_nodes) * np.minimum(np.abs(h_nodes), 1.0)
-        elif mutation == "untargeted_nodes":
-            h_nodes = np.zeros_like(h_nodes)
-        return original(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs)
+    def capped(h: np.ndarray) -> np.ndarray:
+        return np.sign(h) * np.minimum(np.abs(h), 1.0)
 
-    monkeypatch.setattr(module, "target_pair", wrapped)
+    if mutation == "drop_inverse_density":
+        monkeypatch.setattr(module, "_clever_observed", lambda *a: capped(observed(*a)))
+        monkeypatch.setattr(module, "_clever_nodes", lambda *a: capped(at_nodes(*a)))
+    elif mutation == "untargeted_nodes":
+        monkeypatch.setattr(module, "_clever_nodes", lambda *a: np.zeros_like(at_nodes(*a)))
 
 
 @pytest.mark.parametrize("mutation", ["drop_inverse_density", "untargeted_nodes", "node_offset"])
@@ -684,17 +690,17 @@ def test_an_unsolved_fluctuation_is_a_data_error_a_study_records(
     A plain ``RuntimeError`` raised in ``cleverly`` stops a repeated-sampling run, and a resumed
     run reaches the same seed and stops again.
     """
-    from dataclasses import replace
 
     import cleverly.estimators.dose_response as module
     from cleverly.validation._failures import recordable
 
-    original = module.target_pair
+    original = module.solve_fluctuation
 
     def unsolved(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return replace(original(*args, **kwargs), converged=False)
+        epsilon, score, _ = original(*args, **kwargs)
+        return epsilon, score, False
 
-    monkeypatch.setattr(module, "target_pair", unsolved)
+    monkeypatch.setattr(module, "solve_fluctuation", unsolved)
     with pytest.raises(DataError, match="did not solve its score") as raised:
         _exact_target()
     assert recordable(raised.value)

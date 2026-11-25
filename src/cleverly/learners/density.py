@@ -896,11 +896,15 @@ def _knots_by_block(
 
 def _read(knots: _Knots, values: FloatArray) -> FloatArray:
     """The reading at ``(n, m)`` values, one row of values per row of the knots."""
-    e = knots.edges
     n = knots.value.shape[0]
     v = np.asarray(values, dtype=float).reshape(n, -1)
     rows = np.repeat(np.arange(n), v.shape[1])
-    flat = v.ravel()
+    return _read_at(knots, rows, v.ravel()).reshape(v.shape)
+
+
+def _read_at(knots: _Knots, rows: IntArray, flat: FloatArray) -> FloatArray:
+    """The reading of row ``rows[j]`` at ``flat[j]``: every step is entrywise."""
+    e = knots.edges
     finite = np.isfinite(flat)
     safe = np.where(finite, flat, e[0])
     index = np.clip(np.searchsorted(e, safe, side="right") - 1, 0, e.size - 2)
@@ -918,7 +922,7 @@ def _read(knots: _Knots, values: FloatArray) -> FloatArray:
         polygon = np.exp(at["value"] + slope * (safe - at["centre"]))
     out = np.where(at["multi"], polygon, at["flat"])
     out = np.where(inside & np.isfinite(out), out, 0.0)
-    return np.asarray(out.reshape(v.shape), dtype=float)
+    return np.asarray(out, dtype=float)
 
 
 def _mass(knots: _Knots, lower: FloatArray, upper: FloatArray) -> FloatArray:
@@ -1159,6 +1163,17 @@ class ConditionalDensity:
         if a.size != self.n:
             raise ValueError(f"density_at needs one value per row: got {a.size} for {self.n} rows")
         return _read(self._knots(), a).reshape(-1)
+
+    def _density_on(self, rows: IntArray, values: FloatArray) -> FloatArray:
+        """``(len(rows), len(values))`` density of each of ``rows`` at every one of ``values``.
+
+        Entry ``[j, k]`` is :meth:`density_at` of a column of ``values[k]`` at row
+        ``rows[j]``, the same value, read from the cached knots without a full-length call.
+        """
+        r = np.asarray(rows, dtype=np.int64).reshape(-1)
+        v = np.asarray(values, dtype=float).reshape(-1)
+        flat = _read_at(self._knots(), np.repeat(r, v.size), np.tile(v, r.size))
+        return flat.reshape(r.size, v.size)
 
     def mass_between(self, lower: FloatArray, upper: FloatArray) -> FloatArray:
         """``(n,)`` values of :math:`\\int_{l_i}^{u_i} \\hat g(a \\mid W_i)\\, da`, in closed form.

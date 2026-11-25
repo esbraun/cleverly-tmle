@@ -17,7 +17,7 @@ See ``docs/technical-reference/dose-response.md``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar, Final, Literal
 
@@ -26,15 +26,18 @@ import numpy as np
 from .._assessment_cache import AssessmentCache
 from .._inference_status import STATUS_RECORDS
 from .._support import Support, combine_support
-from .._typing import FloatArray
+from .._typing import FloatArray, IntArray
 from .._warnings import warn
 from ..data import CausalData
 from ..dose_response import (
+    BOUND,
     DoseResponse,
     QuadratureRule,
+    _fluctuate,
+    influence_curve,
     pair_name,
-    pair_support,
-    target_pair,
+    solve_fluctuation,
+    support_from,
 )
 from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
@@ -42,7 +45,7 @@ from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simu
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import frame_from_dict
-from ._nuisance import NuisanceEstimates, fit_nuisances
+from ._nuisance import NodePredictions, NuisanceEstimates, fit_nuisances
 
 __all__ = [
     "DOSE_RESPONSE_BAND_MEASURED",
@@ -62,6 +65,141 @@ NODE_MEMORY_BUDGET: Final[int] = 4 * 1024**3
 #: The doubling diagnostic warns when doubling the nodes moves an estimate by more than this
 #: fraction of its standard error.
 QUADRATURE_TOLERANCE: Final[float] = 0.05
+
+
+#: The working set one row tile of the node pass may hold, in bytes (:func:`_node_pass`).
+TILE_BYTES: Final[int] = 64 * 1024**2
+#: Row-by-node arrays the node pass holds at once per tile, measured: the gathered
+#: predictions, the density reading's temporaries, the clever covariate and the fluctuation.
+_TILE_ARRAYS: Final[int] = 32
+#: Rows of a tile come in multiples of this, so a BLAS matrix-vector kernel that groups rows
+#: by any divisor of it treats every row as it treats it in the untiled matrix.
+_TILE_ROWS: Final[int] = 64
+
+#: A test seam: called with each cell's untargeted per-row plug-in and its row weights, in
+#: the order the cells are reported (``tests/studies`` reads the untargeted curve with it).
+_untargeted_observer: Callable[[FloatArray, FloatArray], None] | None = None
+
+
+def _clever_observed(weight_obs: FloatArray, g_obs: FloatArray) -> FloatArray:
+    r"""The clever covariate :math:`w(A)/\hat g(A \mid W)` at the observed dose."""
+    return np.divide(weight_obs, g_obs, out=np.zeros_like(weight_obs), where=weight_obs != 0.0)
+
+
+def _clever_nodes(node_weight: FloatArray, g_block: FloatArray) -> FloatArray:
+    """The clever covariate at the nodes, for a block of rows (zero where unweighted)."""
+    return np.divide(
+        np.broadcast_to(node_weight, g_block.shape),
+        g_block,
+        out=np.zeros_like(g_block),
+        where=(node_weight != 0.0)[None, :] & (g_block > 0.0),
+    )
+
+
+@dataclass(eq=False)
+class _Cell:
+    """One pair in one stratum, with what the observed dose determines."""
+
+    pair: int
+    h: float
+    a0: float
+    label: str | None
+    stratum: int
+    index: int = -1
+    mask: Any = None
+    row_weights: Any = None
+    weight_obs: Any = None
+    h_obs: Any = None
+    omega: Any = None
+    observed_zero: bool = False
+    epsilon: float = 0.0
+    score: float = float("nan")
+    converged: bool = False
+
+    @property
+    def solved(self) -> bool:
+        return not self.observed_zero and self.converged
+
+
+@dataclass(frozen=True)
+class _NodeReading:
+    """One rule's node pass: plug-ins per solved cell, and the density's support facts."""
+
+    integral: dict[int, FloatArray]
+    untargeted: dict[int, FloatArray]
+    zero: Any
+    minimum: Any
+
+
+def _tiles(nodes: NodePredictions, n: int, height: int) -> list[IntArray]:
+    """Row tiles in fold order: ``height`` rows each, and the last ``n mod 64`` rows last.
+
+    Every tile but the last holds a multiple of 64 rows.  The last holds the data's final
+    ``n mod 64`` rows in order, which are the rows an untiled ``(n, K)`` matrix-vector
+    product leaves to its kernel's tail.
+    """
+    tail = n % _TILE_ROWS
+    stream = np.concatenate(nodes.tests)
+    stream = stream[stream < n - tail]
+    tiles = [stream[start : start + height] for start in range(0, stream.size, height)]
+    if tail:
+        tiles.append(np.arange(n - tail, n))
+    return tiles
+
+
+def _node_pass(
+    curve: DoseResponse,
+    density: Any,
+    nodes: NodePredictions,
+    rule: QuadratureRule,
+    offset: int,
+    cells: Sequence[_Cell],
+    codes: IntArray,
+    n_strata: int,
+    *,
+    fluctuation: Literal["logistic", "linear"],
+    observe: bool,
+) -> _NodeReading:
+    """Each solved cell's per-row targeted plug-in on ``rule``, read a row tile at a time.
+
+    Bitwise what the untiled pass gives at one BLAS thread: every step is entrywise except
+    the plug-in's matrix-vector product, and the tiles keep each row in the kernel's grouped
+    or tail part as the untiled matrix does (:func:`_tiles`).
+    """
+    n = codes.size
+    k = rule.n_nodes
+    height = max(_TILE_ROWS, TILE_BYTES // (k * 8 * _TILE_ARRAYS) // _TILE_ROWS * _TILE_ROWS)
+    node_weights = {cell.pair: curve.weight(cell.h, cell.a0, rule.nodes) for cell in cells}
+    integral = {i: np.empty(n) for i, cell in enumerate(cells) if cell.solved}
+    untargeted = {
+        i: np.empty(n) for i, cell in enumerate(cells) if observe and not cell.observed_zero
+    }
+    zero = np.zeros(k, dtype=bool)
+    minimum = np.full((n_strata, k), np.inf)
+    for rows in _tiles(nodes, n, height):
+        q_block = nodes.block(rows, offset, offset + k)
+        g_block = density._density_on(rows, rule.nodes)
+        zero |= np.any(g_block <= 0.0, axis=0)
+        tile_codes = codes[rows]
+        for s in range(n_strata):
+            chosen = tile_codes == s
+            if chosen.all():
+                np.minimum(minimum[s], g_block.min(axis=0), out=minimum[s])
+            elif chosen.any():
+                np.minimum(minimum[s], g_block[chosen].min(axis=0), out=minimum[s])
+        clever: dict[int, FloatArray] = {}
+        for i, cell in enumerate(cells):
+            weights = rule.weights[cell.pair]
+            if i in untargeted:
+                untargeted[i][rows] = q_block @ weights
+            if i not in integral:
+                continue
+            h_block = clever.get(cell.pair)
+            if h_block is None:
+                h_block = clever[cell.pair] = _clever_nodes(node_weights[cell.pair], g_block)
+            targeted = _fluctuate(q_block, h_block, cell.epsilon, fluctuation, BOUND)
+            integral[i][rows] = targeted @ weights
+    return _NodeReading(integral, untargeted, zero, minimum)
 
 
 def _pair_cell_name(h: float, a0: float, stratum: str | None) -> str:
@@ -1079,8 +1217,9 @@ class DoseResponseTMLE:
             weighted=not np.allclose(data.weights, data.weights[0]),
             n_replicates=self.n_replicates,
         )
-        coarse = self._target(data, nuisance, rule, 0, configured)
-        refined = self._target(data, nuisance, fine, rule.n_nodes, configured)
+        coarse, refined = self._target(
+            data, nuisance, [(rule, 0), (fine, rule.n_nodes)], configured
+        )
         estimates, supports, scores = coarse
         shift = max(
             abs(estimates[name].psi - refined[0][name].psi)
@@ -1161,111 +1300,142 @@ class DoseResponseTMLE:
         self,
         data: CausalData,
         nuisance: NuisanceEstimates,
-        rule: QuadratureRule,
-        offset: int,
+        rules: Sequence[tuple[QuadratureRule, int]],
         configured: Support,
-    ) -> tuple[dict[str, ParameterEstimate], tuple[PairSupport, ...], dict[str, float]]:
+    ) -> list[tuple[dict[str, ParameterEstimate], tuple[PairSupport, ...], dict[str, float]]]:
+        """Every pair in every stratum, on each of ``rules`` (a rule and its first node).
+
+        The fluctuation reads the observed dose only, so each cell's :math:`\\varepsilon` is
+        solved once and serves every rule.  The nodes are then read in row tiles from the
+        per-fold predictions (:func:`_node_pass`), never as an ``(n, K)`` matrix.  The cells
+        refuse in the order a rule-by-rule pass met them: for each rule, for each stratum and
+        pair, a zero density at an observed dose, then at a used node, then an unsolved
+        fluctuation.
+        """
         curve = self.curve
         density = nuisance.density
-        assert density is not None
+        nodes = nuisance.node_predictions
+        assert density is not None and nodes is not None
         scaler = nuisance.scaler
         y = scaler.scale(data.outcome)
         q_obs = np.asarray(nuisance.outcome.observed, dtype=float)
-        q_nodes = np.column_stack(
-            [nuisance.outcome.arms[float(offset + k)] for k in range(rule.n_nodes)]
-        )
         g_obs = density.density_at(data.treatment)
-        g_nodes = np.column_stack(
-            [density.density_at(np.full(data.n, dose)) for dose in rule.nodes]
-        )
-        estimates: dict[str, ParameterEstimate] = {}
-        supports: list[PairSupport] = []
-        scores: dict[str, float] = {}
-        strata: list[tuple[str | None, FloatArray]] = [(None, np.ones(data.n))]
-        if data.strata is not None:
-            strata = [
-                (data.stratum_label(code), (data.strata == code).astype(float))
-                for code in range(data.n_strata)
-            ]
+        if data.strata is None:
+            labels: list[str | None] = [None]
+            codes = np.zeros(data.n, dtype=np.int64)
+        else:
+            labels = [data.stratum_label(code) for code in range(data.n_strata)]
+            codes = np.asarray(data.strata, dtype=np.int64)
         cells = [
-            (p, h, a0, label, mask)
-            for label, mask in strata
+            _Cell(p, h, a0, label, s)
+            for s, label in enumerate(labels)
             for p, (h, a0) in enumerate(curve.pairs)
         ]
-        for p, h, a0, label, mask in cells:
-            name = _pair_cell_name(h, a0, label)
-            row_weights = data.weights * mask
-            weights = rule.weights[p]
-            weight_obs = curve.weight(h, a0, data.treatment)
-            if np.any((g_obs <= 0.0) & (weight_obs != 0.0)):
-                raise DataError(
-                    f"{name}: the fitted density is zero at an observed dose with positive weight"
-                )
-            used = weights != 0.0
-            if np.any(g_nodes[:, used] <= 0.0):
-                bad = rule.nodes[used][np.any(g_nodes[:, used] <= 0.0, axis=0)]
-                raise DataError(
-                    f"{name}: the fitted density is zero at doses {np.round(bad, 6).tolist()} "
-                    "inside the kernel's support; narrow the dose interval"
-                )
-            h_obs = np.divide(
-                weight_obs, g_obs, out=np.zeros_like(weight_obs), where=weight_obs != 0.0
+        for index, cell in enumerate(cells):
+            cell.index = index
+        for cell in cells:
+            mask = (codes == cell.stratum).astype(float)
+            cell.mask = mask
+            cell.row_weights = data.weights * mask
+            cell.weight_obs = curve.weight(cell.h, cell.a0, data.treatment)
+            cell.observed_zero = bool(np.any((g_obs <= 0.0) & (cell.weight_obs != 0.0)))
+            if cell.observed_zero:
+                continue
+            cell.h_obs = _clever_observed(cell.weight_obs, g_obs)
+            omega = np.asarray(cell.row_weights, dtype=float)
+            cell.omega = omega / omega.mean()
+            cell.epsilon, cell.score, cell.converged = solve_fluctuation(
+                y, q_obs, cell.h_obs, cell.omega, fluctuation=self.fluctuation
             )
-            node_weight = curve.weight(h, a0, rule.nodes)
-            h_nodes = np.divide(
-                np.broadcast_to(node_weight, g_nodes.shape),
-                g_nodes,
-                out=np.zeros_like(g_nodes),
-                where=(node_weight != 0.0)[None, :] & (g_nodes > 0.0),
-            )
-            fitted = target_pair(
-                y,
-                q_obs,
-                q_nodes,
-                h_obs,
-                h_nodes,
-                weights,
-                row_weights,
+        observing = _untargeted_observer is not None
+        passes = [
+            _node_pass(
+                curve,
+                density,
+                nodes,
+                rule,
+                offset,
+                cells,
+                codes,
+                len(labels),
                 fluctuation=self.fluctuation,
+                observe=observing,
             )
-            if not fitted.converged:
-                # A data error, not a programming one: the Newton steps ran out on this sample,
-                # and a repeated-sampling study records the draw (cleverly.validation._failures).
-                raise DataError(
-                    f"{name}: the fluctuation did not solve its score on this sample "
-                    f"(score {fitted.score:.3g}); the pair's clever covariate is too large for "
-                    "the submodel, so widen the bandwidth or narrow the dose interval"
+            for rule, offset in rules
+        ]
+        out = []
+        for (rule, _), found in zip(rules, passes, strict=True):
+            estimates: dict[str, ParameterEstimate] = {}
+            supports: list[PairSupport] = []
+            scores: dict[str, float] = {}
+            for cell in cells:
+                h, a0, label = cell.h, cell.a0, cell.label
+                name = _pair_cell_name(h, a0, label)
+                weights = rule.weights[cell.pair]
+                if cell.observed_zero:
+                    raise DataError(
+                        f"{name}: the fitted density is zero at an observed dose with positive "
+                        "weight"
+                    )
+                used = weights != 0.0
+                if np.any(found.zero[used]):
+                    bad = rule.nodes[used & found.zero]
+                    raise DataError(
+                        f"{name}: the fitted density is zero at doses {np.round(bad, 6).tolist()} "
+                        "inside the kernel's support; narrow the dose interval"
+                    )
+                if observing:
+                    assert _untargeted_observer is not None
+                    _untargeted_observer(found.untargeted[cell.index], cell.row_weights)
+                if not cell.converged:
+                    # A data error, not a programming one: the Newton steps ran out on this
+                    # sample, and a repeated-sampling study records the draw
+                    # (cleverly.validation._failures).
+                    raise DataError(
+                        f"{name}: the fluctuation did not solve its score on this sample "
+                        f"(score {cell.score:.3g}); the pair's clever covariate is too large for "
+                        "the submodel, so widen the bandwidth or narrow the dose interval"
+                    )
+                integral = found.integral[cell.index]
+                omega = cell.omega
+                psi = float(np.mean(omega * integral))
+                targeted_obs = _fluctuate(q_obs, cell.h_obs, cell.epsilon, self.fluctuation, BOUND)
+                influence = influence_curve(y, targeted_obs, cell.h_obs, integral, psi, omega)
+                inside = cell.mask > 0.0
+                minimum = found.minimum[cell.stratum, used]
+                report = support_from(
+                    cell.h_obs[inside],
+                    g_obs[inside],
+                    cell.weight_obs[inside],
+                    float(minimum.min()) if minimum.size and inside.any() else None,
                 )
-            inside = mask > 0.0
-            report = pair_support(
-                h_obs[inside], g_obs[inside], g_nodes[inside], weight_obs[inside], weights
-            )
-            below = report.kish < curve.support_floor
-            supports.append(
-                PairSupport(
+                below = report.kish < curve.support_floor
+                supports.append(
+                    PairSupport(
+                        name,
+                        h,
+                        a0,
+                        label,
+                        report.rows,
+                        report.kish,
+                        report.min_density,
+                        report.max_covariate,
+                        below,
+                    )
+                )
+                scores[name] = cell.score
+                estimates[name] = make_estimate(
                     name,
-                    h,
-                    a0,
-                    label,
-                    report.rows,
-                    report.kish,
-                    report.min_density,
-                    report.max_covariate,
-                    below,
+                    scaler.unscale_level(psi),
+                    influence * scaler.range,
+                    n=data.n,
+                    cluster=data.cluster,
+                    scale="level",
+                    alpha=self.alpha,
+                    inference="low_dose_support_plugin" if below else "influence_curve",
+                    support=_pair_support(configured, below),
+                    # Each pair's fluctuation solves its score or the fit refuses (above).
+                    rule_widened=False,
                 )
-            )
-            scores[name] = fitted.score
-            estimates[name] = make_estimate(
-                name,
-                scaler.unscale_level(fitted.psi),
-                fitted.influence_curve * scaler.range,
-                n=data.n,
-                cluster=data.cluster,
-                scale="level",
-                alpha=self.alpha,
-                inference="low_dose_support_plugin" if below else "influence_curve",
-                support=_pair_support(configured, below),
-                # Each pair's fluctuation solves its score or the fit refuses (above).
-                rule_widened=False,
-            )
-        return estimates, tuple(supports), scores
+            out.append((estimates, tuple(supports), scores))
+        return out

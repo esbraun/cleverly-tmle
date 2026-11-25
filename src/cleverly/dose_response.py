@@ -504,6 +504,10 @@ def influence_curve(
     return np.asarray(curve, dtype=float)
 
 
+#: The clip applied to a scaled regression before the logit of the logistic fluctuation.
+BOUND: Final[float] = 1e-5
+
+
 def _fluctuate(
     q: FloatArray, h: FloatArray, epsilon: float, kind: Literal["logistic", "linear"], bound: float
 ) -> FloatArray:
@@ -523,7 +527,7 @@ def target_pair(
     row_weights: FloatArray,
     *,
     fluctuation: Literal["logistic", "linear"] = "logistic",
-    bound: float = 1e-5,
+    bound: float = BOUND,
     tol: float = 1e-10,
     max_iter: int = 100,
 ) -> PairTarget:
@@ -568,6 +572,54 @@ def target_pair(
     """
     omega = np.asarray(row_weights, dtype=float)
     omega = omega / omega.mean()
+    epsilon, score, converged = solve_fluctuation(
+        y, q_obs, h_obs, omega, fluctuation=fluctuation, bound=bound, tol=tol, max_iter=max_iter
+    )
+    targeted_obs = _fluctuate(q_obs, h_obs, epsilon, fluctuation, bound)
+    targeted_nodes = _fluctuate(q_nodes, h_nodes, epsilon, fluctuation, bound)
+    integral = plug_in(targeted_nodes, pair_weights, omega)
+    psi = float(np.mean(omega * integral))
+    curve = influence_curve(y, targeted_obs, h_obs, integral, psi, omega)
+    return PairTarget(psi, curve, float(epsilon), score, converged)
+
+
+def solve_fluctuation(
+    y: FloatArray,
+    q_obs: FloatArray,
+    h_obs: FloatArray,
+    omega: FloatArray,
+    *,
+    fluctuation: Literal["logistic", "linear"] = "logistic",
+    bound: float = BOUND,
+    tol: float = 1e-10,
+    max_iter: int = 100,
+) -> tuple[float, float, bool]:
+    r""":func:`target_pair`'s :math:`\varepsilon`, which reads the observed dose only.
+
+    Parameters
+    ----------
+    y : ndarray
+        ``(n,)`` outcome on the scaled range.
+    q_obs : ndarray
+        ``(n,)`` initial regression at the observed dose, scaled.
+    h_obs : ndarray
+        ``(n,)`` clever covariate at the observed dose.
+    omega : ndarray
+        ``(n,)`` observation weights normalised to mean one.
+    fluctuation : {"logistic", "linear"}
+        The submodel.
+    bound : float
+        The clip applied to a scaled regression before the logit.
+    tol : float
+        Tolerance on the mean weighted score.
+    max_iter : int
+        Newton steps allowed.
+
+    Returns
+    -------
+    tuple
+        ``(epsilon, score, converged)``.
+    """
     epsilon = 0.0
     converged = False
     initial = h_obs * (y - _fluctuate(q_obs, h_obs, 0.0, fluctuation, bound))
@@ -604,12 +656,7 @@ def target_pair(
             fitted = _fluctuate(q_obs, h_obs, epsilon, fluctuation, bound)
             score = float(np.mean(omega * h_obs * (y - fitted)))
             converged = abs(score) <= tol
-    targeted_obs = _fluctuate(q_obs, h_obs, epsilon, fluctuation, bound)
-    targeted_nodes = _fluctuate(q_nodes, h_nodes, epsilon, fluctuation, bound)
-    integral = plug_in(targeted_nodes, pair_weights, omega)
-    psi = float(np.mean(omega * integral))
-    curve = influence_curve(y, targeted_obs, h_obs, integral, psi, omega)
-    return PairTarget(psi, curve, float(epsilon), score, converged)
+    return float(epsilon), score, converged
 
 
 def pair_support(
@@ -620,15 +667,23 @@ def pair_support(
     pair_weights: FloatArray,
 ) -> _PairSupport:
     """One pair's support: loaded rows, Kish size, smallest density, largest covariate."""
+    used = pair_weights != 0.0
+    block = g_nodes[:, used]
+    return support_from(h_obs, g_obs, weight_obs, float(block.min()) if block.size else None)
+
+
+def support_from(
+    h_obs: FloatArray, g_obs: FloatArray, weight_obs: FloatArray, node_minimum: float | None
+) -> _PairSupport:
+    """:func:`pair_support` given the smallest density at the used nodes (``None``: none)."""
     loaded = weight_obs != 0.0
     rows = int(loaded.sum())
     absolute = np.abs(h_obs)
     total = float(absolute.sum())
     squares = float((h_obs * h_obs).sum())
     kish = total * total / squares if squares > 0.0 else 0.0
-    densities = [g_obs[loaded]] if rows else []
-    used = pair_weights != 0.0
-    if np.any(used):
-        densities.append(g_nodes[:, used].reshape(-1))
-    smallest = float(min(d.min() for d in densities if d.size)) if densities else float("nan")
+    densities = [float(g_obs[loaded].min())] if rows else []
+    if node_minimum is not None:
+        densities.append(node_minimum)
+    smallest = float(min(densities)) if densities else float("nan")
     return _PairSupport(rows, kish, smallest, float(absolute.max()) if absolute.size else 0.0)
