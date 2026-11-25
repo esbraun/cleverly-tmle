@@ -69,12 +69,14 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "EP_INTERVAL_REFUSAL",
     "EP_MEASURED",
+    "EP_RATIO_LEARNER_API_REFUSAL",
     "INNER_FOLDS",
     "Debiasing",
     "DebiasingScores",
     "EPCurve",
     "EPEstimator",
     "EPFit",
+    "RatioLearner",
     "SieveRecord",
     "cross_validated_risks",
     "curve_from_pieces",
@@ -82,8 +84,10 @@ __all__ = [
     "debias_features",
     "ep_status",
     "final_stage",
+    "fit_ratio_learner",
     "nuisance_pieces",
     "one_step_risk",
+    "ratio_learner_refusal",
     "refit_seed",
     "sieve_member",
     "size_refusal",
@@ -104,6 +108,22 @@ EP_INTERVAL_REFUSAL = Refusal(
     alternative=(
         "Declare a finite working model, ConditionalContrast(..., model=...), and fit "
         "method='tmle': its coefficients and its projection curve carry intervals."
+    ),
+)
+
+#: How far a log-ratio learner's class-1 probability may pass the hull of the fractional
+#: labels before the fit counts the row as clipped (the clip itself is exact).
+CLIP_TOLERANCE = 1e-8
+
+#: R-ep-learner-api: a log-ratio final learner must fit a weighted log loss on two labels.
+EP_RATIO_LEARNER_API_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "A log-ratio final learner must be a classifier with predict_proba whose fit names "
+    "sample_weight: the final stage is a weighted log loss on two labels, and the weights "
+    "carry the targeted means, so a fit(**kwargs) that may drop them would fit another curve.",
+    alternative=(
+        "Pass a classifier such as LogisticRegression or HistGradientBoostingClassifier, or "
+        "leave final_learner=None."
     ),
 )
 
@@ -274,7 +294,8 @@ class EPCurve:
         The final stage's coefficients on the basis, on the scaled outcome, or ``None`` when a
         declared final learner fitted the curve.
     learner : Any
-        The fitted final learner, or ``None`` for the default least squares.
+        The fitted final learner, or ``None`` for the default final stage.  On the log ratio
+        it is a :class:`RatioLearner`, whose prediction is already the log ratio.
     width : float
         ``b - a``, the outcome range the scaled contrast is multiplied by.
     clip : bool
@@ -307,7 +328,10 @@ class EPCurve:
         return np.asarray(self.basis.evaluate(frame, self.modifiers), dtype=float)
 
     def raw(self, frame: Any) -> FloatArray:
-        """The unclipped curve at the rows of ``frame``, on the outcome's own scale.
+        """The curve before the outcome-range clip, at the rows of ``frame``, on its own scale.
+
+        A log-ratio final learner's value is already clipped to the hull of its fractional
+        labels (:class:`RatioLearner`); only the difference scale's range clip is left out.
 
         Parameters
         ----------
@@ -364,6 +388,166 @@ def _learner_input(values: dict[str, np.ndarray]) -> Any:
     return pd.DataFrame({name: np.asarray(column) for name, column in values.items()})
 
 
+@dataclass(frozen=True)
+class RatioLearner:
+    r"""A classifier fitted to the doubled log-ratio data, read as a log ratio.
+
+    The log-ratio final stage minimises :math:`\sum_i w_i T_i\,\ell(p_i, \operatorname{expit}
+    f(V_i))` with :math:`T_i = Q^*_{t,i} + Q^*_{r,i}` and :math:`p_i = Q^*_{t,i}/T_i`
+    (arXiv:2402.01972v2, Section 3.2).  That risk is the weighted log loss of the doubled set
+    :math:`\{(V_i, 1, w_i Q^*_{t,i}), (V_i, 0, w_i Q^*_{r,i})\}`, which ``classifier`` was
+    fitted on.  The curve is the logit of its class-1 probability, clipped to the hull
+    ``[low, high]`` of the fit's own fractional labels.  A learner saturated in the
+    modifiers is never clipped at the fit's rows, because its minimiser at each observed
+    ``v`` averages the :math:`p_i` there.  A smoother class (a logistic line on three
+    levels, say) or an extrapolation beyond the observed modifiers can leave the hull, and
+    the clip then moves the curve off the class's own minimiser; the fit records the share
+    of its rows that moved (``EffectCurveResult.ep_clipped_share``).
+
+    Parameters
+    ----------
+    classifier : Any
+        The fitted classifier, with ``predict_proba`` and ``classes_``.
+    low : float
+        The smallest fractional label :math:`\min_i p_i` of the fit.
+    high : float
+        The largest fractional label :math:`\max_i p_i` of the fit.
+    """
+
+    classifier: Any
+    low: float
+    high: float
+
+    def probability(self, x: Any) -> FloatArray:
+        """The unclipped class-1 probability at the rows of ``x``, read through ``classes_``.
+
+        Parameters
+        ----------
+        x : dataframe
+            The modifier columns.
+
+        Returns
+        -------
+        ndarray
+            One probability per row.
+        """
+        proba = np.asarray(self.classifier.predict_proba(x), dtype=float)
+        classes = np.asarray(getattr(self.classifier, "classes_", np.array([0.0, 1.0])))
+        column = np.flatnonzero(classes.astype(float) == 1.0)
+        if column.size != 1:
+            raise DataError(
+                "the log-ratio final learner was fitted on labels 0 and 1 and must report "
+                f"class 1 in classes_; got {classes.tolist()}"
+            )
+        return proba[:, int(column[0])]
+
+    def clipped(self, x: Any) -> np.ndarray:
+        """Whether each row's class-1 probability lies outside ``[low, high]``.
+
+        A probability within :data:`CLIP_TOLERANCE` of the hull counts as inside: a
+        learner saturated in the modifiers reaches the end points up to its solver's
+        tolerance.
+
+        Parameters
+        ----------
+        x : dataframe
+            The modifier columns.
+
+        Returns
+        -------
+        ndarray of bool
+            One flag per row.
+        """
+        p = self.probability(x)
+        return (p < self.low - CLIP_TOLERANCE) | (p > self.high + CLIP_TOLERANCE)
+
+    def predict(self, x: Any) -> FloatArray:
+        """The log ratio at the rows of ``x``: the logit of the clipped class-1 probability.
+
+        Parameters
+        ----------
+        x : dataframe
+            The modifier columns.
+
+        Returns
+        -------
+        ndarray
+            One log ratio per row.
+        """
+        return np.asarray(logit(np.clip(self.probability(x), self.low, self.high)), dtype=float)
+
+
+def fit_ratio_learner(
+    learner: Any,
+    values: dict[str, np.ndarray],
+    targeted_t: FloatArray,
+    targeted_r: FloatArray,
+    weights: FloatArray,
+) -> RatioLearner:
+    """Fit a declared classifier to the doubled log-ratio data (EPL Section 3.2).
+
+    Each row becomes a pair: label 1 with weight ``w Q*_t`` and label 0 with weight
+    ``w Q*_r``.  The pair shares one group code, so a learner whose ``fit`` names ``groups``
+    (a :class:`~cleverly.learners.SuperLearner`) keeps both rows in one inner fold.
+
+    Parameters
+    ----------
+    learner : Any
+        The declared classifier, unfitted.
+    values : dict of str to ndarray
+        The modifier columns.
+    targeted_t : ndarray
+        ``(n,)`` the debiased regression at arm ``t``.
+    targeted_r : ndarray
+        ``(n,)`` the debiased regression at arm ``r``.
+    weights : ndarray
+        ``(n,)`` observation weights.
+
+    Returns
+    -------
+    RatioLearner
+        The fitted classifier and the hull of the fractional labels.
+    """
+    import pandas as pd
+
+    q_t = np.asarray(targeted_t, dtype=float)
+    q_r = np.asarray(targeted_r, dtype=float)
+    w = np.asarray(weights, dtype=float)
+    n = q_t.size
+    frame = _learner_input(values)
+    doubled = pd.concat([frame, frame], ignore_index=True)
+    labels = np.concatenate([np.ones(n), np.zeros(n)])
+    # The weights are never unit here: they carry the targeted means.
+    sample_weight = np.concatenate([w * q_t, w * q_r])
+    groups = np.concatenate([np.arange(n), np.arange(n)])
+    fitted = fit_learner(clone_learner(learner), doubled, labels, sample_weight, groups=groups)
+    # Rows of weight 0 do not enter the loss, so they do not widen the hull.
+    share = (q_t / (q_t + q_r))[w > 0]
+    return RatioLearner(fitted, float(np.min(share)), float(np.max(share)))
+
+
+def ratio_learner_refusal(learner: Any) -> Refusal | None:
+    """R-ep-learner-api: the refusal of a log-ratio final learner, or ``None``.
+
+    Parameters
+    ----------
+    learner : Any
+        The declared final learner.
+
+    Returns
+    -------
+    Refusal or None
+        :data:`EP_RATIO_LEARNER_API_REFUSAL` when the learner has no ``predict_proba`` or its
+        ``fit`` does not name ``sample_weight``; a ``fit(**kwargs)`` is refused because the
+        weights carry the targeted means and nothing shows that it reads them.
+    """
+    from ..learners._fitting import names_sample_weight
+
+    if not hasattr(learner, "predict_proba") or not names_sample_weight(learner):
+        return EP_RATIO_LEARNER_API_REFUSAL
+    return None
+
+
 def final_stage(
     debiased: Debiasing,
     design: FloatArray,
@@ -386,7 +570,9 @@ def final_stage(
     scale : {"difference", "log_ratio"}
         The contrast's scale.
     learner : Any
-        A declared final regressor, or ``None`` for the default.
+        A declared final learner, or ``None`` for the default: a regressor on the difference
+        scale, a classifier fitted to the doubled data on the log ratio
+        (:func:`fit_ratio_learner`).
     values : dict of str to ndarray or None
         The modifier columns a declared learner reads.
 
@@ -411,6 +597,12 @@ def final_stage(
         root = np.sqrt(w)
         beta = np.linalg.lstsq(design * root[:, None], contrast * root, rcond=None)[0]
         return np.asarray(beta, dtype=float), None
+    if learner is not None:
+        assert values is not None
+        fitted_ratio = fit_ratio_learner(
+            learner, values, debiased.targeted_t, debiased.targeted_r, w
+        )
+        return None, fitted_ratio
     total = debiased.targeted_t + debiased.targeted_r
     share = debiased.targeted_t / total
     beta, _ = logistic_newton(design, share, w * total, label="EP log-ratio final stage")
@@ -1071,7 +1263,8 @@ def curve_from_pieces(
     clip : bool
         Whether the curve clips its predictions to ``[-(b - a), b - a]``.
     final_learner : Any
-        A declared final regressor, or ``None`` for least squares on the basis.
+        A declared final learner, or ``None`` for least squares on the basis: a regressor on
+        the difference scale, a classifier with ``predict_proba`` on the log-ratio scale.
     values : dict of str to ndarray or None
         The modifier columns a declared final learner reads.
 
@@ -1250,7 +1443,9 @@ class EPEstimator:
     target : {"curve", "projection"}
         ``"curve"`` for ``model=None``; ``"projection"`` when the estimand declared a model.
     final_learner : Any
-        A declared final regressor, or ``None``.
+        A declared final learner, or ``None``: a regressor on the difference scale, a
+        classifier with ``predict_proba`` whose ``fit`` names ``sample_weight`` on the
+        log-ratio scale.
     identified_effect : Any
         The identified effect the fit came from.
     """
@@ -1352,15 +1547,20 @@ class EPEstimator:
         Raises
         ------
         CapabilityError
-            If the data hold a missing treatment or baseline strata (R7-ep-mt,
-            R7-ep-strata), a fixed or scheduled size exceeds the family's largest member,
-            or a basis reads an undeclared domain or level (R3).
+            If the data hold a missing treatment, baseline strata or an intermediate
+            (R7-ep-mt, R7-ep-strata, R-ep-int), a log-ratio final learner lacks the weighted
+            log loss (R-ep-learner-api), a fixed or scheduled size exceeds the family's largest
+            member, or a basis reads an undeclared domain or level (R3).
         DataError
             If a row breaks the modifier schema, or a member is collinear on the rows.
         """
         data_refusal = effect_modification_ep_refusal(data)
         if data_refusal is not None:
             raise CapabilityError.from_refusal(data_refusal)
+        if self.effect_modification.scale == "log_ratio" and self.final_learner is not None:
+            learner_refusal = ratio_learner_refusal(self.final_learner)
+            if learner_refusal is not None:
+                raise CapabilityError.from_refusal(learner_refusal)
         frame = modifier_frame(data, tuple(self.effect_modification.modifiers.columns))
         sizes = self.sizes(data.n)
         designs = self._designs(frame, shared=len(sizes) > 1)
@@ -1511,7 +1711,7 @@ class EPEstimator:
         )
         return EPFit(data, outer, self, curve, debiased, record)
 
-    def _planned_fits(self, data: CausalData) -> PlannedFits:
+    def _planned_fits(self, data: CausalData, *, nominal: bool = False) -> PlannedFits:
         """The learner fits :meth:`fit` would make on ``data``, counted unfitted.
 
         The outer nuisances are the point TMLE's preview.  Under ``size="cv"`` each outer
@@ -1523,6 +1723,10 @@ class EPEstimator:
         ----------
         data : CausalData
             The prepared data.
+        nominal : bool
+            Count every fit at the learners' nominal counts, with no constant-fold skip, so
+            the counts bound a fit of any data drawn like ``data``; the point TMLE's
+            previews take the same switch.
 
         Returns
         -------
@@ -1535,7 +1739,12 @@ class EPEstimator:
 
         self.check(data)
         engine = TMLE(**self._nuisance_kwargs())
-        outer = engine._planned_fits(data)
+        outer = engine._planned_refit(data, nominal=True) if nominal else engine._planned_fits(data)
+        why = (
+            "drawn-data refits are counted at the final learner's nominal counts"
+            if nominal
+            else None
+        )
         builder = PlanBuilder()
         builder.absorb(outer, lambda scope: scope)
         for name, value in outer.multipliers:
@@ -1544,15 +1753,25 @@ class EPEstimator:
         fixed = outer.folds == "realized"
         final = (
             None
-            if self.final_learner is None or self.effect_modification.scale != "difference"
+            if self.final_learner is None
             else seed_unset(self.final_learner, self.tmle_kwargs.get("random_state"))
         )
         label = learner_name(self.final_learner)
+        ratio = self.effect_modification.scale == "log_ratio"
 
         def curves(n: int, times: int) -> Count:
             if final is None or times == 0:
                 return Count()
-            return count_learner(final, np.linspace(0.0, 1.0, n), seed_fixed=fixed).scaled(times)
+            if ratio:
+                # The doubled data: labels 1 then 0, each row's pair in one group.
+                target = np.concatenate([np.ones(n), np.zeros(n)])
+                groups = np.concatenate([np.arange(n), np.arange(n)])
+                return count_learner(
+                    final, target, groups=groups, seed_fixed=fixed, nominal=nominal
+                ).scaled(times)
+            return count_learner(
+                final, np.linspace(0.0, 1.0, n), seed_fixed=fixed, nominal=nominal
+            ).scaled(times)
 
         selection = 0
         if self.mode == "cv":
@@ -1561,13 +1780,19 @@ class EPEstimator:
             base = self.tmle_kwargs.get("random_state")
             for fold in np.unique(assignment):
                 train = np.flatnonzero(assignment != fold)
-                inner = TMLE(
+                inner_engine = TMLE(
                     **self._nuisance_kwargs(
                         n_folds=INNER_FOLDS,
                         random_state=refit_seed(base, int(fold)),
                         split_plan=None,
                     )
-                )._planned_fits(data.subset(train))
+                )
+                rows = data.subset(train)
+                inner = (
+                    inner_engine._planned_refit(rows, nominal=True)
+                    if nominal
+                    else inner_engine._planned_fits(rows)
+                )
                 builder.absorb(
                     inner, lambda scope: f"{scope}, EP size step's inner TMLE, per outer fold"
                 )
@@ -1578,12 +1803,17 @@ class EPEstimator:
                     "EP final learner at each size, per outer fold",
                     label,
                     count,
+                    upper=why,
                 )
                 selection += count.fits
             builder.multiply("sieve sizes", len(sizes))
             builder.search("EP sieve sizes", len(sizes), False, selection)
         builder.add(
-            "final_learner", "EP final learner at the chosen size", label, curves(data.n, 1)
+            "final_learner",
+            "EP final learner at the chosen size",
+            label,
+            curves(data.n, 1),
+            upper=why,
         )
         return builder.build(outer.folds)
 
@@ -1604,9 +1834,14 @@ class EPEstimator:
         """
         return self._refit_estimator(random_state).fit(data)
 
-    def _planned_refit(self, data: CausalData, *, random_state: int | None = None) -> PlannedFits:
-        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted."""
-        return self._refit_estimator(random_state)._planned_fits(data)
+    def _planned_refit(
+        self, data: CausalData, *, random_state: int | None = None, nominal: bool = False
+    ) -> PlannedFits:
+        """The learner fits :meth:`refit` would make on the same arguments, counted unfitted.
+
+        ``nominal`` counts at the learners' nominal counts, as :meth:`_planned_fits` does.
+        """
+        return self._refit_estimator(random_state)._planned_fits(data, nominal=nominal)
 
     def _refit_estimator(self, random_state: int | None) -> EPEstimator:
         """The configured copy :meth:`refit` fits."""
@@ -1680,6 +1915,12 @@ class EPEstimator:
             )
         lower, upper = fit.nuisance.scaler.unscale_levels(np.array([0.0, 1.0]))
         clipped = float(np.mean(raw != in_sample)) if fit.curve.clip else 0.0
+        learner = fit.curve.learner
+        ratio_clipped = (
+            float(np.mean(learner.clipped(_learner_input(values))))
+            if isinstance(learner, RatioLearner)
+            else 0.0
+        )
         result = EffectCurveResult(
             estimand_name="cate" if spec.scale == "difference" else "log_crr",
             modifiers=spec.modifiers,
@@ -1699,6 +1940,7 @@ class EPEstimator:
             fitted_method="ep",
             sieve=fit.sieve,
             clipped_share=clipped,
+            ep_clipped_share=ratio_clipped,
         )
         # The outer nuisance fit's warnings (positivity, convergence, weighting) are the EP
         # curve's own; the inner refits' stay on the sieve record.

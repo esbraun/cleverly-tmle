@@ -573,6 +573,20 @@ def measured(row: Any) -> str:
         word = "rejections" if family == "refuter_size" else "detections"
         count = round(float(row.rejection_rate) * int(row.replicates))
         return f"{word} {count} of {int(row.replicates)}"
+    if family in {"refuter_size_relative", "refuter_mutation"}:
+        # refuter-sampled (X106 H): the cell's rejection count beside the 90% interval of its
+        # rate minus the full cell's, which the relative and mutation verdicts read.
+        count = round(float(row.rejection_rate) * int(row.replicates))
+        return (
+            f"rejections {count} of {int(row.replicates)}, difference "
+            f"{_interval(row.relative_ci_lower, row.relative_ci_upper)}"
+        )
+    if family == "refuter_reported":
+        # refuter-sampled (X106 H): a reported rate with its exact 99% interval, no verdict.
+        return (
+            f"rejection {render(float(row.rejection_rate))}, "
+            f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+        )
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
@@ -678,6 +692,19 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "few_cluster_candidate":
+        # X54 part (c): the paired all-draw coverage gain of the candidate over the shipped
+        # interval on the same draws, and the row's own all-draw coverage.
+        return (
+            f"all-draw coverage {render(float(row.coverage))}, paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
+        )
+    if family == "few_cluster_candidate_pooled":
+        return (
+            "pooled paired coverage gain "
+            f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)} over "
+            f"{int(row.pooled_cells)} cells from {int(row.pooled_start)} clusters"
+        )
     if family == "few_cluster_reference":
         if str(row.role) == "control" and pd.notna(getattr(row, "paired_se_ratio_ci_upper", None)):
             # The verdict reads the paired ratio and the positive arm's SE-ratio endpoint, not
@@ -689,6 +716,9 @@ def measured(row: Any) -> str:
                 "paired positive SE-ratio upper endpoint "
                 f"{render(float(row.paired_positive_se_ratio_ci_upper))}"
             )
+        if pd.isna(row.se_ratio_ci_lower) and getattr(row, "shown_draws", 1) == 0:
+            # Wang et al.'s inflation is undefined while J <= p, so no draw shows its interval.
+            return f"no draw of {int(row.replicates):,} shows an interval"
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "

@@ -30,6 +30,7 @@ from scipy.stats import chi2
 from scipy.stats import f as f_distribution
 
 from ._assessment_cache import AssessmentCache
+from ._inference_status import FEW_CLUSTER_THRESHOLD
 from ._pooled_targeting import PooledFit, arm_span_basis, solve_pooled, span_basis
 from ._support import Support
 from ._typing import FloatArray, IntArray
@@ -38,7 +39,7 @@ from .data.known_mechanism import divides_by_declaration
 from .estimators.targeting import _STALL_FACTOR, _UNSOLVED, DEFAULT_MAX_OUTER
 from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .fluctuation._score import StopContext, rule_ratio_at
-from .inference.cluster import cluster_inference_status, cluster_reference_df
+from .inference.cluster import cluster_inference_status, cluster_reference_df, fewest_clusters
 from .inference.delta import reference_quantile
 from .inference.influence import ParameterEstimate, family_of, make_estimate
 from .inference.multiplier import MultiplierKind, multiplier_critical_value
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SCORE_ASSESSMENT_MEASURED",
+    "SCORE_COMPOSITIONS_MEASURED",
     "SCORE_PAIRED_MEASURED",
     "CurveBand",
     "EffectCurveResult",
@@ -266,6 +268,11 @@ class CurveBand:
         Multiplier draws.
     kind : str
         The multiplier distribution.
+    support : Support or None, default None
+        The band's own support (:func:`cleverly._support.band_support`): ``supported`` only
+        where the coefficients' row licenses the simultaneous band for this multiplier, the
+        identity scale, the normal reference and at least the row's draws.  ``None`` for a band
+        built outside a fit, by :meth:`ProjectionCurve.band`.
     """
 
     grid: dict[str, np.ndarray]
@@ -276,6 +283,7 @@ class CurveBand:
     alpha: float
     n_replicates: int
     kind: str
+    support: Support | None = None
 
 
 @dataclass(frozen=True)
@@ -675,6 +683,10 @@ class EffectCurveResult:
     clipped_share : float
         The share of in-sample predictions an EP fit with ``model=None`` clipped to the range
         of a contrast of means; 0 for every other curve.
+    ep_clipped_share : float
+        The share of in-sample rows at which an EP fit's declared log-ratio final learner put
+        its class-1 probability outside the hull of the fractional labels, so the curve was
+        clipped to it; 0 for every other curve.
     fit_warnings : tuple of FitWarning
         The warnings the fit raised, recorded as a point fit records them.
     """
@@ -698,6 +710,7 @@ class EffectCurveResult:
     fitted_method: str = "tmle"
     sieve: Any = None
     clipped_share: float = 0.0
+    ep_clipped_share: float = 0.0
     fit_warnings: tuple[Any, ...] = field(default=(), compare=False)
     assessment_cache: AssessmentCache = field(
         default_factory=AssessmentCache, init=False, repr=False
@@ -710,12 +723,83 @@ class EffectCurveResult:
     def diagnostics(self) -> CurveDiagnostics:
         """The curve's assessment: support, out-of-fold calibration, risk and stability.
 
-        Each refit reruns the producing estimator, so these need the fit this curve came
-        from; a loaded curve keeps none.  ``diagnostics.capabilities`` lists the rows.
+        The summaries read the fit this curve came from and each refit reruns its estimator,
+        so a curve that keeps neither refuses them through its replay gate.
+        ``diagnostics.capabilities`` lists the rows.  A controlled direct effect projection
+        refuses before any refit (``CDE_CURVE_TOOLS_REFUSAL``): the held-out checks build the
+        total effect's pseudo-outcome.
         """
         from ._curve_assessment import CurveDiagnostics
+        from .effect_modification import refuse_cde_curve_tools
 
+        refuse_cde_curve_tools(getattr(self.fit, "data", None))
         return CurveDiagnostics(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses on a curve (P1)."""
+        from .assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored curve and its producing fit."""
+        from .assessment import replayability
+
+        return replayability(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            The producing fit's support, nuisance and score checks.
+        """
+        from .assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        Every sensitivity row refuses on a curve: no sensitivity analysis is derived for a
+        conditional contrast curve (P1).  The five curve operations refit the producing
+        estimator, so they run only with ``include_refits=True``.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models.
+        include_retargets : bool
+            Include moderate retargets.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from .assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     @property
     def prediction_column(self) -> str:
@@ -965,6 +1049,33 @@ SCORE_PAIRED_MEASURED: Final[Mapping[tuple[str, str, str], str]] = {
     ("log_ratio", "binary", "estimated"): "score-assessment: paired_crr_4k",
 }
 
+#: The compositions of a measured configuration that a validation study measures, keyed by
+#: ``((scale, outcome, mechanism), code)`` with ``code`` a key of :data:`SCORE_REASONS`, in the
+#: value form of :data:`SCORE_ASSESSMENT_MEASURED`.  A listed code is dropped from the single-score
+#: and paired rows of that configuration; ``"clusters"`` only at
+#: :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more.  Each group
+#: measured one composition alone, so a fit with two listed codes keeps both.  The study
+#: ``score-assessment-compositions`` measured its weighted, clustered, missing-outcome,
+#: three-arm and in-sample groups on ``("difference", "binary", "estimated")``, every cell
+#: passing; every other composition stays experimental.
+SCORE_COMPOSITIONS_MEASURED: Final[Mapping[tuple[tuple[str, str, str], str], str]] = {
+    (("difference", "binary", "estimated"), "weights"): (
+        "score-assessment-compositions: assess_weighted_2k"
+    ),
+    (("difference", "binary", "estimated"), "clusters"): (
+        "score-assessment-compositions: assess_clustered_4k"
+    ),
+    (("difference", "binary", "estimated"), "missing"): (
+        "score-assessment-compositions: assess_missing_4k"
+    ),
+    (("difference", "binary", "estimated"), "multi_arm"): (
+        "score-assessment-compositions: assess_arms3_4k"
+    ),
+    (("difference", "binary", "estimated"), "not_cross_fitted"): (
+        "score-assessment-compositions: assess_insample_2k"
+    ),
+}
+
 #: The reasons an estimate of a score assessment reads experimental, in the order they are
 #: listed.
 SCORE_REASONS: Final[Mapping[str, str]] = {
@@ -973,11 +1084,24 @@ SCORE_REASONS: Final[Mapping[str, str]] = {
         "no validation study measures the paired risk difference of two scores in this "
         "configuration"
     ),
-    "weights": "observation weights, which no study of the score assessment measures",
-    "clusters": "clustered rows, which no study of the score assessment measures",
-    "missing": "missing outcomes: the fluctuation divides by the response mechanism, with no study",
-    "multi_arm": "a pair of arms of a multi-arm treatment, with no study",
-    "not_cross_fitted": "the ATE fit is not cross-fitted, which no study measures",
+    "weights": (
+        "observation weights, which no study of the score assessment measures in this configuration"
+    ),
+    "clusters": (
+        "clustered rows, which no study of the score assessment measures in this configuration"
+    ),
+    "few_clusters": (
+        f"fewer than {FEW_CLUSTER_THRESHOLD} clusters, where the interval takes a t(J-2) "
+        "reference that no score-assessment study measures"
+    ),
+    "missing": (
+        "missing outcomes: the fluctuation divides by the response mechanism, with no study "
+        "in this configuration"
+    ),
+    "multi_arm": "a pair of arms of a multi-arm treatment, with no study in this configuration",
+    "not_cross_fitted": (
+        "the ATE fit is not cross-fitted, which no study measures in this configuration"
+    ),
     "reduced_span": (
         "the log-ratio fluctuation settled only after dropping a collinear direction; no study "
         "measures coverage there"
@@ -988,7 +1112,11 @@ SCORE_REASONS: Final[Mapping[str, str]] = {
 SCORE_LIMITS: Final[tuple[str, ...]] = (
     "The studies fit declared parametric or spline nuisances; the default learner library is "
     "not measured.",
-    "Sample size 2,000 for the intervals on the difference scale and 4,000 on the log-ratio scale.",
+    "Sample size 2,000 for the intervals on the difference scale (4,000 for the clustered, "
+    "missing-outcome and three-arm compositions) and 4,000 on the log-ratio scale.",
+    "The compositions were measured one at a time, on the difference scale with a binary "
+    "outcome and an estimated mechanism: one weight law, 800 clusters of 5 rows, one "
+    "missing-at-random response law, the pair (2, 0) of three arms, and an ATE fit in sample.",
     "The scores are fixed functions fitted on other rows; the interval covers one pair named "
     "before the fit, not the best of several.",
 )
@@ -1030,7 +1158,7 @@ def score_assessment_codes(
     outcome: str,
     known_mechanism: bool,
     weighted: bool,
-    clustered: bool,
+    clusters: int | None,
     missing: bool,
     arms: int,
     cross_fitted: bool,
@@ -1048,8 +1176,8 @@ def score_assessment_codes(
         Whether the treatment mechanism was declared known.
     weighted : bool
         Whether the rows carry observation weights.
-    clustered : bool
-        Whether the rows are clustered.
+    clusters : int or None
+        The clusters with positive weight mass, or ``None`` for iid rows.
     missing : bool
         Whether some outcomes are missing.
     arms : int
@@ -1068,16 +1196,24 @@ def score_assessment_codes(
     """
     key = (scale, outcome, "known" if known_mechanism else "estimated")
     single = [] if key in SCORE_ASSESSMENT_MEASURED else ["unmeasured"]
-    for flag, code in (
-        (weighted, "weights"),
-        (clustered, "clusters"),
-        (missing, "missing"),
-        (arms > 2, "multi_arm"),
-        (not cross_fitted, "not_cross_fitted"),
-        (reduced_span, "reduced_span"),
-    ):
-        if flag:
-            single.append(code)
+    few = clusters is not None and clusters < FEW_CLUSTER_THRESHOLD
+    departures = [
+        code
+        for flag, code in (
+            (weighted, "weights"),
+            (clusters is not None and not few, "clusters"),
+            (few, "few_clusters"),
+            (missing, "missing"),
+            (arms > 2, "multi_arm"),
+            (not cross_fitted, "not_cross_fitted"),
+            (reduced_span, "reduced_span"),
+        )
+        if flag
+    ]
+    measured = [code for code in departures if (key, code) in SCORE_COMPOSITIONS_MEASURED]
+    # Each composition was measured alone, so two measured ones together stay experimental.
+    lifted = set(measured) if len(measured) == 1 else set()
+    single.extend(code for code in departures if code not in lifted)
     paired = list(single)
     if key in SCORE_ASSESSMENT_MEASURED and key not in SCORE_PAIRED_MEASURED:
         paired.insert(0, "unmeasured_pair")
@@ -1090,7 +1226,7 @@ def score_assessment_support(
     outcome: str,
     known_mechanism: bool,
     weighted: bool,
-    clustered: bool,
+    clusters: int | None,
     missing: bool,
     arms: int,
     cross_fitted: bool,
@@ -1101,6 +1237,10 @@ def score_assessment_support(
     A single-score row reads ``supported`` when its configuration is one of
     :data:`SCORE_ASSESSMENT_MEASURED` and the fit has a binary treatment, iid unweighted rows,
     complete outcomes and cross-fitted nuisances, and its fluctuation settled on the full span.
+    One departure that :data:`SCORE_COMPOSITIONS_MEASURED` lists for the configuration does not
+    make it experimental, and its study joins the evidence; clustered rows need
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more for that.  Two
+    listed departures together keep their reasons, since each was measured alone.
     The paired row also needs its configuration in :data:`SCORE_PAIRED_MEASURED`.  Otherwise a
     row reads ``experimental``, with every reason of :data:`SCORE_REASONS` that applies.
     Whether ``compare=`` was passed does not enter: the single-score rows are the same TMLE
@@ -1116,8 +1256,8 @@ def score_assessment_support(
         Whether the treatment mechanism was declared known.
     weighted : bool
         Whether the rows carry observation weights.
-    clustered : bool
-        Whether the rows are clustered.
+    clusters : int or None
+        The clusters with positive weight mass, or ``None`` for iid rows.
     missing : bool
         Whether some outcomes are missing.
     arms : int
@@ -1138,13 +1278,13 @@ def score_assessment_support(
     >>> from cleverly.effect_curves import score_assessment_support
     >>> single, paired = score_assessment_support(
     ...     scale="difference", outcome="continuous", known_mechanism=False,
-    ...     weighted=False, clustered=False, missing=False, arms=2, cross_fitted=True,
+    ...     weighted=False, clusters=None, missing=False, arms=2, cross_fitted=True,
     ... )
     >>> single.label, paired.label
     ('supported', 'supported')
     >>> single, _ = score_assessment_support(
     ...     scale="log_ratio", outcome="continuous", known_mechanism=False,
-    ...     weighted=False, clustered=False, missing=False, arms=2, cross_fitted=True,
+    ...     weighted=False, clusters=None, missing=False, arms=2, cross_fitted=True,
     ... )
     >>> single.label
     'experimental'
@@ -1154,16 +1294,34 @@ def score_assessment_support(
         outcome=outcome,
         known_mechanism=known_mechanism,
         weighted=weighted,
-        clustered=clustered,
+        clusters=clusters,
         missing=missing,
         arms=arms,
         cross_fitted=cross_fitted,
         reduced_span=reduced_span,
     )
     key = (scale, outcome, "known" if known_mechanism else "estimated")
+    departures = (
+        (weighted, "weights"),
+        # Below the threshold the row is experimental for few_clusters, which no study lifts.
+        (clusters is not None and clusters >= FEW_CLUSTER_THRESHOLD, "clusters"),
+        (missing, "missing"),
+        (arms > 2, "multi_arm"),
+        (not cross_fitted, "not_cross_fitted"),
+    )
+    compositions = [
+        SCORE_COMPOSITIONS_MEASURED[(key, code)]
+        for flag, code in departures
+        if flag and (key, code) in SCORE_COMPOSITIONS_MEASURED
+    ]
+
+    def entry(table: Mapping[tuple[str, str, str], str]) -> str | None:
+        base = table.get(key)
+        return None if base is None else "; ".join([base, *compositions])
+
     return (
-        _score_support(single, SCORE_ASSESSMENT_MEASURED.get(key)),
-        _score_support(paired, SCORE_PAIRED_MEASURED.get(key)),
+        _score_support(single, entry(SCORE_ASSESSMENT_MEASURED)),
+        _score_support(paired, entry(SCORE_PAIRED_MEASURED)),
     )
 
 
@@ -1719,10 +1877,16 @@ def score_assessment(
 
     Raises
     ------
+    CapabilityError
+        On rows with an intermediate (a controlled direct effect fit), whose pseudo-outcomes
+        would need the intermediate's selection and density.
     DataError
         For a score without one finite value per row, two scores that are equal on every row,
         or a fluctuation that does not converge.
     """
+    from .effect_modification import refuse_cde_curve_tools
+
+    refuse_cde_curve_tools(data)
     names = list(scores)
     if not 1 <= len(names) <= 2:
         raise DataError(f"a score assessment takes one score or two; got {len(names)}")
@@ -1802,7 +1966,9 @@ def score_assessment(
         "outcome": "binary" if getattr(data, "family", "") == "binomial" else "continuous",
         "known_mechanism": divides_by_declaration(data),
         "weighted": bool(np.any(np.abs(raw - 1.0) > 1e-12)),
-        "clustered": data.cluster is not None,
+        "clusters": (
+            None if data.cluster is None else fewest_clusters(np.asarray(data.cluster), weights=raw)
+        ),
         "missing": bool(not np.all(np.asarray(data.observed, dtype=bool))),
         "arms": len(tuple(fit.nuisance.arms)),
         "cross_fitted": bool(getattr(fit.config, "cross_fit", True)),

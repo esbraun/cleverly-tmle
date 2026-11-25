@@ -473,7 +473,7 @@ def continuous_truncation_curve(
         data, int(seed), folds=estimator._fold_override, plan=estimator._plan_override
     )
     settings = {key: getattr(estimator, key) for key in MEASURED_DEFAULTS}
-    replayed, record = estimator._target(initial, fitted, settings=settings)
+    replayed, record, _ = estimator._target(initial, fitted, settings=settings)
     if not _reproduces(result, replayed, record):
         raise CapabilityError.from_refusal(REPLAY_REFUSAL)
     lowest = initial.lowest
@@ -482,7 +482,7 @@ def continuous_truncation_curve(
         if floor == fitted:
             estimates, at = replayed, record
         else:
-            estimates, at = estimator._target(
+            estimates, at, _ = estimator._target(
                 initial, floor, settings={**settings, "g_bounds": floor}
             )
         truncated = float(np.mean(lowest < floor))

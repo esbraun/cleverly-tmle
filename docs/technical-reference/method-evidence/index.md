@@ -46,6 +46,8 @@ clustered-few-cluster-tmle
 clustered-cross-fitted-longitudinal-tmle
 few-cluster-cross-fitted-longitudinal-tmle
 few-cluster-fold-variance
+few-cluster-floor-tmle
+few-cluster-floor-cross-fitted-ltmle
 fold-evaluated-point-treatment-cv-tmle
 fold-evaluated-strata
 fold-targeted-point-treatment-cv-tmle
@@ -91,12 +93,14 @@ learned-rule-optimal-compositions
 learned-regimen-ltmle
 conditional-projection
 projection-compositions
+projection-evidence
 ep-cate
 ep-crr
 ep-assessment
 learned-rule-ep
 targeting-curves
 score-assessment
+score-assessment-compositions
 option-stopping-point
 option-treatment-adjustment
 option-outcome-by-arm
@@ -128,6 +132,8 @@ hazard-time-varying
 hazard-time-varying-multinode
 continuous-time-survival
 continuous-survival-functionals
+continuous-survival-variance
+continuous-survival-causes
 categorical-incremental
 vector-modified-treatment-policies
 mtp-boundaries
@@ -189,6 +195,8 @@ calibration-slope-warning
 refuter-calibration-longitudinal
 refuter-calibration-point
 refuter-calibration-band
+refuter-calibration-continuous-survival
+refuter-sampled
 default-simultaneous-bands
 band-t-reference
 band-t-reference-held-out

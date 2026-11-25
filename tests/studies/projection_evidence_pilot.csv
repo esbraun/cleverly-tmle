@@ -1,0 +1,15 @@
+cell,group,arm,replicates,se_ratio,se_ratio_se,coverage,covered,standardized_bias
+cde_4k_z0_intercept__cde_z0,cde_4k,__cde_z0,3200,0.986999,0.0126689,0.946562,3029,0.00740812
+cde_4k_z0_W1__cde_z0,cde_4k,__cde_z0,3200,1.00745,0.0131404,0.950625,3042,0.00392855
+cde_4k_z1_intercept__cde_z1,cde_4k,__cde_z1,3200,0.98931,0.0128174,0.949688,3039,-0.0255665
+cde_4k_z1_W1__cde_z1,cde_4k,__cde_z1,3200,1.01359,0.0140683,0.946875,3030,0.023414
+cde_crr_4k_z0_intercept__cde_crr_z0,cde_crr_4k,__cde_crr_z0,3200,0.989749,0.012806,0.951875,3046,0.00114999
+cde_crr_4k_z0_W1__cde_crr_z0,cde_crr_4k,__cde_crr_z0,3200,0.990846,0.0130888,0.94875,3036,0.00799763
+cde_crr_4k_z1_intercept__cde_crr_z1,cde_crr_4k,__cde_crr_z1,3200,0.994585,0.0136141,0.945937,3027,-0.00507858
+cde_crr_4k_z1_W1__cde_crr_z1,cde_crr_4k,__cde_crr_z1,3200,1.00888,0.01291,0.950313,3041,0.0116928
+pooled_4k_intercept__pooled,pooled_4k,__pooled,3200,0.994274,0.011816,0.945937,3027,-0.0150055
+pooled_4k_W1__pooled,pooled_4k,__pooled,3200,0.996094,0.0120452,0.948438,3035,-0.00944916
+pooled_4k_W3__pooled,pooled_4k,__pooled,3200,1.00454,0.0123935,0.9525,3048,0.0159033
+pooled_crr_4k_intercept__pooled_crr,pooled_crr_4k,__pooled_crr,3200,1.00843,0.0134459,0.95125,3044,0.0186933
+pooled_crr_4k_W1__pooled_crr,pooled_crr_4k,__pooled_crr,3200,1.01719,0.0137674,0.955,3056,-0.015744
+pooled_crr_4k_W3__pooled_crr,pooled_crr_4k,__pooled_crr,3200,0.979327,0.0117629,0.949063,3037,0.0344113

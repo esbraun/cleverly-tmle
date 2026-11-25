@@ -1732,6 +1732,19 @@ ARMS.update(
     }
 )
 
+#: The property labels of ``continuous-survival-causes`` (X6 part (b)), mirrored from
+#: ``tests.studies.continuous_survival_causes_properties``; :data:`STUDY_ARMS` gives the study's
+#: own words.
+ARMS.update(
+    {
+        "l1_rd": "the one-cause law's risk difference at its median event time",
+        "l3_rd": "the three-cause law's cause-3 risk difference at its median event time",
+        "l1_c1": "the one-cause law's treated risk at its median event time",
+        "l3_c1": "the three-cause law's treated risk of cause 1 at its median event time",
+        "l3_c3": "the three-cause law's treated risk of cause 3 at its median event time",
+    }
+)
+
 
 #: The calibration labels of the X76 option studies (``option-treatment-adjustment``,
 #: ``option-outcome-by-arm``, ``option-markov-order``).  Mirrored from their properties modules,
@@ -6613,6 +6626,159 @@ def _refuter_band_cells() -> None:
 _refuter_band_cells()
 
 
+def _refuter_continuous_survival_cells() -> None:
+    """The continuous-time survival refutation study (X101): eight size and twelve power cells."""
+    slug = "refuter-calibration-continuous-survival"
+    STUDY_SCENARIOS[(slug, "size")] = (
+        "the registered two-cause continuous-time survival law at n = 1,000; the default "
+        "ContinuousSurvivalTMLE at ten folds"
+    )
+    IMPLEMENTATIONS["cleverly-refute-continuous-survival"] = (
+        "`cleverly` fit that the continuous-time survival refutation rules read"
+    )
+    estimands = {
+        f"c{cause}_t{time}": f"the cause-{cause} risk difference at t = {time}"
+        for cause in (1, 2)
+        for time in ("1.12", "2.32")
+    }
+    for cause in (1, 2):
+        for time in ("1.12", "2.32"):
+            STUDY_ESTIMANDS[(slug, f"ate_regimen[treated vs control, cause{cause} @ t={time}]")] = (
+                f"difference in the risk of cause {cause} by t = {time} between treatment and no "
+                "treatment"
+            )
+    size = "no more than 68 rejections in 600 trials"
+    power = "at least 38 detections in 50 trials"
+    readings = {
+        "placebo": (
+            "the placebo t rule against the exact null 0",
+            {
+                "placebo_stale_rows": "the placebo t rule, with 35% of rows keeping their treatment",
+            },
+        ),
+        "subset": (
+            "the subset rho rule against the fit's standard error",
+            {
+                "subset_half_se": "the subset rho rule, at the reported SE halved",
+                "subset_double_se": "the subset rho rule, at the reported SE doubled",
+            },
+        ),
+    }
+    for key, estimand in estimands.items():
+        for reading, (words, defects) in readings.items():
+            table = {("refuter_size", f"{key}__{reading}"): (f"{estimand}: {words}", size)}
+            for defect, text in defects.items():
+                table[("refuter_power", f"{key}__{defect}")] = (f"{estimand}: {text}", power)
+            for cell, value in table.items():
+                if cell in CELLS:
+                    raise ValueError(f"{cell} is already described")
+                CELLS[cell] = value
+
+
+_refuter_continuous_survival_cells()
+
+
+def _refuter_sampled_cells() -> None:
+    """The sampled-refutation study (X106 H): size, relative size, power and the mutation."""
+    slug = "refuter-sampled"
+    STUDY_SCENARIOS[(slug, "gaussian")] = (
+        "the point refutation study's linear Gaussian law at n = 2,000; TMLE at five folds, "
+        "refuted on its whole data"
+    )
+    IMPLEMENTATIONS["cleverly-refute-sampled"] = (
+        "`cleverly` fit that the sampled refutation rules read"
+    )
+    PROPERTIES["refuter_size_relative"] = (
+        "a refutation rule on a sample of m units rejects at the rate of the same rule on a fit "
+        "of m units, within 0.05"
+    )
+    PROPERTIES["refuter_mutation"] = (
+        "a subset reading that takes the full fit's SE and unit count fails both size gates"
+    )
+    PROPERTIES["refuter_reported"] = "a refutation rate reported with no verdict"
+    cells = {
+        "I2-F": "independent rows, n = 2,000 and m = 2,000 (a limit that does not bind)",
+        "I2-H": "independent rows, n = 4,000 and a sample of m = 2,000",
+        "I2-T": "independent rows, n = 20,000 and a sample of m = 2,000",
+        "I1-F": "independent rows, n = 1,000 and m = 1,000 (a limit that does not bind)",
+        "I1-T": "independent rows, n = 10,000 and a sample of m = 1,000",
+        "C-F": "400 clusters of five, with m = 400 clusters (a limit that does not bind)",
+        "C-H": "800 clusters of five and a sample of m = 400 whole clusters",
+        "C-T": "4,000 clusters of five and a sample of m = 400 whole clusters",
+        "P-4k": "independent rows, n = 4,000, refuted in full",
+        "P-20k": "independent rows, n = 20,000, refuted in full",
+    }
+    readings = {
+        "placebo": "the placebo t rule against the exact null 0",
+        "subset": "the subset rho rule against the sampled baseline",
+        "negative_control": "the negative-control rule on an outcome the treatment does not move",
+    }
+    defects = {
+        "placebo_stale_rows": "the placebo rule, with 5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE halved",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE doubled",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.45",
+    }
+    weak = {
+        "placebo_stale_rows": "the placebo rule, with 2.5% of rows keeping their treatment",
+        "subset_half_se": "the subset rule, at the sampled baseline's SE times 0.75",
+        "subset_double_se": "the subset rule, at the sampled baseline's SE times 1.43",
+        "control_confounded": "the negative-control rule, on a control confounded by U at 0.15",
+    }
+    size = "no more than 73 rejections in 1,000 trials"
+    power = "at least 38 detections in 50 trials"
+    relative = (
+        "the 90% interval of the sampled rate minus the full-data rate lies inside -0.05 to 0.05"
+    )
+    diagnostic = "none. The row is a diagnostic and states no verdict"
+    table: dict[tuple[str, str], tuple[str, str]] = {}
+    for cell, words in cells.items():
+        for reading, text in readings.items():
+            row = (f"{words}: {text}", size)
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_size", f"{cell}__{reading}")] = row
+            else:
+                table[("refuter_reported", f"{cell}__{reading}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            if cell.endswith(("-H", "-T")):
+                table[("refuter_size_relative", f"{cell}__{reading}")] = (
+                    f"{words}: {text}, beside its full-data partner",
+                    relative,
+                )
+                table[("refuter_size_relative", f"{cell}__{reading}__partner")] = (
+                    f"the full-data partner of {words}: {text}",
+                    diagnostic,
+                )
+        for defect, text in defects.items():
+            if cell in ("I2-F", "I2-H", "I2-T"):
+                table[("refuter_power", f"{cell}__{defect}")] = (f"{words}: {text}", power)
+            else:
+                table[("refuter_reported", f"{cell}__{defect}")] = (
+                    f"{words}: the rejection rate of {text}",
+                    diagnostic,
+                )
+            table[("refuter_reported", f"{cell}__{defect}_weak")] = (
+                f"{words}: the rejection rate of {weak[defect]}",
+                diagnostic,
+            )
+    for cell in ("I2-T", "I1-T", "C-T"):
+        table[("refuter_mutation", f"{cell}__subset_full_reference")] = (
+            f"{cells[cell]}: the subset rule read against the full-data fit, the mutation that "
+            "skips the sampled baseline",
+            "the rejection count exceeds 73 of 1,000, and the 90% interval of its rate minus "
+            "the full cell's subset rate lies wholly outside -0.05 to 0.05",
+        )
+    for key, value in table.items():
+        if key in CELLS:
+            raise ValueError(f"{key} is already described")
+        CELLS[key] = value
+
+
+_refuter_sampled_cells()
+
+
 # ------------------------------------------------------------------ X82 SH limit coverage
 
 
@@ -8428,6 +8594,281 @@ CELLS.update(
                 "the 99% interval of the standardized bias must lie wholly outside +-0.25",
             )
             for term in ("intercept", "W1")
+        },
+    }
+)
+
+
+#: ``projection-evidence`` (P1 PR 2): the projection of a controlled direct effect at each level
+#: of a binary intermediate, the pooled outcome regression and the simultaneous band.  The groups
+#: and cell names are those of ``tests/studies/projection_evidence.py``, which this module cannot
+#: import; ``tests/unit/test_projection_evidence_design.py`` pins the two equal.
+_PE_SLUG = "projection-evidence"
+_PE_CDE_LAW = (
+    "the cde_obs law, a binary intermediate Z between the treatment and the binary outcome, "
+    "with P(Z = 1) = expit(-0.2 + 0.8 A + 1.2 W3 - 0.4 W1) given A and W"
+)
+_PE_GROUPS = {
+    "cde_4k": (
+        f"{_PE_CDE_LAW}, a spline GLM per arm with the raw Z and logistic treatment and "
+        "intermediate models, five outer folds, n = 4,000"
+    ),
+    "cde_crr_4k": (
+        f"{_PE_CDE_LAW}, on the log-ratio scale, a spline GLM per arm with the raw Z, five outer "
+        "folds, n = 4,000"
+    ),
+    "cde_dr_4k": (
+        f"{_PE_CDE_LAW}, with a declared wrong outcome regression and the true treatment and "
+        "intermediate mechanisms, five outer folds, n = 4,000"
+    ),
+    "cde_total_4k": f"{_PE_CDE_LAW}, fitted without the intermediate, n = 4,000",
+    "pooled_4k": (
+        "the observational law, one pooled outcome regression (a spline GLM in W with A and "
+        "A x spline(W)), n = 4,000"
+    ),
+    "pooled_crr_4k": (
+        "the observational law on the log-ratio scale, one pooled outcome regression (a spline "
+        "GLM in W with A and A x spline(W)), n = 4,000"
+    ),
+    "band_obs_4k": "the observational law, a spline GLM per arm, n = 4,000",
+    "band_crr_4k": "the observational law on the log-ratio scale, a spline GLM per arm, n = 4,000",
+    "band_clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level, "
+        "a spline GLM per arm, n = 4,000"
+    ),
+    "band_rep3_4k": (
+        "the observational law, a spline GLM per arm with repeats=3 and the median rule, n = 4,000"
+    ),
+}
+_PE_CDE_GROUPS = ("cde_4k", "cde_crr_4k", "cde_dr_4k", "cde_total_4k")
+_PE_LEVELS = {0: "with Z held at 0", 1: "with Z held at 1"}
+_PE_TERMS = {"intercept": "intercept", "W1": "W1 slope", "W3": "W3 slope"}
+
+
+def _pe_target(group: str, term: str, level: int | None) -> str:
+    """The coefficient a ``projection-evidence`` row reads, in words."""
+    if group in _PE_CDE_GROUPS:
+        scale = "log CRR" if "crr" in group else "CDE"
+        return (
+            f"the {_PE_TERMS[term]} of the projection of the {scale} {_PE_LEVELS[level]} on (1, W1)"
+        )
+    effect = "log CRR" if "crr" in group else "CATE"
+    return f"the {_PE_TERMS[term]} of the projection of the {effect} on (1, W1, W3)"
+
+
+_PE_CALIBRATION = {
+    ("cde_4k", "__cde_z0", 0): ("intercept", "W1"),
+    ("cde_4k", "__cde_z1", 1): ("intercept", "W1"),
+    ("cde_crr_4k", "__cde_crr_z0", 0): ("intercept", "W1"),
+    ("cde_crr_4k", "__cde_crr_z1", 1): ("intercept", "W1"),
+    ("pooled_4k", "__pooled", None): ("intercept", "W1", "W3"),
+    ("pooled_crr_4k", "__pooled_crr", None): ("intercept", "W1", "W3"),
+}
+_PE_BIAS_POSITIVE = "the 99% interval of the standardized bias inside +-0.25"
+_PE_BIAS_CONTROL = "the 99% interval of the standardized bias must lie wholly outside +-0.25"
+_PE_CONTROLS = {
+    "plugin_stratum": (
+        "cde_4k",
+        "the targeted contrast projected over the Z = z rows only, read against the CDE truth",
+    ),
+    "no_selection": (
+        "cde_dr_4k",
+        "the TMLE with the selection 1{Z = z} dropped from the observed clever covariate",
+    ),
+    "no_intermediate_weight": (
+        "cde_dr_4k",
+        "the TMLE with the intermediate density q_z omitted from the clever covariate",
+    ),
+    "plugin_wrong": (
+        "cde_dr_4k",
+        "the plug-in of the declared wrong outcome regression, with no targeting",
+    ),
+    "total_effect": (
+        "cde_total_4k",
+        "the total-effect projection, fitted without the intermediate, read against the CDE truth",
+    ),
+}
+_PE_CONTROL_TERMS = {
+    "plugin_stratum": "intercept",
+    "no_selection": "intercept",
+    "no_intermediate_weight": "intercept",
+    "plugin_wrong": "W1",
+    "total_effect": "intercept",
+}
+_PE_BANDS = {
+    "band_obs_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_crr_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_clustered_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+    "band_rep3_4k": "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}",
+}
+_PE_DIAGNOSTIC_BANDS = {
+    "cde_4k_z0": ("cde_4k", "five points W1 in [-0.8, 0.8], with Z held at 0"),
+    "cde_4k_z1": ("cde_4k", "five points W1 in [-0.8, 0.8], with Z held at 1"),
+    "pooled_4k": ("pooled_4k", "a 3 x 3 grid of (W1, W3) in {-0.8, 0, 0.8}"),
+}
+_PE_BAND = (
+    "the Rademacher multiplier band of effect_curve(grid=) with 1,000 draws, on the identity "
+    "scale with the normal reference"
+)
+_PE_NO_VERDICT = "none. The row is a diagnostic and states no verdict"
+
+
+def _pe_level_suffix(level: int | None) -> str:
+    return "" if level is None else f"_z{level}"
+
+
+STUDY_SCENARIOS[(_PE_SLUG, "cde_4k")] = _PE_GROUPS["cde_4k"]
+STUDY_ESTIMANDS.update(
+    {
+        (_PE_SLUG, f"z{level}:cate_projection[(intercept)]"): (
+            f"the intercept of the least-squares projection of the CDE {_PE_LEVELS[level]} on "
+            "(1, W1)"
+        )
+        for level in (0, 1)
+    }
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (
+                _PE_SLUG,
+                "interval_calibration",
+                f"{group}{_pe_level_suffix(level)}_{term}{arm}",
+            ): (
+                f"{_PE_GROUPS[group]}: the influence-curve Wald interval of "
+                f"{_pe_target(group, term, level)}",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for (group, arm, level), terms in _PE_CALIBRATION.items()
+            for term in terms
+        },
+        (_PE_SLUG, "interval_calibration", "cde_4k_z0_intercept__shrunken_se_control"): (
+            f"{_PE_GROUPS['cde_4k']}: the reported SE of {_pe_target('cde_4k', 'intercept', 0)} "
+            "times 0.70",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            (_PE_SLUG, "bias", f"cde_dr_4k_z{level}_{term}"): (
+                f"{_PE_GROUPS['cde_dr_4k']}: the TMLE of {_pe_target('cde_dr_4k', term, level)}",
+                _PE_BIAS_POSITIVE,
+            )
+            for level in (0, 1)
+            for term in ("intercept", "W1")
+        },
+        **{
+            (_PE_SLUG, "bias", f"{control}_4k_z{level}_{_PE_CONTROL_TERMS[control]}"): (
+                f"{_PE_GROUPS[group]}: {words}, "
+                f"{_pe_target('cde_4k', _PE_CONTROL_TERMS[control], level)}",
+                _PE_BIAS_CONTROL,
+            )
+            for control, (group, words) in _PE_CONTROLS.items()
+            for level in (0, 1)
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{group}__simultaneous_band"): (
+                f"{_PE_GROUPS[group]}: {_PE_BAND}, over {grid}",
+                "joint coverage interval inside the calibration coverage band",
+            )
+            for group, grid in _PE_BANDS.items()
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{group}__pointwise_joint_control"): (
+                f"{_PE_GROUPS[group]}: the pointwise 95% intervals over {grid}, read jointly",
+                "joint coverage upper endpoint must fall below the nominal rate",
+            )
+            for group, grid in _PE_BANDS.items()
+        },
+        **{
+            (_PE_SLUG, "simultaneous_coverage", f"{label}__simultaneous_band"): (
+                f"{_PE_GROUPS[group]}: {_PE_BAND}, over {grid}",
+                _PE_NO_VERDICT,
+            )
+            for label, (group, grid) in _PE_DIAGNOSTIC_BANDS.items()
+        },
+    }
+)
+
+#: ``score-assessment-compositions`` (P1 PR 2): the paired score assessment of
+#: ``score-assessment`` in five compositions.  The groups and cell names are those of
+#: ``tests/studies/score_assessment_compositions.py``, which this module cannot import;
+#: ``tests/unit/test_score_assessment_compositions_design.py`` pins the two equal.
+_SAC_SLUG = "score-assessment-compositions"
+IMPLEMENTATIONS["cleverly-score-assessment"] = (
+    "`cleverly` score assessment in a composition: one pooled TMLE fluctuation of the ATE fit "
+    "along the span of the scores' features, with substitution estimates of each score's risk "
+    "difference, calibration and the paired risk difference, and influence-curve Wald intervals"
+)
+_SAC_SCORES = "S = 0.2 + 0.3 W1 against SB = S + 0.15 sin(pi W3), difference scale"
+_SAC_GROUPS = {
+    "assess_weighted_2k": (
+        "the observational law with sampling weights 0.25 + 1.75 expit(6 W3), "
+        f"{_SAC_SCORES}, n = 2,000"
+    ),
+    "assess_clustered_4k": (
+        "the clustered law, 800 clusters of 5 rows with W1 and the treatment at cluster level, "
+        f"{_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_missing_4k": (
+        f"the observational law with outcomes missing at random, {_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_arms3_4k": (
+        f"the three-arm law, the pair (2, 0) of the ATE fit, {_SAC_SCORES}, n = 4,000"
+    ),
+    "assess_insample_2k": (
+        f"the observational law, an ATE fit that is not cross-fitted, {_SAC_SCORES}, n = 2,000"
+    ),
+}
+_SAC_ARMS = {
+    "assess_weighted_2k": ("__w_risk", "__w_cal"),
+    "assess_clustered_4k": ("__cl_risk", "__cl_cal"),
+    "assess_missing_4k": ("__mis_risk", "__mis_cal"),
+    "assess_arms3_4k": ("__k3_risk", "__k3_cal"),
+    "assess_insample_2k": ("__in_risk", "__in_cal"),
+}
+_SAC_RISK_ROWS = {
+    "S_risk_difference": "S's MSE for the CATE minus the best constant's",
+    "SB_risk_difference": "SB's MSE for the CATE minus the best constant's",
+    "paired": "the paired risk difference, S's MSE for the CATE minus SB's",
+}
+_SAC_CALIBRATION_ROWS = {
+    "S_calibration_intercept": "the intercept of the calibration line from S to the CATE",
+    "S_calibration_slope": "the slope of the calibration line from S to the CATE",
+    "SB_calibration_intercept": "the intercept of the calibration line from SB to the CATE",
+    "SB_calibration_slope": "the slope of the calibration line from SB to the CATE",
+}
+_SAC_CONTROLS = {
+    ("assess_weighted_2k", "S_risk_difference", "shrunken_se_control"): (
+        "the reported SE times 0.70"
+    ),
+    ("assess_clustered_4k", "S_risk_difference", "row_variance_control"): (
+        "the row-level SE that ignores the clusters, sd(IC) / sqrt(n)"
+    ),
+    ("assess_clustered_4k", "S_calibration_slope", "row_variance_control"): (
+        "the row-level SE that ignores the clusters, sd(IC) / sqrt(n)"
+    ),
+}
+STUDY_SCENARIOS[(_SAC_SLUG, "assess_weighted_2k")] = _SAC_GROUPS["assess_weighted_2k"]
+STUDY_ESTIMANDS[(_SAC_SLUG, "risk_difference[S - SB]")] = (
+    "the paired risk difference: S's mean squared error for the CATE minus SB's"
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (_SAC_SLUG, "interval_calibration", f"{group}_{row}{arm}"): (
+                f"{_SAC_GROUPS[group]}: the influence-curve Wald interval of {words}",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for group, (risk, calibration) in _SAC_ARMS.items()
+            for arm, rows in ((risk, _SAC_RISK_ROWS), (calibration, _SAC_CALIBRATION_ROWS))
+            for row, words in rows.items()
+        },
+        **{
+            (_SAC_SLUG, "interval_calibration", f"{group}_{row}__{kind}"): (
+                f"{_SAC_GROUPS[group]}: {words}, for "
+                f"{_SAC_RISK_ROWS.get(row) or _SAC_CALIBRATION_ROWS[row]}",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for (group, row, kind), words in _SAC_CONTROLS.items()
         },
     }
 )
@@ -10821,8 +11262,8 @@ CELLS.update(
 _CONTINUOUS_SLUG = "continuous-time-survival"
 IMPLEMENTATIONS["cleverly-continuous-survival-tmle"] = (
     "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
-    "least favourable path of every cause hazard, both arms tilted (Rytgaard and van der Laan "
-    "2024)"
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024)"
 )
 STUDY_SCENARIOS[(_CONTINUOUS_SLUG, "both_cf_1k")] = (
     "a three-level factor and a normal covariate, a binary treatment, two competing causes with "
@@ -10935,6 +11376,154 @@ STUDY_ARM_CELLS[(_FUNCTIONALS_SLUG, "interval_calibration", "rmst_rd", "correctl
     "the default libraries, each of which holds the true model",
     "SE ratio and coverage intervals both inside their calibration bands",
 )
+
+#: ``continuous-survival-variance`` (X6 part (a)): the continuous-time TMLE with its default
+#: switched standard error, on five laws that each change one feature of the base law.  The
+#: names are those of ``tests/studies/continuous_survival_variance.py`` and its law module.
+_VARIANCE_SLUG = "continuous-survival-variance"
+IMPLEMENTATIONS["cleverly-continuous-survival-switched"] = (
+    "`cleverly` ContinuousSurvivalTMLE with variance='switched': the one-step TMLE's "
+    "influence-curve standard error, raised to the predictable variation where the relative SD "
+    "of the variance estimate exceeds 0.125 (Rytgaard and van der Laan 2024)"
+)
+_VARIANCE_FIT = "the default Cox libraries and treatment learner"
+STUDY_SCENARIOS.update(
+    {
+        (_VARIANCE_SLUG, "v1_rare_cause2"): (
+            "the base continuous-time competing-risks law with a rarer second cause (cause-2 "
+            f"log-hazard intercept -2.6); {_VARIANCE_FIT}, ten outer folds, n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v2_heavy_weights"): (
+            "reported cell, passing by declaration (three rows at t = 1.12 fall short of the "
+            "primary rule): the base continuous-time competing-risks law with heavier control "
+            "weights "
+            f"(treatment model coefficients 2, -1, 1.5); {_VARIANCE_FIT}, ten outer folds, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v3_half_n"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, ten outer folds, "
+            "n = 500"
+        ),
+        (_VARIANCE_SLUG, "v4_in_sample"): (
+            f"the base continuous-time competing-risks law; {_VARIANCE_FIT}, fitted in sample, "
+            "n = 1,000"
+        ),
+        (_VARIANCE_SLUG, "v7_quadratic"): (
+            "the base continuous-time competing-risks law with 0.3 (X3^2 - 1) added to the "
+            f"cause-1 log hazard, which no default Cox model holds; {_VARIANCE_FIT}, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+for _time in ("1.12", "2.32", "1.29", "2.69"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        for _cause in (1, 2):
+            STUDY_ESTIMANDS[(_VARIANCE_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} by t = {_time} under {_words}"
+            )
+    for _cause in (1, 2):
+        STUDY_ESTIMANDS[
+            (_VARIANCE_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} by t = {_time} between treatment and no "
+            "treatment"
+        )
+
+#: ``continuous-survival-causes`` (X6 part (b)): the continuous-time TMLE in its shipped default
+#: on the base law with one cause and with three.  The names are those of
+#: ``tests/studies/continuous_survival_causes.py``, its law module and its properties module.
+_CAUSES_SLUG = "continuous-survival-causes"
+IMPLEMENTATIONS["cleverly-continuous-survival-causes"] = (
+    "`cleverly` ContinuousSurvivalTMLE: one-step TMLE on the multinomial-logistic universal "
+    "least favourable path of every cause hazard, both arms tilted, with the default switched "
+    "standard error (Rytgaard and van der Laan 2024), with one cause and with three"
+)
+_CAUSES_FIT = "the default Cox libraries and treatment learner, ten outer folds, n = 1,000"
+STUDY_SCENARIOS.update(
+    {
+        (_CAUSES_SLUG, "l1_cf_1k"): (
+            "the base continuous-time law with its cause-2 hazard removed, so every event is of "
+            f"one type; {_CAUSES_FIT}, target times 0.58, 1.48 and 3.24"
+        ),
+        (_CAUSES_SLUG, "l3_cf_1k"): (
+            "the base continuous-time competing-risks law with a third cause of hazard "
+            f"exp(-2.5 + 0.5 X1 + 0.5 X3 + 0.5 Z); {_CAUSES_FIT}, target times 0.37, 0.9 and "
+            "1.86"
+        ),
+    }
+)
+for _time in ("0.58", "1.48", "3.24"):
+    for _arm, _words in _CONTINUOUS_ARMS.items():
+        STUDY_ESTIMANDS[(_CAUSES_SLUG, f"risk_regimen[{_arm} @ t={_time}]")] = (
+            f"risk of the event by t = {_time} under {_words}, one cause"
+        )
+    STUDY_ESTIMANDS[(_CAUSES_SLUG, f"ate_regimen[treated vs control @ t={_time}]")] = (
+        f"difference in the risk of the event by t = {_time} between treatment and no "
+        "treatment, one cause"
+    )
+for _time in ("0.37", "0.9", "1.86"):
+    for _cause in (1, 2, 3):
+        for _arm, _words in _CONTINUOUS_ARMS.items():
+            STUDY_ESTIMANDS[(_CAUSES_SLUG, f"cif_regimen[{_arm}, cause{_cause} @ t={_time}]")] = (
+                f"risk of cause {_cause} of three by t = {_time} under {_words}"
+            )
+        STUDY_ESTIMANDS[
+            (_CAUSES_SLUG, f"ate_regimen[treated vs control, cause{_cause} @ t={_time}]")
+        ] = (
+            f"difference in the risk of cause {_cause} of three by t = {_time} between treatment "
+            "and no treatment"
+        )
+STUDY_ARMS.update(
+    {
+        (_CAUSES_SLUG, "l1_rd"): (
+            "the one-cause law, the difference in the risk of the event by t = 1.48 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_rd"): (
+            "the three-cause law, the difference in the risk of cause 3 by t = 0.9 between "
+            "treatment and no treatment, ten outer folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l1_c1"): (
+            "the one-cause law, the treated arm's risk of the event by t = 1.48, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c1"): (
+            "the three-cause law, the treated arm's risk of cause 1 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+        (_CAUSES_SLUG, "l3_c3"): (
+            "the three-cause law, the treated arm's risk of cause 3 by t = 0.9, ten outer "
+            "folds, n = 1,000"
+        ),
+    }
+)
+_CAUSES_WRONG = (
+    "the event hazards wrong (a Cox model on the treatment alone), with the default treatment "
+    "learner and censoring library, which hold the true models"
+)
+for _label in ("l1_c1", "l3_c1", "l3_c3"):
+    STUDY_ARM_CELLS.update(
+        {
+            (_CAUSES_SLUG, "double_robustness", _label, "mechanism_correct"): (
+                f"{_CAUSES_WRONG}; the targeted estimate",
+                "bias interval inside the equivalence margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "plug_in_control"): (
+                f"{_CAUSES_WRONG}; the initial plug-in of the same fit, before the walk",
+                "bias interval must fall entirely outside the margin",
+            ),
+            (_CAUSES_SLUG, "double_robustness", _label, "factual_tilt_control"): (
+                f"{_CAUSES_WRONG}; the same draw fitted with tilt='factual', which tilts only "
+                "each unit's received arm",
+                "bias interval must fall entirely outside the margin",
+            ),
+        }
+    )
+for _label in ("l1_rd", "l3_rd"):
+    STUDY_ARM_CELLS[(_CAUSES_SLUG, "interval_calibration", _label, "correctly_specified")] = (
+        "the default libraries, each of which holds the true model",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this
@@ -11911,3 +12500,143 @@ for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
                 f"clusters): {_fcfv_arm_words}",
                 _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
             )
+
+
+#: ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` (X54 parts (a) to
+#: (c)): the interval floor of each fit family and the part (c) comparison of two small-sample
+#: constructions with the shipped interval. Mirrored from ``tests/studies/few_cluster_floor_tmle.py``
+#: and ``few_cluster_floor_ltmle.py``; a superset of their grids, so a cell either study publishes
+#: has an entry, and a key ``clustered-few-cluster-tmle`` already describes keeps its text.
+_FLOOR_TMLE_SLUG = "few-cluster-floor-tmle"
+_FLOOR_LTMLE_SLUG = "few-cluster-floor-cross-fitted-ltmle"
+STUDY_SCENARIOS[(_FLOOR_TMLE_SLUG, "floor_unequal_informative_j10")] = (
+    "10 clusters of size uniform on 2 to 18 with the size in the outcome, an in-sample LTMLE on "
+    "one node with parametric learners, the shipped report"
+)
+STUDY_SCENARIOS[(_FLOOR_LTMLE_SLUG, "floor_equal40_j10")] = (
+    "10 clusters of 40 units on the end-of-study longitudinal law, an LTMLE with five "
+    "whole-cluster folds capped at the cluster count and parametric learners, the shipped report"
+)
+PROPERTIES["few_cluster_candidate"] = (
+    "a small-sample construction, Wang et al.'s inflation or the delete-one-cluster jackknife, "
+    "is not worse than the shipped interval on the same draws, read from 2,000 draws per cell"
+)
+PROPERTIES["few_cluster_candidate_pooled"] = (
+    "the same comparison pooled over every cell of one configuration from the count where the "
+    "candidate could be admitted"
+)
+_FLOOR_FITS = {
+    "tmle_in_sample_known": "in-sample TMLE, propensity declared known",
+    "tmle_in_sample_estimated": "in-sample TMLE, propensity a main-terms GLM",
+    "tmle_stacked_known": "stacked TMLE with min(5, J) folds, propensity declared known",
+    "tmle_stacked_estimated": "stacked TMLE with min(5, J) folds, propensity a main-terms GLM",
+    "tmle_stacked_d5_known": (
+        "stacked TMLE with three pure-noise covariates added, propensity declared known"
+    ),
+    "tmle_stacked_d5_estimated": (
+        "stacked TMLE with three pure-noise covariates added, propensity a main-terms GLM"
+    ),
+    "tmle_fold_evaluated_known": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity declared known"
+    ),
+    "tmle_fold_evaluated_estimated": (
+        "fold-evaluated TMLE with min(5, J // 2) folds, propensity a main-terms GLM"
+    ),
+    "drtmle_known": "cross-fitted DR-TMLE with foldwise reduced regressions, mechanism known",
+    "ltmle_in_sample": "in-sample LTMLE on one node",
+    "ltmle_cross_fitted": "LTMLE with five whole-cluster folds capped at J",
+}
+_FLOOR_SIZES = {
+    "equal10": "clusters of 10 rows",
+    "unequal_informative": "clusters of size uniform on 2 to 18, the size in the outcome",
+    "equal40": "clusters of 40 units",
+    "unequal40": "clusters of size uniform on 10 to 70",
+}
+_FLOOR_POSITIVE = (
+    "the exact 99% lower end of all-draw coverage, withheld and lost draws counted as misses, "
+    "at least 0.90, and bias inside the margin"
+)
+_FLOOR_ARMS = {
+    "t_reference": ("the shipped interval, t with J - 2 degrees of freedom", _FLOOR_POSITIVE),
+    "iid_t_control": (
+        "the same point and t quantile with the IID row standard error",
+        "on the shown draws, the 99% upper end of the paired ratio of mean IID SE to mean "
+        "cluster SE below 0.80, and the positive arm's shown-only SE-ratio upper end at most 1.20",
+    ),
+    "normal_reference": (
+        "the cluster standard error on the normal reference",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_1_reference": (
+        "the cluster standard error on t with J - 1 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "t_j_minus_2_reference": (
+        "the fold-evaluated standard error on t with J - 2 degrees of freedom",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+    "wang_inflated": (
+        "Wang et al.'s inflation J / (J - p) of the cluster variance on t with J - p degrees of "
+        "freedom, every draw",
+        _DIAGNOSTIC_REQUIRED,
+    ),
+}
+_FLOOR_CANDIDATE_ARMS = {
+    "wang_inflated": (
+        "Wang et al.'s inflated interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_wang_inflated": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+    "cluster_jackknife": (
+        "the delete-one-cluster jackknife interval on the first 2,000 draws",
+        "the 99% lower end of the paired all-draw coverage gain over the shipped interval at "
+        "least -0.03",
+    ),
+    "reference_for_cluster_jackknife": (
+        "the shipped interval on the same 2,000 draws, the pair's reference",
+        "read with its candidate: the pair's gain lower end at least -0.03",
+    ),
+}
+for _floor_fit, _floor_fit_words in _FLOOR_FITS.items():
+    for _floor_size, _floor_size_words in _FLOOR_SIZES.items():
+        for _floor_j in (*range(3, 21), 30, 39):
+            _floor_where = f"{_floor_fit_words}, {_floor_j} {_floor_size_words}"
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_ARMS.items():
+                CELLS.setdefault(
+                    (
+                        "few_cluster_reference",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    ),
+                    (f"{_floor_where}: {_floor_words}", _floor_required),
+                )
+            for _floor_arm, (_floor_words, _floor_required) in _FLOOR_CANDIDATE_ARMS.items():
+                CELLS[
+                    (
+                        "few_cluster_candidate",
+                        f"{_floor_fit}__{_floor_size}__j{_floor_j}__{_floor_arm}",
+                    )
+                ] = (f"{_floor_where}: {_floor_words}", _floor_required)
+    for _floor_candidate in ("wang_inflated", "cluster_jackknife"):
+        CELLS[("few_cluster_candidate_pooled", f"{_floor_fit}__{_floor_candidate}")] = (
+            f"{_floor_fit_words}: {_FLOOR_CANDIDATE_ARMS[_floor_candidate][0]}, pooled over every "
+            "law and count from the candidate's admissibility count",
+            "the 99% lower end of the pooled paired coverage gain at least -0.01",
+        )
+
+#: The one-node in-sample ``LTMLE`` primaries of ``clustered-few-cluster-tmle`` and
+#: ``few-cluster-floor-tmle`` assign one treatment, so their plans read as one decision, not
+#: as "both times" and "neither time" of the two-node panels (X54 implementation review m3).
+for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
+    STUDY_ESTIMANDS.update(
+        {
+            (_one_node_slug, "ey_regimen[always]"): "mean outcome under the plan treat",
+            (_one_node_slug, "ey_regimen[never]"): "mean outcome under the plan do not treat",
+            (_one_node_slug, "ate_regimen[always vs never]"): (
+                'difference in mean outcome between the plans "treat" against "do not treat"'
+            ),
+        }
+    )

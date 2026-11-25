@@ -149,10 +149,12 @@ class TestRefusalsBeforeAnyLearner:
             law_study().identify(ConditionalContrast(Modifiers(["S"]), model=Linear(["S"])))
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
-    def test_r7_an_intermediate_is_outside_p1(self) -> None:
-        with pytest.raises(CapabilityError, match="does not yet compose with an intermediate") as c:
+    def test_r7_a_bare_contrast_on_an_intermediate_design(self) -> None:
+        """An intermediate composes through ControlledDirectEffect; a bare contrast is ambiguous
+        between the total and the controlled effect (tests/unit/test_cde_projection.py)."""
+        with pytest.raises(CapabilityError, match="must identify ControlledDirectEffect") as c:
             law_study(intermediate="M").identify(linear_contrast())
-        assert c.value.refusal.roadmap == "P1"
+        assert c.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
     def test_r7_strata_rank_a_modifier_that_is_the_stratum_column(self) -> None:
         """Strata compose with the projection; a basis constant inside a stratum does not."""

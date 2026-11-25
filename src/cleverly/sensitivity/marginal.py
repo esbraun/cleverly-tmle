@@ -96,6 +96,10 @@ other fit prints the registry's descriptive sentence.
 
 from __future__ import annotations
 
+import os
+import pickle
+import sys
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any
@@ -103,15 +107,17 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._continuous_survival_family import refuse_continuous_survival
-from .._inference_status import status_record, supplies_inference
+from .._inference_status import FEW_CLUSTER_ESTIMAND_STATUS, status_record, supplies_inference
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._trial_family import AUGMENTED_TRIAL_FAMILY, augmented_trial_refusal, refuse_augmented_trial
 from ..data.known_mechanism import known_score_fit, known_score_reader_refusal
 from ..exceptions import CapabilityError
 from ..inference.cluster import cluster_reference_df, influence_variance
+from ..inference.cluster_jackknife import jackknife_fit
 from ..inference.delta import reference_quantile
 from ..inference.influence import ParameterEstimate
 from ..utils.frames import emit_frame
+from ..utils.parallel import map_parallel, resolve_n_jobs
 from ._limits import bound_limits
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -465,6 +471,16 @@ def marginal_bound_refusal(result: Any) -> Refusal | None:
             f"{data.family!r}.",
             alternative=NO_ALTERNATIVE,
         )
+    if jackknife_fit(result):
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            "the bound's interval is built from its influence curve, and this fit reports the "
+            "delete-one-cluster jackknife variance (cluster_variance='jackknife'), which the "
+            "curve does not carry, so at Gamma = 1 the set interval would not be the fit's "
+            "interval.",
+            alternative="Refit with cluster_variance='influence_curve' for the bounds.",
+            roadmap="F28",
+        )
     status = result.inference_status
     status = status() if callable(status) else status
     if status != "influence_curve" and not (
@@ -509,19 +525,25 @@ def _estimand_refusal(result: Any, target: _Target) -> Refusal | None:
     if withheld is None:
         return None
     record = status_record(withheld)
+    # A shown parameter status (few_cluster_estimand_plugin) labels the estimate's interval
+    # rather than withholding it; the bound refuses it as the fit-level few_cluster_plugin is.
+    reads = "labels" if record.interval == "shown" else "withholds"
     return Refusal(
         RefusalReason.INFERENCE_GAP,
         f"the bound's interval is built from the influence curve of {target.name}, and that "
-        f"estimate withholds its interval ({withheld}): {record.reason}",
+        f"estimate {reads} its interval ({withheld}): {record.reason}",
         alternative=record.alternative or NO_ALTERNATIVE,
         roadmap=record.reopened_by,
     )
 
 
 def _withheld_status(result: Any, target: _Target) -> str | None:
-    """The status of ``target``'s estimate when it withholds the interval, else ``None``.
+    """The status of ``target``'s estimate when the bound refuses it, else ``None``.
 
-    A reported estimate answers through its own status.  An unreported one withholds when
+    A reported estimate answers through its own status: one that withholds the interval, or
+    ``"few_cluster_estimand_plugin"``, which shows it below the default cluster floor of an
+    estimate no floor study measured, as the fit-level ``"few_cluster_plugin"`` that
+    :func:`marginal_bound_refusal` refuses does.  An unreported one withholds when
     an arm it reads holds one observed outcome value in its rows, the cause the fit's
     ``constant_arm_cell_plugin`` status names, because the bound's influence curve leaves out
     that arm's outcome variance as the estimate's would.
@@ -531,6 +553,8 @@ def _withheld_status(result: Any, target: _Target) -> str | None:
     estimate = result.estimates.get(target.name)
     if estimate is not None:
         status = estimate.inference
+        if status == FEW_CLUSTER_ESTIMAND_STATUS:
+            return str(status)
         # A selecting C-TMLE withholds for its selected mechanism, which the bounds refit.
         if supplies_inference(status) or (
             status in _SELECTION_STATUSES and _refits_mechanism(result)
@@ -1056,7 +1080,7 @@ def _draw_sides(
     observed = np.asarray(data.observed, dtype=bool)
     binary = data.family == "binomial"
     treatment = np.asarray(data.treatment, dtype=float)
-    sides: dict[tuple[float, bool], _Side] = {}
+    payloads: list[tuple[Callable[..., _Side], tuple[Any, ...], dict[str, Any]]] = []
     for level, upper in wanted:
         treated = (treatment == level).astype(float)
         e = g[:, level_index[level]]
@@ -1066,25 +1090,128 @@ def _draw_sides(
             column = list(nuisance.arms).index(level)
             observed_weight = np.where(observed, 1.0 / response[:, column], 0.0)
         if binary:
-            sides[(level, upper)] = _binary_side(y, treated, e, mu, gamma, upper, observed_weight)
+            payloads.append((_binary_side, (y, treated, e, mu, gamma, upper, observed_weight), {}))
         else:
-            sides[(level, upper)] = _continuous_side(
-                x,
-                y,
-                treated,
-                e,
-                mu,
-                gamma,
-                upper,
-                assignment,
-                n_folds,
-                quantile_learner,
-                pseudo_outcome_learner,
-                seed,
-                weights=weights,
-                observed_weight=observed_weight,
+            payloads.append(
+                (
+                    _continuous_side,
+                    (
+                        x,
+                        y,
+                        treated,
+                        e,
+                        mu,
+                        gamma,
+                        upper,
+                        assignment,
+                        n_folds,
+                        quantile_learner,
+                        pseudo_outcome_learner,
+                        seed,
+                    ),
+                    {"weights": weights, "observed_weight": observed_weight},
+                )
             )
+    # The continuous sides fit their quantile and tail learners independently of one another,
+    # each from the draw's seed, so on a fit made with ``n_jobs > 1`` they run in workers and
+    # come back in order: every side is the one the serial loop computes.  A side that runs in
+    # another process has its warnings captured there and raised again here in task order
+    # (:func:`_replay` states where that matches the serial loop).  ``n_jobs=1``, the binary
+    # sides and Gamma = 1, which are closed forms, take the serial loop itself.
+    n_jobs = 1 if binary or gamma == 1.0 else resolve_n_jobs(getattr(result.estimator, "n_jobs", 1))
+    if n_jobs == 1 or len(payloads) <= 1:
+        return {
+            key: function(*arguments, **keywords)
+            for key, (function, arguments, keywords) in zip(wanted, payloads, strict=True)
+        }
+    caller = os.getpid()
+    outcomes = map_parallel(
+        _captured_side,
+        [(caller, function, arguments, keywords) for function, arguments, keywords in payloads],
+        n_jobs=n_jobs,
+    )
+    sides: dict[tuple[float, bool], _Side] = {}
+    for key, (side, shown) in zip(wanted, outcomes, strict=True):
+        _replay(shown)
+        sides[key] = side
     return sides
+
+
+#: A warning a worker captured: message, category, file name and line number.
+_Shown = tuple[Any, type[Warning], str, int]
+
+
+def _captured_side(
+    caller: int,
+    function: Callable[..., _Side],
+    arguments: tuple[Any, ...],
+    keywords: dict[str, Any],
+) -> tuple[_Side, list[_Shown]]:
+    """One side, with the warnings it raised in another process, in order, for :func:`_replay`.
+
+    ``warnings.catch_warnings`` swaps process-wide state, so it is safe only where nothing
+    else runs at the same time: a worker process.  A side running in the caller's process (a
+    thread backend, or a call nested in a worker, where joblib uses threads) raises its
+    warnings in place, as the serial loop does, and returns none to replay.
+    """
+    if os.getpid() == caller:
+        return function(*arguments, **keywords), []
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        side = function(*arguments, **keywords)
+    return side, [_portable(w.message, w.category, w.filename, w.lineno) for w in caught]
+
+
+def _portable(message: Any, category: type[Warning], filename: str, lineno: int) -> _Shown:
+    """A captured warning that survives the trip back to the caller.
+
+    A warning instance that does not pickle travels as its text, which the caller raises as
+    ``category(text)``.
+    """
+    try:
+        pickle.dumps((message, category))
+    except Exception:
+        try:
+            pickle.dumps(category)
+        except Exception:
+            category = Warning
+        return str(message), category, filename, lineno
+    return message, category, filename, lineno
+
+
+def _replay(shown: Sequence[_Shown]) -> None:
+    """Raise a worker's warnings again in the caller, at their original source lines.
+
+    Each one passes through the caller's filters, under the module name the serial loop would
+    report, so a filter on ``module=`` matches as it would there.  No once-per-location
+    registry is passed: the serial loop resets that registry between fits (every learner fit
+    changes the warning filters), so under the ``"default"`` and ``"module"`` actions it shows
+    every repeat, and so does this replay.  Under ``"once"`` the serial loop shows a repeat
+    after each reset and the replay shows it once; under ``"always"``, ``"error"`` and
+    ``"ignore"`` they agree.
+    """
+    for message, category, filename, lineno in shown:
+        module = _module_of(filename)
+        if module is None:
+            # An explicit ``module=None`` drops the warning on CPython 3.13; leaving it out
+            # names the module from the file name.
+            warnings.warn_explicit(message, category, filename, lineno, registry=None)
+        else:
+            warnings.warn_explicit(
+                message, category, filename, lineno, module=module, registry=None
+            )
+
+
+def _module_of(filename: str) -> str | None:
+    """The name of the loaded module at ``filename``, as ``warnings.warn`` reports it.
+
+    ``None`` when no loaded module has that file, and :func:`_replay` leaves
+    :func:`warnings.warn_explicit` to name it from the file name.
+    """
+    for name, module in list(sys.modules.items()):
+        if getattr(module, "__file__", None) == filename:
+            return name
+    return None
 
 
 def _wanted(target: _Target) -> list[tuple[float, bool]]:

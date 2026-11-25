@@ -13,6 +13,14 @@ X40 modules run on synthetic rows until their declared runs commit their rows.
 | every registered study with a committed ``property-replicates.parquet`` | the committed rows |
 | :data:`SYNTHETIC_MODULES` | :func:`synthetic_rows`, from the module's declared cells |
 
+A property module may declare the differential's size (:func:`declared_subset`): a replicate cap
+``DIFFERENTIAL_BUDGET`` and a function ``differential_cells()`` naming the ``family/cell``
+replication cells it reads, which must form whole groups of the module's rule. The subset
+applies to the subject's rows, committed or synthetic, and to the kinds and the cost it is
+sized by. A study with thousands of cells uses it, because every extra-column kind of every
+cell summarizes every row (``docs/development/method-benchmarking.md``, "The property
+differential").
+
 The perturbations are
 :data:`~tests.studies.evidence.property_failures.PERTURBATIONS`, the graded kinds of
 :func:`~tests.studies.evidence.property_failures.binding_perturbations`, and a scaling, a shift
@@ -86,16 +94,13 @@ from tests.studies.evidence.registry import StudyRecord, registered
 DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows
-#: (``refuter_calibration_continuous_survival_properties``), and ``longitudinal_sdr_properties``,
-#: whose committed rows leave the clause
+#: (none at present), and ``longitudinal_sdr_properties``, whose committed rows leave the clause
 #: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
 #: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
-#: long-horizon studies, ``boundary-node-ltmle`` and ``few-cluster-fold-variance`` bind to their
-#: committed rows, so they are subjects by slug.
-SYNTHETIC_MODULES = (
-    "tests.studies.longitudinal_sdr_properties",
-    "tests.studies.refuter_calibration_continuous_survival_properties",
-)
+#: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance`` and the two
+#: few-cluster floor studies bind to their committed rows, so they are subjects by slug; the
+#: floor studies read their declared subset of those rows (:func:`declared_subset`).
+SYNTHETIC_MODULES = ("tests.studies.longitudinal_sdr_properties",)
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
@@ -157,6 +162,8 @@ def kind_count(subject: str) -> int:
     int
         At least ``len(KINDS)``.
     """
+    if _declares_subset(subject):
+        return len(kinds(subject))
     if subject in SYNTHETIC_MODULES:
         return len(KINDS)
     path = _STUDIES[subject].artifact("property-replicates.parquet")
@@ -183,6 +190,8 @@ def estimated_cost(subject: str) -> int:
     int
         At least one.
     """
+    if _declares_subset(subject):
+        return max(1, len(subject_rows(subject)) * kind_count(subject))
     if subject in SYNTHETIC_MODULES:
         return len(KINDS)
     path = _STUDIES[subject].artifact("property-replicates.parquet")
@@ -359,6 +368,42 @@ def reduced(record: StudyRecord) -> Iterator[StudyRecord]:
             setattr(module, name, record)
 
 
+@functools.cache
+def _declares_subset(subject: str) -> bool:
+    """Whether a subject's property module declares a differential size."""
+    module, _ = subject_of(subject)
+    return hasattr(module, "DIFFERENTIAL_BUDGET")
+
+
+def declared_subset(module: ModuleType, rows: pd.DataFrame) -> pd.DataFrame:
+    """The rows the differential reads of a module that declares its size; else ``rows``.
+
+    ``DIFFERENTIAL_BUDGET`` keeps replicates below it and caps each cell's
+    ``requested_replicates`` at it, so a cell keeps its shape at a smaller size.
+    ``differential_cells()`` keeps those ``family/cell`` cells. The module names whole groups,
+    so every pair and group its rule reads is complete.
+
+    Parameters
+    ----------
+    module : module
+        The property module.
+    rows : pandas.DataFrame
+        Its committed or synthetic rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The subset, with a fresh index.
+    """
+    budget = getattr(module, "DIFFERENTIAL_BUDGET", None)
+    if budget is None:
+        return rows
+    names = rows["property"].astype(str) + "/" + rows["cell"].astype(str)
+    kept = rows.loc[names.isin(module.differential_cells()) & (rows["replicate"] < budget)]
+    kept = kept.assign(requested_replicates=kept["requested_replicates"].clip(upper=budget))
+    return kept.reset_index(drop=True)
+
+
 def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     """Rows built from a module's declared cells, through its own ``generate_property_rows``.
 
@@ -379,7 +424,9 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
         estimates when the default ``n ** -0.5`` is not its efficiency bound over ``sqrt(n)``,
         ``synthetic_columns(cell, rng)``, the extra row columns of a cell, and
         ``synthetic_centre(cell, columns, centre, scale)``, a row's centre given its extra
-        columns.
+        columns. A module that declares its size (:func:`declared_subset`) is generated at
+        ``budget=DIFFERENTIAL_BUDGET``, and only the keys that fill a cell of its
+        ``differential_cells()`` are built.
 
     Returns
     -------
@@ -392,6 +439,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     # clauses can each decide a verdict alone.  The module names those cells in
     # ``SYNTHETIC_CENTRES``, as ``property/cell`` to centre.
     centres: dict[str, float] = dict(getattr(module, "SYNTHETIC_CENTRES", {}))
+    budget = getattr(module, "DIFFERENTIAL_BUDGET", None)
+    subset = None if budget is None else module.differential_cells()
 
     def fit_properties(
         keys: Any, fit_one: Any, *, cells_of: Any, replicate_of: Any, **options: Any
@@ -406,7 +455,7 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
             replicate = replicate_of(key)
             rows = []
             for name in cells_of(key):
-                if name in controls:
+                if name in controls or (subset is not None and name not in subset):
                     continue
                 family, cell = name.split("/", 1)
                 spec = declared[(family, cell)]
@@ -459,7 +508,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     if guard is not None:
         setattr(module, "require_recorded_pilots", lambda what: None)  # noqa: B010
     try:
-        rows: pd.DataFrame = module.generate_property_rows(n_jobs=1)
+        sized = {} if budget is None else {"budget": budget}
+        rows: pd.DataFrame = module.generate_property_rows(n_jobs=1, **sized)
     finally:
         setattr(module, "fit_properties", original)  # noqa: B010
         if guard is not None:
@@ -487,8 +537,8 @@ def subject_rows(subject: str) -> pd.DataFrame:
     module, record = subject_of(subject)
     if subject in SYNTHETIC_MODULES:
         with reduced(record):
-            return synthetic_rows(module)
-    return read_rows(record.artifact("property-replicates.parquet"))
+            return declared_subset(module, synthetic_rows(module))
+    return declared_subset(module, read_rows(record.artifact("property-replicates.parquet")))
 
 
 def kinds(subject: str) -> tuple[str, ...]:
@@ -934,8 +984,14 @@ def candidates_at_no_loss(subject: str) -> tuple[int, int, list[tuple[Any, ...]]
                         continue
                     for label, candidate in clause.candidates(ctx, row):
                         read += 1
-                        same = candidate.passed == value.passed and math.isclose(
-                            candidate.slack, value.slack, rel_tol=1e-9, abs_tol=1e-12
+                        # A cell with no readable draw, such as a refused candidate, has no
+                        # slack on either side; the verdicts must still agree.
+                        both_nan = math.isnan(candidate.slack) and math.isnan(value.slack)
+                        same = candidate.passed == value.passed and (
+                            both_nan
+                            or math.isclose(
+                                candidate.slack, value.slack, rel_tol=1e-9, abs_tol=1e-12
+                            )
                         )
                         if not same:
                             name = (family, cell, clause.name, clause.statistic, label)

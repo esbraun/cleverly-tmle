@@ -82,6 +82,19 @@ so no contrast is privileged by its position. `ey` contributes all `K` arm curve
 `or` contribute all `K - 1` curves against the reference. `CTMLESelection.target_names` records the
 exact vector that was optimized.
 
+**The record counts the search's work.** `CTMLESelection.candidate_fits`, `mechanism_fits` and
+`target_solves` hold one count per search branch: the analysis sample first, then each selection
+fold. A candidate fit is one fluctuation of a candidate mechanism, so a greedy step that retries
+from a further targeted fit scores its remaining covariates twice. A mechanism counts once however many
+folds it is cross-fitted over.
+
+Each penalty of a lasso path counts as one mechanism, and supplied
+`PropensityArrays` count as none. Solves are the candidates plus the logistic preorder's
+one-covariate solves. The estimator's final targeting of the chosen candidate is not counted.
+Under `patience` the counts are the work done: `lasso` and `learners` pass the stop, and the
+logistic preorder scores every covariate before the path starts. With `repeats`, the record
+describes the first draw. The summary's "Search work" line sums the counts.
+
 Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju et al. (2019); see
 [collaborative TMLE](../references.md#collaborative-tmle). Implementation:
 [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
@@ -312,11 +325,18 @@ The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected c
 *initial* fit. R `ctmleGlmnet` and this package fluctuate its *targeted* fit
 (`R/ctmle_glmnet.R`, line 291).
 
-**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by
-coordinate descent with a Newton polish on the active set, warm-started along the grid. Its
-Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residual is larger, the
-fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
-is separation at penalty 0. A grid that ends above 0 avoids it.
+**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by a
+proximal Newton method on a working set, warm-started along the grid. Each step minimizes the
+penalized quadratic model of the loss on the working coordinates and halves the step until the
+objective rises by at most 64 units of rounding, relative to its value. The working set holds
+the nonzero coordinates and those the sequential strong rule keeps, and grows by every
+coordinate that violates its optimality condition. Its
+Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty, and the solver stops near
+`1e-14`. `tests/unit/test_l1_solver.py` holds it to the coordinate-descent solver it replaced, run
+from a frozen copy in the same process.
+
+When the residual is larger, the fit raises `L1ConvergenceError`, and the message names the layer
+and the penalty. The usual cause is separation at penalty 0. A grid that ends above 0 avoids it.
 
 **The ends of the default grid hold on the analysis sample.** There, the first
 default candidate is the intercept-only mechanism exactly, and the last is the unpenalized

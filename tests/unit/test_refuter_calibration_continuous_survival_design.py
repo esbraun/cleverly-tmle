@@ -20,13 +20,13 @@ import pytest
 from scipy import stats
 
 from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
-from cleverly.survival.engine import SURVIVAL_FLOOR
 from cleverly.validation import _continuous_survival_refute as adapter
 from cleverly.validation import refute
 from tests.studies import continuous_survival_law as law
 from tests.studies import refuter_calibration_continuous_survival as study
 from tests.studies import refuter_calibration_continuous_survival_pilot as pilot
 from tests.studies import refuter_calibration_continuous_survival_properties as properties
+from tests.studies.evidence.inference import clopper_pearson
 
 PILOT = pilot.read()
 #: The predictive family pass the size cells must reach before the declaration (plan 5).
@@ -68,10 +68,12 @@ class TestLaw:
         assert min(abs(z) for z in _z(power=False).values()) < 1.0
 
     def test_raising_beta_alone_reaches_the_survival_floor_first(self) -> None:
-        """The deviation from the plan: beta alone needs 3.5, where the fit raises."""
+        """The deviation from the plan: beta alone needs 3.5, where the fit raised when set."""
         assert abs(_z(power=False, beta=3.25)["c2_t1.12"]) < study.POWER_EFFECT_SE
         assert abs(_z(power=False, beta=3.5)["c2_t1.12"]) >= study.POWER_EFFECT_SE
-        assert _worst_treated_survival(3.5) < SURVIVAL_FLOOR
+        # The survival floor the engine refused at when the design was set; the engine now
+        # refuses only below SURVIVAL_UNDERFLOW (study module docstring).
+        assert _worst_treated_survival(3.5) < 1e-12
         assert _worst_treated_survival(study.POWER_BETA, study.POWER_CAUSE2_ARM) > 1e-3
 
     def test_the_power_law_draws_its_coefficients(self) -> None:
@@ -149,9 +151,18 @@ class TestFamily:
             assert value >= FAMILY_PASS_FLOOR
 
     def test_the_family_rule_reads_0_907_at_exact_size_and_independence(self) -> None:
+        """The plan's check of the rule, at the X82 count (17 of 200)."""
         rng = np.random.default_rng(4)
         scores = pd.DataFrame(rng.standard_normal((200_000, 8)))
-        assert pilot.family_pass(scores, draws=2_000) == pytest.approx(0.907, abs=0.02)
+        value = pilot.family_pass(scores, trials=200, max_rejections=17, draws=2_000)
+        assert value == pytest.approx(0.907, abs=0.02)
+
+    def test_a_smaller_size_falls_short(self) -> None:
+        """600 is the smallest multiple of 200 at which the pilot's family pass reaches 0.90."""
+        scores = pilot.signed_scores(PILOT)
+        ceiling = properties.SIZE_CEILING
+        count = pilot.count_ceiling(400, ceiling)
+        assert pilot.family_pass(scores, trials=400, max_rejections=count) < FAMILY_PASS_FLOOR
 
     def test_the_scores_reproduce_the_recorded_rejections(self) -> None:
         scores = pilot.signed_scores(PILOT)
@@ -164,17 +175,11 @@ class TestFamily:
         expected = recorded.loc[:, found.columns].astype(int)
         pd.testing.assert_frame_equal(found, expected, check_names=False)
 
-    def test_every_pilot_refusal_is_the_survival_floor_on_a_subset_refit(self) -> None:
-        """X6 PR A removes this DataError; until then the pilot's loss rate keeps it pending."""
-        refused = PILOT.loc[PILOT["refusal"].fillna("").ne("")]
-        assert set(refused["refusal"]) == {"DataError"}
-        assert set(refused["group"]) == {"size"}
-        assert refused["message"].str.contains("on subset refit").all()
-        assert refused["message"].str.contains("survival reaches zero").all()
-        trials = PILOT.loc[PILOT["group"] == "size", "trial"].nunique()
-        share = refused["trial"].nunique() / trials
-        assert share > properties.FAILURE_BOUND
-        assert study.DECLARATION_PENDING
+    def test_no_pilot_trial_raised(self) -> None:
+        """X6 part A removed the survival-floor DataError that cost the first pilot 5% of trials."""
+        refused = PILOT.loc[PILOT["refusal"].fillna("").astype(str).ne("")]
+        assert refused.empty, refused[["group", "trial", "refusal"]]
+        assert PILOT.loc[PILOT["group"] == "size", "trial"].nunique() == pilot.PILOTS["size"]
 
 
 class TestCountRules:
@@ -185,8 +190,16 @@ class TestCountRules:
         ceiling = pilot.count_ceiling(study.SIZE_TRIALS, properties.SIZE_CEILING)
         assert ceiling == study.SIZE_MAX_REJECTIONS
 
+    def test_the_count_keeps_the_x82_ceiling(self) -> None:
+        """The resized count is the largest under the ceiling of the X82 rule, 17 of 200."""
+        x82 = 0.5 * (
+            clopper_pearson(17, 200, confidence_level=0.99).high
+            + clopper_pearson(18, 200, confidence_level=0.99).high
+        )
+        assert pilot.count_ceiling(study.SIZE_TRIALS, x82) == study.SIZE_MAX_REJECTIONS
+
     @pytest.mark.parametrize(
-        ("size", "expected"), [(0.05, 0.9879), (0.08, 0.6634), (0.10, 0.2849), (0.15, 0.0043)]
+        ("size", "expected"), [(0.05, 1.0), (0.08, 0.9983), (0.10, 0.8752), (0.15, 0.0056)]
     )
     def test_the_size_rule_operating_characteristic(self, size: float, expected: float) -> None:
         passed = stats.binom.cdf(study.SIZE_MAX_REJECTIONS, study.SIZE_TRIALS, size)
@@ -240,7 +253,9 @@ class TestCells:
     def test_the_pilot_ran_the_declared_fit_and_scope(self) -> None:
         kept = PILOT.loc[PILOT["refusal"].fillna("").eq("")]
         assert set(kept["inference"]) == {"influence_curve"}
-        assert kept.loc[kept["group"] == "size", "trial"].nunique() == 57
+        # The subset rho reads the switched SE, the default since X6 part A.
+        assert study.estimator(0).variance == "switched"
+        assert kept.loc[kept["group"] == "size", "trial"].nunique() == 200
         size = kept.loc[kept["group"] == "size"]
         assert set(size["fits"]) == {1 + 2 * study.REFITS}
         assert set(kept.loc[kept["group"] != "size", "fits"]) == {1 + study.REFITS}

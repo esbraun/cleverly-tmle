@@ -48,6 +48,7 @@ from ._setup_readers import (
     read_methods,
     read_phases,
     read_planned_fits,
+    read_planned_refits,
     read_protocol,
     read_question,
     read_simulation,
@@ -348,6 +349,27 @@ def planned_fits() -> Any:
     )
 
 
+@functools.cache
+def planned_refits() -> Any:
+    """A refutation preview with exact (noise) and upper (placebo, subset, plasmode) rows."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    from cleverly.validation import planned_refits as preview
+
+    result = ate_effect().estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        random_state=0,
+    )
+    return preview(
+        result,
+        tests=("placebo", "random_common_cause", "subset", "plasmode"),
+        n_replicates=10,
+        random_state=3,
+    )
+
+
 # ----------------------------------------------------------------- simulation
 
 
@@ -552,4 +574,5 @@ FIXTURES = {
     "simulation_diagnostic": Case(simulation_diagnostic, names=("ate",), fidelity=read_simulation),
     "phase_profile": Case(phase_profile, names=("outer", "inner", "fit"), fidelity=read_phases),
     "planned_fits": Case(planned_fits, names=("ols", "ridge_free"), fidelity=read_planned_fits),
+    "planned_refits": Case(planned_refits, fidelity=read_planned_refits),
 }

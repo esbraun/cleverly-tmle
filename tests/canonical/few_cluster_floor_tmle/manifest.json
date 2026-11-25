@@ -1,0 +1,166 @@
+{
+  "schema_version": 2,
+  "study": "the clustered interval floor of point TMLE and in-sample LTMLE",
+  "slug": "few-cluster-floor-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "a28732b76e3a366065aba449132650c9d89df78b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 100,
+    "seed": 20265411,
+    "resampling_seed": 20265412,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "floor_unequal_informative_j10": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ate_regimen[always vs never]"
+      ]
+    },
+    "laws": {
+      "equal10": "clustered_dgp(10, 'binomial'): 10 rows per cluster, arm-by-latent 8",
+      "unequal_informative": "sizes uniform on 2 to 18, informative (clustered_unequal_laws)"
+    },
+    "point_ladder": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      15,
+      20,
+      30,
+      39
+    ],
+    "ltmle_ladder": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      30,
+      39
+    ],
+    "fits": {
+      "tmle_in_sample_known": "tmle_in_sample",
+      "tmle_in_sample_estimated": "tmle_in_sample",
+      "tmle_stacked_known": "tmle_stacked",
+      "tmle_stacked_estimated": "tmle_stacked",
+      "tmle_fold_evaluated_known": "tmle_fold_evaluated",
+      "tmle_fold_evaluated_estimated": "tmle_fold_evaluated",
+      "drtmle_known": "drtmle_known",
+      "tmle_stacked_d5_known": "tmle_stacked",
+      "tmle_stacked_d5_estimated": "tmle_stacked",
+      "ltmle_in_sample": "ltmle_in_sample"
+    },
+    "outcome_learner": "unpenalized logistic regression (C=1e6) in the fit's covariates",
+    "estimated_treatment": "binomial main-terms GLM",
+    "known_treatment": "treatment_probabilities= the law's exact propensity",
+    "ltmle_learners": "study quasibinomial GLM (numerical_separation=True); exact propensity",
+    "package_glm": "the same LTMLE draw with cleverly.learners.GLM node regressions (reported)",
+    "noise_columns": [
+      "N1",
+      "N2",
+      "N3"
+    ],
+    "g_bounds": [
+      1e-09,
+      0.999999999
+    ],
+    "candidate_draws": 2000,
+    "references": {
+      "A": "cluster IC variance on t(J-2) (t(J-V) fold-evaluated)",
+      "B": "J/(J-p) times the IC variance on t(J-p), p = max(2, d)",
+      "C": "cluster_variance='jackknife' on t(J-2)"
+    },
+    "primary": "floor_unequal_informative_j10: in-sample LTMLE, 10 clusters, unequal_informative",
+    "property_failure_bound": 0.05,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/few_cluster_floor_tmle.py": "59e957792ff50d632d5e36d80f0a4116afc176ce75db37d312c9cf38fbaaed4d",
+    "tests/studies/few_cluster_floor_tmle_properties.py": "3090c33f3b81220aa563d0861be4aa0fccf696eb2dc82ab371dcdbd69fdac4ab",
+    "tests/studies/few_cluster_floor.py": "e20fc94f6d52b4c7e2727ae724f4712b399b89e490221877a1fc2f322726c53d",
+    "tests/studies/few_cluster_floor_pilot.py": "be91185d929ea50a3b146cc57ecede4294f4e97682106be2dbdf202e03283018",
+    "tests/studies/clustered_unequal_laws.py": "d9546f88f3c58b8ba1ae38b46c9afab473e9a6f227e54cab4bef5edd1df50fc1",
+    "tests/studies/clustered_few_cluster_properties.py": "97287debbd6fd6e7ea94daf6b8c9fc1012332775179c38ffc7b60de9fd168f18",
+    "tests/studies/clustered_few_cluster_tmle.py": "4aee84bbac75fde57a27b48b3b68a4dd8c03a3e1595399786a680fffa1c3082b",
+    "tests/studies/canonical_cvtmle.py": "1967aa13254ebc671e7ec655dfcb9040a69e931de85c525d4723cc9a80b10330",
+    "tests/studies/canonical_drtmle.py": "3d70a888b44d4241c2d1216fdaded20a4ba252344160de8af630e54663872ee0",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
+    "tests/studies/fractional_glm.py": "bf472ab47f16649394a61c846367f76861760ee21d6075d55fa19f8eb1bd7eb2",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "1109a9666f1b12d96343280af260ee21b796f78467a5d9a288dd3fa309061425",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "d7e61c9b7631a5492bd7a6814ea7b5520dc183d16d3cc989576a5cc355a42ad3",
+    "summary.csv": "f8573f1a39c3049b890fa4226dbec3f1881f4ee8d46547f7a70b1f3c81660ac1",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "b52f9d7123dde14ae55225496c33a69a3474416d3be5011732bfe254cb4b548b",
+    "property-replicates.parquet": "01c78004af7a354e5e7ab6c9a37778545784b0bee273643baa0df46f71b49ed0",
+    "properties.csv": "f424b7bc602e6e8cb1711de24ff00e14baaa959dd2a15c4fe1880e2f2d103e8a",
+    "property-failures.csv": "a7d2abcbf2b7dfce05923011626a86c2d738e70391ce6a40685bdfc1a03d0a98",
+    "property-failure-accounting.csv": "0753df1e68d015f873a9ca689c6a84edb475adc667af2a6a56d0b77b94db04ca",
+    "property-failure-witnesses.parquet": "f15c3c8f253e08e70c7ba932396bff7baec204879d014cbf464520edf4191a33"
+  }
+}

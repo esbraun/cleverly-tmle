@@ -1,8 +1,8 @@
 """Small summaries of two records a longitudinal fit keeps (X89 T2).
 
 ``result.msm_fits`` holds the working-model coefficients of an MSM fit, and an SNMM result's
-``diagnostics`` holds what the fit measured about positivity. Each prints one table, and the
-result's own summary is where their estimates are read with intervals.
+``structural_diagnostics`` holds what the fit measured about positivity. Each prints one table,
+and the result's own summary is where their estimates are read with intervals.
 """
 
 from __future__ import annotations

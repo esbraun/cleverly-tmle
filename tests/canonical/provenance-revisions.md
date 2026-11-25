@@ -146,6 +146,16 @@ no longer imports. Remove the row when you regenerate the study.
 | `mtp-policy-variance` | `tests/studies/canonical_categorical_ltmle.py` | result-neutral: the study imports it only through `tests/studies/canonical_mtp_pricing.py` and `tests/studies/canonical_mtp_boundaries.py`, and no fit, draw, truth or verdict of the study reads it: those modules read its R `lmtp` pins, and this study runs no comparator.. The module list omitted it, so the manifest records no hash for it |
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a binary discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
 | `mtp-policy-variance` | `tests/discrete_law_longitudinal_multivalue.py` | result-neutral: the study imports it only through `tests/studies/categorical_longitudinal_common.py`, and no fit, draw, truth or verdict of the study reads it: it holds a categorical discrete law this study never draws.. The module list omitted it, so the manifest records no hash for it |
+| `score-assessment-compositions` | `tests/studies/targeting_curves.py` | result-neutral: the study imports `tests/studies/score_assessment.py`, whose module scope imports `targeting_curves` for the `score-assessment` laws; the compositions law, scores, learners and fits read none of its names. The module is byte-identical between the run at `0635530b` and this registration, so the bytes that ran are the bytes here, and only the module list missed it |
+| `few-cluster-floor-tmle` | `tests/studies/canonical_tmle.py` | result-neutral: the study imports `fitted_rows` from `tests/studies/canonical_cvtmle.py`, which imports `SCENARIO_ESTIMANDS` and `draw_from_seed` from this module. The study passes its own `draw_scenario` and `cleverly_rows` to `fitted_rows`, so no fit of the study calls a function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-tmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_tmle.py` and `tests/studies/clustered_unequal_cvtmle.py` import `primary_rows` and `initial_estimates` from this module for their own fits. The study calls no function of either module, so no function of this module runs in the study and no result reads it |
+| `few-cluster-floor-tmle` | `tests/studies/clustered_unequal_cvtmle.py` | result-neutral: the study imports `size_law_parameters` from `tests/studies/clustered_few_cluster_properties.py`, which imports `tmle_settings` from this module. `size_law_parameters` reads only constants of `tests/studies/clustered_unequal_laws.py`, and no fit of the study calls `tmle_settings` or any other function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-tmle` | `tests/conftest.py` | result-neutral: `tests/studies/clustered_unequal_cvtmle.py` imports `OracleTreatment` from this module for its own fits. No fit of the study calls a function of that module or constructs `OracleTreatment`, so no result reads this module |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/canonical_tmle.py` | result-neutral: the study imports `fitted_rows` from `tests/studies/canonical_cvtmle.py`, which imports `SCENARIO_ESTIMANDS` and `draw_from_seed` from this module. The study passes its own `draw_scenario` and `cleverly_rows` to `fitted_rows`, so no fit of the study calls a function of this module. The module list omitted it, so the manifest records no hash for it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/canonical_clustered_tmle.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from this module. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/conftest.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from `tests/studies/canonical_clustered_tmle.py`, which imports this module for its own fits. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_clustered_tmle.py` and `tests/studies/canonical_tmle.py` import this module for their own fits, and the study reaches them only through the constants of `tests/studies/clustered_crossfit_ltmle.py` and through `fitted_rows`, which runs the study's own sampler and fit. No function of this module runs in the study, so no result reads it |
+| `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/clustered_unequal_laws.py` | result-neutral: `tests/studies/few_cluster_floor.py` imports `ExactLongitudinalPropensity` from `tests/studies/clustered_few_cluster_tmle.py`, which imports this module, and that class reads `informative_propensity` from it. No fit of the study constructs `ExactLongitudinalPropensity` or its subclass `ParametricExactPropensity`; only `few-cluster-floor-tmle` does. No result of this study reads this module |
 
 ## Descriptive manifest text
 
@@ -660,6 +670,17 @@ primary `failures.csv`. So no bound decided any primary verdict, and a run at 0.
 same rows. The property phase's own bound, `property_failure_bound` 0.05, is a separate key and is
 unchanged.
 
+## The compact encoding of `few-cluster-floor-tmle`'s property rows
+
+The declared run at `a28732b7` wrote `property-replicates.parquet` as 105.4 MB (sha256
+`317f4d4a…7e5a1`, recorded in `run.log`), over GitHub's 100 MB file limit. `write_rows` in
+`tests/studies/evidence/manifest.py` now rewrites a row file above `COMPACT_BYTES` (90 MB) with
+the float columns byte-stream split, one row group and zstd level 19. The committed file is that
+encoding of the run's own file: 93.4 MB, sha256 `01c78004…71b49ed0`, which is what the manifest
+now records. The decoded table equals the run's table (`pyarrow.Table.equals` with metadata),
+and the CSV text of the rows has the same digest before and after (`cedd3489…01800560`). No row,
+verdict or seed changed; only the bytes of the encoding did.
+
 ## Unit weights dropped from the EP final learner
 
 `final_stage` in `src/cleverly/estimators/ep.py` now passes no `sample_weight` to a declared
@@ -701,3 +722,60 @@ the first merge's output line for line.
 Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_compositions_properties.py`,
 a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
 table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.
+
+## Registration edits after the `projection-evidence` and `score-assessment-compositions` runs (P1)
+
+The declared runs ran at `f60abdf7` (`projection-evidence`, recorded at `0635530b`) and at
+`0635530b` (`score-assessment-compositions`, recorded at `30a15543`). Registration then edited
+modules their manifests record, and none of the edits reaches a seed, a fit or a verdict:
+
+- `tests/studies/projection_evidence_properties.py` and
+  `tests/studies/score_assessment_compositions_properties.py` gain `SHRUNKEN_SE_FACTOR`, a
+  constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the
+  measured-values table.
+- `tests/studies/projection_evidence.py` renames the study record's `name` from "Projection
+  evidence" to "Projection evidence (CDE, pooled regression, band)", which the validation grid
+  needs at 20 characters or more; the manifest's `study` field keeps the name the run wrote.
+  Both study modules' docstrings now name their declared runs.
+- `src/cleverly/_support_rows.py` adds the `T49.intermediate`, `T50.intermediate`, `T49.pooled`
+  and `T50.pooled` rows and the band table `PROJECTION_BAND_CELLS`, and
+  `src/cleverly/effect_curves.py` fills `SCORE_COMPOSITIONS_MEASURED`, keeps two measured
+  compositions together experimental, and extends `SCORE_LIMITS`. These set support labels,
+  which neither study's rows record.
+
+The seed-0 witness of the next section covers these edits too.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` after their runs
+
+Merging main at `7b4d0f08` after the runs changed one module both manifests record,
+`src/cleverly/effect_curves.py`: main adds the curve's sensitivity facade, `replayability`,
+`validate()` and `assess()`, and rewords the diagnostics docstring. None of it is called by a
+fit. The evidence: at seed 0 every one of the 15 groups of the two studies (10 and 5), fitted
+through `fit_group` at `30a15543` and again at the merge with the registration edits of the
+previous section, gives the same point, standard error and band or control values, 375 numbers
+equal bit for bit. Only the five score groups' support labels moved, from experimental to
+supported, which is the registration and enters no recorded row.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` with X54 part (d)
+
+Merging main at `d5d0d80c` (X54 part (d), the per-estimand few-cluster floors) changed modules
+both manifests record: `src/cleverly/_inference_status.py`, `src/cleverly/_support_rows.py`,
+`src/cleverly/estimators/base.py`, `src/cleverly/estimators/tmle.py`,
+`src/cleverly/inference/influence.py`, `src/cleverly/inference/multiplier.py`,
+`src/cleverly/inference/results.py`, `tests/studies/evidence/properties.py` and
+`tests/studies/evidence/property_verdicts.py`. The floors act on fits with few clusters, and the
+two studies' clustered groups (`band_clustered_4k`, `assess_clustered_4k`) have 800 clusters of
+5 rows. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
+`9956b496` and at the merge `55573892`, gives the same 375 points, standard errors, band values
+(critical value, limits) and control values, bit for bit, with the same support labels. The
+same 375 numbers equal those of `30a15543`, the commit before registration, so the earlier
+merge at `9956b496`, which changed no recorded module, moved nothing either.
+
+## Main merged into `projection-evidence` and `score-assessment-compositions` with X106 G1 and G2
+
+Merging main at `c5ed4083` (X106 parts G1 and G2: one placebo draw at a time in `refute()`, and
+`planned_refits()`) changed one module both manifests record, `src/cleverly/estimators/tmle.py`.
+Its edits are to the planned-fit counts (a `nominal` flag and the counted label), which no fit
+reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
+`85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
+control values, bit for bit.

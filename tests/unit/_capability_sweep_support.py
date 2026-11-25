@@ -19,8 +19,9 @@ from __future__ import annotations
 import dataclasses
 import functools
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -43,10 +44,14 @@ from cleverly import (
     RegimeMean,
     SplitPlan,
     TimeToEvent,
+    assessment,
 )
+from cleverly import _importance_assessment as importance_assessment
 from cleverly.assessment import (
+    CURVE_OPERATIONS,
     AssessmentStatus,
     DiagnosticsFacade,
+    Replayability,
     SensitivityFacade,
 )
 from cleverly.data import CausalData
@@ -68,6 +73,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, InSampleLearnerWarning, Refusal
 from cleverly.interventions import Incremental, ModifiedPolicy, Shift, Static
 from cleverly.learners import make_folds
+from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
@@ -425,6 +431,28 @@ def fit_learned_rule_ep_learner() -> Any:
     modifiers = Modifiers(["W1", "W2"], domains={"W1": (-1.0, 1.0)}, levels={"W2": (0.0, 1.0)})
     sieve = Sieve.default(modifiers, max_size=3, size=2)
     return learned_rule_support.fit(learned_rule=_ep_rule(sieve=sieve, learner=LinearRegression()))
+
+
+def _projection_intermediate(scale: str) -> Any:
+    from tests.unit._direct_effect_support import binary_cde_frame
+
+    return TMLE(**linear_in_sample(), effect_modification=_projection(scale)).fit(
+        binary_cde_frame(),
+        outcome="Y",
+        treatment="A",
+        covariates=CDE_COVARIATES,
+        intermediate="Z",
+    )[0.0]
+
+
+def fit_projection_intermediate() -> Any:
+    """The projection of the controlled direct effect at ``Z = 0``, in sample (P1 PR 2)."""
+    return _projection_intermediate("difference")
+
+
+def fit_projection_intermediate_crr() -> Any:
+    """The log-ratio projection of the controlled direct effect at ``Z = 0`` (P1 PR 2)."""
+    return _projection_intermediate("log_ratio")
 
 
 def fit_projection_bootstrap() -> Any:
@@ -1168,6 +1196,168 @@ def fit_log_crr_projection() -> Any:
     return _conditional_contrast("log_ratio").estimate(**_logistic_two_fold())
 
 
+def _curve(identified: Any, **settings: Any) -> Any:
+    """The effect curve of a two-fold logistic TMLE fit of ``identified``."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return identified.estimate(**_logistic_two_fold(), **settings).effect_curve()
+
+
+def fit_curve_projection() -> Any:
+    """The CATE curve of :func:`fit_cate_projection`: two modifiers, one split (P1 3.5)."""
+    return _curve(_conditional_contrast())
+
+
+def fit_curve_projection_crr() -> Any:
+    """The log conditional risk ratio curve of :func:`fit_log_crr_projection`."""
+    return _curve(_conditional_contrast("log_ratio"))
+
+
+def fit_curve_projection_one_modifier() -> Any:
+    """The CATE curve on ``Linear(["W1"])``: no modifier can be dropped from its basis."""
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Linear, Modifiers
+
+    study = CausalStudy(
+        _modifier_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+    )
+    return _curve(study.identify(ConditionalContrast(Modifiers(["W1"]), model=Linear(["W1"]))))
+
+
+def fit_curve_projection_repeated() -> Any:
+    """The CATE curve of a fit that repeats its split: no targeting curve is derived for it."""
+    return _curve(_conditional_contrast(), repeats=2)
+
+
+def fit_curve_ep() -> Any:
+    """The EP curve of ``W1`` on a declared cosine sieve of size 2 (P1 PR 1).
+
+    One modifier, so ``modifier_stability`` refuses, and the matched B-spline family holds
+    fewer terms than the sieve declares, so ``stability`` refuses too.
+    """
+    from cleverly import ConditionalContrast
+    from cleverly.bases import Cosine, Modifiers, Sieve
+    from cleverly.methods import EPMethod
+
+    study = CausalStudy(
+        _modifier_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+    )
+    method = EPMethod(sieve=Sieve(Cosine(["W1"], size=3), size=2)).with_overrides(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        random_state=0,
+    )
+    contrast = ConditionalContrast(Modifiers(["W1"], domains={"W1": (-1, 1)}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(contrast).estimate(method)
+
+
+def fit_curve_without_fit() -> Any:
+    """:func:`fit_curve_projection` without its producing fit: the replay gate refuses all."""
+    return dataclasses.replace(_fitted(fit_curve_projection), fit=None)
+
+
+def fit_snmm() -> Any:
+    """A two-node structural nested mean model of ``make_longitudinal(300, 0)``, two folds."""
+    from cleverly.learners import GLM
+    from cleverly.longitudinal import StructuralNestedMean
+
+    frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return StructuralNestedMean(
+            {"always": 1, "never": 0},
+            outcome_learner=GLM(family="binomial"),
+            treatment_learner=GLM(family="binomial"),
+            n_folds=2,
+            random_state=0,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+        )
+
+
+def fit_dose_response() -> Any:
+    """A two-fold kernel-smoothed dose-response curve of a binary outcome, three doses."""
+    from cleverly.estimators.dose_response import DoseResponse, DoseResponseTMLE
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.normal(size=n)
+    dose = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1 + 0.5 * dose - 0.08 * dose * dose + 0.4 * w))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return DoseResponseTMLE(
+            DoseResponse.spanning((1.0, 4.0), 3, fractions=(0.25,)),
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            n_folds=2,
+        ).fit(
+            pd.DataFrame({"Y": y, "A": dose, "W": w}), outcome="Y", treatment="A", covariates=["W"]
+        )
+
+
+def _importance_frame() -> Any:
+    """Two binary candidate exposures and one covariate; the outcome is binary."""
+    rng = np.random.default_rng(0)
+    n = 300
+    w = rng.normal(size=n)
+    x1 = rng.binomial(1, expit(w))
+    x2 = rng.binomial(1, 0.5, size=n)
+    y = rng.binomial(1, expit(-0.5 + x1 + 0.5 * w))
+    return pd.DataFrame({"Y": y, "X1": x1, "X2": x2, "W": w})
+
+
+def _importance(estimator: Any, **settings: Any) -> Any:
+    from cleverly import variable_importance
+
+    options: dict[str, Any] = {"covariates": ("W",), **settings}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return variable_importance(
+            _importance_frame(),
+            outcome="Y",
+            candidates=("X1", "X2"),
+            estimator=estimator,
+            **options,
+        )
+
+
+def fit_variable_importance() -> Any:
+    """Two candidates, each adjusting for ``W`` and the other candidate, by TMLE in sample."""
+    return _importance(TMLE(**linear_in_sample()))
+
+
+def fit_variable_importance_drtmle() -> Any:
+    """:func:`fit_variable_importance` by a three-fold DR-TMLE."""
+    return _importance(DRTMLE(**linear_drtmle(n_folds=3)))
+
+
+def fit_variable_importance_ctmle() -> Any:
+    """:func:`fit_variable_importance` by C-TMLE0, the derivative strategy, which has inference."""
+    return _importance(linear_ctmle("derivative", lambdas=(0.01, 0.03)))
+
+
+def fit_variable_importance_mixed() -> Any:
+    """``X2`` adjusts for ``W`` alone, so its benchmark refuses while ``X1``'s runs (M2)."""
+    return _importance(
+        TMLE(**linear_in_sample()), covariates=("W", "X2"), adjust_for_other_candidates=False
+    )
+
+
+def fit_variable_importance_no_fits() -> Any:
+    """:func:`fit_variable_importance` with ``keep_fits=False``: every row refuses (K7)."""
+    return _importance(TMLE(**linear_in_sample()), keep_fits=False)
+
+
 def fit_four_arm() -> Any:
     """An ATE fit at a randomized four-arm treatment, 600 rows (the ``arms4`` key)."""
     rng = np.random.default_rng(3)
@@ -1242,6 +1432,108 @@ def fit_few_clusters() -> Any:
     """``make_clustered(200, cluster_size=10, seed=7)``: 20 clusters, the ``t`` reference tier."""
     frame, _ = make_clustered(n=200, cluster_size=10, seed=7)
     return TMLE(**linear_in_sample()).fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+def fit_floor_mixed_tmle() -> Any:
+    """In-sample TMLE at its family's floor, 6 clusters: mixed estimate statuses (X54 B1).
+
+    The ATE reads the family floor and keeps ``"influence_curve"``; the arm means keep the
+    default floor of 10 and take ``"few_cluster_estimand_plugin"``.
+    """
+    frame, _ = make_clustered(n=6 * 30, cluster_size=30, seed=7)
+    return (
+        TMLE(**linear_in_sample(estimands=("ate", "ey1", "ey0")))
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
+        .single()
+    )
+
+
+def fit_floor_mixed_ltmle() -> Any:
+    """In-sample LTMLE at its family's floor on its measured design: one binary node, no
+    censoring, 6 clusters. The always-versus-never contrast keeps ``"influence_curve"``; the
+    two means take ``"few_cluster_estimand_plugin"`` (X54 B1)."""
+    rng = np.random.default_rng(11)
+    n = 240
+    w1 = rng.standard_normal(n)
+    a = (rng.random(n) < 1.0 / (1.0 + np.exp(-0.4 * w1))).astype(float)
+    y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(0.3 * w1 + 0.5 * a)))).astype(float)
+    frame = pd.DataFrame({"W1": w1, "A": a, "Y": y, "site": np.arange(n) * 6 // n})
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+    )
+    return estimator.fit(frame, outcome="Y", treatment=["A"], baseline=["W1"], id="site")
+
+
+def _fit_ltmle_jackknife(n_folds: int) -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)`` in 20 clusters of 20 units."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame["site"] = np.arange(len(frame)) // 20
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=n_folds,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    return estimator.fit(
+        frame,
+        outcome="Y",
+        treatment=["A1", "A2"],
+        baseline=["W1", "W2"],
+        time_varying=[[], ["L2"]],
+        censoring=["C1", "C2"],
+        id="site",
+    )
+
+
+def fit_ltmle_jackknife() -> Any:
+    """The in-sample clustered LTMLE fit with the cluster jackknife variance."""
+    return _fit_ltmle_jackknife(1)
+
+
+def fit_ltmle_jackknife_cross_fitted() -> Any:
+    """The clustered LTMLE fit cross-fitted over 5 folds, with the cluster jackknife."""
+    return _fit_ltmle_jackknife(5)
+
+
+def fit_ltmle_jackknife_refit_withheld() -> Any:
+    """Twelve clusters where only cluster 0 treats at the first node, with the jackknife.
+
+    The refit without cluster 0 has no unit that follows ``always`` and raises, so every
+    estimate takes ``"jackknife_refit_plugin"``: the point is kept, the interval withheld
+    (X54 (c), the reachable state of ``TestAWithheldRefit``).
+    """
+    frame, _ = make_longitudinal(n=400, seed=12)
+    frame = frame.loc[frame["Y"].notna()].drop(columns=["C1", "C2"]).reset_index(drop=True)
+    frame = frame.iloc[:240].assign(site=np.arange(240) // 20)
+    frame.loc[frame["site"] != 0, "A1"] = 0.0
+    estimator = LTMLE(
+        {"always": 1, "never": 0},
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=1,
+        random_state=5,
+        simultaneous=False,
+        cluster_variance="jackknife",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            id="site",
+        )
 
 
 def fit_fold_targeted_repeated() -> Any:
@@ -2118,11 +2410,20 @@ def fit_separable() -> Any:
     return LTMLE(regimens, **settings).fit(frame, **law.fit_columns())
 
 
-def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
+def fit_continuous_survival(
+    restricted_horizons: tuple[float, ...] = (),
+    variance: str = "switched",
+    n_bootstrap: int = 0,
+    simultaneous: bool = False,
+    horizons: tuple[float, ...] = (0.5, 1.0),
+) -> Any:
     """The in-sample continuous-time survival TMLE of two causes at two times, n = 300.
 
     One main-terms Cox model for each hazard and the default treatment selection, so the fit
     selects nothing by cross-validated partial likelihood and runs in well under a second.
+    ``variance`` is the fit's variance option, the default switched variance unless a kind
+    names another. ``n_bootstrap`` and ``simultaneous`` add the full-refit bootstrap and the
+    bands.
     """
     from cleverly.survival import ContinuousSurvivalTMLE, CoxHazard
 
@@ -2139,9 +2440,12 @@ def fit_continuous_survival(restricted_horizons: tuple[float, ...] = ()) -> Any:
         {"time": np.minimum(t, c), "event": np.where(t <= c, cause, 0), "A": a, "W": w}
     )
     return ContinuousSurvivalTMLE(
-        [0.5, 1.0],
+        list(horizons),
         restricted_horizons=restricted_horizons,
+        variance=variance,
         cross_fit=False,
+        n_bootstrap=n_bootstrap,
+        simultaneous=simultaneous,
         hazard_library=[CoxHazard("main")],
         censoring_library=[CoxHazard("main")],
         random_state=0,
@@ -2155,6 +2459,27 @@ def fit_continuous_survival_restricted() -> Any:
     reports restricted means and their influence curves beside the risks.
     """
     return fit_continuous_survival(restricted_horizons=(1.0,))
+
+
+def fit_continuous_survival_influence_curve() -> Any:
+    """The continuous-time fit above under ``variance="influence_curve"``.
+
+    The other continuous-time kinds read the default switched variance, so this kind asks
+    every row of a fit whose estimates carry the influence-curve variance alone and no
+    predictable-variation covariance.
+    """
+    return fit_continuous_survival(variance="influence_curve")
+
+
+def fit_continuous_survival_bootstrap() -> Any:
+    """The continuous-time fit above with 20 full-refit bootstrap replicates and both bands.
+
+    Each estimate carries its percentile interval and the fit holds the studentized bootstrap
+    band beside the multiplier band (X6 part (d)). Its target times are 1 and 1.5, where every
+    resample keeps an event of each cause in each arm, so no refit fails and the bootstrap
+    is not withheld.
+    """
+    return fit_continuous_survival(n_bootstrap=20, simultaneous=True, horizons=(1.0, 1.5))
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -2181,26 +2506,57 @@ class Kind:
     refits : bool
         Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
         true. Every fit in this version refits, and a reconfigured kind is one it refuses.
+    arguments : mapping of str to mapping
+        Per operation, the arguments the sweep passes on top of :func:`sweep_arguments`'
+        own: a curve's refits take two folds or two seeds, so they stay cheap.
     """
 
     fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
+    arguments: Mapping[str, Mapping[str, Any]] = dataclasses.field(default_factory=dict)
 
     def build(self) -> Any:
         """A fresh copy of this kind's result, which shares the fit and nothing it reported.
 
         :func:`dataclasses.replace` gives the copy an empty ``assessment_cache`` and no
         memoized facade, so no report or row computed on another copy can answer for it.
-        The estimator, the data and the nuisances are shared, and no call the tests make
+        A curve's producing fit (with an EP fit's nuisance fit) and a variable-importance
+        run's candidate fits are copied the same way, since their facades read and fill those fits' own caches. The
+        estimator, the data and the nuisances are shared, and no call the tests make
         writes to them. The fit runs on the first call, so a test that builds before it
         applies a mutation fits without the mutation.
         """
-        return dataclasses.replace(_fitted(self.fit))
+        result = dataclasses.replace(_fitted(self.fit))
+        if getattr(result, "fit", None) is not None and dataclasses.is_dataclass(result.fit):
+            fit = dataclasses.replace(result.fit)
+            if getattr(fit, "nuisance_fit", None) is not None:
+                # An EP fit's facade is its nuisance fit's, which holds the cache it fills.
+                fit = dataclasses.replace(fit, nuisance_fit=dataclasses.replace(fit.nuisance_fit))
+            result = dataclasses.replace(result, fit=fit)
+        if getattr(result, "kept_fits", None):
+            fits = {name: dataclasses.replace(fit) for name, fit in result.kept_fits.items()}
+            result = dataclasses.replace(result, kept_fits=fits)
+        return result
 
 
-def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
-    return Kind(fit, frozenset(must_run), refits)
+def _kind(
+    fit: Callable[[], Any],
+    *must_run: str,
+    refits: bool = True,
+    arguments: Mapping[str, Mapping[str, Any]] | None = None,
+) -> Kind:
+    return Kind(fit, frozenset(must_run), refits, dict(arguments or {}))
+
+
+#: The cheapest request of each curve refit: two folds, two seeds, or 20 half-samples.
+_CURVE_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "calibration": {"n_folds": 2},
+    "risk_comparison": {"n_folds": 2},
+    "stability": {"n_seeds": 2},
+    "modifier_stability": {"n_folds": 2},
+    "targeting_curve": {"n_half_samples": 20},
+}
 
 
 #: The rows that read a fit's own nuisances and scores.
@@ -2268,6 +2624,13 @@ KINDS: dict[str, Kind] = {
     "projection+strata+log_ratio": _kind(fit_projection_strata_crr, *_READ, "truncation_curve"),
     "projection+repeats": _kind(fit_projection_repeated, *_READ, "truncation_curve"),
     "projection+bootstrap": _kind(fit_projection_bootstrap, *_READ, "truncation_curve"),
+    # The CDE projection (P1 PR 2) answers as the projection does; its pseudo-outcome tools
+    # (curve diagnostics, assess_score, targeting_curve) refuse with CDE_CURVE_TOOLS_REFUSAL,
+    # which tests/unit/test_projection_composition_operations.py pins.
+    "projection+intermediate": _kind(fit_projection_intermediate, *_READ, "truncation_curve"),
+    "projection+intermediate+log_ratio": _kind(
+        fit_projection_intermediate_crr, *_READ, "truncation_curve"
+    ),
     "learned_rule_ep_sieve": _kind(
         fit_learned_rule_ep_sieve, *_READ, "truncation_curve", *_PLUGIN_BOUND
     ),
@@ -2376,6 +2739,13 @@ KINDS: dict[str, Kind] = {
     "ltmle_boundary_node": _kind(fit_ltmle_boundary_node, *_READ, *_POINT),
     # The iterated-mean path, clustered: the same rows run on the supplemented horizons.
     "ltmle_boundary_node_iterated": _kind(fit_ltmle_boundary_node_iterated, *_READ, *_POINT),
+    # X54 (c): the clustered LTMLE fit with the cluster jackknife variance. The truncation
+    # replay reads the influence-curve variance at each bound, so its row refuses by name.
+    "ltmle_jackknife": _kind(fit_ltmle_jackknife, *_READ, "refute"),
+    "ltmle_jackknife_cross_fitted": _kind(fit_ltmle_jackknife_cross_fitted, *_READ, "refute"),
+    # A refit that raises makes the jackknife undefined: every estimate withholds its interval.
+    # The point-TMLE jackknife is refused by the registered measurement (few-cluster-floor-tmle).
+    "ltmle_jackknife_refit_withheld": _kind(fit_ltmle_jackknife_refit_withheld, *_READ, "refute"),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, *_POINT),
     "ltmle_hazard_msm": _kind(fit_hazard_msm, *_READ, *_POINT),
     # Each policy is targeted by its own weighted walk, which no truncation replay
@@ -2433,6 +2803,12 @@ KINDS: dict[str, Kind] = {
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
     "four_arm": _kind(fit_four_arm, "marginal_bounds", *_ARM),
     "few_clusters": _kind(fit_few_clusters, "marginal_bounds", *_ARM),
+    # X54 B1: a fit at its family's floor with mixed estimate statuses. The ATE reads the
+    # family floor and the arm means take few_cluster_estimand_plugin; the sweep's default
+    # marginal request reads the ATE, and a request for an arm mean refuses
+    # (test_capability_row_sweep.py::test_a_floor_fit_bounds_the_ate_and_refuses_an_arm_mean).
+    "floor_mixed_tmle": _kind(fit_floor_mixed_tmle, "marginal_bounds", *_ARM),
+    "floor_mixed_ltmle": _kind(fit_floor_mixed_ltmle, *_LIVE),
     # The fold-evaluated report averages over folds, so the E-value reads no ratio interval.
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
@@ -2461,18 +2837,83 @@ KINDS: dict[str, Kind] = {
     "continuous_survival+restricted": _kind(
         fit_continuous_survival_restricted, *_READ, *_POINT, "evalue", "simulated_confounding"
     ),
+    "continuous_survival+influence_curve": _kind(
+        fit_continuous_survival_influence_curve, *_READ, *_POINT, "evalue"
+    ),
+    # X6 (d): the full-refit bootstrap and both bands. Every refit that reads estimates only
+    # (refute, the truncation sweep) refits without the bootstrap.
+    "continuous_survival+bootstrap": _kind(
+        fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
+    ),
+    # X104: the effect curves. The summaries read the producing fit, and the five curve
+    # operations refit its estimator on two folds or seeds. Every refutation and sensitivity
+    # row refuses a curve (P1). Each witness kind loses the rows its fit-wide rule refuses.
+    "curve_projection": _kind(
+        fit_curve_projection, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+    ),
+    "curve_projection_crr": _kind(
+        fit_curve_projection_crr, *_READ, *CURVE_OPERATIONS, arguments=_CURVE_ARGUMENTS
+    ),
+    # One modifier: none can be dropped from the basis.
+    "curve_projection_one_modifier": _kind(
+        fit_curve_projection_one_modifier,
+        *_READ,
+        *(name for name in CURVE_OPERATIONS if name != "modifier_stability"),
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # A repeated split: no targeting curve is derived for it.
+    "curve_projection_repeated": _kind(
+        fit_curve_projection_repeated,
+        *_READ,
+        *(name for name in CURVE_OPERATIONS if name != "targeting_curve"),
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # One modifier, and a sieve larger than the matched B-spline family holds.
+    "curve_ep": _kind(
+        fit_curve_ep,
+        *_READ,
+        "calibration",
+        "risk_comparison",
+        "targeting_curve",
+        arguments=_CURVE_ARGUMENTS,
+    ),
+    # No producing fit: the replay gate refuses every row.
+    "curve_without_fit": _kind(fit_curve_without_fit, arguments=_CURVE_ARGUMENTS),
+    # The structural rows redirect to the fit-time record; refute reruns the estimator.
+    "snmm": _kind(fit_snmm, "refute"),
+    # No refutation or sensitivity analysis is implemented for a dose-response curve.
+    "dose_response": _kind(fit_dose_response, *_READ),
+    # Variable importance: each row runs on every candidate's own fit, so a run answers the
+    # rows its candidates' point fits answer.
+    "variable_importance": _kind(fit_variable_importance, "marginal_bounds", *_ARM),
+    "variable_importance_drtmle": _kind(
+        fit_variable_importance_drtmle, "corrections", "evalue", "marginal_bounds", *_LIVE
+    ),
+    "variable_importance_ctmle": _kind(fit_variable_importance_ctmle, "marginal_bounds", *_ARM),
+    # X2 adjusts for one covariate, so its benchmark refuses and so does the run's row.
+    "variable_importance_mixed": _kind(
+        fit_variable_importance_mixed, "marginal_bounds", *_LIVE, *_BOUND
+    ),
+    # keep_fits=False keeps no fit, so every row refuses with KEEP_FITS_REFUSAL.
+    "variable_importance_no_fits": _kind(fit_variable_importance_no_fits),
 }
 
 
 # ------------------------------------------------------------------------- the sweep
+
+#: A kind with no arguments of its own.
+_NO_KIND_ARGUMENTS: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
 
 
 def _first_estimand(result: Any) -> Any:
     """The first estimate's name, or a continuous-time fit's first pair of the arms' risks.
 
     The E-value of a continuous-time fit reads the ratio of two arms' risks at one cause and
-    time, so it names the pair rather than one estimate.
+    time, so it names the pair rather than one estimate. A variable-importance run names
+    the alias its candidates share, which its first entry carries.
     """
+    if getattr(result, "assessment_family", None) == "variable_importance":
+        return result.entries[0].parameter
     if getattr(result, "assessment_family", None) == "continuous_survival":
         index = result._risk_index()
         first, (arm, *place) = next(iter(index.items()))
@@ -2483,11 +2924,24 @@ def _first_estimand(result: Any) -> Any:
     return next(iter(result.estimates))
 
 
+def _benchmark_covariate(result: Any) -> list[str]:
+    """One covariate to benchmark: on a variable-importance run, one every candidate adjusts for.
+
+    A curve, a dose-response fit and a structural fit declare no row that defers on
+    ``covariates``, so only the point and variable-importance fits reach this filler.
+    """
+    if getattr(result, "assessment_family", None) == "variable_importance":
+        sets = [set(entry.adjustment_set) for entry in result.entries]
+        first = result.entries[0].adjustment_set
+        return [next(name for name in first if all(name in other for other in sets))]
+    return list(omitted_variable._benchmark_covariates(result.data)[:1])
+
+
 def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
     """The value the sweep supplies for each argument a row can defer on."""
     return {
         "estimand": lambda: _first_estimand(result),
-        "covariates": lambda: list(omitted_variable._benchmark_covariates(result.data)[:1]),
+        "covariates": lambda: _benchmark_covariate(result),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
         "mechanism": lambda: True,
@@ -2545,17 +2999,23 @@ def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
     return filled
 
 
-def sweep_arguments(result: Any) -> dict[str, dict[str, Any]]:
+def sweep_arguments(
+    result: Any, kind_arguments: Mapping[str, Mapping[str, Any]] = _NO_KIND_ARGUMENTS
+) -> dict[str, dict[str, Any]]:
     """The arguments that leave no row of ``result`` waiting on the caller.
 
     One replicate per refutation keeps the refits cheap. So does one bound for a
-    point-treatment curve that refits at each bound, which a guarded DR-TMLE fit declares.
-    The bound grid decides no refusal: the rows and the calls resolve the axis alone.
+    point-treatment curve that refits at each bound, which a guarded DR-TMLE fit declares,
+    on a point fit or on a variable-importance run's candidates. The bound grid decides no
+    refusal: the rows and the calls resolve the axis alone. ``kind_arguments`` is the
+    kind's own (:attr:`Kind.arguments`), laid over these.
     """
     arguments: dict[str, dict[str, Any]] = {"refute": {"n_replicates": 1}}
     curve = result.diagnostics.capability("truncation_curve")
-    if curve.result_family == "point" and curve.execution == "refit":
+    if curve.result_family in ("point", "variable_importance") and curve.execution == "refit":
         arguments["truncation_curve"] = {"bounds": (0.05,)}
+    for operation, values in kind_arguments.items():
+        arguments[operation] = {**arguments.get(operation, {}), **values}
     while fill_deferred(result, arguments):
         pass
     return arguments
@@ -2606,14 +3066,16 @@ _OMITTED = frozenset(
 )
 
 
-def sweep(result: Any) -> list[str]:
+def sweep(
+    result: Any, kind_arguments: Mapping[str, Mapping[str, Any]] = _NO_KIND_ARGUMENTS
+) -> list[str]:
     """:func:`problems` under :func:`sweep_arguments`, for a result nobody has asked yet.
 
     Reading the rows to fill their arguments is part of the sweep, so an exception there
     is a problem too.
     """
     try:
-        arguments = sweep_arguments(result)
+        arguments = sweep_arguments(result, kind_arguments)
     except Exception as error:
         return [f"reading the rows raised {type(error).__name__}: {error}"]
     return problems(result, arguments)
@@ -2660,6 +3122,12 @@ SEAMS: tuple[tuple[Any, str], ...] = (
     (CTMLE, "_configured_for_refit"),
     (DRTMLE, "_configured_for_refit"),
     (TMLE, "_refit_configuration_refusal"),
+    # X104: the curve's replay record and the step that applies its fit-wide rules to the
+    # rows, and the variable-importance composition and its keep_fits=False rows.
+    (assessment, "_curve_replayability"),
+    (assessment, "_curve_fit_wide_rules"),
+    (importance_assessment, "compose_rows"),
+    (importance_assessment._CandidateFacade, "_without_fits"),
 )
 
 
@@ -2695,6 +3163,31 @@ def _without_bound_parameters(patch: pytest.MonkeyPatch) -> None:
 
 def _identity_gate(self: Any, capability: Any, arguments: Any) -> Any:
     return capability
+
+
+def _curve_fit_kept(curve: Any) -> Replayability:
+    """The replay record of a curve that keeps its producing fit and estimator."""
+    return Replayability(True, False, False, True, False, rerun_configuration=True)
+
+
+def _rules_unapplied(result: Any, rows: Any) -> Any:
+    """The curve rows as declared, with no fit-wide rule applied; the calls still refuse."""
+    return rows
+
+
+_COMPOSE_ROWS = importance_assessment.compose_rows
+
+
+def _first_candidate_row(operation: str, rows: Any) -> Any:
+    """The composition as a first-candidate shortcut: the other candidates' rows unread."""
+    return _COMPOSE_ROWS(operation, dict(list(rows.items())[:1]))
+
+
+def _fits_assumed_kept(self: Any, operation: str) -> Any:
+    """A keep_fits=False row that reads as if the fits were kept: available and cheap."""
+    return assessment._capability(
+        operation, "variable_importance", artifacts=(), interpretation=operation
+    )
 
 
 def _unconfigured(self: Any, data: Any) -> Any:
@@ -2767,7 +3260,9 @@ MUTATIONS: dict[str, Mutation] = {
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
         frozenset({"incremental", "incremental+missing"}),
-        _RAISED.format("truncation_curve") + r"the propensity g is \*inside\* the estimand",
+        _RAISED.format("truncation_curve")
+        + r"(the propensity g is \*inside\* the estimand|"
+        + r"the truncation curve re-targets the fitted nuisances)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -2789,6 +3284,10 @@ MUTATIONS: dict[str, Mutation] = {
                 # A longitudinal regimen fit reports its regimen means first, and a mean
                 # has no fixed null (X82 part C).
                 "ltmle",
+                "ltmle_jackknife",
+                "ltmle_jackknife_cross_fitted",
+                "ltmle_jackknife_refit_withheld",
+                "floor_mixed_ltmle",
                 "ltmle_known_sample_weights",
                 "ltmle_mtp_censored",
                 "sdr_mtp_censored",
@@ -2814,6 +3313,8 @@ MUTATIONS: dict[str, Mutation] = {
                 # fixed null, so the placebo declines there (X101).
                 "continuous_survival",
                 "continuous_survival+restricted",
+                "continuous_survival+influence_curve",
+                "continuous_survival+bootstrap",
             }
         ),
         # Means lose the fixed-null rule, including its natural-course placebo sentence. A
@@ -2881,11 +3382,14 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
+                # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
+                # available and its call refuses; the run's call refuses with it.
+                "variable_importance_mixed",
             }
         ),
         "("
         + _RAISED.format("benchmark")
-        + "benchmark cannot drop every covariate"
+        + "(candidate X2: )?benchmark cannot drop every covariate"
         + "|benchmark declined: .*on a learned-rule fit the refit relearns the rule"
         + "|benchmark declined: .*would still divide by the declared mechanism"
         + "|benchmark declined: .*this fit's data declares the mechanism known)",
@@ -2908,5 +3412,34 @@ MUTATIONS: dict[str, Mutation] = {
             {"natural_course_study", "natural_course", "rr+missing", "par+missing", "rr", "or"}
         ),
         _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
+    ),
+    "M-curve-replay": Mutation(
+        "the curve replay record reads the producing fit as kept",
+        lambda patch: patch.setattr(assessment, "_curve_replayability", _curve_fit_kept),
+        frozenset({"curve_without_fit"}),
+        # The validation battery invokes the summary rows it reads as available, and their
+        # calls raise the replay record, so assess() raises it.
+        r"assess raised CapabilityError: summarizing the stored artifacts is unavailable",
+    ),
+    "M-curve-rules": Mutation(
+        "the curve rows skip the fit-wide rules, which the calls still apply",
+        lambda patch: patch.setattr(assessment, "_curve_fit_wide_rules", _rules_unapplied),
+        frozenset({"curve_ep", "curve_projection_one_modifier", "curve_projection_repeated"}),
+        r"(modifier_stability|stability|targeting_curve) declined: ",
+    ),
+    "M-vi-compose": Mutation(
+        "the variable-importance rows read only the first candidate's row",
+        lambda patch: patch.setattr(importance_assessment, "compose_rows", _first_candidate_row),
+        frozenset({"variable_importance_mixed"}),
+        r"benchmark declined: .*candidate X2: ",
+    ),
+    "M-vi-keep-fits": Mutation(
+        "the variable-importance rows ignore keep_fits=False",
+        lambda patch: patch.setattr(
+            importance_assessment._CandidateFacade, "_without_fits", _fits_assumed_kept
+        ),
+        frozenset({"variable_importance_no_fits"}),
+        # The validation battery invokes the rows it reads as available, so assess() raises.
+        r"assess raised CapabilityError: This variable-importance run used keep_fits=False",
     ),
 }

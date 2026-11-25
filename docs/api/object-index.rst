@@ -28,6 +28,8 @@ categorized API tables.
    cleverly.estimators.TMLEResult
    cleverly.estimators.DoseResponseResult
    cleverly.estimators.PairSupport
+   cleverly.estimators.dose_response.DoseResponseSupportReport
+   cleverly.estimators.dose_response.DoseResponseScoreReport
    cleverly.longitudinal.LongitudinalResult
    cleverly.AdaptiveTMLEResult
    cleverly.estimators.atmle_result.AdaptiveTMLESupport
@@ -133,6 +135,7 @@ categorized API tables.
    cleverly.VariableImportanceEntry
    cleverly.VariableImportanceResult
    cleverly.ImportanceFacts
+   cleverly.assessment.CandidateReports
    cleverly.variable_importance
    cleverly.variable_importance_plan
    cleverly.load
@@ -259,6 +262,10 @@ categorized API tables.
    cleverly.validation.EmpiricalRefitRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
+   cleverly.validation.PlannedRefits
+   cleverly.validation.PlannedRefitTest
+   cleverly.validation.RefutationCheckpoint
+   cleverly.validation.RefutationProgress
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
@@ -268,6 +275,7 @@ categorized API tables.
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute
+   cleverly.validation.planned_refits
    cleverly.inference.BootstrapResult
    cleverly.inference.SimultaneousBands
    cleverly.inference.Transform

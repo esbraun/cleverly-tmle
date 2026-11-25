@@ -1,0 +1,6 @@
+group,fits,seconds_per_fit
+assess_weighted_2k,19,0.1151
+assess_clustered_4k,20,0.1618
+assess_missing_4k,20,0.1619
+assess_arms3_4k,20,0.3468
+assess_insample_2k,20,0.0277

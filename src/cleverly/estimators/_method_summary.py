@@ -239,6 +239,15 @@ def _shown_candidates(selection: CTMLESelection) -> list[int]:
     return sorted(keep)
 
 
+def _search_work_text(selection: CTMLESelection) -> str:
+    """The search's candidate fits, mechanism fits and solves over every branch, in words."""
+    return (
+        f"{sum(selection.candidate_fits)} candidate fits, {sum(selection.mechanism_fits)} "
+        f"mechanism fits, {sum(selection.target_solves)} solves; "
+        f"{selection.candidate_fits[0]} candidate fits on the analysis sample"
+    )
+
+
 def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
     """The summary of a collaborative search.
 
@@ -314,6 +323,8 @@ def selection_summary(selection: CTMLESelection, detail: Detail) -> Summary:
         (vocabulary.FOLDS, count_text(selection.folds.n_folds)),
         (vocabulary.COVARIATES_SEARCHED, pool),
     ]
+    if selection.candidate_fits:
+        header.append((vocabulary.SEARCH_WORK, _search_work_text(selection)))
     notes: list[Note] = []
     for code, text in (
         ("left_out", _left_out_text(selection)),
@@ -677,7 +688,10 @@ def derivative_summary(fit: CTMLEDerivativeFit, detail: Detail) -> Summary:
             )
         )
     return Summary.build(
-        title=vocabulary.DERIVATIVE_TITLE, header=header, tables=tables, sections=sections
+        title=vocabulary.DERIVATIVE_TITLE,
+        header=header,
+        tables=tables,
+        sections=sections,
     )
 
 

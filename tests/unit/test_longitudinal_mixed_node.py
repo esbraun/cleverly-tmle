@@ -536,11 +536,15 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_width"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/estimator.py", "_observed_cumulative"): (
         "after refuse_multinode_design: every node categorical (H22, H21)"
     ),
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
+    ("longitudinal/estimator.py", "measured_design"): (
+        "returns False on a non-categorical node before reading its column"
+    ),
     ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "ModelBook.natural_law"): "after GFORMULA_MIXED_NODE_REFUSAL",
@@ -602,7 +606,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "after _held_parameter refuses a mixed node"
     ),
     ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
-    ("validation/refute.py", "_future_treatment_test"): "after _refuse_future_treatment",
+    ("validation/refute.py", "_future_treatment_fit"): "after _refuse_future_treatment",
     ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
 }
 
@@ -646,6 +650,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_width"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.with_treatment"): "a mixed node is refused first",

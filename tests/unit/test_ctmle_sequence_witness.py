@@ -35,6 +35,7 @@ from tests.canonical.ctmle_sequence_witness.regenerate import (
 
 MANIFEST = HERE / "manifest.json"
 
+
 pytestmark = pytest.mark.skipif(
     not MANIFEST.exists(),
     reason="the witness outputs are not committed yet; the local thread runs regenerate.py",
@@ -154,7 +155,11 @@ class TestTheSolver:
         assert np.max(np.abs(package - matrix(HERE, f"g_{name}.csv"))) <= tolerance
 
     def test_multinomial(
-        self, inputs: pd.DataFrame, x: np.ndarray, grid: np.ndarray, manifest: dict[str, Any]
+        self,
+        inputs: pd.DataFrame,
+        x: np.ndarray,
+        grid: np.ndarray,
+        manifest: dict[str, Any],
     ) -> None:
         a3 = inputs["A3"].to_numpy()
         fits = l1.penalty_path(x, a3, None, grid)

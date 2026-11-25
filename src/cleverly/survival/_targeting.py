@@ -16,6 +16,27 @@ Each target is a weighted sum of one arm's cause-:math:`j` incidence over the gr
 its grid position, and a restricted mean time lost up to :math:`\tau` has the weights
 :math:`\Delta_m(\tau) = \min(u_{m+1}, \tau) - u_m` for :math:`u_m \le \tau` (X6 part (c)).
 Targets are ordered arm-major, then cause, then weight row: ``p = (a * J + j) * Q + q``.
+
+The clever covariate of a target with weights :math:`\omega` holds the conditional quotient
+
+.. math::
+
+    H_j(u_k) = \frac{\sum_{m \ge k} \omega_m \{F_j(u_m) - F_j(u_k)\}}{S(u_k)}
+    = \sum_{s > k} W(u_s)\, \frac{S(u_{s-1})\, d\Lambda_j(u_s)}{S(u_k)},
+    \qquad W(u_s) = \sum_{m \ge s} \omega_m,
+
+the second form by :math:`F_j(u_m) - F_j(u_k) = \sum_{k < s \le m} S(u_{s-1})\,
+d\Lambda_j(u_s)` and a swap of the sums.  The first form differences two cumulative sums near
+one and divides by a survival that can be :math:`10^{-20}` where a fitted hazard extrapolates,
+so it loses every digit; the second sums the incidence increments themselves after
+:math:`u_k`, each carrying the factor :math:`S(u_{s-1}) \le S(u_k)`, so numerator and survival
+share one scale and nothing is differenced (``_after``).  With :math:`\omega \ge 0` every
+term is non-negative and :math:`0 \le H_j \le \sum_m \omega_m`, a conditional risk.  The
+score sums :math:`\sum_k r(u_k) H_j(u_k)` over the residual ratio :math:`r = \sum_l w
+(dN_l - Y d\Lambda_l) / S`, which the same swap gives as :math:`\sum_s W(u_s)\, S(u_{s-1})
+d\Lambda_j(u_s) \sum_{k < s} r(u_k)`: every product there pairs a :math:`1 / S(u_k)` with a
+:math:`S(u_{s-1}) \le S(u_k)`.  Both forms need :math:`S` in the normal range of double
+precision, which the engine checks (``engine.SURVIVAL_UNDERFLOW``).
 """
 
 from __future__ import annotations
@@ -32,8 +53,9 @@ Norm = Literal["covariance", "variance", "euclidean"]
 #: Each diagonal entry of the held covariance is floored at this share of the largest one, so
 #: a target with a tiny influence-curve variance cannot dominate the direction.
 SIGMA_FLOOR: Final = 1e-8
-#: A step that takes some unit's survival at the last target time below this is rejected: the
-#: clever covariate divides by the survival, and its quotient loses every digit there.
+#: A step that takes some unit's survival at the last target time below this, or below the
+#: initial fit's own smallest survival when that is lower, is rejected, so the walk never drives
+#: a survival towards zero that the initial fit kept away from it.
 WALK_SURVIVAL_FLOOR: Final = 1e-8
 #: The smallest step before the walk stops unconverged.
 MIN_STEP: Final = 1e-8
@@ -159,10 +181,43 @@ def curves(dlam: FloatArray) -> tuple[FloatArray, FloatArray]:
         ``(2, J, n, M)`` :math:`F_j(u_m) = \\sum_{u \\le u_m} S(u^-)\\, d\\Lambda_j(u)`.
     """
     survival = np.cumprod(1.0 - dlam.sum(axis=1), axis=-1)
-    before = np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
-    incidence = before[:, None] * dlam
+    incidence = _before(survival)[:, None] * dlam
     np.cumsum(incidence, axis=-1, out=incidence)
     return survival, incidence
+
+
+def _before(survival: FloatArray) -> FloatArray:
+    """``S(u_m^-)``: the survival just before each grid time, from ``S(u_m)``."""
+    return np.concatenate([np.ones((*survival.shape[:-1], 1)), survival[..., :-1]], axis=-1)
+
+
+def _after(x: FloatArray) -> FloatArray:
+    r""":math:`\sum_{s > k} x_s` at each grid position :math:`k`, along the last axis."""
+    out = np.zeros_like(x)
+    out[..., :-1] = np.cumsum(x[..., :0:-1], axis=-1)[..., ::-1]
+    return out
+
+
+def conditional_risk(survival: FloatArray, dlam_cause: FloatArray, tail: FloatArray) -> FloatArray:
+    r"""The quotient :math:`H_j(u_k)` of the clever covariate, without cancellation.
+
+    Parameters
+    ----------
+    survival : ndarray
+        ``(..., M)`` :math:`S(u_m)`.
+    dlam_cause : ndarray
+        ``(..., M)`` :math:`d\Lambda_j(u_m)`, broadcastable against ``survival``.
+    tail : ndarray
+        ``(..., M)`` :math:`W(u_m) = \sum_{m' \ge m} \omega_{m'}`, broadcastable.
+
+    Returns
+    -------
+    ndarray
+        :math:`\sum_{s > k} W(u_s) S(u_{s-1}) d\Lambda_j(u_s) / S(u_k)`, which equals
+        :math:`\{\sum_{m \ge k} \omega_m F_j(u_m) - W(u_k) F_j(u_k)\} / S(u_k)` (module
+        docstring).
+    """
+    return _after(tail * _before(survival) * dlam_cause) / survival
 
 
 @dataclass(frozen=True)
@@ -241,16 +296,20 @@ def evaluate_rows(
         np.subtract(problem.events, weighted, out=weighted)
         weighted *= problem.weight[a][None]
         weighted *= mask[None]  # (J, n, M)
-        total = weighted.sum(axis=0)
-        ratio = total / survival[a]
-        cum_ratio = np.cumsum(ratio, axis=1)
+        # R(u_s^-) = sum_{k < s} r(u_k), the residual ratio cumulated strictly before u_s.
+        ratio = weighted.sum(axis=0) / survival[a]
+        ratio_before = np.zeros_like(ratio)
+        np.cumsum(ratio[:, :-1], axis=1, out=ratio_before[:, 1:])
+        before = _before(survival[a])
         for j in range(J):
-            # Each target's score part is the weighted sum over the grid of the point
-            # targets' parts, sum_m w_m {N_j(u_m) - F_j(u_m) R(u_m) + C_j(u_m)}, with R and C
-            # the cumulated ratios; a unit row picks one grid position exactly.
-            cum_own = np.cumsum(weighted[j], axis=1)
-            cum_own -= incidence[a, j] * cum_ratio
-            cum_own += np.cumsum(incidence[a, j] * ratio, axis=1)
+            # Each target's score part is sum_k {W(u_k) w (dN_j - Y dLam_j)(u_k) - r(u_k)
+            # H_j(u_k)}, which the swap of the module docstring writes as the weighted sum over
+            # the grid of the cumulated sum_{s <= u_m} {w (dN_j - Y dLam_j)(u_s) - S(u_s^-)
+            # dLam_j(u_s) R(u_s^-)}; a unit row picks one grid position exactly.
+            increment = before * dlam[a, j]
+            increment *= ratio_before
+            np.subtract(weighted[j], increment, out=increment)
+            cum_own = np.cumsum(increment, axis=1)
             block = slice((a * J + j) * Q, (a * J + j + 1) * Q)
             if expand is None:
                 parts[:, block] = cum_own @ rows
@@ -258,6 +317,8 @@ def evaluate_rows(
             else:
                 parts[:, block] = _filled(cum_own, expand) @ rows
                 plugins[:, block] = _filled(incidence[a, j], expand) @ rows
+        # Freed before the next arm allocates its own, so two arms' temporaries never coexist.
+        del weighted, ratio, ratio_before, before, increment, cum_own
     return parts, plugins
 
 
@@ -316,15 +377,20 @@ def summarize(
     )
 
 
-def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> FloatArray:
+def _direction(
+    problem: Problem, evaluation: Evaluation, v: FloatArray, dlam: FloatArray
+) -> FloatArray:
     r"""``(2, J, n, M)`` the combined clever covariate :math:`\sum_p v_p c_p(u, a, L_i)`.
 
     A target with grid weights :math:`\omega_m` has the clever covariate
     :math:`1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) - W(u) F_j(u)\} / S(u)`,
-    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  Both sums are
-    reverse cumulative sums over time, so a step costs :math:`O(JnM)` for any weights.  On a
-    reduced grid (``problem.expand`` set) both sums run over the full grid and are read at the
-    kept times.
+    :math:`W(u) = \sum_{u_m \ge u} \omega_m`, divided by :math:`\pi S_c`.  The quotient is
+    :func:`conditional_risk` of the combined weights, a reverse cumulative sum over time, so a
+    step costs :math:`O(JnM)` for any weights.  ``dlam`` holds the hazard jumps ``evaluation``
+    was computed at, on the arrays' own grid.  On a reduced grid (``problem.expand`` set)
+    :math:`W` runs over the full grid and is read at the kept times; the quotient sums only
+    increments :math:`S(u_{s-1})\, d\Lambda_j(u_s)`, which are zero at every dropped time, so
+    its sum over the kept times is the full grid's term for term.
     """
     J, Q = problem.n_causes, problem.n_rows
     n, M = problem.at_risk.shape
@@ -333,18 +399,14 @@ def _direction(problem: Problem, evaluation: Evaluation, v: FloatArray) -> Float
     for a in (0, 1):
         # The weight each grid point carries for cause j: sum_q v_(a,j,q) w_(q,m).
         own = v[a * J * Q : (a + 1) * J * Q].reshape(J, Q) @ problem.target_weights
-        incidence = evaluation.incidence[a]
-        if expand is not None:
-            incidence = _filled(incidence, expand)
-        weighted_f = incidence * own[:, None, :]  # (J, n, M)
         own = np.cumsum(own[:, ::-1], axis=1)[:, ::-1]  # W(u)
-        weighted_f = np.cumsum(weighted_f[:, :, ::-1], axis=2)[:, :, ::-1]
         if expand is not None:
             assert kept is not None
             own = np.take(own, kept, axis=-1)
-            weighted_f = np.take(weighted_f, kept, axis=-1)
-        shared = (weighted_f - evaluation.incidence[a] * own[:, None, :]).sum(axis=0)
-        shared = shared / evaluation.survival[a]
+        survival = evaluation.survival[a]
+        shared = np.zeros((n, M))
+        for j in range(J):
+            shared += conditional_risk(survival, dlam[a, j], own[j][None, :])
         for l in range(J):
             out[a, l] = problem.weight[a] * (own[l][None, :] - shared)
     return out
@@ -528,3 +590,238 @@ def default_cutoff(n: int) -> float:
         The bound.
     """
     return 1.0 / (np.sqrt(n) * np.log(n))
+
+
+#: Units per block of the predictable-variation pass, so its ``(J, P, units, M)`` temporaries
+#: stay near 50 MB at the largest grids the engine meets.
+_PV_BLOCK_CELLS: Final = 6_000_000
+
+
+def _multinomial_moment(clever: FloatArray, dlam: FloatArray, rho: FloatArray) -> FloatArray:
+    r"""``(P, P)`` :math:`\sum_{i,m} \rho\, V(u_m)_{pq}` for one arm and one block of units.
+
+    :math:`V_{pq} = \sum_l c_{l,p} c_{l,q}\, d\Lambda_l - (\sum_l c_{l,p}\, d\Lambda_l)
+    (\sum_l c_{l,q}\, d\Lambda_l)`, the conditional covariance of the multinomial jumps of the
+    causes given survival to :math:`u_m`.
+
+    Parameters
+    ----------
+    clever : ndarray
+        ``(J, P, b, M)`` :math:`c_{l,p}(u_m, L_i)`.
+    dlam : ndarray
+        ``(J, b, M)`` the arm's hazard jumps.
+    rho : ndarray
+        ``(b, M)`` the nonnegative weight :math:`\hat S(u^-)\, \hat\pi \hat S_c(u^-)\, \hat w^2`.
+
+    Returns
+    -------
+    ndarray
+        The block's contribution.
+    """
+    J, P = clever.shape[:2]
+    out = np.zeros((P, P))
+    first = np.zeros(clever.shape[1:])
+    for l in range(J):
+        scaled = clever[l] * np.sqrt(rho * dlam[l])[None]
+        flat = scaled.reshape(P, -1)
+        out += flat @ flat.T
+        first += clever[l] * dlam[l][None]
+    first *= np.sqrt(rho)[None]
+    flat = first.reshape(P, -1)
+    out -= flat @ flat.T
+    return out
+
+
+def predictable_rows(causes: int, rows: int, times: int) -> int:
+    """Units per block of the predictable-variation pass, at least one.
+
+    Parameters
+    ----------
+    causes : int
+        Causes ``J``.
+    rows : int
+        Weight rows ``Q``.
+    times : int
+        Grid size ``M``.
+
+    Returns
+    -------
+    int
+        Units whose ``(J, J Q, units, M)`` clever covariates hold about ``_PV_BLOCK_CELLS``
+        cells.
+    """
+    return max(1, _PV_BLOCK_CELLS // max(1, causes * causes * rows * times))
+
+
+def _martingale_block(
+    problem: Problem,
+    evaluation: Evaluation,
+    dlam: FloatArray,
+    reach: FloatArray | None,
+    a: int,
+) -> FloatArray:
+    r"""``(JQ, JQ)`` :math:`\sum_{i,m} \rho_{im} V_a(u_m \mid L_i)` over the targets of arm ``a``.
+
+    Every unit contributes for both arms, whatever it received: the term is
+    :math:`E[M_a^2 \mid L]`, a function of :math:`L` alone.
+    """
+    J, Q = problem.n_causes, problem.n_rows
+    n, M = problem.at_risk.shape
+    survival = evaluation.survival[a]
+    # W_q(u_m) = sum over m' >= m of the row's weights, the same for every unit.
+    tail = np.cumsum(problem.target_weights[:, ::-1], axis=1)[:, ::-1]  # (Q, M)
+    out = np.zeros((J * Q, J * Q))
+    block = predictable_rows(J, Q, M)
+    for start in range(0, n, block):
+        rows = slice(start, min(n, start + block))
+        weight = problem.weight[a][rows]
+        rho = _before(survival[rows]) * weight
+        rho = rho * (1.0 if reach is None else reach[a][rows])
+        clever = np.empty((J, J * Q, rho.shape[0], M))
+        for j in range(J):
+            # G_q(u) = {sum_{m' >= m} w_q F_j(u_m') - W_q(u) F_j(u)} / S(u), (Q, b, M)
+            shared = conditional_risk(
+                survival[rows][None], dlam[a, j][rows][None], tail[:, None, :]
+            )
+            cols = slice(j * Q, (j + 1) * Q)
+            for l in range(J):
+                clever[l, cols] = -shared
+                if l == j:
+                    clever[l, cols] += tail[:, None, :]
+            # Released before the moment, which then holds only the covariates.
+            del shared
+        out += _multinomial_moment(clever, dlam[a][:, rows], rho)
+        del clever, rho
+    return out
+
+
+class PredictableVariation:
+    r"""The predictable-variation second moments, summed over consecutive blocks of units.
+
+    :meth:`add` takes the units of one block, in row order, and :meth:`matrix` returns
+    :func:`predictable_covariance` of every unit added: each unit's plug-ins are kept, so the
+    plug-in covariance is centred once at the end, and the martingale term of each arm is
+    carried as a running sum.  A block of at most :func:`predictable_rows` units adds its term
+    as one block of :func:`predictable_covariance` does, so blocks of that size, cut where it
+    cuts them, give its matrix bit for bit.
+
+    Parameters
+    ----------
+    n : int
+        The units that will be added.
+    causes : int
+        Causes ``J``.
+    rows : int
+        Weight rows ``Q``.
+    """
+
+    def __init__(self, n: int, causes: int, rows: int) -> None:
+        self.n = int(n)
+        self.causes, self.rows = int(causes), int(rows)
+        self.plugins = np.zeros((self.n, 2 * self.causes * self.rows))
+        self.moments = np.zeros((2, self.causes * self.rows, self.causes * self.rows))
+        self.added = 0
+
+    def add(
+        self,
+        problem: Problem,
+        evaluation: Evaluation,
+        dlam: FloatArray,
+        reach: FloatArray | None = None,
+    ) -> None:
+        r"""Add the next units in row order.
+
+        Parameters
+        ----------
+        problem : Problem
+            Their fixed inputs; the weight and the target weights are read, and the
+            indicators' shapes only.
+        evaluation : Evaluation
+            Their survival and incidences at ``dlam``.
+        dlam : ndarray
+            ``(2, J, b, M)`` their hazard jumps.
+        reach : ndarray or None
+            ``(2, b, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` to
+            read one everywhere.
+        """
+        J, Q = self.causes, self.rows
+        start, stop = self.added, self.added + problem.n
+        rows = problem.target_weights.T
+        for a in (0, 1):
+            for j in range(J):
+                cols = slice((a * J + j) * Q, (a * J + j + 1) * Q)
+                self.plugins[start:stop, cols] = evaluation.incidence[a, j] @ rows
+        # The martingale term reads the survival only; a caller that passes the evaluation
+        # without keeping it lets its incidences go here.
+        survival = Evaluation(_EMPTY, _EMPTY, _EMPTY, evaluation.survival, _EMPTY)
+        del evaluation
+        for a in (0, 1):
+            self.moments[a] += _martingale_block(problem, survival, dlam, reach, a)
+        self.added = stop
+
+    def matrix(self) -> FloatArray:
+        """``(P, P)`` the second moments of every unit added, divided by :math:`n`.
+
+        Returns
+        -------
+        ndarray
+            The matrix of :func:`predictable_covariance`.
+        """
+        assert self.added == self.n, "every unit is added before the matrix is read"
+        n, JQ = self.n, self.causes * self.rows
+        centred = self.plugins - self.plugins.mean(axis=0)
+        out = centred.T @ centred / n
+        for a in (0, 1):
+            block = slice(a * JQ, (a + 1) * JQ)
+            out[block, block] += self.moments[a] / n
+        return out
+
+
+def predictable_covariance(
+    problem: Problem,
+    evaluation: Evaluation,
+    dlam: FloatArray,
+    reach: FloatArray | None = None,
+) -> FloatArray:
+    r"""``(P, P)`` the predictable-variation second moments of the influence curves.
+
+    .. math::
+
+        \hat\Sigma_{pv} = \widehat{\mathrm{Cov}}_n(\hat F) + \sum_a P_n \sum_{u_m}
+        \hat S(u_m^-)\, \hat\pi \hat S_c(u_m^-)\, \hat w_a^2\, V_a(u_m),
+
+    with :math:`V_a` the multinomial covariance of :func:`_multinomial_moment` for the targets of
+    arm :math:`a` and zero across arms (:math:`1\{A = 1\} 1\{A = 0\} = 0`), and
+    :math:`\hat F` each unit's plug-in of every target.  A target with grid weights
+    :math:`\omega` has :math:`c_l(u) = 1\{l = j\} W(u) - \{\sum_{u_m \ge u} \omega_m F_j(u_m) -
+    W(u) F_j(u)\} / S(u)`, the clever covariate of :func:`_direction` without the weight.  Where
+    the positivity floor binds, :math:`\hat\pi \hat S_c \hat w^2 = \hat w \min(1, \hat\pi \hat
+    S_c / g_{\min})`, so the floored weight enters squared, as it does in :math:`P_n \hat D^2`.
+
+    At the true nuisances on a sample that is its own law, the matrix equals the population
+    covariance of the influence curves: the conditional covariance of the martingale part
+    integrates to its second moment, and its cross term with :math:`\hat F` is zero (X6 plan,
+    2.1.3, a derivation).  Its diagonal is the predictable variance of each target.  The
+    engine adds its units block by block through :class:`PredictableVariation`.
+
+    Parameters
+    ----------
+    problem : Problem
+        The fixed inputs.
+    evaluation : Evaluation
+        The evaluation at ``dlam``: its survival and incidences.
+    dlam : ndarray
+        ``(2, J, n, M)`` the hazard jumps, the targeted ones for a fit.
+    reach : ndarray or None
+        ``(2, n, M)`` :math:`\min(1, \hat\pi \hat S_c(u^-) / g_{\min})`, or ``None`` to read
+        one everywhere.
+
+    Returns
+    -------
+    ndarray
+        Population second moments (divided by :math:`n`), in the order of ``evaluation``'s
+        influence columns.
+    """
+    variation = PredictableVariation(problem.n, problem.n_causes, problem.n_rows)
+    variation.add(problem, evaluation, dlam, reach)
+    return variation.matrix()

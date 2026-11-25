@@ -174,11 +174,21 @@ CURRENT: dict[str, str] = {
     "refuter-calibration-band": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
     "cde-tmle": "regenerated under the shipped intervals (Fix-3 PR 3, step 7d)",
     "hazard-time-varying-multinode": "regenerated under the shipped intervals (Fix-3 PR 3, step 9)",
+    # First run after the intervals shipped (X101 declared run at 927379cf).
+    "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "
+    "declared run)",
+    "refuter-sampled": "run under the shipped intervals (X106 H declared run)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row
 #: records a MOVER flip.
-SCREEN_REASONS: dict[str, str] = {}
+SCREEN_REASONS: dict[str, str] = {
+    "continuous-survival-variance": "a continuous-time difference reads the joint delta-method "
+    "interval on the identity scale, never MOVER: its scope refit (asymmetric-refit/"
+    "continuous-survival-variance/scope.csv) replays every row with scale identity, so the "
+    "screen's MOVER recomputation does not reach a committed verdict; the flipped row is in "
+    "the reported cell v2_heavy_weights",
+}
 
 #: The studies whose rows are ends of a sensitivity bound, read through
 #: :func:`~cleverly.sensitivity._limits.bound_limits`.  Refit records of these studies count

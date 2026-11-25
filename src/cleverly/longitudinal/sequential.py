@@ -205,6 +205,7 @@ from ..utils.phases import (
     phase,
     profiling,
 )
+from ._fit_cache import cached
 from .data import LongitudinalData, RegimenMasks
 from .pooled_hazards import PooledCensoring, fit_pooled_censoring
 from .ratio_trim import RatioTrim
@@ -480,6 +481,20 @@ class Mechanism:
         mechanism the trimmed ratio implies, :meth:`RatioTrim.implied_cumulative`, and the
         bound applies to it.  On a row whose ratios were never trimmed it is the raw prefix.
         """
+        return cached(
+            "cumulative",
+            (self, data, plan),
+            tuple(bounds),
+            lambda: self._trimmed_cumulative(data, plan, bounds),
+        )
+
+    def _trimmed_cumulative(
+        self,
+        data: LongitudinalData,
+        plan: Plan,
+        bounds: tuple[float, float],
+    ) -> tuple[FloatArray, FloatArray]:
+        """:meth:`cumulative_with_unbounded`, computed."""
         raw, bounded = self._cumulative_with_unbounded(data, plan, bounds)
         trim = self.ratio_trims.get(plan.label)
         if trim is None:
@@ -667,6 +682,10 @@ class NodeInputs:
 class SequentialStep:
     """One retained node of the backward recursion.
 
+    ``trained_on``, ``at_risk`` and ``clever`` may be shared with the same node's step at
+    another horizon or cause and read-only, and ``targeted`` may be the same array as the
+    fluctuation record's observed and regimen-arm results; copy before writing.
+
     Parameters
     ----------
     time : int
@@ -850,7 +869,12 @@ class FitSimulation:
 
 @dataclass(frozen=True)
 class RegimenFit:
-    """The estimate under one regimen, with the pieces that produced it."""
+    """The estimate under one regimen, with the pieces that produced it.
+
+    The arrays a fit reads at several horizons or causes (the cumulative products, the policy
+    numerator, and each step's masks and clever covariate) may be shared between records and
+    read-only; copy before writing.
+    """
 
     regimen: RegimenSpec
     #: On the ``[0, 1]`` outcome scale, as everything inside the recursion is.
@@ -923,10 +947,13 @@ class RegimenFit:
     #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
     #: A one-step fit shares one record between every reported parameter.
     hazard: HazardFit | None = None
-    #: ``(n, T)`` the hazard fit's clever weight at each node, at the observed level:
-    #: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at a node up to the horizon, and
-    #: zero elsewhere.  It stands in for each node's clever covariate in
-    #: :attr:`scored_nodes` and :attr:`leverage`.  ``None`` on an iterated-mean fit.
+    #: ``(n, horizon)`` the hazard fit's clever weight at each node up to the horizon, at
+    #: the observed level: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at the node,
+    #: and zero elsewhere.  It stands in for each node's clever covariate in
+    #: :attr:`scored_nodes` and :attr:`leverage`.  Read-only as a fit returns it: the records
+    #: of one regimen (of one level pair on a separable fit) hold views of one array across
+    #: causes and horizons, and a collaborative fit's record holds its own.  A loaded result
+    #: holds unshared copies.  ``None`` on an iterated-mean fit.
     #:
     #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
     #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.
@@ -3920,13 +3947,40 @@ def _clever_covariate(
         and zero elsewhere, and ``clever``, which is that weight on ``trained_on`` and zero
         elsewhere.  Only the denominator is bounded.
     """
+    if numerator is None:
+        sources: tuple[Any, ...] = (at_risk, trained_on, cumulative)
+        extra: tuple[Any, ...] = (time, None)
+    else:
+        base = numerator if numerator.base is None else numerator.base
+        sources = (at_risk, trained_on, cumulative, base)
+        # The view's own data pointer, shape and strides: two columns of one numerator, or
+        # two views of one buffer, never share a key.
+        extra = (
+            time,
+            numerator.__array_interface__["data"][0],
+            numerator.shape,
+            numerator.strides,
+        )
+    # Two entries on the same key, so a record that keeps ``clever`` shares it although
+    # nothing keeps ``counterfactual``.
+    counterfactual = cached(
+        "counterfactual",
+        sources,
+        extra,
+        lambda: _counterfactual_weight(at_risk, cumulative, time, numerator),
+    )
+    clever = cached("clever", sources, extra, lambda: np.where(trained_on, counterfactual, 0.0))
+    return counterfactual, clever
+
+
+def _counterfactual_weight(
+    at_risk: BoolArray, cumulative: FloatArray, time: int, numerator: FloatArray | None
+) -> FloatArray:
+    """The weight of :func:`_clever_covariate` on ``at_risk``, computed."""
     denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
     if numerator is None:
-        counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
-    else:
-        counterfactual = np.where(at_risk, numerator / denominator, 0.0)
-    clever = np.where(trained_on, counterfactual, 0.0)
-    return counterfactual, clever
+        return np.where(at_risk, 1.0 / denominator, 0.0)
+    return np.where(at_risk, numerator / denominator, 0.0)
 
 
 def _fluctuate_node(

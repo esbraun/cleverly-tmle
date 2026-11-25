@@ -313,6 +313,31 @@ def _effect_curve() -> Any:
     return fit.effect_curve()
 
 
+def _ep_curve_log_ratio_learner() -> Any:
+    """The EP log-ratio curve with a declared classifier as its final learner (P1 PR 2)."""
+    from cleverly import EPMethod
+    from cleverly.bases import Sieve
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.uniform(-1, 1, n)
+    treated = rng.binomial(1, 0.5, n)
+    y = rng.binomial(1, 0.3 + 0.2 * treated * (w > 0))
+    frame = pd.DataFrame({"Y": y, "A": treated, "W": w})
+    design = PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    question = ConditionalContrast(Modifiers(["W"], domains={"W": (-1, 1)}), scale="log_ratio")
+    method = EPMethod(sieve=Sieve(Linear(["W"]), size=1), final_learner=_logistic())
+    return (
+        CausalStudy(frame, design=design)
+        .identify(question)
+        .estimate(
+            method.with_overrides(
+                outcome_learner=_logistic(), treatment_learner=_logistic(), random_state=0
+            )
+        )
+    )
+
+
 def _dose_response() -> Any:
     rng = np.random.default_rng(0)
     n = 500
@@ -406,6 +431,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "continuous_survival": _continuous_survival,
     # X6 (c): restricted_horizons= adds restricted means, in time units, beside the risks.
     "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
+    # X6 (d): the full-refit bootstrap, with the multiplier and the bootstrap band.
+    "continuous_survival_bootstrap": sweep.fit_continuous_survival_bootstrap,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "effect_curve_continuous": _effect_curve_continuous,
@@ -422,6 +449,11 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "projection_bootstrap": sweep.fit_projection_bootstrap,
     "learned_rule_ep_sieve": sweep.fit_learned_rule_ep_sieve,
     "learned_rule_ep_learner": sweep.fit_learned_rule_ep_learner,
+    # P1 PR 2: the projection of a controlled direct effect on both scales, and the EP
+    # log-ratio curve with a declared classifier.
+    "projection_intermediate": sweep.fit_projection_intermediate,
+    "projection_intermediate_log_ratio": sweep.fit_projection_intermediate_crr,
+    "ep_curve_log_ratio_learner": _ep_curve_log_ratio_learner,
     # A declared mechanism read in the weighted sample (Fix-16): an estimated tilt, so each
     # plot answers as it does on an estimated-mechanism fit of the same kind.
     "point_tmle_known_sample": sweep.fit_tmle_known_sample_weights,
@@ -439,6 +471,18 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "hazard_multinode": sweep.fit_hazard_multinode,
     # A fit that estimates no treatment mechanism: no plot may promise its weights.
     "sequential_gcomp": sweep.fit_gcomp,
+    # X54 (c): the delete-one-cluster jackknife variance, which ships for LTMLE only (the
+    # registered measurement refuses it for point TMLE). The interval plots read the jackknife
+    # interval, and influence() says its curve is not the reported variance.
+    "ltmle_jackknife": sweep.fit_ltmle_jackknife_cross_fitted,
+    # A leave-one-cluster-out refit raises, so the jackknife reports no interval: the
+    # interval plots read the withheld status, and influence() refuses.
+    "ltmle_jackknife_withheld": sweep.fit_ltmle_jackknife_refit_withheld,
+    # X54 B1: fits at their family's floor with mixed estimate statuses. The measured contrast
+    # keeps the ordinary status and every other estimate shows its interval under
+    # few_cluster_estimand_plugin; each plot draws or refuses as on an ordinary fit.
+    "point_tmle_floor_mixed": sweep.fit_floor_mixed_tmle,
+    "ltmle_floor_mixed": sweep.fit_floor_mixed_ltmle,
 }
 
 #: Public result classes that are not fits of one estimand, with the plot or fit that covers
@@ -460,6 +504,54 @@ NOT_FITS = {
 #: The pinned outcome of each plot on each family: "draws", the roadmap id a refusal
 #: names, or the refusal's class and first five words.
 EXPECTED: dict[str, dict[str, str]] = {
+    "point_tmle_floor_mixed": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_floor_mixed": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_jackknife": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_jackknife_withheld": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "ValueError: ey_regimen[always]: this estimate's interval is",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "ltmle_mtp_censored": {
         "forest": "draws",
         "curve": "CapabilityError: this fit has one end-of-study",
@@ -616,6 +708,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
+    "continuous_survival_bootstrap": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "draws",
+    },
     "continuous_survival_restricted": {
         "forest": "draws",
         "curve": "draws",
@@ -695,8 +799,8 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
-        "learners": "TypeError: learners() takes SuperLearnerDiagnostics, a CTMLESelection,",
-        "calibration": "CapabilityError: no nuisance model here reports",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -707,8 +811,8 @@ EXPECTED: dict[str, dict[str, str]] = {
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
         "balance": "CapabilityError: covariate_balance weighs the covariates by",
-        "learners": "TypeError: learners() cannot read the nuisance",
-        "calibration": "CapabilityError: no nuisance model here reports",
+        "learners": "CapabilityError: diagnostic 'nuisance_models' is unavailable: a",
+        "calibration": "CapabilityError: diagnostic 'nuisance_models' is unavailable: a",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
@@ -795,6 +899,42 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_intermediate": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "projection_intermediate_log_ratio": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: the fit reports no estimand",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ep_curve_log_ratio_learner": {
+        "forest": "TypeError: forest() takes fitted results, result",
+        "curve": "draws",
+        "influence": "TypeError: influence() takes a ParameterEstimate or",
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "TypeError: bootstrap() takes a fitted result",
     },
     "point_tmle_known_sample": {
         "forest": "draws",
@@ -1102,6 +1242,32 @@ def test_no_plot_crashes_on_a_capability_sweep_kind(kind: str) -> None:
         outcome(plot, result)
 
 
+@pytest.mark.parametrize("kind", ["variable_importance", "variable_importance_no_fits"])
+@pytest.mark.parametrize("plot", ["calibration", "learners"])
+def test_a_variable_importance_run_redirects_its_nuisance_plots(kind: str, plot: str) -> None:
+    """X104: ``result.diagnostics`` now exists on a run, and these plots would read it.
+
+    Each candidate is a point fit, so the plot refuses the run with a redirect to one
+    candidate's fit rather than drawing a report of several fits. A run that kept no fits has
+    no candidate fit to plot, so it raises the keep-fits record instead.
+    """
+    from cleverly.exceptions import RefusalReason
+    from cleverly.variable_importance import KEEP_FITS_REFUSAL
+
+    result = sweep.KINDS[kind].build()
+    with pytest.raises(CapabilityError) as caught:
+        getattr(plotting, plot)(result)
+    assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+    if kind == "variable_importance_no_fits":
+        assert caught.value.refusal == KEEP_FITS_REFUSAL
+    else:
+        assert "result.fits[candidate]" in caught.value.refusal.alternative
+    if kind == "variable_importance":
+        with pytest.raises(CapabilityError) as caught:
+            getattr(plotting, plot)(result.diagnostics.nuisance_models())
+        assert caught.value.refusal.reason is RefusalReason.API_REDIRECTION
+
+
 def test_the_module_table_lists_every_plot() -> None:
     listed = set(re.findall(r"^:func:`(\w+)`", plotting.__doc__ or "", flags=re.M))
     assert listed == set(PLOTS) | {"sensitivity", "confounding", "targeting", "zipper"}
@@ -1213,6 +1379,23 @@ def test_influence_says_the_curve_is_not_a_supplemented_variance(fits: Any) -> N
     assert not any(phrase in note for note in plotting.notes(plain))
     plt.close(supplemented)
     plt.close(plain)
+
+
+@_SHARED
+@pytest.mark.parametrize("family", ["ltmle_jackknife"])
+def test_influence_says_the_curve_is_not_the_jackknife_variance(fits: Any, family: str) -> None:
+    result = fits(family)
+    estimates = getattr(result, "estimates", result)
+    name = next(iter(estimates))
+    assert estimates[name].variance_source == "jackknife"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        figure = plotting.influence(result, name=name)
+    assert any(
+        "delete-one-cluster jackknife" in note and "not the reported variance" in note
+        for note in plotting.notes(figure)
+    )
+    plt.close(figure)
 
 
 @_SHARED

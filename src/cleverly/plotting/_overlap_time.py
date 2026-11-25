@@ -542,7 +542,7 @@ def structural(result: Any, *, nodes: Sequence[int] | None, time_label: str) -> 
 
     data = result.data
     config = result.config
-    probabilities = result.diagnostics.class_probabilities
+    probabilities = result.structural_diagnostics.class_probabilities
     times = _chosen_nodes(nodes, len(config.nodes))
     dose = [time for time in times if config.nodes[time - 1].continuous]
     if dose:
@@ -584,9 +584,9 @@ def structural(result: Any, *, nodes: Sequence[int] | None, time_label: str) -> 
         key_sources=drawn,
     )
     found = [
-        f"Dotted lines mark the margin {margin:g} from 0 and 1 that diagnostics.extreme_share "
-        "counts; the share of units beyond each is printed at its foot. On a two-level time "
-        "point the two shares add up to its extreme_share.",
+        f"Dotted lines mark the margin {margin:g} from 0 and 1 that "
+        "structural_diagnostics.extreme_share counts; the share of units beyond each is printed "
+        "at its foot. On a two-level time point the two shares add up to its extreme_share.",
         "The fit uses these probabilities to centre the treatment in its estimating equation, "
         "not as inverse weights, so no weight limit applies.",
     ]
