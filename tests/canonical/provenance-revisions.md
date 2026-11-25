@@ -343,8 +343,9 @@ Witness: on Linux, replicates 0 and 1 of each of the 20 fit sets and the band (4
 refit at `58538bfa` and compared with the committed `property-replicates.parquet`, which Windows
 wrote. 46 rows agree within 1e-12 standard errors in estimate and standard error. The two
 `crossfit_overfitting/in_sample_control` rows, which interpolate with in-sample extra-trees, differ
-by 0.067 and 0.007 standard errors. Every `covered` is equal. A code change would move the other
-46 rows as well.
+by 0.067 and 0.007 standard errors. Every `covered` is equal. A code change on a path these 48 fits run would have moved those
+rows; a change on a path they do not reach would not show here. The hash check reads git history,
+so it runs locally; CI's shallow checkout skips it, as it skips the ancestry check.
 
 ## Completed manifest provenance
 
