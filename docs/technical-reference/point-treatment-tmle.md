@@ -2153,9 +2153,9 @@ the record describes it.
 | composition | result |
 | --- | --- |
 | either report on rows, with pooled targeting, the plug-in rule and `repeats=1`, beside `Static` regimes and known `Rule`s | supported (rows `T44.fold_evaluated` and `T44.stacked`), measured by the [contrast study](method-evidence/learned-rule-contrast.md) beside `Static(1)` and `Static(0)` at n = 2,000 with ten folds. Each row labels the learned value, every known value and every contrast |
-| any other known regime beside the rule, such as a `Stochastic` regime | admitted, experimental. The key adds the qualifier `known_stochastic_regimes`, which no row declares. The declared `T58` study ([below](#stochastic-regimes-and-the-natural-course-beside-a-learned-rule)) measures it |
-| `NaturalCourse()` beside the rule | admitted, experimental. The key adds the qualifier `natural_course`, which no row declares ([below](#stochastic-regimes-and-the-natural-course-beside-a-learned-rule)) |
-| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that neither `T44` row declares |
+| any other known regime beside the rule, such as a `Stochastic` regime, on rows under either report with the same settings | supported (rows `T58.stochastic.<report>`, and `T58.combined.<report>` beside a natural course too), measured by the [comparators study](method-evidence/learned-rule-contrast-comparators.md). The key adds the qualifier `known_stochastic_regimes` ([below](#stochastic-regimes-and-the-natural-course-beside-a-learned-rule)) |
+| `NaturalCourse()` beside the rule, on rows under either report with the same settings | supported (rows `T58.natural_course.<report>`), measured by the same study. The key adds the qualifier `natural_course` ([below](#stochastic-regimes-and-the-natural-course-beside-a-learned-rule)) |
+| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that no `T44` or `T58` row declares |
 | `simultaneous=True`, the default | no band over a known value or a contrast, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The fit skips the band and `summary()` says why, as for a Student $t$ reference, and `simultaneous_bands()` called on those estimates raises `CapabilityError` (`inference_gap`). The stratified band of the learned-rule value alone still runs when only `ey_learned_rule` is requested |
 | `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
 | `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 8 and 7 |
@@ -2245,10 +2245,12 @@ The combined fit's learned and regime columns equal the fit
 without the natural course bit for bit, and dropping $D_N$ from the curve fails the Gateaux
 check in `tests/unit/test_influence_gateaux_learned_rule_contrast.py`. A one-hot `Stochastic`
 equals the known `Rule` of the same plan bit for bit, and the offer
-$0.5\,\mathbb 1\{W_1 > 0\}$ differs from its one-hot rounding. The `T58` study
-(`tests/studies/learned_rule_contrast_comparators.py`) is declared and not yet run. Its rows
-`T58.combined`, `T58.stochastic` and `T58.natural_course` are registered only if its verdicts pass,
-and these fits read experimental until then.
+$0.5\,\mathbb 1\{W_1 > 0\}$ differs from its one-hot rounding. The
+[comparators study](method-evidence/learned-rule-contrast-comparators.md) (`T58`) passed every
+verdict at n = 2,000 beside `Static(0)`, two known stochastic regimes and the natural course, so
+its rows `T58.combined`, `T58.stochastic` and `T58.natural_course` are registered for each report.
+The contrast against the stochastic `offer` regime reads an SE about 2% small (SE ratio 0.977, 99%
+interval 0.959 to 0.996), inside the calibration band, and the rows' limits say so.
 
 #### More than two arms
 

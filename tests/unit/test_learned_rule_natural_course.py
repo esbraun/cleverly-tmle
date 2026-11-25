@@ -397,11 +397,21 @@ def test_the_key_declares_the_natural_course() -> None:
     assert {"known_regimes", "known_stochastic_regimes", "natural_course"} <= combined
 
 
-def test_every_natural_course_estimate_reads_experimental() -> None:
-    """No registered row declares ``natural_course`` until the comparators study registers."""
-    for name in ("natural", "static_natural", "stochastic_natural"):
-        result = _fit(name)
-        assert {e.support.label for e in result.estimates.values()} == {"experimental"}
+@pytest.mark.parametrize("cv_evaluation", [True, False])
+def test_every_natural_course_estimate_reads_its_t58_row(cv_evaluation: bool) -> None:
+    """The comparators study registers ``natural_course`` beside ``known_regimes``: the natural
+    course alone or beside a static regime reads ``T58.natural_course``, and beside stochastic
+    regimes ``T58.combined``, under each report."""
+    report = "fold_evaluated" if cv_evaluation else "stacked"
+    expected = {
+        "natural": f"T58.natural_course.{report}",
+        "static_natural": f"T58.natural_course.{report}",
+        "stochastic_natural": f"T58.combined.{report}",
+    }
+    for name, row in expected.items():
+        result = _fit(name, cv_evaluation)
+        assert {e.support.row for e in result.estimates.values()} == {row}, name
+        assert {e.support.label for e in result.estimates.values()} == {"supported"}
 
 
 # ------------------------------------------------------------------------------- refusals

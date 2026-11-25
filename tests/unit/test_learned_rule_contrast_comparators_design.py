@@ -352,10 +352,10 @@ def test_the_cells() -> None:
     assert study.PRIMARY_N == properties.CALIBRATION_N == 2_000
 
 
-def test_the_study_is_declared_and_not_registered() -> None:
-    """No declared run has been made, so the record is not in the register and no row is."""
-    assert study.STUDY.slug not in {record.slug for record in registered()}
-    assert not (study.STUDY.artifacts / "manifest.json").exists()
+def test_the_study_is_registered_after_its_declared_run() -> None:
+    """The declared run is committed and the record is in the register."""
+    assert study.STUDY.slug in {record.slug for record in registered()}
+    assert (study.STUDY.artifacts / "manifest.json").exists()
 
 
 def test_the_fits_are_the_declared_ones() -> None:

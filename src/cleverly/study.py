@@ -2796,9 +2796,9 @@ class LearnedRuleContrast:
     regression and a fitted treatment mechanism no result says its variance is
     conservative.  The support label of each fit, in the "Learned rules" section of
     ``docs/technical-reference/point-treatment-tmle.md``, says which compositions a study
-    measured: a fixed plan beside the rule reads supported, and a random plan or the natural
-    course reads experimental until the ``learned-rule-contrast-comparators`` study
-    registers.
+    measured: a fixed plan, a known random plan or the natural course beside the rule reads
+    supported on rows under the default settings, from the ``learned-rule-contrast`` and
+    ``learned-rule-contrast-comparators`` studies.
 
     Parameters
     ----------

@@ -429,8 +429,10 @@ supported when the treatment has two options, the fit uses the default cross-fit
 split and the rule comes from the outcome model, with no weights, clusters or strata. The
 best-rule comparison, `OptimalRuleContrast`, reads supported only when the treatment chances are
 supplied (`treatment_probabilities=`), and experimental when the fit estimates them
-([the value of the optimal rule](../technical-reference/point-treatment-tmle.md#the-value-of-the-optimal-rule)).
-Rows against a random plan or current practice read experimental until their own study runs.
+([the value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)).
+Rows comparing the learned rule with a random plan or with current practice read supported in
+the same setting, from their own
+[study](../technical-reference/method-evidence/learned-rule-contrast-comparators.md).
 [Contrasts with known regimes](../technical-reference/point-treatment-tmle.md#learned-rules)
 lists which settings read supported, and the
 [refusal table](../technical-reference/scope-and-refusals.md#not-written-yet) lists the

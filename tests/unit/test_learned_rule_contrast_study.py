@@ -20,7 +20,7 @@ name.  The witnesses:
 - W-d8 (optimal): the optimal contrast reports ``ey_optimal_rule``, each comparator's value and
   ``ate_optimal_rule``, bit for bit with the learned-rule arithmetic.
 - W-d9 (label): a level, a ``Static`` and a known ``Rule`` read ``T44``; a ``Stochastic``, its
-  subclass, a subclass of ``Static`` and a user-written density read experimental with
+  subclass, a subclass of ``Static`` and a user-written density read ``T58.stochastic`` with
   ``known_stochastic_regimes``.  The mutation that whitelists by class name lets a user class
   called ``Static`` through, and the whitelist test catches it.
 - W-d10 (refusals): each typed refusal, before any learner.
@@ -380,10 +380,13 @@ def test_w_d9_a_one_hot_comparator_reads_t44(comparators: tuple[Any, ...]) -> No
     [(_offer(),), (Static(1), _offer()), (_Mixture(),), (_SubStatic(1, name="half"),)],
     ids=["stochastic", "beside_static", "user_density", "static_subclass"],
 )
-def test_w_d9_a_random_plan_reads_experimental(comparators: tuple[Any, ...]) -> None:
+def test_w_d9_a_random_plan_reads_t58(comparators: tuple[Any, ...]) -> None:
+    """A density that is not one-hot keys ``known_stochastic_regimes``, which only the T58 rows
+    declare, so it never reads T44."""
     result = _engine(True, interventions=list(comparators))
     assert "known_stochastic_regimes" in result.config.support_key.qualifiers
-    assert {e.support.label for e in result.estimates.values()} == {"experimental"}
+    rows = {e.support.row for e in result.estimates.values()}
+    assert rows == {"T58.stochastic.fold_evaluated"}
 
 
 def test_w_d9_control_a_class_name_whitelist_lets_a_user_static_through() -> None:

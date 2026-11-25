@@ -178,6 +178,8 @@ CURRENT: dict[str, str] = {
     "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "
     "declared run)",
     "refuter-sampled": "run under the shipped intervals (X106 H declared run)",
+    "learned-rule-contrast-comparators": "run under the shipped intervals (X123 (d) declared "
+    "run at 2dd46004)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row

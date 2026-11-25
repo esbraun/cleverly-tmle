@@ -832,6 +832,17 @@ learned-rule-contrast,interval_calibration,se ratio in calibration band,affine
 learned-rule-contrast,targeting_necessity,bias discriminated,pair_collapse
 learned-rule-contrast,targeting_necessity,bias equivalent,bias
 learned-rule-contrast,targeting_necessity,least displacement over labels,control_concentrated
+learned-rule-contrast-comparators,conservative_coverage,bias equivalent,bias
+learned-rule-contrast-comparators,conservative_coverage,coverage at or above the calibration floor,se_low
+learned-rule-contrast-comparators,conservative_coverage,shrunken coverage below the calibration floor,se_high
+learned-rule-contrast-comparators,contrast_covariance,correlation-one coverage below its ceiling,coverage/0.8
+learned-rule-contrast-comparators,interval_calibration,coverage in calibration band,affine
+learned-rule-contrast-comparators,interval_calibration,noise se ratio below band,se_high
+learned-rule-contrast-comparators,interval_calibration,se ratio below band,se_high
+learned-rule-contrast-comparators,interval_calibration,se ratio in calibration band,affine
+learned-rule-contrast-comparators,targeting_necessity,bias discriminated,pair_collapse
+learned-rule-contrast-comparators,targeting_necessity,bias equivalent,bias
+learned-rule-contrast-comparators,targeting_necessity,least displacement over labels,control_concentrated
 learned-rule-cvtmle,fold_locality,bias discriminated,pair_collapse
 learned-rule-cvtmle,fold_locality,bias equivalent,bias
 learned-rule-cvtmle,fold_locality,least displacement over labels,control_concentrated

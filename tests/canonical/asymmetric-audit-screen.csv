@@ -86,6 +86,7 @@ learned-regimen-ltmle,neutral,0,0,0,0.0,,,6,interval_calibration/two_node__decla
 learned-rule-arms,neutral,0,0,0,0.0,,,0,,,0,,0,
 learned-rule-compositions,neutral,0,0,0,0.0,,,5,interval_calibration/fold_targeted__declared@1.25;interval_calibration/weighted__declared@1.25,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t
 learned-rule-contrast,neutral,12,0,11,0.001071,,,14,interval_calibration/non_exceptional_fold_evaluated_known_1__declared@1.25;interval_calibration/non_exceptional_fold_evaluated_value__declared@1.25;interval_calibration/non_exceptional_stacked_known_1__declared@1.25;interval_calibration/non_exceptional_stacked_value__declared@1.25,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t
+learned-rule-contrast-comparators,current,0,0,0,0.0,,,0,,,0,,0,run under the shipped intervals (X123 (d) declared run at 2dd46004)
 learned-rule-cvtmle,neutral,0,0,0,0.0,,,7,interval_calibration/non_exceptional__correctly_specified@1.25,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t
 learned-rule-cvtmle-boundary,neutral,0,0,0,0.0,,,2,exceptional/ey_learned_rule[learned rule]@1.1;weak_blip/ey_learned_rule[learned rule]@1.05,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t
 learned-rule-ep,neutral,0,0,0,0.0,,,5,interval_calibration/misspecified_limit__declared@1.25;interval_calibration/non_exceptional__declared@1.25;interval_calibration/optimal_known_g__declared@1.25,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t

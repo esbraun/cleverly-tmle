@@ -1068,6 +1068,36 @@ ARMS["drop_w1_contrast_0"] = (
     "learned-rule value minus the value of Static(0) under the fold-evaluated report"
 )
 
+#: The parameter labels of ``learned-rule-contrast-comparators`` (X123 (d)), one arm per law,
+#: report and tag, ``<law>_<report>_<tag>``, and the necessity label. Mirrored from
+#: ``tests.studies._learned_rule_contrast_comparators_law.TAGS``, which this module cannot import.
+#: ``coin`` treats with probability 0.5; ``offer`` treats with probability 0.5 where W1 > 0.
+_COMPARATOR_TAGS = {
+    "coin": "the value of the coin regime",
+    "offer": "the value of the offer regime",
+    "natural": "the natural-course mean E Y",
+    "contrast_0": "the learned-rule value minus the value of Static(0)",
+    "contrast_coin": "the learned-rule value minus the value of the coin regime",
+    "contrast_offer": "the learned-rule value minus the value of the offer regime",
+    "contrast_natural": "the learned-rule value minus the natural-course mean",
+    "alone_contrast_natural": (
+        "the learned-rule value minus the natural-course mean, from the fit beside the natural "
+        "course alone"
+    ),
+}
+ARMS.update(
+    {
+        f"{law}_{report}_{tag}": f"{law_words}, {tag_words} under {report_words}"
+        for law, law_words in _CONTRAST_LAWS.items()
+        for report, report_words in _CONTRAST_REPORTS.items()
+        for tag, tag_words in _COMPARATOR_TAGS.items()
+    }
+)
+ARMS["drop_w1_contrast_offer"] = (
+    "the learned-rule law with the blip 0.1 + W1 and RM30's drop_w1 outcome learner, the "
+    "learned-rule value minus the value of the offer regime under the fold-evaluated report"
+)
+
 #: The labels of ``learned-rule-arms`` (X11 PR H, X11 (d)): the three-arm law with each of its
 #: outcome learners. Mirrored from ``tests.studies._learned_rule_arms_law.TERMS``, which this
 #: module cannot import.
@@ -7918,6 +7948,145 @@ STUDY_ARM_CELLS.update(
             "bias interval inside the equivalence margin",
         ),
         (_CONTRAST_SLUG, "targeting_necessity", "drop_w1_contrast_0", "untargeted"): (
+            "the same fit's initial plug-in contrast, the difference of the fold-weighted "
+            "untargeted values, with no fluctuation",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+
+
+#: ``learned-rule-contrast-comparators`` (X123 (d)): the learned rule beside ``Static(0)``, two
+#: known stochastic regimes and the natural course in one fit (fit C), and beside the natural
+#: course alone (fit N). The laws and learners are RM30's; the cell names are those of
+#: ``tests/studies/learned_rule_contrast_comparators.py``.
+_COMPARATORS_SLUG = "learned-rule-contrast-comparators"
+_FIT_C = "the declared fit beside Static(0), coin, offer and the natural course"
+_FIT_N = "the declared fit beside the natural course alone"
+IMPLEMENTATIONS["cleverly-learned-rule-contrast-comparators"] = (
+    "`cleverly` cross-validated TMLE of the learned-rule value beside known stochastic regimes "
+    "and the natural course: each fold's plug-in rule and each known regime as columns of one "
+    "regime set under one pooled fluctuation, the natural course the fold mean of the observed "
+    "outcome outside it, and each contrast's curve the difference of the two curves"
+)
+_COMPARATOR_ESTIMANDS = {
+    "ey_learned_rule[learned rule]": (
+        "fold average of the values of the rules learned on each training fold"
+    ),
+    "ey_known_regime[always 0]": "mean outcome if no one is treated",
+    "ey_known_regime[coin]": "mean outcome if each person is treated with probability 0.5",
+    "ey_known_regime[offer]": (
+        "mean outcome if each person with W1 > 0 is treated with probability 0.5 and no one else"
+    ),
+    "ey_natural_course[natural course]": "mean outcome under the treatment people actually got",
+    "ate_learned_rule[learned rule vs always 0]": (
+        "the learned-rule value minus the mean outcome if no one is treated"
+    ),
+    "ate_learned_rule[learned rule vs coin]": (
+        "the learned-rule value minus the mean outcome under the coin regime"
+    ),
+    "ate_learned_rule[learned rule vs offer]": (
+        "the learned-rule value minus the mean outcome under the offer regime"
+    ),
+    "ate_learned_rule[learned rule vs natural course]": (
+        "the learned-rule value minus the mean outcome under the treatment people actually got"
+    ),
+}
+STUDY_ESTIMANDS.update(
+    {(_COMPARATORS_SLUG, name): words for name, words in _COMPARATOR_ESTIMANDS.items()}
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_COMPARATORS_SLUG, f"natural course alone: {name}"): f"{words}, from the fit beside "
+        "the natural course alone"
+        for name, words in _COMPARATOR_ESTIMANDS.items()
+        if name.startswith(("ey_learned_rule", "ate_learned_rule[learned rule vs natural"))
+    }
+)
+STUDY_SCENARIOS[(_COMPARATORS_SLUG, "non_exceptional")] = (
+    "learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner, "
+    "fold-evaluated report"
+)
+_COMPARATOR_CONTRASTS = (
+    "contrast_0",
+    "contrast_coin",
+    "contrast_offer",
+    "contrast_natural",
+    "alone_contrast_natural",
+)
+
+
+def _comparator_fit(tag: str) -> str:
+    return _FIT_N if tag.startswith("alone_") else _FIT_C
+
+
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "interval_calibration",
+            f"non_exceptional_{report}_{tag}",
+            "declared",
+        ): (
+            f"{_comparator_fit(tag)}, with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_TAGS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "declared",
+        ): (
+            f"{_comparator_fit(tag)}, with the correct logistic treatment model fitted by "
+            "maximum likelihood",
+            "bias interval inside the margin, and the coverage interval's lower end at or "
+            "above 0.92; the SE ratio is read by no verdict",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "shrunken_coverage_control",
+        ): (
+            "the declared fit's standard errors multiplied by 0.60",
+            "the coverage interval must lie wholly below 0.92",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_COMPARATORS_SLUG, family, f"{law}_{report}_{tag}", kind): (
+            words[0].replace("the known value", "the comparator's value").replace("se_K", "se_C"),
+            words[1],
+        )
+        for (family, kind), words in _CONTRAST_SE_CELLS.items()
+        for law in _CONTRAST_LAWS
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_COMPARATORS_SLUG, "targeting_necessity", "drop_w1_contrast_offer", "targeted"): (
+            f"{_FIT_C} with drop_w1, a saturated outcome learner in (A, W2) with no W1 term, so "
+            "targeting does the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_COMPARATORS_SLUG, "targeting_necessity", "drop_w1_contrast_offer", "untargeted"): (
             "the same fit's initial plug-in contrast, the difference of the fold-weighted "
             "untargeted values, with no fluctuation",
             "bias interval must fall entirely outside the margin",

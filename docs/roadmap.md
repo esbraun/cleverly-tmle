@@ -695,7 +695,7 @@ guides cannot use them, and one warning advises a keyword the reader's route ref
   from the shipped influence curves; otherwise an explicit refusal that says what is missing.
   Shipped as `LearnedRuleContrast` and `OptimalRuleContrast`, with known stochastic regimes and
   the natural course as comparators ([X11](#x11-learned-policy-follow-ups) part (c)). Their
-  study `T58` is declared and not yet run, so those comparators read experimental.
+  study `T58` passed and registered rows for each report.
 - (e) A public figure for the E-value.
 - (f) The trial's known treatment probability on the trial-with-external-data design, or a refusal
   of the field with its reason.
@@ -1201,12 +1201,11 @@ The typed spelling of part (c) ships as `LearnedRuleContrast(against=...)` and
 `OptimalRuleContrast(against=...)`, the engine fit bit for bit (X123 (d)). The comparators widen
 to known `Stochastic` regimes and to `NaturalCourse()`, current practice, whose mean $E[Y]$ sits
 outside the regime set and the fluctuation. A stochastic regime keys the qualifier
-`known_stochastic_regimes` and the natural course the qualifier `natural_course`, and both read
-experimental. The natural-course contrast has no conservativeness result under a misspecified
-outcome model with a fitted $g$. The study `learned-rule-contrast-comparators` (rows
-`T58.combined`, `T58.stochastic` and `T58.natural_course`, each per report) is declared in
-`tests/studies/learned_rule_contrast_comparators.py` and not yet run. Its pilot sets the
-calibration count before the run.
+`known_stochastic_regimes` and the natural course the qualifier `natural_course`. The natural-course
+contrast has no conservativeness result under a misspecified outcome model with a fitted $g$. The
+study [`learned-rule-contrast-comparators`](technical-reference/method-evidence/learned-rule-contrast-comparators.md)
+passed every verdict and registered the rows `T58.combined`, `T58.stochastic` and
+`T58.natural_course`, each per report.
 
 The plug-in rule over more than two arms, part (d), now ships
 ([more than two arms](technical-reference/point-treatment-tmle.md#learned-rules)). Each fold's

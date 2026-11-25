@@ -1,7 +1,9 @@
 # Learned-rule contrasts with stochastic regimes and the natural course
 
-This directory will hold the gated repeated-sampling study `T58`. The declaration is committed
-before any run; no declared run has been made, and the study is not yet in the evidence register.
+This directory holds the gated repeated-sampling study `T58` of X123 (d). The declaration was
+committed before any run, and the declared run passed every verdict: 11 of 11 primary tests and 90
+of 90 gated property cells, with no failed fit. The study is in the evidence register, and its page
+is `docs/technical-reference/method-evidence/learned-rule-contrast-comparators.md`.
 The subject is `LearnedRuleContrast` against a known `Stochastic` regime or `NaturalCourse()`,
 through its engine form `TMLE(learned_rule=LearnedRule(), interventions=[...], n_folds=10,
 targeting_scheme="pooled", g_bounds="auto")` with RM30's interaction logistic outcome learner and
@@ -27,17 +29,21 @@ Declared before any run (`SUPPORT_ROWS` and `ROW_TAGS` in
 `tests/studies/learned_rule_contrast_comparators.py`): per report, `T58.combined`
 (`known_regimes`, `known_stochastic_regimes`, `natural_course`), `T58.stochastic`
 (`known_regimes`, `known_stochastic_regimes`) and `T58.natural_course` (`known_regimes`,
-`natural_course`). A row is added only if every verdict it lists passes as declared. A red cell
+`natural_course`). A row is added only if every verdict it lists passes as declared. Every one
+passed, so all six rows are registered in `src/cleverly/_support_rows.py`. A red cell
 with a defect keeps its row out and its labels experimental. A red calibration cell whose SE-ratio
 interval contains 1, whose coverage is consistent with 0.95 and whose diagnosis finds no defect is
 a finite-sample red: the row goes to `reporting` with an owner row.
 
 ## Running
 
-    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+        VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
     python -m tests.studies.learned_rule_contrast_comparators_pilot --raw <scratch>/pilot --jobs <cores>
     python -m tests.studies.learned_rule_contrast_comparators_pilot --raw <scratch>/pilot --summarize
     python -m tests.canonical.learned_rule_contrast_comparators.regenerate --output <scratch dir>
+
+The declared run's guard requires all five thread variables at 1.
 
 A smoke run adds `--replicates <k> --allow-failures --property-harness-check <k>`.
 `tests/unit/test_learned_rule_contrast_comparators_design.py` recomputes every declared number and
