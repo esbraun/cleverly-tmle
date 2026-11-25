@@ -16,9 +16,10 @@ is not convex in general (EPL Section 3.2), so each replicate records whether th
 Hessian is positive definite. A replicate where it is not leaves its group's comparisons, and a
 gated row is red when its group excluded more than 1% of its replicates.
 
-**No canonical implementation is compared.** hte3 `Lrnr_crr_EP` at `eac64673` is declared as
-the comparator in `tests/studies/ep_crr.py`, and its R runner `hte3_crr_runner.R` has not run.
-A zero-row equivalence artifact records the absence of a comparison.
+**No canonical implementation is compared.** A zero-row equivalence artifact records the
+absence of a comparison. A comparison with hte3 `Lrnr_crr_EP` at `eac64673` on the same draws
+and nuisances, which is not a registered comparator, is reported in
+[Comparison with hte3](#comparison-with-hte3).
 
 ## What was tested
 
@@ -225,12 +226,40 @@ from the committed results and checked at the precision printed.
 | `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
 | `margin:subject_failures_allowed` | 24 | failed primary fits that bound allows |
 
+## Comparison with hte3
+
+This section reports comparator runs pending. The comparison is declared in
+`tests/studies/ep_hte3.py` and run by `python -m tests.canonical.hte3_ep.regenerate`. It is a
+comparison artifact, not a registered study, so no verdict here enters the grid row or blocks
+the method.
+
+Each cell re-draws the leading replicates of one gated group of this study, refits the EP curve
+as the study did, and hands the fitted outcome regressions and propensity to hte3 `Lrnr_crr_EP`
+at `eac64673` in the image `cleverly-hte3:eac64673`. hte3 debiases each arm by a weighted
+logistic regression on its cosine sieve, and it truncates the propensity once more by its own
+adaptive rule, which is part of its estimator. Its final stage is the quasibinomial fit on that
+sieve with hte3's pseudo-weights. The paired statistic is
+$D = \log \mathrm{ISE}(\text{cleverly}) - \log \mathrm{ISE}(\text{hte3})$ on this study's
+20,000 ISE points.
+
+| cell | group, outcome learner | role |
+| --- | --- | --- |
+| C1 to C4 | the four laws at 4,000, ensemble | non-inferiority |
+| C5 | `d3_complex_limited_4k`, intercept-only | non-inferiority and the targeting witness |
+| C6 | `d3_complex_limited_4k`, offset | non-inferiority and the targeting witness of the $1/\pi$ weight |
+| M2 | C6's inputs with the propensity set to 0.5 | mutation control, must fail |
+
+The readings and the sizing rule are those of the CATE comparison on the
+[EP learner of the CATE](ep-cate.md#comparison-with-hte3) page: non-inferiority below
+$\log 1.25$, similarity, hte3's own oracle comparison at $\log 1.5$, the targeting witness and
+the curve distance. A failed reading is published as failed.
+
 ## Limitations
 
 | limitation | what it means for use |
 | --- | --- |
 | No interval | The study measures the curve's ISE against the oracle's, not any interval: the EP curve has none. The intervals of the log-CRR projection come from the projection TMLE |
-| The comparator has not run | hte3 `Lrnr_crr_EP` is declared and pending; the row rests on the oracle comparisons and the truth tests |
+| No registered comparator | The hte3 comparison above is not a registered comparator, and its runs are pending; the row rests on the oracle comparisons and the truth tests |
 | Weak signal on the ensemble cells | The log CRR varies by about 0.1 per unit of $W$, so the oracle carries much of the pseudo-outcome's noise and the T-learner beats it. The ensemble cells show EP at the oracle's level, and only the rescue cells show what the debiasing adds |
 | One schedule, one sieve, one learner | Every gated cell uses $k(n) = 3, 5$ additive cosines with the ensemble and $V = W$. Another schedule, sieve or modifier set reads supported and rests on EPL's conditions, which the user must judge |
 | Laws, sizes and compositions | n is 1,000 and 4,000 on hte3's laws with binary treatment, a binary outcome and complete outcomes. Weights, clusters, missing outcomes, three arms and a known treatment mechanism were not measured and read experimental |

@@ -75,8 +75,9 @@ The run is ``python -m tests.canonical.ep_crr.regenerate``; its docstring holds 
 reading.  ``R`` per law is fixed by :func:`design_numbers` from the committed pilot
 (:mod:`tests.studies.ep_crr_pilot`).  The primary phase is the projection TMLE of
 ``conditional-projection``'s ``obs_4k`` on this study's own seed, as in ``ep-cate``: the EP
-curve carries no interval for the harness's primary rows.  The comparator, hte3
-``Lrnr_crr_EP``, is declared pending (:data:`COMPARATOR`).
+curve carries no interval for the harness's primary rows.  No comparator is registered
+(``reference=None``): the hte3 comparison, ``Lrnr_crr_EP`` on the same draws and nuisances, is a
+comparison artifact declared in :mod:`tests.studies.ep_hte3`.
 """
 
 from __future__ import annotations
@@ -109,7 +110,6 @@ from tests.studies.ep_cate import (
     SIEVE_MAX,
     TARGET_PASS,
     THM5_MARGIN,
-    Comparator,
     gate_pass,
     growth_pass,
     ise,
@@ -521,25 +521,6 @@ PRIMARY_REPLICATES = ep_cate.PRIMARY_REPLICATES
 PRIMARY_N = ep_cate.PRIMARY_N
 SCENARIOS = ep_cate.SCENARIOS
 IMPLEMENTATION = "cleverly-ep-crr"
-
-#: hte3's EP learner of the log CRR on the same draws (pending, as in ``ep-cate``).
-COMPARATOR = Comparator(
-    reference="hte3",
-    commit=ep_cate.COMPARATOR.commit,
-    learner=(
-        "Lrnr_crr_EP(screen_basis_with_lasso = FALSE), additive cosine sieve of interaction "
-        "order 1 with basisN = k(n) per modifier"
-    ),
-    kind="different estimator",
-    runner="hte3_crr_runner.R",
-    status="pending",
-    reason=(
-        "hte3 runs on the owner's machine (P1 plan 5.3); this session has no R. The runner "
-        "reads DRAWS.csv and POINTS.csv, which no code writes yet: the draws regenerate from "
-        "the run's stream seeds, so the declared run saves nothing extra, and the comparator "
-        "run needs an exporter first"
-    ),
-)
 
 STUDY = StudyRecord(
     name="EP learner of the log CRR",

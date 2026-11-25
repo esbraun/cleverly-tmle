@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from scipy.special import expit
 
-from tests.studies import ep_cate
+from tests.studies import ep_cate, ep_hte3
 from tests.studies import ep_crr as study
 from tests.studies import ep_crr_properties as properties
 from tests.studies.evidence import property_verdicts
@@ -139,12 +139,11 @@ class TestTheDeclaration:
         assert {study.SEED, study.RESAMPLING_SEED}.isdisjoint(others)
         assert study.SEED != study.RESAMPLING_SEED
 
-    def test_the_comparator_is_declared_pending(self) -> None:
-        assert study.COMPARATOR.status == "pending"
-        assert "Lrnr_crr_EP" in study.COMPARATOR.learner
-        runner = study.STUDY.artifacts / study.COMPARATOR.runner
-        assert runner.is_file()
-        assert "Lrnr_crr_EP$new(" in runner.read_text()
+    def test_the_comparison_lives_in_ep_hte3(self) -> None:
+        # P1 PR 4b: the hte3 comparison is a comparison artifact, not this study's comparator.
+        assert not hasattr(study, "COMPARATOR")
+        assert study.STUDY.reference is None
+        assert any(cell.parent == study.SLUG for cell in ep_hte3.CELLS)
 
 
 class TestTheDesignNumbers:

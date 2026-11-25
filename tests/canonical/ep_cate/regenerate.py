@@ -2,8 +2,9 @@
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else. :mod:`tests.canonical.declared_run`
-describes the guard, the run log and the copy into this directory. The hte3 comparator is
-declared pending (:data:`tests.studies.ep_cate.COMPARATOR`), so the run starts no container. The
+describes the guard, the run log and the copy into this directory. The study registers no
+comparator, so the run starts no container; the hte3 comparison of the EP curve is
+:mod:`tests.canonical.hte3_ep.regenerate`. The
 laws, groups, learners, schedule, margins, controls and replicate counts are those of
 :mod:`tests.studies.ep_cate`, fixed before the run from the committed pilot.
 

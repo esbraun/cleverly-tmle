@@ -18,6 +18,7 @@ from scipy import stats
 
 from tests.studies import ep_cate as study
 from tests.studies import ep_cate_properties as properties
+from tests.studies import ep_hte3
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.seeds import stream_seed
 
@@ -168,13 +169,11 @@ class TestTheDeclaration:
         assert study.FIXED_REPLICATES == 2_400
         assert set(study.fixed_truth()) == {"(intercept)", "W1", "W3"}
 
-    def test_the_comparator_is_declared_pending(self) -> None:
-        assert study.COMPARATOR.status == "pending"
-        assert study.COMPARATOR.kind == "different estimator"
-        assert "targeting_style = 'dr'" in study.COMPARATOR.learner
-        runner = study.STUDY.artifacts / study.COMPARATOR.runner
-        assert runner.is_file()
-        assert 'targeting_style = "dr"' in runner.read_text()
+    def test_the_comparison_lives_in_ep_hte3(self) -> None:
+        # P1 PR 4b: the hte3 comparison is a comparison artifact, not this study's comparator.
+        assert not hasattr(study, "COMPARATOR")
+        assert study.STUDY.reference is None
+        assert any(cell.parent == study.SLUG for cell in ep_hte3.CELLS)
 
 
 class TestTheDesignNumbers:

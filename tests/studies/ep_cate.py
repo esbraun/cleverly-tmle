@@ -84,8 +84,10 @@ its own seed: the estimator the fixed-size EP row is compared with.
 
 The run is ``python -m tests.canonical.ep_cate.regenerate``; its docstring holds the red-cell
 reading.  ``R`` per law is fixed by :func:`design_numbers` from the committed pilot
-(:mod:`tests.studies.ep_cate_pilot`).  The comparator, hte3 ``Lrnr_cate_EP`` with
-``targeting_style="dr"``, is declared pending (:data:`COMPARATOR`).  The study is registered
+(:mod:`tests.studies.ep_cate_pilot`).  No comparator is registered (``reference=None``): the
+hte3 comparison of the EP curve, ``Lrnr_cate_EP`` with ``targeting_style="dr"`` on the same
+draws and nuisances, is a comparison artifact declared in :mod:`tests.studies.ep_hte3`, not a
+registered comparator of this study.  The study is registered
 in :func:`tests.studies.evidence.registry.registered` with the artifacts of its declared run,
 which the fast tier reads.
 """
@@ -702,60 +704,6 @@ SCENARIOS = {PRIMARY_GROUP: tuple(f"cate_projection[{term}]" for term in project
 
 IMPLEMENTATION = "cleverly-ep-cate"
 
-
-@dataclass(frozen=True)
-class Comparator:
-    """The declared comparator of the gated cells, pending (plan 5.2, finding 24).
-
-    Parameters
-    ----------
-    reference : str
-        The package.
-    commit : str
-        The pinned commit.
-    learner : str
-        The learner and its settings.
-    kind : str
-        The comparison kind of ``docs/roadmap.md``.
-    runner : str
-        The R script, relative to the study's artifact directory.
-    status : str
-        ``"pending"`` until the owner's local run adds its ISE rows.
-    reason : str
-        Why it is pending.
-    """
-
-    reference: str
-    commit: str
-    learner: str
-    kind: str
-    runner: str
-    status: str
-    reason: str
-
-
-#: hte3's EP learner on the same draws, with the declared basis.  Not on :data:`STUDY`: the
-#: registry's pending comparator pairs the primary rows, and this comparison is of the
-#: ``oracle_comparison`` cells' ISEs.  hte3's CATE debiasing is the linear Method 2 (ridge,
-#: lambda 1e-8), cleverly's the logistic Method 1, so the two solve the same score equations
-#: with different ``mu*`` and agree only to ``o_p(n^{-1/2})``.
-COMPARATOR = Comparator(
-    reference="hte3",
-    commit="eac64673f6fdf75f130275646657f08d1cb198e9",
-    learner=(
-        "Lrnr_cate_EP(targeting_style = 'dr', screen_basis_with_lasso = FALSE), additive "
-        "cosine sieve of interaction order 1 with basisN = k(n) per modifier"
-    ),
-    kind="different estimator",
-    runner="hte3_ep_runner.R",
-    status="pending",
-    reason=(
-        "hte3 runs on the owner's machine (P1 plan 5.2); this session has no R. The runner "
-        "reads DRAWS.csv and POINTS.csv, which no code writes yet: the draws regenerate from "
-        "the run's stream seeds, so the declared run saves nothing extra, and the comparator "
-        "run needs an exporter first"
-    ),
-)
 
 STUDY = StudyRecord(
     name="EP learner of the CATE",

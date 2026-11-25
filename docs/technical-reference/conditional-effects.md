@@ -1058,9 +1058,12 @@ the whole family passes with probability 0.93. A growth row red while its 1,000-
 below 0 and the same estimator's 4,000-row gate is green is read before the run as EP
 approaching the oracle from below, and is reported rather than treated as a defect; with that
 reading the family is free of a defect suspect with probability 0.97. The 2,000-row d = 3 groups feed only the ungated rate report and run
-100 replicates. The comparator, hte3 `Lrnr_cate_EP` with `targeting_style="dr"`, is declared
-pending: its debiasing is the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the
-comparison is of different estimators.
+100 replicates. No comparator is registered. A comparison with hte3 `Lrnr_cate_EP` with
+`targeting_style="dr"` on the same draws and nuisances is declared in `tests/studies/ep_hte3.py`
+as a comparison artifact, and its runs are pending
+([comparison with hte3](method-evidence/ep-cate.md#comparison-with-hte3)). hte3's debiasing is
+the linear Method 2, so the two agree only to $o_p(n^{-1/2})$ and the comparison is of different
+estimators.
 
 The [`ep-crr` study](method-evidence/ep-crr.md) (`tests/studies/ep_crr.py`, run by
 `python -m tests.canonical.ep_crr.regenerate`) passed every primary test and all 13 gated
@@ -1105,6 +1108,10 @@ uncertainty, and the family with probability 0.93. The test
 weight exactly on a small population. No oracle Hessian failed in 24,000 checks on the gated
 laws and sizes (`tests/studies/ep_crr_hessian_pilot.csv`), so the 1% exclusion bound turns no
 row red with probability above 0.9999 even at the 95% upper rate.
+
+No comparator is registered for `ep-crr` either. The comparison artifact of `ep-cate` also pairs
+this curve with hte3 `Lrnr_crr_EP` on the same draws and nuisances, and its runs are pending
+([comparison with hte3](method-evidence/ep-crr.md#comparison-with-hte3)).
 
 The [`ep-assessment` study](method-evidence/ep-assessment.md) (`tests/studies/ep_assessment.py`)
 passed its three gated cells: the calibration slope reads 0.986 (99% interval 0.985 to 0.987),

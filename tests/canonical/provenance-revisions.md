@@ -952,3 +952,19 @@ standard errors of `dr_known_4k`, three control values and six readings. The oth
 errors are withheld on both trees. Only the support labels moved, from experimental to the
 `T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat` rows, which is the registration and enters
 no recorded row.
+
+## The comparator declarations removed from `ep-cate` and `ep-crr` (P1, PR 4b)
+
+The hte3 comparison of the EP curve moved to `tests/studies/ep_hte3.py`, a comparison artifact
+that no study record names. Two modules that the `ep-cate`, `ep-crr` and `ep-assessment`
+manifests record were edited, and neither edit reaches a seed, a fit or a verdict:
+
+- `tests/studies/ep_cate.py` drops the `Comparator` dataclass and the pending `COMPARATOR`
+  declaration, and its docstring points to `tests/studies/ep_hte3.py`. No fit, draw, record or
+  reading read them; the record's `reference` was `None` before and after.
+- `tests/studies/ep_crr.py` drops its import of `Comparator` and its `COMPARATOR`, with the same
+  docstring change.
+
+The two unhashed runners `tests/canonical/ep_cate/hte3_ep_runner.R` and
+`tests/canonical/ep_crr/hte3_crr_runner.R` were deleted with them. No manifest recorded either
+file, and `tests/canonical/hte3_ep/hte3_ep_runner.R` replaces both.

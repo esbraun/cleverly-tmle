@@ -2,8 +2,8 @@
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
-The hte3 comparator is declared pending (:data:`tests.studies.ep_crr.COMPARATOR`), so the run
-starts no container.  Laws, learners, schedule, margins, controls and replicate counts are
+The study registers no comparator, so the run starts no container; the hte3 comparison of the
+EP curve is :mod:`tests.canonical.hte3_ep.regenerate`.  Laws, learners, schedule, margins, controls and replicate counts are
 those of :mod:`tests.studies.ep_crr`, fixed before the run from the committed pilot.
 
 Red-cell reading (declared before any run; P1 plan sections 5.0 and 5.3, and the PR-b design

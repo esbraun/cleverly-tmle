@@ -15,11 +15,11 @@ $\log \mathrm{ISE}(\text{estimator}) - \log \mathrm{ISE}(\theta_{n0})$, with the
 Monte Carlo on 20,000 fixed draws of $W$ per law. A fixed-size cell checks the EP coefficients of
 a declared linear model against the projection's truth.
 
-**No canonical implementation is compared.** hte3 `Lrnr_cate_EP` at `eac64673`, with
-`targeting_style="dr"`, is declared as the comparator in `tests/studies/ep_cate.py`, and its R
-runner `hte3_ep_runner.R` has not run. Its debiasing is EPL's linear Method 2 and this package's
-is the logistic Method 1, so the two agree only to $o_p(n^{-1/2})$. A zero-row equivalence
-artifact records the absence of a comparison.
+**No canonical implementation is compared.** A zero-row equivalence artifact records the
+absence of a comparison. A comparison with hte3 `Lrnr_cate_EP` at `eac64673` on the same draws
+and nuisances, which is not a registered comparator, is reported in
+[Comparison with hte3](#comparison-with-hte3). Its debiasing is EPL's linear Method 2 and this
+package's is the logistic Method 1, so the two agree only to $o_p(n^{-1/2})$.
 
 ## What was tested
 
@@ -299,12 +299,44 @@ from the committed results and checked at the precision printed.
 | `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
 | `margin:subject_failures_allowed` | 24 | failed primary fits that bound allows |
 
+## Comparison with hte3
+
+This section reports comparator runs pending. The comparison is declared in
+`tests/studies/ep_hte3.py` and run by `python -m tests.canonical.hte3_ep.regenerate`. It is a
+comparison artifact, not a registered study, so no verdict here enters the grid row or blocks
+the method.
+
+Each cell re-draws the leading replicates of one gated group of this study, refits the EP curve
+as the study did, and hands the fitted outcome regressions and propensity to hte3
+`Lrnr_cate_EP(targeting_style = "dr")` at `eac64673` in the image `cleverly-hte3:eac64673`. hte3
+truncates the propensity once more by its own adaptive rule, which is part of its estimator. Its
+final stage is least squares on hte3's cosine sieve, which rescales each modifier by its 1% and
+99% sample quantiles. The paired statistic is
+$D = \log \mathrm{ISE}(\text{cleverly}) - \log \mathrm{ISE}(\text{hte3})$ on this study's
+20,000 ISE points.
+
+| cell | group, outcome learner | role |
+| --- | --- | --- |
+| E1 to E4 | the four d = 3 laws at 4,000, ensemble | non-inferiority |
+| E5, E6 | the two d = 20 laws at 4,000, ensemble | non-inferiority |
+| E7, E8 | the two rescue laws at 4,000, main-terms linear | non-inferiority and the targeting witness |
+| M1 | E8's inputs with the propensity set to 0.5 | mutation control, gated only if the pilot sizes it |
+
+The non-inferiority reading passes when the one-sided 99% upper bound of mean $D$ is below
+$\log 1.25$. Beside it the declaration reports similarity (the two-sided 98% interval inside
+$\pm\log 1.25$), hte3's own oracle comparison at this study's margin, and the curve distance.
+The targeting witness requires the lower bound of
+$\log \mathrm{ISE}(\text{T-learner}) - \log \mathrm{ISE}(\text{hte3})$ above $\log 1.5$,
+and the mutation control must fail. The number of replicates per cell comes from the numpy pilot
+of `tests/studies/ep_hte3_pilot.py` by the rule in `design_numbers()`. A failed reading is
+published as failed, and the declaration's docstring gives the route its diagnosis takes.
+
 ## Limitations
 
 | limitation | what it means for use |
 | --- | --- |
 | No interval | The study measures the curve's ISE against the oracle's, not any interval: the EP curve has none. The intervals on this axis come from the projection TMLE and `assess_score` |
-| The comparator has not run | hte3 `Lrnr_cate_EP` is declared and pending; the row rests on the oracle comparisons and the truth tests |
+| No registered comparator | The hte3 comparison above is not a registered comparator, and its runs are pending; the row rests on the oracle comparisons and the truth tests |
 | Every covariate is a modifier | Each schedule law takes $V = W$. A modifier set smaller than the adjustment set rests on the theory alone (EPL Examples 1 and 2) |
 | The rescue depends on the noise | The rescue gates hold at App B.2's noise (SD 2). At hte3's SD of 1 the misspecified EP reads above $\log 3$, so with a wrong outcome regression and little noise the curve can be far from oracle |
 | One schedule, one sieve, one learner | Every gated cell uses $k(n) = 3, 4, 5$ additive cosines and the ensemble. Another schedule or sieve reads supported and rests on EPL's conditions, which the user must judge |

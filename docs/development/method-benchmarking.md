@@ -397,6 +397,16 @@ comparator has to reach.
 | R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the C-TMLE0 comparator of the `ctmle-derivative` study and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
 | Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
 
+The EP learner survey covers the debiased sieve learner of the CATE and of the log CRR. No
+candidate computes the same estimator from the same nuisances, so the comparison it supports is a
+comparison artifact, `tests/studies/ep_hte3.py`, and not a registered comparator.
+
+| candidate | parameter it reaches | verdict |
+| --- | --- | --- |
+| R `hte3` at `eac64673` | `Lrnr_cate_EP` and `Lrnr_crr_EP`: the EP learner of the CATE and of the log CRR, by the authors of the governing source | Used by the comparison artifact, with this package's outcome regressions and propensity as known nuisances. hte3 truncates the propensity again by its adaptive rule and debiases by a ridge fit of its own, so it is a different estimator of the same curve. A runner-local final stage fits the pseudo-outcome on hte3's cosine sieve without patching hte3 |
+| Python `econml` `DRLearner` | the DR-learner CATE: a regression of the AIPW pseudo-outcome | Rejected. It has no sieve debiasing step and no log-CRR learner, so it reaches neither EP estimator |
+| R `grf` `causal_forest` | the CATE by a local moment equation in a forest | Rejected. It is a different estimator with forest nuisances, and it has no log-CRR target |
+
 ### Multi-arm selector recommendation
 
 Keep the shipped joint selector. Do not replace it with the componentwise `TMLE.jl` path.
