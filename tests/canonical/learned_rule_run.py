@@ -62,7 +62,8 @@ def declared_sample_seeds() -> set[int]:
 
     That is every learned-rule study, ``learned-rule-strata`` (X11 PR E2),
     ``learned-rule-stacked`` (X11 PR F1), ``learned-rule-in-sample`` (X11 PR F2),
-    ``learned-rule-contrast`` (X11 PR G), ``learned-rule-arms`` (X11 PR H),
+    ``learned-rule-contrast`` (X11 PR G), ``learned-rule-contrast-comparators`` (T58),
+    ``learned-rule-arms`` (X11 PR H),
     ``learned-rule-optimal-value`` (X11 PR I), ``learned-rule-optimal-compositions`` (X11
     (f3), PR 2), ``learned-rule-intermediate`` (X11 PR J),
     ``learned-regimen-ltmle`` (X11 PR K) and ``learned-rule-ep`` (P1 PR-c) among them, and
@@ -78,6 +79,8 @@ def declared_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_contrast as contrast
+    from tests.studies import learned_rule_contrast_comparators as comparators
+    from tests.studies import learned_rule_contrast_comparators_properties as comparator_properties
     from tests.studies import learned_rule_contrast_properties as contrast_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
@@ -154,6 +157,12 @@ def declared_sample_seeds() -> set[int]:
         contrast.PRIMARY_REPLICATES,
         contrast_properties.PROPERTY_DRAWS,
         contrast_properties.suffixes(contrast.STUDY),
+    )
+    seeds |= law.declared_sample_seeds(
+        comparators.STUDY,
+        comparators.PRIMARY_REPLICATES,
+        comparator_properties.PROPERTY_DRAWS,
+        comparator_properties.suffixes(comparators.STUDY),
     )
     seeds |= law.declared_sample_seeds(
         arms.STUDY,

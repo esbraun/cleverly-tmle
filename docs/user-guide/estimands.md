@@ -398,11 +398,11 @@ list the settings where neither runs.
 [The value of the optimal rule](../technical-reference/point-treatment-tmle.md#learned-rules)
 states the conditions.
 
-To compare the learned rule with a fixed policy, such as treating everyone, use the `TMLE`
-estimator itself, because `CausalStudy` has no way to declare the comparison yet:
-`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, where `Static(1)` treats everyone.
-The fit reports three rows: the learned rule's value, the fixed policy's value
-`ey_known_regime[always 1]`, and their difference `ate_learned_rule[learned rule vs always 1]`.
+To compare the learned rule with a fixed policy, such as treating everyone, ask for
+`LearnedRuleContrast(against=(Static(1),))`, where `Static(1)` treats everyone. The fit reports
+three rows: the learned rule's value, the fixed policy's value `ey_known_regime[always 1]`, and
+their difference `ate_learned_rule[learned rule vs always 1]`. The same `TMLE` call is
+`TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])`, with the same numbers.
 
 Both values come from the same rows and the same fitted models, and the interval of the
 difference uses the correlation between the two estimates, measured on those rows. No published
@@ -413,13 +413,25 @@ each 95% interval covered its target 0.946 to 0.956 of the time over 5,600 sampl
 outcome model left out a term the treated outcomes needed, coverage stayed between 0.942 and
 0.951. That study measured a correct treatment model only.
 
-The three rows are marked supported when the treatment has two options, the fit uses the default
-cross-fitting with one split and the rule comes from the outcome model, with no weights, clusters
-or strata. Otherwise they
-are marked experimental. A plain arm estimand such as `ate` refuses beside a learned rule, and
-its message names this spelling. Adding `estimands=["ey_optimal_rule"]` to the same `TMLE` call
-compares the best rule's value with the fixed policy instead, reported as
-`ate_optimal_rule[learned rule vs always 1]` and marked experimental.
+`against=` takes more than fixed policies. A `Stochastic` plan, such as offering treatment to
+half of the eligible people at random, is compared the same way. `NaturalCourse()` compares the
+learned rule with current practice: its row `ey_natural_course[natural course]` is the average
+outcome under the treatment people actually got, and the difference reads as the gain from
+switching to the rule. That interval is right when the outcome model is right or the treatment
+chances are supplied. When the outcome model is wrong and the treatment chances are estimated,
+no result says the interval errs on the safe side, so read it as approximate. A plain arm
+estimand such as `ate` refuses beside a learned rule, and its message names these spellings.
+`OptimalRuleContrast(against=(Static(1),))` compares the best rule's value with the fixed policy
+instead, reported as `ate_optimal_rule[learned rule vs always 1]`.
+
+Each row carries a support label. Rows against fixed policies read supported when the treatment
+has two options, the fit uses the default cross-fitting with one split and the rule comes from
+the outcome model, with no weights, clusters or strata. Rows against a random plan or current
+practice read experimental until their own study runs.
+[Contrasts with known regimes](../technical-reference/point-treatment-tmle.md#learned-rules)
+lists which settings read supported, and the
+[refusal table](../technical-reference/scope-and-refusals.md#not-written-yet) lists the
+comparisons that refuse.
 
 To learn a rule while holding a yes-or-no variable that the treatment affects (an intermediate,
 such as whether a patient took a follow-up dose) at one of its values, declare the variable with

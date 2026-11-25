@@ -455,6 +455,10 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "projection_bootstrap": sweep.fit_projection_bootstrap,
     "learned_rule_ep_sieve": sweep.fit_learned_rule_ep_sieve,
     "learned_rule_ep_learner": sweep.fit_learned_rule_ep_learner,
+    # X123 (d): the typed learned-rule contrast beside a fixed and a random plan, and beside
+    # the natural course.
+    "learned_rule_contrast_study": sweep.fit_learned_rule_contrast_study,
+    "learned_rule_natural_course": sweep.fit_learned_rule_natural_course,
     # P1 PR 2: the projection of a controlled direct effect on both scales, and the EP
     # log-ratio curve with a declared classifier.
     "projection_intermediate": sweep.fit_projection_intermediate,
@@ -905,6 +909,43 @@ EXPECTED: dict[str, dict[str, str]] = {
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
+    },
+    "learned_rule_contrast_study": {
+        # The estimates, each curve and the overlap of the density array draw.
+        "forest": "draws",
+        # A learned-rule axis is neither per-level means nor a policy family.
+        "curve": "TypeError: curve() draws a longitudinal fit,",
+        "influence": "draws",
+        "overlap": "draws",
+        # A point-treatment fit has no cumulative weights.
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        # Balance reads an arm estimand, and a learned-rule fit reports none.
+        "balance": "CapabilityError: the fit reports no estimand",
+        # The explicit learners record no learner library.
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        # repeats=1 and no bootstrap.
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "learned_rule_natural_course": {
+        # The estimates and curves draw; the overlap reads the density array, which holds
+        # the learned column alone, since the natural course has no density.
+        "forest": "draws",
+        # A learned-rule axis is neither per-level means nor a policy family.
+        "curve": "TypeError: curve() draws a longitudinal fit,",
+        "influence": "draws",
+        "overlap": "draws",
+        # A point-treatment fit has no cumulative weights.
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        # Balance reads an arm estimand, and a learned-rule fit reports none.
+        "balance": "CapabilityError: the fit reports no estimand",
+        # The explicit learners record no learner library.
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        # repeats=1 and no bootstrap.
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "learned_rule_ep_sieve": {
         "forest": "draws",

@@ -482,6 +482,8 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
         "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
+        "known_stochastic_regimes": "a random treatment plan reported beside the learned rule",
+        "natural_course": "current practice (the observed treatment) beside the learned rule",
         "rule_learner_blip": "a rule learner",
         "rule_learner_weighted_classification": "a rule learner",
         "rule_learner_ep": "a rule learner",

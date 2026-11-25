@@ -502,6 +502,15 @@ class TargetContext:
     #: for the known-score ATT and ATC (``conditional_form="known_score"``); ``None``
     #: otherwise, and then the conditional effects average over the conditioning arm.
     known_score: dict[float, FloatArray] | None = None
+    #: The name of the :class:`~cleverly.interventions.NaturalCourse` declared beside a
+    #: learned rule, whose mean :attr:`observed_mean` gives on the rows of this context, or
+    #: ``None``.  It is not a code of :attr:`means`: it sits outside the regime set and its
+    #: fluctuation.
+    learned_natural_course: str | None = None
+    #: Whether the learned rule's contrast with the natural course is the natural course
+    #: minus the rule (``reference=`` naming the rule).  The regime set's reference code
+    #: cannot carry it: a set that holds the rule alone has code ``0`` only.
+    natural_course_flip: bool = False
     #: The codes of :attr:`means` that each finished estimate reads, keyed by its name.
     #: A target records them through the ``reads`` argument of :meth:`finish`, from its own
     #: definition: ``ey[a]`` reads ``a``, a contrast reads its arm and the reference,

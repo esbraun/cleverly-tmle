@@ -24,6 +24,8 @@ that reading adds.
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
    cleverly.OptimalRuleValue
+   cleverly.LearnedRuleContrast
+   cleverly.OptimalRuleContrast
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation

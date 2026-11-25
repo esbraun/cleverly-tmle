@@ -1209,7 +1209,11 @@ def _t_rows() -> tuple[SupportRow, ...]:
         "The key also covers compositions no cell measured: reference= naming the learned "
         "rule (sign-flipped contrasts), known dynamic Rule regimes and more than two known "
         "regimes. Each rests on the unit witnesses W-c1 and W-c2 and the linearity argument, as "
-        "T38.split_mean does for its repeat count.",
+        "T38.split_mean does for its repeat count. A Stochastic regime, a subclass of Static "
+        "or Rule and a user-written known density key known_stochastic_regimes, and a "
+        "NaturalCourse() keys natural_course, so none of them matches these rows: a density "
+        "that is not one-hot changes the column's clever covariate and its covariance with "
+        "the learned column, which no cell measured.",
         "On the misspecified_limit law (conservative_coverage) the cells claim coverage of each "
         "parameter at or above 0.92 when the outcome model cannot represent the treated arm, "
         "not SE calibration, and the study does not show that these intervals are "

@@ -693,6 +693,9 @@ guides cannot use them, and one warning advises a keyword the reader's route ref
   returns a blip effect for named feature values with its interval.
 - (d) A typed contrast of a learned rule's value against a known regime, where its interval follows
   from the shipped influence curves; otherwise an explicit refusal that says what is missing.
+  Shipped as `LearnedRuleContrast` and `OptimalRuleContrast`, with known stochastic regimes and
+  the natural course as comparators ([X11](#x11-learned-policy-follow-ups) part (c)). Their
+  study `T58` is declared and not yet run, so those comparators read experimental.
 - (e) A public figure for the E-value.
 - (f) The trial's known treatment probability on the trial-with-external-data design, or a refusal
   of the field with its reason.
@@ -1102,13 +1105,15 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (b2),
-(c2), (d2), (f4), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
+(c2), (c3), (c4), (d2), (f4), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
 | (b2) learned longitudinal regimens beyond the two-node fit | `LearnedRegimen` at more than two nodes; with a survival, competing or repeated outcome, a node that is not one binary treatment, `msm=`, `SDR`, `IPSI`, another regimen beside it, `repeats` above 1, `n_folds=1`, `weights=`, `id=`, a Markov order or the one-step targeting option; a cross-validated selector as the first-node regression; a registered study estimand | van der Laan and Luedtke (2015), Sections 2 and 7, and Theorem 5 for `n_folds=1`, cover two time points. The supplement of Luedtke and van der Laan (2016), *Annals of Statistics*, read on 2026-11-04, treats two time points only and states that the general case follows along the same lines. It gives no identification result, influence function or Wald interval for more than two nodes. Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 2.2 and 3.2, nest the second-node rule inside each inner fold of a selector, which is not built. The compositions need their own constructions and witnesses. More than two nodes, for the value of the learned rules only, is a natural extension of the two-node result. Within a fold the learned rules are fixed, so each fold's target is the value of a fixed dynamic regime, whose sequential g-formula and influence function are those the shipped `LTMLE` uses at any number of nodes, and the two-node argument does not use the node count. The step is the package's own. It needs the Q-learning's stratified per-arm fits below the last node ($2^{K-1}$ branches at $K$ nodes, which the shipped recursion refuses), an exact witness at three nodes with a nonzero check of each node's rule, and a registered study. The value of the optimal rule at more than two nodes adds a margin and a no-tie condition at every node and is not part of the move | natural extension for more than two nodes; source audit for the other compositions |
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
+| (c3) a contrast of two learned rules | `LearnedRuleContrast(against=...)` or `OptimalRuleContrast(against=...)` holding a second `LearnedRule` | each learned value is a data-adaptive target of its own fold rules. A contrast needs both rule families learned on the same folds, a joint fluctuation of two learned columns and a witness that the difference's curve is the difference of the two curves when both rules move with the data. No source states the joint result | natural extension |
+| (c4) a known regime against the natural course | `NaturalCourse()` beside known regimes without `learned_rule=`, in `RegimeMean`, `RegimeContrast` or a longitudinal regimen | the regime fit has no natural-course column. The contrast $\Psi_K - E[Y]$ would carry the regime curve minus $Y - \bar Y$, as the learned-rule fit does, and needs that column outside the regime fluctuation, an exact witness and a registered study. For a static arm, `PopulationAttributableRisk(reference=a)` already reports $E[Y] - E[Y^a]$ | natural extension |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f). The 2021 correction (DOI 10.1214/20-AOS2031) repairs the proof of Lemma 6 and strengthens the step from (C6) to (C7), Theorem 7 and the sufficient conditions for (C4) and (C5) to almost-sure versions, so this part reads the paper with it | published support |
 | (f4) the relearning replay of the value of the optimal rule beside known regimes or with strata | `simulated_confounding` of a fit of `estimands=["ey_optimal_rule"]` with `interventions=` or `strata=` | each cell relearns the rule. Beside known regimes the replay would also rebuild every known regime and its contrast with the relearned rule on the perturbed table, and with strata it would report each stratum's fold-evaluated optimal value of the perturbed table. Each needs a witness that a cell equals a manual relearning refit of those values | natural extension |
@@ -1191,6 +1196,17 @@ several splits, the in-sample fit and supplied treatment probabilities beside kn
 experimental. The simultaneous band and another parameter
 axis are part (c2): the fit skips its default band and `summary()` says why, and
 `simultaneous_bands()` refuses those estimates. The bound of a contrast joins part (n2).
+
+The typed spelling of part (c) ships as `LearnedRuleContrast(against=...)` and
+`OptimalRuleContrast(against=...)`, the engine fit bit for bit (X123 (d)). The comparators widen
+to known `Stochastic` regimes and to `NaturalCourse()`, current practice, whose mean $E[Y]$ sits
+outside the regime set and the fluctuation. A stochastic regime keys the qualifier
+`known_stochastic_regimes` and the natural course the qualifier `natural_course`, and both read
+experimental. The natural-course contrast has no conservativeness result under a misspecified
+outcome model with a fitted $g$. The study `learned-rule-contrast-comparators` (rows
+`T58.combined`, `T58.stochastic` and `T58.natural_course`, each per report) is declared in
+`tests/studies/learned_rule_contrast_comparators.py` and not yet run. Its pilot sets the
+calibration count before the run.
 
 The plug-in rule over more than two arms, part (d), now ships
 ([more than two arms](technical-reference/point-treatment-tmle.md#learned-rules)). Each fold's

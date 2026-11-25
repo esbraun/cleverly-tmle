@@ -70,9 +70,11 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..interventions.base import (
     _RULE_DECLARATION,
+    NaturalCourse,
     Stochastic,
     _as_array,
     check_regime_density,
+    natural_course_in_regimes,
     refuse_regime_densities,
 )
 from ..interventions.incremental import Incremental
@@ -2030,6 +2032,7 @@ def refuse_regimen_rules(regimens: Any) -> None:
         kind: object = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
         nodes = _plan_nodes(label, plan)
         entries = (plan,) if nodes is None else nodes
+        _refuse_natural_course_node(label, entries)
         if any(callable(node) and not _is_mtp(node) for node in entries):
             # ``refuse`` runs ``check`` first, so every refusal of a rule is the shared one.
             _RULE_DECLARATION.refuse(kind)
@@ -2454,9 +2457,20 @@ def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
     return Regimen(label, nodes)
 
 
+def _refuse_natural_course_node(label: object, entries: Sequence[object]) -> None:
+    """Refuse a :class:`~cleverly.interventions.NaturalCourse` node, before any node reader.
+
+    The observed course is a comparator of a point-treatment learned rule only.  Refused
+    first, so no reader takes it as a treatment label.
+    """
+    if any(isinstance(entry, NaturalCourse) for entry in entries):
+        raise natural_course_in_regimes(f"regimen {label!r}")
+
+
 def _nodes(label: str, plan: Any, n_times: int) -> tuple[RuleNode, ...]:
     """Read one plan into one entry per node, broadcasting a single entry across them."""
     nodes = _plan_nodes(label, plan)
+    _refuse_natural_course_node(label, (plan,) if nodes is None else nodes)
     if nodes is None:
         # A numpy array and a pandas Series are plans by every reading except
         # ``isinstance(..., Sequence)``, which neither registers for.  ``_plan_nodes`` tests

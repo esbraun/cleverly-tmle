@@ -1202,6 +1202,55 @@ def fit_learned_rule_known() -> Any:
     return learned_rule_support.fit(interventions=[Static(1)])
 
 
+def _learned_contrast_study(estimand: Any) -> Any:
+    """A typed learned-rule contrast on the learned-rule support law, fold-evaluated."""
+    from cleverly import CrossFitting, PointTreatment, TMLEMethod
+
+    study = CausalStudy(
+        learned_rule_support.law_frame(),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=learned_rule_support.COVARIATES
+        ),
+    )
+    method = TMLEMethod(cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True))
+    return study.identify(estimand).estimate(
+        method,
+        outcome_learner=learned_rule_support.outcome_learner(),
+        treatment_learner=learned_rule_support.treatment_learner(),
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def fit_learned_rule_contrast_study() -> Any:
+    """``LearnedRuleContrast(against=(Static(0), offer))``, a fixed and a random plan."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import Static, Stochastic
+
+    def offer(w: Any) -> Any:
+        p = 0.5 * (np.asarray(w["W1"]) > 0)
+        return np.column_stack([1.0 - p, p])
+
+    plan = Stochastic(offer, name="offer", density_kind="known")
+    return _learned_contrast_study(LearnedRuleContrast(against=(Static(0), plan)))
+
+
+def fit_learned_rule_natural_course() -> Any:
+    """``LearnedRuleContrast(against=(NaturalCourse(),))``, the rule against current practice."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import NaturalCourse
+
+    return _learned_contrast_study(LearnedRuleContrast(against=(NaturalCourse(),)))
+
+
+def fit_optimal_rule_contrast_study() -> Any:
+    """``OptimalRuleContrast(against=(Static(0),))`` with g estimated (X11 (f3))."""
+    from cleverly import OptimalRuleContrast
+    from cleverly.interventions import Static
+
+    return _learned_contrast_study(OptimalRuleContrast(against=(Static(0),)))
+
+
 def fit_optimal_rule_estimated_g() -> Any:
     """The fold-evaluated value of the optimal rule with g estimated (X11 (f), family P12)."""
     return learned_rule_support.fit(estimands=["ey_optimal_rule"])
@@ -2861,6 +2910,11 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
+    "learned_rule_contrast_study": _kind(fit_learned_rule_contrast_study, *_LIVE, *_PLUGIN_BOUND),
+    "learned_rule_natural_course": _kind(fit_learned_rule_natural_course, *_LIVE, *_PLUGIN_BOUND),
+    # Beside known regimes the value of the optimal rule refuses its bounds' benchmark replay
+    # and every plug-in bound row (X11 (f4)), so only the live rows must answer.
+    "optimal_rule_contrast_study": _kind(fit_optimal_rule_contrast_study, *_LIVE),
     # A projection coefficient has no refutation or sensitivity derivation (R9, P1).
     "cate_projection": _kind(fit_cate_projection, *_READ, "truncation_curve"),
     "log_crr_projection": _kind(fit_log_crr_projection, *_READ, "truncation_curve"),
@@ -3314,6 +3368,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 *OPTIMAL_RULE_KINDS,
             )
         ),
@@ -3446,6 +3502,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
                 # available and its call refuses; the run's call refuses with it.
                 "variable_importance_mixed",
