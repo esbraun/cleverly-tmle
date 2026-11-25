@@ -66,7 +66,7 @@ first column; textbooks use the names in parentheses.
 
 | condition | what it requires | how you check it |
 | --- | --- | --- |
-| well-defined treatment (consistency) | the observed score equals the score the patient would have had under the offer they received | judgment: one well-defined offer |
+| well-defined treatment (consistency) | every offer means the same thing, so a patient's observed score is the score they would have under the offer they got. A phone call for some patients and a home visit for others would break it | judgment: one well-defined offer |
 | no interference | one patient's offer does not change another patient's score | judgment: the program design |
 | no hidden confounding (no unmeasured confounding) | among patients with the same covariates, who got the offer is unrelated to the scores they would have had | judgment; no test on these data can confirm it |
 | overlap (positivity) | each kind of patient had some chance of each option | partly from the data: the fitted offer chances |
@@ -76,10 +76,13 @@ The estimand is $\psi = E[Y^1] - E[Y^0]$. Under the four conditions,
 $\psi = E_W[E(Y \mid A=1, W) - E(Y \mid A=0, W)]$, so it can be computed from the observed data.
 :::
 
+## Describe the data and the question
+
 The code first describes the data: which column is the outcome, which is the treatment, and which
 covariates to adjust for (`PointTreatment`, inside a `CausalStudy`). It then names the question
-(`ATE(reference=0)`, the offer compared with usual support, coded 0) and checks that the data can
-answer it before any model is fitted (`study.identify`).
+(`ATE(reference=0)`, the offer compared with usual support, coded 0). `study.identify` checks that
+the question fits the data's columns and roles, and lists the conditions the answer will rest on
+and the methods that can estimate it. It fits no model.
 
 ```python
 import numpy as np
@@ -87,7 +90,8 @@ from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-# With your own data, load your table here, such as pd.read_csv(...), and skip the renaming.
+# With your own data, load your table here, such as pd.read_csv(...), skip the renaming,
+# and put your column names in PointTreatment below.
 frame, truth = make_linear_ate(n=2_000, seed=7)
 columns = {
     "Y": "transition_score",
@@ -112,14 +116,14 @@ print(effect.summary())
 ```
 
 The Conditions table repeats the four conditions, and its `checkable` column says the data cannot
-check three of them; that is expected, not a warning. The Methods table lists the four estimators
+check three of them, which is expected. The Methods table lists TMLE and three related estimators
 that can answer this question ([other methods for the same question](#other-methods-for-the-same-question)
 compares them). [Data and study design](../user-guide/data-design.md) gives the rules for each
 column role, including weights, clusters and missing outcomes.
 
 The fit needs two helper models, which the package calls nuisance models: an outcome model, which
 predicts the score from the offer and the covariates, and a treatment model, which predicts the
-chance of an offer from the covariates. Neither is the answer; both are steps toward it.
+chance of an offer from the covariates. Both are steps toward the answer.
 
 ## Why a simple comparison misleads
 
@@ -143,8 +147,9 @@ The simple difference is 1.62 points, against a true effect of 1.50. The extra 0
 ## Estimate the effect
 
 Targeted maximum likelihood estimation (TMLE), the default method, fits the outcome model, then
-adjusts its predictions using the treatment model, giving more weight to patients whose offer was
-hard to predict. The adjustment removes the bias a slightly wrong outcome model would leave. Here
+adjusts its predictions using the treatment model, giving more weight to patients who got the
+option that was unlikely for patients like them. When the treatment model is close to right, the
+adjustment removes the bias a slightly wrong outcome model would leave. Here
 both models are simple, a linear regression and an unpenalized logistic regression (`C=np.inf`),
 because that is how the data were simulated, and each model is fitted on every row
 (`cross_fit=False`). [Why TMLE with these settings](#why-tmle-with-these-settings) gives the
@@ -160,14 +165,16 @@ result = effect.estimate(
 print(result.summary())
 estimate = result["ate"]
 print(f"TMLE: {estimate.psi:.3f}, 95% CI [{estimate.ci[0]:.3f}, {estimate.ci[1]:.3f}]")
+# Only simulated data has a known truth; drop this line on your own data.
 print(f"population ATE: {truth['ate']:.3f}")
 ```
 
 Read the `ate` row: the estimate is 1.513 points, and the 95% interval runs from 1.422 to 1.603,
 which contains the true 1.5. The header's probability limits are the bounds the package puts on
 each predicted offer chance, so that no patient whose offer was almost certain or almost
-impossible gets an extreme weight. The note under the table says the interval allows for a skewed
-score; these data show almost no skew, so the interval is centred on the estimate.
+impossible gets an extreme weight. The note under the table says the interval is widened on the
+side where a skewed score makes a miss more likely; these data show almost no skew, so the
+interval is centred on the estimate.
 [Read cleverly's output](../user-guide/reading-output.md) explains each label and note.
 
 :::{dropdown} Details: how the interval and the bounds are built
@@ -182,11 +189,11 @@ the score to between 0 and 1 for the adjustment step and maps the estimate back.
 
 The `support` column of `result.to_frame()` says whether the package's own simulation studies
 cover a fit set up like this one. `supported` means they do. `experimental` means they do not, or
-a stated condition applies; the estimate is computed the same way, but no study backs its
-interval, so report it with that caveat.
+a condition the summary's notes name applies; the estimate is computed the same way, but no study
+backs its interval, so report it with that caveat.
 
 ```python
-print(result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper", "support", "interval_scale"]])
+print(result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper", "support"]])
 ```
 
 This fit reads `supported`. [Read the support label](../user-guide/results-assessment.md#read-the-support-label)
@@ -203,17 +210,20 @@ assessment = result.assess()
 print(assessment.summary())
 ```
 
-The header reads "nothing needs attention", and the only pass-or-fail check, equations solved,
-passed: the adjustment step reached its target. That shows the step ran correctly, not that either
-helper model is right. The overlap row says no patient's offer chance reached a limit, so the
+The header reads "nothing needs attention". The only pass-or-fail check, equations solved, passed.
+TMLE's adjustment step is built to make one equation hold, and its interval relies on that; the
+check confirms the equation holds. It does not show that either helper model is right.
+
+The overlap row says no patient's offer chance reached a limit, so the
 estimate does not lean on the bounds. The Not run table lists the checks the default call skips;
 for each check deferred because it is slow or needs an argument, the first note gives the call.
 [Run the assessment battery](../user-guide/results-assessment.md#run-the-assessment-battery)
 explains the three tables.
 
-The unmeasured-confounding row reports 0.514. A missing confounder's strength here is the share of
-what the covariates leave unexplained, in the score and in the offer weights, that it would
-explain. A confounder with both strengths at 0.514 could, at worst, move the estimate to zero; one
+The unmeasured-confounding row reports 0.514. A missing confounder has two strengths. On the score
+side, it is the share of the score's variation left after adjustment that the confounder would
+explain. On the offer side, it is the share of the adjustment step's weights (one over each
+patient's predicted chance of the option they got) that only the confounder would add. A confounder with both strengths at 0.514 could, at worst, move the estimate to zero; one
 with both below 0.514 could not.
 [Omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 give the exact definitions.
@@ -229,13 +239,13 @@ print(benchmark.summary())
 print(result.sensitivity.omitted_confounding(benchmark=benchmark).summary())
 ```
 
-Leaving out `discharge_risk` would move the estimate from 1.51 to 1.78. Its strength with the score
-is 0.870, but it adds little to the offer weights once the other covariates are known (0.020). A
-missing confounder that strong could move the estimate to anywhere from 1.24 to 1.79, which stays
-well above zero; whether such a variable exists is a question about your data. The E-value row says
-the same on an approximate risk-ratio scale: a missing confounder would need a risk ratio of about
-3.5 with both the offer and the score to explain the effect away
-([E-value](../technical-reference/validation-methods.md#e-value)).
+Leaving out `discharge_risk` would move the estimate from 1.51 to 1.78. It is strong on the score
+side (0.870) but adds little to the weights (0.020). A missing confounder that strong could shift
+the estimate by at most about 0.28 in either direction, so the range stays well above zero; whether
+such a variable exists is a question about your data. The E-value row asks the same question as a
+risk ratio: how strongly a missing confounder would have to be tied to both the offer and the score
+to explain the effect away. Here it is about 3.5, after the package converts the score's effect to
+an approximate risk ratio ([E-value](../technical-reference/validation-methods.md#e-value)).
 [Sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis) covers the other
 checks, and [plot results](../examples/plots.ipynb) draws the overlap, balance and sensitivity
 figures.
@@ -250,28 +260,33 @@ figures.
 | the [asymmetric interval study](../technical-reference/method-evidence/asymmetric-wald-intervals.md) | the skew-widened t interval keeps close to 95% coverage for subgroup estimates of skewed and symmetric continuous outcomes | coverage on this simulation |
 | the omitted-variable sensitivity analysis | the confounder strength that would move the estimate to zero | whether such a confounder exists |
 
-The E-values are 3.52 for the estimate and 3.34 for the interval's end nearest zero. For a
-continuous score the package converts the effect to an approximate risk ratio first.
+The bounds at the benchmark strengths are 1.237 to 1.788. The E-values are 3.52 for the estimate and
+3.34 for the interval's end nearest zero.
 :::
 
 ## What the result means
 
 If every eligible adult received the navigation offer, the mean 30-day score would rise by about
-1.5 points compared with usual support, with a 95% interval of 1.42 to 1.60. The estimate describes
-the discharged population the sample represents, and the offer, not completed navigation.
+1.5 points compared with usual support, with a 95% interval of 1.42 to 1.60. The simulated score
+has no real-world unit; 1.5 points is about 0.8 standard deviations of the score. On real data,
+judge the size against a change that matters for the program. The estimate describes the
+discharged population the sample represents, and the offer, not completed navigation.
 
-The limits a reader reaches for are these. The four conditions hold here because the data were
-simulated that way; on real data each needs an argument from how the program ran. The ATE is an
-average, so it says nothing about which patients gain most, and it belongs to this population, not
-to another health plan. Finally, one simulated sample cannot show that the interval covers 95% of
-the time: the package's label rests on a study of in-sample linear and logistic models on an
-outcome with a bounded range, which measured the symmetric interval.
+The four conditions hold here because the data were simulated that way; on real data each needs an
+argument from how the program ran. The ATE is an average, so it says nothing about which patients
+gain most, and it belongs to this population. One simulated sample also cannot show that the
+interval covers the truth 95% of the time; the package's evidence for that comes from its
+simulation studies, listed in the last Details block above.
 
 ## On your own data
 
-On your own data the true models are unknown, so use flexible models and keep the default
-out-of-fold fitting (cross-fitting: each row's prediction comes from models fitted without it).
-With a yes/no outcome, such as a successful transition, that takes no other setting:
+On your own data the true models are unknown, so keep the default out-of-fold fitting
+(cross-fitting: each row's prediction comes from models fitted without it) and use flexible
+models. A continuous outcome then needs its known range, such as `q_bounds=(0, 100)` for a
+0-to-100 score, passed to `estimate()`. Without it the package would have to read the range off
+every row, the held-out rows included. No published result covers that, so it refuses the fit
+([fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)).
+A yes/no outcome needs no range, so the example below switches to one, a successful transition:
 
 ```python
 from cleverly.datasets import make_binary_outcome
@@ -293,23 +308,19 @@ print(binary_result.summary())
 ```
 
 The summary's header says the predictions came from 10 folds, and the `ate` row gives the effect on
-the chance of a successful transition, about 0.22, with its interval. The fence uses gradient
-boosting for the outcome and a logistic regression for the treatment to keep it fast; any
-scikit-learn model fits either slot.
-
-When you leave out both learners, the package combines three scikit-learn models (gradient
-boosting, a random forest and a lasso), weighted by how well each predicts on held-out folds. The
-first print, `planned_fits`, counts the work before you start: 360 candidate fits for this
-question, which often take half a minute to two minutes
+the chance of a successful transition, about 0.22, with its interval. The code uses gradient
+boosting for the outcome and a logistic regression for the treatment to stay fast; any
+scikit-learn model fits either slot. When you leave out both learners, the package combines three
+scikit-learn models (gradient boosting, a random forest and a lasso), weighted by how well each
+predicts on held-out folds. The first print, `planned_fits`, counts that work before you start:
+360 candidate fits for this question, which often take half a minute to two minutes
 ([count the model fits](../user-guide/methods-learners.md#count-the-model-fits-before-a-long-run)).
 
-A continuous outcome needs its known range when it is cross-fitted, such as `q_bounds=(0, 100)` for
-a 0-to-100 score, passed to `estimate()`. Without it the package would have to read the range off
-every row, the held-out rows included. No published result covers that, so it refuses the fit
-([fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)).
-An outcome with no range you can state from how it is measured, like this page's score, has no
-cross-fitted route: fit it on every row, as this page does, and use simple models such as linear
-and logistic regressions, because the interval of an in-sample fit is valid only for such models.
+Some continuous outcomes, like this page's score, have no range you can state from how they are
+measured. The package has no cross-fitted route for them. Fit them on every row, as this page
+does, with simple models such as linear and logistic regressions, because the interval of an
+in-sample fit is valid only for such models. Use the checks above to look for signs that those
+models fit poorly, and report the interval with more caution if they do.
 
 ## Go deeper
 
@@ -334,8 +345,9 @@ treatment model to use, which helps when one covariate almost decides who gets t
 it reports the estimate without an interval; the
 [inference status](../technical-reference/inference.md#inference-status) table names the
 settings that report one. DR-TMLE (`drtmle`) adds corrections meant to keep the interval valid
-when one helper model is wrong; the package has shown this only when the treatment probabilities
-are known ([DR-TMLE](../technical-reference/dr-tmle/index.md)). Adaptive-propensity weighting
+when one helper model is wrong; the package establishes this only in some cases, such as known
+treatment probabilities, and the ordinary TMLE interval holds wherever DR-TMLE's does
+([DR-TMLE](../technical-reference/dr-tmle/index.md)). Adaptive-propensity weighting
 (`adaptive_iptw`) fits no outcome model and reports an interval only when the treatment
 probabilities are known, as in a trial
 ([adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md)).

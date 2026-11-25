@@ -3,7 +3,7 @@
 Install the package, then run the quickstart: it estimates the effect of one treatment on one
 outcome from simulated data with a known answer, so you can check each step. The quickstart uses
 the package's synthetic data only so the column roles and target value are known; the same
-public workflow accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs
+workflow accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs
 ([installation](installation.md) says what each one needs).
 
 ```{toctree}
