@@ -88,8 +88,7 @@ different pages and run in parallel.
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
 | [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
-| [X110](#x110-user-guide-intervals-assessment-sensitivity-and-refutation) User guide: intervals, assessment, sensitivity and refutation | docs | no new theory | the shipped assessment, sensitivity and refutation surface |
-| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | X110 for the tutorial links |
+| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
@@ -687,19 +686,6 @@ and no check fails when they drift. Sixteen of 22 notebooks exceed the main-path
 
 Acceptance: every notebook re-executes with `--check`, and the new check fails on a deliberately
 stale stored output.
-
-### X110. User guide: intervals, assessment, sensitivity and refutation
-
-The results guide says to turn on a band that is on by default, states one few-cluster floor where
-the code has one per estimator family, and omits the interval-scale exceptions, the bootstrap and
-band options, four refutation tests and their arguments. At 1,433 lines it also restates contract
-text the technical reference owns.
-
-- (a) One section on intervals, the bootstrap and bands that other pages link to.
-- (b) Split the page into reading and saving results, the assessment battery, sensitivity and
-  refutation, with contract text behind links.
-- (c) The refutation tests, their arguments and the generated-outcome processes by outcome family.
-- (d) Checking a reader's own configuration with `CoverageStudy`.
 
 ### X111. User guide: designs and estimands
 
