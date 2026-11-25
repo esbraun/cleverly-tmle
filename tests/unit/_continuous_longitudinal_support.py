@@ -309,3 +309,64 @@ CT_COLUMNS: dict[str, Any] = {
     "baseline": ["W1", "W2"],
     "time_varying": ["L"],
 }
+
+
+def law_m_data(law: Any) -> ContinuousLongitudinalData:
+    """X70's law (M) under the shift map of the X6 plan 3.5.4, each support point weighted.
+
+    Node ``k``'s ``L_k`` and ``A_k`` sit at the visit at time ``k - 1`` (node 1's absent
+    ``L_1`` reads 0), ``C_k = 0`` is a censoring at ``k - 1/2`` and ``Y_k`` an event at ``k``. A
+    unit event-free through the last node is censored at ``T``, the end of follow-up. At each
+    integer time the continuous order (death, then the visit, then censoring) is then X70's
+    order ``Y_{k-1}, L_k, A_k, C_k, Y_k``, and every unit at risk visits at every integer time
+    before ``T``.
+
+    Parameters
+    ----------
+    law : MultiNodeLaw
+        Law (M), with two causes.
+
+    Returns
+    -------
+    ContinuousLongitudinalData
+        One unit per support point, weighted by its mass.
+    """
+    import pandas as pd
+
+    rows = []
+    for unit, point in enumerate(law.support):
+        w1, w2 = point[:2]
+        for k in range(1, law.n_times + 1):
+            l, a, c, y = (law.value(point, name, k) for name in "LACY")
+            row = {
+                "id": unit,
+                "start": k - 1.0,
+                "W1": w1,
+                "W2": w2,
+                "L": 0.0 if l is None else float(l),
+                "A": a,
+            }
+            if c == 0:
+                rows.append({**row, "stop": k - 0.5, "event": 0})
+                break
+            rows.append({**row, "stop": float(k), "event": int(y)})
+            if y != 0:
+                break
+    frame = pd.DataFrame.from_records(rows)
+    data = ContinuousLongitudinalData.from_frame(
+        frame,
+        id="id",
+        start="start",
+        stop="stop",
+        event="event",
+        treatment="A",
+        baseline=["W1", "W2"],
+        time_varying=["L"],
+        causes={1: "relapse", 2: "death"},
+    )
+    return weighted(data, law.probs)
+
+
+def law_m_rule(frame: Any) -> Any:
+    """Law (M)'s rule in the engine's form: at baseline treat when W1 = 1, then when L = +1."""
+    return np.where(frame["visit"] == 0, frame["W1"], frame["L"] > 0).astype(int)

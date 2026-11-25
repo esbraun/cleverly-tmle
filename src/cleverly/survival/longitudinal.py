@@ -148,7 +148,7 @@ class ContinuousLongitudinalRecord:
     propensity : PropensitySelection or None
         The selection of the treatment model at the visits, ``None`` for a user learner.
     regimes : tuple of str
-        The regime labels, the reference first.
+        The regime labels, in the order given; every per-regime field follows it.
     caps : tuple of int
         Each regime's visit cap :math:`K^*`: visits after it are not modelled.
     past_cap_share : tuple of tuple of float
@@ -258,6 +258,69 @@ def censoring_before(retention: FloatArray) -> FloatArray:
         ``(c, M)`` the survival just before each grid time.
     """
     return np.concatenate([np.ones((retention.shape[0], 1)), retention[:, :-1]], axis=1)
+
+
+def by_unit(labels: np.ndarray, unit: IntArray) -> np.ndarray:
+    """Each row's copy of its unit's label: the outer and inner folds are drawn by unit (S4).
+
+    Parameters
+    ----------
+    labels : ndarray
+        ``(n,)`` one label per unit.
+    unit : ndarray
+        Each row's unit.
+
+    Returns
+    -------
+    ndarray
+        One label per row, equal across a unit's rows.
+    """
+    return labels[unit]
+
+
+def scheduled_visits(factual: FloatArray, at_risk: np.ndarray, exits: np.ndarray) -> np.ndarray:
+    """``(M,)`` the grid times where a visit jump of one is kept: a scheduled visit (3.5.4).
+
+    A time is scheduled when some row's fitted (factual) visit jump reaches one there and
+    every such row at risk exits there. The rows are the node's full-sample rows, so under
+    cross-fitting a held-out row whose stitched jump reaches one where its fold's training
+    rows all visited, and which does not visit itself, makes the time unscheduled (rev 7.1).
+
+    Parameters
+    ----------
+    factual : ndarray
+        ``(c, M)`` each row's fitted visit jump at its observed history.
+    at_risk : ndarray
+        ``(c, M)`` whether the row is at risk at each grid time.
+    exits : ndarray
+        ``(c, M)`` whether the row dies or visits at each grid time.
+
+    Returns
+    -------
+    ndarray
+        The scheduled times.
+    """
+    reach = (factual >= 1.0) & at_risk
+    return np.asarray(reach.any(axis=0) & ~(reach & ~exits).any(axis=0))
+
+
+def floored_weight(product: FloatArray, floor: float) -> FloatArray:
+    """The clever covariate's weight :math:`1 / \\max(\\prod \\pi \\cdot S_c, \\delta)` (3.5.4).
+
+    Parameters
+    ----------
+    product : ndarray
+        ``(c, M)`` each row's product of the treatment probabilities at the decision visits
+        and the censoring survival, at each grid time.
+    floor : float
+        The floor :math:`\\delta`.
+
+    Returns
+    -------
+    ndarray
+        The weight, which is :math:`1 / \\delta` wherever the floor binds.
+    """
+    return np.asarray(1.0 / np.maximum(product, floor))
 
 
 def node_cutoff(cutoff: float, nodes: int) -> float:
@@ -860,8 +923,8 @@ class _Fit:
         for position, fold in enumerate(labels):
             train_units = self.folds != fold if est.cross_fit else np.ones(data.n, dtype=bool)
             inner = self._inner(np.flatnonzero(train_units))
-            train = train_units[seg.unit]
-            inner_rows = inner[seg.unit]
+            train = by_unit(train_units, seg.unit)
+            inner_rows = by_unit(inner, seg.unit)
             fold_hazards = []
             for code in self.codes:
                 selection = nuisance.fit_hazard(
@@ -907,7 +970,7 @@ class _Fit:
             censors.append(selection.model)
             if position == 0:
                 records["censoring"] = selection
-            train_visits = decide & train_units[data.unit]
+            train_visits = decide & by_unit(train_units, data.unit)
             predict = np.zeros(data.visit_time.size, dtype=bool)
             predict[seg.visit] = True
             p1 = np.full(data.visit_time.size, np.nan)
@@ -917,7 +980,7 @@ class _Fit:
                 self.coded,
                 train_visits,
                 predict,
-                inner[data.unit][train_visits],
+                by_unit(inner, data.unit)[train_visits],
                 seed,
                 visit_weight,
             )
@@ -1049,8 +1112,7 @@ class _Fit:
             exits_here = exits_here | visit_seen
             # A visit jump of one is kept only where every row at risk whose factual jump
             # reaches one exits there (a scheduled visit); elsewhere it is bounded.
-            reach = (factual >= 1.0) & at_risk
-            scheduled = reach.any(axis=0) & ~(reach & ~exits_here).any(axis=0)
+            scheduled = scheduled_visits(factual, at_risk, exits_here)
             over = dV >= 1.0
             keep = over & scheduled[None, :]
             clip = over & ~scheduled[None, :]
@@ -1070,7 +1132,7 @@ class _Fit:
         pi = np.where(decision, np.where(slot == 1, p1, 1.0 - p1), 1.0)
         product = (prefix[at_k] * pi)[:, None] * before
         floor = self.floor
-        weight = 1.0 / np.maximum(product, floor)
+        weight = floored_weight(product, floor)
         weight[self.grid[None, :] <= entry[:, None]] = 0.0
         relevant = at_risk & follow[:, None]
         self.floor_cells[0] += int(np.count_nonzero(relevant))

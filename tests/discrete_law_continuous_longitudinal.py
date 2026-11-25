@@ -249,8 +249,12 @@ class Law:
         regime: Regime,
         targets: Sequence[tuple[int, float]],
         cap: int | None,
+        event: Callable[[tuple[Any, ...]], bool] | None = None,
     ) -> np.ndarray:
-        """``(B, P)`` the g-formula of each target under each row of path masses."""
+        """``(B, P)`` the g-formula of each target under each row of path masses.
+
+        ``event``, when given, replaces every target's outcome with the path's indicator.
+        """
         paths = [tokens for tokens, _ in self.paths]
 
         def value(index: list[int], depth: int, state: tuple[int, int, int, int]) -> np.ndarray:
@@ -268,7 +272,9 @@ class Law:
                 # Every path through this node ends here: its outcome is its last token.
                 last = paths[leaf[0]][-1]
                 assert not groups
-                if last[0] == "D" and last[2] > 0:
+                if event is not None:
+                    out[:, :] = float(event(paths[leaf[0]]))
+                elif last[0] == "D" and last[2] > 0:
                     for p, (cause, tau) in enumerate(targets):
                         if last[2] == cause and last[1] <= tau:
                             out[:, p] = 1.0
@@ -328,6 +334,28 @@ class Law:
             The parameter.
         """
         return np.real(self._values(self.probs[None, :].astype(float), regime, targets, cap)[0])
+
+    def probability(
+        self, regime: Regime, event: Callable[[tuple[Any, ...]], bool], cap: int | None = None
+    ) -> float:
+        """The g-formula of a path event: its probability under the regime, uncensored.
+
+        Parameters
+        ----------
+        regime : callable
+            The regime.
+        event : callable
+            Whether a path's tokens hold the event.
+        cap : int or None
+            As :meth:`truth`.
+
+        Returns
+        -------
+        float
+            The probability.
+        """
+        masses = self.probs[None, :].astype(float)
+        return float(self._values(masses, regime, [(0, 0.0)], cap, event)[0, 0])
 
     def gateaux(
         self,
