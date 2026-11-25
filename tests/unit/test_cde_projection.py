@@ -760,8 +760,11 @@ class TestTheRefusals:
         frame["R"] = 1.0
         frame.loc[::7, "R"] = 0.0
         frame.loc[frame["R"] == 0.0, "A"] = np.nan
+        # The learners exist before the call: the refusal fires at identify, and a never()
+        # inside the refused call would not run, leaving the count of an earlier test.
+        learners = never()
         with pytest.raises(CapabilityError, match="controlled direct effect") as caught:
-            effect(0, frame=frame, treatment_missingness="R").estimate(**never())
+            effect(0, frame=frame, treatment_missingness="R").estimate(**learners)
         assert caught.value.refusal.roadmap == "F33"
         assert NeverFit.calls == 0
 
