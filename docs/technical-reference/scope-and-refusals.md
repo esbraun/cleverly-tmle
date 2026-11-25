@@ -877,10 +877,12 @@ Three method entries carry their own detailed refusal tables, each with a `code`
 The column holds the reason code of the raise site, as the `code` column of the tables above does.
 
 `_FIT_WIDE_RULES`, in `src/cleverly/sensitivity/_simulated_confounding_request.py`, holds the
-fourteen stops of the simulated common-cause surface for a whole fit. Four are
-`implementation_gap`: a longitudinal fit that fails the longitudinal stops, a risk-ratio tilt fit
-(X85), a binary fit by an estimator other than `TMLE`, `CTMLE` or `DRTMLE` (X82), and a continuous
-fit by anything but ordinary `TMLE` (X66). The rest check the provenance and shape of the result.
+stops of the simulated common-cause surface for a whole fit. These are `implementation_gap`: a
+longitudinal fit that fails the longitudinal stops, the projection of a conditional contrast, a
+risk-ratio tilt fit (X85), the learned-rule and optimal-rule compositions that no witness checks
+(X11), a binary fit by an estimator whose class does not declare the replay (X82), and a continuous
+fit by anything but ordinary `TMLE` (X66). A learned-rule fit of several splits is
+`different_estimand`. The rest check the provenance and shape of the result.
 [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part F tracks the laws a caller can declare. The
 [future investigations grid](../roadmap.md#future-investigations) tracks each part that waits on
 published theory, against the result a paper must supply.
