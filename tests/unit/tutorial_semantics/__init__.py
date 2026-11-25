@@ -59,6 +59,7 @@ from tests.prose import markdown_cells
 
 __all__ = [
     "EXAMPLES",
+    "GO_DEEPER",
     "NOT_TUTORIALS",
     "PACKAGE",
     "REFIT_CALLS",
@@ -706,12 +707,17 @@ def narration_mismatches(
     return missing
 
 
-#: The markdown cells that summarize the whole page, so their decimals may read any stored
-#: output: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
-#: outline in ``docs/development/example-notebooks.md`` names them.
+#: The markdown cells that summarize the page, so their decimals may read any stored output of the
+#: main path: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
+#: outline in ``docs/development/example-notebooks.md`` names them.  A summary that quotes a lesson
+#: under "Go deeper" declares the quote in ``NARRATION_SOURCES``.
 SUMMARY_CELLS = frozenset({"title", "interpret"})
 
 _HEADING = re.compile(r"^(#{1,6})\s+\S")
+
+#: The "Go deeper" heading that ends a tutorial's main path (any level; the word-budget test
+#: requires exactly one, at level two).
+GO_DEEPER = re.compile(r"^#{1,6}\s.*\bgo deeper\b", re.IGNORECASE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
 
@@ -742,7 +748,8 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
     directly in that section, before or after it, together with the code cells that sit directly
     in each enclosing section (outside any of that section's subsections).  So each lesson under
     "Go deeper" (level three) is its own scope, and a reading cannot quote a number that only
-    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell.
+    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell of the
+    main path, the cells before the :data:`GO_DEEPER` heading.
     """
     cells = _notebook(path)["cells"]
     # Each section: (level, parent index or None).  Section 0 is the page before any heading.
@@ -750,9 +757,13 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
     stack = [0]
     direct: dict[int, list[str]] = {0: []}
     stretches: list[tuple[str, str, int]] = []
+    main_path: list[str] = []
+    deeper = False
     for cell in cells:
         if cell["cell_type"] == "code":
             direct[stack[-1]].append(cell["id"])
+            if not deeper:
+                main_path.append(cell["id"])
             continue
         if cell["cell_type"] != "markdown":
             continue
@@ -762,6 +773,8 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
             if _FENCE.match(line):
                 fenced = not fenced
             heading = None if fenced else _HEADING.match(line)
+            if heading and GO_DEEPER.match(line):
+                deeper = True
             if heading:
                 if lines:
                     stretches.append((cell["id"], "\n".join(lines), stack[-1]))
@@ -775,11 +788,10 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
             lines.append(line)
         if lines:
             stretches.append((cell["id"], "\n".join(lines), stack[-1]))
-    every = tuple(cell["id"] for cell in cells if cell["cell_type"] == "code")
     scopes = []
     for cell_id, text, section in stretches:
         if cell_id in SUMMARY_CELLS:
-            scopes.append(NarrationScope(cell_id, text, every))
+            scopes.append(NarrationScope(cell_id, text, tuple(main_path)))
             continue
         sources: list[str] = []
         index: int | None = section

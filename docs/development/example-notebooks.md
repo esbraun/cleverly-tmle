@@ -84,7 +84,8 @@ callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell r
 A reading may quote only the code cells of its own section: from the nearest heading above it to
 the next heading of the same or a higher level, together with the code cells directly in the
 sections around it. Each lesson under "Go deeper" is its own section. The `title` and `interpret`
-cells summarize the page and may quote any cell. A reading that quotes another section names the
+cells summarize the page and may quote any code cell before "Go deeper"; a summary that quotes a
+lesson under "Go deeper" names that cell in `NARRATION_SOURCES` too. A reading that quotes another section names the
 cell in the callback's `NARRATION_SOURCES`, literal by literal, such as
 `{"assessment-heading": {"0.0114": "estimate"}}`. An entry fails when the literal leaves the
 reading, the named cell stops printing it, or the cell moves into the reading's section.
@@ -102,7 +103,7 @@ three.
 
 | landmark | contents | cell ids |
 | --- | --- | --- |
-| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
+| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the main path | `title`, which also holds the level-one title. The title names the data situation first, then the question |
 | The question | the decision, who it applies to, and what is compared, in the program's words. The quantity to estimate, in one plain sentence. A causal graph only where it informs, as [drawing a causal graph](#drawing-a-causal-graph) describes | `plan` |
 | The data | the imports and the installed `cleverly` version, then what one row is, the columns, and the known answer of the simulated data | `setup`, `data` |
 | Why a simple comparison misleads | the naive difference beside the known answer, and why it is off | `association` |
