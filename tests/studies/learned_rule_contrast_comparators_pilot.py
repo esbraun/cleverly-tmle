@@ -7,17 +7,18 @@ estimate, reported SE and truth. :func:`summarize` writes
 mean reported SE over the SD of the error ``estimate - truth``), the coverage, the standardized
 bias, the excess kurtosis of the error, the solver warnings and the mean CPU seconds of one draw.
 ``tests/unit/test_learned_rule_contrast_comparators_design.py`` reads the CSV and applies the
-arm-pooled predictive rule to the calibration count, which is raised before the run if the rule
-asks for more.
+per-arm rule to the calibration count, which is raised before the run if the rule asks for more.
 
 Every draw comes from ``stream_seed(PILOT_RECORD, "se_ratio_pilot", law, r)`` and its fold seed
 from ``stream_seed(PILOT_RECORD, "se_ratio_pilot_folds", law, r)``. :data:`PILOT_RECORD` is the
 study's record at :data:`PILOT_SEED`, and the design test checks the pilot's seeds against every
-declared learned-rule seed. The run appends one JSON line per draw, so a stopped run resumes::
+declared learned-rule seed. The run appends one JSON line per draw, so a stopped run resumes. A
+line cut short by a stop is skipped and its draw is run again. ``--count`` prints the number of
+valid draws, which is what counts, not the number of lines::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
     python -m tests.studies.learned_rule_contrast_comparators_pilot --raw <scratch dir> \\
-        --jobs <cores> [--summarize]
+        --jobs <cores> [--summarize | --count]
 """
 
 from __future__ import annotations
@@ -133,6 +134,23 @@ def summarize(raw: Path) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+def terminate(path: Path) -> None:
+    """End ``path`` with a newline, so a line cut short by a stop does not swallow the next."""
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        last = handle.read(1)
+    if last != b"\n":
+        with path.open("ab") as handle:
+            handle.write(b"\n")
+
+
+def valid_draws(path: Path) -> int:
+    """The number of distinct draws with a complete record in ``path``."""
+    return len({record["replicate"] for record in records(path)}) if path.exists() else 0
+
+
 def main() -> None:
     """Run (resumably) or summarize the pilot."""
     parser = argparse.ArgumentParser()
@@ -140,8 +158,12 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--cap", type=int, default=None)
     parser.add_argument("--summarize", action="store_true")
+    parser.add_argument("--count", action="store_true")
     arguments = parser.parse_args()
     arguments.raw.mkdir(parents=True, exist_ok=True)
+    if arguments.count:
+        print(valid_draws(arguments.raw / RAW_NAME))
+        return
     if arguments.summarize:
         summarize(arguments.raw).to_csv(PILOT_CSV, index=False, float_format="%.6g")
         return
@@ -151,6 +173,7 @@ def main() -> None:
     path = arguments.raw / RAW_NAME
     done = set()
     if path.exists():
+        terminate(path)
         done = {record["replicate"] for record in records(path)}
     count = PILOT_DRAWS if arguments.cap is None else min(arguments.cap, PILOT_DRAWS)
     tasks = [r for r in range(count) if r not in done]

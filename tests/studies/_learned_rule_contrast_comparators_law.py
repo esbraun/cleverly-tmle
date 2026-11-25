@@ -177,7 +177,13 @@ def fit_one(
 
 
 def offer_grid(w2: float) -> np.ndarray:
-    """``g*(1 | W)`` of ``offer`` on the grid, with the mean of both sides at ``W1 = 0``."""
+    """``g*(1 | W)`` of ``offer`` on the grid, with the mean of both sides at ``W1 = 0``.
+
+    The midpoint enters terms quadratic in ``g*``, so the trapezoid misses the jump by one grid
+    cell, about 1e-4 relative in the efficiency bounds. Those bounds size the controls only; the
+    truths are checked by a quadrature split at the jump
+    (``test_learned_rule_contrast_comparators_design``).
+    """
     del w2
     p = 0.5 * (base.GRID > 0.0)
     p[base.GRID == 0.0] = 0.25

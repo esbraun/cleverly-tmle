@@ -337,6 +337,35 @@ def test_w_d13_the_density_array_excludes_the_natural_course() -> None:
     assert with_natural.nuisance.regimes.names == without.nuisance.regimes.names
 
 
+def test_the_support_report_names_the_natural_course_and_keeps_its_rows() -> None:
+    """The natural course has no density, so it has no row of the regime support report; the
+    report's summary names it as using no treatment weights."""
+    without = _fit("stochastic").diagnostics.support()
+    report = _fit("stochastic_natural").diagnostics.support()
+    assert list(report.regimes) == list(without.regimes)
+    assert "natural course" not in report.regimes
+    assert report.natural_course == "natural course" and without.natural_course is None
+    text = report.summary().note("natural_course_no_weights").text
+    assert text.startswith("Natural course has no row") and "no treatment weights" in text
+    assert "natural_course_no_weights" not in without.summary().note_codes
+
+
+def test_the_score_check_lists_no_equation_for_the_natural_course() -> None:
+    """No targeting equation reads the natural course: the fluctuation rows of the fit with it
+    are those of the fit without it, its value and contrast have only influence-curve rows, and
+    the summary says why."""
+    without = _fit("stochastic").diagnostics.score_equations()
+    check = _fit("stochastic_natural").diagnostics.score_equations()
+    fluctuation = [row.name for row in check.rows if row.kind == "fluctuation"]
+    assert fluctuation == [row.name for row in without.rows if row.kind == "fluctuation"]
+    named = {row.name: row.kind for row in check.rows if "natural course" in row.name}
+    assert named == {NATURAL: "influence curve", CONTRAST: "influence curve"}
+    assert check.natural_course == "natural course" and without.natural_course is None
+    text = check.summary().note("natural_course_no_equation").text
+    assert "no equation the correction step solves" in text and "ey_natural_course" in text
+    assert "natural_course_no_equation" not in without.summary().note_codes
+
+
 def test_w_d13_the_omitted_bound_of_a_regime_value_is_unchanged() -> None:
     without, with_natural = _fit("static"), _fit("static_natural")
     name = "ey_known_regime[always 1]"

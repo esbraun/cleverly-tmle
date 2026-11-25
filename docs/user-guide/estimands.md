@@ -424,10 +424,13 @@ estimand such as `ate` refuses beside a learned rule, and its message names thes
 `OptimalRuleContrast(against=(Static(1),))` compares the best rule's value with the fixed policy
 instead, reported as `ate_optimal_rule[learned rule vs always 1]`.
 
-Each row carries a support label. Rows against fixed policies read supported when the treatment
-has two options, the fit uses the default cross-fitting with one split and the rule comes from
-the outcome model, with no weights, clusters or strata. Rows against a random plan or current
-practice read experimental until their own study runs.
+Each row carries a support label. Rows comparing the learned rule with fixed policies read
+supported when the treatment has two options, the fit uses the default cross-fitting with one
+split and the rule comes from the outcome model, with no weights, clusters or strata. The
+best-rule comparison, `OptimalRuleContrast`, reads supported only when the treatment chances are
+supplied (`treatment_probabilities=`), and experimental when the fit estimates them
+([the value of the optimal rule](../technical-reference/point-treatment-tmle.md#the-value-of-the-optimal-rule)).
+Rows against a random plan or current practice read experimental until their own study runs.
 [Contrasts with known regimes](../technical-reference/point-treatment-tmle.md#learned-rules)
 lists which settings read supported, and the
 [refusal table](../technical-reference/scope-and-refusals.md#not-written-yet) lists the

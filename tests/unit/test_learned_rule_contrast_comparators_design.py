@@ -4,7 +4,7 @@ Each number here was fixed before any declared run. The law checks integrate on 
 and cross-check by an independent quadrature or by Monte Carlo. The sizing figures are computed
 here, never copied. The checks that read the sizing pilot
 (``tests/studies/learned_rule_contrast_comparators_pilot.csv``) skip until the pilot has been run;
-the calibration count is raised before the declared run if the pilot's arm-pooled rule asks for
+the calibration count is raised before the declared run if the pilot's per-arm rule asks for
 more. The declared seeds are only computed, never drawn from.
 """
 
@@ -503,27 +503,55 @@ def test_k_matches_the_stated_pass_probability() -> None:
     assert 1 - se_ratio_fail(1.0, 2_400) == pytest.approx(0.95, abs=1e-3)
 
 
+#: The count at which the planning figures below are read: the declared calibration count
+#: before any pilot. A pilot may raise ``CALIBRATION_REPLICATES``; these figures stay pinned here.
+PLANNED_CALIBRATION = 6_400
+
+
 def test_the_calibration_count() -> None:
-    """3,600 is the smallest multiple of 400 at which the sixteen cells pass together with
-    probability at least 0.95 at ratio 1."""
+    """The planned count is the per-arm rule at ideal ratios: 6,400, with family pass about 0.957.
+    A pilot may only raise it. The arm-pooled rule, meant for exchangeable arms of one estimator,
+    would give 4,800 here."""
     assert CELLS == 16
+    ideal = [1.0] * CELLS
+    sized = tools.per_arm_replicates(ideal, pilot.PILOT_DRAWS)
+    assert sized["R"] == PLANNED_CALIBRATION
+    assert PLANNED_CALIBRATION <= properties.CALIBRATION_REPLICATES
+    assert sized["family_wise"] == pytest.approx(0.957, abs=1e-3)
+    assert tools.replicates_from_pilot(ideal, pilot.PILOT_DRAWS)["R"] == 4_800
+    assert properties.CALIBRATION_REPLICATES <= properties.CALIBRATION_REPLICATES_CAP
 
-    def family(replicates: int) -> float:
-        return (1 - se_ratio_fail(1.0, replicates)) ** CELLS
 
-    assert family(properties.CALIBRATION_REPLICATES) >= 0.95
-    assert family(properties.CALIBRATION_REPLICATES - 400) < 0.95
-    assert se_ratio_fail(1.0, 3_600) == pytest.approx(0.0029, abs=1e-4)
+#: Core-seconds per draw, read from the smoke runs: one draw is two fits under two reports.
+SECONDS_PER_DRAW = {"primary": 0.5, "calibration": 0.9, "coverage": 0.9, "necessity": 0.3}
+PILOT_SECONDS = 0.9 * 4_000
+BUDGET_SECONDS = 5 * 3_600
 
 
-def test_a_cell_at_ratio_098_and_the_count_that_absorbs_it() -> None:
-    """At 3,600 a cell at ratio 0.98 fails with probability about 0.070. If the pilot
-    puts a cell there, the arm-pooled rule raises the count before the run: at 4,400 that cell
-    passes with about 0.971 and the family with about 0.966."""
-    assert se_ratio_fail(0.98, 3_600) == pytest.approx(0.070, abs=1e-3)
-    assert 1 - se_ratio_fail(0.98, 4_400) == pytest.approx(0.971, abs=1e-3)
-    family = (1 - se_ratio_fail(1.0, 4_400)) ** (CELLS - 1) * (1 - se_ratio_fail(0.98, 4_400))
-    assert family == pytest.approx(0.966, abs=2e-3)
+def _study_seconds(calibration: int) -> float:
+    return (
+        len(study.SCENARIOS) * study.PRIMARY_REPLICATES * SECONDS_PER_DRAW["primary"]
+        + calibration * SECONDS_PER_DRAW["calibration"]
+        + properties.COVERAGE_REPLICATES * SECONDS_PER_DRAW["coverage"]
+        + properties.NECESSITY_REPLICATES * SECONDS_PER_DRAW["necessity"]
+    )
+
+
+def test_the_calibration_cap_is_the_budget() -> None:
+    """The run is about 3 CPU-hours at 6,800 calibration draws. With the pilot, 5 CPU-hours
+    hold at most 10,400 draws, the cap a pilot's per-arm count may reach."""
+    assert _study_seconds(6_800) / 3_600 == pytest.approx(3.0, abs=0.1)
+    cap = properties.CALIBRATION_REPLICATES_CAP
+    assert PILOT_SECONDS + _study_seconds(cap) <= BUDGET_SECONDS
+    assert PILOT_SECONDS + _study_seconds(cap + 400) > BUDGET_SECONDS
+
+
+def test_a_cell_at_ratio_098_under_the_per_arm_rule() -> None:
+    """A pilot that reads one cell at 0.98 and the rest at 1 raises the count above 6,400, and
+    the raised count stays under the cap."""
+    sized = tools.per_arm_replicates([0.98] + [1.0] * (CELLS - 1), pilot.PILOT_DRAWS)
+    assert sized["R"] is not None
+    assert PLANNED_CALIBRATION < sized["R"] <= properties.CALIBRATION_REPLICATES_CAP
 
 
 def test_the_primary_and_coverage_counts() -> None:
@@ -547,16 +575,18 @@ def test_the_primary_and_coverage_counts() -> None:
 
 
 def test_the_family_wise_false_red_chance() -> None:
-    """Over every gated positive: about 0.046 at perfect calibration, about 0.067 at T44-like
-    realized coverage (0.94 primary, 0.942 conservative) and SE ratio 1."""
+    """Over every gated positive at the planned count and a true SE ratio of 1: about 3e-5 at
+    perfect calibration, about 0.021 at T44-like realized coverage (0.94 primary, 0.942
+    conservative). The per-arm rule's own figure, about 0.043, is larger because it also
+    carries each cell's pilot error."""
     margins = study.STUDY.margins
     primary = len(law.TAGS)
     conservative = len(study.COVERAGE_LABELS)
     calibration = CELLS * (
-        se_ratio_fail(1.0, properties.CALIBRATION_REPLICATES)
-        + band_fail(0.95, properties.CALIBRATION_REPLICATES, margins.calibration_coverage)
+        se_ratio_fail(1.0, PLANNED_CALIBRATION)
+        + band_fail(0.95, PLANNED_CALIBRATION, margins.calibration_coverage)
     )
-    assert band_fail(0.95, properties.CALIBRATION_REPLICATES, margins.calibration_coverage) < 1e-6
+    assert band_fail(0.95, PLANNED_CALIBRATION, margins.calibration_coverage) < 1e-6
     bias = (primary + conservative) * bias_fail(study.PRIMARY_REPLICATES)
     assert bias < 1e-10
 
@@ -574,8 +604,8 @@ def test_the_family_wise_false_red_chance() -> None:
             )
         )
 
-    assert total(0.95, 0.949) == pytest.approx(0.046, abs=1e-3)
-    assert total(0.94, 0.942) == pytest.approx(0.067, abs=1e-3)
+    assert total(0.95, 0.949) == pytest.approx(2.6e-5, rel=0.1)
+    assert total(0.94, 0.942) == pytest.approx(0.021, abs=1e-3)
 
 
 def test_the_controls_have_power() -> None:
@@ -606,6 +636,20 @@ def _calibration_rows() -> pd.DataFrame:
     ]
 
 
+def test_a_resumed_pilot_keeps_the_draw_after_a_cut_line(tmp_path: Any) -> None:
+    """A stop mid-write leaves a line with no newline. The resume ends the file first, so the
+    next draw keeps its own line and only the cut draw is lost (and run again)."""
+    path = tmp_path / pilot.RAW_NAME
+    path.write_text('{"replicate": 0}\n{"replicate": 1, "est')
+    pilot.terminate(path)
+    with path.open("a") as handle:
+        handle.write('{"replicate": 2}\n')
+    assert [record["replicate"] for record in pilot.records(path)] == [0, 2]
+    assert pilot.valid_draws(path) == 2
+    pilot.terminate(path)
+    assert path.read_text().count("\n") == 3
+
+
 def test_the_pilot_covers_every_label() -> None:
     frame = _pilot()
     expected = {f"{report}_{tag}" for report in study.REPORTS for tag in law.TAGS}
@@ -614,23 +658,23 @@ def test_the_pilot_covers_every_label() -> None:
 
 
 def test_the_calibration_count_meets_the_pilot_rule() -> None:
-    """The arm-pooled rule on the pilot's sixteen SE ratios. If it asks for more draws than are
-    declared, ``CALIBRATION_REPLICATES`` must be raised to its count before the declared run."""
-    reading = tools.replicates_from_pilot(
-        _calibration_rows()["se_ratio"].tolist(), pilot.PILOT_DRAWS
+    """The per-arm rule on the pilot's sixteen SE ratios, the one rule declared before the
+    pilot. A count above the cap stops the run; a count above the declared one is copied into
+    ``CALIBRATION_REPLICATES`` before the declared run."""
+    sized = tools.per_arm_replicates(_calibration_rows()["se_ratio"].tolist(), pilot.PILOT_DRAWS)
+    replicates = sized["R"]
+    assert replicates is not None and replicates <= properties.CALIBRATION_REPLICATES_CAP, (
+        f"STOP: the per-arm rule asks for {replicates} draws, above the budget cap "
+        f"{properties.CALIBRATION_REPLICATES_CAP}"
     )
-    assert not reading["suspect"], reading
-    assert all(reading["screened"]), reading
-    assert reading["R"] <= properties.CALIBRATION_REPLICATES, (
-        f"raise CALIBRATION_REPLICATES to {reading['R']} before the declared run"
+    assert replicates <= properties.CALIBRATION_REPLICATES, (
+        f"raise CALIBRATION_REPLICATES to {replicates} before the declared run"
     )
 
 
-def test_the_family_at_the_pilot_values() -> None:
-    """The sixteen cells at their pilot SE ratios and excess kurtosis pass together with
-    probability at least 0.95 at the declared count."""
-    rows = _calibration_rows()
-    replicates = properties.CALIBRATION_REPLICATES
+def plug_in_family(rows: pd.DataFrame, replicates: int) -> float:
+    """The family pass probability with each cell's raw pilot ratio, kurtosis and coverage read
+    as its truth. Pilot noise biases this figure low, so it is reported, not asserted."""
     family = 1.0
     for _, row in rows.iterrows():
         k = K * np.sqrt((row["excess_kurtosis"] + 2.0) / 2.0)
@@ -638,7 +682,17 @@ def test_the_family_at_the_pilot_values() -> None:
         family *= 1 - band_fail(
             float(row["coverage"]), replicates, study.STUDY.margins.calibration_coverage
         )
-    assert family >= 0.95, f"family pass {family:.3f} at {replicates} draws"
+    return family
+
+
+def test_the_family_at_the_pilot_values(capsys: pytest.CaptureFixture[str]) -> None:
+    """Reports the plug-in family pass figure at the declared count. The count is set by the
+    per-arm rule alone, so this figure gates nothing."""
+    replicates = properties.CALIBRATION_REPLICATES
+    family = plug_in_family(_calibration_rows(), replicates)
+    assert 0.0 <= family <= 1.0
+    with capsys.disabled():
+        print(f"\nplug-in family pass {family:.3f} at {replicates} draws (reported, not gated)")
 
 
 def test_the_primary_legs_at_the_pilot_values() -> None:

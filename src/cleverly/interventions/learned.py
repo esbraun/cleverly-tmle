@@ -2304,12 +2304,13 @@ def _contrast_refusal(estimator: Any, requested: Sequence[str] | None = None) ->
             ]
             return Refusal(
                 RefusalReason.INVALID_DECLARATION,
-                f"{' and '.join(named)} on a learned-rule fit read a known regime declared "
-                "beside the rule with interventions=, and this fit declares none. Its one "
-                "estimand is the value of its learned column, which has no contrast.",
+                f"{' and '.join(named)} on a learned-rule fit read a comparator declared "
+                "beside the rule with interventions=, a known regime or NaturalCourse(), and "
+                "this fit declares none. Its one estimand is the value of its learned column, "
+                "which has no contrast.",
                 alternative=(
-                    "Declare the known regimes to compare against, for example "
-                    "interventions=[Static(1)], or drop "
+                    "Declare the comparators, for example interventions=[Static(1)] or "
+                    "interventions=[NaturalCourse()], or drop "
                     f"{' and '.join(named)} to fit the learned-rule value alone."
                 ),
             )

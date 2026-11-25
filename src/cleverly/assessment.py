@@ -3519,13 +3519,17 @@ class DiagnosticsFacade(_CapabilityFacade):
                 }
 
             if nuisance.regimes is not None:
-                return check_support(
+                report = check_support(
                     nuisance.regimes,
                     self._result.data.treatment,
                     nuisance.propensity.values,
                     backend=self._result.data.backend,
                     **score_arguments("regime"),
                 )
+                # The natural course beside a learned rule has no density, so no row; the
+                # report names it so a reader does not take it for a dropped regime.
+                natural = getattr(self._result.extra.get("learned_rule"), "natural_course", None)
+                return report if natural is None else replace(report, natural_course=natural)
             # ``shifts`` alone, not ``shifts and density``: a shift fit without a fitted
             # density is a broken shift fit, and the density-ratio report says so by name.
             # Adding the second condition sent it to the arm-level report instead, which

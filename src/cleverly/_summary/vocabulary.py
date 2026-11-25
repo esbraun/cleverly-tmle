@@ -1122,6 +1122,7 @@ T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "row_not_converged": "warning",
         "equations_only": "note",
         "dr_curve": "note",
+        "natural_course_no_equation": "note",
         "held_to_nothing": "note",
         "correction_rows": "note",
         "default_bar": "note",
@@ -1151,6 +1152,11 @@ T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "it holds only in the cases cleverly.estimators.drtmle lists."
         ),
         "held_to_nothing": "Rows marked described are held to no allowed error: {reasons}",
+        "natural_course_no_equation": (
+            "{name} has no equation the correction step solves: its value is the mean of the "
+            "observed outcome, which uses no treatment model, so only its estimate's equation "
+            "({estimand}) is checked."
+        ),
         "correction_rows": (
             "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
             "its allowed error, and an identity row checks that the value the correction "
@@ -3471,6 +3477,7 @@ T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "unsupported_rows": "warning",
         "score_load": "note",
         "score_load_rows": "note",
+        "natural_course_no_weights": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
@@ -3490,6 +3497,10 @@ T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "their effective size read the estimated model before any limit. It counts the "
             "rows that effectively carry the estimating equation, of the rows the equation "
             "reads, so it is not the effective size of the ratios."
+        ),
+        "natural_course_no_weights": (
+            "{name} has no row because it uses no treatment weights: its value is the mean of "
+            "the observed outcome."
         ),
         "score_load_rows": (
             "Score load counts the rows that effectively carry the estimating equation, of the "

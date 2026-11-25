@@ -92,13 +92,18 @@ from tests.studies.learned_rule_contrast_comparators import (
 base = law.base
 
 CALIBRATION_N = PRIMARY_N
-#: The ``non_exceptional`` draws: the smallest multiple of 400 at which the sixteen calibration
-#: cells' family pass probability at an SE ratio of 1 reaches 0.95, on a normal approximation
-#: anchored to a pass probability of 0.95 at 2,400 draws
-#: (``test_learned_rule_contrast_comparators_design``). Before the run, the design test applies
-#: the arm-pooled rule of :func:`~tests.studies.mtp_study_tools.replicates_from_pilot` to the
-#: pilot's SE ratios, and the count is raised if that rule asks for more.
-CALIBRATION_REPLICATES = 3_600
+#: The ``non_exceptional`` draws, sized by one rule declared before the pilot. The sixteen
+#: calibration cells are distinct parameters, not exchangeable arms of one estimator, so the
+#: count is the per-arm rule of :func:`~tests.studies.mtp_study_tools.per_arm_replicates`: the
+#: smallest multiple of 400 at which every cell, read at its own pilot SE ratio with that ratio's
+#: pilot error, passes with probability 0.95 as a family. At ideal ratios that rule gives 6,400
+#: (``test_learned_rule_contrast_comparators_design``). The design test applies it to the
+#: pilot's ratios, and the count is raised to its value before the declared run.
+CALIBRATION_REPLICATES = 6_400
+#: The largest calibration count the study's budget of 5 CPU-hours holds, the pilot included
+#: (``test_learned_rule_contrast_comparators_design``). A pilot whose per-arm rule asks for more
+#: stops the run for a re-declaration.
+CALIBRATION_REPLICATES_CAP = 10_400
 #: The ``misspecified_limit`` draws: each coverage cell's chance of a false red is at most 0.002
 #: at a realized coverage of 0.942, T44's lowest contrast coverage on this law
 #: (``test_learned_rule_contrast_comparators_design``).
