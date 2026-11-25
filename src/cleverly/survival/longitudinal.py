@@ -245,7 +245,7 @@ def visit_exit(deaths: FloatArray, visit: FloatArray) -> FloatArray:
 
 
 def censoring_before(retention: FloatArray) -> FloatArray:
-    """:math:`S_c(u^-)` from :math:`S_c(u)` on the grid: censoring at :math:`u` comes after the exits.
+    """:math:`S_c(u^-)` from :math:`S_c(u)`: censoring at :math:`u` comes after the exits.
 
     Parameters
     ----------
@@ -422,6 +422,60 @@ class ContinuousLongitudinalTMLE:
         it.
     n_jobs : int or None
         Threads each node walk runs its row blocks on; results do not depend on it.
+
+    See Also
+    --------
+    cleverly.survival.ContinuousSurvivalTMLE : The risks under a treatment fixed at baseline.
+    cleverly.survival.ContinuousLongitudinalResult : Each regime's risks and the record.
+
+    Examples
+    --------
+    One row per interval between visits: a unit's first row starts at 0, a later row at a
+    visit, where ``l`` is measured and ``a`` decided.
+
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from cleverly.survival import ContinuousLongitudinalTMLE, CoxHazard
+        >>> rng = np.random.default_rng(0)
+        >>> rows = []
+        >>> for unit in range(300):
+        ...     w, l, a = rng.integers(2), rng.integers(2), rng.integers(2)
+        ...     start, visit = 0.0, rng.exponential(3.0)
+        ...     end = rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     if visit < min(end, 8.0):
+        ...         rows.append((unit, 0.0, visit, 0, w, l, a))
+        ...         l = rng.integers(2)
+        ...         a = int(rng.random() < 0.3 + 0.4 * l)
+        ...         start = visit
+        ...         end = visit + rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     rows.append((unit, start, min(end, 8.0), int(end < 8.0), w, l, a))
+        >>> frame = pd.DataFrame(rows, columns=["id", "start", "stop", "event", "w", "l", "a"])
+        >>> cox = [CoxHazard("main")]
+        >>> fit = ContinuousLongitudinalTMLE(
+        ...     [2.0, 6.0],
+        ...     regimes={"always": 1, "never": 0},
+        ...     reference="never",
+        ...     cross_fit=False,
+        ...     hazard_library=cox,
+        ...     visit_library=cox,
+        ...     censoring_library=cox,
+        ...     random_state=0,
+        ... ).fit(
+        ...     frame,
+        ...     id="id",
+        ...     start="start",
+        ...     stop="stop",
+        ...     event="event",
+        ...     treatment="a",
+        ...     baseline=["w"],
+        ...     time_varying=["l"],
+        ... )
+        >>> fit.arms
+        ('never', 'always')
+        >>> list(fit)[:2]
+        ['risk_regimen[never @ t=2]', 'risk_regimen[never @ t=6]']
+        >>> fit["risk_regimen[always @ t=2]"].support.label
+        'experimental'
     """
 
     def __init__(
@@ -1080,12 +1134,6 @@ class _Fit:
         X = nuisance.design(data, self.coded, previous)
         u = data.visit_time[base_next.visits]
         weight = base_next.problem.unit_weight
-        folds = self._inner_cache.get(int(base.k), None)
-        if folds is None:
-            folds = nuisance.unit_folds(
-                data.event, max(2, self.est.learner_folds), np.random.default_rng(self.seed + 7)
-            )
-            self._inner_cache[int(base.k)] = folds
         return ContinuationModel.fit(
             self.est.continuation_learner,
             X,
@@ -1093,7 +1141,7 @@ class _Fit:
             labels,
             weight,
             np.asarray(self.est.horizons),
-            folds[base_next.units],
+            self.continuation_folds[base_next.units],
             self.seed,
         )
 
@@ -1227,7 +1275,6 @@ class _Fit:
             float(5.0 / (np.sqrt(n) * np.log(n))) if est.g_bounds == "auto" else float(est.g_bounds)
         )
         self.floor_cells = [0, 0]
-        self._inner_cache: dict[int, IntArray] = {}
         # Before any learner: the memory check.
         rows = max(int(np.count_nonzero(data.visit_index == k)) for k in range(max(self.caps) + 1))
         predicted = longitudinal_peak_bytes(
@@ -1243,6 +1290,11 @@ class _Fit:
         )
         check_longitudinal_memory(predicted, est.max_memory_bytes)
         fits = {cap: self._fit_cap(cap) for cap in sorted(set(self.caps))}
+        # The continuation's selection folds, by unit, drawn after the nuisance fits so the
+        # draws before them follow the baseline engine's order.
+        self.continuation_folds = nuisance.unit_folds(
+            data.event, max(2, est.learner_folds), self.rng
+        )
         cutoff = default_cutoff(n) if est.tol is None else float(est.tol)
         everyone = np.ones(n, dtype=bool)
         psis, curves, initial_psi, node_scores, steps = [], [], [], [], []
@@ -1377,11 +1429,10 @@ class _Fit:
             K = fit.cap
             prefix = self._prefix(fit, r, np.ones(data.n, dtype=bool), None)
             shares = []
-            at = np.flatnonzero(
-                (data.visit_index == K + 1)
-                & self.followed[r][np.maximum(np.arange(data.visit_index.size) - 1, 0)]
-            )
-            at = at[data.visit_index[at - 1] == K] if at.size else at
+            # Visit K + 1 of a unit that followed r through visit K: a unit's visits are
+            # contiguous, so the row before it is the unit's visit K.
+            at = np.flatnonzero(data.visit_index == K + 1)
+            at = at[self.followed[r][at - 1]]
             for tau in est.horizons:
                 if K == 0 and not np.any((data.visit_index > 0) & (data.visit_time < tau)):
                     shares.append(0.0)

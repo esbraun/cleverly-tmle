@@ -323,6 +323,10 @@ _MALFORMED = "a malformed argument: a value or a type outside the argument's dom
 #: text. The value says why the raise reports a malformed argument and refuses no capability.
 BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     (
+        "src/cleverly/survival/_longitudinal_nuisance.py",
+        "the private weight seam fits one-member libraries only",
+    ): "a private test seam that no public argument reaches; a caller cannot meet it",
+    (
         "src/cleverly/sensitivity/balance_time.py",
         "distances= applies to over='all' only",
     ): "BalanceOverTime.average argument: distances= paired with another over= is a malformed "

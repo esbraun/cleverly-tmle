@@ -179,10 +179,6 @@ def continuous_longitudinal_support(
     return Support("experimental", " ".join(reasons), ("X6",), limits=LONGITUDINAL_LIMITS)
 
 
-def _refusal(text: str, reason: RefusalReason, roadmap: str | None) -> CapabilityError:
-    return CapabilityError(text, reason=reason, alternative=NO_ALTERNATIVE, roadmap=roadmap)
-
-
 #: Refusal C9: a restricted mean of a longitudinal fit.
 RESTRICTED_TEXT: Final[str] = (
     "A continuous-time longitudinal fit targets the risks at its target times only; a "
@@ -201,6 +197,15 @@ SENSITIVITY_TEXT: Final[str] = (
 )
 
 
+def _not_yet(operation: str, alternative: str) -> CapabilityError:
+    return CapabilityError(
+        f"{operation} is not built for a continuous-time longitudinal fit yet.",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=alternative,
+        roadmap="X6",
+    )
+
+
 def replay_refusal(operation: str) -> CapabilityError:
     """The refusal of a refit, a replay or the default battery on a longitudinal fit.
 
@@ -214,8 +219,11 @@ def replay_refusal(operation: str) -> CapabilityError:
     CapabilityError
         The refusal, ``IMPLEMENTATION_GAP`` with roadmap X105.
     """
-    return _refusal(
-        REPLAY_TEXT.format(operation=operation), RefusalReason.IMPLEMENTATION_GAP, "X105"
+    return CapabilityError(
+        REPLAY_TEXT.format(operation=operation),
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative=NO_ALTERNATIVE,
+        roadmap="X105",
     )
 
 
@@ -227,7 +235,11 @@ def sensitivity_refusal() -> CapabilityError:
     CapabilityError
         The refusal, ``INFERENCE_GAP``.
     """
-    return _refusal(SENSITIVITY_TEXT, RefusalReason.INFERENCE_GAP, None)
+    return CapabilityError(
+        SENSITIVITY_TEXT,
+        reason=RefusalReason.INFERENCE_GAP,
+        alternative="Read the regimes' risks and their differences with their intervals.",
+    )
 
 
 @dataclass(frozen=True)
@@ -344,6 +356,56 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
         CapabilityError
             When a time is not a target time, or ``scale="survival"`` on a fit with several
             causes.
+
+        See Also
+        --------
+        cleverly.survival.ContinuousLongitudinalResult.contrast : A smooth function of them.
+        cleverly.survival.ContinuousLongitudinalResult.to_frame : Every estimate, untimed.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from cleverly.survival import ContinuousLongitudinalTMLE, CoxHazard
+        >>> rng = np.random.default_rng(0)
+        >>> rows = []
+        >>> for unit in range(300):
+        ...     w, l, a = rng.integers(2), rng.integers(2), rng.integers(2)
+        ...     start, visit = 0.0, rng.exponential(3.0)
+        ...     end = rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     if visit < min(end, 8.0):
+        ...         rows.append((unit, 0.0, visit, 0, w, l, a))
+        ...         l = rng.integers(2)
+        ...         a = int(rng.random() < 0.3 + 0.4 * l)
+        ...         start = visit
+        ...         end = visit + rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     rows.append((unit, start, min(end, 8.0), int(end < 8.0), w, l, a))
+        >>> frame = pd.DataFrame(rows, columns=["id", "start", "stop", "event", "w", "l", "a"])
+        >>> cox = [CoxHazard("main")]
+        >>> fit = ContinuousLongitudinalTMLE(
+        ...     [2.0, 6.0],
+        ...     regimes={"always": 1, "never": 0},
+        ...     reference="never",
+        ...     cross_fit=False,
+        ...     hazard_library=cox,
+        ...     visit_library=cox,
+        ...     censoring_library=cox,
+        ...     random_state=0,
+        ... ).fit(
+        ...     frame,
+        ...     id="id",
+        ...     start="start",
+        ...     stop="stop",
+        ...     event="event",
+        ...     treatment="a",
+        ...     baseline=["w"],
+        ...     time_varying=["l"],
+        ... )
+        >>> curve = fit.curve()
+        >>> list(curve["arm"])
+        ['never', 'never', 'always', 'always', 'always vs never', 'always vs never']
+        >>> list(curve["time"])
+        [2.0, 6.0, 2.0, 6.0, 2.0, 6.0]
         """
         return self._curve(scale, times=times)
 
@@ -378,6 +440,57 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
         -------
         ParameterEstimate
             The derived estimate, labelled experimental.
+
+        See Also
+        --------
+        cleverly.survival.ContinuousLongitudinalResult.ratio : Two regimes' risk ratio.
+        cleverly.survival.ContinuousLongitudinalResult.curve : Every risk by regime and time.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from cleverly.survival import ContinuousLongitudinalTMLE, CoxHazard
+        >>> rng = np.random.default_rng(0)
+        >>> rows = []
+        >>> for unit in range(300):
+        ...     w, l, a = rng.integers(2), rng.integers(2), rng.integers(2)
+        ...     start, visit = 0.0, rng.exponential(3.0)
+        ...     end = rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     if visit < min(end, 8.0):
+        ...         rows.append((unit, 0.0, visit, 0, w, l, a))
+        ...         l = rng.integers(2)
+        ...         a = int(rng.random() < 0.3 + 0.4 * l)
+        ...         start = visit
+        ...         end = visit + rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+        ...     rows.append((unit, start, min(end, 8.0), int(end < 8.0), w, l, a))
+        >>> frame = pd.DataFrame(rows, columns=["id", "start", "stop", "event", "w", "l", "a"])
+        >>> cox = [CoxHazard("main")]
+        >>> fit = ContinuousLongitudinalTMLE(
+        ...     [2.0, 6.0],
+        ...     regimes={"always": 1, "never": 0},
+        ...     reference="never",
+        ...     cross_fit=False,
+        ...     hazard_library=cox,
+        ...     visit_library=cox,
+        ...     censoring_library=cox,
+        ...     random_state=0,
+        ... ).fit(
+        ...     frame,
+        ...     id="id",
+        ...     start="start",
+        ...     stop="stop",
+        ...     event="event",
+        ...     treatment="a",
+        ...     baseline=["w"],
+        ...     time_varying=["l"],
+        ... )
+        >>> names = ["risk_regimen[always @ t=6]", "risk_regimen[always @ t=2]"]
+        >>> later = fit.contrast(lambda x: x[0] - x[1], names, name="always 2 to 6")
+        >>> bool(np.isclose(later.psi, fit[names[0]].psi - fit[names[1]].psi))
+        True
+        >>> later.support.label
+        'experimental'
         """
         return self._contrast(
             function, names, name=name, scale=scale, gradient=gradient, transform=transform
@@ -529,6 +642,51 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
             f"ContinuousLongitudinalResult(parameters={len(self.estimates)}, n={self.n}, "
             f"regimes={len(self.arms)}, causes={len(self.causes)}, times={len(self.horizons)})"
         )
+
+    def plot(self, **kwargs: Any) -> Any:
+        """Refused in E1: the curve plot draws two arms of a baseline treatment.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Ignored.
+
+        Returns
+        -------
+        Figure
+            Never returns.
+
+        Raises
+        ------
+        CapabilityError
+            Always, ``IMPLEMENTATION_GAP``, roadmap X6.
+        """
+        raise _not_yet("plot()", "Plot the rows of curve(), which hold every regime's risks.")
+
+    def summary(self, **kwargs: Any) -> Any:
+        """Refused in E1: no printed report is written for a longitudinal fit.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Ignored.
+
+        Returns
+        -------
+        Summary
+            Never returns.
+
+        Raises
+        ------
+        CapabilityError
+            Always, ``IMPLEMENTATION_GAP``, roadmap X6.
+        """
+        raise _not_yet("summary()", "Read to_frame() and record.")
+
+    @property
+    def diagnostics(self) -> Any:
+        """Refused in E1: read :attr:`record`, which holds the selections and node scores."""
+        raise _not_yet("diagnostics", "Read record: the selections, caps and node scores.")
 
     # ------------------------------------------------------------- assessment
 
