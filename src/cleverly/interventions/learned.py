@@ -2949,7 +2949,7 @@ def ep_rule_condition(estimator: Any) -> Refusal | None:
             "sieve= is the measured fit of the optimal value; a declared final learner is "
             "measured for the learned-rule value (LearnedRuleValue)."
         ),
-        roadmap="P1",
+        roadmap="F42",
     )
 
 

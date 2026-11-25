@@ -695,7 +695,7 @@ PROJECTION_STRATA_BOUND_REFUSAL = Refusal(
     "the omitted-variable bound of a projection coefficient is not built for a stratified "
     "projection, whose stratum and marginal coefficients read different representers.",
     alternative="Fit the projection without strata=, with the stratum in the basis.",
-    roadmap="P1",
+    roadmap="X82",
 )
 
 

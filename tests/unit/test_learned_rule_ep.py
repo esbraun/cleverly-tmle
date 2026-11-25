@@ -604,7 +604,7 @@ class TestTheRecord:
         fitted = self._optimal_fit(sieve=FIXED, learner=LinearRegression())
         (estimate,) = fitted.estimates.values()
         assert estimate.support.label == "experimental"
-        assert "P1" in estimate.support.evidence
+        assert "F42" in estimate.support.evidence
         (condition,) = fitted.config.support_conditions
         assert condition == ep_rule_condition(fitted.estimator)
         assert "declared final learner (learner=)" in condition.condition

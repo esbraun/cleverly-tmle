@@ -1117,9 +1117,11 @@ class TMLE:
         as ``cate_projection[<term>]`` (difference scale) or ``log_crr_projection[<term>]``
         (log-ratio scale).  :class:`cleverly.ConditionalContrast` is the study spelling.
         It refuses ``msm=``, ``interventions=``, ``policies=``, ``incremental=``,
-        ``learned_rule=`` and ``reference=``; strata, ``repeats`` above 1, the bootstrap,
-        ``cv_evaluation=True``, an intermediate, a missing treatment and a continuous or
-        vector treatment (P1 in ``docs/roadmap.md``).
+        ``learned_rule=`` and ``reference=``; a continuous or vector treatment, which has no
+        pair of arms to contrast; strata beside an intermediate (X63 in
+        ``docs/roadmap.md``); and a log ratio on a shifted outcome scale.  Strata,
+        ``repeats`` above 1, the bootstrap, an intermediate and an in-sample missing
+        treatment compose.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -4183,8 +4185,8 @@ class TMLE:
         learned = in_sample_learner_condition(self, data)
         if learned is not None:
             conditions.append(learned)
-        # A cross-fitted EP rule fit of the optimal value with a declared final learner (P1)
-        # runs; the registered study measured it without a verdict.
+        # A cross-fitted EP rule fit of the optimal value with a declared final learner runs;
+        # the registered study measured it without a verdict, and F42 keeps its claim.
         curve = ep_rule_condition(self)
         if curve is not None:
             conditions.append(curve)

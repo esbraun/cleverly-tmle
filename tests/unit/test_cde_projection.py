@@ -369,7 +369,7 @@ class TestTheStudySites:
             effect(0, scale).estimate("ep", **never())
         refusal = caught.value.refusal
         assert refusal.condition.endswith(EP_INTERMEDIATE_REFUSAL.condition)
-        assert (refusal.reason, refusal.roadmap) == (EP_INTERMEDIATE_REFUSAL.reason, "P1")
+        assert (refusal.reason, refusal.roadmap) == (EP_INTERMEDIATE_REFUSAL.reason, "X63")
         assert NeverFit.calls == 0
 
     def test_the_ep_engine_refuses_an_intermediate(self) -> None:

@@ -340,17 +340,28 @@ class TestTruncationCurve:
         theirs = result.diagnostics.truncation_curve(bounds=[0.02, 0.1]).to_frame()
         pd.testing.assert_frame_equal(mine, theirs)
 
-    def test_an_ep_curve_keeps_the_shipped_refusal(self) -> None:
+    def test_an_ep_curve_redirects_to_the_projection_on_its_basis(self) -> None:
+        """The truncation curve reports an interval at each bound, which an EP curve lacks."""
         from tests.unit.summary_fixtures.conditional import curve_ep
 
-        row = curve_ep().diagnostics.capability("truncation_curve")
+        curve = curve_ep()
+        row = curve.diagnostics.capability("truncation_curve")
         assert not row.available
-        assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert row.refusal.roadmap == "P1"
-        assert row.refusal.condition.startswith("truncation_curve retargets one arm-indexed")
-        assert row.refusal.alternative == (
-            "Refit the projection at the bounds you want to compare, with g_bounds=."
+        assert row.refusal.reason is RefusalReason.API_REDIRECTION
+        assert row.refusal.roadmap is None
+        assert row.refusal.condition.startswith(
+            "The truncation curve reports an estimate and its interval at each bound, and an "
+            "EP curve has no interval. The projection on the same basis, curve.model.basis,"
         )
+        assert row.refusal.condition.endswith("has both.")
+        assert row.refusal.alternative == (
+            "Fit ConditionalContrast(..., model=curve.model.basis) with method='tmle' and call "
+            "truncation_curve() on that fit."
+        )
+        with pytest.raises(CapabilityError) as caught:
+            curve.diagnostics.truncation_curve(bounds=[0.02, 0.1])
+        assert caught.value.refusal.condition.endswith(row.refusal.condition)
+        assert caught.value.refusal.alternative == row.refusal.alternative
 
     def test_a_curve_s_refute_row_redirects_to_its_fit(self) -> None:
         curve = fit("plain", "difference").effect_curve()

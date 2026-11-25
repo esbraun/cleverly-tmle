@@ -97,7 +97,7 @@ __all__ = [
 #: sieve-size cross-validation (the shipped rule-learner count).
 INNER_FOLDS = 5
 
-#: R1: no interval for an EP curve.
+#: R1 of the P1 plan: no interval for an EP curve.
 EP_INTERVAL_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
     "The EP learner reports the conditional effect curve without confidence intervals. Its "
@@ -109,6 +109,7 @@ EP_INTERVAL_REFUSAL = Refusal(
         "Declare a finite working model, ConditionalContrast(..., model=...), and fit "
         "method='tmle': its coefficients and its projection curve carry intervals."
     ),
+    roadmap="F42",
 )
 
 #: How far a log-ratio learner's class-1 probability may pass the hull of the fractional
@@ -812,13 +813,14 @@ def ep_status(
     if mode == "cv":
         reasons.append(
             "The sieve size is chosen by cross-validation, which the EP learner's theorems do "
-            "not cover (arXiv:2402.01972v2, Section 5.1)."
+            "not cover (arXiv:2402.01972v2, Section 5.1). F42 in docs/roadmap.md holds the "
+            "missing argument."
         )
     if declared_learner:
         reasons.append(
             "The theorems cover empirical risk minimization over a declared convex class, and "
             "the package cannot check that this final learner is one (arXiv:2402.01972v2, "
-            "Section 7.1)."
+            "Section 7.1). F42 in docs/roadmap.md holds the missing argument."
         )
     extras = [
         name

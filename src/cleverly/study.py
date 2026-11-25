@@ -46,11 +46,13 @@ from .data.treatment_covariates import (
 from .data.validate import RANDOMIZED_INTERCEPT
 from .effect_modification import (
     CDE_CURVE_TOOLS_REFUSAL,
+    CONDITIONAL_CONTRAST_ALTERNATIVE,
     TARGET_OF_SCALE,
     EffectModification,
     EffectModificationSet,
     effect_modification_data_refusal,
     effect_modification_ep_refusal,
+    no_projection_target,
 )
 from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
 from .estimators import iptw as iptw_estimator
@@ -4862,12 +4864,18 @@ MODIFIER_ADJUSTMENT_REFUSAL = Refusal(
 )
 
 
+#: The longitudinal baselines, which a point-treatment conditional contrast refuses with the
+#: record that names their longitudinal fit.
+_BASELINE_METHODS = ("gcomp", "ipw", "parametric_gformula")
+
+
 def _refuse_conditional_contrast(
     estimand: ConditionalContrast, design: PointTreatment, data: CausalData
 ) -> None:
     """Refuse what a conditional contrast cannot be identified or fitted on, before learners.
 
-    The compositions outside P1 (R7) and a modifier outside the adjustment set (R6).  A
+    A dose (R7-ct), strata beside an intermediate (R-int-strata) and a modifier outside the
+    adjustment set (R6).  A
     declared basis is then evaluated on the rows, which checks the domains, the levels,
     the pair of arms and the rank of the Gram matrix, in every baseline stratum too
     (R7-strata-rank), without fitting anything.
@@ -6622,7 +6630,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         cross-validation chooses.  ``collaborative_tmle`` fits the same fixed basis by the
         per-arm outcome-adaptive design, as a point estimate, and ``drtmle`` fits it on the
         difference scale with one block of reduced regressions per basis term (P1 PR 3).
-        Every other method has no projection target.
+        Both read the TMLE refusal when the model is not a fixed basis.  The longitudinal
+        baselines and the adaptive TMLE keep their own records; every other method has no
+        projection target and is redirected
+        (:func:`~cleverly.effect_modification.no_projection_target`).
         """
         estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
@@ -6646,22 +6657,32 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
                     ep_refusal = EP_CV_MODEL_REFUSAL
                 out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
-            elif record.name == "collaborative_tmle" and tmle_refusal is None:
-                out.append(self._collaborative_projection_record())
-            elif record.name == "drtmle" and tmle_refusal is None:
-                out.append(self._drtmle_projection_record(str(estimand.scale)))
-            else:
+            elif record.name in ("collaborative_tmle", "drtmle"):
+                if tmle_refusal is not None:
+                    # Both fit the projection on a fixed basis, as TMLE does, so a model they
+                    # cannot fit is the declaration TMLE refuses (R2, R4).
+                    out.append(MethodAvailability(record.name, False, tmle_refusal))
+                elif record.name == "collaborative_tmle":
+                    out.append(self._collaborative_projection_record())
+                else:
+                    out.append(self._drtmle_projection_record(str(estimand.scale)))
+            elif record.name in _BASELINE_METHODS and record.refusal is not None:
+                # The longitudinal baselines keep their own true record, with the working
+                # call of a conditional contrast in place of the point-treatment one.
                 out.append(
-                    MethodAvailability(
-                        record.name,
-                        False,
-                        Refusal(
-                            RefusalReason.IMPLEMENTATION_GAP,
-                            f"{record.name} has no projection target for a conditional contrast.",
-                            alternative="Fit method='tmle' with model= declared.",
-                            roadmap="P1",
+                    replace(
+                        record,
+                        refusal=replace(
+                            record.refusal, alternative=CONDITIONAL_CONTRAST_ALTERNATIVE
                         ),
                     )
+                )
+            elif record.name == "atmle":
+                # The adaptive TMLE needs trial membership: a declaration record, kept.
+                out.append(record)
+            else:
+                out.append(
+                    MethodAvailability(record.name, False, no_projection_target(record.name))
                 )
         return tuple(out)
 

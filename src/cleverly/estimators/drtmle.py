@@ -366,7 +366,7 @@ PROJECTION_RATIO_REFUSAL = Refusal(
     "reduced regressions would regress on a target the fit changes, and no derivation here "
     "covers that.",
     alternative="Fit scale='difference' with method='drtmle', or the log ratio with method='tmle'.",
-    roadmap="P1",
+    roadmap="F5",
 )
 
 #: R-dr-bivariate.
@@ -376,7 +376,7 @@ PROJECTION_BIVARIATE_REFUSAL = Refusal(
     "conditions on (Qbar, g), and no derivation here says what it must condition on when each "
     "basis term weights the target.",
     alternative="Use reduction='univariate'.",
-    roadmap="P1",
+    roadmap="F5",
 )
 
 #: R-dr-missing.
@@ -389,7 +389,7 @@ PROJECTION_MISSING_REFUSAL = Refusal(
         "Fit method='tmle' with model=: missing outcomes in sample or cross-fitted, a missing "
         "treatment in sample."
     ),
-    roadmap="P1",
+    roadmap="X62",
 )
 
 #: R-dr-strata.
@@ -398,7 +398,7 @@ PROJECTION_STRATA_REFUSAL = Refusal(
     "DRTMLE fits a projection without strata=. The stratified projection fluctuation has no "
     "reduced regressions per stratum and basis term.",
     alternative="Fit method='tmle' with strata=, or add the stratum to the basis as a modifier.",
-    roadmap="P1",
+    roadmap="X62",
 )
 
 #: R-dr-one-step.
@@ -408,7 +408,7 @@ PROJECTION_ONE_STEP_REFUSAL = Refusal(
     "one-step update and the companion carry one scalar per arm, and the projection needs one "
     "per arm and basis term.",
     alternative="Use targeting='iterative' and drop evaluation=.",
-    roadmap="P1",
+    roadmap="X62",
 )
 
 

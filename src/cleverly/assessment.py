@@ -402,14 +402,15 @@ def projection_sensitivity_refusal(operation: str) -> Refusal:
     Returns
     -------
     Refusal
-        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+        An ``IMPLEMENTATION_GAP`` record with roadmap ``X82``, whose parts F to H hold these
+        rows.
     """
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"{operation} is defined for a mean or a contrast of means, and a working-model "
         "coefficient of a conditional contrast has no derivation of it.",
         alternative="Run it on ATE() or RiskRatio() on the same study.",
-        roadmap="P1",
+        roadmap="X82",
     )
 
 
@@ -454,12 +455,15 @@ def projection_evalue_refusal(result: Any) -> Refusal:
         R-evalue-slope otherwise.
     """
     spec = getattr(getattr(result, "nuisance", None), "effect_modification", None)
-    if (
-        spec is not None
-        and str(spec.scale) == "log_ratio"
-        and len(spec.terms) == 1
-        and tuple(spec.intercept_columns) == (0,)
-    ):
+    constant_only = (
+        spec is not None and len(spec.terms) == 1 and tuple(spec.intercept_columns) == (0,)
+    )
+    return _evalue_record(None if spec is None else str(spec.scale), constant_only)
+
+
+def _evalue_record(scale: str | None, constant_only: bool) -> Refusal:
+    """R-evalue-constant on the log ratio's constant basis alone, R-evalue-slope otherwise."""
+    if scale == "log_ratio" and constant_only:
         return EVALUE_PROJECTION_CONSTANT_REFUSAL
     return EVALUE_PROJECTION_REFUSAL
 
@@ -478,6 +482,19 @@ CURVE_REFUTE_REFUSAL = Refusal(
     alternative=(
         "Run refute on the fit that produced the curve, naming a coefficient such as "
         "'cate_projection[W1]'."
+    ),
+)
+
+#: The ``truncation_curve`` row of an EP curve: the truncation curve reports an interval at
+#: each bound, and the projection on the same basis has one.  An EP curve's own row names
+#: its basis (:func:`_ep_truncation_row`).
+EP_TRUNCATION_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "The truncation curve reports an estimate and its interval at each bound, and an EP curve "
+    "has no interval. The projection on the same basis has both.",
+    alternative=(
+        "Fit ConditionalContrast(..., model=basis) with method='tmle' and call "
+        "truncation_curve() on that fit."
     ),
 )
 
@@ -895,13 +912,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         artifacts=(),
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        refusal=Refusal(
-            RefusalReason.IMPLEMENTATION_GAP,
-            "truncation_curve retargets one arm-indexed parameter at each bound, and no "
-            "retargeting of a projection's coefficients across bounds is built.",
-            alternative="Refit the projection at the bounds you want to compare, with g_bounds=.",
-            roadmap="P1",
-        ),
+        refusal=EP_TRUNCATION_REFUSAL,
         interpretation="estimate stability across declared mechanism bounds",
     ),
     _capability(
@@ -1174,6 +1185,9 @@ def _curve_fit_wide_rules(
             # A projection curve reads its producing fit's truncation curve (P1 PR 3, 3.3).
             resolved.append(_CURVE_TRUNCATION_ROUTED)
             continue
+        if row.operation == "truncation_curve":
+            resolved.append(_ep_truncation_row(result, row))
+            continue
         if row.operation == "corrections" and method == "drtmle":
             # A DR-TMLE projection solves the correction equations per arm and term, so its
             # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).  A fit with
@@ -1204,6 +1218,37 @@ def _curve_fit_wide_rules(
             else replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refusal)
         )
     return tuple(resolved)
+
+
+def _ep_truncation_row(curve: Any, row: AssessmentCapability) -> AssessmentCapability:
+    """The ``truncation_curve`` row of an EP curve, resolved by the same-basis projection.
+
+    The projection by ``method="tmle"`` on the curve's basis, at the size the curve used, has
+    an interval at each bound.  The EP fit's nuisance fit is that projection on the constant
+    basis, so its row says whether the call runs: where it runs, the row redirects to it and
+    names the basis; where it refuses, the row carries its record.
+    """
+    nuisance_fit = getattr(getattr(curve, "fit", None), "nuisance_fit", None)
+    if nuisance_fit is None:
+        return row
+    target = {item.operation: item for item in assessment_capabilities(nuisance_fit)}.get(
+        "truncation_curve"
+    )
+    if target is not None and not target.available and target.refusal is not None:
+        refusal = _same_basis_record(curve, target.refusal)
+    else:
+        basis = _ep_basis(curve)
+        refusal = replace(
+            EP_TRUNCATION_REFUSAL,
+            condition=EP_TRUNCATION_REFUSAL.condition.replace(
+                "the same basis", f"the same basis, {basis},"
+            ),
+            alternative=(
+                "Fit ConditionalContrast(..., model=curve.model.basis) with method='tmle' and "
+                "call truncation_curve() on that fit."
+            ),
+        )
+    return replace(row, refusal=refusal)
 
 
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
@@ -5803,30 +5848,139 @@ _REFUSED_SENSITIVITY_FAMILIES = (
 )
 
 
-def curve_sensitivity_refusal(operation: str) -> Refusal:
-    """Why a sensitivity analysis of an effect curve is refused (P1).
+#: The first sentence of every record an EP curve carries from its same-basis projection.
+EP_NO_INFLUENCE_CURVE = "An EP curve has no influence curve."
+
+
+def _ep_basis(curve: Any) -> str:
+    """How a record names the fixed basis of an EP curve's same-basis projection.
+
+    It is the sieve member the debiasing regression used, at the size the fit chose or was
+    given, held on the curve as ``curve.model.basis``.  A projection fitted on it is not
+    refused for a cross-validated size, because the basis object itself has a fixed size.
+    """
+    terms = len(tuple(getattr(curve.model, "terms", ())))
+    return f"curve.model.basis, the basis the curve used at its size ({terms} terms)"
+
+
+def _projection_coefficient(curve: Any) -> str:
+    """One coefficient name of the producing fit, for a redirection's example call."""
+    from .effect_modification import TARGET_OF_SCALE
+
+    terms = tuple(getattr(curve.model, "terms", ()))
+    from .bases import INTERCEPT
+
+    return f"{TARGET_OF_SCALE[str(curve.scale)]}[{terms[-1] if terms else INTERCEPT}]"
+
+
+def _same_basis_record(curve: Any, record: Refusal) -> Refusal:
+    """A same-basis projection's refusal, as an EP curve carries it: prefixed, code kept."""
+    condition = record.condition
+    if len(condition) > 1 and condition[0].isupper() and condition[1].islower():
+        condition = condition[0].lower() + condition[1:]
+    return replace(
+        record,
+        condition=f"{EP_NO_INFLUENCE_CURVE} On the projection on the same basis, {condition}",
+    )
+
+
+def _curve_target_sensitivity(curve: Any) -> dict[str, AssessmentCapability] | None:
+    """The sensitivity rows of the fit a curve's rows resolve against, or ``None``.
+
+    A projection curve reads its producing fit.  An EP curve reads the projection on the
+    same basis by ``method="tmle"`` at the curve's scale, without a refit: the EP fit's
+    nuisance fit is that projection on the constant basis, on the same rows and settings,
+    and the rows that read the basis (the E-value) are resolved for the curve's own basis.
+    A curve that keeps no producing fit has nothing to resolve against.
+    """
+    fit = getattr(curve, "fit", None)
+    if fit is None:
+        return None
+    if not _is_ep_curve(curve):
+        return dict(SensitivityFacade(fit)._gated_map)
+    nuisance_fit = getattr(fit, "nuisance_fit", None)
+    if nuisance_fit is None:
+        return None
+    from .bases import INTERCEPT
+
+    rows = dict(SensitivityFacade(nuisance_fit)._gated_map)
+    terms = tuple(getattr(curve.model, "terms", ()))
+    evalue = _evalue_record(str(curve.scale), terms == (INTERCEPT,))
+    rows["evalue"] = replace(
+        rows["evalue"], available=False, status=AssessmentStatus.UNAVAILABLE, refusal=evalue
+    )
+    return rows
+
+
+def curve_sensitivity_record(
+    curve: Any, operation: str, target: AssessmentCapability | None
+) -> Refusal:
+    """The record of one sensitivity row of a curve, resolved by the target fit's row.
+
+    A curve reports no estimand of its own, so no sensitivity analysis runs on it.  Where
+    the target fit's row runs, the curve redirects to it.  Where that row refuses, the curve
+    carries its record, so a redirection never points at a call that refuses.  An EP curve
+    has no influence curve, so its target is the projection on the same basis, named at the
+    size the curve used.
 
     Parameters
     ----------
+    curve : EffectCurveResult
+        The curve.
     operation : str
-        The refused operation.
+        The sensitivity operation.
+    target : AssessmentCapability or None
+        The target fit's row for ``operation``, or ``None`` when the curve keeps no
+        producing fit.
 
     Returns
     -------
     Refusal
-        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+        An ``API_REDIRECTION`` record, or the target fit's own record.
     """
+    if target is None:
+        return replay_refusal("summarize_existing_artifacts", replayability(curve))
+    ep = _is_ep_curve(curve)
+    if not target.available:
+        assert target.refusal is not None
+        return _same_basis_record(curve, target.refusal) if ep else target.refusal
+    if ep:
+        basis = _ep_basis(curve)
+        return Refusal(
+            RefusalReason.API_REDIRECTION,
+            f"{EP_NO_INFLUENCE_CURVE[:-1]}, and {operation} is defined for a fit that has one. "
+            f"The projection on the same basis, {basis}, is the related estimand it is "
+            "defined for.",
+            alternative=(
+                "Fit ConditionalContrast(..., model=curve.model.basis) with method='tmle' and "
+                f"run {operation} on that fit."
+            ),
+        )
     return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"{operation} is defined for a mean or a contrast of means, and no derivation of it "
-        "exists for a conditional contrast curve or its working-model coefficients.",
-        alternative="Run it on ATE() or RiskRatio() on the same study.",
-        roadmap="P1",
+        RefusalReason.API_REDIRECTION,
+        "A curve is computed from a fit and reports no estimand of its own. Run "
+        f"{operation} on the fit that produced the curve.",
+        alternative=(
+            f"Call it on the producing fit, naming a coefficient such as "
+            f"'{_projection_coefficient(curve)}'."
+        ),
     )
 
 
-def _curve_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
-    """Every sensitivity row of an effect curve, each refused with the P1 record."""
+def curve_sensitivity_rows(curve: Any) -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of an effect curve, each refused with its resolved record.
+
+    Parameters
+    ----------
+    curve : EffectCurveResult
+        The curve.
+
+    Returns
+    -------
+    tuple of AssessmentCapability
+        One unavailable row per operation of the structural catalog, in its order.
+    """
+    targets = _curve_target_sensitivity(curve)
     return tuple(
         _capability(
             row.operation,
@@ -5835,14 +5989,13 @@ def _curve_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
             interpretation=row.interpretation,
             available=False,
             status=AssessmentStatus.UNAVAILABLE,
-            refusal=curve_sensitivity_refusal(row.operation),
+            refusal=curve_sensitivity_record(
+                curve, row.operation, None if targets is None else targets[row.operation]
+            ),
         )
         for row in _STRUCTURAL_SENSITIVITY
     )
 
-
-#: The sensitivity declarations of an effect curve.
-_CURVE_SENSITIVITY: tuple[AssessmentCapability, ...] = _curve_sensitivity_rows()
 
 #: Why a dose-response pair has no omitted-variable or marginal bound.
 _DOSE_RESPONSE_BOUND_REFUSAL = Refusal(
@@ -5980,7 +6133,7 @@ class SensitivityFacade(_CapabilityFacade):
             return _AUGMENTED_TRIAL_SENSITIVITY
         if family == "effect_modification":
             # Before the tilt rule and every read of the result's data, which a curve lacks.
-            return _CURVE_SENSITIVITY
+            return curve_sensitivity_rows(self._result)
         if family == "dose_response":
             return _DOSE_RESPONSE_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:

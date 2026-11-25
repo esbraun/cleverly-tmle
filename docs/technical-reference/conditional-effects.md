@@ -274,13 +274,25 @@ With `model=None` on the difference scale the curve is clipped to $[-(b - a), b 
 the target lies, and the result records the clipped share. With `model=` declared the target is
 that projection and nothing is clipped.
 
+An EP curve's sensitivity and truncation rows redirect to the `method="tmle"` projection on the
+curve's own basis ([assessing a curve](#assessing-a-curve)), which is a related estimand and not
+always the same one. On the difference scale, with a fixed sieve size and the default
+least-squares final stage, the EP curve and that projection target the same best approximation
+of the CATE in the basis. With a size chosen by cross-validation or a declared `final_learner`
+they do not. The average effect in a subgroup, which an average of the curve would estimate, is
+fitted directly: `PointTreatment(..., strata=[s])` with `ATE()` gives one estimate per level of a
+declared baseline column, and a projection on the subgroup indicators with no intercept column
+gives each subgroup's average as a coefficient. A subgroup of a continuous modifier needs a
+derived column.
+
 An EP fit reads `supported` only in a composition a
 registered study measured (`EP_MEASURED` in `cleverly/estimators/ep.py`): a declared schedule
 with `model=None` on either scale (`ep-cate`, `ep-crr`), or a fixed size with `model=` declared
 on the difference scale (`ep-cate`'s `ep_fixed_obs_4k` cells), each with one outcome regression
 per arm, two arms, an estimated mechanism and no weights, clusters or missing outcomes. The
 label carries no interval. A size chosen by cross-validation (the default) or a declared
-`final_learner` lies outside EPL's theorems and stays `experimental` after any study. So
+`final_learner` lies outside EPL's theorems and stays `experimental` after any study, and
+[F42](../roadmap.md#f42-ep-learner-theory) keeps both claims. So
 do a pooled outcome regression, a fixed size with `model=None`, the log-ratio fixed size (its
 debiasing does not solve the projection's efficient score), more than two arms and declared
 treatment probabilities. Weights, clusters and missing outcomes are implemented (the weighted
@@ -660,11 +672,20 @@ whose size the matched family cannot hold at the fit's $n$. `targeting_curve` re
 producing fit with `repeats` above 1. `n_folds`, `split` and `compare` resolve the row per
 request, as the call reads them.
 
-`EffectCurveResult.sensitivity` declares every sensitivity route and refuses each one as an
-`implementation_gap` naming P1: a curve is computed from a fit, and each analysis runs on that
-fit's coefficients (below). `assess()` composes `validate()` (the producing
-fit's support, nuisance and score checks), the diagnostics and those refusals. The five curve
-operations refit, so they run only with `include_refits=True`. An EP curve's `score_equations` row
+`EffectCurveResult.sensitivity` declares every sensitivity route and runs none, because a curve
+is computed from a fit and reports no estimand of its own. Each row is resolved, operation by
+operation, against the fit that answers it. On a projection curve that is the producing fit:
+where the fit's row runs, the curve's row is an `api_redirection` to it, and where it refuses,
+the curve's row carries that refusal with its code and roadmap item. On an EP curve it is the
+`method="tmle"` projection on the curve's own basis at the size the curve used
+(`curve.model.basis`), read without a refit, and a carried refusal opens with "An EP curve has no
+influence curve."
+
+The `truncation_curve` row of an EP curve redirects to the same projection, because the
+truncation curve reports an interval at each bound and an EP curve has none. `assess()` composes
+`validate()` (the producing fit's support, nuisance and score checks), the diagnostics and the
+sensitivity rows. The five curve operations refit, so they run only with
+`include_refits=True`. An EP curve's `score_equations` row
 reads `completed`, with the largest weighted debiasing score after the debiasing regression as a
 fact. `DebiasingScores` carries no standard error, so no pass rule applies.
 
@@ -800,36 +821,41 @@ $-0.0123$ and $-0.0108$, and row `T49.ctmle_oat` labels them `supported`.
 | `Sieve(basis)` with its size chosen by cross-validation | no reviewed result covers inference after the selection | `invalid_declaration` |
 | `scale="log_ratio"` with `q_bounds` not starting at 0 | a ratio of means is not invariant to a shift | `invalid_declaration` |
 | a modifier outside the adjustment set | the contrast given $V$ is identified only when $V \subseteq W$ | `invalid_declaration` |
-| a continuous or vector treatment | the projection's clever covariate for the composition is not built | `implementation_gap`, roadmap P1 |
+| a continuous or vector treatment | a conditional contrast compares two arms, and a dose has none; the effect of two fixed doses is not pathwise differentiable in a nonparametric model | `invalid_declaration` |
 | a bare `ConditionalContrast` on a design with an intermediate | the projection of the total effect would ignore the intermediate the design declares; wrap the contrast in `ControlledDirectEffect(intermediate=z, contrast=...)` | `invalid_declaration` |
-| `strata=` with an intermediate | the stratified projection's clever covariate with the intermediate mechanism has no exact-law test and no study cell | `implementation_gap`, roadmap P1 |
-| `method="ep"` with an intermediate | the EP curve's debiasing step has no clever covariate with the intermediate mechanism, so it does not estimate a controlled direct effect | `implementation_gap`, roadmap P1 |
-| `assess_score`, `targeting_curve` or the held-out curve checks on a controlled direct effect | each builds pseudo-outcomes without the selection $1\{Z = z\}$ and the density $q_z$, so it would check a different estimand | `implementation_gap`, roadmap P1 |
+| `strata=` with an intermediate | the stratified projection's clever covariate with the intermediate mechanism has no exact-law test and no study cell | `implementation_gap`, roadmap X63 |
+| `method="ep"` with an intermediate | the EP curve's debiasing step has no clever covariate with the intermediate mechanism, so it does not estimate a controlled direct effect | `implementation_gap`, roadmap X63 |
+| `assess_score`, `targeting_curve` or the held-out curve checks on a controlled direct effect | each builds pseudo-outcomes without the selection $1\{Z = z\}$ and the density $q_z$, so it would check a different estimand | `implementation_gap`, roadmap X63 |
 | a missing treatment with cross-fitting | the fold-local product of the three factors of $g_{c,a}$ is not built | `implementation_gap`, roadmap X53 |
 | `strata=` with a stratum whose working-model Gram matrix is singular | the stratum's coefficients are not identified | `DataError` |
 | `method="ep"` with a missing treatment | the EP learner cross-fits its nuisances, and the cross-fitted composite is not built | `implementation_gap`, roadmap X53 |
 | `method="ep"` with `strata=` | a baseline stratum is one more modifier; declare the stratum column as a modifier, with an `Indicators` basis of it in the sieve | `api_redirection` |
 | `assess_score` with a missing treatment or `strata=` | the score assessment fits one pooled fluctuation over the ATE fit's mechanism, and its composite and stratified forms are not built | `implementation_gap`, roadmap X98 |
-| `missingness`, `tipping_gamma`, `simulated_confounding` or `marginal_bounds` on a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap P1 |
+| `missingness`, `tipping_gamma`, `simulated_confounding` or `marginal_bounds` on a projection fit | each is defined for a mean or a contrast of means | `implementation_gap`, roadmap X82 |
 | the omitted-variable bound of a log-ratio coefficient | the coefficient is not linear in the outcome regression, so the linearized bound it would need is not derived | `implementation_gap`, roadmap X82 |
-| the omitted-variable bound of a stratified projection | its stratum and marginal coefficients read different representers | `implementation_gap`, roadmap P1 |
+| the omitted-variable bound of a stratified projection | its stratum and marginal coefficients read different representers | `implementation_gap`, roadmap X82 |
 | `benchmark` naming a modifier | the short model would project onto another basis | `invalid_declaration` |
 | `evalue` on a projection fit | an E-value maps a risk ratio, and a working-model coefficient is not one; on the log ratio with the constant basis alone, the constant is the marginal log risk ratio, so the refusal redirects to `RiskRatio()` | `invalid_declaration`; `api_redirection` for the constant |
 | `refute` on a curve | a curve is computed from a fit and reports no estimand of its own; run it on the producing fit | `api_redirection` |
-| `truncation_curve` on an EP curve | no retargeting of the EP curve's coefficients across bounds is built | `implementation_gap`, roadmap P1 |
-| `method="collaborative_tmle"` with a strategy other than `"oat"` with `oat_design="per_arm"` | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target | `implementation_gap`, roadmap P1 |
-| the per-arm C-TMLE projection with `strata=`, a missing outcome or a missing treatment | its point contract for strata and missing data covers the arm means | `implementation_gap`, roadmap P1 |
-| the five held-out curve checks on a curve of a per-arm C-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also reads the per-arm design. The support, nuisance, score and truncation rows still answer | `implementation_gap`, roadmap P1 |
-| `method="drtmle"` with `scale="log_ratio"` | a log-ratio coefficient weights the arm regressions by $\mathrm{expit}(\varphi^\top\beta)$, which moves with the coefficients, so the reduced regressions would regress on a target the fit changes | `implementation_gap`, roadmap P1 |
-| `method="drtmle"` with `reduction="bivariate"` | no derivation says what the bivariate reduction must condition on when each basis term weights the target | `implementation_gap`, roadmap P1 |
-| `method="drtmle"` with a missing outcome or a missing treatment | the randomized and composite routes would need a block of reduced regressions per basis term over the response or composite mechanism | `implementation_gap`, roadmap P1 |
-| `method="drtmle"` with `strata=` | the stratified fluctuation has no reduced regressions per stratum and basis term | `implementation_gap`, roadmap P1 |
-| `method="drtmle"` with `targeting="one_step"` or `evaluation=` | the one-step update and the companion carry one scalar per arm, and the projection needs one per arm and basis term | `implementation_gap`, roadmap P1 |
-| the five held-out curve checks on a curve of a DR-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also solves the reduced-regression equations. The support, nuisance, score, truncation and correction rows still answer | `implementation_gap`, roadmap P1 |
+| a sensitivity route on a projection curve | a curve reports no estimand of its own. Where the producing fit's row runs, the curve redirects to it; where it refuses, the curve carries that refusal | `api_redirection`, or the producing fit's own record |
+| a sensitivity route on an EP curve | an EP curve has no influence curve. Where the row of the `method="tmle"` projection on `curve.model.basis` runs, the curve redirects to it; where it refuses, the curve carries that refusal after the sentence "An EP curve has no influence curve." | `api_redirection`, or that projection's own record |
+| `truncation_curve` on an EP curve | the truncation curve reports an estimate and its interval at each bound, and an EP curve has no interval; the projection on `curve.model.basis` has both | `api_redirection` |
+| `method="collaborative_tmle"` with a strategy other than `"oat"` with `oat_design="per_arm"` | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target | `implementation_gap`, roadmap F5 |
+| the per-arm C-TMLE projection with `strata=`, a missing outcome or a missing treatment | its point contract for strata and missing data covers the arm means | `implementation_gap`, roadmap X51 |
+| the five held-out curve checks on a curve of a per-arm C-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also reads the per-arm design. The support, nuisance, score and truncation rows still answer | `implementation_gap`, roadmap X62 |
+| `method="drtmle"` with `scale="log_ratio"` | a log-ratio coefficient weights the arm regressions by $\mathrm{expit}(\varphi^\top\beta)$, which moves with the coefficients, so the reduced regressions would regress on a target the fit changes | `implementation_gap`, roadmap F5 |
+| `method="drtmle"` with `reduction="bivariate"` | no derivation says what the bivariate reduction must condition on when each basis term weights the target | `implementation_gap`, roadmap F5 |
+| `method="drtmle"` with a missing outcome or a missing treatment | the randomized and composite routes would need a block of reduced regressions per basis term over the response or composite mechanism | `implementation_gap`, roadmap X62 |
+| `method="drtmle"` with `strata=` | the stratified fluctuation has no reduced regressions per stratum and basis term | `implementation_gap`, roadmap X62 |
+| `method="drtmle"` with `targeting="one_step"` or `evaluation=` | the one-step update and the companion carry one scalar per arm, and the projection needs one per arm and basis term | `implementation_gap`, roadmap X62 |
+| the five held-out curve checks on a curve of a DR-TMLE projection | they rebuild the TMLE pseudo-outcome, and the estimate also solves the reduced-regression equations. The support, nuisance, score, truncation and correction rows still answer | `implementation_gap`, roadmap X62 |
+| `method="drtmle"` or `"collaborative_tmle"` with `model=None` or a sieve sized by cross-validation | each fits the projection on a fixed basis, as `method="tmle"` does, so the method record is the TMLE refusal | `invalid_declaration` |
+| `method="adaptive_iptw"`, `"sdr"`, `"ipsi"` or `"riesz_tmle"` | the method has no projection target for a conditional contrast; fit `method="tmle"` with a fixed basis, or `method="ep"` for the curve | `api_redirection` |
+| `method="gcomp"`, `"ipw"` or `"parametric_gformula"` | each is a baseline of a longitudinal fit; the record names the working call of a conditional contrast | `api_redirection` |
 | `heterogeneity_test()` on a basis without an intercept column | its coefficients being zero says the contrast is zero, not that it is constant | `invalid_declaration` |
 | `heterogeneity_test()` on a clustered fit with fewer than 40 clusters and more than $J - 2$ non-constant terms | the Hotelling reference on $J - 2$ degrees of freedom has no law for more terms | `inference_gap` |
 | `method="ep"` for an estimand other than `ConditionalContrast` | it estimates a different target | `different_estimand` |
-| `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap` |
+| `predict(interval=True)` on an EP curve, or a non-default `Inference` on `EPMethod` | EPL proves rates, not a limit law for the curve | `inference_gap`, roadmap F42 |
 | `method="ep"` with `model=Sieve(basis)` sized by cross-validation | the model is a declared projection target; pass the sieve as `sieve=` with `model=None` | `invalid_declaration` |
 | `method="ep"` with both `model=` and `sieve=`, or `final_learner=` with `model=` | two bases for one fit; with a model the final stage is least squares on it | `invalid_declaration` |
 | a log-ratio `final_learner` without `predict_proba`, or whose `fit` does not name `sample_weight` (a `fit(**kwargs)` might drop the weights, which carry the targeted means) | the final stage is a weighted log loss on two labels | `invalid_declaration` |
