@@ -120,7 +120,7 @@ states their contracts.
 | setting | keyword | default | used on | what it changes |
 | --- | --- | --- | --- | --- |
 | `alpha` | `alpha` | `0.05` | point, over time, exact times, trial, dose curve | one minus the confidence level: `0.05` gives 95% intervals |
-| `n_bootstrap` | `n_bootstrap` | `0` | point, over time, exact times | full-refit bootstrap replicates. `0` uses the standard error from each row's contribution |
+| `n_bootstrap` | `n_bootstrap` | `0` | point, over time, exact times | full-refit bootstrap replicates. `0` runs none; a positive count adds a bootstrap standard error and interval beside the usual interval |
 | `bootstrap_resampling` | `bootstrap_resampling` | `'auto'` | point, over time | resample rows (`"iid"`) or clusters (`"cluster"`). `"auto"` resamples clusters when the design declares them |
 | `simultaneous` | `simultaneous` | `None` | point, over time, exact times, dose curve | whether a fit with several estimates adds a band that covers all of them at once. `None` is the method's own choice |
 | `n_multiplier` | `n_multiplier` | `10000` | point, over time, exact times, dose curve | the random draws behind the band |

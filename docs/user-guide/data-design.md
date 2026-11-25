@@ -43,11 +43,14 @@ study = CausalStudy(
   ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
 
-  Clusters may differ in size. A clustered fit with fewer than 40 clusters with positive weight mass reports a Student t interval with the cluster count minus 2
-  degrees of freedom. Below 10 such clusters, or 20 for longitudinal TMLE, the interval carries
-  the `experimental` label, and below 3 the fit reports no interval. For TMLE and DR-TMLE, these
-  rules also apply to one reported stratum. [Clusters](../technical-reference/inference.md#clusters)
-  gives the rules and the estimators they cover.
+  Clusters may differ in size. Below 40 clusters that hold at least one row with a nonzero
+  weight, a clustered fit reports a Student t interval with the cluster count minus 2 degrees of
+  freedom. Below the fit's floor the interval carries the `experimental` label, and below 3
+  clusters the fit reports no interval. The floor is 10 clusters for most fits of a treatment given
+  once and 20 for fits over time, and lower only for the one contrast a simulation study measured
+  at few clusters for that kind of fit. For TMLE and DR-TMLE these rules also apply to each
+  reported stratum ([clusters](results-assessment.md#clusters),
+  [few clusters](../technical-reference/inference.md#few-clusters)).
 
   A fit that averages one estimate per cross-fitting fold (`cv_evaluation=True`) uses the cluster
   count minus the number of folds, at every cluster count. Outside learned treatment rules, that

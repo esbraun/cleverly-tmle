@@ -32,15 +32,9 @@ numbers. The `estimate` is the effect on the scale of the outcome. The `std. err
 much the estimate would move from sample to sample. The `95% CI` is the interval built from it,
 and the `p-value` tests whether the effect is zero. A row with no interval says why in a note.
 
-In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
-on a scale that keeps it inside the possible range, and builds the interval of a difference from
-the two groups' intervals, so an interval need not be centred on the estimate. For an outcome
-measured on a continuous scale, without clusters, it widens the interval with a t distribution
-when a few observations carry most of the uncertainty, and widens it further on the side where a
-skewed outcome makes misses more likely. The `df` column of the summary says how much. When a
-treatment group shows only one outcome value, in the data or in a subgroup, or an estimate sits
-exactly at 0 or 100 percent, it reports no interval for that estimate or for the effects and
-ratios that use it ([small-sample scale](../technical-reference/inference.md#small-sample-scale)).
+An interval need not be centred on its estimate, and a row can carry none.
+[Confidence intervals, the bootstrap and bands](#confidence-intervals-the-bootstrap-and-bands)
+says which interval each row gets and how to change it.
 
 Numbered notes follow the table, and they appear only when something changes how to read a number.
 A note can say that an estimate is experimental because no validation study covers that kind of
@@ -78,6 +72,121 @@ To see a result instead of reading its table, draw it with `cleverly.plotting`: 
 and the sensitivity analyses. The overlap, learner and calibration plots also draw a fit over time, one
 panel per time point, and a fit that borrows external rows; [Plotting](../api/plotting.md) lists
 which results each plot draws.
+
+## Confidence intervals, the bootstrap and bands
+
+A result reports a 95% confidence interval for each estimate by default. It is built from the
+standard error, which comes from how much each row moves the estimate, and it is not always the
+estimate plus or minus two standard errors. In a TMLE fit without clusters, the interval of the
+mean of a yes/no outcome is built on a scale that keeps it between 0 and 1, and the interval of a
+difference of two such means is built from the two means' intervals. For an outcome on a
+continuous scale, without clusters, the interval uses a t distribution and is widened on the side
+where a skewed outcome makes misses more likely. Some effects, such as the effect among the
+treated or the untreated (`att`, `atc`), keep the ordinary interval centred on the estimate, and
+so does a fit with clusters.
+
+Each estimate records which interval it carries. `estimate.interval_scale` is `"range_logit"` for
+a mean kept inside its range, `"mover"` for a difference built from two means, `"skew_t"` for the
+widened t interval and `"identity"` for the ordinary one. `estimate.effective_df` holds the t
+distribution's degrees of freedom. The summary adds a `df` column when an estimate's t has fewer
+than 250 degrees of freedom, since above that it is close to the normal distribution. It also
+adds one on a clustered fit below 40 clusters, or one that averages per-fold estimates
+(`fold_evaluation=True`) ([clusters](#clusters)). A treatment group that shows only one outcome
+value, or an estimate at exactly 0 or 100 percent, gets no interval, and neither do the effects
+that use it. [Small-sample scale](../technical-reference/inference.md#small-sample-scale) gives
+each formula and every case.
+
+### Change the level or add a bootstrap
+
+Pass `alpha` to change the level: `alpha=0.1` gives 90% intervals. The support label does not
+change with the level, and the studies behind a `supported` label checked 95% intervals. Pass
+`n_bootstrap` to add a bootstrap, which refits every model on resampled copies of the data. Here
+`study` is the `CausalStudy` you built.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE
+
+bootstrapped = study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+    random_state=7,
+    alpha=0.1,
+    n_bootstrap=20,
+)
+print(bootstrapped.summary())
+print(bootstrapped["ate"].bootstrap.support.label)
+```
+
+The summary then shows a "90% CI" column and a "Bootstrap" table with the bootstrap standard
+error and a percentile interval (the middle 90% of the replicate estimates). The bootstrap is
+reported beside the usual interval and does not replace it. Twenty replicates keep the example
+fast; use a few hundred in an analysis, and
+[count the fits](methods-learners.md#count-the-model-fits-before-a-long-run) first, since each
+replicate refits every model. `bootstrap_resampling="cluster"` resamples whole clusters, which
+`"auto"` does by itself when the design declares them.
+
+The bootstrap interval carries its own label in `estimate.bootstrap.support`, apart from the
+usual interval. A simulation study (see [the support label](#read-the-support-label)) covers it for
+a few fits, such as the fit above of the average effect on a yes/no outcome, which reads
+`supported` ([full-refit bootstrap study](../technical-reference/method-evidence/full-refit-bootstrap-and-derived-contrasts.md)).
+That fit is in sample (`cross_fit=False`): its models are fitted and scored on the same rows. For
+a treatment given once with cross-fitting (`cross_fit=True`, the default) the bootstrap reads
+`experimental`, and the label's reason says why.
+
+Some fits refuse `n_bootstrap`, such as a treatment rule and the dose-response curve, and the error
+says what to use instead. Collaborative TMLE runs the bootstrap but prints its spread as a
+diagnostic, not as an interval, because that fit reports no interval. A fit of a treatment given
+once reports the percentile interval only and refuses the bias-corrected
+`bootstrap_interval="bca"` ([intervals and bands](settings.md#intervals-and-bands-inference)).
+Fits over time have their own bootstrap options: see [bootstrap for sparse regimens](longitudinal.md#bootstrap-for-sparse-regimens).
+
+### Clusters
+
+With clusters declared in the design, the independent unit is the cluster, not the row. Below 40
+clusters that hold at least one row with a nonzero weight, the interval uses a t distribution with the cluster count minus 2
+degrees of freedom, and the summary prints a `df` column.
+
+Each kind of fit has a floor: below it, the interval carries the `experimental` label, and below 3
+clusters the fit reports no interval. The floor is 10 clusters for most fits of a treatment given once
+and 20 for fits over time. It is lower only for the one contrast that a simulation study measured at
+few clusters for that kind of fit, such as the average treatment effect of an in-sample TMLE fit.
+For TMLE and DR-TMLE these rules also apply to each reported stratum.
+[Few clusters](../technical-reference/inference.md#few-clusters) gives each floor and the
+estimators it covers.
+
+### Bands that cover several estimates at once
+
+A fit that reports several estimates adds a simultaneous band by default. The band is built to
+cover all the estimates at once in 95% of samples (at the default `alpha`), so it is wider than
+each interval, and it prints as a "Simultaneous 95% bands" table. Use the band when you read several rows together, for example
+when you pick the largest of several effects. Pass `simultaneous=False` to turn it off; the later
+examples on this page do, because each reads one estimate. The dose-response curve always reports
+its band and refuses `simultaneous=False`
+([study route](../technical-reference/dose-response.md#study-route)).
+
+Some fits build no band unless asked, and some build none at all, such as a clustered fit below
+40 clusters, one that averages per-fold estimates, or a fit that withholds its interval;
+`summary(detail="full")` then says why.
+[Evidence for the default band](../technical-reference/inference.md#evidence-for-the-default-band)
+lists the fits that publish no band, and [intervals and bands](settings.md#intervals-and-bands-inference)
+the settings that change it.
+
+By default, the band of a probability of a yes/no outcome is built on the log-odds scale, and the
+band of a difference of two on the matching scale for differences, so its limits stay inside the
+possible range and can sit unevenly around the estimate. The dose-response curve is the exception:
+its band is built on the scale of the outcome itself, so a limit can fall below 0 or above 1.
+
+The band carries its own label in `result.simultaneous.support`, apart from the labels of the
+intervals. A band reads `supported` only when a simulation study measured that band, with the same
+settings, for that kind of fit. So the default band can read `experimental` while every interval
+reads `supported`, and changing `multiplier_kind`, `band_scale`, `band_reference` or
+`n_multiplier` can change the band's label either way. The label's reason names what was
+measured. [Simultaneous bands](../technical-reference/inference.md#simultaneous-bands) states the
+rule.
 
 ## Run the assessment battery
 
@@ -206,10 +315,7 @@ and a fit that selects nothing, such as `"discrete"` whose one candidate is the 
 A `DRTMLE` fit with a `guard` and varying weights declared estimated
 (`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
 below 3 clusters with positive weight mass, and reports them under the experimental label from 3
-clusters up to the fit's floor. The floor is 10 clusters for most fits and 20 for longitudinal TMLE.
-A few fits have a lower floor for the average treatment effect only (for longitudinal TMLE, the
-difference between always treating and never treating)
-([clusters](../technical-reference/inference.md#clusters)). The property
+clusters up to the fit's floor ([clusters](#clusters)). The property
 `result.inference_status` gives the status of the fit, and `point.supplies_inference` gives it for
 one estimate.
 
@@ -236,23 +342,11 @@ if len(names) >= 2:
     difference = result.contrast(lambda values: values[0] - values[1], names[:2])
 ```
 
-Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
-positive weight mass, a clustered fit reports Student t intervals with
-the cluster count minus 2 degrees of freedom, and the summary prints a `df` column. Below 10 such
-clusters, or 20 for longitudinal TMLE, the interval carries the `experimental` label, and below 3
-the fit reports no interval. For TMLE and DR-TMLE, these rules also apply to one reported
-stratum.
-[Clusters](../technical-reference/inference.md#clusters) gives the rules and the estimators they
-cover.
-
-Use `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
-needs error control. The band it adds holds for all the estimates at once, so it is wider than
-each interval. For a probability of a binary outcome the band is built on the log-odds scale, and
-for a difference of two probabilities on the matching scale for differences. Its limits then stay
-inside the possible range and can sit unevenly around the estimate. The dose-response curve is the
-exception: its band stays on the share scale itself, so a limit can fall below 0 or above 1.
-[Simultaneous bands](../technical-reference/inference.md#simultaneous-bands) gives the options and
-which of them registered studies measure.
+A contrast's interval follows the rules of
+[confidence intervals, the bootstrap and bands](#confidence-intervals-the-bootstrap-and-bands). A
+difference of two yes/no means of one fit is built from their two intervals, and any other contrast
+keeps the ordinary interval centred on it. With clusters it uses the t distribution of the input
+with the fewest clusters. A contrast has no band of its own.
 
 A contrast inherits the inference status of its inputs. On a fit whose status supplies no
 inference, the contrast refuses `ci` as its inputs do. The fit builds no simultaneous band.
