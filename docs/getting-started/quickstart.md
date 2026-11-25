@@ -79,6 +79,7 @@ from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+# With your own data, load your table here, such as pd.read_csv(...), and skip the renaming.
 frame, truth = make_linear_ate(n=2_000, seed=7)
 columns = {
     "Y": "transition_score",
@@ -102,32 +103,17 @@ effect = study.identify(ATE(reference=0))
 print(effect.summary())
 ```
 
+Each column of your table takes one role: outcome, treatment, or a covariate to adjust for.
+[Data and study design](../user-guide/data-design.md) gives the rules for each role, including
+weights, clusters and missing outcomes.
+
 The summary states the question, the four conditions the answer rests on (with whether the data
-can check each), and the methods that can answer it. The fit needs two helper models. The outcome
-regression is $Q(A, W) = E(Y \mid A, W)$. The treatment mechanism is $g(W) = P(A = 1 \mid W)$. This page records no `StudyProtocol`, a written description of the
-study's population, timing, and treatments. The [workflow](../workflow.md) shows how to record one.
-
-## Why TMLE with these settings
-
-Targeted maximum likelihood estimation (TMLE) fits $Q$, then updates it with a term built from $g$.
-The update makes the plug-in estimate solve the efficient influence-curve equation.
-
-The interval comes from that influence curve and is valid under three conditions. Overlap holds.
-The nuisance estimates converge fast enough. Either the nuisance models are simple enough (a
-Donsker class), or the fit is cross-fitted.
-[Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) states the conditions.
-
-Each setting of the fit below matches a feature of this problem.
-
-| setting | the feature of the problem |
-| --- | --- |
-| `LinearRegression()` for $Q$ | `make_linear_ate` draws $Y$ from a linear model in `A` and `W`, so this learner is correctly specified |
-| `LogisticRegression(C=np.inf)`, with no penalty, for $g$ | the law draws `A` from a logistic model in `W`, so this learner is correctly specified |
-| `cross_fit=False` | a parametric model class is a Donsker class, so an in-sample fit keeps the interval valid. This outcome has no known support, and a cross-fitted continuous fit needs one declared as `q_bounds=(lower, upper)` |
-
-On real data, the nuisance models are not known. Use flexible learners and cross-fitting there. Declare
-`q_bounds` when the support of a continuous outcome is known. The
-[methods and learners guide](../user-guide/methods-learners.md) explains both.
+can check each), and the methods that can answer it
+([other methods for the same question](#other-methods-for-the-same-question) compares them). The
+fit needs two helper models. The outcome regression is $Q(A, W) = E(Y \mid A, W)$. The treatment
+mechanism is $g(W) = P(A = 1 \mid W)$.
+This page records no `StudyProtocol`, a written description of the study's population, timing, and
+treatments. The [workflow](../workflow.md) shows how to record one.
 
 ## A comparison with a known cause
 
@@ -149,6 +135,12 @@ property of the law, not of one sample.
 
 ## Estimate the effect
 
+Targeted maximum likelihood estimation (TMLE), the default method, fits the two helper models,
+then corrects the outcome model's estimate with the treatment model. Here both models are linear,
+because that is how the data were simulated, and the fit uses every row for both models
+(`cross_fit=False`). [Why TMLE with these settings](#why-tmle-with-these-settings) explains these
+choices.
+
 ```python
 result = effect.estimate(
     outcome_learner=LinearRegression(),
@@ -161,6 +153,9 @@ estimate = result["ate"]
 print(f"TMLE: {estimate.psi:.3f}, 95% CI [{estimate.ci[0]:.3f}, {estimate.ci[1]:.3f}]")
 print(f"population ATE: {truth['ate']:.3f}")
 ```
+
+[Read cleverly's output](../user-guide/reading-output.md) explains each label, row name and note
+in this summary and in the assessment below.
 
 The header names the two models and shows the limits on the predicted offer probabilities,
 [0.01471, 0.9853], which the assessment rounds to [0.015, 0.985]. The package keeps $g$ away from 0 and 1. The assessment below reports that no
@@ -210,17 +205,36 @@ assessment = result.assess()
 print(assessment.summary())
 ```
 
-Only the Checks table passes or fails. The Results rows report findings that have no pass or fail
-rule, so a row there is not a pass. The Not run table names each check the default call skips and
-why; for a deferred check, the first note gives the call that runs it. `assessment.to_frame()` lists every row with its
-status, and the [status contract](../technical-reference/validation-methods.md#the-status-contract) defines
-each one.
+Only the Checks table passes or fails; a Results row is a finding, not a pass. The Not run table
+names the checks the default call skips, and the first note gives the call that runs each one.
+[Run the assessment battery](../user-guide/results-assessment.md#run-the-assessment-battery)
+explains the three tables.
 
 The unmeasured-confounding row reports 0.514. A left-out variable whose strengths
 with the offer and with the score are both 0.514 could, at worst, move the point estimate to zero;
 with both strengths below 0.514 it could not.
 [Omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
 define the two strengths.
+
+Whether 0.514 is large depends on your covariates. The benchmark asks how strong a left-out
+variable would be if it mattered as much as one you recorded, and the bounds then say how far such
+a variable could move the estimate:
+
+```python
+benchmark = result.sensitivity.benchmark(covariates=["discharge_risk"])
+print(benchmark.summary())
+print(result.sensitivity.omitted_confounding(benchmark=benchmark).summary())
+```
+
+Leaving out `discharge_risk` would move the estimate from 1.513 to 1.775. Its strength with the
+score is 0.870 and with the offer only 0.020. A left-out variable that strong could, at worst, move
+the estimate anywhere from 1.237 to 1.788, a range that stays well above zero. Whether such a
+variable exists is a question about your data, not a number the code can give. The E-value row reads the same risk in
+another way: a missing confounder would need a risk ratio of 3.52 with both the offer and the
+score to explain the effect away, and 3.34 to move the interval to zero.
+[Sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis) covers the other
+checks in the Not run table, and [plot results](../examples/plots.ipynb) draws the overlap,
+balance and sensitivity figures.
 
 ## What the result means
 
@@ -239,13 +253,90 @@ This page establishes less than a real analysis must.
 | the effect is the same for every patient | not supported. The ATE is an average |
 | the effect holds in another health plan | not supported. The estimand is specific to its population |
 
+## On your own data
+
+The fit above is in sample with two linear models, because the page knows the true law. On your
+own data, keep the default out-of-fold fitting (cross-fitting: each row's prediction comes from
+models fitted without it) and use flexible models. The example below uses a yes/no outcome, a
+successful transition, which needs nothing more:
+
+```python
+from cleverly.datasets import make_binary_outcome
+from sklearn.ensemble import HistGradientBoostingClassifier
+
+transitions, _ = make_binary_outcome(n=2_000, seed=11)
+binary_study = CausalStudy(
+    transitions,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+)
+binary_result = binary_study.identify(ATE(reference=0)).estimate(
+    outcome_learner=HistGradientBoostingClassifier(max_iter=50, random_state=0),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=7,
+)
+print(binary_result.summary())
+```
+
+When you leave out both learners, the package combines three scikit-learn models (gradient
+boosting, a random forest and a lasso) and weights them by how well each predicts on held-out
+folds. That default fits each candidate on every fold, 360 model fits for this question, and often
+takes half a minute to two minutes. `effect.planned_fits(random_state=7)` counts the fits before
+you start ([count the model fits](../user-guide/methods-learners.md#count-the-model-fits-before-a-long-run)).
+
+A continuous outcome needs one more argument when it is cross-fitted: its known range, such as
+`q_bounds=(0, 100)` for a 0-to-100 score, passed to `estimate()`. Without it the package would read
+the range off every row, the held-out rows included, so it refuses the fit. An outcome with no fixed
+range, like this page's score, is fitted in sample instead.
+[Fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+gives the exact rule and its message.
+
+## Go deeper
+
+### Why TMLE with these settings
+
+Targeted maximum likelihood estimation (TMLE) fits $Q$, then updates it with a term built from $g$.
+The update makes the plug-in estimate solve the efficient influence-curve equation.
+
+The interval comes from that influence curve and is valid under three conditions. Overlap holds.
+The nuisance estimates converge fast enough. Either the nuisance models are simple enough (a
+Donsker class), or the fit is cross-fitted.
+[Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) states the conditions.
+
+Each setting of the fit below matches a feature of this problem.
+
+| setting | the feature of the problem |
+| --- | --- |
+| `LinearRegression()` for $Q$ | `make_linear_ate` draws $Y$ from a linear model in `A` and `W`, so this learner is correctly specified |
+| `LogisticRegression(C=np.inf)`, with no penalty, for $g$ | the law draws `A` from a logistic model in `W`, so this learner is correctly specified |
+| `cross_fit=False` | a parametric model class is a Donsker class, so an in-sample fit keeps the interval valid. This outcome has no known support, and a cross-fitted continuous fit needs one declared as `q_bounds=(lower, upper)` |
+
+On real data, the nuisance models are not known. Use flexible learners and cross-fitting there, as
+[on your own data](#on-your-own-data) shows.
+
+### Other methods for the same question
+
+The methods table lists four estimators that answer this question. They estimate the same ATE and
+differ in how they guard against a hard case. This page uses `tmle`, the default. Collaborative
+TMLE (`collaborative_tmle`) chooses how much of the treatment model to use, which helps when one
+covariate almost decides who gets the offer
+([a strong predictor of treatment](../examples/collaborative-tmle.ipynb)). DR-TMLE (`drtmle`)
+keeps a valid interval when one of the two helper models is wrong
+([DR-TMLE](../technical-reference/dr-tmle/index.md)). Adaptive-propensity weighting
+(`adaptive_iptw`) fits no outcome model, and reports an interval only when the treatment
+probabilities are known, as in a trial ([adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md)).
+`effect.available_methods()` lists every method with the reason the others do not fit, and the
+[methods and learners guide](../user-guide/methods-learners.md#method-presets) shows how to choose one.
+
 ## Choose the next path
 
 - Read the [workflow](../workflow.md) before adapting the quickstart to real observational data.
+- Read [data and study design](../user-guide/data-design.md) to map your columns to roles.
 - Read [point-treatment TMLE](../examples/point-treatment-tmle.ipynb) for an analysis with nonlinear
   nuisances and flexible learners.
 - Use the [estimands and interventions guide](../user-guide/estimands.md) to choose a question.
 - Use the [methods and learners guide](../user-guide/methods-learners.md) before you change the
   default learners.
+- Read [capabilities and refusals](../user-guide/capabilities.md) for what the package can estimate,
+  and why it refuses a request it cannot answer correctly.
 - Consult the [technical reference](../technical-reference/index.md) for equations, assumptions,
   citations, implementation provenance, and correctness evidence.
