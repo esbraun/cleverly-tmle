@@ -1089,7 +1089,7 @@ the full set.
 
 The declaration restricts the observed-data model, and it does not change the estimand. The
 design carries a pinned text in `Identification.model_restrictions`. Every estimator on the design
-prints it as the first item under Assumptions in `summary(detail="full")`, and a low-level fit
+prints it under Assumptions in `summary(detail="full")`, and a low-level fit
 prints the same text from the data. The text
 reads, with $W_g$ written as `{name, name}`:
 
@@ -2923,15 +2923,16 @@ node of `LTMLE` and `SDR`.
 | declaration | what `CausalData` stores | what the fit reports |
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
-| `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
+| `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, or of `ModifiedTreatmentPolicy` and `ModifiedTreatmentPolicyEffect` with `JointPolicy` declarations on a `CausalStudy`, and nothing else |
 | the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`). The density of the dose is read over each row's support |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.
 The treatment name joins the columns with `+`.
 
-A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`, and the
-message names `TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical
+A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`. On a
+`CausalStudy` the message names `ModifiedTreatmentPolicy` and `ModifiedTreatmentPolicyEffect`
+with `JointPolicy` declarations, and on `CausalData` it names `TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical
 treatment, so it has arms and every arm-indexed estimand runs. A level is a tuple, and
 `ey[(1, 2.0)]` is the mean when the intervention sets every component. The fit of every default
 estimand equals the fit of the same data with the tuples pre-combined into one column
