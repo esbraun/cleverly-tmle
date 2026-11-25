@@ -134,6 +134,10 @@ no simulation study has checked it for this kind of analysis".
 [Read the support label](results-assessment.md#read-the-support-label) lists where the label
 appears and what each reason means.
 
+The note you will meet most often says that an interval is widened on the side where a skewed
+outcome makes misses more likely, or that it is built from two proportions' intervals; either way
+the interval need not be centred on the estimate
+([confidence intervals](results-assessment.md#confidence-intervals-the-bootstrap-and-bands)).
 Other notes appear only when something changes how to read a number: for example, that a model was
 fitted and scored on the same rows, that a cap on extreme weights (the inverse chances of treatment that the correction step uses) changed
 some people's weights, or that an

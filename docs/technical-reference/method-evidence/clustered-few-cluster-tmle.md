@@ -4,9 +4,12 @@ This study measures the Student $t$ reference that a clustered fit takes below 4
 positive weight mass. An estimate that reads $J$ such clusters uses $J-2$ degrees of freedom, as
 Nugent et al. (2024), Section 2.2, last paragraph, recommend. A fold-evaluated estimate over $V$
 folds uses $J-V$ at every cluster count, because its variance centers the cluster totals inside
-each fold. Below 10 clusters a fit carries the experimental label, and an `LTMLE` fit below 20,
-because no registered study measures an interval there.
-[Clusters](../inference.md#clusters) states the rules.
+each fold.
+
+Below its interval floor a fit carries the experimental label. The floor is 10
+clusters for most point-treatment fits and 20 for longitudinal ones, and lower only for the one
+contrast that a few-cluster floor study measured for that fit family.
+[Few clusters](../inference.md#few-clusters) gives each floor.
 
 The publication policy is `reporting`. Every cell may read red, and
 [F28](../../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns any red cell. The
