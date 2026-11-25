@@ -7311,8 +7311,9 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "support row keeps citing the studies of that fit, so no row names it."
     ),
     "dose-response": (
-        "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, which is no "
-        "Target and no fit of a point row. cleverly.estimators.dose_response."
+        "It measures the kernel-smoothed dose-response curve of DoseResponseTMLE, fitted "
+        "directly or through CausalStudy, which is no Target and no fit of a point row. "
+        "cleverly.estimators.dose_response."
         "DOSE_RESPONSE_MEASURED, not a support row, records the configurations the study "
         "licenses, and a pair below the Kish floor reads experimental (low_dose_support_plugin)."
     ),

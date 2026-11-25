@@ -2755,6 +2755,15 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
         ),
     ),
     (
+        "positivity over the dose interval:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of "
+            "every dose near each declared dose inside the declared range.",
+            "partly",
+        ),
+    ),
+    (
         "positivity: ",
         (
             "overlap",
@@ -5107,3 +5116,31 @@ HEADER_LABELS = HEADER_LABELS | {
     PLANNED_BOUND,
     PLANNED_FOLDS,
 }
+
+# ----------------------------------------------------------------- dose-response curve (X123)
+
+DOSE_RESPONSE_TITLE: Final = "Smoothed dose-response curve"
+DOSE_RESPONSE_QUESTION: Final = "mean outcome averaged over doses near each declared dose"
+DOSE_RANGE: Final = "Dose range"
+DOSE_KERNEL: Final = "Kernel"
+DOSE_COUNT: Final = "Doses"
+DOSE_BANDWIDTHS: Final = "Bandwidths"
+DOSE_FOLDS_WORD: Final = "{k} folds"
+DOSE_SETTINGS_DECLARATION: Final = (
+    "Declared doses {doses}; bandwidths {bandwidths}; dose range [{low}, {high}]; kernel "
+    "{kernel}. Each row is the curve averaged over doses within one bandwidth of its dose."
+)
+DOSE_SETTINGS_BAND: Final = "The band over every row reads {label}."
+DOSE_SETTINGS_BAND_REASON: Final = "Why the band is experimental: {reason}"
+DOSE_SETTINGS_ROWS_REASON: Final = "Why the rows are experimental: {reason}"
+#: The conditions a direct fit rests on, which a fit through a study reads off its
+#: identification record instead.
+DOSE_RESPONSE_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "consistency: the observed outcome is the outcome under the dose the unit received",
+    "no interference: one unit's dose does not change another unit's outcome",
+    "no unmeasured confounding: given the adjusted-for columns, the dose a unit received is "
+    "unrelated to the outcomes it would have had at every dose in the declared range",
+    "positivity over the dose interval: units at every value of the adjusted-for columns "
+    "had some chance of every dose near each declared dose inside the declared range",
+)
+HEADER_LABELS = HEADER_LABELS | {DOSE_RANGE, DOSE_KERNEL, DOSE_COUNT, DOSE_BANDWIDTHS}

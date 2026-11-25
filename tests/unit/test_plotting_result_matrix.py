@@ -446,6 +446,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "point_tmle_binary": _point_binary,
     "point_tmle_withheld": _point_withheld,
     "dose_response": _dose_response,
+    # X123 (b): the same curve fitted through CausalStudy, which draws as a direct fit does.
+    "dose_response_study": sweep.fit_dose_response_study,
     "structural_nested_mean": _structural_nested_mean,
     # The P1 PR 1 compositions of the conditional-contrast projection, and the EP rule with a
     # declared sieve or final learner: the capability sweep's own fits.
@@ -888,6 +890,18 @@ EXPECTED: dict[str, dict[str, str]] = {
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "dose_response": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "dose_response_study": {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",

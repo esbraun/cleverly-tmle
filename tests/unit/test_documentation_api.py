@@ -60,6 +60,7 @@ EXAMPLE_TARGETS = (
     "cleverly.ModifiedTreatmentPolicy",
     "cleverly.IncrementalEffect",
     "cleverly.ControlledDirectEffect",
+    "cleverly.DoseResponseCurve",
     "cleverly.ConditionalContrast",
     "cleverly.bases.Modifiers",
     # Methods and configuration.

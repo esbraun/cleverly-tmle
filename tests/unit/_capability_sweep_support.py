@@ -1479,6 +1479,34 @@ def fit_dose_response() -> Any:
         )
 
 
+def fit_dose_response_study() -> Any:
+    """The curve of :func:`fit_dose_response`, fitted through ``CausalStudy``."""
+    from cleverly import CausalStudy, DoseResponseCurve, PointTreatment
+    from cleverly.dose_response import DoseResponse
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.normal(size=n)
+    dose = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1 + 0.5 * dose - 0.08 * dose * dose + 0.4 * w))
+    study = CausalStudy(
+        pd.DataFrame({"Y": y, "A": dose, "W": w}),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(
+            DoseResponseCurve(DoseResponse.spanning((1.0, 4.0), 3, fractions=(0.25,)))
+        ).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            n_folds=2,
+        )
+
+
 def _importance_frame() -> Any:
     """Two binary candidate exposures and one covariate; the outcome is binary."""
     rng = np.random.default_rng(0)
@@ -3125,6 +3153,7 @@ KINDS: dict[str, Kind] = {
     "snmm": _kind(fit_snmm, "refute"),
     # No refutation or sensitivity analysis is implemented for a dose-response curve.
     "dose_response": _kind(fit_dose_response, *_READ),
+    "dose_response_study": _kind(fit_dose_response_study, *_READ),
     # Variable importance: each row runs on every candidate's own fit, so a run answers the
     # rows its candidates' point fits answer.
     "variable_importance": _kind(fit_variable_importance, "marginal_bounds", *_ARM),

@@ -34,6 +34,7 @@ that reading adds.
    cleverly.MSMProjection
    cleverly.msm.MSM
    cleverly.msm.working_model_means
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.ConditionalContrast

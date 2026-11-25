@@ -66,6 +66,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.msm.working_model_means
