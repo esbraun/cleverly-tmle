@@ -251,7 +251,7 @@ def evalue_curves(
     limit_drawn = float(data.limit) > 1.0
     level = _core.level_text(float(data.level))
 
-    fig, axis = _core.figure_for(ax, figsize=(5.6, 5.6))
+    fig, axis = _core.figure_for(ax, figsize=(6.4, 6.4))
     _core.style_axes(axis, grid="none")
     _curve(
         axis, threshold, top, _core.PALETTE[0], "Could explain the estimate away",
@@ -276,8 +276,8 @@ def evalue_curves(
         axis.set_xlabel("Each arm's treatment association (risk ratio)")
         axis.set_ylabel("Each arm's outcome association (risk ratio)")
     else:
-        axis.set_xlabel("Confounder's association with treatment (risk ratio)")
-        axis.set_ylabel("Confounder's association with outcome (risk ratio)")
+        axis.set_xlabel("Association with treatment (risk ratio)")
+        axis.set_ylabel("Association with outcome (risk ratio)")
     scale = str(data.scale) + (", converted" if data.approximate else "")
     subtitle = (
         f"E-values {number_text(point, 2)} for the estimate and "

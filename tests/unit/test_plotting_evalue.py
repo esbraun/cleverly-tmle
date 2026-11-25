@@ -276,7 +276,7 @@ class TestConventions:
         assert "E-values 3.07 for the estimate and 2.67 for the 95% limit" in " ".join(
             (subtitle_text(ax) or "").split()
         )
-        assert ax.get_xlabel() == "Confounder's association with treatment (risk ratio)"
+        assert ax.get_xlabel() == "Association with treatment (risk ratio)"
         labels = [text.get_text() for text in ax.get_legend().get_texts()]
         assert labels == [
             "Could explain the estimate away",
