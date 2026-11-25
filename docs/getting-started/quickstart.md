@@ -221,7 +221,7 @@ estimate does not lean on the bounds. The Not run table lists the checks the def
 for each check deferred because it is slow or needs an argument, the first note gives the call.
 On real data, run at least the refutation tests and the covariate benchmark (shown next) before
 you report.
-[Run the assessment battery](../user-guide/assessment.md#run-the-assessment-battery)
+[Run every check at once](../user-guide/assessment.md#run-every-check-at-once)
 explains the three tables.
 
 The unmeasured-confounding row reports 0.514. A missing confounder has two strengths. On the score

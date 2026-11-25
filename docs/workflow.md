@@ -312,7 +312,7 @@ The file holds the complete fitted result, including its settings and fitted mod
 files you trust, in a compatible Python environment. `cleverly.load()` warns with
 `VersionMismatchWarning` when another `cleverly` version saved the file, then loads it as saved.
 On the loaded result, `replayability.summary()` says what it can redo
-([persistence and replayability](user-guide/results-assessment.md#persistence-and-replayability)).
+([what a loaded result can redo](user-guide/results-assessment.md#what-a-loaded-result-can-redo)).
 
 ## Go deeper
 

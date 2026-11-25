@@ -1091,7 +1091,7 @@ with the same minor version, for example 3.13 for an artifact that 3.13 wrote.
 saves a lambda rule, a closure density, and an `each_node` rule from `__main__`. It loads them in
 a new interpreter and compares the assignments and the density.
 
-[Persistence and replayability](results-assessment.md#persistence-and-replayability) states the
+[What a loaded result can redo](results-assessment.md#what-a-loaded-result-can-redo) states the
 shared contract for every result, including the assessment cache and the capability rows that a
 restored artifact refuses. `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip

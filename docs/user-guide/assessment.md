@@ -1,137 +1,167 @@
 # Check a fitted result
 
-A fitted result can check itself: how well the outcome and treatment models predict, how extreme
-the weights are, whether the correction step solved its equations, and how strong a missing
-confounder would have to be to change the answer. `assess()` runs these checks together and prints
-one report. This page reads that report, then the checks of the models and the weights behind it.
+A fitted result can check itself. An effect estimate rests on two models: the outcome model, which
+predicts the outcome from the treatment and the covariates, and the treatment model, which predicts
+each row's chance of the treatment it got. TMLE, the default method, starts from the outcome model
+and adds a correction step that uses the treatment model to remove the bias the outcome model
+leaves. That step weights each row by one over its predicted chance of its own treatment, so a row
+with a near-zero chance gets an extreme weight.
 
-## Run the assessment battery
+The checks on this page ask whether the two models predict well, whether the weights are extreme,
+whether the correction step finished its job, and how strong a missing confounder would have to be
+to change the answer. A confounder is a variable that affects both the treatment and the outcome,
+and a missing one is a confounder the data do not record. `assess()` runs the checks together and
+prints one report.
 
-Call `assess()` to collect validation, diagnostics, and sensitivity in one report.
+A clean report says that these checks found no problem with how the estimate was computed. It does
+not show that the effect is causal. That needs every confounder to be among the covariates you
+adjusted for, and no check can see a variable the data do not hold. [Sensitivity
+analysis](sensitivity.md) asks how strong such a variable would have to be.
+
+## Run every check at once
+
+Call `assess()` on your fitted result:
 
 ```python
 battery = result.assess()
 print(battery.summary())
-support = battery.report("support")
 ```
 
-The summary opens with counts: how many checks ran, how many need attention, and how many did not
-run. `Results` gives one line for each analysis that ran without a pass or fail rule, such as the
-E-value, with its main finding. `Checks` lists the checks that pass or fail, failures and warnings first.
-`Not run` lists what was skipped and why, such as an analysis that needs an argument you have not
-given. The notes list the suggested next steps. Print `battery.summary("full")` to see each row's
-whole finding or reason.
-
-Call `battery.to_frame()` for the complete row ledger. It carries the `surface`, `check`, `status`,
-`detail`, and `next_steps` columns. Call `battery.next_steps()` for the follow-up actions as a
-list.
-
-```python
-ledger = battery.to_frame()
-deferred = ledger[ledger["status"] == "deferred"]
-print(deferred[["surface", "check", "next_steps"]])
-
-for step in battery.next_steps():
-    print(step)
-```
-
-`battery.attention` contains failures and warnings. `battery.omissions` contains deferred,
-not-applicable, and unavailable analyses. Use `battery.report(...)` to retrieve the detailed
-payload from an operation that ran, and `battery.report(name, surface="diagnostics")` to retrieve a
-diagnostic that also appears under validation.
-
-Pass analyst choices through `arguments`. Opt in to each expensive work class by name.
+The [quickstart](../getting-started/quickstart.md) fit of the navigation program prints this report,
+shortened here:
 
 ```text
-battery = result.assess(
+                            Assessment of the fit
+==============================================================================
+Result:      nothing needs attention    Need attention:                      0
+Checks run:  8                          Not run:                             8
+==============================================================================
+Results
+analysis                       finding
+------------------------------------------------------------------------------
+overlap                        0.0% of units were capped at [0.015, 0.985], so
+                               the estimate does not lean on the cap.
+outcome and treatment models   The models show no problem these metrics can
+                               detect.
+unmeasured confounding         Left-out variables with both strengths at 0.514
+                               could, at worst, move the estimate to 0; weaker
+                               ones, with both strengths below 0.514, could
+                               not.
+E-value                        An unmeasured confounder would need a risk
+                               ratio of 3.52 with both the treatment and the
+                               outcome, beyond the measured covariates, to
+                               explain away the estimate; 3.34 to move the
+                               interval to the null.
+==============================================================================
+Checks
+check              result   finding
+------------------------------------------------------------------------------
+equations solved   passed   The correction step solved every estimating
+                            equation to within its allowed error.
+==============================================================================
+Not run
+check                        why
+------------------------------------------------------------------------------
+cap on extreme weights       not run by default because it retargets the fit
+refutation tests             not run by default because it refits the models
+covariate benchmark          needs an explicit covariates argument, which a
+                             combined report has no basis to choose
+worst-case bounds            not run by default because it refits the models
+```
+
+Look first at the header. `Need attention` counts the checks that failed or warned, and they print
+first under `Checks`; any count above 0 is the thing to read before you report. The finding of such
+a row and the notes under the report say what to look at next. For a manager, the header is the
+summary: how many checks ran and how many need attention.
+
+`Results` gives one line for each analysis that has no pass or fail rule. The overlap check asks
+whether every kind of row had a real chance of either treatment, read from the predicted chances and
+the weights. The E-value measures how strong a missing confounder would need to be. Read those
+numbers yourself: [Sensitivity analysis](sensitivity.md) explains the two confounding rows.
+
+`Not run` lists what was skipped and why. A skipped row is not a failure: it waits for a flag or an
+argument, and the notes under the report name the call that runs it.
+
+On this fit nothing needs attention and the weights needed no cap. The correction step works by
+solving one equation per estimate, and it solved them; that is needed for the standard error to
+describe the estimate, though it does not show that the standard error is right. The report covers
+three kinds of check: checks of the fitted models and the correction step, further checks such as
+the refutation tests and the weight-cap curve, and the missing-confounder analyses. Print
+`battery.summary("full")` to see each row's whole finding, and call `battery.to_frame()` for one row
+per check with its status and next step. `battery.report("support")` returns the full overlap report
+behind the `overlap` row.
+
+### What runs by default and what needs a flag
+
+`assess()` with no flags reads what the fit stored and refits no model, so it is fast. It runs every
+summary of stored numbers, such as the E-value, and every cheap re-estimate, and it skips two slower
+kinds of check. One reruns the correction step on the stored models (a retarget), such as the curve
+over caps on extreme weights (`truncation_curve()`), `missingness()` and `tipping_gamma()`;
+`include_retargets=True` runs those. The other fits new models (a refit): the refutation tests
+(`refute()`), which refit the analysis about 60 times, the covariate benchmark (`benchmark()`), and
+the planted confounder (`simulated_confounding()`). `marginal_bounds()`, the "worst-case bounds"
+row, is a refit too: it fits extra regressions on the fit's folds (the groups of rows that
+cross-fitting holds out in turn) without refitting the estimator. `include_refits=True` runs the
+refits.
+
+Before you report a result, run at least the refutation tests and the covariate benchmark. Pass both
+flags, and give the checks that need a choice their arguments:
+
+```python
+from cleverly.sensitivity import ConfounderStrengthGrid
+
+full = result.assess(
     include_refits=True,
     include_retargets=True,
     random_state=21,
     arguments={
         "benchmark": {"covariates": ("W1", "W2")},
-        "simulated_confounding": {"grid": grid},
+        "simulated_confounding": {
+            "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.5)),
+        },
     },
 )
+print(full.summary())
 ```
 
-The common seed reaches `refute`, `benchmark`, and `simulated_confounding`. A seeded fit reuses
-its fit seed when you omit this argument. An unseeded fit draws a seed and records it on the
-returned row.
+Replace `W1` and `W2` with covariates of your own. The benchmark asks what a missing confounder as
+strong as those covariates could do, and the grid sets the strengths of a confounder that
+`simulated_confounding()` plants in the data before it refits; [Sensitivity
+analysis](sensitivity.md) explains both. `random_state` seeds every check that draws at random. A
+seeded fit reuses its fit seed when you omit it, and an unseeded fit draws a seed and records it on
+the returned row. `result.diagnostics.run_all(include_refits=True, include_retargets=True)` runs the
+model and weight checks, including the refutation tests, without the missing-confounder analyses.
 
-`assess()` refuses `arguments` for `score_equations`. The validation battery owns that name and
-runs it argument-free. The battery presents the validation row for it, so it would compute your
-answer and then hide it. Call `result.diagnostics.run_all(arguments=...)`, or call the operation
-itself.
-
-The battery also owns `support` and `nuisance_models`, but neither one accepts an argument. An
-argument for either is a `TypeError` from the signature. An empty mapping applies nothing, so
-`assess()` accepts it for all three names.
-
-### What runs by default and what needs a flag
-
-`assess()` with no flags reads what the fit stored and refits no model. It runs every summary of
-stored numbers, such as the E-value, and every cheap re-estimate. Each check declares its cost in
-`result.diagnostics.capability(name).execution` (or `result.sensitivity.capability(name)`):
-`"summarize"` reads stored numbers, `"retarget"` reruns the correction step on the stored models,
-and `"refit"` fits new models. `include_retargets=True` runs the retarget rows, such as the curve
-over caps on extreme weights (`truncation_curve()`), `missingness()` and `tipping_gamma()`.
-`include_refits=True` runs the refit rows: the refutation tests (`refute()`), `benchmark()`,
-`simulated_confounding()`, which also needs a grid, and `marginal_bounds()`, which fits extra
-regressions on the fit's folds without refitting the estimator.
-
-The cost belongs to the fit, not to the name of the check. The weight-cap curve of a `DRTMLE` fit
-with a `guard` refits its reduced regressions at every cap, and that of a longitudinal fit reruns
-its whole backward recursion, so both ask for `include_refits=True`. An E-value that needs one
-more outcome regression is a refit too. Read the class from the capability row rather than from a
-list. On a longitudinal fit, an operation without a published derivation reads `unavailable`
-rather than borrowing point-treatment formulas, and its reason says why.
-
-To run every diagnostic, including the refits and the retargets, pass both flags:
-
-```python
-everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
-```
-
-Pass required choices with `arguments={"operation": {...}}`. The report row retains the effective
-arguments and the returned object. Use `report.report(name)` to retrieve that object.
-
-A refusal names the first thing that is wrong. An operation that needs a choice you did not pass
-names that choice, and not a cost flag. No flag supplies the covariates for `benchmark`, so the
-row says so under every flag.
+The cost belongs to the fit, not to the name of the check, so read it from
+`result.diagnostics.capability(name).execution` (or `result.sensitivity.capability(name)`), which
+holds `"summarize"`, `"retarget"` or `"refit"`. [Cost classes](#cost-classes-by-fit) gives the cases
+where the same check costs more.
 
 ### Rows that did not run
 
-Each row of a combined report carries one status, and
-[the status contract](../technical-reference/validation-methods.md#the-status-contract) names
-every status. `passed` and `failed` belong to checks with a pass or fail rule, `completed` means an
-analysis ran without one, and `warning` uses an existing diagnostic rule. `deferred` means the
-same check can run once you supply a choice or pass a cost flag. The row keeps its next step and
-the request you made, with the seed a combined run supplies, and stays in `omissions`. Pass that
-mapping back to the direct call to run the row you deferred.
+Each row carries one status, and [the status
+contract](../technical-reference/validation-methods.md#the-status-contract) names every status.
+`passed` and `failed` belong to checks with a pass or fail rule, `completed` means an analysis ran
+without one, and `warning` uses an existing diagnostic rule; `failed` and `warning` are the two that
+need your attention. `deferred` means the same check can run once you supply a choice or pass a cost
+flag. The row keeps its next step and the request you made, with the seed a combined run supplies.
+Pass that request back to the direct call to run it. `not_applicable` means the check has no meaning
+for this question, such as a missing-outcome analysis on complete data, and `unavailable` that the
+check has meaning but cannot run on this fit.
 
-A check that answers for one estimate defers on a fit that reports several, and its next step
-names `estimand`; pass the estimate's name through `arguments`. The status contract's subsection
-"The ambiguous default estimand" lists those checks and their defaults. A sensitivity analysis
-picks the estimate itself when the fit reports exactly one eligible estimate. `refute()` does not,
-so on a fit whose one estimate is not named `ate` its row defers as well.
+Some checks answer for one estimate. The estimand is the quantity the fit estimates, named by its
+row in the summary, such as `ate`. Such a check defers on a fit that reports no bare `ate` and two
+or more estimates it could read, such as a fit with three arms, and its next step names `estimand`.
+Pass the estimate's name, as `result.estimates` lists it, through `arguments`.
 
-Four rows can also defer on another argument. The row defers when the call refuses the default
-value and another value runs. It reads `unavailable` when no value runs. The row quotes the
-sentence that the call raises.
+The status contract's subsection "The ambiguous default estimand" lists those checks and their
+defaults. A sensitivity analysis picks the estimate itself when the fit reports exactly one eligible
+estimate. `refute()` does not, so on a fit whose one estimate is not named `ate` its row defers as
+well. [More on rows that did not run](#more-on-rows-that-did-not-run) gives the other cases.
 
-| operation | argument | the row defers when |
-| --- | --- | --- |
-| `refute()` | `tests` | the fit refuses one default test and admits another, such as `placebo` on a fit of `NaturalCourseMean` |
-| `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
-| `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
-| `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
+## Run one check at a time
 
-An expected refusal after invocation becomes `unavailable`. An estimand you name that the fit never
-reported is such a refusal. The aggregate run then continues with other accepted diagnostics.
-Direct calls still raise the precise refusal. `not_applicable` and `unavailable` also appear in
-`omissions`.
-
-## Diagnostics
+Each row of the report is also a call of its own, which returns the full report of that check.
 
 ```python
 validation = result.validate()
@@ -148,28 +178,38 @@ stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
-`truncation_curve()` re-estimates at other limits on extreme weights. Print
-`stability.summary()` to see each estimate's change from the fitted one and the share of units the
-limits capped. Call `stability.to_frame()` for the dataframe.
+`validate()` runs the three quick checks: whether the correction step solved its equations
+(`score_equations()`), the overlap check of the predicted chances and weights (`support()`), and how
+well the outcome and treatment models predict (`nuisance_models()`). `truncation_curve()`
+re-estimates at other caps on extreme weights; print `stability.summary()` to see each estimate's
+change from the fitted one and the share of units each cap changed. A large change means the
+estimate leans on a few rows with extreme weights. `corrections()` applies only to a `DRTMLE` fit (a
+TMLE variant whose interval aims to stay valid when one of the two models is wrong) whose guard
+subtracts a correction term; ordinary and collaborative TMLE report it as `not_applicable`.
+`run_all()` with no flags runs every check of `result.diagnostics` that reads only what the fit
+stored.
 
-`influence()` reports how few rows drive each estimate, read from how much each row moves it. It
-gives the Kish count (an effective number of rows behind the standard error), the skewness, the
-kurtosis, the relative standard deviation of the variance estimate, and the coverage loss of the
-Wald interval that a skewness correction (the Edgeworth term) predicts. This operation is a direct
-call. `run_all()` and the assessment battery do not include it.
+`influence()` reports how few rows drive each estimate. It is a direct call, which `run_all()` and
+the combined report do not include. On the quickstart fit it prints:
 
-The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
-correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
+```text
+estimate   effective rows   skewness   SE uncertainty   coverage loss   flag
+------------------------------------------------------------------------------
+ate                 612.8       0.02            0.034            .000      -
+```
+
+`effective rows` (the Kish count) is how many rows with equal pull would give the same spread. `SE
+uncertainty` is the relative standard deviation of the variance estimate, and the column to watch:
+above 0.125, close to 64 effective rows, the fit warns that its standard error is itself noisy
+(`SparseInfluenceWarning`). `coverage loss` is the shortfall of the 95% interval that a correction
+for skewness and heavy tails (the Edgeworth term) predicts.
 
 ### Check covariate balance
 
-Weighting by the fitted treatment model should make the treated and untreated groups look alike
-on the covariates you adjusted for. `covariate_balance(result)` measures how far it succeeded. For
-each covariate it gives the standardized mean difference, the gap between the two groups' means
-in standard deviations, before and after weighting. A gap near zero after weighting says the
-weights balanced that covariate; one above 0.1, the usual threshold, says the treatment model
-missed something about it. The check describes the data: it has no interval or test, and it says
-nothing about covariates you did not adjust for.
+Weighting by the fitted treatment model should make the treated and untreated groups look alike on
+the covariates you adjusted for. `covariate_balance(result)` measures how far it succeeded. For each
+covariate it gives the standardized mean difference, the gap between the two groups' means in
+standard deviations, before and after weighting.
 
 ```python
 from cleverly.sensitivity import covariate_balance
@@ -179,13 +219,146 @@ print(balance.summary())
 fig = balance.plot()
 ```
 
-When treatment is decided at several times, as in a longitudinal or time-to-event fit, the same
-call returns a balance over time, a `BalanceOverTime`, following Jackson (2016). At each treatment
-time it compares the covariates recorded so far across that treatment, among the people who had
-the same earlier treatments. Only people still in the study at that time count, and on a survival
-fit only those still free of the event. After weighting, each person counts as one over the
-fitted chance of the treatments and the follow-up they had up to that time. The summary averages
-each comparison over the groups of earlier treatments, each group counting by its size, and
+On the quickstart fit the table reads:
+
+```text
+covariate           before weighting   after weighting
+------------------------------------------------------------------------------
+discharge_risk                 0.272            -0.001
+prior_utilization             -0.129             0.000
+medication_burden              0.100             0.000
+age                           -0.050             0.001
+```
+
+Read the `after weighting` column. A gap near zero says the weights balanced that covariate; one
+above 0.1, the usual threshold, says the treatment model missed something about it. Here
+`discharge_risk` starts at 0.27 and ends near zero. The check describes the data: it has no interval
+or test, and it says nothing about covariates you did not adjust for. A treatment decided at several
+times gets a balance over time ([balance over time](#balance-when-treatment-repeats-over-time)).
+
+### Read a calibration-slope finding
+
+A model's calibration slope says whether its predicted chances are too extreme or too timid. The
+report regresses the observed yes/no values on the model's out-of-fold predictions, on the log-odds
+scale, with one intercept per fold (a logistic recalibration), and reads the slope. A slope below 1
+means the predictions are more extreme than the observed rates; a slope above 1 means they are more
+moderate. The report tests the slope of each model that predicts a probability, and names the
+treatment model `propensity`. The [calibration-slope
+rule](../technical-reference/validation-methods.md#calibration-slope-rule) gives the statistic and
+its standard error.
+
+The report warns only when the slope's interval lies above 0 and excludes 1. The interval's level is
+corrected for testing several models at once: it splits a level of 0.05 over the tested models. A
+finding reads like this line, from a learner whose predictions on the log-odds scale are doubled:
+
+```text
+propensity: the out-of-fold predictions are more extreme than the observed rates (calibration
+slope 0.50, 97.5% interval 0.44 to 0.56, AUC 0.756, largest untruncated inverse weight 220).
+Estimation noise can cause this even in a correctly specified model when the signal is weak or
+the model has many covariates. Review the learner before you change the model
+```
+
+A finding asks you to review the learner. For the `propensity` model of a yes/no treatment given
+once, `result.diagnostics.support()` describes the weights that model creates. A correct model can
+warn too: with a weak signal or many covariates, estimation noise can make out-of-fold predictions
+more extreme than the truth. The slope cannot detect a wrong model, because a misspecified logistic
+model with an intercept also has a population slope of 1. It measures the spread of the predictions,
+so a finding says nothing about bias in the estimate.
+
+A fit without cross-fitting gets no finding. The report tests out-of-fold predictions only, and
+there `nuisance.evaluation` equals `in_sample`. An unpenalized logistic model with an intercept has
+an in-sample slope of exactly 1, so that slope says nothing about new rows. When a slope is missing,
+`nuisance["propensity"].calibration_omission` names the cause for that model, for example
+predictions that are constant within every fold. `nuisance.summary()` prints each cause under the
+table, and `nuisance.to_frame()` has no column for it. The [calibration-slope
+study](../technical-reference/method-evidence/calibration-slope-warning.md) measures the rule's
+false-warning rate and its detection rate for a yes/no treatment.
+
+## Go deeper
+
+### More on the combined report
+
+```python
+ledger = battery.to_frame()
+deferred = ledger[ledger["status"] == "deferred"]
+print(deferred[["surface", "check", "next_steps"]])
+
+for step in battery.next_steps():
+    print(step)
+```
+
+`battery.to_frame()` carries the `surface`, `check`, `status`, `detail`, and `next_steps` columns.
+The `surface` column names the group a check belongs to: `validation` for the quick checks,
+`diagnostics` for further checks such as the refutation tests and the weight-cap curve, and
+`sensitivity` for the missing-confounder analyses. `battery.next_steps()` lists the follow-up calls.
+`battery.attention` contains failures and warnings, and `battery.omissions` contains deferred,
+not-applicable, and unavailable analyses. `battery.report(name)` retrieves the full report of a
+check that ran, and `battery.report(name, surface="diagnostics")` a diagnostic that also appears
+under validation. Each row keeps the arguments it ran with and the returned object, and
+`report.report(name)` on any combined report retrieves that object.
+
+`assess()` refuses `arguments` for `score_equations`. The combined report runs it under validation
+with no arguments and shows that row, so it would compute your answer and then hide it. Call
+`result.diagnostics.run_all(arguments=...)`, or call the check itself. The combined report also runs
+`support` and `nuisance_models` under validation. Neither accepts an argument, so an argument for
+either is a `TypeError` from the signature. An empty mapping applies nothing, so `assess()` accepts
+it for all three names.
+
+A refusal names the first thing that is wrong. A check that needs a choice you did not pass names
+that choice, and not a cost flag. No flag supplies the covariates for `benchmark`, so the row says
+so under every flag.
+
+### Cost classes by fit
+
+The weight-cap curve of a `DRTMLE` fit with a guard refits its smaller (reduced) regressions at
+every cap, and that of a treatment over time reruns its whole backward recursion (the step-by-step
+fit from the last time point to the first), so both ask for `include_refits=True`. An E-value that
+needs one more outcome regression is a refit too. On a fit of a treatment over time, a check whose
+formulas have not been worked out for that kind of fit reads `unavailable`, and its reason says why;
+the package does not reuse the formulas for a treatment given once.
+
+### More on rows that did not run
+
+Four rows can also defer on another argument. The row defers when the call refuses the default value
+and another value runs. It reads `unavailable` when no value runs. The row quotes the sentence that
+the call raises.
+
+| check | argument | the row defers when |
+| --- | --- | --- |
+| `refute()` | `tests` | the fit refuses one default test and admits another, such as `placebo` on a fit of `NaturalCourseMean` |
+| `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
+| `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
+| `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
+
+A refusal the call raises after it starts becomes `unavailable`. An estimand you name that the fit
+never reported is such a refusal. The combined run then continues with the other checks, and a
+direct call still raises the precise refusal. `not_applicable` and `unavailable` rows also appear in
+`omissions`.
+
+Known omissions carry the reason the check gives. Examples include an E-value without a supported
+contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
+because the fit refuses it before the report considers your request. A row that your request refuses
+is different. It records your arguments with the signature defaults filled in, and its reason names
+the refused value. An example is `truncation_curve` with `mechanism=False` on an incremental fit
+with missing outcomes.
+
+A check can also refuse after it starts, such as the missing-confounder bound when its weight term
+(the doubly robust $\nu^2$) is not positive. That row becomes an `unavailable` omission, keeps its
+arguments, and names the direct call. The other checks still run.
+
+Structural errors still stop the report. Examples are an invalid argument name, an unknown `refute`
+test, and a malformed `benchmark` request. An empty `covariates`, an indicator column of an encoded
+covariate, and an unknown covariate are malformed. A direct call raises the same error.
+
+### Balance when treatment repeats over time
+
+When treatment is decided at several times, as in a longitudinal or time-to-event fit, the same call
+returns a balance over time, a `BalanceOverTime`, following Jackson (2016). At each treatment time
+it compares the covariates recorded so far across that treatment, among the people who had the same
+earlier treatments (the same treatment history). Only people still in the study at that time count,
+and on a survival fit only those still free of the event. After weighting, each person counts as one
+over the fitted chance of the treatments and the follow-up they had up to that time. The summary
+averages each comparison over the groups of earlier treatments, each group counting by its size, and
 `to_frame()` keeps every group. Leaving the study is checked as one more treatment.
 
 ```python
@@ -220,137 +393,80 @@ fig = over_time.plot(diagnostic="confounding", view="panels")
 
 The feedback check compares a later covariate across an earlier treatment. After weighting, a
 difference there means the treatment changed the covariate; before weighting it also mixes in
-confounding. Weighting is not meant to remove it. When that
-covariate also affects later treatment, adjusting for it in an ordinary regression gives a biased
-effect, which is why these fits weight or model each time in turn instead. A survival fit has no feedback check,
-because its later covariates are recorded only for people still free of the event.
+confounding. Weighting is not meant to remove it. When that covariate also affects later treatment,
+adjusting for it in an ordinary regression gives a biased effect, which is why these fits weight or
+model each time in turn instead. A survival fit has no feedback check, because its later covariates
+are recorded only for people still free of the event.
 
-A continuous-time survival fit has one treatment, at baseline. It compares the covariates across
-the arms at baseline. At each target time it also compares the arms among the people whose status
-is known (an event seen, or follow-up past that time), and those people with their whole arm. The
+A continuous-time survival fit has one treatment, at baseline. It compares the covariates across the
+arms at baseline. At each target time it also compares the arms among the people whose status is
+known (an event seen, or follow-up past that time), and those people with their whole arm. The
 [plotting reference](../api/plotting.md#fits-over-time-and-with-external-data) describes each view.
 
-### Read a calibration-slope finding
+### The outcome and treatment model report
 
-The point-treatment report tests the calibration slope of each probability model. The slope comes
-from a logistic recalibration of the out-of-fold predictions with one intercept per fold. A slope
-below 1 means the predictions are more extreme than the observed rates. A slope above 1 means they
-are more moderate. The [calibration-slope rule](../technical-reference/validation-methods.md#calibration-slope-rule)
-gives the statistic and its standard error.
+For a fit of a treatment over time, `nuisance.rows` covers every stored model fit. Each fitted
+treatment and censoring model appears once per time point (node). Outcome rows, and the rows of the
+regressions a sequential fit runs on its own predicted outcomes (pseudo-outcomes), also name their
+regimen, cause, and horizon when those fields apply.
 
-The report warns only when the slope's interval lies above 0 and excludes 1. The interval splits a
-level of 0.05 over the tested models. A finding reads like this line from a learner whose logit is
-doubled:
+The `evaluation` field is `out_of_fold` when the fit used more than one outer fold, and `in_sample`
+for a one-fold fit. The `loss_name` field is `log_loss`, `brier`, or `mse`, and the `loss` field
+holds the named value. Treatment and censoring rows report weighted negative log likelihood. An
+outcome row reports weighted Brier loss for a yes/no target, or mean squared error otherwise, and a
+pseudo-outcome row reports weighted mean squared error.
 
-```text
-propensity: the out-of-fold predictions are more extreme than the observed rates (calibration
-slope 0.50, 97.5% interval 0.44 to 0.56, AUC 0.756, largest untruncated inverse weight 220).
-Estimation noise can cause this even in a correctly specified model when the signal is weak or
-the model has many covariates. Review the learner before you change the model
-```
-
-| question | answer |
-| --- | --- |
-| what does a finding ask you to do? | review the learner. For the `propensity` model of a binary point treatment, `result.diagnostics.support()` describes the weights that model creates |
-| can a correct model warn? | yes. With a weak signal or many covariates, estimation noise can make out-of-fold predictions more extreme than the truth |
-| does a finding mean that the model is misspecified? | no. A misspecified logistic model with an intercept also has a population slope of 1, so the slope cannot detect it |
-| does a finding mean that the estimate is biased? | no. The rule measures the spread of the predictions and does not measure the estimate |
-| why is there no finding on an in-sample fit? | the report tests out-of-fold predictions only. A fit without cross-fitting has `nuisance.evaluation` equal to `in_sample`, and the report tests nothing there. An unpenalized logistic model with an intercept has an in-sample slope of exactly 1, so that slope says nothing about new rows |
-| why is a slope missing? | `nuisance["propensity"].calibration_omission` names the cause for that model, for example predictions that are constant within every fold. `nuisance.summary()` prints each cause under the table. `nuisance.to_frame()` has no column for it |
-
-The [calibration-slope study](../technical-reference/method-evidence/calibration-slope-warning.md)
-measures the rule's false-warning rate and its detection rate for a binary propensity.
-
-## Go deeper
-
-### More on rows that did not run
-
-Known omissions carry the capability's reason. Examples include an E-value without a supported
-contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
-because the fit refuses it before the report considers your request. A row that your request
-refuses is different. It records your arguments with the signature defaults filled in, and its
-reason names the refused value. An example is `truncation_curve` with `mechanism=False` on an
-incremental fit with missing outcomes.
-
-An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
-doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
-invocation arguments, and names the direct call. Other accepted diagnostics still run.
-
-Structural errors still stop the report. Examples are an invalid argument name, an unknown `refute`
-test, and a malformed `benchmark` request. An empty `covariates`, an indicator column of an encoded
-covariate, and an unknown covariate are malformed. A direct call raises the same error.
-
-### The model report
-
-For a longitudinal result, `nuisance.rows` covers every retained nuisance fit. Each fitted
-treatment and censoring model appears once per time node. Outcome and pseudo-outcome rows also
-identify their regimen, cause, and horizon when those fields apply.
-
-The `evaluation` field is `out_of_fold` when the fit used more than one outer fold. It is
-`in_sample` for a one-fold fit. The `loss_name` field is `log_loss`, `brier`, or `mse`. The `loss`
-field holds the named value.
-
-Treatment and censoring rows report weighted negative log likelihood. An outcome row reports
-weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
-reports weighted mean squared error.
-
-The `mse` field answers about node regressions alone. A treatment row and a censoring row report
-`nan` there. On a weighted fit the value averages under the observation weights.
-
-The nested `model` retains calibration and Super Learner details when the learner supplies them.
-`nuisance.omissions` retains typed reasons for unavailable mechanism rows, such as the censoring
-model of a fit with complete data.
-[Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality)
-lists every reason.
+The `mse` field answers about the outcome regressions alone, and a treatment row or a censoring row
+reports `nan` there. On a weighted fit the value averages under the observation weights. The nested
+`model` keeps calibration and Super Learner details when the learner supplies them.
+`nuisance.omissions` keeps a typed reason for each model row that is missing, such as the censoring
+model of a fit with complete data. [Nuisance model
+quality](../technical-reference/validation-methods.md#nuisance-model-quality) lists every reason.
 
 A categorical treatment row uses `kind="multinomial probability"` and an empty calibration table.
-The report does not convert top-class confidence into binary calibration for a privileged arm.
+The report does not turn the top class's predicted chance into a yes/no calibration for one favoured
+arm. A yes/no row reports `calibration_slope` and `calibration_slope_se`. An outcome or
+pseudo-outcome row with a continuous target reports its linear slope as `regression_slope`. The
+report of a treatment over time applies no calibration rule.
 
-A binary row reports `calibration_slope` and `calibration_slope_se`. An outcome or pseudo-outcome
-row with a continuous target reports its linear slope as `regression_slope`. The longitudinal
-report applies no calibration rule.
-
-`nuisance.selection` retains the complete C-TMLE selector or outcome-adaptive artifact. For these
-fits, `nuisance.treatment_role` is `collaborative_working_model`. The propensity values describe
-the selected denominator and not treatment given the complete adjustment set.
-
-The role drops the two claims that read a treatment law the fit never estimated: that an AUC below
-0.55 means overlap is excellent, and the calibration-slope finding. The report keeps every other
-claim it makes about the propensity, and
-[nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality)
-states the rule.
+On a collaborative TMLE fit or an outcome-adaptive fit, which choose the treatment model's
+covariates from the data, `nuisance.selection` keeps the whole record of that choice, and
+`nuisance.treatment_role` is `collaborative_working_model`. The propensity values then describe the
+chosen model, which predicts treatment from the chosen covariates only. The role drops the two
+claims that read a treatment model the fit never estimated: that an AUC below 0.55 means overlap is
+excellent, and the calibration-slope finding. The report keeps every other claim it makes about the
+propensity, and [nuisance model
+quality](../technical-reference/validation-methods.md#nuisance-model-quality) states the rule.
 
 ### Repeated cross-fitting
 
 A fit with `repeats` above 1 runs cross-fitting several times on new folds and combines the
-estimates. On such a fit, `nuisance.repeat_spread` contains one typed row per reported parameter.
-Each row gives `standard_deviation`, `reported_standard_error`, and `ratio_to_standard_error`.
+estimates. On such a fit, `nuisance.repeat_spread` contains one typed row per reported estimate,
+with `standard_deviation` (the spread across the repeats), `reported_standard_error`, and
+`ratio_to_standard_error`. The first two are on the scale the interval is built on: the log scale
+for `rr` and `or`, and the outcome scale otherwise, so the two are comparable. The ratio describes
+and carries no pass threshold.
 
-Both `standard_deviation` and `reported_standard_error` are on the inference scale of the estimand.
-That scale is the log scale for `rr` and `or`, and the outcome scale otherwise, so the two are
-comparable. The ratio stays descriptive and carries no pass threshold.
-
-Use `nuisance.repeat_spread_frame()` for a dataframe in the input backend. A one-draw fit retains no
+Use `nuisance.repeat_spread_frame()` for a dataframe in the input backend. A one-draw fit keeps no
 spread row. `nuisance.repeat_spread_omission` then names the cause, and every absent or non-finite
 spread gets its own machine-readable reason. A table cell with no finite value prints `-`.
 
-Nuisance models and C-TMLE selection describe draw 1. Split-spread rows read every retained draw.
-The model check states the scope in its header, as `Split shown: split 1 of 3`.
-
-A repeated longitudinal fit uses the same rows. `result.diagnostics.nuisance_models().repeat_spread`
-holds one row per reported parameter, and `result.repeat_spread()` returns the standard deviations
-alone. The nuisance rows describe draw 1, and the report records `n_repeats` and
-`reported_repeat`. The score report has one row per node and draw, with a `draw` column.
-
-The combined assessment row states the draw beside the C-TMLE selection fact alone. An ordinary
-repeated fit therefore carries no draw text in that row.
+The model rows and the collaborative selection describe draw 1, and the spread rows read every
+stored draw. The model check states the scope in its header, as `Split shown: split 1 of 3`. A
+repeated fit of a treatment over time uses the same rows:
+`result.diagnostics.nuisance_models().repeat_spread` holds one row per reported estimate,
+`result.repeat_spread()` returns the standard deviations alone, and the report records `n_repeats`
+and `reported_repeat`. Its score report has one row per node and draw, with a `draw` column. The
+combined report states the draw only beside the collaborative selection, so an ordinary repeated fit
+carries no draw text in that row.
 
 ### Weight load per score equation
 
-The `group_score_load` table reads each fitted score equation separately. For row $i$ and equation
-$j$, $w_i H_{ij}$ multiplies the targeted residual. The table summarizes its magnitude, not the
-residual contribution. The group row selects the equation with the smallest Kish load ratio among
-score-mask rows. Its `equation` field identifies that equation.
+The correction step solves one equation per estimate (a score equation). The `group_score_load`
+table reads each of them separately. For row $i$ and equation $j$, $w_i H_{ij}$ multiplies the row's
+residual after the correction step, and the table summarizes the size of that multiplier. The group
+row picks the equation whose weights concentrate most, the smallest Kish load ratio (the effective
+share of rows) among the rows the equation reads. Its `equation` field names it.
 
 ```python
 mean_load = support.group_score_load["mean"]
@@ -360,55 +476,55 @@ print("top 5% load share:", mean_load["top_5pct"])
 print("fitted bound:", (mean_load["lower_bound"], mean_load["upper_bound"]))
 ```
 
-Read this row as a concentration diagnostic. It is not an effective sample size for the estimate.
-It does not include the targeted residual, so it is not an influence contribution. `n_targeted`
-counts score-mask rows, including structural zeros in the selected equation. The row also does not
-prove or disprove population positivity.
+Read this row as a measure of how concentrated the weights are. It does not include the residual, so
+it describes neither the estimate's sample size nor any row's pull on the estimate. `n_targeted`
+counts the rows the equation reads, including rows whose term is zero by construction. The row also
+cannot prove or rule out overlap in the population.
 
 The overlap report provides these group rows for `mean`, `att`, `atc`, and `msm` fits. Regime,
-shift, and incremental fits return their own overlap reports instead, with the matching
-fitted equation in each policy row's `score_load`; read those rather than the generic positivity
-function. A longitudinal fit carries no load row. Missing-outcome and controlled-direct-effect
-fits add a product row for the combined denominator, and the report names each estimand that row
-does not describe.
-[Positivity and overlap](../technical-reference/validation-methods.md#positivity-and-overlap)
-gives the product row, the policy rows and each omission.
+shift, and incremental fits return their own overlap reports instead, with the matching fitted
+equation in each policy row's `score_load`. A fit of a treatment over time carries no load row.
+Missing-outcome and controlled-direct-effect fits add a product row for the combined denominator,
+and the report names each estimate that row does not describe. [Positivity and
+overlap](../technical-reference/validation-methods.md#positivity-and-overlap) gives the product row,
+the policy rows and each omission.
 
 ### The weight-cap curve
 
-`truncation_curve()` re-estimates at other caps on extreme weights. The operation varies a
-finite-sample regularisation choice. It does not change the requested estimand. Movement shows
-sensitivity to extrapolation in regions where estimated support is limited.
+`truncation_curve()` re-estimates at other caps on extreme weights. A cap is a choice made for a
+finite sample, and changing it leaves the question the same. A large movement shows that the
+estimate leans on rows whose predicted chances lie near 0 or 1, where the data hold few similar
+rows.
 
-The curve records `upper_bound`, the parameter-specific fitted bound pair and estimate, and
-`delta_from_fitted`. Its default grid contains each fitted pair exactly. An explicit `bounds=` grid
-keeps the requested grid cardinality and can therefore have no fitted marker. The fitted columns
-still name the configuration the grid omitted.
+The curve records `upper_bound`, the fitted limits and estimate of each parameter, and
+`delta_from_fitted`. Its default grid contains each fitted pair of limits exactly. An explicit
+`bounds=` grid keeps the number of limits you asked for and can therefore have no fitted marker; the
+fitted columns still name the limits it left out.
 
-A longitudinal curve has no default grid, so supply `bounds=`. A scalar `b` there means the pair
-`(b, 1)`, not `(b, 1 - b)`. Each row reruns the whole backward recursion under one fixed bound on
-the cumulative treatment and censoring probabilities, and reports no standard error or interval.
-Before the grid runs, a check at the fitted bound must reproduce every reported estimate exactly,
-or the operation is unavailable. The frame names the lower endpoint `lower_bound`, where the
-point-treatment frame names it `bound`.
-[Diagnostics](longitudinal.md#diagnostics) on the longitudinal page gives the rest, and
-[truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
-column table and the two counting rules.
+A curve of a treatment over time has no default grid, so supply `bounds=`. A single number `b` there
+means the pair `(b, 1)`. Each row reruns the whole backward recursion under one fixed bound on the
+cumulative treatment and censoring probabilities, and reports no standard error or interval. Before
+the grid runs, a check at the fitted bound must reproduce every reported estimate exactly, or the
+curve is unavailable. Its frame names the lower endpoint `lower_bound`, where the frame of a
+treatment given once names it `bound`. [Diagnostics](longitudinal.md#diagnostics) on the
+longitudinal page gives the rest, and [truncation
+stability](../technical-reference/validation-methods.md#truncation-stability) holds the column table
+and the two counting rules.
 
-`estimands=` restricts the rows to the parameters you name. Name a reported parameter, such as
-`ey[high]`, to select its own row. Name a registered target, such as `ey`, to select one row for
-each arm of that target the fit reports. The two forms coincide on a two-armed fit. The curve
-refuses any other name, and it refuses an empty selection.
+`estimands=` restricts the rows to the estimates you name. Name a reported estimate, such as
+`ey[high]`, to select its own row. Name a whole family, such as `ey`, to select one row for each arm
+the fit reports. The two forms coincide on a two-armed fit. The curve refuses any other name, and it
+refuses an empty selection.
 
-A combined report gives one signed movement range for each reported parameter or working-model
-coefficient. It measures that movement from the parameter's own fitted estimate. It also counts the
-parameters whose fitted pair the grid skipped. Read the fitted estimate and the fitted pair from the
-retained curve.
+A combined report gives one signed movement range for each reported estimate or working-model
+coefficient, measured from that estimate's own fitted value. It also counts the estimates whose
+fitted pair of limits the grid skipped. Read the fitted estimate and the fitted pair from the stored
+curve.
 
 ### Score equation tolerance
 
-`score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
-lives on. A point-treatment fit compares the score in the outcome’s own units against
-`tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity
-the sequential targeting loop itself gates on, and can only tighten the fit’s own convergence
-verdict rather than overturn it.
+`score_equations(tolerance=...)` sets how small each equation's error must be, on the scale each
+kind of fit uses. A fit of a treatment given once compares the error in the outcome's own units
+against `tolerance * se / sqrt(n)`. A fit of a treatment over time bounds each node's relative
+error, the same quantity its step-by-step correction loop checks, so the tolerance can only make the
+fit's own convergence check stricter.
