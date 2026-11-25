@@ -1566,6 +1566,11 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "regimens": _witness(EACH_DRAW, "ltmle"),
     "reference": _witness(EACH_DRAW, "ltmle"),
     "horizons": _witness(EACH_DRAW, "survival"),
+    "restricted_horizons": (
+        "tests.unit.test_restricted_mean_estimand",
+        "test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means",
+        None,
+    ),
     "msm": _witness(EACH_DRAW, "msm"),
     "outcome_learner": _witness(EACH_DRAW, "ltmle"),
     "pseudo_learner": _witness(EACH_DRAW, "sdr"),
@@ -1654,6 +1659,21 @@ _REFUTE = _witness("test_refute_reruns_every_draw_with_its_own_seed")
 RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "estimates": _witness("test_point_is_the_median_of_draws"),
     "bootstrap_band": _witness("test_repeats_refuse_the_bootstrap"),
+    "restricted_horizons": (
+        "tests.unit.test_restricted_mean_estimand",
+        "test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means",
+        None,
+    ),
+    "restricted_index": (
+        "tests.unit.test_restricted_mean_estimand",
+        "test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means",
+        None,
+    ),
+    "restricted_weights": (
+        "tests.unit.test_restricted_mean_estimand",
+        "test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means",
+        None,
+    ),
     "simulation": (
         "tests.unit.test_sequential_baselines_repeats",
         "test_a_baseline_refuses_repeats_above_one",

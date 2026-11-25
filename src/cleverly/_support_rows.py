@@ -4332,6 +4332,9 @@ _LONG_BOOTSTRAP: Final[frozenset[Kind]] = frozenset(
 )
 #: The bootstrap kinds of a row that no band cell measures (``BAND_CELLS``).
 _LONG_BOOTSTRAP_UNBANDED: Final[frozenset[Kind]] = _LONG_BOOTSTRAP - {"band"}
+#: The kinds of a row whose cells measured a restricted mean level and its difference.
+_RESTRICTED_DIFFERENCE: Final[frozenset[Kind]] = frozenset({"restricted_mean_difference"})
+_RESTRICTED: Final[frozenset[Kind]] = frozenset({"restricted_mean", "restricted_mean_difference"})
 _TWO: Final[tuple[str, ...]] = ("2", "2")
 _OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
     {"end_of_study", "survival", "competing", "repeated"}
@@ -4685,8 +4688,13 @@ def _long_rows() -> tuple[SupportRow, ...]:
             [boot],
             outcome_kind="survival",
             treatment=("2",) * 4,
-            kinds=_LONG_BOOTSTRAP_UNBANDED,
-            cells=["boot_risk2_survival", "boot_risk4_survival", "rmst_survival"],
+            kinds=_LONG_BOOTSTRAP_UNBANDED | _RESTRICTED,
+            cells=[
+                "boot_risk2_survival",
+                "boot_risk4_survival",
+                "rmst_survival",
+                "rmst_contrast_survival",
+            ],
         ),
         long_row(
             "G12",
@@ -4702,8 +4710,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             treatment=("2",) * 4,
             splitting=xf,
-            kinds=_LONG_DERIVED,
-            cells=["rmst_crossfit"],
+            kinds=_LONG_DERIVED | _RESTRICTED,
+            cells=["rmst_crossfit", "rmst_contrast_crossfit"],
         ),
         long_row(
             "G13.in_sample",
@@ -4728,7 +4736,9 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             held=True,
             treatment=("2",) * 5,
-            kinds=_LONG_BAND,
+            # ``rmst_5`` is the RMST difference at visit 5, so the row licenses the restricted
+            # mean difference and not a level.
+            kinds=_LONG_BAND | _RESTRICTED_DIFFERENCE,
             cells=["survival_t5", "rmst_5"],
         ),
         long_row(

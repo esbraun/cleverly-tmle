@@ -200,6 +200,13 @@ efficiency ratio of 1.000 and a coverage of 0.957. The diagnosis finds no defect
 replications the interval reaches past the band from a point of 1.027. By the declared route the
 cell stays red under `reporting`, with the owner row `X13-finite-sample`.
 
+The `rmst_5` cell is the only cell that licenses a restricted mean on this design. Support row
+`G14.survival` lists the `restricted_mean_difference` kind on its strength, so the RMST difference
+up to visit 5 of an in-sample `LTMLE` fit on the held design reads `supported`, whether it is
+computed with `result.rmst(arm, tau, versus=reference)` or stored by
+`RegimeContrast(..., restricted_horizons=(tau,))`. No cell measures a single arm's RMST, and a
+bias common to both arms cancels in a difference, so a level reads `experimental`.
+
 ## Measured values
 
 Names beginning `margin:` are thresholds declared before the run. Everything else is measured from

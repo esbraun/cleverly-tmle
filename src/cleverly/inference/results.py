@@ -466,6 +466,7 @@ def smooth_contrast(
     scale: Scale = "difference",
     gradient: Callable[[FloatArray], FloatArray] | None = None,
     transform: Transform | None = None,
+    support_kind: Kind = "derived",
 ) -> ParameterEstimate:
     """Apply the delta method to a smooth function of jointly estimated parameters.
 
@@ -491,6 +492,10 @@ def smooth_contrast(
     ``transform=Transform.log()``. Both stay, because every registered ``rr`` and ``or``
     estimate stores ``log_psi``, and saved frames name it. A test pins that the two give
     the same standard error, interval and p-value.
+
+    ``support_kind`` is the kind every input's support row must license
+    (:func:`~cleverly._support.combine_support`): ``"derived"`` for a ratio or a contrast,
+    and a restricted-mean kind for a restricted mean of a binned survival curve.
     """
     check_transform_scale(scale, transform)
     chosen = select_estimates(estimates, names)
@@ -539,7 +544,7 @@ def smooth_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
-        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
+        support=combine_support((estimates[key].support for key in chosen), kind=support_kind),
         outcome_family=shared_family([estimates[key] for key in chosen]),
         rule_widened=any(estimates[key].rule_widened for key in chosen),
     )
@@ -1429,6 +1434,7 @@ def linear_functional(
     alpha: float = 0.05,
     name: str,
     scale: Scale,
+    support_kind: Kind = "derived",
 ) -> ParameterEstimate:
     r"""A constant plus a weighted sum of estimates, with its exact influence curve.
 
@@ -1454,6 +1460,11 @@ def linear_functional(
         The name of the derived estimate.
     scale : {"level", "difference", "ratio", "fraction"}
         The reported scale of the derived estimate.
+    support_kind : str, default="derived"
+        A member of :data:`cleverly._support.Kind`: the kind the support rows of the inputs
+        must license. A restricted mean of a binned survival curve passes
+        ``"restricted_mean"``, and the difference of two regimens' restricted means
+        ``"restricted_mean_difference"``.
 
     Returns
     -------
@@ -1479,6 +1490,7 @@ def linear_functional(
         name=name,
         scale=scale,
         gradient=gradient,
+        support_kind=support_kind,
     )
 
 
