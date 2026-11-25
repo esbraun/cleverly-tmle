@@ -8,8 +8,7 @@ replicate columns a row records ``withheld`` (the estimate withheld its interval
 the fit then reads a miss) and ``sl_single`` (every outcome Super Learner of the fit put at
 least 0.999 of its weight on one candidate).
 
-The declared rules (plan X54 rev 3.2, sections 3.6 and 5.4, review findings B3 and N3, and
-the S-h design review: M1, M2). The gated fits are stacked ``TMLE`` and cross-fitted ``LTMLE``
+The declared rules. The gated fits are stacked ``TMLE`` and cross-fitted ``LTMLE``
 (:data:`~tests.studies.few_cluster_adaptive_learners.POSITIVE_FITS`); the in-sample
 default-library fit takes the ``adaptive_nuisance`` shortfall by theory, so its rows, its IID
 control and the interpolating control are reported and gate nothing.
@@ -43,7 +42,7 @@ control (:data:`~tests.studies.few_cluster_adaptive_learners.MUST_FAIL_OF`) pass
 coverage, the withheld share, the variance ratio and its interval, the median and largest SE
 in empirical-SD units, the Super Learner single-candidate share, the over-coverage reading and
 the paired all-draw coverage difference to its GLM arm with its exact lower end, on L1, L2 and
-L3 alike (design review M2).
+L3 alike.
 
 The ``coverage floor`` clause has no perturbation of its own in the property differential: it
 is bound by the reason "implied by: shown coverage lower end"
@@ -52,12 +51,13 @@ shown coverage, with :math:`w` the withheld share, so a shown lower end of 0.92 
 all-draw lower end of 0.90 only while :math:`w` stays at about 0.02 or less. The pilot withholds
 nothing. The differential re-checks the reason on every perturbation of the committed rows, and
 a row where the floor fails while the shown clause passes refutes it, which fails the
-differential and requires a binding (design review m1).
+differential and requires a binding.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 import numpy as np
@@ -107,9 +107,9 @@ STUDY = study.STUDY
 FAMILY: Final[str] = study.FAMILY
 PROPERTY_REPLICATES: Final[int] = study.PROPERTY_REPLICATES
 
-#: The variance-ratio floor: an SE ratio of 0.93, squared (plan 5.4, B3).
+#: The variance-ratio floor: an SE ratio of 0.93, squared.
 VARIANCE_RATIO_FLOOR: Final[float] = 0.93**2
-#: The shown-only coverage floor, the lower leg of the calibration band (plan 5.4, N3).
+#: The shown-only coverage floor, the lower leg of the calibration band.
 SHOWN_COVERAGE_FLOOR: Final[float] = 0.92
 #: The paired non-inferiority margin on all-draw coverage against the GLM baseline (B3).
 NONINFERIORITY_MARGIN: Final[float] = -0.02
@@ -200,7 +200,7 @@ def variance_ratio_interval(
     r""":math:`\overline{\hat\sigma^2}/\widehat{\mathrm{Var}}(\hat\psi)` and its percentile interval.
 
     The bootstrap resamples replicates jointly, each draw carrying its estimate and its standard
-    error, so the interval reads the dependence between them (plan 4.3).
+    error, so the interval reads the dependence between them.
     """
     estimates = np.asarray(estimates, dtype=float)
     std_errors = np.asarray(std_errors, dtype=float)
@@ -249,7 +249,7 @@ def paired_counts(positive: pd.DataFrame, glm: pd.DataFrame) -> dict[str, int]:
 def lost_counts(positive: pd.DataFrame, glm: pd.DataFrame, requested: int) -> dict[str, int]:
     """:func:`paired_counts` over every requested replicate, at the worst fill of a lost fit.
 
-    A lost default-library fit reads a miss and a lost GLM fit a cover (the S7 candidate), so
+    A lost default-library fit reads a miss and a lost GLM fit a cover (the S7g candidate), so
     every lost fit can only move the difference against the default library.
     """
     mine = dict(zip(positive["replicate"], positive["covered"] > 0, strict=True))
@@ -332,7 +332,7 @@ def fit_rows(
         else:  # pragma: no cover - ARMS names every arm
             raise KeyError(arm)
         if not shown:
-            # A withheld interval is a miss in every arm of the fit (plan 3.6).
+            # A withheld interval is a miss in every arm of the fit.
             row["covered"] = 0
             row["rejected"] = 0
         rows.append({**row, **extra})
@@ -379,20 +379,45 @@ def keys(replicates: int) -> list[_Key]:
     return sorted(out, key=lambda key: (weight.get(key[3], 1), -key[1]))
 
 
+def _estimand(fit: str) -> str:
+    """The name a cell of ``fit`` reports its estimate under."""
+    return "ate" if fit not in study.LTMLE_FITS else "ate_regimen[always vs never]"
+
+
+@dataclass(frozen=True)
+class CellLaw:
+    """The law of a published cell as the shared cell checks read it: a name and its truth.
+
+    Parameters
+    ----------
+    name : str
+        The law, as :data:`tests.studies.few_cluster_adaptive_learners.DRAW_CELLS` names it.
+    estimand : str
+        The name the cell reports its estimate under.
+    """
+
+    name: str
+    estimand: str
+
+    def truth(self) -> dict[str, float]:
+        """The law's exact truth under the cell's estimand (:func:`study.law_truth`)."""
+        return {self.estimand: study.law_truth(self.name)}
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every published cell, with its law, its role and the root of its stream."""
     return tuple(
         PropertyCell(
             property=FAMILY,
             cell=study.cell_name(fit, law, clusters, arm),
-            dgp=law,
+            dgp=CellLaw(law, _estimand(fit)),
             outcome_learner=lambda: None,
             treatment_learner=lambda: None,
             n=study.CLUSTER_SIZE[law] * clusters,
             replicates=PROPERTY_REPLICATES,
             seed=_seed(law, clusters, 0),
             role=role,
-            estimand="ate" if fit not in study.LTMLE_FITS else "ate_regimen[always vs never]",
+            estimand=_estimand(fit),
         )
         for law, clusters in study.DRAW_CELLS
         for fit in study.fits_of(law)
@@ -691,7 +716,7 @@ def _ni_read(ctx: Context, row: pd.Series) -> Judged:
 
 
 def _ni_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-    """A lost default-library fit at ``covered = 0``, a lost GLM fit at ``covered = 1`` (S7)."""
+    """A lost default-library fit at ``covered = 0``, a lost GLM fit at ``covered = 1`` (S7g)."""
     cell = str(row["cell"])
     positive = ctx.cell(FAMILY, cell)
     glm = ctx.cell(FAMILY, glm_cell(cell))
@@ -751,7 +776,7 @@ PROPERTY_RULES = (
             ),
             Clause(
                 "paired non-inferiority",
-                "S7",
+                "S7g",
                 _ni_applies,
                 _ni_read,
                 _ni_candidates,
@@ -782,99 +807,11 @@ PROPERTY_RULES = (
 )
 
 
-def failed_clauses(row: pd.Series, *, gated_noninferiority: bool = False) -> frozenset[str]:
-    """The caveat clauses a summary row fails, under the declared interval rules.
+def caveat_outcomes(summary: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Each positive configuration's clause readings and caveat, keyed by its cell.
 
-    ``g1``: the exact 99% coverage lower end below 0.90; ``g2``: the bias not equivalent;
-    ``variance_ratio``: the 99% lower end below 0.8649; ``shown_coverage``: the exact 99% shown
-    lower end below 0.92; ``noninferiority``, on a row that carries it: the paired lower end at
-    or below -0.02.
-    """
-    floor = STUDY.margins.coverage_floor
-    out = set()
-    if not float(row["coverage_ci_lower"]) >= floor:
-        out.add("g1")
-    if not bool(row["bias_equivalent"]):
-        out.add("g2")
-    if not float(row["variance_ratio_ci_lower"]) >= VARIANCE_RATIO_FLOOR:
-        out.add("variance_ratio")
-    if not float(row["shown_ci_lower"]) >= SHOWN_COVERAGE_FLOOR:
-        out.add("shown_coverage")
-    if gated_noninferiority and not float(row["noninferiority_lower"]) > NONINFERIORITY_MARGIN:
-        out.add("noninferiority")
-    return frozenset(out)
-
-
-def _glm_failed_at_worst_fill(
-    glm: pd.Series, glm_rows: pd.DataFrame, requested: int
-) -> frozenset[str]:
-    """The clauses the GLM arm fails with each lost GLM fit read as a cover.
-
-    The fill that favours the GLM arm passing, so a lost GLM fit can only move a red toward
-    :data:`~tests.studies.few_cluster_adaptive_learners.LIBRARY_READING`. The variance ratio and
-    the bias have no such fill and are read on the fits the arm kept.
-    """
-    failed = set(failed_clauses(glm))
-    level = STUDY.margins.confidence_level
-    lost = max(requested - len(glm_rows), 0)
-    if lost:
-        hits = int((glm_rows["covered"] > 0).sum())
-        shown = _shown(glm_rows)
-        shown_hits = int((shown["covered"] > 0).sum())
-        all_low = clopper_pearson(hits + lost, requested, confidence_level=level).low
-        shown_low = clopper_pearson(
-            shown_hits + lost, len(shown) + lost, confidence_level=level
-        ).low
-        failed.discard("g1")
-        failed.discard("shown_coverage")
-        if all_low < STUDY.margins.coverage_floor:
-            failed.add("g1")
-        if shown_low < SHOWN_COVERAGE_FLOOR:
-            failed.add("shown_coverage")
-    return frozenset(failed)
-
-
-def red_reading(summary: pd.DataFrame, rows: pd.DataFrame, cell: str) -> str | None:
-    """The declared no-defect reading of a positive row, or ``None`` when it passes.
-
-    The row reads :data:`~tests.studies.few_cluster_adaptive_learners.SHARED_READING` when both
-    hold: the exact 99% lower end of its paired all-draw coverage difference to its GLM arm on
-    the same draws is above the non-inferiority margin, at the worst fill (a lost default fit a
-    miss, a lost GLM fit a cover; :func:`lost_counts`); and the GLM arm fails every clause the
-    row fails (:func:`failed_clauses`, the GLM's lost fits read as covers). A shared red that
-    fails G1 or G2 reads
-    :data:`~tests.studies.few_cluster_adaptive_learners.PARAMETRIC_READING`: the parametric row
-    fails the floor reading too. Every other red reads
-    :data:`~tests.studies.few_cluster_adaptive_learners.LIBRARY_READING`. A code defect is
-    diagnosed before any reading; this function reads what is left when none is found.
-    """
-    family = summary.loc[summary["property"] == FAMILY].set_index("cell")
-    row = family.loc[cell]
-    if str(row["role"]) != "positive":
-        raise ValueError(f"{cell} is not a positive row")
-    if bool(row["passed"]):
-        return None
-    mine = failed_clauses(row, gated_noninferiority=noninferiority_gated(cell))
-    requested = int(row["requested_replicates"])
-    positive_rows = _cell_rows(rows, cell)
-    glm_rows = _cell_rows(rows, glm_cell(cell))
-    counts = lost_counts(positive_rows, glm_rows, requested)
-    paired = mcnemar_lower(
-        counts["gained"], counts["lost"], counts["trials"], STUDY.margins.confidence_level
-    )
-    theirs = _glm_failed_at_worst_fill(family.loc[glm_cell(cell)], glm_rows, requested)
-    shared = paired > NONINFERIORITY_MARGIN and (mine - {"noninferiority"}) <= theirs
-    if not shared:
-        return study.LIBRARY_READING
-    if mine & {"g1", "g2"}:
-        return study.PARAMETRIC_READING
-    return study.SHARED_READING
-
-
-def caveat_outcomes(summary: pd.DataFrame, rows: pd.DataFrame) -> dict[str, dict[str, Any]]:
-    """Each positive configuration's clause readings, caveat and red reading, keyed by its cell.
-
-    The input of the declared consequences of plan section 5.8 at registration.
+    The input of the declared consequences at registration: a configuration whose every row
+    removes its caveat takes no ``adaptive_nuisance`` shortfall.
     """
     out: dict[str, dict[str, Any]] = {}
     family = summary.loc[(summary["property"] == FAMILY) & (summary["role"] == "positive")]
@@ -888,7 +825,6 @@ def caveat_outcomes(summary: pd.DataFrame, rows: pd.DataFrame) -> dict[str, dict
             if noninferiority_gated(str(row["cell"]))
             else None,
             "caveat_removed": bool(row["caveat_removed"]),
-            "reading": red_reading(summary, rows, str(row["cell"])),
         }
     return out
 
@@ -898,6 +834,5 @@ __all__: Sequence[str] = (
     "caveat_outcomes",
     "declared_cells",
     "generate_property_rows",
-    "red_reading",
     "summarize_properties",
 )

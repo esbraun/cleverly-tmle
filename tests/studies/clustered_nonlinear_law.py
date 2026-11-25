@@ -12,7 +12,7 @@ within the cluster and hidden from the fit, with the arm-by-latent coefficient 8
         + 0.3 W_2 + (0.6 + 8 a) U.
 
 A main-terms GLM in :math:`(A, W_1, W_2)` is misspecified for both nuisances, while the
-default learner library can fit the curvature (plan X54 section 5.4). The propensity stays in
+default learner library can fit the curvature. The propensity stays in
 :math:`[0.017, 0.84]` for :math:`|W_1| \le 3` and :math:`|W_2| \le 2`.
 
 **Truth.** Given the arm, the latent enters the logit linearly, so

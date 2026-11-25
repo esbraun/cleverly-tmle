@@ -44,7 +44,7 @@ def test_the_record_publishes_every_declared_cell() -> None:
     assert len(declared) == 64
     roles = {cell.cell: cell.role for cell in properties.declared_cells()}
     positives = {name for name, role in roles.items() if role == "positive"}
-    # 2 point laws x 3 counts of stacked TMLE, and the cross-fitted LTMLE cell (design review M2).
+    # 2 point laws x 3 counts of stacked TMLE, and the cross-fitted LTMLE cell.
     assert positives == {
         name
         for name in declared
@@ -65,18 +65,23 @@ def test_the_record_publishes_every_declared_cell() -> None:
 
 
 def test_the_seeds_are_the_study_s_own() -> None:
-    seeds = {s for record in registered() for s in (record.seed, record.resampling_seed)}
+    seeds = {
+        s
+        for record in registered()
+        if record.slug != study.STUDY.slug
+        for s in (record.seed, record.resampling_seed)
+    }
     own = {study.SEED, study.RESAMPLING_SEED, pilot.PILOT_SEED}
     assert not own & seeds
     assert len(own) == 3
 
 
-def test_declared_and_not_yet_registered() -> None:
+def test_registered_with_its_declared_run() -> None:
     from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
-    assert study.STUDY.slug not in {record.slug for record in registered()}
-    assert not study.STUDY.artifact("property-replicates.parquet").exists()
-    assert properties.__name__ in UNCOMMITTED_MODULES
+    assert study.STUDY.slug in {record.slug for record in registered()}
+    assert study.STUDY.artifact("property-replicates.parquet").exists()
+    assert properties.__name__ not in UNCOMMITTED_MODULES
     assert study.STUDY.publication_policy == "reporting"
     assert properties.FAILURE_BOUND == 0.01
     assert study.STUDY.failure_bound == {"cleverly": 0.01}
@@ -186,7 +191,7 @@ def test_the_full_sample_forest_predicts_validation_rows_from_the_full_sample() 
 
 
 def test_the_stacked_control_shrinks_the_residuals_without_removing_them() -> None:
-    """Design review M1: the residuals shrink well below an honest fit's but do not vanish.
+    """The residuals shrink well below an honest fit's but do not vanish.
 
     An interpolating tree leaves every residual at 0, so the fluctuation step and the
     propensity drop out and the stacked control repeats the in-sample one. The forest's
@@ -208,7 +213,7 @@ def test_the_full_sample_forest_refuses_a_design_that_is_not_its_own() -> None:
 
 
 def test_the_two_controls_differ_on_a_draw() -> None:
-    """The stacked control no longer repeats the interpolating one (design review M1)."""
+    """The stacked control no longer repeats the interpolating one."""
     frame = study.draw("equal10", 20, 7)
     stacked = study.fit_one("stacked_control", frame).estimate
     interpolating = study.fit_one("interpolating_control", frame).estimate
@@ -339,7 +344,7 @@ def test_each_positive_clause_fails_its_row(column: str, value: object) -> None:
 
 
 def test_a_reported_in_sample_row_gates_nothing() -> None:
-    """Design review M2: the in-sample row reads red values and still states no verdict."""
+    """The in-sample row reads red values and still states no verdict."""
     summary = _passing_summary()
     properties.adaptive_verdicts(summary)
     reported = summary.loc[summary["cell"] == REPORTED].iloc[0]
@@ -351,7 +356,7 @@ def test_a_reported_in_sample_row_gates_nothing() -> None:
 
 
 def test_the_coverage_floor_is_implied_only_at_a_small_withheld_share() -> None:
-    """Design review m1: the binding reason holds while few intervals are withheld.
+    """The binding reason holds while few intervals are withheld.
 
     At 4,000 draws and shown coverage 0.95 the shown lower end clears 0.92. With no interval
     withheld the all-draw lower end clears 0.90 too; with 5% withheld it does not, so there the
@@ -433,211 +438,6 @@ def test_a_lost_fit_reads_against_the_default_library() -> None:
     glm = _paired([1] * 10, [0] * 10)
     assert properties.lost_counts(positive, glm, 10) == {"trials": 10, "gained": 0, "lost": 1}
     assert properties.lost_counts(glm, positive, 10) == {"trials": 10, "gained": 0, "lost": 0}
-
-
-# ------------------------------------------------------------------------- the red reading
-
-DRAWS = 4_000
-GLM_OF_POSITIVE = properties.glm_cell(POSITIVE)
-GLM_OF_NONLINEAR = properties.glm_cell(NONLINEAR)
-
-
-def _arm_rows(cell: str, covered: np.ndarray) -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "property": study.FAMILY,
-            "cell": cell,
-            "replicate": np.arange(covered.size),
-            "covered": covered.astype(int),
-            "withheld": 0,
-        }
-    )
-
-
-def _pairs(gained: int, lost: int, both_miss: int = 300) -> tuple[np.ndarray, np.ndarray]:
-    """Paired cover indicators: ``gained`` draws the default arm covers alone, ``lost`` the GLM
-    arm alone, ``both_miss`` neither."""
-    mine = np.ones(DRAWS, dtype=bool)
-    theirs = np.ones(DRAWS, dtype=bool)
-    mine[:both_miss] = theirs[:both_miss] = False
-    theirs[both_miss : both_miss + gained] = False
-    mine[both_miss + gained : both_miss + gained + lost] = False
-    return mine, theirs
-
-
-def _reading_case(
-    cell: str,
-    glm: str,
-    gained: int,
-    lost: int,
-    mine: dict[str, object],
-    theirs: dict[str, object],
-    glm_kept: int = DRAWS,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """A summary of one red positive row and its GLM arm, and their paired rows."""
-    passing = {
-        "coverage_ci_lower": 0.93,
-        "bias_equivalent": True,
-        "variance_ratio_ci_lower": 0.95,
-        "shown_ci_lower": 0.93,
-        "noninferiority_lower": -0.005,
-        "requested_replicates": DRAWS,
-    }
-    summary = pd.DataFrame(
-        [
-            {"property": study.FAMILY, "cell": cell, "role": "positive", "passed": False}
-            | passing
-            | mine,
-            {"property": study.FAMILY, "cell": glm, "role": "diagnostic", "passed": True}
-            | passing
-            | theirs,
-        ]
-    )
-    covered, glm_covered = _pairs(gained, lost)
-    rows = pd.concat(
-        [_arm_rows(cell, covered), _arm_rows(glm, glm_covered).iloc[:glm_kept]],
-        ignore_index=True,
-    )
-    return summary, rows
-
-
-def test_both_arms_under_the_shown_floor_read_shared() -> None:
-    summary, rows = _reading_case(
-        NONLINEAR,
-        GLM_OF_NONLINEAR,
-        gained=50,
-        lost=55,
-        mine={"shown_ci_lower": 0.915},
-        theirs={"shown_ci_lower": 0.912},
-    )
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.SHARED_READING
-
-
-def test_a_paired_deficit_past_the_margin_reads_library() -> None:
-    summary, rows = _reading_case(
-        NONLINEAR,
-        GLM_OF_NONLINEAR,
-        gained=20,
-        lost=120,
-        mine={"shown_ci_lower": 0.905},
-        theirs={"shown_ci_lower": 0.912},
-    )
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
-
-
-def _counterexample() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Design confirmation B1: the default row is red on shown coverage (0.917) while its GLM
-    arm passes (0.928), and the paired difference (-0.010) clears the margin."""
-    return _reading_case(
-        NONLINEAR,
-        GLM_OF_NONLINEAR,
-        gained=50,
-        lost=90,
-        mine={"shown_ci_lower": 0.917},
-        theirs={"shown_ci_lower": 0.928},
-    )
-
-
-def test_a_red_the_glm_arm_does_not_share_reads_library() -> None:
-    summary, rows = _counterexample()
-    counts = properties.lost_counts(
-        rows.loc[rows["cell"] == NONLINEAR], rows.loc[rows["cell"] == GLM_OF_NONLINEAR], DRAWS
-    )
-    paired = properties.mcnemar_lower(counts["gained"], counts["lost"], counts["trials"])
-    assert paired > properties.NONINFERIORITY_MARGIN
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
-
-
-def test_mutation_without_the_clause_match_the_counterexample_reads_shared(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Dropping the clause-matched conjunct turns the counterexample's reading."""
-    every = frozenset({"g1", "g2", "variance_ratio", "shown_coverage"})
-    monkeypatch.setattr(properties, "_glm_failed_at_worst_fill", lambda *_: every)
-    summary, rows = _counterexample()
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.SHARED_READING
-
-
-def test_a_variance_ratio_red_the_glm_arm_passes_reads_library() -> None:
-    summary, rows = _reading_case(
-        NONLINEAR,
-        GLM_OF_NONLINEAR,
-        gained=50,
-        lost=55,
-        mine={"variance_ratio_ci_lower": 0.84},
-        theirs={"shown_ci_lower": 0.912},
-    )
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
-
-
-def test_a_shared_floor_red_is_a_finding_against_the_parametric_row() -> None:
-    """Design confirmation B5: both arms under the G1 floor read against the parametric row."""
-    summary, rows = _reading_case(
-        POSITIVE,
-        GLM_OF_POSITIVE,
-        gained=50,
-        lost=55,
-        mine={"coverage_ci_lower": 0.895, "shown_ci_lower": 0.895},
-        theirs={"coverage_ci_lower": 0.893, "shown_ci_lower": 0.893},
-    )
-    assert properties.red_reading(summary, rows, POSITIVE) == study.PARAMETRIC_READING
-    assert study.READING_OWNERS[study.PARAMETRIC_READING] == study.PARAMETRIC_OWNER
-
-
-def test_a_passing_row_has_no_reading() -> None:
-    summary, rows = _reading_case(POSITIVE, GLM_OF_POSITIVE, gained=50, lost=55, mine={}, theirs={})
-    summary.loc[summary["cell"] == POSITIVE, "passed"] = True
-    assert properties.red_reading(summary, rows, POSITIVE) is None
-
-
-def test_lost_glm_fits_read_as_covers_so_a_shared_red_turns_library() -> None:
-    """Design confirmation m4: the worst fill lets a lost GLM fit only lift the GLM arm.
-
-    The GLM arm fails the shown floor on the fits it kept; with its 400 lost fits read as covers
-    its lower end clears 0.92, so it no longer shares the default row's red."""
-    mine, theirs = _pairs(50, 55, both_miss=220)
-    lost = 400
-    kept = DRAWS - lost
-    hits = int(theirs[:kept].sum())
-    assert properties.clopper_pearson(hits, kept, confidence_level=0.99).low < 0.92
-    assert properties.clopper_pearson(hits + lost, DRAWS, confidence_level=0.99).low >= 0.92
-    summary = pd.DataFrame(
-        [
-            {
-                "property": study.FAMILY,
-                "cell": NONLINEAR,
-                "role": "positive",
-                "passed": False,
-                "coverage_ci_lower": 0.93,
-                "bias_equivalent": True,
-                "variance_ratio_ci_lower": 0.95,
-                "shown_ci_lower": 0.915,
-                "noninferiority_lower": 0.0,
-                "requested_replicates": DRAWS,
-            },
-            {
-                "property": study.FAMILY,
-                "cell": GLM_OF_NONLINEAR,
-                "role": "diagnostic",
-                "passed": True,
-                "coverage_ci_lower": 0.93,
-                "bias_equivalent": True,
-                "variance_ratio_ci_lower": 0.95,
-                "shown_ci_lower": 0.915,
-                "noninferiority_lower": 0.0,
-                "requested_replicates": DRAWS,
-            },
-        ]
-    )
-    rows = pd.concat(
-        [_arm_rows(NONLINEAR, mine), _arm_rows(GLM_OF_NONLINEAR, theirs).iloc[:kept]],
-        ignore_index=True,
-    )
-    assert properties.red_reading(summary, rows, NONLINEAR) == study.LIBRARY_READING
-    full = pd.concat(
-        [_arm_rows(NONLINEAR, mine), _arm_rows(GLM_OF_NONLINEAR, theirs)], ignore_index=True
-    )
-    assert properties.red_reading(summary, full, NONLINEAR) == study.SHARED_READING
 
 
 def test_shown_coverage_sees_a_variance_ratio_carried_by_outliers() -> None:
@@ -733,43 +533,53 @@ def test_the_predicted_pass_probabilities_are_the_pilot_s(readings: pd.DataFrame
         assert gated[cell] == pytest.approx(value, abs=5e-4), cell
 
 
-def test_the_predicted_reds_and_their_owner(pilot_rows: pd.DataFrame) -> None:
+def test_the_predicted_reds(pilot_rows: pd.DataFrame) -> None:
     """Both rules name the same rows: predictive below 0.50, and plug-in below 0.90."""
-    from tests.studies.evidence.red_cells import owner_ids
-
     positives = [c for c, r in _roles().items() if r == "positive"]
     predictive = {c for c in positives if study.PREDICTED_PASS[c] < study.PREDICTED_RED_BELOW}
     plug_in = {c for c in positives if pilot.plug_in_pass(pilot_rows, c) < 0.90}
     assert predictive == plug_in == set(study.PREDICTED_REDS)
-    ids = owner_ids()
-    assert study.RED_OWNER in ids and study.PARAMETRIC_OWNER in ids
-    assert set(study.READING_OWNERS.values()) <= set(ids)
-    # The ledger keys, with the IID control each red positive takes by its group's joint clause.
-    groups = {cell: group for group in properties.PROPERTY_GROUPS[study.FAMILY] for cell in group}
-    expected = set()
-    for cell in study.PREDICTED_REDS:
-        judged = {c for c in groups[cell] if _roles()[c] != "diagnostic"}
-        assert judged == {cell, properties.iid_cell(cell)}
-        expected |= {study.red_key(c) for c in judged}
-    assert set(study.PREDICTED_RED_OWNERS) == expected
-    assert set(study.PREDICTED_RED_OWNERS.values()) == {study.RED_OWNER}
-    assert all(key.slug == study.STUDY.slug for key in expected)
     # Every control is predicted to do its job.
     controls = [c for c, r in _roles().items() if r == "control"]
     assert min(study.PREDICTED_PASS[c] for c in controls) >= 0.98
 
 
-def test_every_registered_red_row_has_its_declared_owner() -> None:
-    """The forward link the ledger's ``CLAIMS`` entry cannot be before registration."""
-    if study.STUDY.slug not in {record.slug for record in registered()}:
-        pytest.skip("few-cluster-adaptive-learners is not registered yet")
+def _committed_summary() -> pd.DataFrame:
+    return pd.read_csv(study.STUDY.artifact("properties.csv"))
+
+
+def test_the_registered_run_has_no_red_row() -> None:
+    """The predicted reds passed, so the study holds no row in the red-cell ledger."""
     from tests.studies.evidence import red_cells
 
-    rows = red_cells.red_rows(study.STUDY, red_cells.frames(study.STUDY))
-    red = {row.key for row in rows}
-    assert red
-    for key in red:
-        assert red_cells.OWNERS[key] in set(study.READING_OWNERS.values()), key
+    assert red_cells.red_rows(study.STUDY, red_cells.frames(study.STUDY)) == []
+    summary = _committed_summary()
+    assert summary["passed"].all()
+    assert int(summary["failed_replicates"].sum()) == 0
+    for cell in study.PREDICTED_REDS:
+        assert bool(summary.set_index("cell").loc[cell, "passed"]), cell
+
+
+def test_every_gated_configuration_removes_its_caveat() -> None:
+    """The declared consequence of a run where every clause passes: no shortfall anywhere.
+
+    Each stacked count of both laws and the cross-fitted ``LTMLE`` cell remove the caveat, so
+    no configuration takes an ``adaptive_nuisance`` shortfall and the in-sample sentence alone
+    stays (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`).
+    """
+    summary = _committed_summary()
+    outcomes = properties.caveat_outcomes(summary)
+    expected = {
+        study.cell_name("tmle_stacked", law, clusters, "t_reference")
+        for law in study.POINT_LAWS
+        for clusters in study.COUNTS[law]
+    } | {study.cell_name("ltmle_crossfit", study.LTMLE_LAW, 20, "t_reference")}
+    assert set(outcomes) == expected
+    for cell, outcome in outcomes.items():
+        assert outcome["caveat_removed"], cell
+        clauses = ("g1", "g2", "variance_ratio", "shown_coverage")
+        assert all(outcome[name] for name in clauses), cell
+        assert outcome["noninferiority"] is (True if cell.split("__")[1] == "equal10" else None)
 
 
 def _roles() -> dict[str, str]:
@@ -834,7 +644,7 @@ def test_the_primary_count_is_the_arm_pooled_rule(pilot_rows: pd.DataFrame) -> N
 
 
 def test_the_projected_budget(pilot_rows: pd.DataFrame) -> None:
-    """About 279 CPU-h at the pilot's CPU times; the plan's per-fit figures within 1.5 times."""
+    """About 279 CPU-h at the pilot's CPU times; the declared per-fit figures within 1.5 times."""
     hours = pilot.projected_cpu_hours(pilot_rows)
     assert hours["total"] == pytest.approx(278.2, abs=1.0)
     assert hours["tmle_stacked"] == pytest.approx(185.8, abs=1.0)

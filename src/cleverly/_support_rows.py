@@ -30,7 +30,8 @@ from ._support import (
 from .learners.glm import GLM
 
 __all__ = [
-    "ADAPTIVE_NUISANCE_SHORTFALLS",
+    "ADAPTIVE_LEARNER_CELLS",
+    "ADAPTIVE_LEARNER_STUDY",
     "BAND_CELLS",
     "BAND_OPTION_DRAWS",
     "DEFAULT_BAND_DRAWS",
@@ -51,7 +52,6 @@ __all__ = [
     "T_BAND_CELLS",
     "T_BAND_STUDY",
     "UNMAPPED_BAND_CELLS",
-    "AdaptiveNuisanceShortfall",
     "TheoryAnchor",
     "default_options",
     "long_row",
@@ -2640,88 +2640,6 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
 }
 
 
-@dataclass(frozen=True)
-class AdaptiveNuisanceShortfall:
-    """A measured few-cluster limit of a ``t``-tier row for fits with an adaptive learner.
-
-    X54 part (h) measures the default learner library at 10, 20 and 40 clusters
-    (``few-cluster-adaptive-learners``). Where a configuration fails the caveat rule of its
-    declaration, its row takes an entry here, and a fit whose key carries ``adaptive_nuisance``
-    and that reads fewer than ``below`` positive-mass clusters becomes experimental with
-    :meth:`sentence`. Its interval stays shown.
-
-    Parameters
-    ----------
-    below : int or None
-        The smallest cluster count at which the configuration passed; the limit holds below it.
-        ``None`` when no measured count passed: the limit holds at every count.
-    counts : str
-        The measured counts that failed, as the sentence names them, such as ``"10"``.
-    splitting : str
-        The configuration in words, such as ``"in-sample TMLE"``.
-    shared : bool, default False
-        The declared reading of the red: ``True`` when a GLM fit with an estimated propensity on
-        the same draws fails the same clauses and the paired coverage difference is inside the
-        non-inferiority margin, so the sentence says the deficit is shared rather than that the
-        learners fail. A shared red adds no limit at every count, so ``shared`` needs a
-        ``below``.
-    """
-
-    below: int | None
-    counts: str
-    splitting: str
-    shared: bool = False
-
-    def __post_init__(self) -> None:
-        if self.shared and self.below is None:
-            raise ValueError(
-                "a shared red adds no limit at every count: AdaptiveNuisanceShortfall(shared=True) "
-                "needs below"
-            )
-
-    def sentence(self, row_id: str) -> str:
-        """The reason the estimate carries, naming the row, the counts and the study.
-
-        Parameters
-        ----------
-        row_id : str
-            The id of the matched row.
-
-        Returns
-        -------
-        str
-            One sentence.
-        """
-        if self.below is None:
-            return (
-                f"Row {row_id} is measured with parametric nuisance learners only: the "
-                "registered evidence with the default learner library fails at "
-                f"{self.counts} clusters for {self.splitting}, and no study measures a larger "
-                "count (few-cluster-adaptive-learners)."
-            )
-        if self.shared:
-            return (
-                f"Row {row_id} has no passing measurement with the default learner library "
-                f"below {self.below} clusters: the default learner library covers below the "
-                f"floor at {self.counts} clusters for {self.splitting}, as does a GLM fit with "
-                f"an estimated propensity on the same draws; it passes from {self.below} "
-                "clusters (few-cluster-adaptive-learners)."
-            )
-        return (
-            f"Row {row_id} is measured with parametric nuisance learners only below "
-            f"{self.below} clusters: the registered few-cluster evidence with the default "
-            f"learner library fails at {self.counts} clusters for {self.splitting} "
-            "(few-cluster-adaptive-learners)."
-        )
-
-
-#: The rows whose adaptive-learner fits carry a measured few-cluster limit, by row id (X54 part
-#: (h), plan sections 3.5 and 5.8). Empty until ``few-cluster-adaptive-learners`` registers:
-#: before its run no adaptive-learner limit is measured, and a fit with ``adaptive_nuisance``
-#: keeps its row's label. Its registration adds one entry for each configuration that fails.
-ADAPTIVE_NUISANCE_SHORTFALLS: Final[Mapping[str, AdaptiveNuisanceShortfall]] = {}
-
-
 #: The measured numbers of the red cells that leave a row supported with a stated limit, by row id
 #: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
 #: row note prints each sentence after the limits of the row itself.
@@ -3108,12 +3026,25 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The study that measures the clustered interval with the default learner library (X54 part
+#: (h)), and the rows whose fits its gated cells reach: stacked ``TMLE`` below 40 clusters and at
+#: 40, and cross-fitted ``LTMLE`` at 20. Every gated row passes, so a fit with
+#: ``adaptive_nuisance`` on these rows keeps the row's label. The in-sample cells are reported
+#: only, so no in-sample row names the study.
+ADAPTIVE_LEARNER_STUDY: Final[str] = "few-cluster-adaptive-learners"
+ADAPTIVE_LEARNER_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T11.stacked": ("adaptive_learners",),
+    "T10.unweighted": ("adaptive_learners",),
+    "G07": ("adaptive_learners",),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
 
     The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS`,
-    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES` and
-    :data:`TAIL_NOTES`. A ``t`` band cell measured the band at
+    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES`,
+    :data:`TAIL_NOTES` and :data:`ADAPTIVE_LEARNER_CELLS`. A ``t`` band cell measured the band at
     :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
@@ -3137,6 +3068,12 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
                 kinds=row.kinds | {"wald_policy"},
                 evidence=tuple(dict.fromkeys((*row.evidence, POLICY_STUDY))),
                 cells=tuple(dict.fromkeys((*row.cells, *POLICY_CELLS[row.id]))),
+            )
+        if ADAPTIVE_LEARNER_CELLS.get(row.id):
+            row = replace(
+                row,
+                evidence=tuple(dict.fromkeys((*row.evidence, ADAPTIVE_LEARNER_STUDY))),
+                cells=tuple(dict.fromkeys((*row.cells, *ADAPTIVE_LEARNER_CELLS[row.id]))),
             )
         if T_BAND_CELLS.get(row.id):
             options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()

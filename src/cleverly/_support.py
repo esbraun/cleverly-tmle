@@ -348,10 +348,9 @@ class SupportKey:
         ``rule_learner_ep``, and one with known
         regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
         holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
-        weighted sample. A clustered key on the ``t`` or ``clustered`` tier adds
-        ``adaptive_nuisance`` when a nuisance learner the fit uses is data-adaptive
-        (:func:`adaptive_nuisance`); a row that does not declare it still covers the fit
-        (:data:`SOFT_QUALIFIERS`).
+        weighted sample. A clustered key on the ``t`` tier adds ``adaptive_nuisance`` when a
+        nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`); a row that
+        does not declare it still covers the fit (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
@@ -602,12 +601,13 @@ def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
     return "parametric" if type(learner) in _parametric_classes() else "adaptive"
 
 
-#: The qualifier of a clustered fit that reports a cluster interval (the ``t`` and ``clustered``
-#: tiers) and whose nuisance learners include a data-adaptive one (X54 part (h)).
-#: :func:`adaptive_nuisance` decides it. A row that does not declare it still covers a fit that
-#: carries it (:data:`SOFT_QUALIFIERS`), so the qualifier changes a label only through
-#: :func:`adaptive_nuisance_shortfall`: by theory for an in-sample fit on the ``t`` tier, and
-#: through a measured shortfall in :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`.
+#: The qualifier of a clustered fit on the ``t`` tier whose nuisance learners include a
+#: data-adaptive one (X54 part (h)). :func:`adaptive_nuisance` decides it. A row that does not
+#: declare it still covers a fit that carries it (:data:`SOFT_QUALIFIERS`), so the qualifier
+#: changes a label only through :func:`adaptive_nuisance_shortfall`, by theory for an in-sample
+#: fit. ``few-cluster-adaptive-learners`` measures the default learner library at 10, 20 and 40
+#: clusters, and every stacked ``TMLE`` and cross-fitted ``LTMLE`` row passes, so a
+#: cross-fitted fit keeps its row's label.
 ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
 
 #: Qualifiers that a row which does not declare them still covers. Each records a property of
@@ -615,18 +615,15 @@ ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
 #: must name.
 SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE})
 
-#: The dependence tiers whose fits report a cluster interval, which :data:`ADAPTIVE_NUISANCE`
-#: can qualify.
-_INTERVAL_TIERS: Final[frozenset[str]] = frozenset({"t", "clustered"})
-
 #: The theory reason of an in-sample ``t``-tier fit with an adaptive nuisance learner.
 ADAPTIVE_IN_SAMPLE_REASON: Final[str] = (
     "Row {row} is measured with parametric nuisance learners only below 40 clusters, and an "
     "in-sample fit with an adaptive nuisance learner has no Donsker argument: each learner, "
     "and each Super Learner candidate, predicts from its fit to the full sample, so the "
     "residuals the interval reads shrink at any cluster count. Cross-fitting "
-    "(cross_fit=True) removes that term (few-cluster-adaptive-learners reports the in-sample "
-    "cells)."
+    "(cross_fit=True) removes that term: few-cluster-adaptive-learners measures the default "
+    "learner library cross-fitted at 10, 20 and 40 clusters, and reports its in-sample cells "
+    "below nominal coverage."
 )
 
 
@@ -636,7 +633,7 @@ def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
     :func:`learner_family` reads every Super Learner as adaptive, because it selects. For the
     few-cluster reading of X54 part (h) a Super Learner whose every candidate is parametric is
     a convex combination of finite-dimensional fits, which the registered parametric evidence
-    covers (plan section 3.5). A Super Learner without a library uses the default library,
+    covers. A Super Learner without a library uses the default library,
     which is adaptive.
 
     Parameters
@@ -1114,9 +1111,7 @@ def point_key(
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
     key = _with_dependence(key, data)
-    if key.dependence in _INTERVAL_TIERS and adaptive_nuisance(
-        _point_nuisance_learners(estimator, data)
-    ):
+    if key.dependence == "t" and adaptive_nuisance(_point_nuisance_learners(estimator, data)):
         # X54 part (h): the clustered evidence of every row fits parametric nuisances.
         key = replace(key, qualifiers=key.qualifiers | {ADAPTIVE_NUISANCE})
     learners = {
@@ -1296,7 +1291,7 @@ def longitudinal_key(
         ),
     )
     key = _with_dependence(key, data)
-    if key.dependence in _INTERVAL_TIERS and adaptive_nuisance(
+    if key.dependence == "t" and adaptive_nuisance(
         _longitudinal_nuisance_learners(estimator, data, key.qualifiers)
     ):
         # X54 part (h), as for a point fit.
@@ -1511,10 +1506,6 @@ class Classification:
         axes. ``None`` when there are no rows.
     conditions : tuple of Refusal
         The group-A conditions the fit meets. Each one makes the fit experimental.
-    clusters : int or None
-        The fewest positive-mass clusters one estimate of the fit reads, or ``None`` without
-        clusters. A measured limit that holds below a cluster count reads it
-        (:data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`).
     """
 
     key: SupportKey
@@ -1522,7 +1513,6 @@ class Classification:
     row: SupportRow | None = None
     nearest: tuple[str, tuple[str, ...]] | None = None
     conditions: tuple[Refusal, ...] = ()
-    clusters: int | None = None
 
     @property
     def label(self) -> SupportLabel:
@@ -1536,7 +1526,6 @@ def classify_key(
     conditions: Sequence[Refusal] = (),
     *,
     rows: Sequence[SupportRow] | None = None,
-    clusters: int | None = None,
 ) -> Classification:
     """Match a key against the rows. It never raises for an unmatched key.
 
@@ -1550,8 +1539,6 @@ def classify_key(
         The group-A conditions the fit meets.
     rows : sequence of SupportRow or None, default None
         The rows to match. ``None`` reads :func:`registered_rows`.
-    clusters : int or None, default None
-        The fit's fewest positive-mass clusters, carried to :attr:`Classification.clusters`.
 
     Returns
     -------
@@ -1568,7 +1555,7 @@ def classify_key(
     if len(matched) > 1:
         raise RuntimeError(f"support rows {[row.id for row in matched]} all match one fit")
     if matched:
-        return Classification(key, learners, matched[0], None, tuple(conditions), clusters)
+        return Classification(key, learners, matched[0], None, tuple(conditions))
     nearest: tuple[str, tuple[str, ...]] | None = None
     for row in table:
         differing = key.differing_axes(row.key)
@@ -1580,7 +1567,7 @@ def classify_key(
             differing = (*differing, "learners")
         if nearest is None or len(differing) < len(nearest[1]):
             nearest = (row.id, differing)
-    return Classification(key, learners, None, nearest, tuple(conditions), clusters)
+    return Classification(key, learners, None, nearest, tuple(conditions))
 
 
 _KIND_NAMES: Final[Mapping[str, str]] = {
@@ -1748,16 +1735,14 @@ def support_for(
 
 
 def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> str | None:
-    """The shortfall of a clustered fit with an adaptive nuisance learner, if any.
+    """The shortfall of an in-sample clustered fit with an adaptive nuisance learner, if any.
 
-    It applies to every kind but ``point``, on a fit whose key carries ``adaptive_nuisance`` and
-    has a row. An in-sample fit on the ``t`` tier takes :data:`ADAPTIVE_IN_SAMPLE_REASON` by
-    theory: no Donsker argument covers it at any cluster count, and its row's evidence fits
-    parametric nuisances (X54 part (h), M2 of its design review). Any other fit takes the
-    sentence of its row's entry in :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`
-    when it reads fewer positive-mass clusters than the entry's ``below`` count, or at every
-    count when ``below`` is ``None``. The sentence makes the estimate experimental; its
-    interval stays shown.
+    It applies to every kind but ``point``, on an in-sample ``t``-tier fit whose key carries
+    ``adaptive_nuisance`` and has a row: :data:`ADAPTIVE_IN_SAMPLE_REASON`, by theory. No Donsker
+    argument covers the fit at any cluster count, and its row's evidence fits parametric
+    nuisances (X54 part (h)). The sentence makes the estimate experimental; its interval stays
+    shown. A cross-fitted fit takes none: ``few-cluster-adaptive-learners`` measures the default
+    learner library there, and every gated row passes.
 
     Parameters
     ----------
@@ -1771,21 +1756,13 @@ def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> s
     str or None
         The sentence, or ``None`` when no shortfall applies.
     """
-    from ._support_rows import ADAPTIVE_NUISANCE_SHORTFALLS
-
     row = classification.row
     key = classification.key
     if row is None or kind == "point" or ADAPTIVE_NUISANCE not in key.qualifiers:
         return None
     if key.dependence == "t" and "in_sample" in key.splitting:
         return ADAPTIVE_IN_SAMPLE_REASON.format(row=row.id)
-    entry = ADAPTIVE_NUISANCE_SHORTFALLS.get(row.id)
-    clusters = classification.clusters
-    if entry is None or clusters is None:
-        return None
-    if entry.below is not None and clusters >= entry.below:
-        return None
-    return entry.sentence(row.id)
+    return None
 
 
 def classify(
@@ -1813,7 +1790,7 @@ def classify(
         The row or the nearest row, with the key and the conditions.
     """
     key, learners = point_key(estimator, data, estimands)
-    return classify_key(key, learners, conditions, clusters=_positive_mass_clusters(data))
+    return classify_key(key, learners, conditions)
 
 
 def band_shape(
@@ -2212,7 +2189,7 @@ def classify_longitudinal_fit(
             tuned_cap=tuned_cap,
             separable_first=separable_first,
         )
-        classification = classify_key(key, learners, clusters=_positive_mass_clusters(data))
+        classification = classify_key(key, learners)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

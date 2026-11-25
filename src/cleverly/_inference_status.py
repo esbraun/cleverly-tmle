@@ -356,8 +356,10 @@ T_REFERENCE_NOTE: Final[str] = (
     "mass{stratum}. The df "
     "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
     "reference. The validation evidence for few clusters uses parametric models for the "
-    "outcome and the treatment; Wang et al. (2024), Remark 3, caution against complex "
-    "learners at about 20 clusters."
+    "outcome and the treatment and, for a cross-fitted fit, the default learner library at "
+    "10, 20 and 40 clusters (few-cluster-adaptive-learners); Wang et al. (2024), Remark 3, "
+    "caution against complex learners at about 20 clusters, and an in-sample fit with a "
+    "data-adaptive learner is experimental."
 )
 
 #: The clause :data:`T_REFERENCE_NOTE` adds on a fit with strata.

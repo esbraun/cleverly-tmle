@@ -7,9 +7,10 @@ parametric nuisance models only (``clustered-few-cluster-tmle``,
 against complex nuisance learners at about 20 clusters. This study measures the default learner
 library (:func:`cleverly.learners.default_library`: histogram gradient boosting, a random forest
 and an L1 logistic or lasso regression, stacked by a Super Learner with grouped inner folds) for
-every nuisance, at 10, 20 and 40 clusters. A configuration that fails the declared caveat rule
-takes the ``adaptive_nuisance`` shortfall of its support row
-(:data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`).
+every nuisance, at 10, 20 and 40 clusters. A configuration that failed the declared caveat rule
+would have taken an ``adaptive_nuisance`` shortfall of its support row. Every gated row passes in
+the registered run, so none does, and the study is evidence of the rows its gated fits reach
+(:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`).
 
 **Laws.** L1 ``equal10``: the equal-size law of ``clustered-few-cluster-tmle``, clusters of
 10 rows, the arm-by-latent coefficient 8. L2 ``nonlinear10``: :mod:`tests.studies.clustered_nonlinear_law`,
@@ -42,7 +43,7 @@ the registered few-cluster studies) and ``wang_inflated`` (reported: candidate (
 the variance times :math:`J/(J-p)` on :math:`t_{J-p}` with :math:`p = \max(2, d) = 2`). On the
 gated fits (:data:`POSITIVE_FITS`: stacked ``TMLE`` and cross-fitted ``LTMLE``) the first is
 positive and the second a control. The in-sample default-library fit is reported only: it takes
-the ``adaptive_nuisance`` shortfall by theory (design review M2), and its rows publish the
+the ``adaptive_nuisance`` shortfall by theory, and its rows publish the
 same readings, among them the paired coverage difference to the GLM arm on L1 and L2. A GLM fit
 publishes ``glm_reference`` (reported; the paired non-inferiority clause of the stacked L1
 positives reads it). ``stacked_control`` is a must-fail control; ``interpolating_control`` is
@@ -92,7 +93,6 @@ from tests.studies.clustered_crossfit_ltmle import ID as LTMLE_ID
 from tests.studies.clustered_crossfit_ltmle import NODES as LTMLE_NODES
 from tests.studies.clustered_crossfit_ltmle import subject as ltmle_subject
 from tests.studies.evidence import replication
-from tests.studies.evidence.red_cells import RedKey
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.few_cluster_crossfit_ltmle import TARGET as LTMLE_TARGET
@@ -102,7 +102,7 @@ from tests.studies.point_study_helpers import initial_estimates, primary_rows
 PRIMARY_REPLICATES: Final[int] = 1_200
 PRIMARY_CLUSTERS: Final[int] = 20
 PRIMARY_N: Final[int] = 10 * PRIMARY_CLUSTERS
-#: Draws of every property cell, the reported in-sample cells included (plan 5.4). At target
+#: Draws of every property cell, the reported in-sample cells included. At target
 #: (variance ratio 1, nominal coverage, a paired difference of 0) every clause of every positive
 #: row passes with probability at least 0.9993 on the pilot's spreads, so no cell is raised to
 #: 4,800 (:func:`tests.studies.few_cluster_adaptive_pilot.at_target_pass`). The in-sample cells
@@ -144,7 +144,7 @@ LTMLE_FITS: Final[tuple[str, ...]] = ("ltmle_crossfit", "ltmle_glm")
 ADAPTIVE_FITS: Final[tuple[str, ...]] = ("tmle_in_sample", "tmle_stacked", "ltmle_crossfit")
 #: The default-library fits whose ``t_reference`` arm is gated (positive). The in-sample fit is
 #: reported only: it takes the ``adaptive_nuisance`` shortfall by theory
-#: (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`; design review M2, option (b)), because
+#: (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`), because
 #: each learner predicts from its full-sample fit and no Donsker argument covers it.
 POSITIVE_FITS: Final[tuple[str, ...]] = ("tmle_stacked", "ltmle_crossfit")
 #: The GLM fit paired with each default-library fit (the non-inferiority clause on L1).
@@ -334,8 +334,7 @@ def _forest() -> RandomForestClassifier:
     Each tree fits its bootstrap sample to purity, so a row's prediction averages the trees
     that held it, which reproduce its outcome, with the about 37% that did not. The fitted
     values are pulled strongly toward the outcomes without equalling them, so the residuals
-    shrink but do not vanish, and the fluctuation step and the propensity still act
-    (design review M1).
+    shrink but do not vanish, and the fluctuation step and the propensity still act.
     """
     return RandomForestClassifier(
         n_estimators=CONTROL_TREES, min_samples_leaf=1, random_state=RANDOM_STATE, n_jobs=1
@@ -345,7 +344,7 @@ def _forest() -> RandomForestClassifier:
 class FullSampleForest(BaseEstimator, ClassifierMixin):
     """An unpruned random forest fitted on the full sample, whatever rows a fold passes.
 
-    The stacked control (plan X54 section 5.4, rev 3 m2; design review M1) feeds the stacked
+    The stacked control feeds the stacked
     targeting and variance code out-of-fold predictions that are in-sample ones: each fold's
     "training" fit is the forest on every row, so the validation rows were seen. The outcome
     design of :class:`~cleverly.TMLE` is ``[A, W1, W2]``; :meth:`fit` refuses a training design
@@ -544,8 +543,9 @@ PREDICTED_PASS: Final[dict[str, float]] = {
 #: more likely than not. The plug-in rule (pilot readings taken as true, figure below 0.90)
 #: names the same three rows (0.022, 0.005 and 0.313).
 PREDICTED_RED_BELOW: Final[float] = 0.50
-#: The gated rows the pilot predicts red, declared before the run with their readings
-#: (``tests/canonical/few_cluster_adaptive_learners/regenerate.py``). At 10 clusters the
+#: The gated rows the pilot predicted red, declared before the run with their readings
+#: (``tests/canonical/few_cluster_adaptive_learners/regenerate.py``). None went red in the
+#: registered run: they cover 0.9425, 0.9437 and 0.9430 at 4,000 draws. At 10 clusters the
 #: shown-coverage clause binds (predictive 0.26 and 0.21; coverage 0.92 on both laws, shared
 #: with the paired GLM arm); on L2 at 40 the shown-coverage and variance-ratio clauses (0.46
 #: and 0.58; coverage 0.930, variance ratio 0.93, the paired GLM arm 0.918 and 0.90).
@@ -554,50 +554,7 @@ PREDICTED_REDS: Final[tuple[str, ...]] = (
     "tmle_stacked__nonlinear10__j10__t_reference",
     "tmle_stacked__nonlinear10__j40__t_reference",
 )
-#: The red-cell owner of a red positive row that its declared route reads as no code defect
-#: (the roadmap's Red-cell owners table).
-RED_OWNER: Final[str] = "X54-adaptive-learners"
-#: The red-cell owner of a positive row read :data:`PARAMETRIC_READING`: a defect suspect for
-#: the parametric row, which the GLM arm on the same draws fails too.
-PARAMETRIC_OWNER: Final[str] = "X54-parametric-few-cluster"
-#: The IID control each predicted red positive takes red with it: the ledger reads a control red
-#: when its group's joint clause fails (``property_passed``), and each positive shares a group
-#: with its ``iid_t_control``.
-PREDICTED_RED_CONTROLS: Final[tuple[str, ...]] = tuple(
-    cell.removesuffix("__t_reference") + "__iid_t_control" for cell in PREDICTED_REDS
-)
-
-
-def red_key(cell: str) -> RedKey:
-    """The red-cell ledger's key of one published property cell of this study."""
-    return RedKey(STUDY.slug, "property", f"{FAMILY}/{cell}")
-
-
-#: The owner of each predicted red row, keyed as the ledger keys it, declared before the run:
-#: the three positives and the three IID controls their joint clause takes red. The ledger's
-#: ``CLAIMS`` entry lands at registration (before it, a claimed row of an unregistered study
-#: reads "has an owner but is not red"); the design test then checks it against these keys.
-PREDICTED_RED_OWNERS: Final[dict[RedKey, str]] = {
-    red_key(cell): RED_OWNER for cell in (*PREDICTED_REDS, *PREDICTED_RED_CONTROLS)
-}
-#: The three no-defect readings of a red positive row
-#: (:func:`tests.studies.few_cluster_adaptive_properties.red_reading`). The row reads shared
-#: when both hold: the exact 99% lower end of its paired all-draw coverage difference to its
-#: GLM arm on the same draws, at the worst fill, is above the non-inferiority margin of -0.02;
-#: and the GLM arm fails every clause the row fails, under the same interval rule. A shared red
-#: that fails G1 or G2 is a finding against the parametric row. Every other red reads as the
-#: default library's limit. On L2 the GLM arm is a misspecified main-terms GLM, so there
-#: "parametric baseline" means that fit.
-SHARED_READING: Final[str] = "few-cluster or law deficit shared with the parametric baseline"
-PARAMETRIC_READING: Final[str] = "shared, the parametric row fails G1 or G2"
-LIBRARY_READING: Final[str] = "default-library limit"
-#: The owner of each reading.
-READING_OWNERS: Final[dict[str, str]] = {
-    SHARED_READING: RED_OWNER,
-    LIBRARY_READING: RED_OWNER,
-    PARAMETRIC_READING: PARAMETRIC_OWNER,
-}
-#: No interim stop (design review m3): every cell runs its declared draws.
+#: No interim stop: every cell runs its declared draws.
 INTERIM_DRAWS: Final[int | None] = None
 
 

@@ -1,16 +1,15 @@
-"""The ``adaptive_nuisance`` support qualifier (X54 part (h), plan sections 3.5 and 4.5).
+"""The ``adaptive_nuisance`` support qualifier (X54 part (h)).
 
-A clustered fit that reports a cluster interval (the ``t`` and ``clustered`` tiers) whose
-nuisance learners include a data-adaptive one carries the qualifier. It is soft: a row that does
-not declare it still covers the fit. The label moves in two ways only: an in-sample fit on the
-``t`` tier is experimental by theory (:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`,
-design review M2), and any other fit moves where ``few-cluster-adaptive-learners`` registers a
-measured shortfall in :data:`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`, on a
-``t``-tier row below a count or, for a red stacked count at 40, on ``T10.unweighted`` at every
-count (design review M3). These tests pin each branch with a witness, each label with its text,
-and that every plot and every refute, validate and sensitivity operation answers on a labelled
-point, stacked and ``LTMLE`` fit as it does without the label, because the qualifier changes no
-number (design review M4).
+A clustered fit on the ``t`` tier whose nuisance learners include a data-adaptive one carries
+the qualifier. It is soft: a row that does not declare it still covers the fit. The label moves
+in one way only: an in-sample fit is experimental by theory
+(:data:`cleverly._support.ADAPTIVE_IN_SAMPLE_REASON`). ``few-cluster-adaptive-learners``
+measures the default learner library at 10, 20 and 40 clusters, and every stacked ``TMLE`` and
+cross-fitted ``LTMLE`` row passes, so those fits keep their rows' label, and the study is
+evidence of ``T11.stacked``, ``T10.unweighted`` and ``G07``. These tests pin each branch with a
+witness, the label with its text, and that every plot and every refute, validate and sensitivity
+operation answers on an in-sample, stacked and ``LTMLE`` fit with the qualifier as it does
+without it, because the qualifier changes no number.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 import cleverly.plotting as plotting
-from cleverly import _support, _support_rows
+from cleverly import _support
 from cleverly._support import (
     ADAPTIVE_IN_SAMPLE_REASON,
     ADAPTIVE_NUISANCE,
@@ -39,7 +38,6 @@ from cleverly._support import (
     nuisance_family,
     registered_rows,
 )
-from cleverly._support_rows import ADAPTIVE_NUISANCE_SHORTFALLS, AdaptiveNuisanceShortfall
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.learners import GLM, SuperLearner
@@ -47,11 +45,6 @@ from tests.conftest import linear_in_sample
 from tests.studies import few_cluster_adaptive_learners as study
 from tests.studies import support_cases
 from tests.unit import _capability_sweep_support as sweep
-
-ENTRY = AdaptiveNuisanceShortfall(below=21, counts="10 and 20", splitting="stacked TMLE")
-#: The endpoint of a stacked red at 40 clusters with no code defect (design review M3).
-AT_EVERY_COUNT = AdaptiveNuisanceShortfall(below=None, counts="40", splitting="stacked TMLE")
-LTMLE_ENTRY = AdaptiveNuisanceShortfall(below=21, counts="20", splitting="cross-fitted LTMLE")
 
 
 def _classify(estimator: TMLE, clusters: int | None, **flags: Any) -> Any:
@@ -117,9 +110,9 @@ def test_a_known_mechanism_leaves_the_treatment_learner_unread() -> None:
 
 @pytest.mark.parametrize(
     ("clusters", "dependence", "expected"),
-    [(20, "t", True), (40, "clustered", True), (None, "iid", False), (5, "below_floor", False)],
+    [(20, "t", True), (40, "clustered", False), (None, "iid", False), (5, "below_floor", False)],
 )
-def test_the_interval_tiers_carry_the_qualifier(
+def test_the_t_tier_alone_carries_the_qualifier(
     clusters: int | None, dependence: str, expected: bool
 ) -> None:
     key = _classify(_tmle(), clusters=clusters).key
@@ -133,7 +126,6 @@ def test_a_row_without_the_qualifier_still_covers_the_fit() -> None:
     assert ADAPTIVE_NUISANCE in adaptive.key.qualifiers
     assert adaptive.row is not None and parametric.row is not None
     assert adaptive.row.id == parametric.row.id == "T11.in_sample"
-    assert adaptive.clusters == parametric.clusters == 20
     assert frozenset({ADAPTIVE_NUISANCE}) == SOFT_QUALIFIERS
     # No registered row declares the qualifier, so it never narrows a row's coverage.
     assert not any(ADAPTIVE_NUISANCE in row.key.qualifiers for row in registered_rows())
@@ -152,8 +144,8 @@ def test_a_hard_qualifier_is_still_a_difference() -> None:
     [
         ("tmle_in_sample", "equal10", 10, True),
         ("tmle_stacked", "nonlinear10", 20, True),
-        ("tmle_in_sample", "equal10", 40, True),
-        ("tmle_stacked", "equal10", 40, True),
+        ("tmle_in_sample", "equal10", 40, False),
+        ("tmle_stacked", "equal10", 40, False),
         ("glm_in_sample", "equal10", 20, False),
         ("glm_stacked", "nonlinear10", 10, False),
         ("interpolating_control", "equal10", 20, True),
@@ -170,25 +162,19 @@ def test_the_study_configurations_carry_the_qualifier_as_declared(
     assert (ADAPTIVE_NUISANCE in observed.key.qualifiers) is expected
 
 
-def test_the_registered_t_tier_evidence_is_parametric() -> None:
-    """Each longitudinal t-tier case runs its study's own fit: none carries the qualifier.
+def test_the_study_is_evidence_of_the_rows_its_gated_fits_reach() -> None:
+    """Each case of the study runs its own fit to the classifier and lands on a row naming it.
 
-    A shortfall registered on one of these rows can then never label the configuration its
-    evidence measured. The point cases build their estimators with default learners, so they
-    say nothing here; ``T37.few_cluster`` copies a learned-rule study whose outcome learner is a
-    ``Pipeline``, which no shortfall of this study can name.
+    The stacked fits reach ``T11.stacked`` below 40 clusters and ``T10.unweighted`` at 40, and
+    the cross-fitted ``LTMLE`` reaches ``G07``. The in-sample fits are reported only, so no row
+    names the study for them.
     """
-    seen = []
-    for case in support_cases.CASES:
-        built = case.build()
-        if (
-            isinstance(built, support_cases.Observed)
-            and built.key.kind == "longitudinal"
-            and built.key.dependence == "t"
-        ):
-            seen.append(case.row)
-            assert ADAPTIVE_NUISANCE not in built.key.qualifiers, case.row
-    assert {"G06", "G07", "G26.clusters_20"} <= set(seen)
+    rows = {row.id: row for row in registered_rows()}
+    cases = [case for case in support_cases.CASES if case.slug == study.STUDY.slug]
+    assert {case.row for case in cases} == {"T11.stacked", "T10.unweighted", "G07"}
+    for case in cases:
+        assert study.STUDY.slug in rows[case.row].evidence, case.row
+    assert study.STUDY.slug not in rows["T11.in_sample"].evidence
 
 
 # ---------------------------------------------------------------------------------- labels
@@ -211,21 +197,19 @@ def _tree() -> DecisionTreeClassifier:
     return DecisionTreeClassifier(max_depth=3, min_samples_leaf=10, random_state=0)
 
 
-def _shortfalls(monkeypatch: pytest.MonkeyPatch, entries: dict[str, Any]) -> None:
-    monkeypatch.setattr(_support_rows, "ADAPTIVE_NUISANCE_SHORTFALLS", entries)
-
-
-def test_no_shortfall_is_registered_before_the_run() -> None:
-    assert dict(ADAPTIVE_NUISANCE_SHORTFALLS) == {}
+def test_a_cross_fitted_adaptive_fit_keeps_its_row_label() -> None:
+    """The registered run passes every stacked count, so the stacked fit stays supported."""
     estimate = _clustered(_tree(), stacked=True)["ate"]
     assert estimate.support.label == "supported"
     assert estimate.support.row == "T11.stacked"
+    assert "few-cluster-adaptive-learners" in estimate.support.evidence
     at_forty = _clustered(_tree(), clusters=40, stacked=True)["ate"]
     assert at_forty.support.label == "supported"
     assert at_forty.support.row == "T10.unweighted"
+    assert "few-cluster-adaptive-learners" in at_forty.support.evidence
 
 
-# In sample, by theory (design review M2).
+# In sample, by theory.
 
 
 def test_an_in_sample_adaptive_fit_is_experimental_by_theory() -> None:
@@ -258,102 +242,6 @@ def test_mutation_a_detector_that_never_fires_leaves_the_in_sample_fit_supported
     assert _clustered(_tree())["ate"].support.label == "supported"
 
 
-# Stacked, by a measured shortfall.
-
-
-def test_a_declared_shortfall_labels_the_stacked_fit_and_keeps_its_interval(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _shortfalls(monkeypatch, {"T11.stacked": ENTRY})
-    estimate = _clustered(_tree(), stacked=True)["ate"]
-    assert estimate.support.label == "experimental"
-    assert ENTRY.sentence("T11.stacked") in estimate.support.reason
-    assert "few-cluster-adaptive-learners" in estimate.support.reason
-    assert "F28" in estimate.support.evidence
-    assert estimate.inference == "influence_curve"
-    assert estimate.reference_df == 18
-    assert np.all(np.isfinite(estimate.ci))
-
-
-def test_a_declared_shortfall_leaves_a_parametric_stacked_fit_supported(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _shortfalls(monkeypatch, {"T11.stacked": ENTRY})
-    estimate = _clustered(LogisticRegression(max_iter=1000), stacked=True)["ate"]
-    assert estimate.support.label == "supported"
-
-
-def test_a_shortfall_holds_below_its_count_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    below_twenty = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE")
-    _shortfalls(monkeypatch, {"T11.stacked": below_twenty})
-    assert _clustered(_tree(), clusters=20, stacked=True)["ate"].support.label == "supported"
-    assert _clustered(_tree(), clusters=12, stacked=True)["ate"].support.label == "experimental"
-
-
-def test_the_shortfall_sentences_name_the_reading_and_the_count() -> None:
-    """The limit sentence reads ``below``, and a shared red says the GLM arm reads the same."""
-    library = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE")
-    shared = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE", shared=True)
-    assert library.sentence("T11.stacked") == (
-        "Row T11.stacked is measured with parametric nuisance learners only below 20 clusters: "
-        "the registered few-cluster evidence with the default learner library fails at 10 "
-        "clusters for stacked TMLE (few-cluster-adaptive-learners)."
-    )
-    assert shared.sentence("T11.stacked") == (
-        "Row T11.stacked has no passing measurement with the default learner library below 20 "
-        "clusters: the default learner library covers below the floor at 10 clusters for "
-        "stacked TMLE, as does a GLM fit with an estimated propensity on the same draws; it "
-        "passes from 20 clusters (few-cluster-adaptive-learners)."
-    )
-    assert "fails" not in shared.sentence("T11.stacked")
-    assert "below 40" not in library.sentence("T11.stacked")
-    with pytest.raises(ValueError, match="needs below"):
-        AdaptiveNuisanceShortfall(below=None, counts="40", splitting="stacked TMLE", shared=True)
-
-
-def test_a_shared_shortfall_labels_the_stacked_fit_with_its_sentence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    shared = AdaptiveNuisanceShortfall(below=20, counts="10", splitting="stacked TMLE", shared=True)
-    _shortfalls(monkeypatch, {"T11.stacked": shared})
-    estimate = _clustered(_tree(), clusters=12, stacked=True)["ate"]
-    assert estimate.support.label == "experimental"
-    assert shared.sentence("T11.stacked") in estimate.support.reason
-
-
-def test_mutation_a_detector_that_never_fires_leaves_the_stacked_fit_supported(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _shortfalls(monkeypatch, {"T11.stacked": ENTRY})
-    monkeypatch.setattr(_support, "adaptive_nuisance", lambda learners: False)
-    assert _clustered(_tree(), stacked=True)["ate"].support.label == "supported"
-
-
-def test_a_red_stacked_count_at_40_reaches_the_clustered_row(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Design review M3: the endpoint labels a 40-cluster stacked fit at every count."""
-    _shortfalls(monkeypatch, {"T10.unweighted": AT_EVERY_COUNT})
-    estimate = _clustered(_tree(), clusters=40, stacked=True)["ate"]
-    assert estimate.support.row == "T10.unweighted"
-    assert estimate.support.label == "experimental"
-    assert AT_EVERY_COUNT.sentence("T10.unweighted") in estimate.support.reason
-    assert "no study measures a larger count" in estimate.support.reason
-    assert np.all(np.isfinite(estimate.ci))
-    parametric = _clustered(LogisticRegression(max_iter=1000), clusters=40, stacked=True)
-    assert parametric["ate"].support.label == "supported"
-
-
-def test_every_shortfall_names_a_clustered_row() -> None:
-    rows = {row.id: row for row in registered_rows()}
-    for row_id, entry in ADAPTIVE_NUISANCE_SHORTFALLS.items():
-        assert rows[row_id].key.dependence in {"t", "clustered"}
-        if rows[row_id].key.dependence == "t":
-            assert entry.below is not None and 10 < entry.below <= 40
-        else:
-            assert entry.below is None
-
-
 # ------------------------------------------------------------- plots and assessment rows
 
 
@@ -374,22 +262,21 @@ def in_sample() -> Any:
 
 
 @pytest.fixture
-def stacked(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """The stacked adaptive fit under a declared ``T11.stacked`` shortfall."""
-    _shortfalls(monkeypatch, {"T11.stacked": ENTRY})
+def stacked() -> Any:
+    """The stacked adaptive fit, supported on ``T11.stacked``."""
     result = _clustered(_tree(), stacked=True)
-    assert result["ate"].support.label == "experimental"
+    assert result["ate"].support.label == "supported"
     return result
 
 
 @pytest.fixture
-def ltmle(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """The cross-fitted clustered LTMLE under a declared ``G07`` shortfall (the sweep kind)."""
-    _shortfalls(monkeypatch, {"G07": LTMLE_ENTRY})
+def ltmle() -> Any:
+    """The cross-fitted clustered LTMLE with an adaptive outcome learner (the sweep kind)."""
     result = sweep.fit_clustered_ltmle_adaptive()
     for name in list(result.keys()):
-        assert result[name].support.label == "experimental", name
+        assert result[name].support.label == "supported", name
         assert result[name].support.row == "G07"
+        assert "few-cluster-adaptive-learners" in result[name].support.evidence
     return result
 
 
@@ -411,10 +298,8 @@ def test_every_assessment_row_answers_on_the_labelled_fit(
     assert sweep.KINDS[kind].must_run <= sweep.ran(result, arguments)
 
 
-@pytest.mark.parametrize("fixture", ["in_sample", "stacked", "ltmle"])
-def test_the_summary_names_the_label(fixture: str, request: pytest.FixtureRequest) -> None:
-    result = request.getfixturevalue(fixture)
-    text = " ".join(str(result.summary(detail="full")).split())
+def test_the_summary_names_the_label(in_sample: Any) -> None:
+    text = " ".join(str(in_sample.summary(detail="full")).split())
     assert "few-cluster-adaptive-learners" in text
 
 
@@ -453,21 +338,22 @@ def test_every_drawing_plot_draws_the_labelled_ltmle_fit(ltmle: Any, plot: str) 
 def test_the_sensitivity_plots_draw_and_note_the_label(
     fixture: str, request: pytest.FixtureRequest
 ) -> None:
-    """The truncation plot names the experimental label in its notes; the contour draws."""
+    """The truncation plot names the experimental label of the in-sample fit; both draw."""
     result = request.getfixturevalue(fixture)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         truncation, contour = _sensitivity_plots(result)
-    assert any("experimental" in line for line in plotting.notes(truncation))
+    noted = any("experimental" in line for line in plotting.notes(truncation))
+    assert noted is (fixture == "in_sample")
     plt.close(truncation)
     plt.close(contour)
 
 
-def test_the_forest_draws_the_shown_interval_of_the_labelled_fit(stacked: Any) -> None:
-    estimate = stacked["ate"]
+def test_the_forest_draws_the_shown_interval_of_the_labelled_fit(in_sample: Any) -> None:
+    estimate = in_sample["ate"]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fig = plotting.forest(stacked)
+        fig = plotting.forest(in_sample)
     xs = {
         round(float(x), 9)
         for collection in fig.axes[0].collections

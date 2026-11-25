@@ -7,7 +7,7 @@ both ``LTMLE`` fits on L3. The rows are the study's own
 seconds; a fit that raises writes one row per arm with ``lost`` set and ``covered = 0``. The
 draws come from :data:`PILOT_SEED`, a stream no other study reads.
 
-The plan's pilot is 400 draws per cell (plan X54 section 5.4, design review B1): at 400 draws a
+The pilot is 400 draws per cell: at 400 draws a
 coverage reading has an SE of about 0.011 and a log variance ratio about 0.06, enough to tell a
 coverage of 0.95 from 0.90 and a variance ratio of 0.52 from 1. Budget, from the measured CPU
 seconds per fit (stacked default library 17.8 to 23.3, in sample 3.8 to 5.9, cross-fitted
@@ -51,7 +51,7 @@ from tests.studies import few_cluster_adaptive_properties as properties
 
 #: The seed of the pilot stream, used by no other study.
 PILOT_SEED: Final[int] = 20264583
-#: Draws per cell and fit (plan 5.4).
+#: Draws per cell and fit.
 PILOT_DRAWS: Final[int] = 400
 #: Draws per checkpoint chunk: one file per ``(law, J, fit)`` and block of this many draws.
 CHUNK_DRAWS: Final[int] = 20
@@ -410,9 +410,9 @@ def at_target_pass(
     """Each clause's pass probability for a positive cell at target, at ``study_draws`` draws.
 
     At target the variance ratio is 1, coverage is nominal and the paired difference to the GLM
-    arm is 0 (plan 5.4). The spreads are the pilot's: the log variance ratio's delta-method SE
+    arm is 0. The spreads are the pilot's: the log variance ratio's delta-method SE
     and the paired discordant share, each scaled to ``study_draws``. A figure below 0.90 raises
-    the cell to 4,800 draws (plan 5.4). The non-inferiority figure is ``nan`` on a row that does
+    the cell to 4,800 draws. The non-inferiority figure is ``nan`` on a row that does
     not carry the clause.
     """
     groups = dict(tuple(rows.groupby("cell", sort=False)))
