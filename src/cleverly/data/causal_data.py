@@ -288,7 +288,14 @@ class RowDesign:
             order of the full design, which follows the covariates').
         """
         if index is None:
-            blocks = [self.treatment, self.covariates]
+            # A broadcast block (one value for everybody) is materialized first, so the
+            # stacked design takes the memory order the full block would have given it.
+            treatment = (
+                np.array(self.treatment, order="C")
+                if self.treatment.strides[0] == 0
+                else self.treatment
+            )
+            blocks = [treatment, self.covariates]
         else:
             blocks = [self.treatment[index], self.covariates[index]]
         if self.level is not None:
@@ -1432,8 +1439,14 @@ class CausalData:
         treatment_value: float | FloatArray,
         *,
         intermediate_value: float | None = None,
+        constant_rows: int | None = None,
     ) -> list[FloatArray]:
-        """The validated column blocks of :meth:`counterfactual_design`, in order."""
+        """The validated column blocks of :meth:`counterfactual_design`, in order.
+
+        ``constant_rows`` builds a single treatment value (one for everybody) on that many rows
+        instead of :attr:`n`; the blocks of a constant value are the same on every row.
+        """
+        fill = self.n if constant_rows is None else int(constant_rows)
         if self.treatment_kind == "vector":
             assigned = np.asarray(treatment_value, dtype=float)
             if not np.all(np.isfinite(assigned)):
@@ -1442,7 +1455,7 @@ class CausalData:
         elif self.is_continuous_treatment:
             values = np.asarray(treatment_value, dtype=float).reshape(-1)
             if values.size == 1:
-                values = np.full(self.n, float(values[0]))
+                values = np.full(fill, float(values[0]))
             elif values.size != self.n:
                 raise DataError(
                     f"counterfactual_design was given {values.size} treatment values for "
@@ -1455,7 +1468,7 @@ class CausalData:
             if requested.size == 1:
                 code = float(requested[0])
                 self.arm_label(code)  # validates the code against the declared support
-                values = np.full(self.n, code)
+                values = np.full(fill, code)
             elif requested.size == self.n:
                 # One arm per row: a modified treatment policy on a categorical treatment
                 # assigns each unit the level its own policy maps it to.
@@ -1477,7 +1490,7 @@ class CausalData:
                     f"{intermediate_value!r} but the data has no intermediate variable; "
                     "the design would be one column wider than the outcome model's."
                 )
-            blocks.append(np.full((self.n, 1), float(intermediate_value)))
+            blocks.append(np.full((fill, 1), float(intermediate_value)))
         return blocks
 
     def counterfactual_rows(
@@ -1511,6 +1524,17 @@ class CausalData:
             return self.counterfactual_design(
                 treatment_value, intermediate_value=intermediate_value
             )
+        if np.asarray(treatment_value).size == 1:
+            # One value for everybody: every row of the treatment block is the same row, so
+            # the block is that row broadcast to n rows, read-only, rather than n copies of
+            # it.  A dose-response fit asks for thousands of such designs.  The checks and the
+            # row are those of the full design, so `rows()` returns the same bytes.
+            row = self._counterfactual_blocks(
+                treatment_value, intermediate_value=intermediate_value, constant_rows=1
+            )[0]
+            block = np.broadcast_to(row, (self.n, row.shape[1]))
+            level = None if intermediate_value is None else float(intermediate_value)
+            return RowDesign(block, self.covariates, level)
         blocks = self._counterfactual_blocks(treatment_value, intermediate_value=intermediate_value)
         level = None if intermediate_value is None else float(intermediate_value)
         return RowDesign(blocks[0], blocks[1], level)
