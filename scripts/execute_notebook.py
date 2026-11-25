@@ -39,7 +39,7 @@ WALL_CLOCK = re.compile(
 
 #: The file name a kernel gives each cell, which a warning's stream text quotes.  It carries the
 #: kernel's process id, so it differs on every run and is never a result.
-KERNEL_CELL_FILE = re.compile(r"/tmp/ipykernel_\d+/\d+\.py")
+KERNEL_CELL_FILE = re.compile(r"[^\s\"']*ipykernel_\d+[/\\]+\d+\.py")
 
 #: The ``text/plain`` repr a kernel stores beside a figure's image, such as
 #: ``<Figure size 700x450 with 1 Axes>``.  Its pixel size follows ``figure.dpi``, which a
@@ -116,6 +116,23 @@ def _is_figure_repr(payload: Any) -> bool:
     return text.lstrip().startswith(FIGURE_REPR)
 
 
+def _streams_last(outputs: list[Any]) -> list[Any]:
+    """Move the ``stderr`` stream after every other output of the cell.
+
+    A kernel sends ``stdout`` and ``stderr`` on separate channels, so whether a warning lands
+    before or after the printed table depends on timing, not on the code.  ``stdout`` keeps its
+    place among the displays, because that order is what the code prints.
+    """
+    errors = [o for o in outputs if o.get("output_type") == "stream" and o.get("name") == "stderr"]
+    if not errors:
+        return outputs
+    rest = [
+        o for o in outputs if not (o.get("output_type") == "stream" and o.get("name") == "stderr")
+    ]
+    joined = {**errors[0], "text": "".join(o["text"] for o in errors)}
+    return [*rest, joined]
+
+
 def comparable_outputs(notebook: Any) -> dict[str, list[str]]:
     """Map each cell id to its canonical non-image outputs.
 
@@ -132,7 +149,7 @@ def comparable_outputs(notebook: Any) -> dict[str, list[str]]:
         if cell["cell_type"] != "code":
             continue
         outputs = []
-        for output in _merged_streams(cell.get("outputs", ())):
+        for output in _streams_last(_merged_streams(cell.get("outputs", ()))):
             comparable: dict[str, Any] = {"output_type": output.get("output_type")}
             if "name" in output:
                 comparable["name"] = output["name"]

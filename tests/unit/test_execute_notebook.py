@@ -559,6 +559,21 @@ def test_the_check_comparison_ignores_a_figure_repr_and_the_kernel_cell_file() -
     assert comparable_outputs(_stream_notebook(("stderr", warning))) == comparable_outputs(later)
     moved = _stream_notebook(("stderr", warning.replace("Kish 42", "Kish 41")))
     assert comparable_outputs(_stream_notebook(("stderr", warning))) != comparable_outputs(moved)
+    mac = warning.replace("/tmp/", "/var/folders/xy/abc123/T/").replace("13736", "501")
+    assert comparable_outputs(_stream_notebook(("stderr", mac))) == comparable_outputs(later)
+
+
+def test_the_check_comparison_ignores_where_a_warning_landed_among_the_prints() -> None:
+    """A kernel sends a warning and a print on separate channels, so their order is timing.
+
+    The control: the same warning with a changed number still counts as moved output.
+    """
+    warning = "UserWarning: Kish 42\n"
+    before = _stream_notebook(("stderr", warning), ("stdout", "psi = -0.0639\n"))
+    after = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", warning))
+    assert comparable_outputs(before) == comparable_outputs(after)
+    moved = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", "UserWarning: Kish 41\n"))
+    assert comparable_outputs(moved) != comparable_outputs(after)
 
 
 def _stream_notebook(*outputs: tuple[str, str]) -> dict[str, Any]:
