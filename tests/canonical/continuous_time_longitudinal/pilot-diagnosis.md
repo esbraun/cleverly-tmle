@@ -228,3 +228,154 @@ python -m tests.studies.continuous_time_longitudinal_pilot --jobs 12 --kinds pri
 first missing draw; the file is rewritten after every block of 50 draws. When the primary draws are
 committed, `pilot_refusals()` in `regenerate.py` lists what the declaration must still change,
 and a declared run refuses until that list is empty.
+
+## Pilot reading and family failure (2026-11-25)
+
+The pilot's 400 draws of each cell are in, and none of them raised. One `day_cf` draw (31) stopped
+targeting without converging, and its estimates are not outliers. `pilot_refusals()` refuses
+because no pair of rungs reaches the family-wise pass of 0.95. Of the 60 gated rows, the product
+of the per-row pass probabilities read at the pilot's point values is 0.109 at 2,400 primary and
+1,600 mechanism fits, 0.479 at 3,200 and 2,400, and 0.808 at 4,800 and 3,200. The plan's remedy
+moves rows with coverage below 0.925 to reported, but `binding_rows` is empty: the lowest pilot
+coverage is 0.928. The failure is in the SE ratio and the bias gates, not in coverage.
+
+### What binds
+
+Seven rows pass with probability below 0.90 at 2,400 and 1,600:
+
+| row | pass | pilot reading |
+| --- | --- | --- |
+| `mechanism_correct` always, cause 2 at day 20 | 0.509 | SE ratio 1.147 |
+| `mechanism_correct` always vs never, cause 1 at day 30 | 0.655 | SE ratio 1.124, bias 0.120 SD |
+| `day_cf` rule, cause 1 at day 20 | 0.800 | bias 0.130 SD |
+| `mechanism_correct` always, cause 2 at day 30 | 0.823 | SE ratio 1.130 |
+| `cont_cf` never, cause 2 at day 20 | 0.826 | SE ratio 1.142 |
+| `day_cf` rule, cause 1 at day 10 | 0.856 | bias 0.126 SD |
+| `mechanism_correct` never, cause 1 at day 30 | 0.880 | bias -0.106 SD |
+
+The SE ratios lean above 1 across whole groups. A draw bootstrap with 99% intervals gives pooled
+SE ratios of 1.076 (1.041 to 1.123) over the 18 `cont_cf` rows, 1.085 (1.045 to 1.137) over
+`mechanism_correct`, 1.072 (1.019 to 1.134) on `day_cf` never levels, 1.065 (1.014 to 1.135) on
+always levels and 1.057 (1.007 to 1.122) on the always-vs-never contrasts. The `day_cf` rule levels
+read 0.956 (0.914 to 1.007) and rule minus never 1.019. Within a group the rows do not differ
+beyond chance (heterogeneity p of 0.37 for `cont_cf` and 0.059 for `mechanism_correct`). So the
+conservative SE on static regimes is real, not pilot noise, and it is common to every static row.
+
+### Where the conservative SE comes from
+
+Four candidates were measured on refits of the pilot's own draws (`day_cf` and
+`mechanism_correct` 20 draws each, `cont_cf` 6), and each is too small:
+
+- **Projection on the treatment and censoring scores.** With the outcome model wrong and the
+  mechanism estimated by maximum likelihood in a correct model, the influence curve the estimator
+  actually has is $D^* - \Pi(D^* \mid T_G)$, so the plug-in variance of $D^*$ is conservative
+  (Moore and van der Laan 2009, sections 4.2 and 5; Petersen et al. 2014, section 3.7; plan
+  3.5.7). The theory applies, but here the effect is small. Regressing each draw's influence curve
+  on the unit-level treatment scores and piecewise-Poisson censoring scores gives an adjusted
+  $R^2$ between -0.018 and 0.003 in `day_cf` and `mechanism_correct`, at most 0.2% of the SE.
+- **Cross-fitting.** Refit without cross-fitting on the same draws, the paired ratio of SEs is
+  1.015 in `day_cf` and 1.011 in `cont_cf`, and the estimates correlate at 0.995 and 0.998.
+- **Residual score.** The mean of $\sqrt{n}\,P_n D^*/\hat\sigma$ at stop is -0.014 SE in `day_cf` and
+  -0.016 in `mechanism_correct`, with a largest absolute value of 0.13. The one-step variance
+  matches the targeted one within 0.95 to 1.0.
+- **Visit cap.** Read against the capped truth $\psi^{(K)}$, the SE ratios and biases are the same.
+
+The estimator itself is efficient. On one draw of 1,000,000 units the exact efficient influence
+function of CT-day comes from a backward recursion over the Markov state (W1, W2, L, A) by day,
+with the true treatment and censoring laws; its means reproduce the truths with $|z| \le 1.5$.
+The pilot's Monte Carlo SD over this efficiency bound is 1.014 on `day_cf` static rows, 1.021 on
+rule rows and 1.009 on `mechanism_correct`. The mean estimated SE over the bound is 1.078, 1.007
+and 1.074. The error is in the estimated influence curve, not in the estimator's spread.
+
+On the same draws the engine's influence curve has SD 1.070 times the exact one on `day_cf` static
+rows and 1.082 on `mechanism_correct`. The excess is multiplicative, with positive covariance, and
+is already present among baseline followers who die before any visit (1.06 for always, 0.92 for
+never). Those units' curve depends only on the baseline treatment fit. The engine's default
+treatment model is one main-terms logistic fit (and its L1 member) on
+[W1, W2, L, previous A, k, visit time], pooled over baseline and every decision visit. The law has
+$A(0) \sim \operatorname{expit}(-0.3 + 0.8 L_0 + 0.3 W_1)$ at baseline and
+$A(s) \sim \operatorname{expit}(-1.5 + 1.0 L + 2.0 A(s^-) + 0.2 W_2/6)$ at a visit, which no single
+main-terms fit in these columns holds. Fit on 200,000 rows the pooled model returns W1 0.164,
+W2 0.019, L 0.832, previous A 1.652, k -0.219, visit time -0.016 and intercept -0.504. The ratio
+of true to fitted P(A = 1) is 1.04 to 1.16 at baseline, 0.57 to 0.99 for treated units at the first
+visit and 1.06 to 1.34 for untreated ones.
+
+The fix was tried in the scratchpad without changing the engine: a learner fitting a separate
+logistic model for baseline rows on [W1, W2, L] and another for visit rows on all columns. On the
+same draws the influence-curve SD over the exact one goes from 1.070 to 0.989 on `day_cf` static
+rows and from 1.082 to 0.998 on `mechanism_correct`. The estimated SE over the bound goes from
+1.079 to 0.998 and from about 1.07 to 0.99. On the six `cont_cf` draws, the default-over-stratified
+SE ratio is 1.087 (1.03 to 1.13 by row), which brings the pooled 1.076 to about 0.99. Static point
+estimates move by 0.001 SD. At $n = 10{,}000$ on one draw the default's ratio to the capped exact
+curve stays at 1.085 (1.01 to 1.14), while the stratified learner reads 0.988 (0.93 to 1.03), so the
+excess does not shrink with $n$.
+
+### The rule regime
+
+Rule rows escaped the excess by compensation. Under the stratified learner the rule's influence
+curve reads 0.962 of the capped exact one at $n = 1{,}000$ (0.92 to 0.98 on day-20 and day-30
+levels) and 0.99 to 1.00 at $n = 10{,}000$. That deficit is finite-sample. Under the default
+learner the treatment misfit adds back about 7% and the rule reads 0.996.
+
+The rule bias is positive on all six levels: 0.126, 0.130 and 0.113 SD for cause 1 at days 10, 20
+and 30, and 0.083, 0.050 and 0.058 for cause 2. Rule minus never reads 0.075 to 0.099 for cause 1
+and near 0 for cause 2. The initial estimate is already biased (0.074, 0.080 and 0.114 SD for
+cause 1), and targeting does not remove it. The cap, the residual score (0.02 to 0.03 SD) and the
+treatment misfit do not explain it, and the stratified learner moves rule levels up by 0.02 to
+0.10 SD. Over all 30 `day_cf` rows the bias pools to 0.054 SD (0.020 to 0.089, heterogeneity p of
+0.73), with rule levels at 0.093 (0.028 to 0.159) and always levels at 0.080. `cont_cf` has none
+(0.000, -0.038 to 0.035). A level bias in CT-day alone points at the tie or day-grid approximations
+of that variant rather than at the engine, but the pilot cannot separate them, and one draw at
+$n = 10{,}000$ does not settle it. At the pooled 0.093 each rule row passes the bias gate with
+probability at least 0.99 at 2,400 draws, so the rule bias is a reported reading, not a demonstrated
+defect.
+
+### Family pass under other readings
+
+The precedent in `tests/canonical/continuous_survival_bootstrap/pilot-diagnosis.md` sizes on
+anchored readings. Here the anchored current engine reads each row's Monte Carlo SD as its
+efficiency bound times its group's pooled SD over bound (static or rule, by cell), so its SE ratio
+is the pilot's mean SE over that anchored SD. `cont_cf`, which has no exact curve, takes its pooled
+SE ratio. Each row's bias is its group's pooled bias, and coverage is the normal coverage these
+imply. The prediction after the fix scales each mean SE by the paired default-over-stratified ratio
+on the same draws.
+
+| reading | 2,400 / 1,600 | 3,200 / 2,400 | 4,800 / 3,200 |
+| --- | --- | --- | --- |
+| raw pilot points | 0.109 | 0.479 | 0.808 |
+| raw, `mechanism_correct` SE gate removed | 0.324 | 0.707 | 0.946 |
+| raw, `mechanism_correct` reported | 0.502 | 0.795 | 0.975 |
+| raw, SE gate lower side only everywhere | 0.400 | 0.761 | 0.954 |
+| group-pooled SE, bias and coverage | 0.846 | 0.990 | 1.000 |
+| anchored, current engine | 0.938 | 0.997 | 1.000 |
+| predicted after the fix, all gated | 0.518 | 0.774 | 0.946 |
+| predicted after the fix, coverage below 0.925 reported | 0.867 | 0.987 | 0.999 |
+
+After the fix the binding rows are rule cause 1 at day 30 and rule minus never cause 1 at day 30,
+predicted at coverage about 0.918 with SE ratio about 0.89. Those are the rows the plan's coverage
+remedy moves. In the anchored current engine the worst rows are `mechanism_correct` always cause 1
+at day 30 (0.983) and `day_cf` rule cause 1 at day 30 (0.989). The cost of the declared run is
+128.7 CPU-h at 2,400 and 1,600, 168.9 at 3,200 and 2,400 and 248.1 at 4,800 and 3,200, from the
+pilot's seconds under four-job contention; the smoke's seconds give 92.6, 121.0 and 176.2.
+
+### Diagnosis
+
+The conservative SE is a defect of the default treatment model, together with the study premise
+that the defaults hold the treatment model (`continuous_time_longitudinal_law.py` and plan 5.7).
+They do not: the pooled fit cannot hold a baseline mechanism that differs from the visit
+mechanism, so every influence curve is weighted by a misfit $\hat g$. As a consequence
+`mechanism_correct` does not test double robustness, since its mechanism is not correct. A
+one-sided SE gate justified by the projection theory would not be honest here, because the
+projection accounts for at most 0.2% of the SE and the excess does not shrink with $n$. Declaring
+the current engine on anchored readings would certify an influence curve built on a misfit
+mechanism.
+
+The remedy is an engine change before the declaration: fit the default treatment model separately
+for baseline and visit rows (or interact a baseline indicator with every column) in both library
+members, with a witness that compares the engine's influence curve with an exact one on a law
+whose baseline mechanism differs, and the pooled model as its mutation control. Re-pilot `day_cf`,
+`cont_cf` and `mechanism_correct` on the fixed engine: 400 draws each cost 20.1 CPU-h at the
+pilot's seconds (14.2 at the smoke's). `outcome_correct` costs about 1.5 CPU-h more; its wrong
+learner would then be the stratified one without L. Then read the new pilot under the declared
+rule. The probe scripts (exact influence curve, capped variant, stratified learner, projection,
+paired cross-fit refits) are in the session scratchpad and were not committed.
