@@ -1439,6 +1439,75 @@ def _index_only(learner: Any) -> bool:
     return getattr(learner, "bin_design", None) == INDEX_ONLY
 
 
+#: The largest nonzero count of a sparse hazard design: liblinear takes 32-bit indices only.
+_SPARSE_NNZ_LIMIT = 2**31 - 1
+
+
+def _sparse_route(learner: Any, records: int, n_covariates: int) -> bool:
+    """Whether the pooled hazard design is passed as a CSR matrix rather than dense (X106 D1b).
+
+    Only scikit-learn's own ``LogisticRegression`` with the ``liblinear`` solver, which turns
+    a dense design into its nonzeros before it fits, so the two inputs give the same model
+    bit for bit.  Every other learner, a subclass included, gets the dense design.  A design
+    whose nonzeros could pass 32-bit indexing stays dense too.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    return (
+        type(learner) is LogisticRegression
+        and getattr(learner, "solver", None) == "liblinear"
+        and not _index_only(learner)
+        and records * (n_covariates + 2) <= _SPARSE_NNZ_LIMIT
+    )
+
+
+def _record_columns(n_covariates: int, n_hazards: int, index_only: bool, sparse: bool) -> int:
+    """Eight-byte columns per record a guard counts: the dense width, or the CSR bytes over 8.
+
+    A sparse record holds at most the covariates, the bin index and one indicator, each as an
+    8-byte value and a 4-byte column index, plus its 4-byte row pointer.
+    """
+    if sparse:
+        return -(-((n_covariates + 2) * 12 + 4) // 8)
+    return n_covariates + _bin_block(np.zeros(1, dtype=np.int64), n_hazards, index_only).shape[1]
+
+
+def _long_sparse(covariates: FloatArray, rows: IntArray, index: IntArray, n_hazards: int) -> Any:
+    """The pooled hazard design of :func:`_long_expansion` as CSR, built without a dense table.
+
+    Each record's nonzeros are its unit's nonzero covariates, then the bin index and its
+    indicator when the bin is not the first, in column order: the entries liblinear reads
+    from the dense design.
+    """
+    from scipy import sparse
+
+    p = covariates.shape[1]
+    nonzero = covariates != 0.0
+    before = np.cumsum(nonzero, axis=1) - nonzero
+    counts = nonzero.sum(axis=1)[rows] + 2 * (index > 0)
+    indptr = np.zeros(rows.size + 1, dtype=np.int32)
+    np.cumsum(counts, out=indptr[1:])
+    del counts
+    nnz = int(indptr[-1])
+    data = np.empty(nnz, dtype=float)
+    indices = np.empty(nnz, dtype=np.int32)
+    for j in range(p):
+        chosen = np.flatnonzero(nonzero[rows, j])
+        unit = rows[chosen]
+        at = indptr[chosen] + before[unit, j]
+        data[at] = covariates[unit, j]
+        indices[at] = j
+    del before
+    later = np.flatnonzero(index > 0)
+    at = indptr[later] + nonzero[rows[later]].sum(axis=1)
+    data[at] = index[later]
+    indices[at] = p
+    data[at + 1] = 1.0
+    indices[at + 1] = p + index[later]
+    width = p + n_hazards
+    return sparse.csr_matrix((data, indices, indptr), shape=(rows.size, width))
+
+
 def _bin_block(index: IntArray, n_hazards: int, index_only: bool = False) -> FloatArray:
     """How the bin a record belongs to enters the pooled hazard design.
 
@@ -1464,8 +1533,12 @@ def _bin_block(index: IntArray, n_hazards: int, index_only: bool = False) -> Flo
 
 
 def _long_expansion(
-    covariates: FloatArray, bins: IntArray, n_hazards: int, index_only: bool = False
-) -> tuple[FloatArray, FloatArray, IntArray]:
+    covariates: FloatArray,
+    bins: IntArray,
+    n_hazards: int,
+    index_only: bool = False,
+    sparse: bool = False,
+) -> tuple[Any, FloatArray, IntArray]:
     """The ``(unit, bin)`` records a pooled hazard model is fit on.
 
     Unit ``i`` contributes one record per bin ``b <= min(b_i, n_hazards - 1)``: it was "at
@@ -1475,12 +1548,18 @@ def _long_expansion(
 
     Returns the design, the 0/1 target, and the originating row of each record -- the last
     so weights and cluster codes can be lifted to the long table without being recomputed.
+    With ``sparse`` the design is the same matrix as CSR (:func:`_long_sparse`).
     """
     counts = np.minimum(bins, n_hazards - 1) + 1
     rows = np.repeat(np.arange(bins.size, dtype=np.int64), counts)
     offsets = np.repeat(np.cumsum(counts) - counts, counts)
     index = np.arange(rows.size, dtype=np.int64) - offsets
     del offsets
+    if sparse:
+        if index_only:
+            raise ValueError("the sparse hazard design carries the indicator block")
+        target = (index == bins[rows]).astype(float)
+        return _long_sparse(covariates, rows, index, n_hazards), target, rows
     # The design is filled in place, block by block, rather than stacked from whole blocks:
     # the table is most of a fit's memory, and stacking held it twice.  Every entry is the
     # value `np.column_stack([covariates[rows], _bin_block(index, ...)])` gives, in C order.
@@ -1631,8 +1710,8 @@ def _table_at(
         b = edges.size - 1
         bins = np.clip(np.digitize(values, edges) - 1, 0, b - 1)
         records = int(np.sum(np.minimum(bins, b - 2) + 1))
-        width = _bin_block(np.zeros(1, dtype=np.int64), b - 1, index_only).shape[1]
-        return records * (n_covariates + width) * 8
+        sparse = _sparse_route(learner, records, n_covariates)
+        return records * _record_columns(n_covariates, b - 1, index_only, sparse) * 8
 
     return table
 
@@ -1644,9 +1723,8 @@ def _table_size(
     index_only = _index_only(learner)
     fitted_bins = grid.bins if mask is None else grid.bins[mask]
     records = int(np.sum(np.minimum(fitted_bins, grid.n_hazards - 1) + 1))
-    columns = (
-        n_covariates + _bin_block(np.zeros(1, dtype=np.int64), grid.n_hazards, index_only).shape[1]
-    )
+    sparse = _sparse_route(learner, records, n_covariates)
+    columns = _record_columns(n_covariates, grid.n_hazards, index_only, sparse)
     return records, columns, int(fitted_bins.size)
 
 
@@ -2013,7 +2091,9 @@ def fit_conditional_density(
     def fit_on(rows: IntArray) -> Learner:
         if mask is not None:
             rows = rows[mask[rows]]
-        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only)
+        records = int(np.sum(np.minimum(bins[rows], n_hazards - 1) + 1))
+        sparse = _sparse_route(learner, records, w.shape[1])
+        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only, sparse)
         return fit_learner(
             learner,
             design,

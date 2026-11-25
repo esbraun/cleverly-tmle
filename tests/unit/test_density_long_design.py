@@ -63,3 +63,80 @@ def test_table_is_held_once(n_bins: int, ceiling: float) -> None:
     # Stacking whole blocks peaked at about two tables. The in-place build holds the table
     # plus the record index vectors, which weigh more when the table is narrow (few bins).
     assert peak < ceiling * design.nbytes
+
+
+# --- the sparse design (X106 D1b) ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_bins", [3, 4, 30])
+@pytest.mark.parametrize("n", [1, 9, 400])
+def test_sparse_table_holds_the_dense_tables_nonzeros_in_order(n_bins: int, n: int) -> None:
+    rng = np.random.default_rng(n * 10 + n_bins)
+    covariates = rng.standard_normal((n, 3))
+    # Exact zeros, which liblinear skips in a dense design, and a negative zero.
+    covariates[rng.uniform(size=covariates.shape) < 0.3] = 0.0
+    covariates[0, 0] = -0.0
+    bins = rng.integers(0, max(n_bins - 1, 1), n)
+    dense, target, rows = density_module._long_expansion(covariates, bins, n_bins - 1)
+    found, sparse_target, sparse_rows = density_module._long_expansion(
+        covariates, bins, n_bins - 1, sparse=True
+    )
+    np.testing.assert_array_equal(sparse_target, target)
+    np.testing.assert_array_equal(sparse_rows, rows)
+    assert found.shape == dense.shape
+    assert found.has_sorted_indices
+    expected = [(i, j, dense[i, j]) for i, j in zip(*np.nonzero(dense), strict=True)]
+    coo = found.tocoo()
+    got = list(zip(coo.row.tolist(), coo.col.tolist(), coo.data.tolist(), strict=True))
+    assert got == [(int(i), int(j), float(v)) for i, j, v in expected]
+
+
+def _density(learner: object, sparse: bool, monkeypatch: pytest.MonkeyPatch) -> np.ndarray:
+    from cleverly.learners.crossfit import Folds
+
+    if not sparse:
+        monkeypatch.setattr(density_module, "_sparse_route", lambda *args: False)
+    rng = np.random.default_rng(4)
+    n = 900
+    w = rng.standard_normal((n, 3))
+    w[:, 2] = (w[:, 2] > 0.5).astype(float)
+    a = 1.5 + 0.6 * w[:, 0] + rng.standard_normal(n)
+    folds = Folds(np.arange(n) % 3, 3)
+    fitted, _ = density_module.fit_conditional_density(
+        learner, w, a, rng.uniform(0.5, 2.0, n), folds, n_bins=12
+    )
+    monkeypatch.undo()
+    return fitted.density_at(a)
+
+
+@pytest.mark.parametrize("options", [{}, {"C": 1e10}, {"penalty": "l1"}, {"dual": True}], ids=str)
+def test_liblinear_fits_the_same_density_on_either_design(
+    monkeypatch: pytest.MonkeyPatch, options: dict[str, object]
+) -> None:
+    from sklearn.linear_model import LogisticRegression
+
+    learner = LogisticRegression(solver="liblinear", random_state=0, **options)
+    assert density_module._sparse_route(learner, 10, 3)
+    dense = _density(learner, False, monkeypatch)
+    sparse = _density(learner, True, monkeypatch)
+    assert dense.tobytes() == sparse.tobytes()
+
+
+def test_only_liblinear_logistic_regression_takes_the_sparse_design() -> None:
+    from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+
+    class Subclass(LogisticRegression):
+        pass
+
+    assert not density_module._sparse_route(LogisticRegression(), 10, 3)
+    assert not density_module._sparse_route(LogisticRegression(solver="newton-cholesky"), 10, 3)
+    assert not density_module._sparse_route(Subclass(solver="liblinear"), 10, 3)
+    assert not density_module._sparse_route(LogisticRegressionCV(solver="liblinear"), 10, 3)
+    liblinear = LogisticRegression(solver="liblinear")
+    assert not density_module._sparse_route(liblinear, 2**31 // 4, 3)
+
+
+def test_the_guard_counts_the_sparse_bytes() -> None:
+    # Nonzero witness: a sparse record is counted at its CSR size, not the dense width.
+    assert density_module._record_columns(4, 59, False, True) == 10
+    assert density_module._record_columns(4, 59, False, False) == 4 + 59
