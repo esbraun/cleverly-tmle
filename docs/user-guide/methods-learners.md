@@ -2,8 +2,31 @@
 
 ## Method presets
 
-`"tmle"` is the ordinary default. `CollaborativeTMLEMethod` and `DRTMLEMethod` select compatible
-estimator variants; they do not change the causal question.
+`"tmle"` is the ordinary default. Every other method object selects an estimator for the same
+question; none changes the quantity you asked for.
+
+| method object | `method=` name | what it is for | where to read |
+| --- | --- | --- | --- |
+| `TMLEMethod` | `"tmle"` | the default: TMLE for one treatment, longitudinal TMLE over time, and the survival fits | this page |
+| `CollaborativeTMLEMethod` | `"collaborative_tmle"` | let the data choose which covariates the treatment model uses | this section |
+| `DRTMLEMethod` | `"drtmle"` | keep the interval valid when the outcome model or the treatment model, but not both, is wrong | this section |
+| `AdaptiveIPTWMethod` | `"adaptive_iptw"` | weight by the treatment model alone, adapted to the outcome, for one treatment | this section |
+| `AdaptiveTMLEMethod` | `"atmle"` | a trial pooled with outside rows | [a small trial with external data](trial-with-external-data.md) |
+| `EPMethod` | `"ep"` | a conditional effect curve without choosing a basis | [conditional effects](conditional-effects.md) |
+| `SDRMethod` | `"sdr"` | the sequentially doubly robust estimator over time | this section |
+| `IPSIMethod` | `"ipsi"` | an incremental change in the odds of treatment over time | this section |
+| `GComputationMethod` | `"gcomp"` | sequential g-computation over time, a reference estimator | [analyses over time](longitudinal.md) |
+| `IPWMethod` | `"ipw"` | sequential inverse probability weighting over time, a reference estimator | [analyses over time](longitudinal.md) |
+| `ParametricGFormulaMethod` | `"parametric_gformula"` | the parametric g-formula over time | [analyses over time](longitudinal.md) |
+
+The three reference estimators fit a longitudinal design or a time-to-event design on a grid of
+check times, and a point-treatment fit refuses them. Over time,
+`CollaborativeTMLEMethod` and `DRTMLEMethod` fit only an event outcome with one treatment at the
+start, in their survival forms
+([time-to-event outcomes](survival.md)). A fit on exact event times
+(`TimeToEvent(grid="continuous")`) takes `TMLEMethod` only. `effect.available_methods()` lists
+every method for your question, with the reason for each one that cannot fit. The
+[settings reference](settings.md) lists every option of each method object.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -104,13 +127,33 @@ difference, or a classifier that accepts row weights for a log ratio.
 [Conditional effects](conditional-effects.md#fit-the-effect-without-choosing-a-basis) shows the
 workflow.
 
-The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
-`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"` and `"learners"` refuse the
-same three accessors, and so does `"oat"` with a flexible learner. Each estimate keeps
-`plugin_std_error` and `plugin_interval` as a diagnostic. For an interval, use `TMLEMethod`,
-`strategy="derivative"`, or the outcome-adaptive strategy with two parametric models.
-[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
-strategy.
+`strategy=` chooses how collaborative TMLE builds and picks its candidate treatment models.
+
+| strategy | what it selects | cost |
+| --- | --- | --- |
+| `"greedy"` (default) | adds, at each step, the covariate whose treatment model best improves the corrected fit | one treatment model per covariate tried at each step |
+| `"ordered"` | adds covariates in a fixed order, set by `preorder=` or `ordering=` | one treatment model per step |
+| `"discrete"` | picks among adjustment sets you declare in `candidates=` | one treatment model per set |
+| `"lasso"` | walks a lasso penalty grid, `lambdas=` | one lasso fit per penalty |
+| `"learners"` | picks among treatment learners you declare, least to most flexible | one fit per learner |
+| `"derivative"` | selects nothing; adds one extra term per option to the correction step, along the lasso penalty | one TMLE |
+| `"oat"` | fits, for each option, a treatment model on that option's predicted outcome | one treatment model per option |
+
+The selecting strategies (`"greedy"`, `"ordered"`, `"discrete"`, `"lasso"` and `"learners"`)
+report no confidence interval, p-value or standard error, and each estimate keeps
+`plugin_std_error` and `plugin_interval` as a diagnostic. `"derivative"` reports the ordinary
+TMLE interval. `"oat"` reports none with flexible learners, and can report one when both models
+are the parametric `ParametricOutcome` and `ParametricMechanism`. The
+[inference status table](../technical-reference/inference.md) says which fit reports an interval and
+why, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for
+each strategy.
+
+`DRTMLEMethod` takes `guard=` (which extra equations to solve), `reduction=`, `update_order=` and
+`randomized=`, with learners for its reduced regressions
+([doubly-robust inference](../technical-reference/dr-tmle/index.md)). `AdaptiveIPTWMethod` takes
+`form="targeted"` or `"one_step"` ([adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md)).
+`AdaptiveTMLEMethod` takes `working_basis=`, `source_learner=` and `force_arm=`
+([a small trial with external data](trial-with-external-data.md)).
 
 `CollaborativeTMLEMethod` also fits a `TimeToEvent` design with a two-level treatment. For each
 arm and time point it builds the treatment and censoring models (which predict who is treated and
@@ -245,7 +288,9 @@ result = effect.estimate(method=method)
 ```
 
 Keyword shortcuts such as `n_folds=`, `alpha=`, and `random_state=` normalize into these same
-groups. A method object makes the normalized configuration serializable and reviewable.
+groups. A method object makes the normalized configuration serializable and reviewable. The
+[settings reference](settings.md) lists every setting of each group with its keyword, its default
+and the fits that use it.
 
 The groups also hold settings that only some estimators read. `Inference` takes
 `bootstrap_interval=`, `variance=` and `cluster_variance=`, and `Runtime` takes
@@ -410,7 +455,8 @@ covariate law, because it models no covariate.
   fit that predicts it. Default 10.
 - `learner_folds` defines internal model-selection folds for learners such as a Super Learner.
   Default 5.
-- `repeats` repeats the outer split and reports the median of the draws. Default 1. The value must
+- `repeats` repeats the outer split and reports the median of the draws; a learned-rule value
+  reports their mean ([variations](../technical-reference/cv-tmle.md)). Default 1. The value must
   be at least 1, and a value above 1 requires `enabled=True`. A repeated point-treatment fit
   refuses a simultaneous band, because the band needs the joint influence curves of one draw. Pass
   `simultaneous=False` to a repeated point-treatment fit. A longitudinal fit accepts `repeats` and
@@ -438,7 +484,7 @@ in sample with `CrossFitting(enabled=False)`. Never read the interval off the sa
 
 Because the split reads no treatment, it cannot keep a rare arm in every training complement. The
 fit checks the realized draw instead, before the first learner. Each arm must appear in at least
-two independent units, which are rows for iid data and *clusters* under `id=`. Each training
+two independent units, which are rows for iid data and clusters when the design declares them (`cluster=`). Each training
 complement must hold every arm.
 
 A binary outcome needs both classes in every training complement, with one exception. For
@@ -467,7 +513,8 @@ candidate, before an estimator variant multiplies it again. The examples in this
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
 distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
-longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`
+longitudinal TMLE accept a declared cluster under cross-fitting (`cluster=` on the design; the
+engine classes spell it `id=`). C-TMLE refuses clusters at every setting, except `strategy="derivative"`
 ([collaborative TMLE](../technical-reference/collaborative-tmle.md)).
 Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
 identification, or nuisance consistency.
@@ -477,6 +524,17 @@ ordering that no design role carries. A rolling-origin split nests its training 
 fold holds out each row, and `Folds` stores exactly one fold per row. The rolling-origin refusal
 would survive a time index; it asks for a different storage contract. The two stratified policies
 are refused for a third reason, which the fold and outcome-scale rules give.
+
+## Pool the correction or run it per fold
+
+By default the correction step runs once over the stacked held-out predictions of every fold
+(`targeting_scheme="pooled"`). `targeting_scheme="fold"` runs it inside each validation fold, so
+no fold's correction reads another fold's rows. `fold_evaluation=True` (keyword
+`cv_evaluation=True`) reports the fold-evaluated estimate: each fold's estimate on its own rows,
+averaged over the folds, with a variance computed the same way. A learned-rule value can be
+scored this way too ([learned treatment rules](estimands.md)). Both are point-treatment settings. Under
+`fold_evaluation=True` the risk ratio, odds ratio and MSM coefficients are refused;
+[variations](../technical-reference/cv-tmle.md) gives the estimators and their refusals.
 
 ## Reuse an outer split
 
@@ -537,8 +595,9 @@ the whole contract: the counts, the row binding, what validation checks, and eve
 finite-sample estimating procedure and should be reported with support diagnostics. The logistic
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
-Five `Targeting` options choose how the targeting step runs or how its result is summarized. Each
-default runs the shipped step.
+Five of the `Targeting` settings choose how the targeting step runs or how its result is
+summarized. Each default runs the shipped step. The [settings reference](settings.md) lists all
+18.
 
 | option | what it chooses |
 | --- | --- |
@@ -566,8 +625,10 @@ label for good. A fixed order can put a covariate the outcome model needs after 
 that only add noise, and the early stop then leaves the estimate biased at any sample size.
 [Patience](../technical-reference/collaborative-tmle.md#patience) gives the details.
 
-A longitudinal fit has four more settings: a cap on extreme node weights, a shorter history for
-each model, one pooled censoring model, and a declared outcome range at chosen nodes.
+A longitudinal fit has more settings of its own, among them a cap on extreme node weights, a
+shorter history for each model, one pooled censoring model, a declared outcome range at chosen
+nodes, a curve that cannot decrease (`isotonic=True`) and the hazard model of a survival curve
+(`survival_model="hazard"`).
 [Weight trimming, shorter histories, and node bounds](longitudinal.md#weight-trimming-shorter-histories-and-node-bounds)
 describes them.
 

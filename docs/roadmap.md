@@ -89,7 +89,6 @@ different pages and run in parallel.
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
 | [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
 | [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
-| [X109](#x109-user-guide-capability-map-and-configuration-reference) User guide: capability map and configuration reference | docs | no new theory | X123 for the engine-only options |
 | [X110](#x110-user-guide-intervals-assessment-sensitivity-and-refutation) User guide: intervals, assessment, sensitivity and refutation | docs | no new theory | the shipped assessment, sensitivity and refutation surface |
 | [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | X110 for the tutorial links |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
@@ -714,19 +713,6 @@ and no check fails when they drift. Sixteen of 22 notebooks exceed the main-path
 
 Acceptance: every notebook re-executes with `--check`, and the new check fails on a deliberately
 stale stored output.
-
-### X109. User guide: capability map and configuration reference
-
-`capabilities.md` omits the whole time-to-event family and several estimand families, and
-`methods-learners.md` leaves most fields of `ModelSpec`, `Targeting`, `Inference` and `Runtime`,
-three typed methods and the collaborative TMLE strategies unexplained.
-
-- (a) A capability map: question, estimand and where to read, one row per row of the
-  implementation matrix.
-- (b) A configuration reference: each learner slot and who reads it, interval and runtime
-  settings with their defaults, every targeting and fold setting, and the options of each typed
-  method.
-- (c) The engine-only options, documented on the route X123 settles.
 
 ### X110. User guide: intervals, assessment, sensitivity and refutation
 
