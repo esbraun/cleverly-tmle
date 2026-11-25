@@ -260,6 +260,7 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
+| `unmoved and bound by: <clause>` | No kind of the binding search changes the estimates of the cells the clause reads, and the named clause of the same family and threshold has a witness of the subject that decides it | the pooled G and T draws of `mtp-density-tails`: none warns, so every kind leaves them at the truth, and the eager-helper control binds the ceiling |
 
 A study with thousands of cells would cost more than the job's time limit, because every
 extra-column kind of every cell summarizes every row. Its property module declares a subset

@@ -49,7 +49,8 @@ def test_the_reading_rebuilds_from_the_committed_replications() -> None:
             0.965,
             -0.75,
         ),
-        ("p4_sdr__correctly_specified", "interval_calibration", 0.936, 0.941, 0.978, 0.12),
+        # The Fix-9 regeneration of mtp-boundaries (dd308209) moved this reading from 0.936.
+        ("p4_sdr__correctly_specified", "interval_calibration", 0.9347, 0.941, 0.974, 0.11),
     ],
 )
 def test_the_cited_readings(

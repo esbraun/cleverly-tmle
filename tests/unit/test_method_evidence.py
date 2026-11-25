@@ -4770,7 +4770,7 @@ class TestPropertyDifferential:
             rule.clause(clause)
             code, _, argument = why.partition(": ")
             assert code in job.REASON_CHECKS, why
-            if code == "implied by":
+            if code in {"implied by", "unmoved and bound by"}:
                 rule.clause(argument)
             if code == "same module as":
                 assert argument in job.SUBJECTS, argument

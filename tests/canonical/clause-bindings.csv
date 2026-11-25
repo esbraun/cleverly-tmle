@@ -2086,3 +2086,18 @@ few-cluster-floor-tmle,few_cluster_reference,bias equivalent,none
 few-cluster-floor-tmle,few_cluster_reference,coverage floor,none
 few-cluster-floor-tmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
 few-cluster-floor-tmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,none
+mtp-density-tails,cluster_warning,at least 26 of 30 C draws warn,control_concentrated
+mtp-density-tails,cluster_warning,eager helper breaks the G and T clause,pair_collapse
+mtp-density-tails,cluster_warning,gap-disabled helper misses the C clause,pair_collapse
+mtp-density-tails,ic_gap,"2,000 median at or below its bound",shift/3
+mtp-density-tails,ic_gap,"20,000 median at most 0.6 of the 2,000 median",control_concentrated
+mtp-density-tails,ic_gap,"control 2,000 median above its bound",pair_collapse
+mtp-density-tails,ic_gap,"control 20,000 gap above its bound",pair_collapse
+mtp-density-tails,ic_gap,control median falls less than 0.6,control_diffuse
+mtp-density-tails,ic_gap,"every 20,000 gap at or below its bound",positive_diffuse
+mtp-density-tails,interval_calibration,both-wrong coverage below band,pair_collapse
+mtp-density-tails,interval_calibration,coverage in calibration band,bias
+mtp-density-tails,interval_calibration,noise se ratio below band,se_high
+mtp-density-tails,interval_calibration,pre-fix coverage below band,pair_collapse
+mtp-density-tails,interval_calibration,se ratio below band,se_high
+mtp-density-tails,interval_calibration,se ratio in calibration band,affine
