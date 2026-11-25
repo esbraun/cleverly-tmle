@@ -34,6 +34,9 @@ BUDGETS = {
     "model-based-over-time": 2600,
     "sequential-offers": 2600,
     "sequential-pricing": 2600,
+    # A lookup reference: one table row per setting, read by row rather than front to back.
+    # Its rows are counted as main-path words, so the budget follows the number of settings.
+    "settings": 2500,
 }
 
 #: The words of the guide's "Library words" table, with the pattern that finds each one. The

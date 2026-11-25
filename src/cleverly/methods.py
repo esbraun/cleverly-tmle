@@ -501,9 +501,11 @@ class ModelSpec:
     survival_model : {"iterated_mean", "hazard"} or None
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
-        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
-        model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
-        ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
+        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the method's own
+        model: ``"hazard"`` for :class:`CollaborativeTMLEMethod` and :class:`DRTMLEMethod` on
+        a time-to-event design (the :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and ``"iterated_mean"``
+        everywhere else.  A point-treatment fit refuses ``"hazard"``.
 
     See Also
     --------
@@ -810,8 +812,10 @@ class Inference:
         Unit or cluster resampling policy.
     simultaneous : bool or None, default=None
         Whether multi-parameter results include simultaneous bands.  ``None`` is the
-        engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
-        which has none, and a band everywhere else.
+        method's own default: no band for :class:`CollaborativeTMLEMethod` and
+        :class:`DRTMLEMethod` on a time-to-event design (the
+        :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and a band everywhere else.
     n_multiplier : int, default=10_000
         Multiplier draws for simultaneous bands, on every engine.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
