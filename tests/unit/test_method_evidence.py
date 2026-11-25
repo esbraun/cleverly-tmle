@@ -1046,8 +1046,13 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
+        diagnostic = _diagnostic_families(study.slug)
         unclassified = sorted(
-            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+            families
+            - BIAS_GATED_PROPERTIES
+            - ENDPOINT_GATED_PROPERTIES
+            - GATED_IN_STUDY.get(study.slug, frozenset())
+            - diagnostic
         )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
@@ -1060,7 +1065,7 @@ class TestPublishedVerdicts:
         # row must not publish a verdict at all.  Every cell carries the diagnostic role,
         # which is what the rendered table reads to print "reported" instead of "pass", and
         # every cell publishes the coverage interval the family exists to report.
-        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+        for family in sorted(families & diagnostic):
             reported = published.loc[published["property"] == family]
             assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
                 f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
@@ -2508,6 +2513,19 @@ DIAGNOSTIC_PROPERTIES = frozenset(
     }
 )
 
+#: A family name that one study reports with no verdict and another gates.  The family of
+#: ``few-cluster-adaptive-learners`` shares its name with the sequential baselines' reported
+#: family, and its rows answer to the coverage floor, the bias, the variance ratio, the shown
+#: coverage, the paired non-inferiority and the IID-control SE ratios.
+GATED_IN_STUDY: dict[str, frozenset[str]] = {
+    "few-cluster-adaptive-learners": frozenset({"adaptive_learners"}),
+}
+
+
+def _diagnostic_families(slug: str) -> frozenset[str]:
+    """The families ``slug`` reports with no verdict."""
+    return DIAGNOSTIC_PROPERTIES - GATED_IN_STUDY.get(slug, frozenset())
+
 
 class TestNegativeControls:
     """Corrupt one implementation and leave the other implementation's verdict unchanged."""
@@ -2985,8 +3003,9 @@ class TestTheStudyStillMeasuresTheCode:
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
+        diagnostic = _diagnostic_families(study.slug)
         for cell in declared_cells():
-            if cell.property in DIAGNOSTIC_PROPERTIES:
+            if cell.property in diagnostic:
                 continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
@@ -4509,7 +4528,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.few_cluster_adaptive_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

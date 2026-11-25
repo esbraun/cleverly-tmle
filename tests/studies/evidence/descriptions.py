@@ -12640,3 +12640,105 @@ for _one_node_slug in ("clustered-few-cluster-tmle", _FLOOR_TMLE_SLUG):
             ),
         }
     )
+
+#: ``few-cluster-adaptive-learners`` (X54 part (h)): the clustered interval on t with J - 2
+#: degrees of freedom when every nuisance is fitted by the default learner library, at 10, 20
+#: and 40 clusters. The cells and arms are those of
+#: ``tests/studies/few_cluster_adaptive_learners.py``. The family name ``adaptive_learners`` is
+#: shared with ``sequential-baselines``, so the cells are scoped to this study.
+_FCAL_SLUG = "few-cluster-adaptive-learners"
+STUDY_SCENARIOS[(_FCAL_SLUG, "equal10_j20_stacked")] = (
+    "20 clusters of 10 rows with a cluster latent in the outcome, a stacked TMLE with five "
+    "grouped folds and the default learner library for both nuisances, the shipped report"
+)
+_FCAL_LAWS = {
+    "equal10": "clusters of 10 rows, a cluster latent in the outcome (L1)",
+    "nonlinear10": "clusters of 10 rows, both nuisances nonlinear in W (L2)",
+    "equal40": "clusters of 40 units on the end-of-study longitudinal law (L3)",
+}
+_FCAL_FITS = {
+    "tmle_in_sample": "in-sample TMLE, the default learner library",
+    "tmle_stacked": "stacked TMLE with five grouped folds, the default learner library",
+    "glm_in_sample": "in-sample TMLE, main-terms logistic outcome and propensity",
+    "glm_stacked": "stacked TMLE with five grouped folds, main-terms logistic nuisances",
+    "interpolating_control": "in-sample TMLE, an unpruned tree outcome and a logistic propensity",
+    "stacked_control": (
+        "stacked TMLE whose out-of-fold outcome predictions come from an unpruned random forest "
+        "fitted on the full sample"
+    ),
+    "ltmle_crossfit": "cross-fitted LTMLE with five folds, the default library for every node",
+    "ltmle_glm": "cross-fitted LTMLE with five folds, a quasibinomial GLM for every node",
+}
+_FCAL_POSITIVE = (
+    "the exact 99% lower end of all-draw coverage at least 0.90, bias inside 0.25 empirical SD, "
+    "the 99% bootstrap lower end of the variance ratio at least 0.8649, and the exact 99% lower "
+    "end of shown coverage at least 0.92"
+)
+_FCAL_ARMS = {
+    "t_reference": "the shipped interval, t with J - 2 degrees of freedom",
+    "iid_t_control": "the same point and t quantile with the IID row standard error",
+    "wang_inflated": (
+        "Wang et al.'s inflation J / (J - 2) of the cluster variance on t with J - 2 degrees of "
+        "freedom"
+    ),
+    "glm_reference": "the shipped interval of the GLM fit on the same draws",
+    "interpolating_control": "the shipped interval of the interpolating outcome fit",
+    "stacked_control": "the shipped interval of the overfit out-of-fold outcome",
+}
+_FCAL_IID_REQUIRED = (
+    "on the shown draws, the 99% upper end of the paired ratio of mean IID SE to mean cluster SE "
+    "below 0.80, and the positive arm's shown-only SE-ratio upper end at most 1.20"
+)
+for _fcal_law, _fcal_counts in (("equal10", (10, 20, 40)), ("nonlinear10", (10, 20, 40))):
+    for _fcal_fit in (
+        "tmle_in_sample",
+        "tmle_stacked",
+        "glm_in_sample",
+        "glm_stacked",
+        "interpolating_control",
+        "stacked_control",
+    ):
+        for _fcal_j in _fcal_counts:
+            for _fcal_arm in _FCAL_ARMS:
+                _fcal_gated = _fcal_fit == "tmle_stacked" and _fcal_arm in {
+                    "t_reference",
+                    "iid_t_control",
+                }
+                if _fcal_fit == "stacked_control" and _fcal_arm == "stacked_control":
+                    _fcal_required = "the exact 99% upper end of all-draw coverage below 0.90"
+                elif _fcal_gated and _fcal_arm == "t_reference":
+                    _fcal_required = _FCAL_POSITIVE + (
+                        ", and the exact 99% lower end of the paired all-draw coverage "
+                        "difference to the GLM arm above -0.02"
+                        if _fcal_law == "equal10"
+                        else ""
+                    )
+                elif _fcal_gated:
+                    _fcal_required = _FCAL_IID_REQUIRED
+                else:
+                    _fcal_required = _DIAGNOSTIC_REQUIRED
+                STUDY_CELLS[
+                    (
+                        _FCAL_SLUG,
+                        "adaptive_learners",
+                        f"{_fcal_fit}__{_fcal_law}__j{_fcal_j}__{_fcal_arm}",
+                    )
+                ] = (
+                    f"{_FCAL_FITS[_fcal_fit]}, {_fcal_j} {_FCAL_LAWS[_fcal_law]}: "
+                    f"{_FCAL_ARMS[_fcal_arm]}",
+                    _fcal_required,
+                )
+for _fcal_fit in ("ltmle_crossfit", "ltmle_glm"):
+    for _fcal_arm in _FCAL_ARMS:
+        if _fcal_fit == "ltmle_crossfit" and _fcal_arm == "t_reference":
+            _fcal_required = _FCAL_POSITIVE
+        elif _fcal_fit == "ltmle_crossfit" and _fcal_arm == "iid_t_control":
+            _fcal_required = _FCAL_IID_REQUIRED
+        else:
+            _fcal_required = _DIAGNOSTIC_REQUIRED
+        STUDY_CELLS[
+            (_FCAL_SLUG, "adaptive_learners", f"{_fcal_fit}__equal40__j20__{_fcal_arm}")
+        ] = (
+            f"{_FCAL_FITS[_fcal_fit]}, 20 {_FCAL_LAWS['equal40']}: {_FCAL_ARMS[_fcal_arm]}",
+            _fcal_required,
+        )

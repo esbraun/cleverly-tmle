@@ -1,9 +1,9 @@
 # Few-cluster intervals with the default learner library (`few-cluster-adaptive-learners`)
 
 This study measures the Student $t_{J-2}$ interval of a clustered `TMLE` and a cross-fitted
-`LTMLE` whose nuisances are fitted by the default learner library, at 10, 20 and 40 clusters. A
-configuration that fails the declared caveat rule takes the `adaptive_nuisance` shortfall of its
-support row (`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`). It has no comparator.
+`LTMLE` whose nuisances are fitted by the default learner library, at 10, 20 and 40 clusters.
+Every gated row passes, so it is evidence of the support rows `T11.stacked`, `T10.unweighted`
+and `G07` (`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`). It has no comparator.
 
 | file | role |
 | --- | --- |
@@ -12,16 +12,17 @@ support row (`cleverly._support_rows.ADAPTIVE_NUISANCE_SHORTFALLS`). It has no c
 | `tests/studies/clustered_nonlinear_law.py` | Law L2 and its exact truth. |
 | `tests/studies/few_cluster_adaptive_pilot.py` | The 400-draw pilot, with checkpoints, and its predictive pass probabilities. |
 | `tests/unit/test_few_cluster_adaptive_design.py` | The design test: every declared number, recomputed. |
-| `tests/unit/test_adaptive_nuisance_support.py` | The qualifier, the shortfall table and the label it moves. |
+| `tests/unit/test_adaptive_nuisance_support.py` | The qualifier and the label it moves. |
 
 ## State of this directory
 
-Declared, not run. The 400-draw pilot that sizes the study is committed here (`pilot.csv.gz`,
+Registered. The declared run is committed here, and every property row and the primary pass,
+the three predicted red rows among them, so no row is red and no configuration takes a
+shortfall. The 400-draw pilot that sized the study is committed too (`pilot.csv.gz`,
 `pilot.json`: 25,600 rows, no fit raised, 26.9 CPU-hours). The design test recomputes the
 predicted pass probabilities, the three predicted red rows, the 1,200-draw primary and the
-projected 279 CPU-hours from it, and `regenerate.py` states each red row's reading and its
-owner. The record is not in `registered()` and the shortfall table is empty. The evidence page,
-the grid rows and the shortfall entries land with the registration, after the run.
+projected 279 CPU-hours from it. The evidence page is
+`docs/technical-reference/method-evidence/few-cluster-adaptive-learners.md`.
 
 ## Run
 

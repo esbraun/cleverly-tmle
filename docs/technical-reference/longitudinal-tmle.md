@@ -2554,10 +2554,12 @@ fold-evaluated point-treatment fit. The package ships neither.
 The result inherits five conditions: independent clusters, no interference between units, a
 bounded cluster size, the Theorem 3 rates and bounded density ratios in the cluster count, and the
 unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, Park, Small and Li
-(2024), Remark 3, caution against complex learners at about 20 clusters. The registered evidence
-uses parametric nuisances. An in-sample `LTMLE` at 20 to 39 clusters with a data-adaptive
-nuisance learner is therefore experimental, with its interval shown, as
-[clusters](inference.md#clusters) explains for point fits.
+(2024), Remark 3, caution against complex learners at about 20 clusters.
+[`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures a
+cross-fitted `LTMLE` with the default learner library for every outcome node at 20 clusters, and
+it passes every gated clause. An in-sample `LTMLE` below 40 clusters with a data-adaptive nuisance
+learner is experimental, with its interval shown, as [clusters](inference.md#clusters) explains
+for point fits.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
 cluster-summed curve and the status are the same for every target, a

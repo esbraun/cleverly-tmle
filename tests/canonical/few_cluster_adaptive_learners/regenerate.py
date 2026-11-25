@@ -1,9 +1,20 @@
 """Regenerate the ``few-cluster-adaptive-learners`` evidence under the declared run form.
 
-**State: declared.** The 400-draw pilot of :mod:`tests.studies.few_cluster_adaptive_pilot`
-(design review B1) is committed as ``pilot.csv.gz``: 38 fits of 400 draws, 25,600 rows, no
-fit raised, 26.9 CPU-h. The predicted pass probabilities, the predicted red cells, the primary
-count and the budget below are derived from it, and the design test recomputes each one.
+**State: registered.** The declared run is committed here: 64 property rows on 4,000 draws
+per cell and the 1,200-replication primary, with no failed replicate, finished on 16 jobs after
+a resume from its checkpoints (``run.log``). Every property row passes, among them the three
+predicted reds (coverage 0.9425, 0.9437 and 0.9430), and the primary passes. No configuration
+takes an ``adaptive_nuisance`` shortfall, and no row is red. The red readings, their owners and
+the shortfall table that the routes below name were coded for a red row; with none, they were
+removed at registration, and the routes stay here as the record of the declaration. The study
+is evidence of the support rows ``T11.stacked``, ``T10.unweighted`` and ``G07``
+(:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`), and its page is
+``docs/technical-reference/method-evidence/few-cluster-adaptive-learners.md``.
+
+The 400-draw pilot of :mod:`tests.studies.few_cluster_adaptive_pilot` is committed as
+``pilot.csv.gz``: 38 fits of 400 draws, 25,600 rows, no fit raised, 26.9 CPU-h. The predicted
+pass probabilities, the predicted red cells, the primary count and the budget below are derived
+from it, and the design test recomputes each one.
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`).
@@ -13,11 +24,9 @@ imports, with every BLAS and OpenMP thread variable at 1 (``README.md``). The re
 comparator, so the run starts no container. Laws, learners, fits, arms, cells, margins, seeds
 and replicate counts are those of :mod:`tests.studies.few_cluster_adaptive_learners` and
 :mod:`tests.studies.few_cluster_adaptive_properties`, fixed before any run and recomputed by
-``tests/unit/test_few_cluster_adaptive_design.py``. The record is not in ``registered()`` until
-its run is committed; until then its property module is an uncommitted subject of the property
-differential, on synthetic rows.
+``tests/unit/test_few_cluster_adaptive_design.py``.
 
-Order of the work (plan X54 rev 3.2, section 5.4, and the S-h design review): the laws (L2 in
+Order of the work: the laws (L2 in
 :mod:`tests.studies.clustered_nonlinear_law`, its truth by quadrature checked at two
 resolutions and against a large draw); the 400-draw pilot on its own seed stream, committed as
 ``pilot.csv.gz``; a diagnosis of any departure it confirms, read against the paired GLM arms
@@ -44,7 +53,7 @@ What the pilot reads (400 draws per cell; ``few_cluster_adaptive_pilot.pilot_rea
   1, so the reading may be one draw set; it is not a departure of the library from the baseline.
 * In sample: variance ratios 0.68 to 0.88 and coverage 0.888 to 0.918, 1.5 to 3.3 points under
   the in-sample GLM arm on the same draws at every count, which is the overfitting the theory
-  predicts (design review M2) and gates nothing.
+  predicts and gates nothing.
 * The stacked control covers 0.81 to 0.85 with a variance ratio of 0.45 to 0.53 at every count,
   and its power to fail at 4,000 draws is at least 0.989 at every count (``PREDICTED_PASS``), so
   the stacked caveat can be removed at every count where the positive passes. The cross-fitted
@@ -69,7 +78,7 @@ GLM fits, and their bias over SD and paired GLM difference are read against the 
 at equal precision, which is the in-sample against cross-fitted comparison of Remark 3. The
 primary takes 1,200 draws, the smallest multiple of 400 of at least 1,000 whose predictive
 family-wise pass reaches 0.95 (0.956: coverage floor 0.959, SE-ratio band 0.999, bias 0.997;
-0.933 at 1,000). No interim stop (design review m3), for three reasons. The two cells it would
+0.933 at 1,000). No interim stop, for three reasons. The two cells it would
 stop, the stacked rows at 10 clusters, still pass with probability 0.18 to 0.23, and a stop at
 1,000 draws would forgo that chance. Their declared reading rests on the paired GLM difference,
 which 4,000 draws resolve to a 99% half-width of about 0.007. The harness has no interim rule,
@@ -82,15 +91,15 @@ stacked default library 24.0, 26.8 and 34.4 on L1 and 23.8, 25.4 and 32.8 on L2;
 0.5 to 0.7; every other fit under 0.1. At 4,000 draws per cell: stacked 186 CPU-h, in sample 39,
 L3 40, the controls and GLM fits 5, the 1,200-draw primary 9, and the summary's bootstraps
 under 1, so about 279 CPU-h (``few_cluster_adaptive_pilot.projected_cpu_hours``), against the
-plan's declared 270. That is about 17.5 hours on the local 16-core queue. The heavy keys run
-first (``few_cluster_adaptive_properties.keys``). Runner rule (plan 5.4, design review m2): the
+declared 270. That is about 17.5 hours on the local 16-core queue. The heavy keys run
+first (``few_cluster_adaptive_properties.keys``). Runner rule: the
 smoke re-measures each per-fit time on the queue's machine. The run goes back to the row thread
 before it starts when a per-fit time is more than 1.5 times the pilot's figure above, or when
 the smoke's projected total is more than 1.5 times the declared 270 CPU-h, that is 405 CPU-h.
-The pilot's figures are 1.35 to 1.48 times the plan's, so the per-fit rule alone would let a
+The pilot's figures are 1.35 to 1.48 times the declared ones, so the per-fit rule alone would let a
 queue 1.49 times slower than the pilot start at about 415 CPU-h.
 
-What is gated, and why (plan 5.4, review findings B3 and N3, design review M1 and M2). The
+What is gated, and why. The
 gated fits are stacked ``TMLE`` and cross-fitted ``LTMLE``. Each positive row (``t_reference``
 of ``tmle_stacked`` at each point law and count, and of ``ltmle_crossfit``, 7 rows) passes when
 all of these hold:
@@ -112,13 +121,13 @@ and ``stacked_control`` passes when the exact 99% upper end of its all-draw cove
 control and its must-fail control all pass (``caveat_removed``). The stacked control's outcome
 is an unpruned random forest fitted on the full sample, standing in for every out-of-fold
 prediction, so its residuals shrink but do not vanish, and the out-of-fold assembly, the
-stacked targeting and the stacked variance all act on it (design review M1). If the pilot reads
-its power below 0.90 at a count, the stacked caveat cannot be removed at that count (plan 5.4).
+stacked targeting and the stacked variance all act on it. If the pilot reads
+its power below 0.90 at a count, the stacked caveat cannot be removed at that count.
 No control plants an overfit ``LTMLE`` outcome fit, so the cross-fitted ``LTMLE`` cell reads the
 stacked control of L1 at 20 clusters, a point-``TMLE`` control; the evidence page states that
 limit.
 
-The in-sample default-library fit is reported, not gated (design review M2, option (b)). The
+The in-sample default-library fit is reported, not gated. The
 Super Learner cross-validates only its weights and predicts from each candidate's full-sample
 fit (``cleverly/learners/super_learner.py``), so an in-sample fit's residuals shrink at any
 cluster count and no Donsker argument covers it. It therefore takes the ``adaptive_nuisance``
@@ -140,7 +149,7 @@ for the default library, and the GLM arms' bias is at most 0.08 SD), so the comp
 isolates the library's effect on the interval. The evidence page says so.
 
 Red-cell readings (declared before any run). The record is ``reporting``, so a red gated verdict
-is published, and it takes the route of plan section 5.8 named here. No cell is re-sized,
+is published, and it takes the route named here. No cell is re-sized,
 re-drawn, dropped or relabelled after a verdict is seen, and no margin differs from the harness
 defaults except the declared thresholds above.
 
@@ -181,7 +190,7 @@ Routes:
   the GLM fit too. That row becomes a defect suspect under owner ``X54-parametric-few-cluster``,
   and the evidence page states both arms. The adaptive shortfall still applies below the
   smallest passing count.
-* A stacked positive row is red at 40 clusters (design review M3). It is first diagnosed as a
+* A stacked positive row is red at 40 clusters. It is first diagnosed as a
   defect suspect. The default row and its GLM arm run the same stacked targeting and clustered
   variance code, so the paired reading cannot see a defect in that code. The diagnosis
   therefore also reads three comparisons that code cannot hide in. The first is the stacked GLM
@@ -190,21 +199,22 @@ Routes:
   (``clustered-unequal-cvtmle``). The third is the ``wang_inflated`` diagnostic, whose variance
   is the plug-in times J/(J-p) on the same draws, against the reported interval. A code defect
   is fixed and the study re-run under a fresh declaration. With no code defect, the coded
-  reading decides. A library reading takes the M3 endpoint: the clustered row ``T10.unweighted`` takes an entry with ``below=None``,
+  reading decides. A library reading takes this endpoint: the clustered row ``T10.unweighted`` takes an entry with ``below=None``,
   so every clustered stacked fit with an adaptive nuisance learner is experimental at every
   cluster count, with the sentence of ``AdaptiveNuisanceShortfall.sentence``. The qualifier is
   set on the ``clustered`` tier for this, and ``tests/unit/test_adaptive_nuisance_support.py``
   holds its witness. The ``t``-tier row takes the shortfall at every count below 40 too. A
   shared reading adds no shortfall: a label naming the learner would misattribute a deficit the
   GLM arm shows on the same draws. The stacked caveat stays at that law, and the evidence page
-  states the law, the count, both arms' readings and the paired difference. Plan 5.8 names this
-  case ("defect suspect for the library or the law"). The asymmetry with the route below 40 is
+  states the law, the count, both arms' readings and the paired difference, as a defect suspect
+  for the library or the law. The asymmetry with the route below 40 is
   one of scope. The shortfall below 40 is scoped to the counts measured (10 to 19), while the
   library route at 40 has no upper scope, and one law at one count that the parametric arm
   shares does not warrant labelling every adaptive clustered stacked fit at every count of 40
   or more. Owner ``X54-adaptive-learners``.
 * Every clause of the stacked configuration passes at every count: no shortfall for it, and the
-  docs sentences of plan 5.8 row 1 change for stacked fits; the in-sample sentence stays.
+  docs sentences on the default library at few clusters change for stacked fits; the in-sample
+  sentence stays.
 * A red row of the cross-fitted ``LTMLE`` cell takes the shortfall for cross-fitted ``LTMLE``
   at 20 to 39 clusters (``G07``), with the same three readings against ``ltmle_glm``.
 * A must-fail control passes (covers): the study cannot see an overfit stacked outcome fit at
