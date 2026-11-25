@@ -843,3 +843,18 @@ edited two modules its manifest records, and neither edit reaches a seed, a fit 
   rows. They set support labels, which the study's rows do not record.
 
 The seed-0 witness of the next section covers these edits too.
+
+## Main merged into `projection-methods` after its run
+
+Merging main at `95b494c8` after the run changed three modules the manifest records:
+`src/cleverly/_inference_status.py` and `src/cleverly/_support_rows.py` gain the measured
+cluster counts of `few-cluster-adaptive-learners` and its support rows, and
+`src/cleverly/estimators/tmle.py` rewords the comment at the EP rule condition. These set notes
+and support labels; no fit reads them. The evidence: at seed 0 (sample seed 0,
+`random_state=0`, n = 2,000) every one of the seven groups, fitted through `fit_group` at
+`32ac8489` and again at the merge `d1fa0fac` with the registration edits of the previous section,
+gives the same 39 numbers bit for bit: 14 points, 14 plug-in standard errors, the two Wald
+standard errors of `dr_known_4k`, three control values and six readings. The other 12 standard
+errors are withheld on both trees. Only the support labels moved, from experimental to the
+`T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat` rows, which is the registration and enters
+no recorded row.
