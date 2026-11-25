@@ -157,10 +157,19 @@ true SE ratio of 1, as plan 5's preface states it: 0.99996 at 2,400 fits, agains
 at 1.01, 0.993 at 1.02, 0.63 at 1.05), and a 400-draw ratio has a relative SD near 0.035, so that
 reading would refuse a calibrated estimator by chance; it is reported here once the draws are in
 (`shrunken_power_at_pilot`) and refuses nothing. In the declared run a shrunk control passes when
-its SE-ratio interval lies below 0.93. When its calibration row reads conservative, with the
-row's SE-ratio interval above 1 (the direction plan 5.7 expects, review S6), the control passes
-when its interval lies wholly below the row's own interval, so a conservative row does not void
-the run through its control.
+its SE-ratio interval lies below 0.93 or wholly below its calibration row's own interval. The
+second reading carries a row that reads conservative, with its SE-ratio interval above 1 (the
+direction plan 5.7 expects, review S6), so such a row does not void the run through its control.
+Taking either reading also closes the window the re-check found near a ratio of 1.04, where a
+heavy-tailed row's interval could leave the band reading failed while its lower bound stays
+below 1. On a conservative row the control checks only that the replicates resolve a 15%
+shortfall from the row.
+
+**The plug-in control's power** must reach 0.99 at the pilot's plug-in bias and
+`mechanism_correct`'s count. At 1,600 fits that needs a bias near 0.32 SD; the separation of
+0.5 IPW SDs predicts 0.5 or more, read by the pilot with an SE near 0.05, so the floor refuses by
+chance only when the true bias lies within about 0.1 of the threshold. A floor of 0.80 would have
+accepted a control that voids the declared run with probability 0.2.
 
 **The extension** (review S4). A calibration row's plug-in pass at 2,400 reaches 0.90 only for a
 pilot SE ratio inside about [0.985, 1.013]. A calibrated row's 400-draw ratio lands there with

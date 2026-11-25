@@ -61,7 +61,7 @@ regime through its first :math:`K^*_r` visits.  Each row records its regime's ow
 and ``reference_cap`` for a difference) and the capped truth :math:`\psi^{(K^*_r)}`
 (``capped_truth``, from ``law.CAPPED_RISKS``), and ``visit-cap.csv`` reports the bias against
 both truths with the distribution of the caps, so a cap gap can be told from an estimator bias.
-On CT-day the gap at :math:`K = 4` is at most 0.0016 in absolute value (never, cause 1, day 30)
+On CT-day the gap at :math:`K = 4` is at most 0.0013 in absolute value (never, cause 1, day 30)
 and 0.0036 at :math:`K = 3`.
 
 **Support floors** (plan 3.5.9, review S7).  ``floors.csv`` (``readings.floors``) holds, per
@@ -76,9 +76,8 @@ set no verdict.
 **Calibration** (:mod:`tests.studies.continuous_time_longitudinal_readings`).  The risk difference
 always minus never of cause 1 at day 20 of ``day_cf`` and of ``cont_cf`` takes the calibration
 rule (the 99% interval of the SE ratio inside (0.93, 1.07) and the coverage interval inside
-(0.92, 0.98)); the shrunk-SE control multiplies their SEs by 0.85 and must leave the band below,
-or, when its row reads conservative (the row's SE-ratio interval above 1), fall wholly below the
-row's own interval (review B1).
+(0.92, 0.98)); the shrunk-SE control multiplies their SEs by 0.85 and must fall below the band
+or wholly below the row's own interval, which carries a row that reads conservative (review B1).
 ``sparse_calibration`` reads ``day_cf``'s difference of cause 2 at day 10 under the same rule and
 gates nothing (review S5).  A gate reads code: :func:`scientific_failures`.
 

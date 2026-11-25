@@ -33,7 +33,7 @@ with the declaration (:func:`pilot_refusals`):
   otherwise recorded there as a chance reading (review S4: a calibrated row extends with
   probability about 0.69);
 * the at-target pass of the calibration pair at the primary count is at least 0.95, the
-  plug-in control fires with probability at least 0.80 at ``mechanism_correct``'s count, and a
+  plug-in control fires with probability at least 0.99 at ``mechanism_correct``'s count, and a
   shrunk-SE control leaves the band with probability at least 0.999 at a true SE ratio of 1
   (plan 5's preface; 0.99996 at 2,400).  The same power at the pilot's point ratio is a report in
   ``pilot-diagnosis.md``, never a refusal (review B1);
@@ -90,12 +90,13 @@ row pass.
   green against it is a cap red, which the share condition of plan 3.5.9 governs, not an engine
   defect suspect.
 * A plug-in control that does not fire is an instrument failure: the run is void and goes back
-  to the plan.  A shrunk-SE control leaves the band when its SE-ratio interval lies below 0.93.
-  When its calibration row reads conservative (that row's SE-ratio interval lies above 1, the
-  direction the bullet above expects), the control is read against the row instead: it passes
-  when its interval lies wholly below the row's own interval, and a conservative row never voids
-  the run through its control (review B1).  A shrunk-SE control that fails its reading is an
-  instrument failure.
+  to the plan.  A shrunk-SE control passes when its SE-ratio interval lies below 0.93 or wholly
+  below its calibration row's own interval.  The second reading carries a row that reads
+  conservative (its SE-ratio interval above 1, the direction the bullet above expects), so a
+  conservative row never voids the run through its control, and the union leaves no window near
+  the switch point (review B1 and its re-check).  On such a row the control checks only that the
+  replicates resolve a 15% shortfall from the row.  A shrunk-SE control that passes under neither
+  reading is an instrument failure.
 * ``outcome_correct``, ``sparse_calibration`` and ``both_wrong`` are reported and start no
   diagnosis.  ``ltmle_daily`` gates nothing either.  A mean paired difference that departs
   from its expected value, the panel's risk minus :math:`\psi_r`, by more than 0.5 of the
@@ -123,11 +124,13 @@ from tests.studies import (
 
 #: The plan's hold: a projection above this stops the run before it starts (plan 5.7).
 HOLD_CPU_HOURS = 200.0
-#: The smallest power of the plug-in control at the pilot's plug-in biases.  The plan's 0.999 is
-#: what the separation of 0.5 IPW SDs gives, and the separation is checked on its own above; this
-#: floor reads the pilot's noisy point biases and refuses only a control the pilot shows to be
-#: weak, as a point-estimate floor at 0.999 would refuse by chance (review m6, B1).
-CONTROL_POWER = 0.80
+#: The smallest power of the plug-in control at the pilot's plug-in biases (review m6, re-check
+#: R2).  A floor of 0.80 would accept a control that voids the declared run with probability 0.2.
+#: At 0.99 the floor needs a pilot bias near 0.32 SD at 1,600 fits, while the separation of 0.5
+#: IPW SDs predicts a true bias of 0.5 or more; a 400-draw pilot reads it with an SE near 0.05, so
+#: a chance refusal is improbable unless the true bias lies within about 0.1 of the threshold,
+#: unlike B1, whose null value sat on its threshold.
+CONTROL_POWER = 0.99
 #: The smallest power of each shrunk-SE control, at a true SE ratio of 1 (plan 5's preface).
 SHRUNK_POWER = 0.999
 

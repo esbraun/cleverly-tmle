@@ -86,9 +86,9 @@ the visit intensity and the continuation without $L$ and the treatment and censo
 it, so its rows test double robustness. Its untargeted plug-in is the control, which must miss by
 more than 0.2 SD at day 30 for always or never. The calibration rows take the tighter rule: the
 SE ratio inside (0.93, 1.07) and coverage inside (0.92, 0.98). The shrunk-SE control multiplies
-their SEs by 0.85 and must leave that band below. When its calibration row reads conservative,
-with an SE-ratio interval above 1, the control must instead fall wholly below the row's own
-interval.
+their SEs by 0.85 and must fall below that band or wholly below the row's own SE-ratio interval.
+The second reading carries a calibration row that reads conservative, with an SE-ratio interval
+above 1.
 
 ## The pairing with the discrete-time LTMLE
 

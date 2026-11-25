@@ -10,9 +10,9 @@ Every table is computed from the primary rows of
   and the capped truth);
 * ``secondary-rows.csv.gz``: every secondary fit's rows (:data:`SECONDARY_COLUMNS`);
 * ``calibration.csv`` (:func:`calibration`): the calibration rule at the two calibration rows, the
-  shrunk-SE control on each, and ``sparse_calibration`` (reported).  A shrunk control leaves the
-  band below 0.93, or, when its row reads conservative (the row's SE-ratio interval lies above
-  1), it leaves the row's own interval (``reading``, review B1);
+  shrunk-SE control on each, and ``sparse_calibration`` (reported).  A shrunk control passes when
+  its SE-ratio interval lies below 0.93 or wholly below its row's own interval (``reading``,
+  review B1 and its re-check);
 * ``mechanism-correct.csv`` (:func:`mechanism`): the primary rule at ``mechanism_correct``'s 12
   rows and the plug-in control at the four day-30 risks of always and never;
 * ``misspecified.csv`` (:func:`misspecified`): bias, coverage and the SE ratio of
@@ -208,15 +208,21 @@ def calibration(rows: pd.DataFrame) -> pd.DataFrame:
             rows_interval[scenario] = (ratio_low, ratio_high)
             passed = meets
         elif kind == "shrunk_se":
+            # The control passes under either reading: its SE-ratio interval below the band, or
+            # wholly below its row's own interval.  The second carries a conservative row (the
+            # direction plan 5.7 expects), and the union leaves no void window where the row's
+            # lower bound sits just below 1 (review B1, re-check R1).
             row_low = rows_interval[scenario][0]
-            if row_low > 1.0:
-                # The row reads conservative (its SE-ratio interval lies above 1, the direction
-                # plan 5.7 expects): the control must leave the row's own interval (review B1).
-                reading = "below the row's interval"
-                passed = ratio_high < row_low
-            else:
-                reading = "below the band"
-                passed = not meets and ratio_high < low_band
+            below_band = not meets and ratio_high < low_band
+            below_row = ratio_high < row_low
+            reading = (
+                "below the band"
+                if below_band
+                else "below the row's interval"
+                if below_row
+                else "neither"
+            )
+            passed = below_band or below_row
         else:
             passed = meets
         records.append(
