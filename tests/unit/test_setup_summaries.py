@@ -137,6 +137,15 @@ def test_a_dropped_column_is_quoted_and_left_out_of_the_adjustment() -> None:
 #: and the closing words of the sentence, which tell the entries apart; then how many
 #: statements print only in the full summary.
 PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
+    "dose_response": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "each declared dose inside the declared range."),
+        ),
+        2,
+    ),
     "ate": (
         (
             ("well-defined treatment", "no", "the same level has the same effect."),

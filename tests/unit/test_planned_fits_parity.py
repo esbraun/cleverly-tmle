@@ -291,7 +291,7 @@ def test_the_replay_patches_every_fit_entry_both_ways() -> None:
         for node in cls_node.body
         if isinstance(node, ast.FunctionDef) and node.name.startswith("_estimate_")
     ]
-    assert len(routes) == 5, [node.name for node in routes]
+    assert len(routes) == 6, [node.name for node in routes]
     for route in routes:
         calls = {
             node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id

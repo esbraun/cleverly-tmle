@@ -135,7 +135,7 @@ different pages and run in parallel.
 | [X57](#x57-joint-intervention-axes-and-tilt-compositions) Joint intervention axes and tilt compositions | 6 | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt |
 | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) Typed study requests for the risk-ratio tilt | 6 | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests |
 | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) Continuous-dose MSM with a second mechanism | 6 | source audit | the shipped continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting |
-| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report |
+| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band; part (e) holds the study route's refused designs and method settings | the shipped `DoseResponseTMLE` and its support report |
 | [X98](#x98-score-assessment-compositions) Score assessment compositions | 6 | natural extension for part (a), a joint band over the pairs and a registered study; no new theory for parts (b) and (c); source audit for part (d) | the shipped `assess_score` and its pooled fluctuation |
 
 ### Collaborative and doubly robust TMLE
@@ -2117,7 +2117,7 @@ $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its f
 (`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
 (`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
 0.922 and the labelled fits 0.948, and the stratified pair at n = 8,000 covered 0.921 at a mean
-Kish size of 136 with an SE ratio of 0.96. This item has four parts.
+Kish size of 136 with an SE ratio of 0.96. This item has five parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
@@ -2132,6 +2132,13 @@ Kish size of 136 with an SE ratio of 0.96. This item has four parts.
   clever covariate, and an atom would need a point mass in the quadrature and the band.
 - (d) Contrasts between declared dose pairs, such as the difference of the curve at two doses,
   with an interval from the pair's joint influence curve. Experimental until a registered study.
+- (e) The study route's open settings. `CausalStudy.identify(DoseResponseCurve(curve))` fits
+  `DoseResponseTMLE` on a `PointTreatment` design and refuses, before any learner, a dose given
+  over time (`LongitudinalTreatment`, `TimeToEvent` and `LongPanel`) and four method settings:
+  repeated cross-fitting (`repeats > 1`), a reused `split_plan`, the bootstrap (`n_bootstrap`,
+  `bootstrap_resampling`) and treatment screening (`screen_treatment`). Repeats need a median
+  rule for each pair and for the band. The bootstrap needs a refit of the curve per draw. Once
+  implemented, each setting reads experimental until a registered study measures it.
 
 ### X98. Score assessment compositions
 

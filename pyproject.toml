@@ -126,6 +126,10 @@ addopts = '-ra --strict-markers -m "not slow"'
 markers = [
     "slow: a tutorial notebook's refit cells, run by `pytest -m slow` and the CI slow-tests job",
 ]
+# A passing test's `tmp_path` is removed when the test ends; a failing test's stays for
+# inspection. pytest otherwise keeps every one until the session ends, and a CI shard runs
+# thousands of tests on a runner whose disk and memory are fixed.
+tmp_path_retention_policy = "failed"
 filterwarnings = [
     "error::RuntimeWarning",
     "ignore::DeprecationWarning",

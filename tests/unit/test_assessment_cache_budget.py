@@ -943,7 +943,7 @@ _DIRECT_FITS = {
     "sensitivity/_simulated_confounding_longitudinal.py": (1, "simulated_confounding, a refit"),
     "sensitivity/_simulated_confounding_survival.py": (2, "simulated_confounding, a refit"),
     "sensitivity/simulated_confounding.py": (3, "simulated_confounding, a refit"),
-    "study.py": (5, "fit time"),
+    "study.py": (6, "fit time"),
     "survival/cox.py": (2, "fit time and the refit truncation curve"),
     "survival/engine.py": (3, "fit time and the refit truncation curve"),
     "validation/_band_placebo.py": (1, "refute, a refit"),
