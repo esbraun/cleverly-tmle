@@ -1258,6 +1258,44 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
     assert stale, "the named cell does not print the literal"
 
 
+@pytest.mark.parametrize("path", narrated_notebooks(), ids=_tutorial_id)
+def test_every_notebook_passes_the_gated_reader_measures(path: Path) -> None:
+    """Each example notebook keeps its main path within budget and passes the other gated measures.
+
+    The main path is everything before the "Go deeper" heading, outside dropdowns and code; the
+    budget is 2,000 words, or 2,600 for the four pages that carry two or three analyses
+    (``scripts/render_for_reader_review.py``, the one home of the rule).  A page over budget is
+    trimmed, and a new check or analysis goes after "Go deeper"
+    (``docs/development/writing-for-readers.md``).  Because the gate trusts the heading, the
+    page must have exactly one level-two "Go deeper" heading, after its ``interpret`` cell.
+    """
+    from scripts.render_for_reader_review import BUDGETS, DEFAULT_BUDGET, measure, read_cells
+
+    cells = read_cells(path)
+    report = measure(cells, BUDGETS.get(path.stem, DEFAULT_BUDGET))
+    assert not report.failures, (
+        f"{_tutorial_id(path)} fails {report.failures}: {report.main_words} main-path words of "
+        f"{report.budget}, repeated bold openers {report.repeated_openers}, step numbers "
+        f"{report.step_numbers}. Trim the main path, or move a check or analysis after Go deeper"
+    )
+    deeper = [
+        (index, line)
+        for index, cell in enumerate(cells)
+        if cell.cell_type == "markdown"
+        for line in cell.source.splitlines()
+        if re.match(r"#{1,6}\s", line) and re.search(r"\bgo deeper\b", line, re.IGNORECASE)
+    ]
+    assert len(deeper) == 1 and deeper[0][1].startswith("## "), (
+        f"{_tutorial_id(path)} has Go deeper headings {[line for _, line in deeper]}; the page "
+        "outline asks for exactly one, at level two"
+    )
+    interpret = [index for index, cell in enumerate(cells) if cell.cell_id == "interpret"]
+    assert interpret and deeper[0][0] > interpret[0], (
+        f"{_tutorial_id(path)} puts Go deeper before its interpret cell, which would end the "
+        "main path before the conclusion"
+    )
+
+
 def test_the_narration_check_reads_precision_and_refuses_a_moved_number() -> None:
     """The narration gate accepts a rounded value and refuses one a re-execution moved.
 
