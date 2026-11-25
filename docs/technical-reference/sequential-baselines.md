@@ -121,8 +121,10 @@ Ertefaie, Hejazi & van der Laan (2023), Section 3, Theorem 1, cover IPW with an 
 propensity at one time point only. For an interval with data-adaptive learners, fit `LTMLE` or
 `SDR`.
 
-The full-refit bootstrap runs and reports `bootstrap sd` with no percentile inference, as for
-`SDR`. No registered study measures it for the baselines.
+The full-refit bootstrap runs and reports the percentile interval under the `experimental` label.
+`bootstrap_interval="bca"` is refused
+([engine settings on a method object](scope-and-refusals.md#engine-settings-on-a-method-object)).
+No registered study measures the bootstrap for the baselines.
 
 ### Clusters
 

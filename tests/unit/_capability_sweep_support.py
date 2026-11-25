@@ -2652,7 +2652,11 @@ def fit_ltmle_policy_weighted() -> Any:
 
 
 def fit_study_continuous_survival_settings() -> Any:
-    """The continuous-time study fit with its libraries, norm and variance declared, n = 300."""
+    """The continuous-time study fit with every routed setting declared, n = 300.
+
+    The libraries, the norm, the influence-curve variance, 20 full-refit bootstrap replicates
+    with the BCa interval, and a memory budget, all through ``estimate()``.
+    """
     from cleverly.survival import CoxHazard
     from tests.unit.test_continuous_survival_memory import _law
 
@@ -2672,6 +2676,9 @@ def fit_study_continuous_survival_settings() -> Any:
         censoring_library=(CoxHazard("treatment"),),
         norm="euclidean",
         variance="influence_curve",
+        n_bootstrap=20,
+        bootstrap_interval="bca",
+        max_memory_bytes=2**33,
     )
 
 
@@ -2794,6 +2801,15 @@ _PLUGIN_BOUND = ("contour", "elements", "omitted_confounding", "robustness_value
 _BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
+
+#: Each study-route kind of X123 and the engine kind whose rows it must answer alike.
+STUDY_TWINS: dict[str, str] = {
+    "study_ltmle_bca": "ltmle_bca",
+    "study_ltmle_policy_weighted": "ltmle_policy_weighted",
+    "study_ltmle_jackknife": "ltmle_jackknife",
+    "study_ipsi_bca": "ipsi",
+    "study_continuous_survival_settings": "continuous_survival+bootstrap",
+}
 
 #: One kind of fit per name: live point fits, two study fits, reconfigured results whose
 #: refit this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
@@ -2973,7 +2989,9 @@ KINDS: dict[str, Kind] = {
     # The point-TMLE jackknife is refused by the registered measurement (few-cluster-floor-tmle).
     "ltmle_jackknife_refit_withheld": _kind(fit_ltmle_jackknife_refit_withheld, *_READ, "refute"),
     # X123: the engine options a study declares on the method object. Each study kind
-    # answers the rows its engine twin answers.
+    # answers the rows its engine twin answers (STUDY_TWINS, checked in
+    # test_capability_row_sweep.py); TestParity in test_method_engine_options.py compares
+    # the results themselves.
     "ltmle_bca": _kind(fit_ltmle_bca, *_READ, *_POINT),
     "study_ltmle_bca": _kind(fit_study_ltmle_bca, *_READ, *_POINT),
     "ltmle_policy_weighted": _kind(fit_ltmle_policy_weighted, *_READ, *_POINT),

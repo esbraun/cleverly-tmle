@@ -598,7 +598,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "learners": "draws",
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
         "repeats": "CapabilityError: repeats() draws the estimate of",
-        "bootstrap": "ValueError: this fit holds no bootstrap",
+        "bootstrap": "draws",
     },
     "ltmle_jackknife_withheld": {
         "forest": "draws",

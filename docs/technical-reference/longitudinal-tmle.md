@@ -2817,7 +2817,7 @@ carries these numbers as notes, and `variance="policy_weighted"` covers 0.969 on
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
 | `ratio()` of such a level | `CapabilityError` on the log scale for a level at or below 0, and on the odds scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
 | `msm=` | the identity link always. A logit or log link when its projection converges, and `CapabilityError` otherwise | a transform mean outside the link's range has no finite solution |
-| full-refit bootstrap | runs, and reports the percentile interval, or the BCa interval with `bootstrap_interval="bca"`, under the `experimental` label | no registered study measures it |
+| full-refit bootstrap | runs. The percentile interval reads `experimental`. The BCa interval (`bootstrap_interval="bca"`) is `supported` on a single-fold fit that matches a `G46.sdr` row ([long-horizon SDR study](method-evidence/long-horizon-sequentially-doubly-robust-estimation.md)) and `experimental` otherwise | no row lists the percentile interval; the long-horizon SDR study gates BCa |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
 
 Clusters, observation weights, survival, competing risks, known policies, modified treatment

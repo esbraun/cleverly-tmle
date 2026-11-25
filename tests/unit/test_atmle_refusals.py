@@ -284,6 +284,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
     if (group, name) == ("targeting", "step_search"):
         # The group itself ties step_search to a declared step_bound.
         changes["step_bound"] = 0.5
+    if (group, name) == ("inference", "bootstrap_interval"):
+        # The group itself ties a BCa interval to a declared bootstrap.
+        changes["n_bootstrap"] = 5
     with pytest.raises(MethodConfigurationError) as error:
         # CrossFitting refuses a stratified split itself, with the package's refusal.
         AdaptiveTMLEMethod(**{group: dataclasses.replace(value, **changes)})
@@ -294,8 +297,8 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
     elif (group, name) == ("targeting", "step_search"):
         assert "targeting.step_bound does not apply" in str(error.value)
     elif (group, name) == ("inference", "bootstrap_interval"):
-        # The group itself ties a BCa interval to a declared bootstrap.
-        assert "n_bootstrap=0 runs none" in str(error.value)
+        # The allow-list names the first changed inference field.
+        assert "inference.n_bootstrap does not apply" in str(error.value)
     else:
         assert f"{group}.{name} does not apply" in str(error.value)
         if (group, name) in {("runtime", "n_jobs"), ("inference", "n_bootstrap")}:

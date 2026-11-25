@@ -3,8 +3,8 @@
 Each routed option is tested at a non-default value, because a default value cannot show that
 the translation reached the engine. The parity tests compare a study fit with the direct engine
 fit on the same data and seed, with a witness that the option moved something, so a route that
-dropped the key would fail. The refusal tests use a learner whose ``fit`` raises, so each
-refusal is shown to fire before any learner.
+dropped the key would fail. The point-route and cross-fitting refusal tests pass a learner whose
+``fit`` raises, so those refusals are shown to fire before any learner.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
@@ -90,6 +91,19 @@ def _learners() -> dict[str, Any]:
         "treatment_learner": LogisticRegression(max_iter=1000),
         "censoring_learner": LogisticRegression(max_iter=1000),
     }
+
+
+class _Raising(BaseEstimator):
+    """A learner whose every method raises: a refusal raised before any learner never calls it."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _Raising:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    def predict(self, X: Any) -> Any:
+        raise AssertionError("a learner predicted before the refusal")
+
+    def predict_proba(self, X: Any) -> Any:
+        raise AssertionError("a learner predicted before the refusal")
 
 
 def _longitudinal_effect(cluster: bool = False) -> Any:
@@ -390,8 +404,12 @@ class TestParity:
             "censoring_library": (CoxHazard("treatment"),),
             "norm": "euclidean",
             "variance": "influence_curve",
+            "n_bootstrap": 20,
+            "bootstrap_interval": "bca",
+            "max_memory_bytes": 2**33,
         }
         both = routed(**settings)
+        assert all(e.bootstrap.interval == "bca" for e in both.estimates.values())
         direct = _quiet(
             lambda: ContinuousSurvivalTMLE(
                 (0.2, 1.0),
@@ -410,6 +428,12 @@ class TestParity:
 # ------------------------------------------------------------------ refusals
 
 
+def _switched_is_refused_on_a_binned_fit() -> None:
+    method = TMLEMethod().with_overrides(variance="switched")
+    with pytest.raises(MethodConfigurationError, match="A binned longitudinal fit takes"):
+        method.estimator_kwargs(longitudinal=True)
+
+
 def _refuses(call: Callable[[], Any], error: type[Exception], match: str) -> CleverlyError:
     with pytest.raises(error, match=match) as caught:
         call()
@@ -420,10 +444,7 @@ def _refuses(call: Callable[[], Any], error: type[Exception], match: str) -> Cle
 class TestRefusals:
     def test_the_point_route_refuses_what_its_engine_lacks(self) -> None:
         effect = _point_effect()
-        untouched = {
-            "outcome_learner": LinearRegression(),
-            "treatment_learner": LogisticRegression(max_iter=1000),
-        }
+        untouched = {"outcome_learner": _Raising(), "treatment_learner": _Raising()}
         for overrides, match, reason in (
             ({"variance": "influence_curve"}, "takes no variance choice", "api_redirection"),
             (
@@ -454,30 +475,37 @@ class TestRefusals:
         )
 
     def test_the_variance_values_belong_to_their_route(self) -> None:
-        _refuses(
-            lambda: (
-                TMLEMethod().with_overrides(variance="switched").estimator_kwargs(longitudinal=True)
-            ),
-            MethodConfigurationError,
-            "A binned longitudinal fit takes",
-        )
+        _switched_is_refused_on_a_binned_fit()
         _refuses(
             lambda: continuous_kwargs(TMLEMethod().with_overrides(variance="policy_weighted")),
             MethodConfigurationError,
             "contrasts two static arms",
         )
 
-    def test_control_mapping_switched_to_the_default_would_be_caught(self) -> None:
-        """Mutation control: the test asserts the raise, not the value the engine gets."""
-        method = TMLEMethod().with_overrides(variance="switched")
-        with pytest.raises(MethodConfigurationError):
-            method.estimator_kwargs(longitudinal=True)
-        assert method.inference.variance == "switched"
+    def test_control_mapping_switched_to_the_default_would_be_caught(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: a translation that maps "switched" to the default fails the check."""
+        original = TMLEMethod.estimator_kwargs
+
+        def mapping(self: TMLEMethod, *, longitudinal: bool = False) -> dict[str, Any]:
+            if self.inference.variance == "switched":
+                self = self.with_overrides(variance=None)
+            return original(self, longitudinal=longitudinal)
+
+        monkeypatch.setattr(TMLEMethod, "estimator_kwargs", mapping)
+        with pytest.raises(pytest.fail.Exception):
+            _switched_is_refused_on_a_binned_fit()
 
     def test_policy_weighted_with_cross_fitting_names_the_method_spelling(self) -> None:
         _, effect = _longitudinal_effect()
         error = _refuses(
-            lambda: effect.estimate(variance="policy_weighted", outcome_learner=LinearRegression()),
+            lambda: effect.estimate(
+                variance="policy_weighted",
+                outcome_learner=_Raising(),
+                treatment_learner=_Raising(),
+                censoring_learner=_Raising(),
+            ),
             MethodConfigurationError,
             "fold-wise variance regressions",
         )
@@ -517,9 +545,9 @@ class TestRefusals:
             (
                 Inference(n_bootstrap=5, bootstrap_interval="bca"),
                 Runtime(),
-                "bootstrap standard deviation only",
+                "percentile bootstrap interval only",
             ),
-            (Inference(), Runtime(max_memory_bytes=2**30), "runs no memory guard"),
+            (Inference(), Runtime(max_memory_bytes=2**30), "baselines run no memory guard"),
         ],
     )
     def test_each_baseline_refuses_at_construction(
@@ -535,11 +563,10 @@ class TestRefusals:
             match,
         )
 
-    def test_control_the_g_formula_runs_the_shared_construction_check(
+    def test_the_translation_backstops_a_skipped_construction_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation control: without the ``super()`` call the construction check is skipped,
-        and the translation still refuses."""
+        """With the construction check skipped, the g-formula translation still refuses."""
         monkeypatch.setattr(
             ParametricGFormulaMethod,
             "__post_init__",
@@ -567,7 +594,7 @@ class TestRefusals:
                 SequentialGComputation,
                 {"n_bootstrap": 5, "bootstrap_interval": "bca"},
                 CapabilityError,
-                "bootstrap standard deviation only",
+                "percentile bootstrap interval only",
             ),
             (
                 SurvivalCTMLE,
@@ -604,7 +631,7 @@ class TestRefusals:
             "declares targets, not a method setting",
         )
         assert error.refusal.reason == "api_redirection"
-        assert "result.rmst(d, tau)" in str(error.refusal.alternative)
+        assert "result.rmst(regimen, horizon)" in str(error.refusal.alternative)
         error = _refuses(
             lambda: TMLEMethod().with_overrides(tilt="factual"),
             MethodConfigurationError,
@@ -613,6 +640,11 @@ class TestRefusals:
         assert error.refusal.reason == "invalid_declaration"
 
     def test_the_restricted_mean_redirect_runs(self) -> None:
+        """The exact-time call the refusal spells runs, and so do the two reads it names."""
+        advice = str(ENGINE_ONLY["restricted_horizons"].alternative)
+        assert "ContinuousSurvivalTMLE(horizons, restricted_horizons=(tau,)" in advice
+        assert "result.rmst(arm, tau)" in advice
+        assert "result.rmtl(arm, tau)" in advice
         study, effect = _continuous_effect(horizons=(0.5, 1.0))
         method = TMLEMethod().with_overrides(random_state=0, cross_fit=False, n_multiplier=500)
         direct = _quiet(
@@ -624,7 +656,9 @@ class TestRefusals:
                 **continuous_kwargs(method),
             ).fit_data(study.data)
         )
-        assert np.isfinite(direct.rmst(effect.functional.reference, 1.0).psi)
+        arm, tau = effect.functional.reference, 1.0
+        assert np.isfinite(direct.rmst(arm, tau).psi)
+        assert np.isfinite(direct.rmtl(arm, tau).psi)
 
     def test_the_curve_keeps_its_own_budget(self) -> None:
         """The curve's own ``max_memory_bytes`` keyword never meets the point route refusal."""
