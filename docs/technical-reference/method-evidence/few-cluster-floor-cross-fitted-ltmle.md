@@ -483,5 +483,7 @@ from the committed results and checked at the precision printed.
   keeps the floor of 20.
 - **Parametric learners.** Every node regression is a quasibinomial GLM and the mechanisms are the
   law's own. Wang et al. (2024), Remark 3, caution against flexible learners at about 20 clusters.
+  [`few-cluster-adaptive-learners`](few-cluster-adaptive-learners.md) measures the default learner
+  library at 20 clusters.
 - **One law.** The end-of-study law at two size laws, with censoring and no weights.
 - **No comparator.** No other implementation computes this interval at these counts.

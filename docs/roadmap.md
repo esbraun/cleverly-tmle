@@ -1171,11 +1171,12 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (a) to (g) and (i) are delivered ([delivered items](roadmap-delivered.md)).
+cells. Parts (a) to (g) and (i), and part (h) for the default learner library, are delivered
+([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
 | --- | --- | --- |
-| (h) | complex nuisance learners at about 20 clusters | a registered study. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. The registered evidence uses parametric nuisance learners only |
+| (h) | data-adaptive nuisance learners at few clusters outside the measured ground | a registered study for each composition. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md) measures stacked `TMLE` at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, and that part is delivered. Unmeasured, and experimental with the reason "not measured with an adaptive learner": fold-evaluated `TMLE`, `DRTMLE` and `SDR` with an adaptive outcome or treatment learner, cross-fitted `LTMLE` below 20 clusters, and any adaptive learner other than the default library. An in-sample fit with an adaptive learner stays experimental by theory. Also unmeasured, though the label does not yet say so: unequal cluster sizes and non-binary outcomes with the default library, and an adaptive reduced-regression learner of `DRTMLE`, which the classifier does not read. Reading the reduced-regression learners first needs the parametric test learners, such as `ColumnLogistic` in `tests/studies/canonical_drtmle.py`, to declare their family (`cleverly_learner_family = "parametric"`), so that the registered `DRTMLE` evidence keeps its label |
 | (j) | redeclare the stacked family (d5 estimated SE tail at 10 clusters; slack at J15/J20) | a redeclaration fixed before its run, which owns the red `X54-stacked-d5-redeclaration` holds. The five-covariate estimated stacked fit reads SE ratio 1.158 [1.062, 1.390] at 10 clusters and 1.048 at 15 and 20, so its IID control cannot be licensed at 10. The redeclaration reads the SE tail (the largest standard errors, a median or trimmed SE ratio, near-separation of the five-covariate treatment GLM) and the slack at 15 and 20 clusters. It covers the stacked floor and its control reading only: the stacked part (c) result stands, (A) over (B) by 5 calibrated counts to 2. It decides the stacked jackknife, which stays refused until then. The stacked floor stays 10 |
 | (k) | cells for the unmeasured estimates below the default floors | a registered study whose cells read the arm means at every count from the family's contrast floor to one below its default floor: `ey1` and `ey0` of in-sample `TMLE` at 6 to 9, of fold-evaluated `TMLE` and declared-mechanism `DRTMLE` at 8 to 9, and `ey_regimen[always]` and `ey_regimen[never]` of in-sample `LTMLE` at 6 to 19 and of cross-fitted `LTMLE` at 4 to 19. The same counts leave unmeasured the ATT and ATC, the `rr` and `or` ratios, a second `LTMLE` contrast such as a rule against never, survival and competing-risk curves, working-model coefficients, and the always-versus-never contrast on a panel design other than the measured one (more nodes, a node with three levels, another censoring pattern). A study that adds any of them names its cells and counts here. The floor studies measured the contrast at every count and arm means only on their primaries: in-sample `LTMLE` `ey_regimen[never]` covers 0.914 [0.889, 0.935] at 10 clusters, where the ATE covers 0.931. Until then those estimates, and any other estimate than the measured contrast, keep the default floor under `few_cluster_estimand_plugin`, and no page claims them below it |
 
@@ -2541,6 +2542,13 @@ cell the `X54-cluster-floor` owner holds.
 | in-sample `LTMLE`, always against never | 4 and 5 clusters fail the coverage floor; floor 6 | `few-cluster-floor-tmle` |
 | in-sample `LTMLE`, arm mean `ey_regimen[never]` | 10 clusters: coverage 0.914 [0.889, 0.935], SE ratio 0.887 (the primary) | `few-cluster-floor-tmle` |
 | cross-fitted `LTMLE`, always against never | every count from 4 passes; floor 4 | `few-cluster-floor-cross-fitted-ltmle` |
+
+An in-sample fit on the $t$ tier with a data-adaptive nuisance learner keeps the experimental
+label by theory: each learner predicts from its fit to the full sample, so no Donsker argument
+covers it. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md)
+reports its in-sample cells with the default learner library at coverage 0.906 to 0.919 and a
+variance ratio of 0.72 to 0.88 from 10 to 40 clusters, while stacked `TMLE` at 10 to 40 clusters
+and cross-fitted `LTMLE` at 20 clusters, with the default library, pass.
 
 [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (h), (j) and
 (k) hold the remaining small-sample work. The cluster-as-unit theory is the same at 4 clusters as

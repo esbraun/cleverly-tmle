@@ -23,10 +23,12 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Literal, cast
 
+from ._adaptive_evidence import ADAPTIVE_MEASURED_COUNTS
 from ._refusal import NO_ALTERNATIVE, RefusalReason
 
 __all__ = [
     "ADAPTIVE_BASELINE_STATUS",
+    "ADAPTIVE_MEASURED_CLUSTERS",
     "BOUNDARY_NODE_BAND_NOTE",
     "BOUNDARY_NODE_OUT_OF_REACH",
     "CLUSTER_INTERVAL_FLOORS",
@@ -343,6 +345,16 @@ def floor_table() -> str:
     return ", ".join(parts)
 
 
+#: The fewest positive-mass clusters at which ``few-cluster-adaptive-learners`` measured the
+#: default learner library, by fit kind: the smallest of :data:`ADAPTIVE_MEASURED_COUNTS`. A
+#: ``t``-tier fit below it is outside the measured ground (:mod:`cleverly._support`).
+ADAPTIVE_MEASURED_CLUSTERS: Final[Mapping[str, int]] = MappingProxyType(
+    {kind: min(counts) for kind, counts in ADAPTIVE_MEASURED_COUNTS.items()}
+)
+
+_STACKED_COUNTS = ADAPTIVE_MEASURED_COUNTS["point"]
+_LTMLE_COUNTS = ADAPTIVE_MEASURED_COUNTS["longitudinal"]
+
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit, and ``{stratum}`` is
 #: :data:`T_REFERENCE_STRATUM` on a fit with strata and empty otherwise.
@@ -356,8 +368,13 @@ T_REFERENCE_NOTE: Final[str] = (
     "mass{stratum}. The df "
     "column gives each estimate's degrees of freedom, and 'normal' marks the normal "
     "reference. The validation evidence for few clusters uses parametric models for the "
-    "outcome and the treatment; Wang et al. (2024), Remark 3, caution against complex "
-    "learners at about 20 clusters."
+    "outcome and the treatment and, with the default learner library, stacked TMLE at "
+    f"{min(_STACKED_COUNTS)} to {max(_STACKED_COUNTS)} clusters and cross-fitted LTMLE at "
+    f"{', '.join(str(count) for count in _LTMLE_COUNTS)} clusters "
+    "(few-cluster-adaptive-learners); Wang "
+    "et al. (2024), Remark 3, caution against complex learners at about 20 clusters. Any "
+    "other fit with a data-adaptive outcome or treatment learner, in sample or outside that "
+    "ground, is experimental."
 )
 
 #: The clause :data:`T_REFERENCE_NOTE` adds on a fit with strata.

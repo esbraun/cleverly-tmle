@@ -1614,6 +1614,22 @@ def _long_cases() -> tuple[RowCase, ...]:
     seeded(
         "G07", "few-cluster-cross-fitted-ltmle", few, "few_cluster_crossfit_ltmle.py:192", few, 800
     )
+    # few-cluster-adaptive-learners: the study's own gated fits with the default learner
+    # library, stopped where the classifier reads the key. Stacked TMLE lands on T11.stacked
+    # below 40 clusters and cross-fitted LTMLE on G07. At 40 clusters the stacked fit is on the
+    # clustered tier, whose row T10.unweighted rests on its own unequal-size evidence.
+    for row, fit, law, clusters in (
+        ("T11.stacked", "tmle_stacked", "equal10", 20),
+        ("G07", "ltmle_crossfit", "equal40", 20),
+    ):
+        observed(
+            row,
+            "few-cluster-adaptive-learners",
+            f"{fit}__{law}__j{clusters}__t_reference",
+            "few_cluster_adaptive_learners.py:452",
+            lambda study, law=law, clusters=clusters: study.draw(law, clusters, 0),
+            lambda study, frame, fit=fit: study.fit_one(fit, frame),
+        )
     cat = "categorical_end_of_study"
     seeded(
         "G08.in_sample",

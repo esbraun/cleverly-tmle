@@ -1046,8 +1046,13 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
+        diagnostic = _diagnostic_families(study.slug)
         unclassified = sorted(
-            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+            families
+            - BIAS_GATED_PROPERTIES
+            - ENDPOINT_GATED_PROPERTIES
+            - GATED_IN_STUDY.get(study.slug, frozenset())
+            - diagnostic
         )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
@@ -1060,7 +1065,7 @@ class TestPublishedVerdicts:
         # row must not publish a verdict at all.  Every cell carries the diagnostic role,
         # which is what the rendered table reads to print "reported" instead of "pass", and
         # every cell publishes the coverage interval the family exists to report.
-        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+        for family in sorted(families & diagnostic):
             reported = published.loc[published["property"] == family]
             assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
                 f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
@@ -2440,7 +2445,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
-        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict
+        # there. ``few-cluster-adaptive-learners`` gates a family of the same name, so
+        # :data:`GATED_IN_STUDY` takes it out of this set for that study.
         "adaptive_learners",
         # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
         # declared reading and no verdict (the interval is withheld for a fitted mechanism).
@@ -2507,6 +2514,19 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "reported_large_move",
     }
 )
+
+#: A family name that one study reports with no verdict and another gates.  The family of
+#: ``few-cluster-adaptive-learners`` shares its name with the sequential baselines' reported
+#: family, and its rows answer to the coverage floor, the bias, the variance ratio, the shown
+#: coverage, the paired non-inferiority and the IID-control SE ratios.
+GATED_IN_STUDY: dict[str, frozenset[str]] = {
+    "few-cluster-adaptive-learners": frozenset({"adaptive_learners"}),
+}
+
+
+def _diagnostic_families(slug: str) -> frozenset[str]:
+    """The families ``slug`` reports with no verdict."""
+    return DIAGNOSTIC_PROPERTIES - GATED_IN_STUDY.get(slug, frozenset())
 
 
 class TestNegativeControls:
@@ -2985,8 +3005,9 @@ class TestTheStudyStillMeasuresTheCode:
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
+        diagnostic = _diagnostic_families(study.slug)
         for cell in declared_cells():
-            if cell.property in DIAGNOSTIC_PROPERTIES:
+            if cell.property in diagnostic:
                 continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {

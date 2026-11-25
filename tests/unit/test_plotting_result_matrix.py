@@ -421,6 +421,12 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # The known-score ATT and ATC on a declared mechanism (X35): the same result class, whose
     # ATT and ATC carry a different plug-in and influence curve.
     "point_tmle_known_score": sweep.fit_known_score,
+    # X54 part (h): a t-tier clustered fit with an adaptive outcome learner, whose key carries
+    # adaptive_nuisance. The qualifier moves the support label alone, so every plot of a point
+    # fit draws or refuses as it does without it.
+    "point_tmle_adaptive_nuisance": sweep.fit_clustered_adaptive,
+    # The same qualifier on a cross-fitted clustered LTMLE at 20 clusters (row G07).
+    "ltmle_adaptive_nuisance": sweep.fit_clustered_ltmle_adaptive,
     "ltmle_repeats": _ltmle_repeats,
     "time_to_event_ltmle": _time_to_event,
     "time_to_event_boundary_node": _boundary_node,
@@ -600,12 +606,36 @@ EXPECTED: dict[str, dict[str, str]] = {
         "repeats": "ValueError: this fit has one cross-fitting",
         "bootstrap": "draws",
     },
+    "point_tmle_adaptive_nuisance": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
     "point_tmle_known_score": {
         "forest": "draws",
         "curve": "draws",
         "influence": "draws",
         "overlap": "draws",
         "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_adaptive_nuisance": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
         "balance": "draws",
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
