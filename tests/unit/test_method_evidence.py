@@ -2445,7 +2445,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
-        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict
+        # there. ``few-cluster-adaptive-learners`` gates a family of the same name, so
+        # :data:`GATED_IN_STUDY` takes it out of this set for that study.
         "adaptive_learners",
         # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
         # declared reading and no verdict (the interval is withheld for a fitted mechanism).

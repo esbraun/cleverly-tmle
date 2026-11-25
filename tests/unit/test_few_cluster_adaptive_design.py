@@ -387,6 +387,38 @@ def test_non_inferiority_reads_l1_only() -> None:
     assert _verdict(summary, NONLINEAR)
 
 
+def test_the_non_inferiority_clause_reads_one_positive_and_its_glm_arm() -> None:
+    """S7g: the pair is a positive cell and the ``glm_reference`` cell of the same draws.
+
+    The shared S7 shape check expects a positive and a control, so this study's own pair is
+    checked here: the clause applies only to a positive row, reads exactly one further cell,
+    and that cell is the diagnostic GLM arm of the same law and count.
+    """
+    from tests.studies.evidence import property_failures
+
+    (rule,) = properties.PROPERTY_RULES
+    clause = rule.clause("paired non-inferiority")
+    assert clause.statistic == "S7g"
+    assert clause.imputation == property_failures.SUPPORT
+    assert clause.reads is not None
+    roles = {cell.cell: cell.role for cell in properties.declared_cells()}
+    gated = [cell for cell in roles if properties.noninferiority_gated(cell)]
+    assert gated
+    applied = []
+    for cell in roles:
+        row = pd.Series({"property": study.FAMILY, "cell": cell})
+        if not clause.applies(None, row):  # type: ignore[arg-type]
+            continue
+        applied.append(cell)
+        assert roles[cell] == "positive", cell
+        ((family, read),) = clause.reads(None, row)  # type: ignore[arg-type]
+        fit, law, clusters, _ = properties.parse(cell)
+        assert family == study.FAMILY
+        assert roles[read] == "diagnostic"
+        assert properties.parse(read) == (study.GLM_OF[fit], law, clusters, "glm_reference")
+    assert applied == gated
+
+
 def test_a_covering_must_fail_control_keeps_the_caveat() -> None:
     summary = _passing_summary()
     control = properties.must_fail_cell(POSITIVE)
