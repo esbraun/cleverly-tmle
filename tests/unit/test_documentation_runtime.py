@@ -93,6 +93,7 @@ from tests.notebooks import (
 from tests.unit.tutorial_semantics import (
     _FIGURE_REPRS,
     EXAMPLES,
+    GO_DEEPER,
     NOT_TUTORIALS,
     STATIC_ONLY,
     RefitNamespace,
@@ -997,19 +998,23 @@ def _assert_stored_text_reproduces(path: Path, printed: Mapping[str, str]) -> No
         for cell in notebook["cells"]
         if cell["cell_type"] == "code"
     }
-    exempt = getattr(callback_module(path.stem), "UNREPRODUCED_CELLS", {})
-    moved, stale = unreproduced(stored, printed, exempt)
+    module = callback_module(path.stem)
+    exempt = getattr(module, "UNREPRODUCED_CELLS", {})
+    hardware = getattr(module, "HARDWARE_SENSITIVE_CELLS", {})
+    moved, stale = unreproduced(stored, printed, exempt, hardware)
     assert not moved, (
         f"{_tutorial_id(path)}: a fresh run prints different output from the stored one in "
         f"{moved}. Re-execute the notebook with scripts/execute_notebook.py, read the difference, "
         "and update every reading that quotes a moved number"
     )
     assert not stale, (
-        f"UNREPRODUCED_CELLS in tests/unit/tutorial_semantics/{module_name(path.stem)}.py names "
-        f"{stale}, which now reproduce or no longer exist"
+        f"UNREPRODUCED_CELLS or HARDWARE_SENSITIVE_CELLS in tests/unit/tutorial_semantics/"
+        f"{module_name(path.stem)}.py names {stale}, which now reproduce or no longer exist"
     )
     for cell, reason in exempt.items():
         assert str(reason).strip(), f"UNREPRODUCED_CELLS gives no reason for {cell}"
+    for cell, reason in hardware.items():
+        assert str(reason).strip(), f"HARDWARE_SENSITIVE_CELLS gives no reason for {cell}"
 
 
 @pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
@@ -1246,6 +1251,9 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
 ) -> None:
     """PL-S3's shape fails, a declared cross-reference passes, and an undeclared one still fails.
 
+    A summary cell reads the main path only: a number it quotes from a lesson under "Go deeper"
+    fails until ``NARRATION_SOURCES`` declares it.
+
     Each kind of stale ``NARRATION_SOURCES`` entry is reported, a cell-scoped
     ``UNPRINTED_DECIMALS`` key exempts its own cell only, and a ``DERIVED_DECIMALS`` entry fails
     once its source number moves.
@@ -1268,11 +1276,11 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
             markdown("title", "# Page\n\nThe answer is 0.163."),
             markdown("h-one", "## First\n"),
             code("policy", "policy value 0.090\n"),
+            code("estimate", "estimate 0.163\n"),
+            markdown("interpret", "## Conclusion\n\nThe effect is 0.163."),
             markdown("h-deeper", "## Go deeper\n\n### Bounds\n"),
             code("gamma", "lower limit 0.088\nupper 2.337\n"),
             markdown("gamma-reading", "The limit stays above zero, at 0.090, up to 2.3."),
-            markdown("interpret", "## Conclusion\n\nThe effect is 0.163 and the bound 0.088."),
-            code("estimate", "estimate 0.163\n"),
         ]
     }
     path = tmp_path / "page.ipynb"
@@ -1286,11 +1294,11 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
     declared = {"gamma-reading": {"0.090": "policy"}}
     assert scoped_narration_mismatches(path, declared=declared) == ([], [])
 
-    notebook["cells"][5]["source"] = "At 0.090 and 0.163, up to 2.3."
+    notebook["cells"][7]["source"] = "At 0.090 and 0.163, up to 2.3."
     missing, _ = scoped_narration_mismatches(path, declared=declared)
     assert missing == ["gamma-reading: 0.163"], "a second, undeclared literal still fails"
 
-    notebook["cells"][5]["source"] = "The limit stays above zero, at 0.088, up to 2.3."
+    notebook["cells"][7]["source"] = "The limit stays above zero, at 0.088, up to 2.3."
     for entry in (
         {"gamma-reading": {"0.090": "policy"}},  # the literal is gone from the cell
         {"gamma-reading": {"0.088": "gamma"}},  # the source is already in scope
@@ -1299,12 +1307,12 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
     ):
         _, stale = scoped_narration_mismatches(path, declared=entry)
         assert stale, entry
-    notebook["cells"][5]["source"] = "The policy value is 0.091."
+    notebook["cells"][7]["source"] = "The policy value is 0.091."
     _, stale = scoped_narration_mismatches(path, declared={"gamma-reading": {"0.091": "policy"}})
     assert stale, "the named cell does not print the literal"
 
     # A cell-scoped exemption covers its own cell only, and goes stale when the cell drops it.
-    notebook["cells"][5]["source"] = "The limit is 0.088; a band of 0.7 to 1.3 is usual."
+    notebook["cells"][7]["source"] = "The limit is 0.088; a band of 0.7 to 1.3 is usual."
     notebook["cells"][1]["source"] = "## First\n\nThe CI starts at 0.7."
     missing, stale = scoped_narration_mismatches(
         path, unprinted={"gamma-reading: 0.7": "band", "1.3": "band"}
@@ -1315,15 +1323,22 @@ def test_the_section_scope_refuses_a_number_printed_only_in_another_section(
     assert stale, "a cell-scoped key whose cell no longer writes the literal is stale"
 
     # A derived literal holds only while its source prints the number it is derived from.
-    notebook["cells"][5]["source"] = "The limit is 0.088, about 8.8% and a size of 2.3."
+    notebook["cells"][7]["source"] = "The limit is 0.088, about 8.8% and a size of 2.3."
     derived = {"gamma-reading: 8.8": ("gamma", "0.088", "percent")}
     assert scoped_narration_mismatches(path, derived=derived) == ([], [])
-    notebook["cells"][4]["outputs"][0]["text"] = "lower limit 0.091\nupper 2.337\n"
+    notebook["cells"][6]["outputs"][0]["text"] = "lower limit 0.091\nupper 2.337\n"
     missing, stale = scoped_narration_mismatches(path, derived=derived)
     assert "gamma-reading: 8.8" in missing and stale, "a moved source number fails"
-    notebook["cells"][4]["outputs"][0]["text"] = "lower limit 0.088\nupper 2.337\n"
+    notebook["cells"][6]["outputs"][0]["text"] = "lower limit 0.088\nupper 2.337\n"
     wrong = {"gamma-reading: 8.8": ("gamma", "0.088", "magnitude")}
     assert scoped_narration_mismatches(path, derived=wrong)[1], "a derivation that does not round"
+
+    # A summary cell reads only the main path, so a lesson's number needs a declaration.
+    notebook["cells"][7]["source"] = "The limit stays above zero, at 0.088, up to 2.3."
+    notebook["cells"][4]["source"] = "## Conclusion\n\nThe effect is 0.163 and the bound 0.088."
+    missing, _ = scoped_narration_mismatches(path)
+    assert missing == ["interpret: 0.088"], "a summary quoting a lesson fails undeclared"
+    assert scoped_narration_mismatches(path, declared={"interpret": {"0.088": "gamma"}}) == ([], [])
 
 
 @pytest.mark.parametrize("path", narrated_notebooks(), ids=_tutorial_id)
@@ -1351,7 +1366,7 @@ def test_every_notebook_passes_the_gated_reader_measures(path: Path) -> None:
         for index, cell in enumerate(cells)
         if cell.cell_type == "markdown"
         for line in cell.source.splitlines()
-        if re.match(r"#{1,6}\s", line) and re.search(r"\bgo deeper\b", line, re.IGNORECASE)
+        if GO_DEEPER.match(line)
     ]
     assert len(deeper) == 1 and deeper[0][1].startswith("## "), (
         f"{_tutorial_id(path)} has Go deeper headings {[line for _, line in deeper]}; the page "

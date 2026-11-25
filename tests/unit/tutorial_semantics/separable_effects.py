@@ -39,6 +39,7 @@ UNPRINTED_DECIMALS = {
 #: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "assessment-reading": {"0.01": "estimate"},
+    "title": {"-16.5": "order"},
 }
 
 
@@ -226,3 +227,16 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert abs(tests["random_common_cause"].statistic) < 0.05
     assert _near(tests["subset"].statistic, 0.91, 2)
     assert 0.7 < tests["subset"].statistic < 1.3
+    # "Checks that plant a known effect refuse any fit that includes the supplement plan, even
+    # for its plain high-dose comparison."
+    from cleverly.exceptions import CapabilityError
+    from cleverly.validation import refute
+
+    plain = next(name for name in contrast_fit.estimates if "supplement" not in name)
+    assert "high dose vs no pill" in plain
+    for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
+        with pytest.raises(
+            CapabilityError, match="has no generated process for a fit with a Separable regimen"
+        ) as excinfo:
+            refute(contrast_fit, estimand=plain, tests=(name,), n_replicates=2)
+        assert "X91" in str(excinfo.value)

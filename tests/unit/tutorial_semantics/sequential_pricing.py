@@ -53,6 +53,8 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     adjustment_table,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     covers,
     notebook_code,
     stored_output,
@@ -144,6 +146,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_failure_mode(namespace)
     _check_support(namespace)
     _check_assessment(namespace)
+    _check_weights_lesson(namespace)
     _check_refusals(namespace)
     _check_refit_limits(namespace)
     _check_probe_logs()
@@ -1443,6 +1446,9 @@ _MARKDOWN_IDS = (
     "sensitivity",
     "interpret",
     "method-evidence",
+    "balance-heading",
+    "balance-reading",
+    "caps-reading",
     "other-estimators",
     "skipped-checks",
     "where-next",
@@ -1503,3 +1509,30 @@ def _check_phrase_rules() -> None:
     for test in ("placebo", "subset", "random_common_cause", "bootstrap_stability"):
         assert f"`{test}`" in refute_text, test
     assert "None can detect a missing confounder" in refute_text
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights month by month" lesson under "Go deeper"."""
+    from cleverly.sensitivity import covariate_balance
+
+    assert_weights_lesson(namespace, feedback=None)
+    # "a continuous price has no groups to compare, so covariate_balance refuses this fit".
+    with pytest.raises(DataError, match="is a continuous treatment"):
+        covariate_balance(namespace["result"])
+    rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
+    # "natural_prices stays at 1.0", and the weights grow month by month.
+    assert (rows["natural_prices"] == 1.0).all()
+    for plan in ("price_up", "price_down"):
+        assert rows[plan].is_monotonic_increasing
+    # "at 0.95, the largest 5% of ratios are trimmed", and "a trimmed fit reports no interval".
+    curve = namespace["cap_curve"]
+    at_95 = curve[curve["ratio_trim"].eq(0.95)]
+    assert at_95["trimmed_share"].between(0.04, 0.06).all()
+    trimmed = curve[curve["trimmed_share"] > 0]
+    assert (trimmed["inference_status"] == "trimmed_ratio_plugin").all()
+    # "Even that moves each effect by at most 0.04 standard errors".
+    assert cap_moves(namespace, "ratio_trim").abs().max().max() < 0.045
+    # "The cut's effect rests on fewer".
+    kish = namespace["influence_rows"]["kish"]
+    down = "ate_regimen[price_down vs natural_prices]"
+    assert kish[down] < kish["ate_regimen[price_up vs natural_prices]"]

@@ -59,15 +59,18 @@ from tests.prose import markdown_cells
 
 __all__ = [
     "EXAMPLES",
+    "GO_DEEPER",
     "NOT_TUTORIALS",
     "PACKAGE",
     "REFIT_CALLS",
     "STATIC_ONLY",
     "RefitNamespace",
     "assert_protocol_recorded",
+    "assert_weights_lesson",
     "callback",
     "callback_module",
     "callback_modules",
+    "cap_moves",
     "changed_fields",
     "covers",
     "markdown_text",
@@ -706,12 +709,17 @@ def narration_mismatches(
     return missing
 
 
-#: The markdown cells that summarize the whole page, so their decimals may read any stored
-#: output: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
-#: outline in ``docs/development/example-notebooks.md`` names them.
+#: The markdown cells that summarize the page, so their decimals may read any stored output of the
+#: main path: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
+#: outline in ``docs/development/example-notebooks.md`` names them.  A summary that quotes a lesson
+#: under "Go deeper" declares the quote in ``NARRATION_SOURCES``.
 SUMMARY_CELLS = frozenset({"title", "interpret"})
 
 _HEADING = re.compile(r"^(#{1,6})\s+\S")
+
+#: The "Go deeper" heading that ends a tutorial's main path (any level; the word-budget test
+#: requires exactly one, at level two).
+GO_DEEPER = re.compile(r"^#{1,6}\s.*\bgo deeper\b", re.IGNORECASE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
 
@@ -742,7 +750,8 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
     directly in that section, before or after it, together with the code cells that sit directly
     in each enclosing section (outside any of that section's subsections).  So each lesson under
     "Go deeper" (level three) is its own scope, and a reading cannot quote a number that only
-    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell.
+    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell of the
+    main path, the cells before the :data:`GO_DEEPER` heading.
     """
     cells = _notebook(path)["cells"]
     # Each section: (level, parent index or None).  Section 0 is the page before any heading.
@@ -750,9 +759,13 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
     stack = [0]
     direct: dict[int, list[str]] = {0: []}
     stretches: list[tuple[str, str, int]] = []
+    main_path: list[str] = []
+    deeper = False
     for cell in cells:
         if cell["cell_type"] == "code":
             direct[stack[-1]].append(cell["id"])
+            if not deeper:
+                main_path.append(cell["id"])
             continue
         if cell["cell_type"] != "markdown":
             continue
@@ -762,6 +775,8 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
             if _FENCE.match(line):
                 fenced = not fenced
             heading = None if fenced else _HEADING.match(line)
+            if heading and GO_DEEPER.match(line):
+                deeper = True
             if heading:
                 if lines:
                     stretches.append((cell["id"], "\n".join(lines), stack[-1]))
@@ -775,11 +790,10 @@ def narration_scopes(path: Path) -> list[NarrationScope]:
             lines.append(line)
         if lines:
             stretches.append((cell["id"], "\n".join(lines), stack[-1]))
-    every = tuple(cell["id"] for cell in cells if cell["cell_type"] == "code")
     scopes = []
     for cell_id, text, section in stretches:
         if cell_id in SUMMARY_CELLS:
-            scopes.append(NarrationScope(cell_id, text, every))
+            scopes.append(NarrationScope(cell_id, text, tuple(main_path)))
             continue
         sources: list[str] = []
         index: int | None = section
@@ -905,3 +919,44 @@ def scoped_narration_mismatches(
                     "not print it, or it is already in scope)"
                 )
     return missing, stale
+
+
+def cap_moves(namespace: Mapping[str, Any], column: str = "lower_bound") -> Any:
+    """The "Weights and balance" lesson's cap curve: each estimate's move in standard errors.
+
+    One row per estimand and one column per cap, as the lesson's ``caps`` cell prints it.
+    """
+    curve = namespace["cap_curve"]
+    return curve.pivot(index="estimand", columns=column, values="move in SEs")
+
+
+def assert_weights_lesson(namespace: Mapping[str, Any], *, feedback: bool | None) -> None:
+    """Check the readings every "Weights and balance" lesson shares.
+
+    ``feedback`` says whether the fit has feedback rows (``True``), has none because it is a
+    survival fit (``False``), or has no balance table at all because its treatment is
+    continuous (``None``).  Each lesson's own callback checks its page's numbers.
+    """
+    rows = namespace["weight_rows"]
+    # "no weight hit the cap"
+    assert (rows["share_truncated"] == 0).all()
+    # "kish" counts fewer equally weighted rows than the fit holds.
+    influence = namespace["influence_rows"].loc[namespace["final_estimates"]]
+    assert (influence["kish"] < influence["n"]).all()
+    # The replay at the fit's own cap reproduces the fit.
+    curve = namespace["cap_curve"]
+    fitted = curve.loc[curve["is_fitted_bound"].astype(bool), "move in SEs"]
+    assert fitted.empty or fitted.abs().max() < 1e-9
+    if feedback is None:
+        return
+    largest = namespace["balance_by_check"].groupby("diagnostic")[["before", "after"]].max()
+    # "Weighting shrinks the largest gap" for the confounding and censoring checks.
+    for check in ("confounding", "censoring"):
+        assert largest.loc[check, "after"] < largest.loc[check, "before"]
+    assert largest.loc["confounding", "after"] < 0.1
+    if feedback:
+        # The feedback rows "need not shrink": on these pages they grow, the code's own effect.
+        assert largest.loc["feedback", "after"] > largest.loc["feedback", "before"]
+    else:
+        # "A survival fit has no feedback check".
+        assert "feedback" not in largest.index

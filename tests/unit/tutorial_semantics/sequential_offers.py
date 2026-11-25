@@ -29,6 +29,8 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     adjustment_table,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     covers,
     stored_output,
 )
@@ -85,6 +87,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_blind(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
+    _check_weights_lesson(namespace)
     _check_refutation_limits(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
@@ -678,7 +681,9 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
     # The skipped checks of the reading, each refused as the reading states.
     wide = namespace["panel"].pivot(index="customer", columns="week")
     tenure = wide[("tenure", 1)].to_numpy()
-    with pytest.raises(CapabilityError, match="equals the adjustment column 'tenure'"):
+    with pytest.raises(
+        CapabilityError, match="the pre-treatment control equals the adjustment column 'tenure'"
+    ):
         refute(
             result,
             estimand=estimand,
@@ -866,3 +871,21 @@ def _check_prose_phrases() -> None:
 
     paired = _prose("failure-mode-reading")
     assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in paired
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights and balance week by week" lesson under "Go deeper"."""
+    assert_weights_lesson(namespace, feedback=True)
+    rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
+    # "to 80.9 for the weekly discount in week 3, while win-back stays at 19.7 or below".
+    assert rows.idxmax() == ("discount", 3)
+    assert rows["win_back"].max() < 19.75
+    # "Lowering it to 0.005 moves no estimate."
+    assert cap_moves(namespace).abs().max().max() < 0.005
+    # "A floor of 0.02 is refused: the design gives some customers a 0.01562 chance of the
+    # discount in all three weeks", 0.25 cubed.
+    result = namespace["result"]
+    with pytest.raises(CapabilityError, match="Truncating a known design mechanism") as excinfo:
+        result.diagnostics.truncation_curve(bounds=[0.02])
+    assert "regimen 'discount'" in str(excinfo.value)
+    assert "smallest 0.01562" in str(excinfo.value) and round(0.25**3, 5) == 0.01562

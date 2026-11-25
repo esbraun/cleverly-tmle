@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
 | [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
@@ -95,11 +94,11 @@ different pages and run in parallel.
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
-| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | X108 |
-| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X108; X124 for the separable method table |
-| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the raise section |
-| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X108; X6 part (d) for the exact-time tutorial |
+| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
+| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X124 for the separable method table |
+| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
+| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
 ### Survival and time to event
@@ -666,27 +665,6 @@ and study records that state something the code does not do. No number moves.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
 
-### X108. Example notebooks: shared upkeep, word budget and freshness guards
-
-Every example notebook prints an older version, several narrate a symmetric Wald interval where the
-fit now reports the skew-widened $t$ or MOVER interval, some stored outputs no longer reproduce,
-and no check fails when they drift. Sixteen of 22 notebooks exceed the main-path word limit.
-
-- (a) Re-execute every notebook on current code and fix the sentences that name the interval.
-- (b) An install line that runs each page.
-- (c) The examples index and the contributor table of worked examples cover every page and every
-  matrix row.
-- (d) A fast-tier check that re-runs the cheap cells against their stored output, or a per-cell
-  narration check, within the CI time limit.
-- (e) The owner kept the main-path limit on 2026-11-25: a notebook over it is trimmed, and new
-  checks and analyses go after its "Go deeper" heading.
-- (f) One "check the fit" block for longitudinal pages (balance over time, weight and overlap
-  figures, the weight-cap curve, influence rows), and sensitivity-table rows for the parametric
-  g-formula, the structural nested mean fit and the controlled direct effect.
-
-Acceptance: every notebook re-executes with `--check`, and the new check fails on a deliberately
-stale stored output.
-
 ### X111. User guide: designs and estimands
 
 The design guide says fold evaluation refuses strata (it runs and reads `supported`) and omits
@@ -783,7 +761,7 @@ and the plots as a whole.
 
 ### X118. Point-treatment example notebooks
 
-One part per notebook, one change each, under [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards):
+One part per notebook, one change each, under the shared notebook checks that X108 delivered:
 `point-treatment-tmle`, `randomized-pilot`, `twins-causal-inference`, `cross-fitting`,
 `collaborative-tmle`, `survey-nonresponse`, `population-impact` and `plots`. Each corrects its stale
 claims, runs the checks and figures its scenario calls for but does not show (for example the

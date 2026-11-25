@@ -895,8 +895,61 @@ def _numeric_level(level: Any) -> float:
         ) from None
 
 
+def reads_numeric_levels(model: MSM) -> bool:
+    """Whether ``model`` has the design of :meth:`MSM.linear`, which reads levels as numbers.
+
+    The test is the exact type, as in :func:`_design_kind`: ``from_linear=True`` can sit on
+    any design, and a design the user wrote may code tuple levels itself.
+
+    Parameters
+    ----------
+    model : MSM
+        The working model.
+
+    Returns
+    -------
+    bool
+        ``True`` for the design of :meth:`MSM.linear`.
+    """
+    return type(model.design) is _LinearDesign
+
+
+def tuple_level_refusal(treatment: str) -> Refusal:
+    """The refusal of :meth:`MSM.linear` on a treatment whose levels are tuples.
+
+    An all-categorical vector treatment is one categorical treatment over the observed
+    tuples of its columns.  :meth:`MSM.linear` reads a level as a number, and a tuple is not
+    one, so the refusal names the treatment and the fits that do read tuple levels.
+
+    Parameters
+    ----------
+    treatment : str
+        How the condition names the treatment, such as ``"treatment 'A+coupon'"``.
+
+    Returns
+    -------
+    Refusal
+        The ``invalid_declaration`` refusal, with the alternatives.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"MSM.linear reads each treatment level as a number, and {treatment} is a "
+        "combination of categorical columns whose levels are tuples. A working model linear "
+        "in the treatment has no numeric dose to read on such a treatment.",
+        alternative=(
+            "Write MSM(design=..., terms=..., design_kind='known') with a design that codes "
+            "each tuple level, or ask for CounterfactualMean or ATE, which report one "
+            "estimate per combination."
+        ),
+    )
+
+
 def _numeric_dose(level: Any, n: int) -> FloatArray:
     """A scalar dose broadcast to rows, or one observed dose per row."""
+    if isinstance(level, tuple):
+        raise CapabilityError.from_refusal(
+            tuple_level_refusal(f"the treatment with the level {level!r}")
+        )
     try:
         values = np.asarray(level, dtype=float).reshape(-1)
     except (TypeError, ValueError):
