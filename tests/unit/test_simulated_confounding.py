@@ -2269,6 +2269,20 @@ def test_the_refusal_section_names_every_fit_wide_rule_and_counts_none() -> None
     section = text[start : text.index("Some rows above record an upstream limit", start)]
     missing = [name for name, _ in _FIT_WIDE_RULES if f"`{name}`" not in section]
     assert not missing
+    # The science stops are named in the prose, and the shape stops have a table row each.
+    prose, table = section.split("| rule | refuses |", 1)
+    table = table[: table.index("\n\n")]
+    tabled = {line.split("|")[1].strip().strip("`") for line in table.splitlines()[2:]}
+    science = {
+        "longitudinal",
+        "projection",
+        "risk_ratio_tilt",
+        "optimal_rule",
+        "learned_rule_level",
+        "learned_rule_splits",
+    }
+    assert tabled == {name for name, _ in _FIT_WIDE_RULES} - science
+    assert all(f"`{name}`" in prose for name in science)
     counted = re.findall(
         rf"\b(?:all\s+)?(?:{_NUMBER_WORDS})\s+(?:\w+[\s-]+){{0,3}}?(?:stops|rules)\b|"
         rf"\ball\s+(?:{_NUMBER_WORDS})\b",
