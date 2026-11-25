@@ -21,10 +21,24 @@
 # sieve final stage.  It keeps Sieve's training normalization and index matrix and applies
 # them to the prediction points.
 #
-# Beside OUTPUT the runner writes <stem>.session.txt (the package versions and sessionInfo())
-# and <stem>.index.csv (Sieve's index matrix per cell, at basisN = k d + 1).  Each hte3 call
-# runs inside study_stage, so an error hte3 raises costs one replicate.  The runner's own
-# checks run outside every stage and stop the run.
+# Beside OUTPUT the runner writes <stem>.session.txt (the package versions and sessionInfo()),
+# <stem>.index.csv (Sieve's index matrix per cell, at basisN = k d + 1) and one file per fitted
+# replicate in <stem>.fits/: the smallest and largest propensity per arm after
+# hte3:::truncate_propensity (each is hte3's cutoff wherever that cutoff binds; the driver
+# compares them with the emulation's at 1e-10), the warnings the EP step raised, and the glmnet
+# fits it made.
+#
+# Failures.  Each hte3 call, and the check that its predictions are complete and finite, runs
+# inside study_stage, so an error there costs one replicate: it is recorded in
+# <stem>.failures.csv, counted and published by the driver, and never refilled.  A cell that
+# loses more than 5% of its replicates is reported, not gated (tests/studies/ep_hte3.py).  The
+# integrity checks (the nuisance round trip, an unknown scale, a cell with no ISE points, a
+# glmnet fit with an empty coefficient vector) raise study_fatal_error and stop the run.
+#
+# Warnings.  Every warning the EP step raises is counted, logged with its replicate and
+# muffled; one that names glmnet or convergence is counted apart.  glmnet's fits are observed
+# through trace() on glmnet::glmnet, which records each fit's coefficients and changes nothing
+# hte3 computes.
 
 suppressPackageStartupMessages({
   library(sl3)
@@ -38,6 +52,32 @@ paths <- study_arguments("usage: hte3_ep_runner.R INPUTS.csv.gz POINTS.csv.gz OU
 inputs <- utils::read.csv(gzfile(paths$samples), stringsAsFactors = FALSE)
 points <- utils::read.csv(gzfile(paths$truths), stringsAsFactors = FALSE)
 stem <- file.path(dirname(paths$output), sub("(.)\\.[^.]+$", "\\1", basename(paths$output)))
+
+fits_dir <- paste0(stem, ".fits")
+dir.create(fits_dir, showWarnings = FALSE)
+
+# Each glmnet fit hte3 makes, recorded by the trace below: its coefficient count, how many are
+# nonzero, and its passes.  Reset per replicate.
+glmnet_fits <- new.env(parent = emptyenv())
+glmnet_fits$records <- list()
+note_glmnet_fit <- function(fit) {
+  beta <- if (is.null(fit$beta)) numeric(0) else as.vector(as.matrix(fit$beta))
+  glmnet_fits$records[[length(glmnet_fits$records) + 1L]] <- c(
+    columns = length(beta),
+    nonzero = sum(beta != 0),
+    npasses = if (is.null(fit$npasses)) NA_real_ else as.numeric(fit$npasses)
+  )
+  invisible(NULL)
+}
+invisible(suppressMessages(trace(
+  "glmnet",
+  exit = bquote(.(note_glmnet_fit)(returnValue())),
+  where = asNamespace("glmnet"),
+  print = FALSE
+)))
+
+# The warnings of the current replicate's EP step.
+warned <- new.env(parent = emptyenv())
 
 Lrnr_sieve_ls <- R6::R6Class(
   classname = "Lrnr_sieve_ls",
@@ -97,10 +137,10 @@ check_round_trip <- function(task, mu, pi, label) {
     held <- as.matrix(task$get_nuisance_estimates(node))
     supplied <- if (node == "mu") mu else pi
     if (!identical(colnames(held), c("0", "1"))) {
-      stop(sprintf("%s: the %s columns are %s, not 0 and 1", label, node, paste(colnames(held), collapse = ",")))
+      study_fatal_error(sprintf("%s: the %s columns are %s, not 0 and 1", label, node, paste(colnames(held), collapse = ",")))
     }
     if (!identical(dim(held), dim(supplied)) || max(abs(unname(held) - unname(supplied))) != 0) {
-      stop(sprintf("%s: the task's %s estimates differ from the supplied ones", label, node))
+      study_fatal_error(sprintf("%s: the task's %s estimates differ from the supplied ones", label, node))
     }
   }
 }
@@ -123,6 +163,15 @@ fit_one <- function(frame) {
     )
   )
   check_round_trip(task, mu, pi, label)
+  # hte3's own truncation of the supplied propensity, as resolve_contrast_nuisances applies it.
+  truncated_1 <- study_stage(
+    "hte3 truncation",
+    hte3:::truncate_propensity(frame$pi1, frame$A, treatment_level = 1, truncation_method = "adaptive")
+  )
+  truncated_0 <- study_stage(
+    "hte3 truncation",
+    hte3:::truncate_propensity(frame$pi0, frame$A, treatment_level = 0, truncation_method = "adaptive")
+  )
   if (identical(frame$scale[[1]], "difference")) {
     learner <- Lrnr_cate_EP$new(
       base_learner = Lrnr_sieve_ls$new(sieve_num_basis = basis_n),
@@ -142,11 +191,31 @@ fit_one <- function(frame) {
       control_level = 0
     )
   } else {
-    stop(sprintf("%s: unknown scale %s", label, frame$scale[[1]]))
+    study_fatal_error(sprintf("%s: unknown scale %s", label, frame$scale[[1]]))
   }
-  fitted <- study_stage("hte3 EP", learner$train(task))
   grid <- points[points$scenario == frame$scenario[[1]], ]
-  if (!nrow(grid)) stop(sprintf("%s: no ISE points", label))
+  if (!nrow(grid)) study_fatal_error(sprintf("%s: no ISE points", label))
+  glmnet_fits$records <- list()
+  warned$all <- 0L
+  warned$glmnet <- 0L
+  fitted <- withCallingHandlers(
+    study_stage("hte3 EP", learner$train(task)),
+    warning = function(condition) {
+      text <- conditionMessage(condition)
+      warned$all <- warned$all + 1L
+      if (grepl("glmnet|converge", text, ignore.case = TRUE)) warned$glmnet <- warned$glmnet + 1L
+      cat(sprintf("%s: warning in the hte3 EP step: %s\n", label, text))
+      invokeRestart("muffleWarning")
+    }
+  )
+  records <- glmnet_fits$records
+  if (!length(records)) {
+    study_fatal_error(sprintf("%s: the trace saw no glmnet fit in hte3's EP step", label))
+  }
+  empty <- vapply(records, function(record) record[["columns"]] == 0 || record[["nonzero"]] == 0, logical(1))
+  if (any(empty)) {
+    study_fatal_error(sprintf("%s: glmnet returned an empty coefficient vector in hte3's EP step", label))
+  }
   # A prediction task reads the modifiers only; A and Y are placeholders of both levels.
   newdata <- data.frame(
     grid[covariates],
@@ -161,11 +230,29 @@ fit_one <- function(frame) {
       for_prediction = TRUE
     )
   )
-  theta <- study_stage("hte3 predict", fitted$predict(prediction_task))
-  theta <- as.numeric(unlist(theta))
-  if (length(theta) != nrow(grid) || any(!is.finite(theta))) {
-    stop(sprintf("%s: %d predictions for %d points, or a non-finite one", label, length(theta), nrow(grid)))
-  }
+  theta <- study_stage("hte3 predict", {
+    predicted <- as.numeric(unlist(fitted$predict(prediction_task)))
+    if (length(predicted) != nrow(grid) || any(!is.finite(predicted))) {
+      stop(sprintf("%d predictions for %d points, or a non-finite one", length(predicted), nrow(grid)))
+    }
+    predicted
+  })
+  utils::write.csv(
+    data.frame(
+      scenario = frame$scenario[[1]],
+      replicate = frame$replicate[[1]],
+      pi1_low = min(truncated_1),
+      pi1_high = max(truncated_1),
+      pi0_low = min(truncated_0),
+      pi0_high = max(truncated_0),
+      warnings = warned$all,
+      glmnet_warnings = warned$glmnet,
+      glmnet_fits = length(records),
+      glmnet_npasses = max(vapply(records, function(record) record[["npasses"]], numeric(1)))
+    ),
+    file.path(fits_dir, sprintf("%s-%s.csv", frame$scenario[[1]], frame$replicate[[1]])),
+    row.names = FALSE
+  )
   data.frame(
     scenario = frame$scenario[[1]],
     replicate = frame$replicate[[1]],

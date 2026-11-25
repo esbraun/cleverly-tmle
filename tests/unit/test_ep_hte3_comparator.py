@@ -47,7 +47,9 @@ def synthetic_rows(cell: str, *, d: float, hte3_ratio: float, t_gap: float) -> p
             "log_ise_t": hte3 + t_gap + rng.normal(0.0, 0.05, m),
             "curve_distance": rng.uniform(0.0, 0.1, m),
             "drift": rng.normal(0.0, 1e-9, m),
-            "emulation_gap": rng.uniform(0.0, 1e-8, m),
+            "emulation_log_ise_gap": rng.uniform(0.0, 1e-5, m),
+            "emulation_rms_ratio": rng.uniform(0.0, 1e-4, m),
+            "emulation_max_gap": rng.uniform(0.0, 1e-4, m),
         },
         columns=list(study.REPLICATE_COLUMNS),
     )
@@ -152,6 +154,31 @@ class TestTheReadings:
         reading = study.readings(unmoved).set_index("cell").loc["M2"]
         assert not bool(reading["mutation_failed"])
 
+    def test_an_emulation_exceedance_is_a_reading_not_a_refusal(self) -> None:
+        rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)
+        rows.loc[3, "emulation_log_ise_gap"] = 2 * study.EMULATION_LOG_ISE_GATE
+        reading = study.readings(rows).set_index("cell").loc["E1"]
+        assert not bool(reading["emulation_agrees"])
+        assert bool(reading["noninferior"]), "the other readings are still published"
+        rows.loc[3, "emulation_log_ise_gap"] = 0.0
+        rows.loc[5, "emulation_rms_ratio"] = 2 * study.EMULATION_RMS_GATE
+        assert not bool(study.readings(rows).set_index("cell").loc["E1", "emulation_agrees"])
+
+    def test_lost_replicates_are_counted_and_report_the_cell_above_five_percent(self) -> None:
+        rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)  # 40 replicates
+        kept = study.readings(rows, declared={"E1": 42}).set_index("cell").loc["E1"]
+        assert kept["failed"] == 2 and kept["role"] == study.GATED  # 4.8%
+        lost = study.readings(rows, declared={"E1": 43}).set_index("cell").loc["E1"]
+        assert lost["failed"] == 3 and lost["role"] == "reported"  # 7.0%
+        assert lost["replicates"] == 40, "a lost replicate is never refilled"
+        with pytest.raises(ValueError, match="declared"):
+            study.readings(rows, declared={"E1": 39})
+
+    def test_a_cell_that_lost_every_replicate_is_published_reported(self) -> None:
+        rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)
+        reading = study.readings(rows, declared={"E1": 40, "E2": 100}).set_index("cell")
+        assert reading.loc["E2", "role"] == "reported" and reading.loc["E2", "failed"] == 100
+
     def test_a_reported_cell_keeps_its_reading(self) -> None:
         rows = synthetic_rows("E7", d=math.log(1.6), hte3_ratio=0.0, t_gap=0.0)
         reading = study.readings(rows, frozenset({"E7"})).set_index("cell").loc["E7"]
@@ -187,6 +214,13 @@ class TestTheRun:
         for cell in study.MUTATION_CELLS:
             assert bool(committed.loc[cell.label, "mutation_failed"]), cell.label
 
-    def test_the_emulation_tracks_hte3(self) -> None:
+    def test_the_emulation_reading_recomputes_from_the_rows(self) -> None:
+        # Agreement is a reading, not a gate on the run: an exceedance goes to the diagnosis.
         rows = pd.read_csv(study.ARTIFACTS / "replicates.csv.gz")
-        assert float(rows["emulation_gap"].max()) <= study.EMULATION_TOLERANCE
+        committed = pd.read_csv(study.ARTIFACTS / "comparison.csv").set_index("cell")
+        for label, frame in rows.groupby("cell"):
+            expected = study.agrees(
+                float(frame["emulation_log_ise_gap"].max()),
+                float(frame["emulation_rms_ratio"].max()),
+            )
+            assert bool(committed.loc[label, "emulation_agrees"]) == expected

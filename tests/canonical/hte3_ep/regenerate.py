@@ -6,7 +6,8 @@ replicates, refits ``cleverly``'s EP as the parent did, and exports the nuisance
 (:func:`tests.studies.ep_hte3.python_phase`).  The R phase writes them as an inputs archive and
 runs ``hte3_ep_runner.R`` in the image ``cleverly-hte3:eac64673`` on chunks of
 :data:`CHUNK` replicates.  Each replicate is then reduced to one row of ``replicates.csv.gz``,
-with the numpy emulation's distance from the R curve (``emulation_gap``) beside it.  The
+with the numpy emulation's agreement with the R curve beside it (the two gates of
+:func:`tests.studies.ep_hte3.emulation_agreement` and the largest per-point gap).  The
 mutation controls M1 and M2 reuse the first 20 exports of E8 and C6 with ``pi.hat`` set to 0.5.
 
 **A declared run** passes ``--output`` (an empty scratch directory outside the repository) and
@@ -26,10 +27,14 @@ empty ``--output``; ``--fresh`` discards them first.
 **A smoke** passes ``--smoke N --output <scratch>``.  It draws ``N`` replicates of every reading
 cell on the ``hte3_smoke`` stream, which no parent and no declared run draws, and the mutation
 controls on the first ``N`` of E8 and C6.  It needs no clean tree.  It writes
-:data:`tests.studies.ep_hte3.SMOKE_FILES`: the R-against-emulation agreement per replicate over
-all 20,000 points, the first :data:`tests.studies.ep_hte3.SMOKE_POINTS` points of both curves,
-Sieve's index matrix per cell, seconds per fit, and the R session.  The local runner commits
-them under ``tests/canonical/hte3_ep/smoke/``, which the design test reads.
+:data:`tests.studies.ep_hte3.SMOKE_FILES`: per replicate the R-against-emulation agreement over
+all 20,000 points (both gates, the largest per-point gap, the same gates for the emulation
+without hte3's truncation, which is the mutation witness on C6), hte3's truncation cutoffs
+against the emulation's, and the warnings and glmnet fits of the EP step; the first
+:data:`tests.studies.ep_hte3.SMOKE_POINTS` points of both curves; Sieve's index matrix per
+cell; seconds per fit and the re-costing against the pilot
+(:func:`tests.studies.ep_hte3.recost`); and the R session.  The local runner commits them under
+``tests/canonical/hte3_ep/smoke/``, which the design test reads.
 
 A red reading is published red; :mod:`tests.studies.ep_hte3` holds the route it takes.
 """
@@ -151,8 +156,12 @@ def _theta_by_replicate(path: Path) -> dict[int, np.ndarray]:
 
 def r_chunk(
     cell: study.Cell, exports: Sequence[study.Export], work: Path, *, jobs: int
-) -> tuple[dict[int, np.ndarray], dict[int, float], pd.DataFrame | None]:
-    """Run hte3 on one chunk: the curve and seconds per replicate, and any failure records."""
+) -> tuple[dict[int, np.ndarray], dict[int, float], dict[int, dict[str, Any]], pd.DataFrame | None]:
+    """Run hte3 on one chunk.
+
+    Returns the curve, the seconds and the runner's per-replicate record (truncation extremes,
+    warnings, glmnet fits) of each fitted replicate, and any failure records.
+    """
     work.mkdir(parents=True, exist_ok=True)
     name = f"{cell.label}-{exports[0].replicate:03d}-{exports[-1].replicate:03d}"
     inputs, points, output = (
@@ -168,7 +177,50 @@ def r_chunk(
     seconds = frame.groupby("replicate")["seconds"].first().to_dict()
     failures_file = output.with_name(f"{output.stem}.failures.csv")
     failures = pd.read_csv(failures_file) if failures_file.exists() else None
-    return _theta_by_replicate(output), {int(k): float(v) for k, v in seconds.items()}, failures
+    fits: dict[int, dict[str, Any]] = {}
+    for path in sorted(output.with_name(f"{output.stem}.fits").glob("*.csv")):
+        record = pd.read_csv(path).iloc[0].to_dict()
+        fits[int(record["replicate"])] = record
+    theta = _theta_by_replicate(output)
+    return theta, {int(k): float(v) for k, v in seconds.items()}, fits, failures
+
+
+EXTREMES = ("pi1_low", "pi1_high", "pi0_low", "pi0_high")
+
+
+def agreement_row(
+    cell: study.Cell,
+    export: study.Export,
+    curve: np.ndarray,
+    emulated: np.ndarray,
+    fit: dict[str, Any],
+    target: np.ndarray,
+    points: np.ndarray,
+) -> dict[str, Any]:
+    """One replicate's R-against-emulation record (the smoke's ``agreement.csv``)."""
+    gates = study.emulation_agreement(target, curve, emulated, export.ise_oracle)
+    witness = study.emulation_agreement(
+        target, curve, emulation.emulate(cell, export, points, truncate=False), export.ise_oracle
+    )
+    extremes = emulation.truncation_extremes(export)
+    return {
+        "cell": cell.label,
+        "replicate": export.replicate,
+        "points": int(curve.size),
+        "log_ise_gap": gates["log_ise_gap"],
+        "rms_ratio": gates["rms_ratio"],
+        "max_abs_difference": gates["max_gap"],
+        "max_abs_theta": float(np.max(np.abs(curve))),
+        "untruncated_log_ise_gap": witness["log_ise_gap"],
+        "untruncated_rms_ratio": witness["rms_ratio"],
+        "cutoff_gap": max(abs(float(fit[name]) - extremes[name]) for name in EXTREMES),
+        **{f"r_{name}": float(fit[name]) for name in EXTREMES},
+        **{f"emulation_{name}": extremes[name] for name in EXTREMES},
+        "warnings": int(fit["warnings"]),
+        "glmnet_warnings": int(fit["glmnet_warnings"]),
+        "glmnet_fits": int(fit["glmnet_fits"]),
+        "glmnet_npasses": float(fit["glmnet_npasses"]),
+    }
 
 
 def run_cell(
@@ -189,6 +241,7 @@ def run_cell(
     kept: list[pd.DataFrame] = []
     failures: list[pd.DataFrame] = []
     points = study.ise_points(cell)
+    target = study.truth(cell, points)
     for start in range(0, len(exports), CHUNK):
         chunk = list(exports[start : start + CHUNK])
         name = f"{cell.label}-{chunk[0].replicate:03d}-{chunk[-1].replicate:03d}"
@@ -197,7 +250,7 @@ def run_cell(
             record = json.loads(saved.read_text(encoding="utf-8"))
             print(f"{name}: reusing its checkpoint", flush=True)
         else:
-            theta, seconds, lost = r_chunk(cell, chunk, work / cell.label, jobs=jobs)
+            theta, seconds, fits, lost = r_chunk(cell, chunk, work / cell.label, jobs=jobs)
             record = {"rows": [], "digests": [], "timings": [], "agreement": [], "points": []}
             record["failures"] = None if lost is None else lost.to_dict(orient="records")
             for export in chunk:
@@ -217,15 +270,14 @@ def run_cell(
                         "r_seconds": seconds[export.replicate],
                     }
                 )
-                gap = np.abs(emulated - curve)
+                if export.replicate not in fits:
+                    raise RuntimeError(
+                        f"{name}: replicate {export.replicate} has a curve and no runner record"
+                    )
                 record["agreement"].append(
-                    {
-                        "cell": cell.label,
-                        "replicate": export.replicate,
-                        "points": int(gap.size),
-                        "max_abs_difference": float(gap.max()),
-                        "max_abs_theta": float(np.max(np.abs(curve))),
-                    }
+                    agreement_row(
+                        cell, export, curve, emulated, fits[export.replicate], target, points
+                    )
                 )
                 if keep_points:
                     record["points"].append(
@@ -370,7 +422,10 @@ def manifest(result: dict[str, Any], *, smoke: int | None) -> dict[str, Any]:
 
 def write_run(result: dict[str, Any], output: Path) -> list[str]:
     write_table(result["rows"], output / "replicates.csv.gz")
-    write_table(study.readings(result["rows"]), output / "comparison.csv")
+    # Lost replicates are counted against the declared ones, never refilled; a cell that lost
+    # more than 5% is reported (``study.readings``).
+    readings = study.readings(result["rows"], declared=study.REPLICATES)
+    write_table(readings, output / "comparison.csv")
     written = ["replicates.csv.gz", "comparison.csv"]
     if result["failures"] is not None:
         write_table(result["failures"], output / "failures.csv")
@@ -381,17 +436,44 @@ def write_run(result: dict[str, Any], output: Path) -> list[str]:
 
 
 def write_smoke(result: dict[str, Any], output: Path) -> None:
-    write_table(result["agreement"], output / "agreement.csv")
+    agreement = result["agreement"]
+    recost = study.recost(result["timings"])
+    write_table(agreement, output / "agreement.csv")
     write_table(result["points"], output / "points.csv")
     write_table(result["index"], output / "sieve-index.csv")
     write_table(result["timings"], output / "timings.csv")
+    write_table(recost, output / "recost.csv")
     (output / "session.txt").write_text(result["session"], encoding="utf-8")
     write_table(result["rows"], output / "replicates.csv")
-    worst = float(result["agreement"]["max_abs_difference"].max())
-    verdict = "within" if worst <= study.EMULATION_TOLERANCE else "OUTSIDE"
-    print(f"R against the emulation: worst {worst:.3e}, {verdict} {study.EMULATION_TOLERANCE:g}")
-    timings = result["timings"].groupby("cell")[["python_seconds", "r_seconds"]].mean()
-    print(timings.to_string(float_format="%.1f"), flush=True)
+    for column, gate in (
+        ("log_ise_gap", study.EMULATION_LOG_ISE_GATE),
+        ("rms_ratio", study.EMULATION_RMS_GATE),
+        ("cutoff_gap", study.CUTOFF_TOLERANCE),
+    ):
+        worst = float(agreement[column].max())
+        verdict = "within" if worst <= gate else "OUTSIDE"
+        share = worst / gate
+        note = "" if share <= study.GATE_USE_LIMIT else "; above the 10% share: re-declare the gate"
+        print(f"{column}: worst {worst:.3e}, {verdict} {gate:g} ({share:.1%} of it{note})")
+    print(f"largest per-point gap (reported): {agreement['max_abs_difference'].max():.3e}")
+    c6 = agreement.loc[agreement["cell"] == "C6"]
+    moved = (c6["untruncated_log_ise_gap"] > study.EMULATION_LOG_ISE_GATE) | (
+        c6["untruncated_rms_ratio"] > study.EMULATION_RMS_GATE
+    )
+    print(f"C6 without the truncation exceeds a gate in {int(moved.sum())} of {len(c6)} replicates")
+    print(
+        f"EP-step warnings: {int(agreement['warnings'].sum())}, naming glmnet or convergence: "
+        f"{int(agreement['glmnet_warnings'].sum())}; glmnet fits per replicate: "
+        f"{sorted(agreement['glmnet_fits'].unique().tolist())}"
+    )
+    print(recost.to_string(index=False, float_format=lambda value: f"{value:.2f}"))
+    ratio = float(recost["ratio"].max())
+    stop = ratio > study.PILOT_TIME_FACTOR_LIMIT
+    print(
+        f"Python seconds per replicate: at most {ratio:.2f} times the pilot's"
+        + ("; STOP: above 3, report before any declared run" if stop else ""),
+        flush=True,
+    )
     for cell in study.MUTATION_CELLS:
         rows = result["rows"].loc[result["rows"]["cell"] == cell.label]
         ratio = rows["log_ise_hte3"] - rows["log_ise_oracle"]

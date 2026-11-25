@@ -54,6 +54,28 @@ runner defect that the ISE readings cannot see, and opens a diagnosis.  A mutati
 does not fail voids the targeting witness.  A comparison artifact is not a registered study's
 red cell, and it blocks nothing shipped.
 
+**The emulation's agreement with hte3.**  The plan (4.4) asked the R curve and the numpy
+emulation (:mod:`tests.studies.ep_hte3_pilot`) to agree to ``1e-6`` per point.  That cannot
+hold: hte3 solves its ridge steps with ``glmnet(lambda = 1e-8)`` at glmnet's default
+``thresh = 1e-7``, by coordinate descent on cosine columns that are strongly correlated (up to
+101 of them at d = 20), so the two curves agree to the solver's tolerance, not to rounding.
+This declaration loosens the plan's tolerance to two scale-free gates per replicate, declared
+before any R run: :data:`EMULATION_LOG_ISE_GATE` on ``|log ISE(hte3 R) - log ISE(emulation)|``
+and :data:`EMULATION_RMS_GATE` on the root mean square of ``theta_R - theta_emulation`` over
+``sqrt(ISE(oracle))`` (:func:`emulation_agreement`).  The largest per-point gap is reported,
+not gated.  hte3's truncation cutoffs are compared at :data:`CUTOFF_TOLERANCE`, because that
+step is the same Brent search on both sides.  The smoke carries a mutation witness: the
+emulation without the truncation must exceed a gate on C6, where the truncation binds.  If the
+smoke uses more than :data:`GATE_USE_LIMIT` of a gate, the gate is re-declared before the
+declaration commit, never after the run.  In the declared run the agreement is a reading in
+``comparison.csv`` (``emulation_agrees``); an exceedance goes to the diagnosis below and does
+not block reading the run.
+
+**Lost replicates.**  A replicate whose Python fit or hte3 call fails is counted and published
+(``failed`` and ``failed_share`` in ``comparison.csv``, the records in ``failures.csv``), never
+refilled from later seeds.  A cell that loses more than :data:`FAILED_SHARE_LIMIT` of its
+declared replicates becomes ``reported`` (:func:`readings`).
+
 The driver is ``python -m tests.canonical.hte3_ep.regenerate``.
 """
 
@@ -114,9 +136,23 @@ TARGET_FAMILY = 0.90
 PLANNING_MEAN_FLOOR = math.log(1.1)
 PLANNING_SD_FACTOR = 1.30
 
-#: Mutation controls: their replicate count and the failure probability that gates M1.
+#: Mutation controls: their replicate count and the failure probability that gates each.
 MUTATION_REPLICATES = 20
 MUTATION_GATE_BELOW = 1e-3
+
+#: The emulation's agreement with hte3 in R, per replicate (see the module docstring): the
+#: log-ISE gap, the curve gap in units of the oracle's root ISE, and hte3's truncation cutoffs.
+EMULATION_LOG_ISE_GATE = 1e-3
+EMULATION_RMS_GATE = 1e-2
+CUTOFF_TOLERANCE = 1e-10
+#: The share of a gate the smoke may use before the gate is re-declared.
+GATE_USE_LIMIT = 0.10
+
+#: The share of a cell's declared replicates it may lose before it is reported, not gated.
+FAILED_SHARE_LIMIT = 0.05
+
+#: The smoke stops the local run when Python seconds per replicate exceed the pilot's by this.
+PILOT_TIME_FACTOR_LIMIT = 3.0
 
 
 GATED = "gated"
@@ -510,7 +546,9 @@ REPLICATE_COLUMNS = (
     "log_ise_t",
     "curve_distance",
     "drift",
-    "emulation_gap",
+    "emulation_log_ise_gap",
+    "emulation_rms_ratio",
+    "emulation_max_gap",
 )
 
 
@@ -541,6 +579,27 @@ class Committed:
         return math.nan if committed is None else log_ratio - committed
 
 
+def emulation_agreement(
+    target: np.ndarray, theta_r: np.ndarray, emulated: np.ndarray, ise_oracle: float
+) -> dict[str, float]:
+    """The two agreement gates of one replicate, and the largest per-point gap (reported)."""
+    theta_r = np.asarray(theta_r, dtype=float)
+    emulated = np.asarray(emulated, dtype=float)
+    log_r = math.log(float(np.mean((theta_r - target) ** 2)))
+    log_e = math.log(float(np.mean((emulated - target) ** 2)))
+    gap = theta_r - emulated
+    return {
+        "log_ise_gap": abs(log_r - log_e),
+        "rms_ratio": math.sqrt(float(np.mean(gap**2))) / math.sqrt(ise_oracle),
+        "max_gap": float(np.max(np.abs(gap))),
+    }
+
+
+def agrees(log_ise_gap: float, rms_ratio: float) -> bool:
+    """Both gates hold."""
+    return bool(log_ise_gap <= EMULATION_LOG_ISE_GATE and rms_ratio <= EMULATION_RMS_GATE)
+
+
 def reduce(
     cell: Cell,
     export: Export,
@@ -558,9 +617,9 @@ def reduce(
     drift = math.nan
     if committed is not None and cell.role != MUTATION:
         drift = committed.drift(cell, export.replicate, log_cleverly - log_oracle)
-    gap = math.nan
+    agreement = dict.fromkeys(("log_ise_gap", "rms_ratio", "max_gap"), math.nan)
     if emulated is not None:
-        gap = float(np.max(np.abs(np.asarray(emulated) - np.asarray(theta_hte3))))
+        agreement = emulation_agreement(target, theta_hte3, emulated, export.ise_oracle)
     return {
         "cell": cell.label,
         "replicate": export.replicate,
@@ -570,7 +629,9 @@ def reduce(
         "log_ise_t": math.log(export.ise_t),
         "curve_distance": distance,
         "drift": drift,
-        "emulation_gap": gap,
+        "emulation_log_ise_gap": agreement["log_ise_gap"],
+        "emulation_rms_ratio": agreement["rms_ratio"],
+        "emulation_max_gap": agreement["max_gap"],
     }
 
 
@@ -604,7 +665,10 @@ def roles(reported: frozenset[str] = REPORTED) -> dict[str, str]:
 READING_COLUMNS = (
     "cell",
     "role",
+    "declared",
     "replicates",
+    "failed",
+    "failed_share",
     "d_mean",
     "d_sd",
     "d_upper",
@@ -622,25 +686,66 @@ READING_COLUMNS = (
     "curve_distance_mean",
     "curve_distance_flag",
     "drift_max",
+    "emulation_log_ise_max",
+    "emulation_rms_max",
+    "emulation_max_gap",
+    "emulation_agrees",
 )
 
 
-def readings(rows: pd.DataFrame, reported: frozenset[str] = REPORTED) -> pd.DataFrame:
+def readings(
+    rows: pd.DataFrame,
+    reported: frozenset[str] = REPORTED,
+    declared: Mapping[str, int] | None = None,
+) -> pd.DataFrame:
     """Every reading of plan 4.3, recomputed from ``replicates.csv.gz`` rows.
 
     A failed non-inferiority reading is published as ``False``; nothing here or in the tests
-    asserts that one passes.
+    asserts that one passes.  ``declared`` is the replicates each cell was run at
+    (:data:`REPLICATES` by default): a replicate absent from ``rows`` was lost, and a cell that
+    lost more than :data:`FAILED_SHARE_LIMIT` of them is ``reported``.  Without a declared count
+    a cell's rows are its declared replicates.  The emulation's agreement is a reading too, and
+    an exceedance blocks nothing.
     """
     role_of = roles(reported)
+    declared = REPLICATES if declared is None else declared
     out = []
     for cell in CELLS:
         frame = rows.loc[rows["cell"] == cell.label]
-        if frame.empty:
+        planned = int(declared.get(cell.label, len(frame)))
+        if frame.empty and planned == 0:
             continue
+        failed = planned - len(frame)
+        if failed < 0:
+            raise ValueError(f"{cell.label}: {len(frame)} rows for {planned} declared replicates")
+        share = failed / planned
+        role = "reported" if share > FAILED_SHARE_LIMIT else role_of[cell.label]
+        row: dict[str, Any] = dict.fromkeys(READING_COLUMNS, math.nan)
+        row.update(
+            cell=cell.label,
+            role=role,
+            declared=planned,
+            replicates=len(frame),
+            failed=failed,
+            failed_share=share,
+        )
+        if len(frame) < 2:
+            out.append(row)
+            continue
+        log_gap = frame["emulation_log_ise_gap"].to_numpy(dtype=float)
+        rms = frame["emulation_rms_ratio"].to_numpy(dtype=float)
+        if np.isfinite(log_gap).any():
+            row.update(
+                emulation_log_ise_max=float(np.nanmax(log_gap)),
+                emulation_rms_max=float(np.nanmax(rms)),
+                emulation_max_gap=float(np.nanmax(frame["emulation_max_gap"])),
+                emulation_agrees=bool(
+                    np.isfinite(log_gap).all()
+                    and agrees(float(np.max(log_gap)), float(np.max(rms)))
+                ),
+            )
         hte3_ratio = (frame["log_ise_hte3"] - frame["log_ise_oracle"]).to_numpy()
         cleverly_ratio = (frame["log_ise_cleverly"] - frame["log_ise_oracle"]).to_numpy()
-        row: dict[str, Any] = dict.fromkeys(READING_COLUMNS, math.nan)
-        row.update(cell=cell.label, role=role_of[cell.label], replicates=len(frame))
         if cell.role == MUTATION:
             _, _, lower, _ = bounds(hte3_ratio)
             row["mutation_lower"] = lower
@@ -715,7 +820,10 @@ def mutation_miss(mean: float, sd: float, replicates: int, margin: float) -> flo
 
 
 def _committed_m2() -> dict[str, float]:
-    """The committed unit-weight mutation of ``ep-crr``'s offset pilot (1.72, SD 0.34)."""
+    """The committed unit-weight mutation of ``ep-crr``'s offset pilot (1.72, SD 0.34).
+
+    Only the fallback reads it; with a committed pilot, M2 is sized from its own pilot row.
+    """
     row = ep_crr.pilot_rows()[("d3_complex_limited_4k", "ep_offset_unit_weight")]
     return {"mean": row["mean"], "sd": row["sd"], "replicates": row["replicates"]}
 
@@ -773,11 +881,11 @@ def design_numbers(path: Path = PILOT_CSV) -> dict[str, Any]:
     """
     pilot = pilot_rows(path)
     cells: dict[str, dict[str, float]] = {}
-    m2 = _committed_m2()
-    mutations = {
-        "M2": mutation_miss(m2["mean"], m2["sd"], MUTATION_REPLICATES, _RESCUE_CRR),
-    }
     if pilot is None:
+        m2 = _committed_m2()
+        mutations = {
+            "M2": mutation_miss(m2["mean"], m2["sd"], MUTATION_REPLICATES, _RESCUE_CRR),
+        }
         replicates = {cell.label: cell.planning_replicates for cell in CELLS}
         reported = {"E7", "E8", "C6", "M1"}
         for cell in READING_CELLS:
@@ -812,12 +920,15 @@ def design_numbers(path: Path = PILOT_CSV) -> dict[str, Any]:
             "planning_sd": sd,
             "pass": pass_probability(mean, sd, r),
         }
-    m1 = pilot[("M1", "log_ratio_hte3")]
-    mutations["M1"] = mutation_miss(
-        m1["mean"], m1["sd"] * PLANNING_SD_FACTOR, MUTATION_REPLICATES, _RESCUE_CATE
-    )
-    if mutations["M1"] >= MUTATION_GATE_BELOW:
-        reported.add("M1")
+    # Each mutation control from its own pilot row, the SD inflated as the reading cells' are.
+    mutations = {}
+    for cell in MUTATION_CELLS:
+        row = pilot[(cell.label, "log_ratio_hte3")]
+        mutations[cell.label] = mutation_miss(
+            row["mean"], row["sd"] * PLANNING_SD_FACTOR, MUTATION_REPLICATES, cell.validity_margin
+        )
+        if mutations[cell.label] >= MUTATION_GATE_BELOW:
+            reported.add(cell.label)
     replicates = {label: sized.get(label, caps[label]) for label in planning}
     replicates.update({cell.label: MUTATION_REPLICATES for cell in MUTATION_CELLS})
     family = float(np.prod([cells[label]["pass"] for label in sized]))
@@ -841,11 +952,44 @@ def design_numbers(path: Path = PILOT_CSV) -> dict[str, Any]:
 RUN_FILES = ("replicates.csv.gz", "comparison.csv", "manifest.json", "run.log")
 
 #: The files a smoke writes, which the local runner commits under ``tests/canonical/hte3_ep/smoke``.
-SMOKE_FILES = ("agreement.csv", "points.csv", "sieve-index.csv", "timings.csv", "session.txt")
+SMOKE_FILES = (
+    "agreement.csv",
+    "points.csv",
+    "sieve-index.csv",
+    "timings.csv",
+    "recost.csv",
+    "session.txt",
+)
 SMOKE_DIR = ARTIFACTS / "smoke"
 
 #: Points per replicate that ``smoke/points.csv`` keeps (the agreement reads all 20,000).
 SMOKE_POINTS = 200
 
-#: The R-against-emulation agreement the smoke must show, per point (plan 4.4).
-EMULATION_TOLERANCE = 1e-6
+
+def recost(timings: pd.DataFrame, path: Path = PILOT_CSV) -> pd.DataFrame:
+    """The smoke's Python seconds per replicate against the pilot's, per reading cell.
+
+    ``ratio`` above :data:`PILOT_TIME_FACTOR_LIMIT` stops the local run before the declared
+    run is costed from the pilot.  ``cpu_hours`` re-costs the declared run's Python and R
+    phases at the smoke's seconds and the replicates ``design_numbers`` gives.
+    """
+    pilot = pilot_rows(path) or {}
+    replicates = design_numbers(path)["replicates"]
+    means = timings.groupby("cell")[["python_seconds", "r_seconds"]].mean()
+    out = []
+    for cell in READING_CELLS:
+        if cell.label not in means.index:
+            continue
+        python, r = (float(value) for value in means.loc[cell.label])
+        piloted = pilot.get((cell.label, "seconds"), {}).get("mean", math.nan)
+        out.append(
+            {
+                "cell": cell.label,
+                "python_seconds": python,
+                "pilot_seconds": piloted,
+                "ratio": math.nan if math.isnan(piloted) else python / piloted,
+                "r_seconds": r,
+                "cpu_hours": (python + r) * replicates[cell.label] / 3600.0,
+            }
+        )
+    return pd.DataFrame(out)

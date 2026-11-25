@@ -22,9 +22,11 @@ r"""The numpy emulation of hte3's EP learners, and the pilot of the comparison (
   ``mu_1^* / (mu_1^* + mu_0^*)`` with weights ``mu_1^* + mu_0^*``, read on the logit scale
   through ``bounded_qlogis``.
 
-glmnet solves the ridge steps by coordinate descent to its default ``thresh = 1e-7``; the
-emulation solves them exactly.  The R smoke reads how far apart that leaves the two curves
-(``EMULATION_TOLERANCE``, ``1e-6`` per point), and the design test reads its committed rows.
+glmnet solves the ridge steps by coordinate descent to its default ``thresh = 1e-7`` on
+correlated cosine columns (up to 101 of them at d = 20); the emulation solves them exactly.
+The two curves therefore agree to the solver's tolerance, not to rounding, and the agreement is
+read on two scale-free gates per replicate (:func:`tests.studies.ep_hte3.emulation_agreement`),
+not per point.  The design test reads the R smoke's committed rows against them.
 
 **The pilot.**  A pilot, not a result: 30 replicates of every reading cell on the
 ``hte3_pilot`` stream of the parent's record (``stream_seed(parent.STUDY, STREAM,
@@ -202,11 +204,32 @@ def sieve_basis(x: np.ndarray, k: int, norm: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------- the two EP learners
 
 
-def _weights(export: study.Export) -> np.ndarray:
+def truncated(export: study.Export, *, truncate: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """``(pi1, pi0)`` as hte3's EP step reads them: adaptively truncated, or only bounded."""
     treated = export.a == 1.0
-    pi1 = truncate_propensity(export.pi1, treated)
-    pi0 = truncate_propensity(export.pi0, ~treated)
-    return np.where(treated, 1.0 / pi1, 1.0 / pi0)
+    if not truncate:
+        return bound_probability(export.pi1), bound_probability(export.pi0)
+    return truncate_propensity(export.pi1, treated), truncate_propensity(export.pi0, ~treated)
+
+
+def truncation_extremes(export: study.Export) -> dict[str, float]:
+    """The smallest and largest truncated propensity per arm.
+
+    Wherever a cutoff binds, the extreme on its side is the cutoff itself; the R runner writes
+    the same four numbers from ``hte3:::truncate_propensity``.
+    """
+    pi1, pi0 = truncated(export)
+    return {
+        "pi1_low": float(pi1.min()),
+        "pi1_high": float(pi1.max()),
+        "pi0_low": float(pi0.min()),
+        "pi0_high": float(pi0.max()),
+    }
+
+
+def _weights(export: study.Export, *, truncate: bool = True) -> np.ndarray:
+    pi1, pi0 = truncated(export, truncate=truncate)
+    return np.where(export.a == 1.0, 1.0 / pi1, 1.0 / pi0)
 
 
 def _logistic_ridge(
@@ -240,14 +263,14 @@ def _quasibinomial(design: np.ndarray, y: np.ndarray, weights: np.ndarray) -> np
     return beta
 
 
-def cate_ep(export: study.Export, points: np.ndarray) -> np.ndarray:
+def cate_ep(export: study.Export, points: np.ndarray, *, truncate: bool = True) -> np.ndarray:
     """hte3's ``Lrnr_cate_EP(targeting_style = "dr")`` with the sieve final stage, at ``points``."""
     norm = sieve_norm(export.w)
     phi = sieve_basis(export.w, export.k, norm)
     treated = export.a == 1.0
     sign = np.where(treated, 1.0, -1.0)
     offset = np.where(treated, export.mu1, export.mu0)
-    w = _weights(export)
+    w = _weights(export, truncate=truncate)
     w = w / w.sum()
     design = phi * sign[:, None]
     gram = design.T @ (w[:, None] * design) + RIDGE * np.eye(phi.shape[1])
@@ -257,7 +280,7 @@ def cate_ep(export: study.Export, points: np.ndarray) -> np.ndarray:
     return np.asarray(sieve_basis(points, export.k, norm) @ final)
 
 
-def crr_ep(export: study.Export, points: np.ndarray) -> np.ndarray:
+def crr_ep(export: study.Export, points: np.ndarray, *, truncate: bool = True) -> np.ndarray:
     """hte3's ``Lrnr_crr_EP`` with the quasibinomial sieve final stage: the log CRR at ``points``."""
     norm = sieve_norm(export.w)
     phi = sieve_basis(export.w, export.k, norm)
@@ -266,7 +289,7 @@ def crr_ep(export: study.Export, points: np.ndarray) -> np.ndarray:
     mu0 = bound_probability(export.mu0)
     offset = np.log(np.where(treated, mu1, mu0)) - np.log1p(-np.where(treated, mu1, mu0))
     design = np.hstack([phi * treated[:, None], phi * (~treated)[:, None]])
-    beta = _logistic_ridge(design, export.y, offset, _weights(export))
+    beta = _logistic_ridge(design, export.y, offset, _weights(export, truncate=truncate))
     p = phi.shape[1]
     star1 = bound_probability(expit(np.log(mu1 / (1.0 - mu1)) + phi @ beta[:p]))
     star0 = bound_probability(expit(np.log(mu0 / (1.0 - mu0)) + phi @ beta[p:]))
@@ -277,9 +300,17 @@ def crr_ep(export: study.Export, points: np.ndarray) -> np.ndarray:
     return np.asarray(np.log(probability) - np.log1p(-probability))
 
 
-def emulate(cell: study.Cell, export: study.Export, points: np.ndarray) -> np.ndarray:
-    """hte3's EP curve of one cell's export at ``points``."""
-    return cate_ep(export, points) if cell.scale == "difference" else crr_ep(export, points)
+def emulate(
+    cell: study.Cell, export: study.Export, points: np.ndarray, *, truncate: bool = True
+) -> np.ndarray:
+    """hte3's EP curve of one cell's export at ``points``.
+
+    ``truncate=False`` drops hte3's adaptive propensity truncation: the smoke's mutation witness,
+    which must move the curve past an agreement gate on C6, where the truncation binds.
+    """
+    if cell.scale == "difference":
+        return cate_ep(export, points, truncate=truncate)
+    return crr_ep(export, points, truncate=truncate)
 
 
 # ---------------------------------------------------------------- the pilot

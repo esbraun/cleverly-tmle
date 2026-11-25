@@ -366,6 +366,28 @@ class TestTheEmulation:
         mutated = emulation.cate_ep(export.mutated("M"), export.w)
         assert np.max(np.abs(mutated - theta)) > 1e-2
 
+    def test_the_truncation_extremes_are_the_binding_cutoffs(self) -> None:
+        export = _synthetic("difference")
+        extremes = emulation.truncation_extremes(export)
+        pi1, pi0 = emulation.truncated(export)
+        assert extremes["pi1_low"] == pi1.min() > export.pi1.min()
+        # The cutoff binds: several rows sit exactly on it.
+        assert int(np.sum(pi1 == extremes["pi1_low"])) > 1
+        assert extremes["pi0_high"] == pi0.max()
+
+    @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+    def test_dropping_the_truncation_moves_the_curve(self, scale: str) -> None:
+        """The smoke's witness: the gates see the truncation where it binds."""
+        export = _synthetic(scale)
+        cell = study.CELL_BY_LABEL["E8" if scale == "difference" else "C6"]
+        kept = emulation.emulate(cell, export, export.w)
+        dropped = emulation.emulate(cell, export, export.w, truncate=False)
+        target = np.zeros_like(kept)
+        gates = study.emulation_agreement(target, kept, dropped, 0.01)
+        assert not study.agrees(gates["log_ise_gap"], gates["rms_ratio"])
+        same = study.emulation_agreement(target, kept, kept.copy(), 0.01)
+        assert study.agrees(same["log_ise_gap"], same["rms_ratio"])
+
 
 # ---------------------------------------------------------------- the sizing rule
 
@@ -408,8 +430,27 @@ class TestTheSizingRule:
         assert family >= study.TARGET_FAMILY
         assert max(sized.values()) > 100
 
-    def test_the_committed_m2_mutation_fails_at_twenty_replicates(self) -> None:
-        assert study.design_numbers()["mutations"]["M2"] < 1e-6
+    def test_each_mutation_control_fails_at_twenty_replicates(self) -> None:
+        numbers = study.design_numbers()
+        for cell in study.MUTATION_CELLS:
+            assert numbers["mutations"][cell.label] < study.MUTATION_GATE_BELOW, cell.label
+        # Without a pilot, M2 reads the committed unit-weight mutation of ep-crr's offset pilot.
+        assert study.design_numbers(ROOT / "absent.csv")["mutations"]["M2"] < 1e-6
+
+    @pytest.mark.skipif(not study.PILOT_CSV.exists(), reason="the pilot has not been committed")
+    def test_m2_is_sized_from_its_own_pilot_row_as_m1_is(self) -> None:
+        pilot = study.pilot_rows()
+        assert pilot is not None
+        numbers = study.design_numbers()
+        for cell in study.MUTATION_CELLS:
+            row = pilot[(cell.label, "log_ratio_hte3")]
+            expected = study.mutation_miss(
+                row["mean"],
+                row["sd"] * study.PLANNING_SD_FACTOR,
+                study.MUTATION_REPLICATES,
+                cell.validity_margin,
+            )
+            assert numbers["mutations"][cell.label] == pytest.approx(expected, rel=1e-12)
 
     def test_without_a_pilot_the_plans_fallback_applies(self, tmp_path: Path) -> None:
         numbers = study.design_numbers(tmp_path / "absent.csv")
@@ -423,7 +464,8 @@ class TestTheSizingRule:
         assert pilot is not None
         for cell in study.READING_CELLS:
             assert pilot[(cell.label, "d")]["replicates"] >= emulation.REPLICATES
-        assert pilot[("M1", "log_ratio_hte3")]["replicates"] >= emulation.REPLICATES
+        for cell in study.MUTATION_CELLS:
+            assert pilot[(cell.label, "log_ratio_hte3")]["replicates"] >= emulation.REPLICATES
 
     def test_the_declared_replicates_are_the_rules(self) -> None:
         if not study.REPLICATES:
@@ -447,17 +489,51 @@ def _smoke(name: str) -> pd.DataFrame:
 
 
 class TestTheRSmoke:
-    def test_the_emulation_agrees_with_r_at_every_point(self) -> None:
+    def test_the_emulation_agrees_with_r_on_both_gates(self) -> None:
         agreement = _smoke("agreement.csv")
         assert set(agreement["cell"]) == {cell.label for cell in study.CELLS}
         assert (agreement["points"] == 20_000).all()
-        assert agreement["max_abs_difference"].max() <= study.EMULATION_TOLERANCE
+        assert agreement["log_ise_gap"].max() <= study.EMULATION_LOG_ISE_GATE
+        assert agreement["rms_ratio"].max() <= study.EMULATION_RMS_GATE
 
-    def test_the_committed_points_agree(self) -> None:
+    def test_the_smoke_leaves_each_gate_its_headroom(self) -> None:
+        # A smoke that uses more than 10% of a gate re-declares the gate before the
+        # declaration commit, never after the run.
+        agreement = _smoke("agreement.csv")
+        for column, gate in (
+            ("log_ise_gap", study.EMULATION_LOG_ISE_GATE),
+            ("rms_ratio", study.EMULATION_RMS_GATE),
+        ):
+            used = float(agreement[column].max()) / gate
+            assert used <= study.GATE_USE_LIMIT, f"{column} uses {used:.1%} of its gate"
+
+    def test_hte3s_truncation_cutoffs_are_the_emulations(self) -> None:
+        agreement = _smoke("agreement.csv")
+        assert agreement["cutoff_gap"].max() <= study.CUTOFF_TOLERANCE
+        c6 = agreement.loc[agreement["cell"] == "C6"]
+        assert (c6["r_pi1_low"] > 0.08).all(), "the witness needs a cutoff that binds on C6"
+
+    def test_the_untruncated_emulation_fails_a_gate_on_c6(self) -> None:
+        """The mutation witness: dropping hte3's truncation must be visible to the gates."""
+        c6 = _smoke("agreement.csv").query("cell == 'C6'")
+        assert len(c6)
+        moved = (c6["untruncated_log_ise_gap"] > study.EMULATION_LOG_ISE_GATE) | (
+            c6["untruncated_rms_ratio"] > study.EMULATION_RMS_GATE
+        )
+        assert moved.all()
+
+    def test_every_ep_step_made_a_glmnet_fit(self) -> None:
+        agreement = _smoke("agreement.csv")
+        assert (agreement["glmnet_fits"] >= 1).all()
+
+    def test_the_committed_points_are_curves(self) -> None:
         points = _smoke("points.csv")
-        gap = (points["theta_r"] - points["theta_emulation"]).abs()
-        assert gap.max() <= study.EMULATION_TOLERANCE
         assert points["theta_r"].abs().max() > 0.1, "a curve near zero would agree with anything"
+
+    def test_the_smoke_is_costed_against_the_pilot(self) -> None:
+        recost = _smoke("recost.csv")
+        assert set(recost["cell"]) == {cell.label for cell in study.READING_CELLS}
+        assert recost["ratio"].max() <= study.PILOT_TIME_FACTOR_LIMIT
 
     def test_sieves_index_matrix_is_the_declared_column_set(self) -> None:
         index = _smoke("sieve-index.csv")

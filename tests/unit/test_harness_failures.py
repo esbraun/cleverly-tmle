@@ -41,6 +41,11 @@ COUNTING_HANDLERS = {
         "survtmle's fluctuation and glm warnings are tallied per fit for the run log, and the "
         "pairing's convergence reading comes from meanIC, not from a warning"
     ),
+    "hte3_ep/hte3_ep_runner.R": (
+        "hte3's EP-step warnings, glmnet's convergence warnings among them, are counted per "
+        "replicate for the smoke and the run log; agreement with the emulation is read on the "
+        "curves, and an empty glmnet coefficient vector is fatal on its own check"
+    ),
 }
 
 #: Runner-defined functions that may sit inside a stage argument: each is a comparator wrapper
