@@ -43,8 +43,8 @@ from .msm import ProjectionFit, check_projection_rank
 
 __all__ = [
     "CDE_CURVE_TOOLS_REFUSAL",
-    "COMPOSITION_GAPS",
     "CTMLE_CURVE_TOOLS_REFUSAL",
+    "DOSE_CONTRAST_REFUSAL",
     "DRTMLE_CURVE_TOOLS_REFUSAL",
     "EP_INTERMEDIATE_REFUSAL",
     "INTERMEDIATE_STRATA_REFUSAL",
@@ -52,11 +52,12 @@ __all__ = [
     "EffectModification",
     "EffectModificationSet",
     "ModifierReader",
+    "conditional_contrast_alternative",
     "effect_modification_data_refusal",
     "effect_modification_ep_refusal",
-    "effect_modification_gap",
     "log_ratio_scale_refusal",
     "modifier_frame",
+    "no_projection_target",
     "refuse_cde_curve_tools",
 ]
 
@@ -67,38 +68,63 @@ SCALES: tuple[str, ...] = ("difference", "log_ratio")
 #: The registered target of each scale.
 TARGET_OF_SCALE = {"difference": "cate_projection", "log_ratio": "log_crr_projection"}
 
-#: What each composition outside P1 is missing (R7 of the P1 plan), by the name of the axis.
-COMPOSITION_GAPS: dict[str, str] = {
-    "a continuous or vector treatment": (
-        "the projection contrasts two arms, and a dose has no pair of arms to contrast."
+#: R7-ct of the P1 plan: a dose has no pair of arms, so its conditional contrast is not a
+#: gap but a declaration that names arms that do not exist.
+DOSE_CONTRAST_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "A conditional contrast compares two arms, and a dose has none: the effect of two fixed "
+    "values of a continuous treatment, or of a treatment with a continuous component, is not "
+    "pathwise differentiable in a nonparametric model.",
+    alternative=(
+        "Discretize the treatment and declare treatment= and reference=, or fit "
+        "DoseResponseTMLE for the dose-response curve."
     ),
-}
-
-_COMPOSITION_ALTERNATIVE = {
-    "a continuous or vector treatment": (
-        "Discretize the treatment and declare treatment= and reference= on the contrast."
-    ),
-}
+)
 
 
-def effect_modification_gap(axis: str) -> Refusal:
-    """The R7 refusal of one composition outside P1.
+def conditional_contrast_alternative(*, ep: bool) -> str:
+    """The working call of a conditional contrast, which a method with no projection target
+    names.
 
     Parameters
     ----------
-    axis : str
-        A key of :data:`COMPOSITION_GAPS`.
+    ep : bool
+        Whether ``method="ep"`` fits this contrast.  It is refused with an intermediate, a
+        missing treatment or baseline strata, and then the alternative names ``tmle`` alone.
+
+    Returns
+    -------
+    str
+        The alternative sentence.
+    """
+    if ep:
+        return (
+            "Fit method='tmle' with a fixed basis declared as model=, or method='ep' for the curve."
+        )
+    return "Fit method='tmle' with a fixed basis declared as model=."
+
+
+def no_projection_target(name: str, *, ep: bool = True) -> Refusal:
+    """The record of a method that has no projection target for a conditional contrast.
+
+    Parameters
+    ----------
+    name : str
+        The method's name, such as ``"sdr"``.
+    ep : bool
+        Whether ``method="ep"`` fits this contrast, so the record may name it.
 
     Returns
     -------
     Refusal
-        An ``IMPLEMENTATION_GAP`` record with roadmap ``P1``.
+        An ``API_REDIRECTION`` record to the methods that fit a conditional contrast.
     """
     return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"ConditionalContrast does not yet compose with {axis}: {COMPOSITION_GAPS[axis]}",
-        alternative=_COMPOSITION_ALTERNATIVE[axis],
-        roadmap="P1",
+        RefusalReason.API_REDIRECTION,
+        f"{name} has no projection target for a conditional contrast. A conditional contrast "
+        "is fitted by method='tmle', 'drtmle' or the per-arm 'collaborative_tmle' with model= "
+        "declared" + (", or by method='ep' for the curve." if ep else "."),
+        alternative=conditional_contrast_alternative(ep=ep),
     )
 
 
@@ -112,7 +138,7 @@ INTERMEDIATE_STRATA_REFUSAL = Refusal(
         "Fit the CDE projection without strata=, or fit the stratified projection of the total "
         "effect."
     ),
-    roadmap="P1",
+    roadmap="X63",
 )
 
 
@@ -121,8 +147,8 @@ def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
 
     A missing treatment and baseline strata compose with the projection (the in-sample
     composite construction, and one block of basis terms per stratum), and an intermediate
-    with :class:`~cleverly.ControlledDirectEffect`, so a dose is refused here, and strata
-    beside an intermediate (R-int-strata).
+    with :class:`~cleverly.ControlledDirectEffect`, so a dose is refused here (R7-ct), and
+    strata beside an intermediate (R-int-strata).
 
     Parameters
     ----------
@@ -132,10 +158,11 @@ def effect_modification_data_refusal(data: CausalData) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The first composition gap the data meet.
+        :data:`DOSE_CONTRAST_REFUSAL` for a continuous or vector treatment, then
+        :data:`INTERMEDIATE_STRATA_REFUSAL`.
     """
     if data.is_continuous_treatment or data.treatment_kind == "vector":
-        return effect_modification_gap("a continuous or vector treatment")
+        return DOSE_CONTRAST_REFUSAL
     if data.has_strata and data.has_intermediate:
         return INTERMEDIATE_STRATA_REFUSAL
     return None
@@ -174,7 +201,7 @@ EP_INTERMEDIATE_REFUSAL = Refusal(
         "Fit the projection: ControlledDirectEffect(intermediate=z, "
         "contrast=ConditionalContrast(..., model=basis))."
     ),
-    roadmap="P1",
+    roadmap="X63",
 )
 
 
@@ -201,7 +228,7 @@ def effect_modification_ep_refusal(data: CausalData) -> Refusal | None:
     return None
 
 
-#: Why the pseudo-outcome tools refuse a controlled direct effect (P1).
+#: Why the pseudo-outcome tools refuse a controlled direct effect (X63 part (e)).
 CDE_CURVE_TOOLS_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "The held-out curve checks, the score assessment and the targeting curve build "
@@ -210,7 +237,7 @@ CDE_CURVE_TOOLS_REFUSAL = Refusal(
     alternative=(
         "Read the projection's coefficients and band; these tools run on a total-effect projection."
     ),
-    roadmap="P1",
+    roadmap="X63",
 )
 
 
@@ -238,7 +265,7 @@ CTMLE_CURVE_TOOLS_REFUSAL = Refusal(
     "a per-arm C-TMLE projection's estimate also reads the per-arm outcome-adaptive design, "
     "which they would not reproduce.",
     alternative="Read the projection's coefficients, or fit method='tmle' for these checks.",
-    roadmap="P1",
+    roadmap="X62",
 )
 
 
@@ -250,7 +277,7 @@ DRTMLE_CURVE_TOOLS_REFUSAL = Refusal(
     "a DRTMLE projection's estimate also solves the reduced-regression equations, which they "
     "would not reproduce.",
     alternative="Read the projection's coefficients, or fit method='tmle' for these checks.",
-    roadmap="P1",
+    roadmap="X62",
 )
 
 

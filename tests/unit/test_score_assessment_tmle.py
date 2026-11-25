@@ -1437,4 +1437,4 @@ def test_t19_the_refusal_is_not_an_assertion_and_survives_python_optimize() -> N
         check=True,
         timeout=300,
     )
-    assert done.stdout.strip().splitlines()[-1] == "refused P1"
+    assert done.stdout.strip().splitlines()[-1] == "refused X63"

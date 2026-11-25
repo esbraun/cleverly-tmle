@@ -50,9 +50,17 @@ UNPRINTED_DECIMALS = dict.fromkeys(
         "-0.1568",
         "0.0398",
         "0.0400",
+        "0.1380",
     ),
     f"a value of the review probe log, {_PROBE_NAME}",
 )
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-reading": {"0.01": "estimate"},
+}
 
 
 def _check_probe_log() -> None:
