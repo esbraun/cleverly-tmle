@@ -720,7 +720,9 @@ def _ni_candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
     cell = str(row["cell"])
     positive = ctx.cell(FAMILY, cell)
     glm = ctx.cell(FAMILY, glm_cell(cell))
-    counts = lost_counts(positive, glm, int(row["requested_replicates"]))
+    # The summary row carries no requested count; the rows of the pair carry the stamp.
+    requested = int(pd.concat([positive, glm])["requested_replicates"].iloc[0])
+    counts = lost_counts(positive, glm, requested)
     value = mcnemar_lower(
         counts["gained"], counts["lost"], counts["trials"], ctx.margins.confidence_level
     )
