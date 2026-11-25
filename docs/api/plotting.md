@@ -60,7 +60,10 @@ The [plot results](../examples/plots.ipynb) tutorial shows the main figures on s
 The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`, and
-`SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`. On a
+`SensitivityContour.plot()`, `SimulatedConfoundingResult.plot()` and `EValue.plot()` call
+`confounding`. For an E-value it draws the pairs of confounder strengths, on the risk-ratio scale,
+that could explain the estimate away. A second curve holds the pairs that could move the interval
+limit nearest the null to the null, and each E-value sits where the two strengths are equal. On a
 time-to-event surface its outcome axis reads the strength as a log-odds shift of each time point's
 event chance on a survival panel, and as a log-hazard shift of each event type on a fit with exact
 times, with one benchmark mark for each event type.
