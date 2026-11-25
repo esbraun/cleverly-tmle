@@ -30,6 +30,8 @@ from ._support import (
 from .learners.glm import GLM
 
 __all__ = [
+    "ADAPTIVE_LEARNER_CELLS",
+    "ADAPTIVE_LEARNER_STUDY",
     "BAND_CELLS",
     "BAND_OPTION_DRAWS",
     "DEFAULT_BAND_DRAWS",
@@ -3053,12 +3055,30 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
+#: The study that measures the clustered interval with the default learner library (X54 part
+#: (h)), and the ``t``-tier rows whose fits its gated cells reach: stacked ``TMLE`` below 40
+#: clusters and cross-fitted ``LTMLE`` at 20. At 40 clusters a fit is on the clustered tier,
+#: whose row ``T10.unweighted`` rests on its own unequal-size evidence and never reads the
+#: qualifier, so the study's equal-size cells at 40 are not cited there. Every gated row
+#: passes, so a fit with
+#: ``adaptive_nuisance`` on these rows keeps the row's label when its key also carries
+#: ``adaptive_nuisance_measured``: every adaptive learner is the default library and the fit
+#: reads at least 10 clusters (stacked ``TMLE``) or 20 (``LTMLE``)
+#: (:func:`cleverly._support.adaptive_nuisance_shortfall`). The in-sample cells are reported
+#: only, so no in-sample row names the study.
+ADAPTIVE_LEARNER_STUDY: Final[str] = "few-cluster-adaptive-learners"
+ADAPTIVE_LEARNER_CELLS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T11.stacked": ("adaptive_learners",),
+    "G07": ("adaptive_learners",),
+}
+
+
 def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     """Attach the shortfall, limit, ``t`` band and band-draw tables to their rows.
 
     The tables are :data:`SHORTFALLS`, :data:`MEASURED_LIMITS`, :data:`T_BAND_CELLS`,
-    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES` and
-    :data:`TAIL_NOTES`. A ``t`` band cell measured the band at
+    :data:`BAND_OPTION_DRAWS`, :data:`POLICY_CELLS`, :data:`POLICY_NOTES`,
+    :data:`TAIL_NOTES` and :data:`ADAPTIVE_LEARNER_CELLS`. A ``t`` band cell measured the band at
     :data:`DEFAULT_BAND_DRAWS` draws.
     """
     out = []
@@ -3082,6 +3102,12 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
                 kinds=row.kinds | {"wald_policy"},
                 evidence=tuple(dict.fromkeys((*row.evidence, POLICY_STUDY))),
                 cells=tuple(dict.fromkeys((*row.cells, *POLICY_CELLS[row.id]))),
+            )
+        if ADAPTIVE_LEARNER_CELLS.get(row.id):
+            row = replace(
+                row,
+                evidence=tuple(dict.fromkeys((*row.evidence, ADAPTIVE_LEARNER_STUDY))),
+                cells=tuple(dict.fromkeys((*row.cells, *ADAPTIVE_LEARNER_CELLS[row.id]))),
             )
         if T_BAND_CELLS.get(row.id):
             options = (*row.band_options, T_BAND_OPTION) if "band" in row.kinds else ()

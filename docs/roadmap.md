@@ -67,6 +67,7 @@ tier is the one the legend lists.
 
 | tier | what it holds |
 | --- | --- |
+| docs | the documentation review of 2026-11-25: stale statements, shipped methods the guides and examples do not use, and missing pages and tutorials, in the order of the [Documentation](#documentation) table. The owner put it ahead of every item not already in progress on 2026-11-25 |
 | scale | the scaling and efficiency work of [X106](#x106-scaling-and-efficiency-of-the-shipped-tmle-paths). The owner put it ahead of every fix and feature not already in progress on 2026-11-14 |
 | fix | evidence for an option or an interval that already ships; see [Fixes](#fixes) |
 | 2 | survival targets, in this order: X91, X6. Most trial endpoints are times to an event |
@@ -77,6 +78,33 @@ tier is the one the legend lists.
 
 The readiness labels are defined under
 [Classify the analysis and its inference](#classify-the-analysis-and-its-inference).
+
+### Documentation
+
+The order of the rows is the order in which they start when threads are scarce. Most rows touch
+different pages and run in parallel.
+
+| item | tier | readiness | depends on |
+| --- | --- | --- | --- |
+| [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
+| [X107](#x107-front-door-pages-getting-started-and-workflow) Front door pages: getting started and workflow | docs | no new theory | the shipped point-treatment study API |
+| [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
+| [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
+| [X109](#x109-user-guide-capability-map-and-configuration-reference) User guide: capability map and configuration reference | docs | no new theory | X123 for the engine-only options |
+| [X110](#x110-user-guide-intervals-assessment-sensitivity-and-refutation) User guide: intervals, assessment, sensitivity and refutation | docs | no new theory | the shipped assessment, sensitivity and refutation surface |
+| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | X110 for the tutorial links |
+| [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
+| [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
+| [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
+| [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
+| [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
+| [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
+| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | X108 |
+| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the pricing notebook |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X108; X124 for the separable method table |
+| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | X108; X123 for the learned-rule contrast; the open MTP density-ratio fix, for the raise section |
+| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X108; X6 part (d) for the exact-time tutorial |
+| [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
 ### Survival and time to event
 
@@ -606,6 +634,265 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
+
+### X124. Messages, docstrings and records that misstate the code
+
+A review of the published documentation against the code on 2026-11-25 found messages, docstrings
+and study records that state something the code does not do. No number moves.
+
+- (a) The bootstrap docstrings of the sequential baselines, the parametric g-formula, `SDR` and
+  `IPSI` say the full-refit bootstrap gives no percentile inference; it prints percentile and BCa
+  intervals and a sup-t band under the experimental label.
+- (b) The `TMLE` docstring of `cluster_variance=` and the [cluster jackknife](technical-reference/inference.md)
+  section disagree on whether a point fit takes it; the `LearnedRuleValue` docstring and the
+  estimands guide disagree on the stacked report's label.
+- (c) The identify summary of a separable plan lists methods that refuse it, and its conditions
+  table omits the conditions that make the two treatment components separable.
+- (d) `TrialWithExternalData(weights=...)` and the other undeclared design roles raise a bare
+  `TypeError` instead of a refusal with its reason; `planned_refits()` on a projection curve or
+  a trial result raises a refusal that names `refute`.
+- (e) The truncation curve of a dose fit reads available and moves nothing; diagnose it.
+- (f) The adaptive IPTW gate study still declares a pending `drtmle` comparator although its
+  pairing study ran.
+- (g) Counts that pages hard-code and no test pins (the fit-wide stops of the simulated
+  confounder surface, the refutation operations) get a test that ties the owner page to the code.
+
+Acceptance: each statement matches the code, with a test where a count or a list can drift.
+
+### X107. Front door pages: getting started and workflow
+
+The quickstart calls its interval a Wald interval where the fit reports the skew-widened $t$, says
+no study covers its law where the fit reads `supported`, names assumptions differently from the
+printed summary, and does not run on a core install. The workflow page narrates a dataset it
+never defines and never reaches plots, the support label, refutation, the other designs and
+methods, learner cost or provenance.
+
+- (a) Correct the stale statements on both pages and in the README lines they share.
+- (b) The path to a reader's own data: one cross-fitted call, the default learner library and its
+  cost, one spelling of `q_bounds`, the benchmark and E-value readings, and a front door that routes
+  each other analysis family to its guide and example.
+- (c) The workflow covers plots, the support label, refutation and per-check sensitivity, the
+  other design roles and designs, the other methods and when to use them, `planned_fits`, the
+  accessors and the band default, and says steps 3 to 7 hold for analyses over time.
+
+Acceptance: the documentation procedure in `CLAUDE.md`, and the reader review for each rewritten
+page.
+
+### X123. Public API gaps the documentation needs
+
+Some options ship on an engine class but the typed method objects refuse them, so a reader of the
+guides cannot use them, and one warning advises a keyword the reader's route refuses.
+
+- (a) Route `bootstrap_interval`, `variance`, `cluster_variance`, `max_memory_bytes` and, on a
+  continuous-time fit, `hazard_library`, `censoring_library`, `restricted_horizons`, `norm` and
+  `tilt` through the method objects, or refuse each with a refusal that names the engine route.
+  The sparse-influence warning then advises only what the caller's route accepts.
+- (b) The smoothed dose-response curve through `CausalStudy`, with its protocol, labels and
+  assessment.
+- (c) The structural nested mean fit on the study route, with its protocol, and a helper that
+  returns a blip effect for named feature values with its interval.
+- (d) A typed contrast of a learned rule's value against a known regime, where its interval follows
+  from the shipped influence curves; otherwise an explicit refusal that says what is missing.
+- (e) A public figure for the E-value.
+- (f) The trial's known treatment probability on the trial-with-external-data design, or a refusal
+  of the field with its reason.
+
+Acceptance: a test for each route or refusal; a new interval claim reads experimental until its
+registered study.
+
+### X108. Example notebooks: shared upkeep, word budget and freshness guards
+
+Every example notebook prints an older version, several narrate a symmetric Wald interval where the
+fit now reports the skew-widened $t$ or MOVER interval, some stored outputs no longer reproduce,
+and no check fails when they drift. Sixteen of 22 notebooks exceed the main-path word limit.
+
+- (a) Re-execute every notebook on current code and fix the sentences that name the interval.
+- (b) An install line that runs each page.
+- (c) The examples index and the contributor table of worked examples cover every page and every
+  matrix row.
+- (d) A fast-tier check that re-runs the cheap cells against their stored output, or a per-cell
+  narration check, within the CI time limit.
+- (e) The owner kept the main-path limit on 2026-11-25: a notebook over it is trimmed, and new
+  checks and analyses go after its "Go deeper" heading.
+- (f) One "check the fit" block for longitudinal pages (balance over time, weight and overlap
+  figures, the weight-cap curve, influence rows), and sensitivity-table rows for the parametric
+  g-formula, the structural nested mean fit and the controlled direct effect.
+
+Acceptance: every notebook re-executes with `--check`, and the new check fails on a deliberately
+stale stored output.
+
+### X109. User guide: capability map and configuration reference
+
+`capabilities.md` omits the whole time-to-event family and several estimand families, and
+`methods-learners.md` leaves most fields of `ModelSpec`, `Targeting`, `Inference` and `Runtime`,
+three typed methods and the collaborative TMLE strategies unexplained.
+
+- (a) A capability map: question, estimand and where to read, one row per row of the
+  implementation matrix.
+- (b) A configuration reference: each learner slot and who reads it, interval and runtime
+  settings with their defaults, every targeting and fold setting, and the options of each typed
+  method.
+- (c) The engine-only options, documented on the route X123 settles.
+
+### X110. User guide: intervals, assessment, sensitivity and refutation
+
+The results guide says to turn on a band that is on by default, states one few-cluster floor where
+the code has one per estimator family, and omits the interval-scale exceptions, the bootstrap and
+band options, four refutation tests and their arguments. At 1,433 lines it also restates contract
+text the technical reference owns.
+
+- (a) One section on intervals, the bootstrap and bands that other pages link to.
+- (b) Split the page into reading and saving results, the assessment battery, sensitivity and
+  refutation, with contract text behind links.
+- (c) The refutation tests, their arguments and the generated-outcome processes by outcome family.
+- (d) Checking a reader's own configuration with `CoverageStudy`.
+
+### X111. User guide: designs and estimands
+
+The design guide says fold evaluation refuses strata (it runs and reads `supported`) and omits
+several `PointTreatment` fields; the estimands guide omits policy declarations, mean-level
+estimands and examples for the controlled direct effect and the working-model projection.
+
+- (a) The design page: fold settings and every design field.
+- (b) The estimands page: the missing declarations and examples, the dose-response labels and how
+  to call it.
+- (c) Links from the analysis pages to the tutorials that run each feature.
+
+### X112. User guide: analyses over time and survival
+
+The survival guide says refutation and sensitivity do not run on a continuous-time fit and that no
+band is drawn; both are false on the study route. The guides have no section on dose shifts over
+time, working-model summaries of a risk curve, the other estimators of a risk curve, clustered and
+known-mechanism designs over time, or the cluster jackknife.
+
+- (a) Correct the false sentences.
+- (b) The continuous-time result surface, the label rules in one table, and hazard learners.
+- (c) Dose shifts over time, written against the merged MTP ratio change.
+- (d) Working-model summaries over time.
+- (e) Other estimators of a risk curve and what each refuses.
+- (f) Clustered, weighted and known-mechanism designs over time, and learned two-decision rules.
+- (g) Plots, diagnostics and links to the tutorials.
+
+### X113. User guide: conditional effects and trials with external data
+
+The conditional-effects guide labels settings experimental that read `supported`, cites a status
+line the summary does not print, and omits a band rule and the continuous-treatment refusal. The
+trial guide misstates the default candidate terms, omits refusals a registry analyst meets
+first, and lists options no page runs.
+
+- (a) Conditional-effects status claims.
+- (b) The conditional-effects surface: the curve figure, every basis, the EP final learner,
+  diagnostics and links.
+- (c) Trial page accuracy.
+- (d) Each trial option run once against a known truth.
+
+### X115. Technical reference: shared inference, validation and scope pages
+
+The shared pages call a comparator-backed study pending, count seven refutation operations where
+ten ship, quote a removed replay error, and say the band is on for every estimator. The scope
+page states one cluster floor, says a cap fitted from data is refused, and has no refusal index for
+several shipped estimators.
+
+- (a) Correct the stale statements and replace drifting counts with lists or tested counts.
+- (b) A bootstrap section, the variance sources, the continuous-time E-value path and the default
+  gamma grid.
+- (c) A table of the operations each result family runs, generated from the assessment
+  capabilities and pinned by a test.
+- (d) Refusal and status indexes: data-tuned caps, every inference status, known-score forms,
+  two-arm estimators, the simulated confounder surface, sampled refutation, the continuous-time
+  and survival doubly robust fits.
+- (e) The natural-extension verdict page as a dated audit or a living index.
+
+### X116. Technical reference: method pages
+
+The longitudinal page says DR-TMLE has no longitudinal derivation though the survival form ships;
+four pages say the baseline bootstraps give no percentile inference; several pages claim the
+`LTMLE` few-cluster floor for estimators that keep the default; the dose-response page says its
+comparison is pending after it ran with three red cells.
+
+- (a) Point-treatment pages: interval scales under a declared rule, study results, option rows.
+- (b) Longitudinal pages: the stale statements, the cluster jackknife, study links, settings
+  tables, and sources a public reader can open for the memory claims.
+- (c) Survival pages: settings by route, hazard learners and the separation warning, refutation
+  cost tools, and a home for the drift-corrected survival TMLE.
+- (d) Dose-response, projection and DR-TMLE pages: the comparison result, retired labels,
+  cross-links and an assessment table.
+
+### X117. Technical reference: evidence pages, navigation and a nuisance-learner page
+
+The 171 study pages match the registry, but the index miscounts the studies off the grid, one page
+cites a test that does not exist, comparators that ran are called pending, some titles name
+datasets or internal labels rather than methods, the index is one flat list, and no page describes
+the nuisance learners.
+
+- (a) Index and implementation-matrix hygiene.
+- (b) One list of every pending comparator with its study and owner.
+- (c) Reader-facing titles and wording.
+- (d) Navigation by method family, with a test that places every page once.
+- (e) A nuisance-learner page: each learner's construction, the checks that exist and what none of
+  them establishes.
+
+### X114. New user-guide pages: variable importance, run time and memory, plots
+
+Three shipped surfaces have no guide page: variable importance, the run-time and memory controls,
+and the plots as a whole.
+
+- (a) Rank candidate exposures, with one runnable example and its multiplicity statement.
+- (b) Run time and memory: preview, shrink, parallelize, limit memory, resume.
+- (c) Which plot answers which question, by result family, with the display limits.
+
+### X118. Point-treatment example notebooks
+
+One part per notebook, one change each, under [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards):
+`point-treatment-tmle`, `randomized-pilot`, `twins-causal-inference`, `cross-fitting`,
+`collaborative-tmle`, `survey-nonresponse`, `population-impact` and `plots`. Each corrects its stale
+claims, runs the checks and figures its scenario calls for but does not show (for example the
+sensitivity bounds on a randomized pilot, the influence figure and cluster bootstrap on shared
+teams, the declared point bound on the collaborative fit), and re-executes once.
+
+### X119. Over-time example notebooks
+
+One part per notebook: `weekly-outcomes`, `sequential-offers`, `sequential-pricing`,
+`schedules-and-intensity` and `model-based-over-time`. Each corrects its stale claims (for example
+a wrong reason for a refusal, interval counts computed under the old interval), adds the shared
+longitudinal checks and its missing figures, and fits what its conclusion quotes. The pricing
+notebook follows the merged MTP ratio change.
+
+### X120. Survival example notebooks
+
+One part per notebook: `longitudinal-survival`, `discharge-to-readmission` and `separable-effects`.
+Each corrects its stale claims (a few-cluster sentence, a supported label printed under an
+experimental contrast), adds the checks and figures its fit supports, and reports what its program
+reads, such as restricted mean survival and risk ratios.
+
+### X121. Policy, rule and effect-curve example notebooks
+
+One part per notebook: `interventions`, `treatment-rules`, `conditional-effects`, `dose-response`,
+`msm-projections` and `trial-with-external-data`. Each corrects its stale claims (for example a
+comparison reported as pending after it ran, a default stated wrongly), adds the refutation and
+sensitivity checks the outline asks for, and shows the supported, interval-bearing fit where the
+page shows only a fit without one.
+
+### X122. New tutorials for shipped methods that no example fits
+
+- (a) Exact event times and competing risks with the continuous-time survival fit.
+- (b) Conditional effects with intervals: projection coefficients, the heterogeneity test, the
+  band, external-score assessment and targeting curves.
+- (c) Sampling weights, strata and missing treatment values on a point treatment.
+- (d) Ranking candidate exposures.
+- (e) Choosing nuisance learners: the default library, a declared super learner and screening.
+- (f) A learned rule over two decisions.
+
+Each follows `docs/development/example-notebooks.md`, on simulated data with a known answer.
+
+### X125. Registered study of variable importance
+
+`variable_importance` fits the causal estimator once per candidate covariate and adjusts the
+p-values by Benjamini and Hochberg, a repeated-sampling multiplicity claim that no registered study
+measures. A source read on false-discovery control across candidate fits that share data comes
+first. Then a declared study with null, non-null and correlated null candidates measures the
+false-discovery rate, power and per-candidate coverage. Until it registers, the multiplicity claim
+reads experimental.
 
 ### X106. Scaling and efficiency of the shipped TMLE paths
 
@@ -1171,11 +1458,12 @@ Acceptance: a nonzero witness for each changed term; a registered study for each
 The cluster-as-unit theory is the same at 4 clusters as at 10. Each part below needs a registered
 measurement or a declared construction, not a theorem.
 [F28](#f28-finite-sample-limits-of-clustered-intervals) stays the owner id of the clustered red
-cells. Parts (a) to (g) and (i) are delivered ([delivered items](roadmap-delivered.md)).
+cells. Parts (a) to (g) and (i), and part (h) for the default learner library, are delivered
+([delivered items](roadmap-delivered.md)).
 
 | part | request | the evidence that reopens it |
 | --- | --- | --- |
-| (h) | complex nuisance learners at about 20 clusters | a registered study. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. The registered evidence uses parametric nuisance learners only |
+| (h) | data-adaptive nuisance learners at few clusters outside the measured ground | a registered study for each composition. Wang, Park, Small and Li (2024), accepted manuscript PMC11795269, Section 4.2, Remark 3, recommend parsimonious working models at about 20 clusters. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md) measures stacked `TMLE` at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, and that part is delivered. Unmeasured, and experimental with the reason "not measured with an adaptive learner": fold-evaluated `TMLE`, `DRTMLE` and `SDR` with an adaptive outcome or treatment learner, cross-fitted `LTMLE` below 20 clusters, and any adaptive learner other than the default library. An in-sample fit with an adaptive learner stays experimental by theory. Also unmeasured, though the label does not yet say so: unequal cluster sizes and non-binary outcomes with the default library, and an adaptive reduced-regression learner of `DRTMLE`, which the classifier does not read. Reading the reduced-regression learners first needs the parametric test learners, such as `ColumnLogistic` in `tests/studies/canonical_drtmle.py`, to declare their family (`cleverly_learner_family = "parametric"`), so that the registered `DRTMLE` evidence keeps its label |
 | (j) | redeclare the stacked family (d5 estimated SE tail at 10 clusters; slack at J15/J20) | a redeclaration fixed before its run, which owns the red `X54-stacked-d5-redeclaration` holds. The five-covariate estimated stacked fit reads SE ratio 1.158 [1.062, 1.390] at 10 clusters and 1.048 at 15 and 20, so its IID control cannot be licensed at 10. The redeclaration reads the SE tail (the largest standard errors, a median or trimmed SE ratio, near-separation of the five-covariate treatment GLM) and the slack at 15 and 20 clusters. It covers the stacked floor and its control reading only: the stacked part (c) result stands, (A) over (B) by 5 calibrated counts to 2. It decides the stacked jackknife, which stays refused until then. The stacked floor stays 10 |
 | (k) | cells for the unmeasured estimates below the default floors | a registered study whose cells read the arm means at every count from the family's contrast floor to one below its default floor: `ey1` and `ey0` of in-sample `TMLE` at 6 to 9, of fold-evaluated `TMLE` and declared-mechanism `DRTMLE` at 8 to 9, and `ey_regimen[always]` and `ey_regimen[never]` of in-sample `LTMLE` at 6 to 19 and of cross-fitted `LTMLE` at 4 to 19. The same counts leave unmeasured the ATT and ATC, the `rr` and `or` ratios, a second `LTMLE` contrast such as a rule against never, survival and competing-risk curves, working-model coefficients, and the always-versus-never contrast on a panel design other than the measured one (more nodes, a node with three levels, another censoring pattern). A study that adds any of them names its cells and counts here. The floor studies measured the contrast at every count and arm means only on their primaries: in-sample `LTMLE` `ey_regimen[never]` covers 0.914 [0.889, 0.935] at 10 clusters, where the ATE covers 0.931. Until then those estimates, and any other estimate than the measured contrast, keep the default floor under `few_cluster_estimand_plugin`, and no page claims them below it |
 
@@ -1793,18 +2081,21 @@ $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its f
 (`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
 (`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
 0.929 and the labelled fits 0.944, and the stratified pair at n = 8,000 covered 0.921 at a mean
-Kish size of 141 with an SE ratio of 0.93. This item has two parts.
+Kish size of 141 with an SE ratio of 0.93. This item has four parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
   Raising the Kish floor would label more of the fits that cover and few of those that do not.
-  The X93 run publishes the coverage split by the current label (`pair-support.csv`).
+  The X93 run publishes the coverage split by the current label (`pair-support.csv`). The
+  pair's influence-curve Kish size (`diagnostics.influence()`) is one candidate diagnostic.
 - (b) Clustered rows. `DoseResponseTMLE` refuses `id=`. Its intervals and band would need the
   package's few-cluster rule: the status `few_cluster_plugin` and a $t$ reference below 40
   clusters, which the multiplier band does not take.
 - (c) A declared treatment mechanism and declared dose atoms. `DoseResponseTMLE` fits its own
   binned dose density and refuses both: a known density would replace the fitted one in the
   clever covariate, and an atom would need a point mass in the quadrature and the band.
+- (d) Contrasts between declared dose pairs, such as the difference of the curve at two doses,
+  with an interval from the pair's joint influence curve. Experimental until a registered study.
 
 ### X98. Score assessment compositions
 
@@ -2541,6 +2832,13 @@ cell the `X54-cluster-floor` owner holds.
 | in-sample `LTMLE`, always against never | 4 and 5 clusters fail the coverage floor; floor 6 | `few-cluster-floor-tmle` |
 | in-sample `LTMLE`, arm mean `ey_regimen[never]` | 10 clusters: coverage 0.914 [0.889, 0.935], SE ratio 0.887 (the primary) | `few-cluster-floor-tmle` |
 | cross-fitted `LTMLE`, always against never | every count from 4 passes; floor 4 | `few-cluster-floor-cross-fitted-ltmle` |
+
+An in-sample fit on the $t$ tier with a data-adaptive nuisance learner keeps the experimental
+label by theory: each learner predicts from its fit to the full sample, so no Donsker argument
+covers it. [`few-cluster-adaptive-learners`](technical-reference/method-evidence/few-cluster-adaptive-learners.md)
+reports its in-sample cells with the default learner library at coverage 0.906 to 0.919 and a
+variance ratio of 0.72 to 0.88 from 10 to 40 clusters, while stacked `TMLE` at 10 to 40 clusters
+and cross-fitted `LTMLE` at 20 clusters, with the default library, pass.
 
 [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (h), (j) and
 (k) hold the remaining small-sample work. The cluster-as-unit theory is the same at 4 clusters as
