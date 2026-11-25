@@ -41,6 +41,7 @@ from cleverly import (
     TMLEMethod,
     TrialWithExternalData,
 )
+from cleverly.data import CausalData
 from cleverly.dose_response import DoseResponse
 from cleverly.estimators import DoseResponseTMLE
 from cleverly.exceptions import (
@@ -330,12 +331,27 @@ def _support_curve(doses: tuple[float, ...]) -> DoseResponse:
     return DoseResponse(doses=doses, bandwidths=(0.4,), support=(0.5, 3.5), support_floor=0.0)
 
 
-def test_a_covering_support_changes_nothing() -> None:
+def test_a_covering_support_reaches_the_engine_as_declared() -> None:
+    """A support that covers every kernel is accepted and reaches the density as declared.
+
+    The density route reads the declared support, so the study fit equals the engine fit on
+    the same declared container, and differs from the fit without the declaration.
+    """
     frame = _support_frame()
     curve = _support_curve((2.0,))
     covered = _route(frame, curve, {"treatment_support": _CUTTING})
-    plain = _route(frame, curve)
-    assert _facts(covered)[:-2] == _facts(plain)[:-2]
+    declared = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2"], treatment_kind="continuous"
+    ).with_dose_declarations(_CUTTING)
+    options = {
+        _ENGINE_NAMES.get(name, name): value
+        for name, value in {**_learners(False), **_BASE}.items()
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        engine = DoseResponseTMLE(curve, **options).fit(declared)
+    assert _facts(covered)[:-2] == _facts(engine)[:-2]
+    assert _facts(covered)[:-2] != _facts(_route(frame, curve))[:-2]
 
 
 @pytest.mark.parametrize(
