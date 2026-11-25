@@ -54,6 +54,21 @@ SINGLE_THREAD_ENVIRONMENT = {
     "MKL_NUM_THREADS": "1",
 }
 
+
+def kernel_environment() -> dict[str, str]:
+    """The environment the kernel starts with: this process's, made machine-independent.
+
+    Native thread pools run one thread (:data:`SINGLE_THREAD_ENVIRONMENT`), and matplotlib reads
+    its own bundled defaults rather than a machine's matplotlibrc.  A site or user rc file can
+    set ``figure.dpi`` or a font, which would change every published figure and its repr on that
+    machine alone.
+    """
+    import matplotlib
+
+    defaults = Path(matplotlib.get_data_path()) / "matplotlibrc"
+    return {**os.environ, **SINGLE_THREAD_ENVIRONMENT, "MATPLOTLIBRC": str(defaults)}
+
+
 #: :class:`~nbclient.NotebookClient` skips cells tagged ``skip-execution`` by default.  A
 #: private tag that the preflight rejects forces every nonblank code cell through the kernel.
 NEVER_SKIP_TAG = "__cleverly_never_skip__"
@@ -214,7 +229,7 @@ def execute_notebook(notebook: Any, *, timeout: int, repository_root: Path) -> N
         resources={"metadata": {"path": str(repository_root)}},
         skip_cells_with_tag=NEVER_SKIP_TAG,
         force_raise_errors=True,
-    ).execute(env={**os.environ, **SINGLE_THREAD_ENVIRONMENT})
+    ).execute(env=kernel_environment())
 
 
 def write_notebook(notebook: Any, path: Path) -> None:

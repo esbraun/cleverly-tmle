@@ -635,7 +635,10 @@ def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch:
     execute_notebook(notebook, timeout=30, repository_root=tmp_path)
 
     assert notebook["cells"][1]["outputs"][0]["text"] == "fresh\n"
-    assert received["launch"]["env"]["OMP_NUM_THREADS"] == "1", "the kernel runs single-threaded"
+    environment = received["launch"]["env"]
+    assert environment["OMP_NUM_THREADS"] == "1", "the kernel runs single-threaded"
+    assert Path(environment["MATPLOTLIBRC"]).name == "matplotlibrc"
+    assert Path(environment["MATPLOTLIBRC"]).parent.name == "mpl-data", "no machine rc file"
     assert received["skip_cells_with_tag"] == NEVER_SKIP_TAG
     assert received["force_raise_errors"] is True
 
