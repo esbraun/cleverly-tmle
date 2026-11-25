@@ -38,6 +38,20 @@ UNPRINTED_DECIMALS: dict[str, str] = {
     "0.2": f"upper limit of the level-2 equivalence band: {_PROBE}",
 }
 
+
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "refute-reading: 0.08": ("refute", "-0.0818", "magnitude"),
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.975": "att-fit"},
+}
+
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
 _MACHINE_NOISE = re.compile(r"\d\.\d+e-(0[89]|[1-9]\d)")
 

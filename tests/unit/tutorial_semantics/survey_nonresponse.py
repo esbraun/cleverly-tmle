@@ -53,6 +53,14 @@ UNPRINTED_DECIMALS = {
     "0.00023": f"Monte Carlo SE of the mean complete-case estimate: {_PROBE}/summary.log",
 }
 
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.0095": "estimate"},
+    "generated-outcomes-reading": {"0.1478": "estimate"},
+}
+
 _REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
 
 #: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in the log.

@@ -9,10 +9,12 @@ suite asserts equal. Keeping the digests there lets ordinary verification avoid 
 executor's mutation controls still import :mod:`nbclient` to check its execution policy.
 
 ``--check`` re-executes without writing and reports each cell whose non-image output moved. It
-compares stream, HTML, JSON, and other MIME payloads. The fast suite compares digests, and a digest
-cannot see a library change that moves a published number while every cell keeps its bytes. That
-is not hypothetical: one re-execution moved the TWINS estimate from ``-0.0651`` to ``-0.0639``
-with the code cells untouched.
+compares stream, HTML, JSON, and other MIME payloads. A digest cannot see a library change that
+moves a published number while every cell keeps its bytes. That is not hypothetical: one
+re-execution moved the TWINS estimate from ``-0.0651`` to ``-0.0639`` with the code cells
+untouched. The fast suite also replays each offline notebook's cells in-process and compares their
+printed text with the stored text (:mod:`tests.notebook_freshness`); ``--check`` is the full,
+kernel-backed version of that comparison, and the only one that reaches the TWINS notebook.
 """
 
 from __future__ import annotations
@@ -43,7 +45,9 @@ KERNEL_CELL_FILE = re.compile(r"[^\s\"']*ipykernel_\d+[/\\]+\d+\.py")
 
 #: The ``text/plain`` repr a kernel stores beside a figure's image, such as
 #: ``<Figure size 700x450 with 1 Axes>``.  Its pixel size follows ``figure.dpi``, which a
-#: platform's matplotlibrc sets, and the published page shows the image, not this text.
+#: platform's matplotlibrc sets, and the published page shows the image, not this text.  The
+#: fast tier's copy is ``tests.notebook_freshness.FIGURE_REPRS``; this script stays importable
+#: without the test package.
 FIGURE_REPR = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
 
 #: Native thread pools default to every core, which differs between machines.  The kernel runs

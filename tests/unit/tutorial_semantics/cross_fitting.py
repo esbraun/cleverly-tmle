@@ -66,6 +66,20 @@ UNPRINTED_DECIMALS = {
 }
 
 
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "assessment-reading: 0.6": ("assessment", "0.0063", "percent"),
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-heading": {"0.0114": "estimate", "0.9886": "estimate"},
+}
+
+
 def _law_nu2(n: int = 400_000) -> float:
     """``nu^2 = E[1 / {g (1 - g)}]`` of the law behind ``navigation_data``, by Monte Carlo."""
     law = nonlinear_bounded_dgp()
