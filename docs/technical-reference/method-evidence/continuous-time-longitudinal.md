@@ -79,16 +79,20 @@ selection inside 5 inner folds, and the influence-curve variance, at n = 1,000.
 | `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 2,400 | reported |
 | X70 pairing | CT-day panel | always, never | 18 | 400 | reported |
 
-The primary rule gates every row of `day_cf`, `cont_cf` and `mechanism_correct`. A row passes
-when its coverage interval lies above 0.90, the 99% interval of its SE ratio lies inside
-(0.8, 1.2), and its bias is within 0.2 SD of zero. `mechanism_correct` fits the cause hazards,
-the visit intensity and the continuation without $L$ and the treatment and censoring models with
-it, so its rows test double robustness. Its untargeted plug-in is the control, which must miss by
-more than 0.2 SD at day 30 for always or never. The calibration rows take the tighter rule: the
-SE ratio inside (0.93, 1.07) and coverage inside (0.92, 0.98). The shrunk-SE control multiplies
-their SEs by 0.85 and must fall below that band or wholly below the row's own SE-ratio interval.
-The second reading carries a calibration row that reads conservative, with an SE-ratio interval
-above 1.
+The primary rule gates every row of `day_cf`, `cont_cf` and `mechanism_correct`. A row passes when
+its coverage interval lies above 0.90, the 99% interval of its SE ratio lies inside (0.8, 1.2), and
+its bias is within 0.2 SD of zero. `mechanism_correct` fits the cause hazards, the visit intensity
+and the continuation without $L$ and the treatment and censoring models with it, so its rows test
+double robustness. That needs the default models to hold the law's mechanism: the default treatment
+model gives baseline coefficients of its own, so it holds the baseline and the visit treatment
+models, and the Cox main-terms model holds the censoring hazard, which is constant in time. The
+cell's untargeted plug-in is the control, which must miss by more than 0.2 SD at day 30 for always
+or never.
+
+The calibration rows take the tighter rule: the SE ratio inside (0.93, 1.07) and coverage inside
+(0.92, 0.98). The shrunk-SE control multiplies their SEs by 0.85 and must fall below that band or
+wholly below the row's own SE-ratio interval. The second reading carries a calibration row that
+reads conservative, with an SE-ratio interval above 1.
 
 ## The pairing with the discrete-time LTMLE
 
@@ -121,8 +125,15 @@ The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
 cheapest pair from (2,400, 3,200, 4,800) primary and (1,600, 2,400, 3,200) `mechanism_correct`
 draws at which the product of the rows' plug-in pass probabilities reaches 0.95. The record holds
 one primary count, so `day_cf` and `cont_cf` share it. The smoke projects the declared run at
-93 CPU-hours at the design counts and 176 at the largest rung, below the plan's hold of 200.
+95 CPU-hours at the design counts and 181 at the largest rung, below the plan's hold of 200.
 `tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements.
+
+A first pilot failed the family rule: on static rows the estimated SE ran 7 to 8% above the
+Monte Carlo spread at every n. The default treatment model was one logistic fit pooled over
+baseline and later visits, which cannot hold law CT's baseline mechanism beside its visit
+mechanism. The engine now gives baseline coefficients of its own, and on refits of the first 20
+pilot draws the influence curve's spread is within 1% of the exact efficient one on static rows.
+The first pilot's primary draws were dropped, and the fresh pilot is pending.
 
 The plug-in control was checked before any replicate. On one draw of 200,000 units, the plug-in
 limit of `mechanism_correct`'s outcome side misses the day-30 risk of cause 1 by 0.58 true-weight

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.survival._longitudinal_nuisance import by_baseline
 from tests.canonical.continuous_time_longitudinal import regenerate
 from tests.studies import continuous_time_longitudinal as study
 from tests.studies import continuous_time_longitudinal_law as laws
@@ -249,10 +250,21 @@ def test_the_misspecified_learners_drop_l() -> None:
     grid = np.array([0.5, 1.0])
     assert np.array_equal(model.cumulative_hazard(X, grid), model.cumulative_hazard(moved, grid))
     y = (rng.random(400) < 0.5).astype(int)
-    classifier = laws.OmitColumn(laws.main_logistic(), laws.TREATMENT_L).fit(X[:, 1:], y)
-    shifted = X[:, 1:].copy()
+    treatment = laws.CONFIGURATIONS["outcome_correct"]()["treatment_learner"]
+    TX = X[:, 1:].copy()
+    TX[:, -2] = rng.integers(0, 3, 400)  # the visit count: zero at baseline
+    classifier = treatment.fit(TX, y)
+    shifted = TX.copy()
     shifted[:, laws.TREATMENT_L] += 3.0
-    assert np.array_equal(classifier.predict_proba(X[:, 1:]), classifier.predict_proba(shifted))
+    assert np.array_equal(classifier.predict_proba(TX), classifier.predict_proba(shifted))
+    # It is the default's stratified main-terms member without L, not a pooled fit.
+    reduced = np.delete(TX, laws.TREATMENT_L, axis=1)
+    by_hand = laws.main_logistic().fit(by_baseline(reduced, reduced[:, -2] == 0), y)
+    np.testing.assert_allclose(
+        classifier.predict_proba(TX),
+        by_hand.predict_proba(by_baseline(reduced, reduced[:, -2] == 0)),
+        atol=1e-10,
+    )
     sides = laws.CONFIGURATIONS
     assert set(sides) == {"default", "mechanism_correct", "outcome_correct", "both_wrong"}
     assert sides["default"]() == {}
@@ -587,7 +599,10 @@ def test_the_sizing_arithmetic_is_the_plans() -> None:
 
 def test_the_regeneration_refuses_until_the_pilot_agrees() -> None:
     reasons = regenerate.pilot_refusals()
-    if PILOT.empty or pilot.draws(PILOT, "cont_cf") < pilot.DRAWS:
+    if not PILOT.empty and not any(pilot.draws(PILOT, cell) for cell in pilot.CELLS):
+        # A fresh primary pilot: every row it keeps still agrees with the law module.
+        assert reasons == [f"{regenerate.FRESH_PILOT}; run --kinds primary"], reasons
+    elif PILOT.empty or pilot.draws(PILOT, "cont_cf") < pilot.DRAWS:
         assert reasons, "a declared run must wait for the committed pilot"
     else:
         assert reasons == [], reasons

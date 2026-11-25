@@ -534,7 +534,7 @@ def cost(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
 #: The X70 pairing's seconds per fit, from the smoke (``pilot-diagnosis.md``).
 SMOKE_X70_SECONDS = 51.0
 #: ``both_wrong``'s seconds per fit, from the smoke.
-SMOKE_BOTH_WRONG_SECONDS = 2.7
+SMOKE_BOTH_WRONG_SECONDS = 2.4
 
 
 def counts(rows: pd.DataFrame) -> tuple[int, int] | None:

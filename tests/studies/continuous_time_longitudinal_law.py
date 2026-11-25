@@ -57,7 +57,19 @@ per bin.  :class:`CoxWithout` and :class:`OmitColumn` drop :math:`L(s_k)` from t
 :class:`~cleverly.survival.CoxHazard` models only (``select_hazard``), and ``cox._clone`` rebuilds a
 ``CoxHazard`` from its terms, so a wrong side is one member: the Cox main-terms model without
 :math:`L`, the main-terms logistic model without :math:`L` for the treatment, and the main-terms
-soft logistic model without :math:`L` for the continuation.
+soft logistic model without :math:`L` for the continuation.  The wrong treatment model keeps the
+default's baseline indicator (:class:`ByBaseline`), so it differs from the default's main-terms
+member by :math:`L` alone.
+
+**What the defaults contain.**  The default treatment library's main-terms member fits
+:math:`[x_k, b, b\, x_k]` with :math:`b` the baseline indicator, so it holds the baseline
+mechanism (an intercept, :math:`L(0)` and :math:`W_1`) and the visit mechanism (an intercept,
+:math:`L(s)`, :math:`A(s^-)` and :math:`W_2`) with coefficients of their own.  The default
+censoring library's Cox main-terms member holds the censoring hazard
+:math:`0.008 \exp(0.6 L - 0.4 A)`, which is constant in time and the same before and after a
+visit, in its baseline hazard and its coefficients of :math:`L(s_k)` and :math:`A(s_k)`; on
+CT-day it holds the daily cumulative hazard :math:`-\log(1 - h) = \lambda`, proportional in the
+same terms, up to the Cox fit's handling of tied days.
 """
 
 from __future__ import annotations
@@ -73,6 +85,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from cleverly.interventions import Rule
 from cleverly.survival import CoxHazard
+from cleverly.survival._longitudinal_nuisance import by_baseline
 
 #: The end of follow-up, in days.
 END = 30.0
@@ -888,6 +901,40 @@ class OmitColumn(BaseEstimator):
         return np.asarray(self.model_.predict_proba(self._reduce(X)))
 
 
+class ByBaseline(BaseEstimator):
+    """``base`` fitted on the default treatment design's baseline interaction.
+
+    The engine's default treatment library fits on ``by_baseline(X, b)``; ``b`` is read here from
+    the visit count, the design's second-to-last column, which stays there when
+    :class:`OmitColumn` drops :data:`TREATMENT_L` first.
+
+    Parameters
+    ----------
+    base : estimator
+        A classifier with ``fit(X, y, sample_weight)``.
+    """
+
+    def __init__(self, base: Any) -> None:
+        self.base = base
+
+    @staticmethod
+    def _design(X: Any) -> np.ndarray:
+        X = np.asarray(X, dtype=float)
+        return by_baseline(X, X[:, -2] == 0)
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ByBaseline:
+        self.model_ = clone(self.base)
+        if sample_weight is None:
+            self.model_.fit(self._design(X), y)
+        else:
+            self.model_.fit(self._design(X), y, sample_weight=sample_weight)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(self._design(X)))
+
+
 class SoftLogistic(RegressorMixin, BaseEstimator):
     """A main-terms logistic model of a fraction in :math:`[0, 1]`, fitted on soft labels.
 
@@ -940,7 +987,7 @@ def wrong_outcome_side() -> dict[str, Any]:
 def wrong_mechanism() -> dict[str, Any]:
     """The engine arguments of treatment and censoring models that omit :math:`L`."""
     return {
-        "treatment_learner": OmitColumn(main_logistic(), TREATMENT_L),
+        "treatment_learner": OmitColumn(ByBaseline(main_logistic()), TREATMENT_L),
         "censoring_library": (CoxWithout("main", HAZARD_L),),
     }
 

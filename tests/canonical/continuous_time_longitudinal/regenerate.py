@@ -122,6 +122,10 @@ from tests.studies import (
     continuous_time_longitudinal_properties,
 )
 
+#: The refusal while the pilot holds no primary draw.  The first pilot's primary draws were
+#: dropped when the default treatment model gained its baseline indicator (2026-11-25), so the
+#: truth, capped, panel, feasibility and plug-in limit rows stand and the four cells rerun.
+FRESH_PILOT = "the pilot holds no primary draws"
 #: The plan's hold: a projection above this stops the run before it starts (plan 5.7).
 HOLD_CPU_HOURS = 200.0
 #: The smallest power of the plug-in control at the pilot's plug-in biases (review m6, re-check
@@ -168,19 +172,29 @@ def pilot_refusals() -> list[str]:
             "no day-30 risk of always or never separates its plug-in limit by 0.5 IPW SDs; "
             "raise L's coefficients in the cause hazards and the L transition"
         )
-    for cell in pilot.CELLS:
-        if pilot.draws(rows, cell) < pilot.DRAWS:
-            out.append(
-                f"the pilot holds {pilot.draws(rows, cell)} draws of {cell}, not {pilot.DRAWS}"
-            )
+    if not any(pilot.draws(rows, cell) for cell in pilot.CELLS):
+        out.append(f"{FRESH_PILOT}; run --kinds primary")
+    else:
+        for cell in pilot.CELLS:
+            if pilot.draws(rows, cell) < pilot.DRAWS:
+                out.append(
+                    f"the pilot holds {pilot.draws(rows, cell)} draws of {cell}, not {pilot.DRAWS}"
+                )
     if out:
         return out
     counts = pilot.counts(rows)
     if counts is None:
-        out.append(
-            "no pair of rungs carries the family; move these rows to reported before the "
-            f"declaration: {pilot.binding_rows(rows)}"
-        )
+        binding = pilot.binding_rows(rows)
+        if binding:
+            out.append(
+                "no pair of rungs carries the family; move these rows to reported before the "
+                f"declaration: {binding}"
+            )
+        else:
+            out.append(
+                "no pair of rungs carries the family and no row's plug-in coverage is below "
+                f"{pilot.REPORTED_COVERAGE}; diagnose the family in {pilot.DIAGNOSIS.name}"
+            )
         return out
     primary, mechanism = counts
     if (primary, mechanism) != (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES):

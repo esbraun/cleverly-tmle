@@ -3,7 +3,8 @@
 This note holds what the study read before its declaration: the law's feasibility check, the
 plug-in separation, the visit cap, the panel's truth, the smoke's seconds and memory per fit, the
 budget with its `--jobs` rule, the calibration rules, and the red-cell readings declared before
-any run. The pilot's primary draws are pending. A calibration row that the pilot leaves below 0.90
+any run. The first pilot's primary draws failed the family rule and were dropped when the default
+treatment model was fixed (the last two sections); the fresh primary pilot is pending. A calibration row that the pilot leaves below 0.90
 after the extension is recorded here by its `cell/row` name, as a chance reading or, when it
 departs beyond chance, with its diagnosis (`regenerate.py`, `pilot_refusals`).
 
@@ -99,19 +100,22 @@ from that expected gap by more than 0.5 of the continuous engine's SE.
 ## Smoke
 
 Two draws of each cell at n = 1,000, each cell in a fresh process with every thread variable at
-1, on the 4-core cloud machine (2026-11-25). Peak memory is the process's resident peak, which
-includes about 250 MB of interpreter and imports.
+1, on the 4-core cloud machine, rerun on 2026-11-25 after the default treatment model gained its
+baseline indicator. Peak memory is the process's resident peak, which includes about 250 MB of
+interpreter and imports. The X70 row is the first smoke's, since the change does not reach X70.
 
 | cell | draw 0 (s) | draw 1 (s) | seconds per fit | peak memory |
 | --- | --- | --- | --- | --- |
-| `day_cf` | 18.1 | 15.1 | 16.6 | 278 MB |
-| `cont_cf` | 98.5 | 109.3 | 103.9 | 2,111 MB |
-| `mechanism_correct` | 7.6 | 7.3 | 7.4 | 274 MB |
-| `outcome_correct` | 13.1 | 11.0 | 12.1 | 275 MB |
-| `both_wrong` | 2.6 | 2.8 | 2.7 | 276 MB |
+| `day_cf` | 19.6 | 15.1 | 17.4 | 282 MB |
+| `cont_cf` | 103.7 | 108.3 | 106.0 | 1,947 MB |
+| `mechanism_correct` | 9.6 | 8.2 | 8.9 | 280 MB |
+| `outcome_correct` | 13.4 | 9.8 | 11.6 | 280 MB |
+| `both_wrong` | 2.4 | 2.5 | 2.4 | 281 MB |
 | `ltmle_daily` (X70, 9 nodes) | 53.8 | 48.1 | 51.0 | 252 MB |
 
-Every fit returned. `cont_cf` costs six times `day_cf`: the untied law's grid holds every distinct
+Every fit returned. The first smoke, on the pooled treatment model, read 16.6, 103.9, 7.4, 12.1
+and 2.7 seconds and a `cont_cf` peak of 2,111 MB; the wider treatment design costs little.
+`cont_cf` costs six times `day_cf`: the untied law's grid holds every distinct
 event and visit time, and the continuation is held at each visit. In draw 0, X70 withheld the
 interval of the four day-30 rows that involve always (`constant_node_plugin`: a node regression of the recursion
 read a constant target). The pairing keeps their point estimates, leaves out their SE and
@@ -121,31 +125,34 @@ coverage, and counts them as `x70_interval_refused` in `ltmle-pairing.csv`.
 
 | item | fits | seconds per fit | CPU-h |
 | --- | --- | --- | --- |
-| `day_cf` | 2,400 | 16.6 | 11.1 |
-| `cont_cf` | 2,400 | 103.9 | 69.3 |
-| `mechanism_correct` | 1,600 | 7.4 | 3.3 |
-| `outcome_correct` | 800 | 12.1 | 2.7 |
-| `both_wrong` | 800 | 2.7 | 0.6 |
+| `day_cf` | 2,400 | 17.4 | 11.6 |
+| `cont_cf` | 2,400 | 106.0 | 70.7 |
+| `mechanism_correct` | 1,600 | 8.9 | 4.0 |
+| `outcome_correct` | 800 | 11.6 | 2.6 |
+| `both_wrong` | 800 | 2.4 | 0.5 |
 | `ltmle_daily` | 400 | 51.0 | 5.7 |
-| declared run | | | 92.6 |
+| declared run | | | 95.0 |
 
 The projection is below the plan's hold of 200 CPU-h. The pilot's `budget` repeats it from the
 pilot's own seconds once the primary draws are in, and `regenerate.py` refuses a projection above
-200. A larger rung costs more: 3,200 primary and 2,400 mechanism fits project to 121 CPU-h, and
-4,800 and 3,200 to 176 CPU-h.
+200. A larger rung costs more: 3,200 primary and 2,400 mechanism fits project to 124 CPU-h, and
+4,800 and 3,200 to 181 CPU-h.
 
-The pilot's 400 draws of each of its four cells cost 15.6 CPU-h. If a calibration row needs the
-800-draw extension, `cont_cf`'s costs 11.5 CPU-h more and `day_cf`'s 1.8.
+The pilot's 400 draws of each of its four cells cost 16.0 CPU-h at these seconds. The first pilot
+ran about 1.4 times slower per fit under four-job contention, which puts the fresh pilot near
+22.6 CPU-h. If a calibration row needs the 800-draw extension, `cont_cf`'s costs 11.8 CPU-h more
+and `day_cf`'s 1.9.
 
 ## The `--jobs` rule
 
-A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s 2.1 GB. Allow
+A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s 2.1 GB (the
+first smoke's peak; the rerun read 1.9 GB, and the rule keeps the larger). Allow
 2.2 GB per worker and keep 6 GB for the parent process, the operating system and the page cache.
 
 | machine | threads | memory | `--jobs` | declared run | pilot |
 | --- | --- | --- | --- | --- | --- |
-| cloud | 4 cores | 15 GB | 4 | about 23 h | about 4 h |
-| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 23 h (280 thread-hours) | about 4 h |
+| cloud | 4 cores | 15 GB | 4 | about 24 h | about 4 h |
+| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 24 h (285 thread-hours) | about 4 h |
 
 On the local machine, (34 - 6) / 2.2 allows 12 workers; 16 would need about 35 GB at the peak.
 
@@ -379,3 +386,42 @@ pilot's seconds (14.2 at the smoke's). `outcome_correct` costs about 1.5 CPU-h m
 learner would then be the stratified one without L. Then read the new pilot under the declared
 rule. The probe scripts (exact influence curve, capped variant, stratified learner, projection,
 paired cross-fit refits) are in the session scratchpad and were not committed.
+
+## Treatment-model fix and pilot reset (2026-11-25)
+
+Each member of the default treatment library (the main-terms logistic model and its three L1
+members) now fits on $[x_k, b, b\,x_k]$, with $b$ the baseline indicator
+(`by_baseline` in `src/cleverly/survival/_longitudinal_nuisance.py`). At baseline the previous
+treatment, the visit count and the visit time are zero, so the unpenalized member equals separate
+baseline and visit fits, while the L1 members shrink the baseline toward the visit coefficients.
+One design keeps one selection record and one cross-validated choice, which two separate fits
+would split. A supplied `treatment_learner` reads $x_k$ as it is. The witness
+`test_default_treatment_model_holds_a_baseline_mechanism_of_its_own` fits law PL, whose baseline
+and visit mechanisms differ: the stratified fit reaches the exact efficient influence curve to
+$10^{-8}$, and the pooled fit misses it by more than $10^{-3}$.
+
+The censoring default needs no such change. Its Cox models read the segment design, and law CT's
+censoring hazard $0.008 \exp(0.6 L - 0.4 A)$ is the same before and after a visit and constant in
+time, so the main-terms Cox model holds it. The stratified main-terms logistic model holds both
+treatment mechanisms: fit on 40,000 units of each law it returns, for CT, visit intercept -1.500,
+$L$ 0.985, previous $A$ 1.987 and $W_2$ 0.030 (truth -1.5, 1.0, 2.0 and 0.033), and baseline
+intercept -0.299, $L$ 0.794 and $W_1$ 0.259 (truth -0.3, 0.8 and 0.3), each within 2 SE; CT-day
+reads the same. So `mechanism_correct` now holds the correct mechanism, and `outcome_correct`'s
+wrong treatment model is the stratified main-terms model without $L$.
+
+On the pilot's first 20 draws of `day_cf` and `mechanism_correct`, refitted with the fixed engine,
+the influence curve's SD over the exact one is 0.996 on `day_cf` static rows (it was 1.070), 0.961
+on rule rows (0.990) and 1.005 on `mechanism_correct` (1.082). The mean estimated SE over the
+efficiency bound is 1.004, 0.974 and 0.998 (it was 1.079, 1.004 and 1.074). Against the first
+pilot's Monte Carlo SD over the bound (1.014, 1.021 and 1.009), that is an SE ratio near 0.99 on
+static rows and 0.95 on rule rows, the finite-sample deficit of the rule regime recorded above.
+The estimates sit within 0.024 SD of the scratch stratified learner's.
+
+The plug-in limit does not depend on the treatment model: refitting a 3,000-unit draw under
+`mechanism_correct` with the pooled and the stratified default gives identical untargeted estimates
+(difference 0.0), since under cross-fitting the untargeted pass reads only the hazards, the visit
+intensity and the continuation, and the limit is fitted with two folds. The truth, capped, panel,
+feasibility and plug-in limit rows stand, and the primary rows were dropped from
+`tests/studies/continuous_time_longitudinal_pilot.csv.gz`. `pilot_refusals()` now refuses with "the
+pilot holds no primary draws" until the fresh pilot is committed. The command under Running the
+pilot reruns all four cells, at about 16 CPU-h at the smoke's seconds.

@@ -24,10 +24,15 @@ count, so each keeps the plan's count while the record holds one replicate count
   visit intensity and the continuation omitting :math:`L` and the default treatment and
   censoring models, at the 12 risks and differences of always and never at days 20 and 30
   (:data:`ROBUST_ROWS`).  Each row takes the primary rule (double robustness: targeting repairs
-  :math:`Q`).  The untargeted plug-in of the same fits is the control ``plug_in_control``: its
+  :math:`Q`), which needs the mechanism right: the default treatment library's main-terms member,
+  with its baseline indicator interacted with every column, contains law CT's baseline and visit
+  treatment models, and the default censoring library's Cox main-terms member contains its
+  censoring hazard (the law module's "What the defaults contain"; a logistic fit on 40,000 units
+  of each law recovered every true treatment coefficient within 2 SE).  The untargeted plug-in of the same fits is the control ``plug_in_control``: its
   bias must lie beyond 0.2 SD at day 30 for always or never (:data:`PLUG_IN_ROWS`, any one).
 * ``outcome_correct`` and ``both_wrong`` (:data:`REPORTED_REPLICATES` each, reported): the
-  treatment and censoring models omit :math:`L`, with the default intensities and continuation;
+  treatment and censoring models omit :math:`L` (the treatment model is the default's stratified
+  main-terms member without :math:`L`), with the default intensities and continuation;
   and both sides omit :math:`L`.  The rows publish bias, coverage and the SE ratio with no verdict
   (plan 5.7, review B3).
 * ``ltmle_daily`` (:data:`PAIRED_REPLICATES`, reported): the same draw as ``day_cf`` replicate
@@ -94,27 +99,30 @@ pilot.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; rep
 cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams are ``pilot/<cell>``,
 ``plugin_limit`` and ``truth`` (``stream_seed``).
 
-**Budget** (measured by the smoke on 2026-11-25, recorded in
+**Budget** (measured by the smoke on 2026-11-25 after the default treatment model gained its
+baseline indicator, recorded in
 ``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``: two draws of each cell at
 :math:`n = 1{,}000`, each cell in a fresh process, seconds per fit on one core of the cloud
-machine, peak resident memory of the process).
+machine, peak resident memory of the process; ``ltmle_daily`` is the first smoke's, since the
+change does not reach X70).
 
 ======================  =======  ===============  =====  ===========
 item                    fits     seconds per fit  CPU-h  peak memory
 ======================  =======  ===============  =====  ===========
-``day_cf``              2,400    16.6             11.1   278 MB
-``cont_cf``             2,400    103.9            69.3   2,111 MB
-``mechanism_correct``   1,600    7.4              3.3    274 MB
-``outcome_correct``     800      12.1             2.7    275 MB
-``both_wrong``          800      2.7              0.6    276 MB
+``day_cf``              2,400    17.4             11.6   282 MB
+``cont_cf``             2,400    106.0            70.7   1,947 MB
+``mechanism_correct``   1,600    8.9              4.0    280 MB
+``outcome_correct``     800      11.6             2.6    280 MB
+``both_wrong``          800      2.4              0.5    281 MB
 ``ltmle_daily``         400      51.0             5.7    252 MB
-total                                             92.6
+total                                             95.0
 ======================  =======  ===============  =====  ===========
 
-The projection, 92.6 CPU-h, is below the plan's hold of 200.  A local thread runs at about a
-third of a cloud core, so the run is about 280 thread-hours there.  ``cont_cf``'s 2.1 GB per
-worker binds the ``--jobs`` rule: ``--jobs 12`` on the local machine (34 GB, 16 threads; about
-25 GB of workers, about 23 hours) and ``--jobs 4`` on the 4-core cloud machine (about 23 hours).
+The projection, 95.0 CPU-h, is below the plan's hold of 200.  A local thread runs at about a
+third of a cloud core, so the run is about 285 thread-hours there.  ``cont_cf``'s memory per
+worker binds the ``--jobs`` rule, which keeps the first smoke's 2.1 GB peak: ``--jobs 12`` on
+the local machine (34 GB, 16 threads; about 25 GB of workers, about 24 hours) and ``--jobs 4``
+on the 4-core cloud machine (about 24 hours).
 
 **Registration** (plan 7.3) lands with the declared run's artifacts, in the change that ships
 E1 and E2 together, and touches what a pending study cannot: the registry import and the
