@@ -1,0 +1,135 @@
+---
+orphan: true
+---
+
+# Continuous-time longitudinal TMLE
+
+**Pending.** This study is declared and has not run. Its pilot and its declared run are pending,
+so it holds no verdict, and every estimate of `ContinuousLongitudinalTMLE` reads experimental.
+The page states the design fixed before any run. When the declared run's artifacts are committed,
+the change that registers the study fills its tables from the record and adds the page to the
+evidence index.
+
+The study validates `ContinuousLongitudinalTMLE`, the TMLE of Rytgaard, Gerds and van der Laan
+(2022) for a treatment and covariates that change at irregular visits, with no time grid.
+[Continuous-time longitudinal TMLE](../continuous-time-longitudinal.md) states the estimator,
+its visit cap and its variance. No maintained package implements this construction, so no
+canonical implementation is compared. The study rests on Monte Carlo truths, on repeated-sampling
+properties, and on a reported pairing with the discrete-time hazard LTMLE on the same draws.
+
+## The estimand and the laws
+
+For regime $r$ and cause $j$ the target is the risk $P^{G_r}(T \le \tau, J = j)$ at days
+$\tau = 10, 20, 30$: the treatment set by the regime at baseline and at every visit, the visits
+left as they run under the regime, and censoring removed. The differences are against never
+treat. The regimes are always treat, never treat and the rule "treat when $L(s) = 1$", decided at
+baseline and at every visit. Identification needs consistency, no unmeasured confounding of
+each treatment decision given the observed history, censoring independent of the event process
+given the history, and positivity of following the regime
+([estimand and identification](../continuous-time-longitudinal.md#estimand-and-identification)).
+Law CT reads its history through the last visit only, so the engine's history window holds.
+
+Law CT runs on days $[0, 30]$ with baseline covariates $W_1$ (binary) and $W_2$ (uniform on
+$\{1, \dots, 6\}$), a binary covariate $L$ and a binary treatment $A$ that change at visits,
+and constant intensities between visits given the history. Its coefficients are in `tests/studies/continuous_time_longitudinal_law.py`.
+
+| process | intensity or law |
+| --- | --- |
+| visit | $0.07 \exp(0.4 L - 0.3 A)$ per day |
+| $L(s)$ at a visit | $\operatorname{expit}(-0.4 + 1.2 L(s^-) - 0.8 A(s^-) + 0.4 W_1)$ |
+| $A(s)$ at a visit | $\operatorname{expit}(-1.5 + 1.0 L(s) + 2.0 A(s^-) + 0.2 W_2 / 6)$ |
+| cause 1 | $0.010 \exp(-0.6 A + 0.8 L + 0.3 W_1)$ per day |
+| cause 2 | $0.006 \exp(0.2 A + 0.5 L - 0.3 W_1 + 0.1 W_2)$ per day |
+| censoring | $0.008 \exp(0.6 L - 0.4 A)$ per day |
+
+The module gives the laws of $L(0)$ and $A(0)$ too. Law CT-day is the same law on whole days, with each day's events in the order death,
+visit, censoring, so every day carries ties and the engine's tie rule acts. The plan's visit rate
+was 0.10 and its visit-treatment intercept $-1.0$; a truth-only check before the declaration
+lowered them because the 99th weight percentile of never was 41.5, above the bound of 20.
+Each truth is a Monte Carlo risk on 10,000,000 units per law and regime.
+
+## The fit
+
+The fit is the shipped default: the default libraries, cross-fitted with 10 outer folds and
+selection inside 5 inner folds, and the influence-curve variance, at n = 1,000.
+
+| cell | law | regimes | rows | count | role |
+| --- | --- | --- | --- | --- | --- |
+| `day_cf` | CT-day | always, never, rule | 30 (12 rule rows) | 2,400 | gated |
+| `cont_cf` | CT | always, never | 18 | 2,400 | gated |
+| `mechanism_correct` | CT-day | always, never | 12 (days 20 and 30) | 1,600 | gated |
+| plug-in control | CT-day | always, never | 4 day-30 risks | 1,600 | gated control |
+| calibration | both | always, never | difference of cause 1 at day 20 in each cell | 2,400 | gated |
+| `outcome_correct`, `both_wrong` | CT-day | always, never | 12 | 800 each | reported |
+| `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 2,400 | reported |
+| X70 pairing | CT-day panel | always, never | 18 | 400 | reported |
+
+The primary rule gates every row of `day_cf`, `cont_cf` and `mechanism_correct`. A row passes
+when its coverage interval lies above 0.90, the 99% interval of its SE ratio lies inside
+(0.8, 1.2), and its bias is within 0.2 SD of zero. `mechanism_correct` fits the cause hazards,
+the visit intensity and the continuation without $L$ and the treatment and censoring models with
+it, so its rows test double robustness. Its untargeted plug-in is the control, which must miss by
+more than 0.2 SD at day 30 for always or never. The calibration rows take the tighter rule: the
+SE ratio inside (0.93, 1.07) and coverage inside (0.92, 0.98). The shrunk-SE control multiplies
+their SEs by 0.85 and must leave that band.
+
+## The pairing with the discrete-time LTMLE
+
+The first 400 `day_cf` draws are refitted by `LTMLE(survival_model="hazard")` on a 9-node panel
+whose nodes end at days 3, 6, 10, 13, 16, 20, 23, 26 and 30. The pairing publishes the paired
+difference and the SE ratio of the 18 static rows, with no verdict. A mean difference above 0.5 of
+the continuous engine's SE starts a diagnosis of both engines on the same draws.
+
+This is a deviation from the plan, declared before any run. The plan paired 1,000 draws on a
+30-node daily panel, but a 30-node fit did not finish in 3,000 s, which by itself projects past the
+plan's hold of 200 CPU-hours. The 9 nodes end at every target day, so each static row is paired on
+the same estimand; the rule rows are not paired. When the discrete fit reads a constant node, it
+withholds that row's interval (`constant_node_plugin`). The point estimate still pairs, and the
+row's SE and coverage are left out and counted.
+
+## Accuracy against known truth
+
+Pending. The declared run fills this section.
+
+## Sizing
+
+The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
+`outcome_correct`. It sets the counts by the family rule over the 60 gated primary rows: the
+cheapest pair from (2,400, 3,200, 4,800) primary and (1,600, 2,400, 3,200) `mechanism_correct`
+draws at which the product of the rows' plug-in pass probabilities reaches 0.95. The record holds
+one primary count, so `day_cf` and `cont_cf` share it. The smoke projects the declared run at
+93 CPU-hours at the design counts and 176 at the largest rung, below the plan's hold of 200.
+`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements.
+
+The plug-in control was checked before any replicate. On one draw of 200,000 units, the plug-in
+limit of `mechanism_correct`'s outcome side misses the day-30 risk of cause 1 by 0.58 true-weight
+IPW SDs under never and by 0.53 under always, above the 0.5 the plan requires, so the control can
+fire.
+
+## Red-cell route
+
+`tests/canonical/continuous_time_longitudinal/regenerate.py` declares the readings before any
+run. A red calibration row is a finite-sample red only when its SE-ratio interval contains 1, its
+coverage is consistent with 0.95 and no defect is found. One exception is declared: an SE-ratio
+interval above 1.07 with coverage at or above 0.95 reads conservative, the direction the
+influence-curve variance takes when the treatment model is right and the continuation is
+approximated. A red rule row keeps only rules experimental. A plug-in control that does not fire,
+or a shrunk-SE control that stays in the band, voids the run.
+
+## Limits
+
+| limit | what it means for use |
+| --- | --- |
+| one law, in tied and untied form | the evidence will cover law CT and its daily version at n = 1,000 |
+| the default libraries | a fit with any other library or learner reads experimental |
+| static regimes and one known rule | other rules are measured by no study |
+| no comparator | no maintained implementation of this construction was located; the discrete-time pairing gates nothing |
+
+## Reproduction
+
+Run the pilot first, as
+`python -m tests.studies.continuous_time_longitudinal_pilot --jobs N --kinds primary --resume`.
+Run `python -m tests.canonical.continuous_time_longitudinal.regenerate --output DIR` with an empty
+scratch directory outside the repository to regenerate the artifacts. It runs no reference
+process, because the study has no comparator, and it refuses until the committed pilot agrees
+with the declaration.

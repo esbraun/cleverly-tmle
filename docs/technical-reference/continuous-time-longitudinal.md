@@ -225,7 +225,9 @@ and are at risk at the last target time, and when the estimated share past the c
 
 ## Evidence
 
-No registered study measures this engine; `continuous-time-longitudinal` is planned (roadmap
+No registered study measures this engine yet. The study `continuous-time-longitudinal` is
+declared, and its pilot and declared run are pending; its
+[evidence page](method-evidence/continuous-time-longitudinal.md) states the design (roadmap
 [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks) part (e)). The fast tier
 checks it on two exact laws passed by weight, `tests/discrete_law_continuous_longitudinal.py`:
 law PL (one random visit time) and law PL2 (two visit times, certain and uncertain visits, a
