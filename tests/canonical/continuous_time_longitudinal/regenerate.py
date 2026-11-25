@@ -41,10 +41,17 @@ with the declaration (:func:`pilot_refusals`):
 * the plug-in limit separates: some day-30 risk of always or never sits at least 0.5 true-weight
   IPW SDs from its truth (review S8).  If not, :math:`L`'s coefficients in the cause hazards and
   the :math:`L` transition are raised and every truth and pilot reading is read again;
-* every pilot cell holds its 400 draws, and the family rule's counts equal ``PRIMARY_REPLICATES``
-  and ``MECHANISM_REPLICATES``.  When no pair of rungs carries the family, the rows whose pilot
-  coverage is below 0.925 move to reported before the declaration, which is a change to the
-  record, not to this script;
+* every pilot cell holds its 400 draws, and the anchored family pass at the declared counts is
+  at least 0.95.  The counts are 3,200 primary and 2,400 ``mechanism_correct`` fits, fixed by
+  Eric's choice on 2026-11-25 (2,400 is the ``mechanism_correct`` rung paired with 3,200), and
+  all 60 primary rows are gated, the 12 rule rows among them.  The check reads each gated row at
+  its group's pooled coverage, SE ratio and standardized bias (``cont_cf`` static, ``day_cf``
+  static, ``day_cf`` rule, ``mechanism_correct``; ``pilot.anchored_family_pass``), as the
+  ``continuous-survival-bootstrap`` pilot did, because a product of 60 row-level 400-draw point
+  readings is pessimistic.  It chooses no rung, so a pilot extension can make it refuse but
+  cannot change the counts; every rung's anchored and row-level passes are a report in
+  ``pilot-diagnosis.md``.  The plan's move of rows whose pilot coverage is below 0.925 to
+  reported is not applied, by Eric's choice on the same date;
 * each calibration row's plug-in pass at the primary count is at least 0.90, or its cell holds
   the 800-draw extension; after the extension a row still below 0.90 needs a diagnosis named in a
   committed ``pilot-diagnosis.md`` only when it departs beyond chance (its 99% SE-ratio interval
@@ -54,7 +61,7 @@ with the declaration (:func:`pilot_refusals`):
 * the at-target pass of the calibration pair at the primary count is at least 0.95, the
   plug-in control fires with probability at least 0.99 at ``mechanism_correct``'s count, and a
   shrunk-SE control leaves the band with probability at least 0.999 at a true SE ratio of 1
-  (plan 5's preface; 0.99996 at 2,400).  The same power at the pilot's point ratio is a report in
+  (plan 5's preface; 0.9999996 at 3,200).  The same power at the pilot's point ratio is a report in
   ``pilot-diagnosis.md``, never a refusal (review B1);
 * no gated cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys
   prior), that the declared run loses more fits than the failure bound of 0.01 allows;
@@ -74,8 +81,9 @@ Deviation (declared before any run).  The pairing reads the first 400 ``day_cf``
 estimands differ by the coarsening: X70 is read against the panel's risk (``law.PANEL_TRUTHS``)
 and the continuous engine against :math:`\psi_r`.
 
-Budget.  ``pilot-diagnosis.md`` holds the smoke's measured seconds per fit and peak memory, the
-budget table and the ``--jobs`` rule.
+Budget.  At the second pilot's seconds per fit the declared run costs 159.5 CPU-h, 53.2 per
+shard, about 13.3 hours per shard at ``--jobs 4``.  ``pilot-diagnosis.md`` holds the seconds per
+fit and peak memory, the budget table and the ``--jobs`` rule.
 
 Red-cell readings (declared before any run).  The record is ``gated``: every primary row of
 ``day_cf`` and ``cont_cf``, every row of ``mechanism_correct``, the plug-in control, both
@@ -155,6 +163,7 @@ from tests.studies import (
 from tests.studies.evidence import replication
 from tests.studies.evidence.manifest import merged_shards, write_csv
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.repeated_sizing import FAMILY_WISE_PASS
 
 #: The refusal while the pilot holds no primary draw.  The first pilot's primary draws were
 #: dropped when the default treatment model gained its baseline indicator (2026-11-25), so the
@@ -164,7 +173,7 @@ FRESH_PILOT = "the pilot holds no primary draws"
 HOLD_CPU_HOURS = 200.0
 #: The smallest power of the plug-in control at the pilot's plug-in biases (review m6, re-check
 #: R2).  A floor of 0.80 would accept a control that voids the declared run with probability 0.2.
-#: At 0.99 the floor needs a pilot bias near 0.32 SD at 1,600 fits, while the separation of 0.5
+#: At 0.99 the floor needs a pilot bias near 0.30 SD at 2,400 fits, while the separation of 0.5
 #: IPW SDs predicts a true bias of 0.5 or more; a 400-draw pilot reads it with an SE near 0.05, so
 #: a chance refusal is improbable unless the true bias lies within about 0.1 of the threshold,
 #: unlike B1, whose null value sat on its threshold.
@@ -216,25 +225,15 @@ def pilot_refusals() -> list[str]:
                 )
     if out:
         return out
-    counts = pilot.counts(rows)
-    if counts is None:
-        binding = pilot.binding_rows(rows)
-        if binding:
-            out.append(
-                "no pair of rungs carries the family; move these rows to reported before the "
-                f"declaration: {binding}"
-            )
-        else:
-            out.append(
-                "no pair of rungs carries the family and no row's plug-in coverage is below "
-                f"{pilot.REPORTED_COVERAGE}; diagnose the family in {pilot.DIAGNOSIS.name}"
-            )
-        return out
-    primary, mechanism = counts
-    if (primary, mechanism) != (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES):
+    # The counts are declared (Eric's choice, 2026-11-25); the pilot checks them, and no rung is
+    # chosen from it.
+    primary, mechanism = study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES
+    anchored = pilot.anchored_family_pass(rows, primary, mechanism)
+    if anchored < FAMILY_WISE_PASS:
         out.append(
-            f"the pilot sets {primary} primary and {mechanism} mechanism_correct replicates and "
-            f"the record declares {study.PRIMARY_REPLICATES} and {study.MECHANISM_REPLICATES}"
+            f"the anchored family passes with {anchored:.3f} at the declared {primary} primary "
+            f"and {mechanism} mechanism_correct replicates, below {FAMILY_WISE_PASS}; back to "
+            "the plan"
         )
     diagnosed = pilot.DIAGNOSIS.read_text(encoding="utf-8") if pilot.DIAGNOSIS.exists() else ""
     checks = pilot.calibration_checks(rows, primary)

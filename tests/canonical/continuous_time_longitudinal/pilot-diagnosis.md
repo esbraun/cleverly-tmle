@@ -123,36 +123,37 @@ coverage, and counts them as `x70_interval_refused` in `ltmle-pairing.csv`.
 
 ## Budget
 
+The declared counts are 3,200 primary and 2,400 `mechanism_correct` fits (Eric's choice,
+2026-11-25; see [Declared counts and the anchored check](#declared-counts-and-the-anchored-check-2026-11-25)).
+The seconds per fit are the second pilot's medians, on 400 draws of each cell on the stratified
+treatment default. `both_wrong` and X70, which the pilot does not run, take the smoke's.
+
 | item | fits | seconds per fit | CPU-h |
 | --- | --- | --- | --- |
-| `day_cf` | 2,400 | 17.4 | 11.6 |
-| `cont_cf` | 2,400 | 106.0 | 70.7 |
-| `mechanism_correct` | 1,600 | 8.9 | 4.0 |
-| `outcome_correct` | 800 | 11.6 | 2.6 |
+| `day_cf` | 3,200 | 21.5 | 19.1 |
+| `cont_cf` | 3,200 | 143.1 | 127.2 |
+| `mechanism_correct` | 2,400 | 6.1 | 4.0 |
+| `outcome_correct` | 800 | 12.9 | 2.9 |
 | `both_wrong` | 800 | 2.4 | 0.5 |
 | `ltmle_daily` | 400 | 51.0 | 5.7 |
-| declared run | | | 95.0 |
+| declared run | | | 159.5 |
 
-The projection is below the plan's hold of 200 CPU-h. The pilot's `budget` repeats it from the
-pilot's own seconds once the primary draws are in, and `regenerate.py` refuses a projection above
-200. A larger rung costs more: 3,200 primary and 2,400 mechanism fits project to 124 CPU-h, and
-4,800 and 3,200 to 181 CPU-h.
-
-The pilot's 400 draws of each of its four cells cost 16.0 CPU-h at these seconds. The first pilot
-ran about 1.4 times slower per fit under four-job contention, which puts the fresh pilot near
-22.6 CPU-h. If a calibration row needs the 800-draw extension, `cont_cf`'s costs 11.8 CPU-h more
-and `day_cf`'s 1.9.
+The projection is below the plan's hold of 200 CPU-h, and `regenerate.py` refuses a projection
+above 200 (`pilot.budget`). The pilot's seconds run above the smoke's (143.1 against 106.0 for
+`cont_cf`), as the first pilot's did under four-job contention. Three shards of 53.2 CPU-h each
+run the declared run ([Sharded declared run](#sharded-declared-run)). The 800-draw extension of
+`cont_cf`'s pilot costs 15.9 CPU-h at these seconds.
 
 ## The `--jobs` rule
 
-A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s 2.1 GB (the
-first smoke's peak; the rerun read 1.9 GB, and the rule keeps the larger). Allow
-2.2 GB per worker and keep 6 GB for the parent process, the operating system and the page cache.
+A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s peak: 2.1 GB in
+the first smoke, 1.9 GB in the rerun and 2.17 GB in the second pilot. Allow 2.2 GB per worker
+and keep 6 GB for the parent process, the operating system and the page cache.
 
-| machine | threads | memory | `--jobs` | declared run | pilot |
-| --- | --- | --- | --- | --- | --- |
-| cloud | 4 cores | 15 GB | 4 | about 24 h | about 4 h |
-| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 24 h (285 thread-hours) | about 4 h |
+| machine | threads | memory | `--jobs` | each of three shards |
+| --- | --- | --- | --- | --- |
+| cloud | 4 cores | 15 GB | 4 | about 13.3 h |
+| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 13.3 h (160 thread-hours) |
 
 On the local machine, (34 - 6) / 2.2 allows 12 workers; 16 would need about 35 GB at the peak.
 
@@ -168,8 +169,8 @@ X70), a shard costs:
 
 | primary / `mechanism_correct` fits | each shard | three shards | wall hours at `--jobs 4` |
 | --- | --- | --- | --- |
-| 2,400 / 1,600 | 40.5 CPU-h | 121.5 CPU-h | 10.1 |
-| 3,200 / 2,400 | 53.2 CPU-h | 159.5 CPU-h | 13.3 |
+| 3,200 / 2,400, declared | 53.2 CPU-h | 159.5 CPU-h | 13.3 |
+| 2,400 / 1,600, plan 5.7's design values | 40.5 CPU-h | 121.5 CPU-h | 10.1 |
 
 At 3,200 and 2,400 no split into three shards brings each one below about 50 CPU-h, since the
 whole run costs 159.5. The split by halves of `cont_cf` with everything else in a third shard
@@ -199,9 +200,9 @@ between any two runs. The merge fitted nothing and took 5 seconds.
 ## Calibration rules
 
 **The shrunk-SE controls** (review B1). The pilot's refusal reads a shrunk control's power at a
-true SE ratio of 1, as plan 5's preface states it: 0.99996 at 2,400 fits, against the floor of
-0.999. Read at a pilot's point ratio, the power falls below 0.999 above a ratio near 1.01 (0.9993
-at 1.01, 0.993 at 1.02, 0.63 at 1.05), and a 400-draw ratio has a relative SD near 0.035, so that
+true SE ratio of 1, as plan 5's preface states it: 0.9999996 at 3,200 fits, against the floor of
+0.999. Read at a pilot's point ratio, the power falls below 0.999 above a ratio near 1.02 (0.9994
+at 1.02, 0.992 at 1.03, 0.78 at 1.05), and a 400-draw ratio has a relative SD near 0.035, so that
 reading would refuse a calibrated estimator by chance; it is reported here once the draws are in
 (`shrunken_power_at_pilot`) and refuses nothing. In the declared run a shrunk control passes when
 its SE-ratio interval lies below 0.93 or wholly below its calibration row's own interval. The
@@ -213,15 +214,15 @@ below 1. On a conservative row the control checks only that the replicates resol
 shortfall from the row.
 
 **The plug-in control's power** must reach 0.99 at the pilot's plug-in bias and
-`mechanism_correct`'s count. At 1,600 fits that needs a bias near 0.32 SD; the separation of
+`mechanism_correct`'s count. At 2,400 fits that needs a bias near 0.30 SD; the separation of
 0.5 IPW SDs predicts 0.5 or more, read by the pilot with an SE near 0.05, so the floor refuses by
 chance only when the true bias lies within about 0.1 of the threshold. A floor of 0.80 would have
 accepted a control that voids the declared run with probability 0.2.
 
-**The extension** (review S4). A calibration row's plug-in pass at 2,400 reaches 0.90 only for a
-pilot SE ratio inside about [0.985, 1.013]. A calibrated row's 400-draw ratio lands there with
-probability 0.31 and an 800-draw ratio with 0.43, so a calibrated row extends with probability
-0.69. Under the first declaration's rule, which asked a diagnosis of every row still below 0.90
+**The extension** (review S4). A calibration row's plug-in pass at 3,200 reaches 0.90 only for a
+pilot SE ratio inside about [0.977, 1.021]. A calibrated row's 400-draw ratio lands there with
+probability 0.46 and an 800-draw ratio with 0.62, so a calibrated row extends with probability
+0.54 (0.69 at 2,400). Under the first declaration's rule, at 2,400, which asked a diagnosis of every row still below 0.90
 after the extension, a calibrated row would have needed one with probability about 0.44, and one
 of the two rows with about 0.68 (a simulation of the nested 400 and 800 draws). Only a confirmed
 departure needs a diagnosis now: the extended pilot's 99% SE-ratio interval excludes 1 or its
@@ -465,3 +466,49 @@ feasibility and plug-in limit rows stand, and the primary rows were dropped from
 `tests/studies/continuous_time_longitudinal_pilot.csv.gz`. `pilot_refusals()` now refuses with "the
 pilot holds no primary draws" until the fresh pilot is committed. The command under Running the
 pilot reruns all four cells, at about 16 CPU-h at the smoke's seconds.
+
+## Declared counts and the anchored check (2026-11-25)
+
+Eric fixed the counts on 2026-11-25: 3,200 primary fits for `day_cf` and `cont_cf` and 2,400 for
+`mechanism_correct`, the rung paired with 3,200, which costs 1.4 CPU-h more than 1,600 and buys
+margin. All 60 primary rows stay gated, the 12 rule rows among them, so rules can earn their
+label from their own rows. By the same choice, the plan's remedy that moves rows with pilot
+coverage below 0.925 to reported is not applied.
+
+The pilot no longer chooses a rung. `pilot_refusals()` checks that the anchored family pass at
+the declared counts is at least 0.95 and refuses otherwise (`pilot.anchored_family_pass`). The
+anchored reading reads each gated row at its group's pooled coverage, SE ratio and standardized
+bias, as the `continuous-survival-bootstrap` pilot did. A 400-draw row reads its coverage with an
+SE near 0.011 and its SE ratio with a relative SD near 0.035, so a product of 60 row-level point
+readings is pessimistic. Because the counts are fixed, the `cont_cf` extension cannot change
+them; it can only make the check refuse, if the pass at 3,200 and 2,400 falls below 0.95.
+
+The second pilot's pooled readings (`pilot.pooled_table`):
+
+| group | rows | coverage | SE ratio | standardized bias |
+| --- | ---: | ---: | ---: | ---: |
+| `cont_cf` static | 18 | 0.945 | 0.990 | +0.004 |
+| `day_cf` static | 18 | 0.943 | 0.988 | +0.047 |
+| `day_cf` rule | 12 | 0.930 | 0.937 | +0.078 |
+| `mechanism_correct` | 12 | 0.941 | 0.994 | +0.022 |
+
+Every rung's anchored and row-level family pass, a report only (`pilot.anchored_passes`):
+
+| primary / `mechanism_correct` | anchored pass | row-level pass | CPU-h |
+| --- | ---: | ---: | ---: |
+| 2,400 / 1,600 | 0.947 | 0.001 | 121.5 |
+| 2,400 / 2,400 | 0.949 | 0.003 | 122.9 |
+| 3,200 / 1,600 | 0.995 | 0.002 | 158.1 |
+| 3,200 / 2,400, declared | 0.997 | 0.007 | 159.5 |
+| 3,200 / 3,200 | 0.997 | 0.012 | 160.8 |
+| 4,800 / 1,600 | 0.998 | 0.004 | 231.3 |
+| 4,800 / 2,400 | 1.000 | 0.014 | 232.6 |
+| 4,800 / 3,200 | 1.000 | 0.025 | 234.0 |
+
+The row-level pass reads each row at its own 400-draw point values. At the declared counts the
+other checks read: the calibration pair passes at target with 0.995, the plug-in control fires
+with probability 1.000, a shrunk-SE control leaves the band with 0.9999996, and no cell predicts
+a failure above its bound. `day_cf`'s calibration row passes with plug-in probability 0.980 at
+3,200 (SE ratio 0.987, coverage 0.938). `cont_cf`'s passes with 0.603 (SE ratio 0.965, coverage
+0.943), so its pilot extends to 800 draws before the declaration, and `pilot_refusals()` asks for
+that extension alone.

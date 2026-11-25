@@ -86,43 +86,44 @@ or wholly below the row's own interval, which carries a row that reads conservat
 ``sparse_calibration`` reads ``day_cf``'s difference of cause 2 at day 10 under the same rule and
 gates nothing (review S5).  A gate reads code: :func:`scientific_failures`.
 
-**Size and seeds.**  :data:`PRIMARY_REPLICATES` and :data:`MECHANISM_REPLICATES` are the design
-values of plan 5.7 (2,400 and 1,600); ``mechanism_correct`` runs inside ``day_cf``'s
-replicates, so its count never exceeds the primary count (review S2).  The pilot
+**Size and seeds.**  :data:`PRIMARY_REPLICATES` is 3,200 and :data:`MECHANISM_REPLICATES`
+2,400, fixed by Eric's choice on 2026-11-25 (plan 5.7's design values were 2,400 and 1,600;
+2,400 is the ``mechanism_correct`` rung paired with 3,200, 1.4 CPU-h dearer than 1,600).  All 60
+primary rows are gated, the 12 rule rows among them; ``mechanism_correct`` runs inside
+``day_cf``'s replicates, so its count never exceeds the primary count (review S2).  The pilot
 (:mod:`tests.studies.continuous_time_longitudinal_pilot`, :data:`PILOT_REPLICATES` draws of each
-of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) sets
-them by the family rule over the 60 gated primary rows (:func:`pilot.counts`): the cheapest pair
-from (2,400, 3,200, 4,800) and (1,600, 2,400, 3,200) at which the product of the rows' plug-in
-pass probabilities reaches 0.95.  The record holds one count, so ``day_cf`` and ``cont_cf`` share
-the primary count.  ``regenerate.py`` refuses a declared run that disagrees with the committed
-pilot.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a
-cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams are ``pilot/<cell>``,
-``plugin_limit`` and ``truth`` (``stream_seed``).
+of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) no
+longer chooses a rung: ``regenerate.py`` refuses a declared run unless the anchored family pass
+at the declared counts (:func:`pilot.anchored_family_pass`, the product of the 60 rows' plug-in
+pass probabilities, each read at its group's pooled coverage, SE ratio and standardized bias)
+reaches 0.95.  The plan's move of rows with pilot coverage below 0.925 to reported is not
+applied, by the same choice.  The record holds one count, so ``day_cf`` and ``cont_cf`` share
+the primary count.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study;
+replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams
+are ``pilot/<cell>``, ``plugin_limit`` and ``truth`` (``stream_seed``).
 
-**Budget** (measured by the smoke on 2026-11-25 after the default treatment model gained its
-baseline indicator, recorded in
-``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``: two draws of each cell at
-:math:`n = 1{,}000`, each cell in a fresh process, seconds per fit on one core of the cloud
-machine, peak resident memory of the process; ``ltmle_daily`` is the first smoke's, since the
-change does not reach X70).
+**Budget** (the second pilot's median seconds per fit, from 400 draws of each cell on the
+stratified treatment default, and the smoke's for ``both_wrong`` and ``ltmle_daily``, which the
+pilot does not run; peak memory is the largest a pilot worker recorded for ``day_cf`` and
+``cont_cf`` and the smoke's process peak for the rest, whose pilot workers had also run
+``cont_cf``; ``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md`` holds both).
 
 ======================  =======  ===============  =====  ===========
 item                    fits     seconds per fit  CPU-h  peak memory
 ======================  =======  ===============  =====  ===========
-``day_cf``              2,400    17.4             11.6   282 MB
-``cont_cf``             2,400    106.0            70.7   1,947 MB
-``mechanism_correct``   1,600    8.9              4.0    280 MB
-``outcome_correct``     800      11.6             2.6    280 MB
+``day_cf``              3,200    21.5             19.1   278 MB
+``cont_cf``             3,200    143.1            127.2  2,172 MB
+``mechanism_correct``   2,400    6.1              4.0    280 MB
+``outcome_correct``     800      12.9             2.9    280 MB
 ``both_wrong``          800      2.4              0.5    281 MB
 ``ltmle_daily``         400      51.0             5.7    252 MB
-total                                             95.0
+total                                             159.5
 ======================  =======  ===============  =====  ===========
 
-The projection, 95.0 CPU-h, is below the plan's hold of 200.  A local thread runs at about a
-third of a cloud core, so the run is about 285 thread-hours there.  ``cont_cf``'s memory per
-worker binds the ``--jobs`` rule, which keeps the first smoke's 2.1 GB peak: ``--jobs 12`` on
-the local machine (34 GB, 16 threads; about 25 GB of workers, about 24 hours) and ``--jobs 4``
-on the 4-core cloud machine (about 24 hours).
+The projection, 159.5 CPU-h, is below the plan's hold of 200.  The declared run splits into
+three shards (``regenerate.py --shard i/3``) of 53.2 CPU-h each, about 13.3 hours on a 4-core
+cloud machine at ``--jobs 4``, which ``cont_cf``'s 2.2 GB per worker allows; ``--merge`` joins
+them into the record.
 
 **Registration** (plan 7.3) lands with the declared run's artifacts, in the change that ships
 E1 and E2 together, and touches what a pending study cannot: the registry import and the
@@ -157,16 +158,17 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
-#: The design value of plan 5.7 for ``day_cf`` and ``cont_cf``; the pilot's family rule sets it
-#: (``pilot.counts``), checked by the design test once the pilot is committed.
-PRIMARY_REPLICATES = 2_400
-#: The design value of plan 5.7 for ``mechanism_correct``, set with the primary count.
-MECHANISM_REPLICATES = 1_600
+#: ``day_cf`` and ``cont_cf``'s count, fixed by Eric's choice on 2026-11-25; the pilot checks
+#: the anchored family pass at it (``pilot.anchored_family_pass``) and chooses no rung.
+PRIMARY_REPLICATES = 3_200
+#: ``mechanism_correct``'s count, the rung paired with 3,200 in the same choice.
+MECHANISM_REPLICATES = 2_400
 #: ``outcome_correct`` and ``both_wrong`` (plan 5.7).
 REPORTED_REPLICATES = 800
 #: The X70 pairing's draws: the first 400 ``day_cf`` draws (the module docstring's deviation).
 PAIRED_REPLICATES = 400
-#: The rungs of the family rule (plan 5.7): the primary cells' and ``mechanism_correct``'s.
+#: The rungs of plan 5.7's family rule, the primary cells' and ``mechanism_correct``'s; the pilot
+#: reports the family pass at each.
 PRIMARY_RUNGS = (2_400, 3_200, 4_800)
 MECHANISM_RUNGS = (1_600, 2_400, 3_200)
 #: ``guide/studies.md``: primaries run at 1,000 replications or more.

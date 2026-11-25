@@ -70,13 +70,13 @@ selection inside 5 inner folds, and the influence-curve variance, at n = 1,000.
 
 | cell | law | regimes | rows | count | role |
 | --- | --- | --- | --- | --- | --- |
-| `day_cf` | CT-day | always, never, rule | 30 (12 rule rows) | 2,400 | gated |
-| `cont_cf` | CT | always, never | 18 | 2,400 | gated |
-| `mechanism_correct` | CT-day | always, never | 12 (days 20 and 30) | 1,600 | gated |
-| plug-in control | CT-day | always, never | 4 day-30 risks | 1,600 | gated control |
-| calibration | both | always, never | difference of cause 1 at day 20 in each cell | 2,400 | gated |
+| `day_cf` | CT-day | always, never, rule | 30 (12 rule rows) | 3,200 | gated |
+| `cont_cf` | CT | always, never | 18 | 3,200 | gated |
+| `mechanism_correct` | CT-day | always, never | 12 (days 20 and 30) | 2,400 | gated |
+| plug-in control | CT-day | always, never | 4 day-30 risks | 2,400 | gated control |
+| calibration | both | always, never | difference of cause 1 at day 20 in each cell | 3,200 | gated |
 | `outcome_correct`, `both_wrong` | CT-day | always, never | 12 | 800 each | reported |
-| `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 2,400 | reported |
+| `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 3,200 | reported |
 | X70 pairing | CT-day panel | always, never | 18 | 400 | reported |
 
 The primary rule gates every row of `day_cf`, `cont_cf` and `mechanism_correct`. A row passes when
@@ -120,20 +120,30 @@ Pending. The declared run fills this section.
 
 ## Sizing
 
+The counts are declared: 3,200 draws for `day_cf` and `cont_cf` and 2,400 for
+`mechanism_correct`, fixed by Eric's choice on 2026-11-25 against plan 5.7's design values of
+2,400 and 1,600. All 60 primary rows are gated, the 12 rule rows among them, and no row moves to
+reported for a low pilot coverage.
+
 The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
-`outcome_correct`. It sets the counts by the family rule over the 60 gated primary rows: the
-cheapest pair from (2,400, 3,200, 4,800) primary and (1,600, 2,400, 3,200) `mechanism_correct`
-draws at which the product of the rows' plug-in pass probabilities reaches 0.95. The record holds
-one primary count, so `day_cf` and `cont_cf` share it. The smoke projects the declared run at
-95 CPU-hours at the design counts and 181 at the largest rung, below the plan's hold of 200.
-`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements.
+`outcome_correct`, and chooses no count. A declared run is refused unless the family pass at the
+declared counts, the product of the 60 rows' pass probabilities, reaches 0.95. Each row is read
+at its group's pooled coverage, SE ratio and standardized bias, the groups being `cont_cf`
+static, `day_cf` static, `day_cf` rule and `mechanism_correct`. A product of 60 single-row
+readings from 400 draws each would be pessimistic, since each row's coverage carries an SE near
+0.011.
+
+The second pilot's pooled readings put that pass at 0.997. At the pilot's seconds per fit the
+declared run costs 159.5 CPU-hours, below the plan's hold of 200, and runs as three shards of
+53.2 CPU-hours. `tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the
+measurements and every count's pass as a report.
 
 A first pilot failed the family rule: on static rows the estimated SE ran 7 to 8% above the
 Monte Carlo spread at every n. The default treatment model was one logistic fit pooled over
 baseline and later visits, which cannot hold law CT's baseline mechanism beside its visit
 mechanism. The engine now gives baseline coefficients of its own, and on refits of the first 20
 pilot draws the influence curve's spread is within 1% of the exact efficient one on static rows.
-The first pilot's primary draws were dropped, and the fresh pilot is pending.
+The first pilot's primary draws were dropped, and a second pilot ran on the fixed engine.
 
 The plug-in control was checked before any replicate. On one draw of 200,000 units, the plug-in
 limit of `mechanism_correct`'s outcome side misses the day-30 risk of cause 1 by 0.58 true-weight

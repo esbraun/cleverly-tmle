@@ -29,6 +29,8 @@ def test_the_declaration_is_the_plans() -> None:
     assert study.MECHANISM_REPLICATES in study.MECHANISM_RUNGS == (1_600, 2_400, 3_200)
     assert study.REPORTED_REPLICATES == 800 and study.PILOT_REPLICATES == 400
     assert study.PRIMARY_REPLICATES >= study.MECHANISM_REPLICATES
+    # Eric's choice on 2026-11-25: the counts are declared, and the pilot checks them.
+    assert (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES) == (3_200, 2_400)
     assert record.n == study.PRIMARY_N == 1_000
     assert study.FAILURE_BOUND == 0.01 and study.SHRUNKEN_SE_FACTOR == 0.85
     assert study.MARGINS.standardized_bias == 0.2
@@ -435,20 +437,90 @@ def test_a_conservative_calibration_row_does_not_void_through_its_control(
     assert (shrunk["se_ratio_ci_upper"] > study.MARGINS.calibration_se_ratio[0]).all()
 
 
-def test_the_counts_never_put_mechanism_correct_above_the_primary_count(
+def _coverage(values: dict[str, tuple[float, float, float]]) -> pd.DataFrame:
+    """A pilot coverage table: every gated row at its group's ``(coverage, ratio, bias)``, the
+    rows of each group spread evenly about it, and one ungated row that reads badly."""
+    records = []
+    for cell, names in pilot.GATED.items():
+        for position, name in enumerate(names):
+            coverage, ratio, bias = values[pilot.group_of(cell, name)]
+            spread = 0.015 if position % 2 else -0.015
+            records.append(
+                {
+                    "cell": cell,
+                    "estimand": name,
+                    "gated": True,
+                    "coverage": coverage + spread,
+                    "se_ratio": ratio - spread,
+                    "standardized_bias": bias + spread,
+                }
+            )
+    records.append(
+        {
+            "cell": "outcome_correct",
+            "estimand": study.ROBUST_ROWS[0],
+            "gated": False,
+            "coverage": 0.5,
+            "se_ratio": 0.5,
+            "standardized_bias": 1.0,
+        }
+    )
+    return pd.DataFrame.from_records(records)
+
+
+def test_the_anchored_reading_pools_each_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The declared counts are checked at the groups' pooled readings, not chosen from them."""
+    values = {
+        "cont_cf static": (0.945, 0.990, 0.004),
+        "day_cf static": (0.943, 0.988, 0.047),
+        "day_cf rule": (0.930, 0.937, 0.078),
+        "mechanism_correct": (0.941, 0.994, 0.022),
+    }
+    monkeypatch.setattr(pilot, "coverage_table", lambda rows: _coverage(values))
+    monkeypatch.setattr(pilot, "cost", lambda rows, primary, mechanism: primary + mechanism)
+    pooled = pilot.pooled_table(pd.DataFrame()).set_index("group")
+    assert pooled["rows"].to_dict() == {
+        "cont_cf static": 18,
+        "day_cf static": 18,
+        "day_cf rule": 12,
+        "mechanism_correct": 12,
+    }
+    for group, (coverage, ratio, bias) in values.items():
+        assert pooled.loc[group, "coverage"] == pytest.approx(coverage)
+        assert pooled.loc[group, "se_ratio"] == pytest.approx(ratio)
+        assert pooled.loc[group, "standardized_bias"] == pytest.approx(bias)
+    declared = (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES)
+    anchored = pilot.anchored_family_pass(pd.DataFrame(), *declared)
+    expected = 1.0
+    for group, (coverage, ratio, bias) in values.items():
+        count = declared[1] if group == "mechanism_correct" else declared[0]
+        expected *= pilot.row_pass(count, coverage, ratio, bias) ** pooled.loc[group, "rows"]
+    assert anchored == pytest.approx(expected)
+    # The second pilot's pooled readings carry the declared counts, and the row-level product of
+    # the same rows, spread about them, is far lower: it is a report.
+    assert anchored >= sizing.FAMILY_WISE_PASS
+    assert pilot.family_pass(pd.DataFrame(), *declared) < anchored
+    # mechanism_correct's group reads its own count: at a short count only its factor moves.
+    short = pilot.anchored_family_pass(pd.DataFrame(), declared[0], 200)
+    factor = pilot.row_pass(200, *values["mechanism_correct"]) / pilot.row_pass(
+        declared[1], *values["mechanism_correct"]
+    )
+    assert short == pytest.approx(anchored * factor**12)
+    # A group whose pooled bias nears the margin fails the check; no other rung is chosen.
+    values["day_cf rule"] = (0.930, 0.937, 0.15)
+    assert pilot.anchored_family_pass(pd.DataFrame(), *declared) < sizing.FAMILY_WISE_PASS
+    passes = pilot.anchored_passes(pd.DataFrame())
+    assert (passes["mechanism"] <= passes["primary"]).all()  # review S2
+
+
+def test_the_regeneration_refuses_a_failing_anchored_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Review S2: mechanism_correct runs inside day_cf's replicates."""
-    monkeypatch.setattr(pilot, "family_pass", lambda rows, primary, mechanism: mechanism >= 3_200)
-    monkeypatch.setattr(pilot, "cost", lambda rows, primary, mechanism: primary + mechanism)
-    assert pilot.counts(pd.DataFrame()) == (3_200, 3_200)
-    for primary in study.PRIMARY_RUNGS:
-        for mechanism in study.MECHANISM_RUNGS:
-            monkeypatch.setattr(
-                pilot, "family_pass", lambda rows, p, m, q=primary, k=mechanism: (p, m) == (q, k)
-            )
-            chosen = pilot.counts(pd.DataFrame())
-            assert chosen is None or chosen[1] <= chosen[0]
+    if PILOT.empty or not all(pilot.draws(PILOT, cell) >= pilot.DRAWS for cell in pilot.CELLS):
+        pytest.skip("the check runs once every pilot cell holds its draws")
+    monkeypatch.setattr(pilot, "anchored_family_pass", lambda rows, primary, mechanism: 0.9)
+    reasons = regenerate.pilot_refusals()
+    assert any(reason.startswith("the anchored family passes with 0.900") for reason in reasons)
 
 
 def _pilot_rows(cell: str, draws: int, ratio: float, rng: np.random.Generator) -> pd.DataFrame:
@@ -602,10 +674,19 @@ def test_the_regeneration_refuses_until_the_pilot_agrees() -> None:
     if not PILOT.empty and not any(pilot.draws(PILOT, cell) for cell in pilot.CELLS):
         # A fresh primary pilot: every row it keeps still agrees with the law module.
         assert reasons == [f"{regenerate.FRESH_PILOT}; run --kinds primary"], reasons
-    elif PILOT.empty or pilot.draws(PILOT, "cont_cf") < pilot.DRAWS:
+    elif PILOT.empty or any(pilot.draws(PILOT, cell) < pilot.DRAWS for cell in pilot.CELLS):
         assert reasons, "a declared run must wait for the committed pilot"
     else:
-        assert reasons == [], reasons
+        # The counts are declared, so the committed pilot only asks for the extension of a
+        # calibration row below its plug-in pass, until the extension is committed.
+        checks = pilot.calibration_checks(PILOT, study.PRIMARY_REPLICATES)
+        expected = [
+            f"{cell}'s calibration row passes with plug-in probability {passed:.3f}; extend "
+            f"its pilot to {pilot.EXTENSION_DRAWS} draws"
+            for cell, passed in zip(checks["cell"], checks["plug_in_pass"], strict=True)
+            if passed < pilot.PLUG_IN_PASS and pilot.draws(PILOT, cell) < pilot.EXTENSION_DRAWS
+        ]
+        assert reasons == expected, reasons
 
 
 def test_the_budget_table_is_filled() -> None:
