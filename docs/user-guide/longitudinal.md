@@ -263,8 +263,8 @@ coarser decision times before you read it.
 
 Long panels, many regimens and parallel workers also need memory. Before it fits any model,
 `LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
-if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
-yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
+if that is more than the memory the machine has free. Pass `max_memory_bytes=` to the estimator,
+or to `estimate()` on a study, to set the limit yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
 is checked unless you pass it. The estimate counts the arrays the package holds with simple
 regression learners, so a fit that passes the check can still run out of memory with heavier
 learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
@@ -423,7 +423,8 @@ help there. On the five-period price plan of the pricing study, the BCa interval
 to 92% of the time, no better than the Wald interval
 ([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
 
-Pass `variance="policy_weighted"` instead, with `n_folds=1` and `simultaneous=False`. The fit
+Pass `variance="policy_weighted"` instead, with `n_folds=1` (`cross_fit=False` on a study) and
+`simultaneous=False`. The fit
 weights each row by its density ratio: how much more likely the policy makes that row's dose than
 the observed treatment pattern does. The option also works out the standard error from every row
 at the dose the policy would set, and reports the larger of that and the usual one. The interval is
@@ -448,8 +449,9 @@ The long-horizon studies gate the BCa interval at $n$ from 4,000 to 128,000, and
 each row lists its sizes. At three and four decisions, BCa is `supported` for static and dynamic
 plans only. A known stochastic policy at those decisions reads `experimental`.
 
-Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
-`bootstrap_interval`.
+`LTMLE` and `SDR` take each of these options, and `IPSI` takes all of them except `variance`.
+`CausalStudy.estimate()` takes the same keywords and passes them to its estimator, with
+`cross_fit=False` in place of `n_folds=1`.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression

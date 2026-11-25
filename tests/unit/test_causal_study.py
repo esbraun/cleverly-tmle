@@ -1372,9 +1372,7 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:
     effect = _study().identify(ATE())
-    with pytest.raises(
-        MethodConfigurationError, match="Study-design roles belong on PointTreatment"
-    ):
+    with pytest.raises(MethodConfigurationError, match="Study-design roles belong on the design"):
         effect.estimate(covariates=["W1"])
 
 

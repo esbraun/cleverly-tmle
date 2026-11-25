@@ -484,6 +484,12 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     # A leave-one-cluster-out refit raises, so the jackknife reports no interval: the
     # interval plots read the withheld status, and influence() refuses.
     "ltmle_jackknife_withheld": sweep.fit_ltmle_jackknife_refit_withheld,
+    # X123: engine options declared on a study's method object. Each result is the engine
+    # route's result, so each plot draws or refuses as it does on the engine twin.
+    "ltmle_bca_study": sweep.fit_study_ltmle_bca,
+    "ltmle_policy_weighted_study": sweep.fit_study_ltmle_policy_weighted,
+    "continuous_survival_settings_study": sweep.fit_study_continuous_survival_settings,
+    "ipsi_bca_study": sweep.fit_study_ipsi_bca,
     # X54 B1: fits at their family's floor with mixed estimate statuses. The measured contrast
     # keeps the ordinary status and every other estimate shows its interval under
     # few_cluster_estimand_plugin; each plot draws or refuses as on an ordinary fit.
@@ -544,6 +550,54 @@ EXPECTED: dict[str, dict[str, str]] = {
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ltmle_bca_study": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "draws",
+    },
+    "ltmle_policy_weighted_study": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "DataError: A1 is a continuous treatment,",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "ipsi_bca_study": {
+        "forest": "draws",
+        "curve": "CapabilityError: this fit has one end-of-study",
+        "influence": "draws",
+        "overlap": "CapabilityError: overlap() draws the probability of",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "ValueError: no nuisance model here was",
+        "calibration": "draws",
+        "repeats": "ValueError: this fit has one cross-fitting",
+        "bootstrap": "draws",
+    },
+    "continuous_survival_settings_study": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        "overlap": "draws",
+        "weights": "draws",
+        "balance": "draws",
+        "learners": "draws",
+        "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },
     "ltmle_jackknife_withheld": {

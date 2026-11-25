@@ -1387,7 +1387,10 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         "simultaneous band on, and more with n_jobs > 1."
         f"{_range_clause(counts)} No learner was fitted."
     )
-    remedies = [f"Pass {name}(max_memory_bytes=...) a value above {predicted:,}"]
+    remedies = [
+        f"Pass max_memory_bytes= a value above {predicted:,} (an argument of {name}, and a "
+        "keyword of estimate() or a field of Runtime on a study)"
+    ]
     if prediction.parallel:
         remedies.append("n_jobs=1")
     if counts.bins:

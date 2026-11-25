@@ -2535,6 +2535,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
 | status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below its floor the fit takes `"few_cluster_plugin"`: 6 clusters in sample and 4 cross-fitted for the always-against-never contrast, the counts from which the registered floor studies pass. The lower floor holds only on the design each study measured: one binary node without censoring in sample, two binary nodes with censoring cross-fitted. Every other estimate, and that contrast on any other design, keeps 20 and takes `"few_cluster_estimand_plugin"` below it. Simultaneous bands need 40 or more |
+| jackknife | `cluster_variance="jackknife"` replaces the cluster influence-curve variance, as [cluster jackknife](inference.md#cluster-jackknife) states. A study declares it as `Inference(cluster_variance="jackknife")` |
 | bootstrap | no support row lists `bootstrap` for a clustered cross-fitted fit, so the percentile interval is shown with the label `experimental`. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
@@ -2775,6 +2776,9 @@ then needs a consistent outcome model. What the maximum buys at finite $n$ is me
 $\hat\sigma_{pw}$ reads the large-ratio rows' contribution through every row's policy dose, so it
 lifts the standard error in the samples where $\hat\sigma_{IC}$ is too small.
 
+On a `CausalStudy` the option is `variance="policy_weighted"` with `cross_fit=False`, and an unset
+`simultaneous` then reads `False`.
+
 The option is refused, before any learner fits, with cross-fitting, `repeats`, clusters, weights,
 right-censoring, a survival or repeated outcome, `msm=`, `simultaneous=True`, `n_bootstrap`,
 `ratio_trim`, a data-tuned cap, a learned or separable regimen, a treatment held from baseline, or
@@ -2813,7 +2817,7 @@ carries these numbers as notes, and `variance="policy_weighted"` covers 0.969 on
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
 | `ratio()` of such a level | `CapabilityError` on the log scale for a level at or below 0, and on the odds scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
 | `msm=` | the identity link always. A logit or log link when its projection converges, and `CapabilityError` otherwise | a transform mean outside the link's range has no finite solution |
-| full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
+| full-refit bootstrap | runs, and reports the percentile interval, or the BCa interval with `bootstrap_interval="bca"`, under the `experimental` label | no registered study measures it |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
 
 Clusters, observation weights, survival, competing risks, known policies, modified treatment
@@ -3179,7 +3183,7 @@ cancelled tilt factor and needs no such bound.
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
 | `ratio()` of such a level | `CapabilityError` on the log scale at or below 0, and on the odds or logit scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
-| full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
+| full-refit bootstrap | runs, and reports the percentile interval, or the BCa interval with `bootstrap_interval="bca"`, under the `experimental` label | no registered study measures it |
 | `truncation_curve()` | replays the bounded factors only | the tilt factor has no bound to sweep |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
 | diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of rows where some level has $\hat\pi_t$ at exactly 0 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned. With two levels the share counts $\hat\pi_t$ at exactly 0 or 1 |
@@ -3243,8 +3247,8 @@ of the preflight, so `planned_fits` refuses the same call with the same message,
 preview carries a note with the predicted bytes. A bootstrap replicate does not run it again,
 because its call counted the replicates.
 
-`CausalStudy` guards at the default budget. Its refusal spells the direct engine call, with
-`max_memory_bytes=...`, that reproduces the study's fit. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
+`CausalStudy` passes `Runtime(max_memory_bytes=)`, or the `max_memory_bytes=` keyword of
+`estimate()`, to the estimator it builds, and guards at the default budget without it. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
 the hazard fit with one treatment node, with a backward pass, with path fits and with separable
 arms), `SDR`, `IPSI`, and every route that builds them. It does not cover `SurvivalCTMLE` and
 `SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md)

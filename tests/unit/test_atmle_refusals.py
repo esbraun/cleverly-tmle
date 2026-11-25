@@ -34,6 +34,7 @@ from cleverly import (
 from cleverly._refusal import RefusalReason
 from cleverly.data.causal_data import CausalData
 from cleverly.methods import ATMLE_FIELDS
+from cleverly.survival import CoxHazard
 
 GROUPS = ("models", "cross_fitting", "targeting", "inference", "runtime")
 
@@ -236,6 +237,11 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("targeting", "node_bounds"): {1: (0.05, 0.95)},
     ("inference", "n_multiplier"): 1000,
     ("inference", "simultaneous"): True,
+    ("models", "hazard_library"): (CoxHazard("main"),),
+    ("models", "censoring_library"): (CoxHazard("main"),),
+    ("targeting", "norm"): "euclidean",
+    ("inference", "variance"): "policy_weighted",
+    ("runtime", "max_memory_bytes"): 2**30,
 }
 
 
@@ -287,6 +293,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
         assert "stratify_folds" in str(error.value)
     elif (group, name) == ("targeting", "step_search"):
         assert "targeting.step_bound does not apply" in str(error.value)
+    elif (group, name) == ("inference", "bootstrap_interval"):
+        # The group itself ties a BCa interval to a declared bootstrap.
+        assert "n_bootstrap=0 runs none" in str(error.value)
     else:
         assert f"{group}.{name} does not apply" in str(error.value)
         if (group, name) in {("runtime", "n_jobs"), ("inference", "n_bootstrap")}:

@@ -2135,7 +2135,8 @@ def hazard_path_cap_refusal(
         f"{n_slots} paths, {n_causes} causes and {n_columns} design columns give a predicted "
         f"traced peak of {peak / 1024.0**3:.1f} GiB, above {limit}.",
         "Use survival_model='iterated_mean', which needs no path enumeration, or pass "
-        "LTMLE(max_memory_bytes=...) a limit the machine can hold.",
+        "max_memory_bytes= a limit the machine can hold (an argument of LTMLE, and a keyword "
+        "of estimate() or a field of Runtime on a study).",
     )
 
 
