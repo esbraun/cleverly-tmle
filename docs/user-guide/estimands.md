@@ -533,8 +533,7 @@ intervals where the doses thin out, then draws a smooth curve through the interv
 so even a small shift changes the ratio. The estimate is only as good as the treatment learner
 behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
 the narrow outer intervals poorly. Both `ratio=` and `density_bins=` are settings of `ModelSpec`,
-which `estimate` also takes as keywords, as in the example below
-([settings reference](settings.md)).
+which `estimate` also takes as keywords ([settings reference](settings.md)).
 
 Gradient boosting can also misfit a few rows in a thin tail. In
 the [design study](../technical-reference/method-evidence/mtp-density-tails.md#reported-readings),
@@ -717,7 +716,8 @@ dose_trend = dose_study.estimate(
 
 On the yes-or-no treatment, `msm[a]` is the line's effect at `W1` equal to 0, and `msm[a:W1]` is
 how the line's effect changes per unit of `W1`. On the dose, `msm[a]` is the slope of the best
-straight line through the mean outcome between doses 1 and 3.
+straight line through the mean outcomes at the doses 1, 2 and 3, with the two end doses weighted
+half as much as dose 2.
 
 On a continuous dose, `MSMProjection` needs every outcome observed. `CausalStudy.identify`
 raises `CapabilityError` when an outcome is missing. The refused table of
@@ -836,7 +836,7 @@ held = {
 ```
 
 The example fits without cross-fitting because its outcome has no known range. With a known
-range, pass `Targeting(q_bounds=(lower, upper))` and keep the default cross-fitting.
+range, pass `q_bounds=(lower, upper)` and keep the default cross-fitting.
 
 The two levels are two different effects, and together they do not split the total effect into a
 direct and an indirect part. Each needs no unmeasured common cause of the treatment and the
