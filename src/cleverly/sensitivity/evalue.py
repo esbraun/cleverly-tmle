@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_longitudinal_family import refuse_continuous_longitudinal
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import UNCLASSIFIED, Support, combine_support, record_refusal_site
@@ -886,6 +887,7 @@ def evalue(result: TMLEResult, estimand: str | tuple[str, str] | None = None) ->
         per arm; a result that names only one half of that variable refuses.
     """
     refuse_augmented_trial(result, "evalue", "bound")
+    refuse_continuous_longitudinal(result, "evalue")
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
 

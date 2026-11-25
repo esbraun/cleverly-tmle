@@ -2128,6 +2128,9 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
 #: the cause hazards, the censoring hazard and the treatment model.
 CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
 
+#: The battery's label of the nuisance row of a continuous-time longitudinal fit.
+CONTINUOUS_LONGITUDINAL_NUISANCE_NAME: Final = "hazard, visit, censoring and treatment models"
+
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -5009,6 +5012,51 @@ CONTINUOUS_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_NOTE_TEXTS})
+
+# ------------------------------------------- continuous-time longitudinal (X6 part (e))
+
+CONTINUOUS_LONGITUDINAL_TITLE: Final = "Risk by time under regimes, irregular visits (TMLE)"
+CONTINUOUS_LONGITUDINAL_QUESTION: Final = "risk of {causes} by each time under each regime"
+CONTINUOUS_REGIMES: Final = "Regimes"
+CONTINUOUS_REGIMES_TEXT: Final = "{others}, each against {reference}"
+CONTINUOUS_LONGITUDINAL_METHOD: Final = "one-step TMLE, one walk per visit"
+VISIT_MODEL: Final = "Visit model"
+VISIT_CAP: Final = "Visits modelled"
+VISIT_CAP_TEXT: Final = "{regime}: first {cap}"
+CONTINUOUS_LONGITUDINAL_TARGETING_LINES: Final[tuple[str, ...]] = (
+    "Distinct follow-up times in the window: {grid}",
+    "Largest |mean influence-curve value| / its standard deviation: {worst} (stopping rule "
+    "{cutoff})",
+    "Share of followed (row, time) cells where the chance of following the regime times "
+    "staying uncensored was raised to its floor: {bounded}",
+    "Share of rows whose fitted chance of an event, or of a visit, at one time reached one "
+    "and was lowered: {death} (event), {visit} (visit)",
+    "History each model reads: {window}",
+)
+#: The assumptions a continuous-time longitudinal fit states.
+CONTINUOUS_LONGITUDINAL_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "no unmeasured confounding: at each visit, given the history the models read, the "
+    "treatment a unit got is unrelated to its later event times",
+    "censoring and visits at random: given that history, whether and when a unit is seen or "
+    "still followed is unrelated to when its event would happen",
+    "each regime possible: units with the same history could follow the regime at every visit",
+    "the history window: every model reads the last visit's covariates and treatment, the one "
+    "before, the baseline covariates, the visit count and the visit time, and nothing older",
+)
+CONTINUOUS_LONGITUDINAL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
+    {"continuous_longitudinal_not_converged": "warning"}
+)
+NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_LONGITUDINAL_NOTE_CODES})
+CONTINUOUS_LONGITUDINAL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "continuous_longitudinal_not_converged": (
+            "Some walk stopped before its mean scores fell below its stopping rule; the "
+            "largest total is {worst} times the rule. The intervals may be too narrow. "
+            "result.diagnostics.score_equations() lists each node's score."
+        ),
+    }
+)
+NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **CONTINUOUS_LONGITUDINAL_NOTE_TEXTS})
 
 # ----------------------------------------------------------------- planned fits (X106 I)
 

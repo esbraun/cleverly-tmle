@@ -433,6 +433,8 @@ FAMILIES: dict[str, Callable[[], Any]] = {
     "continuous_survival_restricted": sweep.fit_continuous_survival_restricted,
     # X6 (d): the full-refit bootstrap, with the multiplier and the bootstrap band.
     "continuous_survival_bootstrap": sweep.fit_continuous_survival_bootstrap,
+    # X6 (e): the continuous-time longitudinal TMLE, one arm per regime.
+    "continuous_longitudinal": sweep.fit_continuous_longitudinal,
     "adaptive_tmle": _adaptive,
     "effect_curve": _effect_curve,
     "effect_curve_continuous": _effect_curve_continuous,
@@ -705,6 +707,20 @@ EXPECTED: dict[str, dict[str, str]] = {
         "balance": "draws",
         "learners": "draws",
         "calibration": "CapabilityError: calibration() draws a nuisance report's",
+        "repeats": "CapabilityError: repeats() draws the estimate of",
+        "bootstrap": "ValueError: this fit holds no bootstrap",
+    },
+    "continuous_longitudinal": {
+        "forest": "draws",
+        "curve": "draws",
+        "influence": "draws",
+        # The record keeps no per-row probabilities, so the overlap, weight and balance
+        # views refuse; the learner selections draw, the visit intensity among them.
+        "overlap": "CapabilityError: overlap() draws a point-treatment fit's",
+        "weights": "CapabilityError: weights() draws the cumulative inverse-probability",
+        "balance": "CapabilityError: covariate_balance weighs the covariates by",
+        "learners": "draws",
+        "calibration": "ValueError: calibration() draws the point-treatment nuisance",
         "repeats": "CapabilityError: repeats() draws the estimate of",
         "bootstrap": "ValueError: this fit holds no bootstrap",
     },

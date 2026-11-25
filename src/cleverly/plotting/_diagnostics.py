@@ -812,8 +812,9 @@ def learners(
     panels per nuisance role that a Super Learner fitted: the ensemble weights stacked at
     each time point above, each candidate's cross-validated risk below.
 
-    A continuous-time survival fit, or its ``diagnostics.nuisance_models()``, draws one panel
-    per hazard (each cause, then censoring) and one for the treatment model: each
+    A continuous-time survival or longitudinal fit, or its ``diagnostics.nuisance_models()``,
+    draws one panel per hazard (each cause, the visit intensity of a longitudinal fit, then
+    censoring) and one for the treatment model: each
     candidate's cross-validated loss, with the candidate the fit chose marked. Each
     selection keeps one candidate, so no weights are drawn. A cross-fitted fit draws the
     first fold's selections, the ones it keeps.
@@ -821,11 +822,11 @@ def learners(
     Parameters
     ----------
     source : SuperLearnerDiagnostics or CTMLESelection or a fitted result
-        What to plot: one of the first two, or a ``TMLEResult``, ``LongitudinalResult`` or
-        ``ContinuousSurvivalResult``. A fitted ``SuperLearner`` holds the first as
-        ``diagnostics_``. A ``NuisanceModelReport``, a fit's ``NuisanceDiagnostics`` and a
-        longitudinal or continuous-time survival fit's ``diagnostics.nuisance_models()`` are
-        accepted too.
+        What to plot: one of the first two, or a ``TMLEResult``, ``LongitudinalResult``,
+        ``ContinuousSurvivalResult`` or ``ContinuousLongitudinalResult``. A fitted
+        ``SuperLearner`` holds the first as ``diagnostics_``. A ``NuisanceModelReport``, a
+        fit's ``NuisanceDiagnostics`` and a longitudinal, continuous-time survival or
+        continuous-time longitudinal fit's ``diagnostics.nuisance_models()`` are accepted too.
     regimen : str or None, default=None
         On a longitudinal fit or its nuisance report, the regimen whose outcome regressions
         are drawn; the first when omitted. The treatment and censoring models serve every
@@ -918,9 +919,19 @@ def learners(
     role = None
     from ..longitudinal.estimator import LongitudinalResult
     from ..survival.diagnostics import ContinuousSurvivalNuisances
+    from ..survival.longitudinal_diagnostics import ContinuousLongitudinalNuisances
+    from ..survival.longitudinal_result import ContinuousLongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
 
-    if isinstance(source, (ContinuousSurvivalResult, ContinuousSurvivalNuisances)):
+    if isinstance(
+        source,
+        (
+            ContinuousSurvivalResult,
+            ContinuousSurvivalNuisances,
+            ContinuousLongitudinalResult,
+            ContinuousLongitudinalNuisances,
+        ),
+    ):
         if ax is not None:
             raise ValueError("learners() draws one panel per selection; ax= is not accepted")
         _selectors_unused(regimen, horizon, cause)

@@ -47,6 +47,14 @@ from ._assessment_cache import (
     _result_backend,
     _unpack_cached,
 )
+from ._continuous_longitudinal_family import (
+    CONTINUOUS_LONGITUDINAL_FAMILY,
+    continuous_longitudinal_refusal,
+    is_continuous_longitudinal,
+)
+from ._continuous_longitudinal_family import (
+    SCORE_TOLERANCE_REFUSAL as LONGITUDINAL_SCORE_TOLERANCE_REFUSAL,
+)
 from ._continuous_survival_family import (
     CONTINUOUS_SURVIVAL_FAMILY,
     SCORE_TOLERANCE_REFUSAL,
@@ -347,6 +355,7 @@ _FAMILY_METHODS: dict[str, tuple[str, ...]] = {
     AUGMENTED_TRIAL_FAMILY: ("atmle",),
     "effect_modification": ("tmle", "ep"),
     CONTINUOUS_SURVIVAL_FAMILY: ("tmle",),
+    CONTINUOUS_LONGITUDINAL_FAMILY: ("tmle",),
     "dose_response": ("tmle",),
     # Every candidate of a variable-importance run is a point fit by one shared estimator,
     # and the run admits the point methods that supply inference.
@@ -755,6 +764,66 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
             "subsampling on the fit's folds, read descriptively"
         ),
     ),
+    # The continuous-time longitudinal TMLE (X6 part (e)). Its diagnostics read the engine's
+    # own record; no adapter replays or refits the node passes (X105 part (d)).
+    _capability(
+        "support",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=("weight floor and bounded share", "visit caps and followers"),
+        interpretation=(
+            "the share of followed cells the floor on the treatment-censoring product raised, "
+            "the bounded hazard and visit jumps, and each regime's visit cap and followers"
+        ),
+    ),
+    _capability(
+        "nuisance_models",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=(
+            "hazard selections",
+            "visit selection",
+            "censoring selection",
+            "treatment selection",
+        ),
+        interpretation=(
+            "the cross-validated selection of each cause's hazard, the visit intensity, the "
+            "censoring hazard and the treatment model"
+        ),
+    ),
+    _capability(
+        "score_equations",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=("standardized scores at the end of the node walks", "node scores"),
+        interpretation=(
+            "each target's |P_n D*| / sigma against the cutoff s_n, and each node's score"
+        ),
+    ),
+    _capability(
+        "corrections",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=continuous_longitudinal_refusal("corrections"),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=continuous_longitudinal_refusal("truncation_curve"),
+        interpretation="estimate stability across floors on the treatment-censoring product",
+    ),
+    _capability(
+        "refute",
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        refusal=continuous_longitudinal_refusal("refute"),
+        interpretation="behavior under placebo, noise and subsampling refits",
+    ),
     # An effect curve (P1 plan 3.5).  It shares the six operations of every family, read off
     # the producing fit, and declares four of its own, which only a curve has.
     _capability(
@@ -1098,7 +1167,12 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
-    if family in (AUGMENTED_TRIAL_FAMILY, CONTINUOUS_SURVIVAL_FAMILY, "dose_response"):
+    if family in (
+        AUGMENTED_TRIAL_FAMILY,
+        CONTINUOUS_SURVIVAL_FAMILY,
+        CONTINUOUS_LONGITUDINAL_FAMILY,
+        "dose_response",
+    ):
         # The rows read the engine's own record; none of the point-treatment or
         # longitudinal rules below reads an adaptive TMLE, continuous-time or dose-response
         # fit.
@@ -2019,6 +2093,11 @@ def replayability(result: Any) -> Replayability:
         )
         ok = not absent
         return Replayability(True, False, False, ok, False, absent, rerun_configuration=ok)
+    if _family(result) == CONTINUOUS_LONGITUDINAL_FAMILY:
+        # A continuous-time longitudinal fit keeps its record and its estimates. No adapter
+        # replays or refits its node passes (X105 part (d)), so nothing retargets, refits or
+        # reruns.
+        return Replayability(True, False, False, False, False, ("node-pass replay adapter",))
     if _family(result) == "effect_modification":
         return _curve_replayability(result)
     if _family(result) == "dose_response":
@@ -3475,6 +3554,16 @@ class DiagnosticsFacade(_CapabilityFacade):
             return _cached(
                 self._result, "diagnostics.support", (), {}, lambda: support_report(self._result)
             )
+        if _family(self._result) == CONTINUOUS_LONGITUDINAL_FAMILY:
+            from .survival.longitudinal_diagnostics import support_report as longitudinal_support
+
+            return _cached(
+                self._result,
+                "diagnostics.support",
+                (),
+                {},
+                lambda: longitudinal_support(self._result),
+            )
         if _family(self._result) == "dose_response":
             from .estimators.dose_response import dose_support_report
 
@@ -3581,6 +3670,10 @@ class DiagnosticsFacade(_CapabilityFacade):
                 from .survival.diagnostics import nuisance_report
 
                 return nuisance_report(self._result)
+            if _family(self._result) == CONTINUOUS_LONGITUDINAL_FAMILY:
+                from .survival.longitudinal_diagnostics import nuisance_report as longitudinal
+
+                return longitudinal(self._result)
             if _family(self._result) == "dose_response":
                 from .estimators.dose_response import dose_nuisance_report
 
@@ -3639,7 +3732,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             family = _family(self._result)
             if family == AUGMENTED_TRIAL_FAMILY:
                 alpha = float(self._result.method.inference.alpha)
-            elif family == CONTINUOUS_SURVIVAL_FAMILY:
+            elif family in (CONTINUOUS_SURVIVAL_FAMILY, CONTINUOUS_LONGITUDINAL_FAMILY):
                 # Every estimate of the fit carries the one alpha the engine was given.
                 alpha = float(next(iter(self._result.estimates.values())).alpha)
             elif family == "dose_response":
@@ -3696,6 +3789,8 @@ class DiagnosticsFacade(_CapabilityFacade):
             raise CapabilityError.from_refusal(score_tolerance_refusal())
         if tolerance is not None and _family(self._result) == CONTINUOUS_SURVIVAL_FAMILY:
             raise CapabilityError.from_refusal(SCORE_TOLERANCE_REFUSAL)
+        if tolerance is not None and _family(self._result) == CONTINUOUS_LONGITUDINAL_FAMILY:
+            raise CapabilityError.from_refusal(LONGITUDINAL_SCORE_TOLERANCE_REFUSAL)
         resolved = DEFAULT_TOLERANCE if tolerance is None else tolerance
 
         def compute() -> Any:
@@ -3708,6 +3803,10 @@ class DiagnosticsFacade(_CapabilityFacade):
                 from .survival.diagnostics import score_report
 
                 return score_report(self._result)
+            if _family(self._result) == CONTINUOUS_LONGITUDINAL_FAMILY:
+                from .survival.longitudinal_diagnostics import score_report as longitudinal
+
+                return longitudinal(self._result)
             if _family(self._result) == "dose_response":
                 from .estimators.dose_response import dose_score_report
 
@@ -4158,6 +4257,47 @@ def _continuous_survival_item(operation: str, report: Any) -> AssessmentItem:
     return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
 
 
+def _continuous_longitudinal_item(operation: str, report: Any) -> AssessmentItem:
+    """The combined-report row of one continuous-time longitudinal diagnostic."""
+    if operation == "support":
+        caps = ", ".join(f"{r} K*={report.caps[r]}" for r in report.regimes)
+        followers = min(report.followers_at_last.values())
+        past = max((max(v, default=0.0) for v in report.past_cap_share.values()), default=0.0)
+        detail = (
+            f"floor {report.weight_floor:.3g} on the treatment-censoring product raised "
+            f"{report.bounded_share:.1%} of the followed cells; {report.jump_bound_share:.1%} "
+            f"of node rows had a death jump and {report.visit_bound_share:.1%} a visit jump "
+            f"bounded below one; visit caps {caps}; fewest followers at the last target time "
+            f"{followers}; largest estimated share past the cap {past:.1%}"
+        )
+        if report.severity == "adequate":
+            return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.WARNING,
+            f"{detail}; {_POSITIVITY_SEVERITY_REASON[report.severity]}",
+            ("inspect result.diagnostics.support()",),
+        )
+    if operation == "score_equations":
+        nodes = sum(len(steps) for steps in report.steps.values())
+        detail = (
+            f"{len(report.standardized_score)} score row(s); worst |P_n D*| / sigma = "
+            f"{report.worst_ratio:.3g} x the cutoff {report.cutoff:.3g}; {nodes} node walk(s)"
+        )
+        if report.passed:
+            return AssessmentItem(operation, AssessmentStatus.PASSED, detail)
+        return AssessmentItem(
+            operation,
+            AssessmentStatus.FAILED,
+            detail,
+            ("inspect result.diagnostics.score_equations()",),
+        )
+    chosen = "; ".join(f"{row.role}: {row.chosen}" for row in report.rows)
+    where = f"first of {report.n_folds} folds" if report.cross_fitted else "full sample"
+    detail = f"{len(report.rows)} selection(s) ({where}); {chosen}"
+    return AssessmentItem(operation, AssessmentStatus.COMPLETED, detail)
+
+
 def _debiasing_score_item(report: Any) -> AssessmentItem:
     """The row of an EP curve's debiasing scores: completed, with no pass rule.
 
@@ -4200,6 +4340,8 @@ def _score_item(
         return _augmented_trial_item("score_equations", report)
     if is_continuous_survival(result):
         return _continuous_survival_item("score_equations", report)
+    if is_continuous_longitudinal(result):
+        return _continuous_longitudinal_item("score_equations", report)
     if isinstance(report, DebiasingScores):
         return _debiasing_score_item(report)
     if isinstance(report, DoseResponseScoreReport):
@@ -4382,6 +4524,8 @@ def _support_item(
         return _augmented_trial_item("support", report)
     if is_continuous_survival(_result):
         return _continuous_survival_item("support", report)
+    if is_continuous_longitudinal(_result):
+        return _continuous_longitudinal_item("support", report)
     if isinstance(report, DoseResponseSupportReport):
         return _dose_support_item(report)
     warning = _support_warning(report)
@@ -4434,6 +4578,8 @@ def _nuisance_item(
         return _augmented_trial_item("nuisance_models", report)
     if is_continuous_survival(_result):
         return _continuous_survival_item("nuisance_models", report)
+    if is_continuous_longitudinal(_result):
+        return _continuous_longitudinal_item("nuisance_models", report)
     findings = tuple(getattr(report, "findings", ()))
     if isinstance(report, LongitudinalNuisanceDiagnostics):
         finite = [row.loss for row in report.rows if np.isfinite(row.loss)]
@@ -5656,10 +5802,33 @@ _CONTINUOUS_SURVIVAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
 )
 
 
+def _continuous_longitudinal_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
+    """Every sensitivity row of a continuous-time longitudinal fit, each an inference gap."""
+    return tuple(
+        _capability(
+            row.operation,
+            CONTINUOUS_LONGITUDINAL_FAMILY,
+            artifacts=row.required_artifacts,
+            interpretation=row.interpretation,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            refusal=continuous_longitudinal_refusal(row.operation),
+        )
+        for row in _STRUCTURAL_SENSITIVITY
+    )
+
+
+#: The sensitivity declarations of a continuous-time longitudinal fit (X6 part (e)).
+_CONTINUOUS_LONGITUDINAL_SENSITIVITY: tuple[AssessmentCapability, ...] = (
+    _continuous_longitudinal_sensitivity_rows()
+)
+
+
 #: The families whose every sensitivity row is declared refused, so no request lifts one.
 _REFUSED_SENSITIVITY_FAMILIES = (
     "structural",
     AUGMENTED_TRIAL_FAMILY,
+    CONTINUOUS_LONGITUDINAL_FAMILY,
     "effect_modification",
     "dose_response",
 )
@@ -5845,6 +6014,8 @@ class SensitivityFacade(_CapabilityFacade):
             return _CURVE_SENSITIVITY
         if family == "dose_response":
             return _DOSE_RESPONSE_SENSITIVITY
+        if family == CONTINUOUS_LONGITUDINAL_FAMILY:
+            return _CONTINUOUS_LONGITUDINAL_SENSITIVITY
         if family == CONTINUOUS_SURVIVAL_FAMILY:
             refused = {row.operation: row for row in _CONTINUOUS_SURVIVAL_SENSITIVITY}
             refused["simulated_confounding"] = self._continuous_simulated_row()
@@ -6518,6 +6689,7 @@ class SensitivityFacade(_CapabilityFacade):
             "longitudinal",
             AUGMENTED_TRIAL_FAMILY,
             CONTINUOUS_SURVIVAL_FAMILY,
+            CONTINUOUS_LONGITUDINAL_FAMILY,
             "effect_modification",
             "dose_response",
         ):

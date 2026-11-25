@@ -21,6 +21,7 @@ from cleverly.exceptions import (
     PositivityWarning,
 )
 from cleverly.interventions import Incremental, Shift, Static, Stochastic
+from cleverly.sensitivity import evalue
 from cleverly.survival import (
     ContinuousLongitudinalData,
     ContinuousLongitudinalResult,
@@ -30,7 +31,9 @@ from cleverly.survival import (
     longitudinal,
 )
 from cleverly.survival import _longitudinal_nuisance as nuisance
+from cleverly.survival.diagnostics import continuous_truncation_curve
 from cleverly.survival.longitudinal_result import PENDING_REASON
+from cleverly.validation import refute
 from tests.unit._continuous_longitudinal_support import CT_COLUMNS, simulate_ct
 
 pytestmark = pytest.mark.xdist_group("continuous_longitudinal")
@@ -120,6 +123,64 @@ def test_reduces_to_the_baseline_engine() -> None:
                 assert abs(other.psi - estimate.psi) <= 2 * 1e-3 * sigma
 
 
+def test_saturated_fits_reduce_to_the_baseline_engine(monkeypatch: Any) -> None:
+    """T-e5 (i): with no visit and saturated learners in sample, no walk moves and every
+    estimate, standard error and influence curve equals the baseline engine's to 1e-10.
+
+    1,500 units keep every cell of ``(A, W1, W2, L)`` populated with survivors, so no hazard
+    jump reaches one and the saturated initial fits solve every score. The baseline refuses a
+    user treatment learner in sample, so the test sets ``cross_fit`` after construction, as
+    the longitudinal side lifts C13.
+    """
+    from tests.unit._continuous_longitudinal_support import (
+        CellClassifier,
+        CellHazard,
+        CellRegressor,
+    )
+
+    monkeypatch.setattr(longitudinal, "_user_learners_in_sample", lambda estimator: None)
+    data = ContinuousLongitudinalData.from_frame(
+        simulate_ct(1500, 3, visits=False),
+        id="id",
+        start="start",
+        stop="stop",
+        event="event",
+        treatment="A",
+        baseline=["W1", "W2"],
+        time_varying=["L"],
+    )
+    saturated = {
+        "hazard_library": [CellHazard()],
+        "censoring_library": [CellHazard()],
+        "treatment_learner": CellClassifier(),
+        "g_bounds": 1e-6,
+        "tol": 1e-12,
+        "random_state": 0,
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        baseline_estimator = ContinuousSurvivalTMLE(
+            [10.0, 20.0], variance="influence_curve", **saturated
+        )
+        baseline_estimator.cross_fit = False
+        baseline = baseline_estimator.fit_data(data.baseline_view())
+        engine = ContinuousLongitudinalTMLE(
+            [10.0, 20.0],
+            regimes={"0": 0, "1": 1},
+            cross_fit=False,
+            visit_library=[CellHazard()],
+            continuation_learner=CellRegressor(),
+            **saturated,
+        ).fit_data(data)
+    assert baseline.record.steps == 0 and baseline.record.converged
+    assert engine.record.steps == ((0,), (0,)) and engine.record.converged
+    for name, estimate in baseline.items():
+        other = engine[name]
+        assert other.psi == pytest.approx(estimate.psi, abs=1e-10), name
+        assert other.std_error == pytest.approx(estimate.std_error, abs=1e-10), name
+        np.testing.assert_allclose(other.influence_curve, estimate.influence_curve, atol=1e-10)
+
+
 # ---------------------------------------------------------------------- the result
 
 
@@ -142,6 +203,23 @@ def test_result_reads_every_regime(result: Any) -> None:
     assert set(result.initial_estimates) <= set(result)
 
 
+def test_initial_estimates_follow_the_arms(frame: pd.DataFrame) -> None:
+    """With no step, each initial risk is its estimate, whatever order the regimes came in.
+
+    The record keeps the regimes in the order given and the result puts the reference first;
+    here the two orders differ, so reading the record in the result's order would swap them.
+    """
+    fit = _fit(frame, regimes={"never": 0, "always": 1}, reference="always", max_iter=0)
+    assert fit.arms == ("always", "never")
+    assert fit.record.regimes == ("never", "always")
+    initial = fit.initial_estimates
+    assert set(initial) == {name for name in fit if not name.startswith("rr_")}
+    for name, value in initial.items():
+        assert value == pytest.approx(fit[name].psi, abs=1e-12)
+    always, never = (fit[f"cif_regimen[{a}, 1 @ t=10]"].psi for a in ("always", "never"))
+    assert always != pytest.approx(never)
+
+
 def test_every_estimate_is_experimental(result: Any) -> None:
     """The labels of 3.5.9 before E2: every estimate names the pending study."""
     for estimate in result.values():
@@ -150,24 +228,50 @@ def test_every_estimate_is_experimental(result: Any) -> None:
 
 
 def test_restricted_means_and_assessments_refuse(result: Any) -> None:
-    """C9, and the refits and sensitivity analyses the plan refuses."""
+    """C9, and the refits and sensitivity analyses the plan refuses (3.5.11)."""
     with pytest.raises(CapabilityError, match="restricted mean is not one of its targets"):
         result.rmtl("always", 10.0)
     with pytest.raises(CapabilityError, match="restricted mean"):
         result.rmst("always", 10.0)
-    for call in (result.validate, result.assess, result.refute):
-        with pytest.raises(CapabilityError, match="no adapter replays") as caught:
-            call()
-        assert caught.value.refusal.roadmap == "X105"
-    with pytest.raises(CapabilityError, match="point exposure"):
-        _ = result.sensitivity
+    with pytest.raises(CapabilityError, match="no adapter replays") as caught:
+        result.refute()
+    assert caught.value.refusal.roadmap == "X105"
+    with pytest.raises(CapabilityError, match="point exposure") as caught:
+        result.sensitivity.evalue()
+    assert caught.value.refusal.reason.value == "inference_gap"
     with pytest.raises(CapabilityError, match="not a target time"):
         result.curve(times=[15.0])
-    for name in ("plot", "summary"):
-        with pytest.raises(CapabilityError, match="not built for a continuous-time longitudinal"):
-            getattr(result, name)()
-    with pytest.raises(CapabilityError, match="Read record"):
-        _ = result.diagnostics
+
+
+def test_summary_diagnostics_and_batteries_read_the_record(result: Any) -> None:
+    """T-e19: the summary, the record's diagnostics, and batteries that name each refusal."""
+    record = result.record
+    assert "irregular visits" in str(result.summary())
+    assert "Assumptions" in str(result.summary(detail="full"))
+    support = result.diagnostics.support()
+    assert support.bounded_share == record.bounded_share
+    assert support.caps == dict(zip(record.regimes, record.caps, strict=True))
+    scores = result.diagnostics.score_equations()
+    assert scores.passed == record.converged
+    assert scores.cutoff == record.cutoff
+    with pytest.raises(CapabilityError, match="s_n / N"):
+        result.diagnostics.score_equations(tolerance=1e-3)
+    nuisances = result.diagnostics.nuisance_models()
+    assert [row.role for row in nuisances.rows][-2:] == ["censoring hazard", "treatment"]
+    report = result.assess()
+    refused = {item.name: item.refusal for item in report.diagnostics.items if item.refusal}
+    assert refused["refute"].roadmap == "X105"
+    assert refused["truncation_curve"].roadmap == "X105"
+    reasons = {item.refusal.reason.value for item in report.sensitivity.items}
+    assert reasons == {"inference_gap"}
+    assert result.validate().passed
+    with pytest.raises(CapabilityError, match="no adapter replays") as caught:
+        refute(result)
+    assert caught.value.refusal.roadmap == "X105"
+    with pytest.raises(CapabilityError, match="no adapter replays"):
+        continuous_truncation_curve(result)
+    with pytest.raises(CapabilityError, match="point exposure"):
+        evalue(result)
 
 
 def test_record_states_the_window_and_the_cap(result: Any) -> None:
@@ -315,78 +419,128 @@ def test_visit_at_a_death_is_dropped_with_a_warning() -> None:
 # ---------------------------------------------------------------------- T-e21, T-e23
 
 
-def test_folds_are_drawn_by_unit(frame: pd.DataFrame, monkeypatch: Any) -> None:
-    """T-e21: every unit's rows share one outer fold and one inner label."""
+class _Stop(Exception):
+    """Raised after the first hazard fit, which holds every fold label the test reads."""
+
+
+def _first_hazard_fit(frame: pd.DataFrame, monkeypatch: Any) -> tuple[Any, Any, Any]:
+    """The segments, the outer folds by unit and the first hazard fit's inner labels by row."""
     seen: list[Any] = []
-    original_segments, original_fit = nuisance.segments, nuisance.fit_hazard
+    outer: list[Any] = []
+    calls: list[Any] = []
+    original_segments, original_folds = nuisance.segments, nuisance.unit_folds
 
     def segments(*args: Any) -> Any:
         seen.append(original_segments(*args))
         return seen[-1]
 
-    calls: list[Any] = []
+    def unit_folds(event: Any, n_folds: int, rng: Any) -> Any:
+        outer.append(original_folds(event, n_folds, rng))
+        return outer[-1]
 
     def fit_hazard(library: Any, X: Any, time: Any, event: Any, entry: Any, folds: Any, w: Any):
-        calls.append((entry.copy(), folds.copy()))
-        return original_fit(library, X, time, event, entry, folds, w)
+        calls.append(folds.copy())
+        raise _Stop
 
-    monkeypatch.setattr(nuisance, "segments", segments)
-    monkeypatch.setattr(nuisance, "fit_hazard", fit_hazard)
+    with monkeypatch.context() as patch:
+        patch.setattr(nuisance, "segments", segments)
+        patch.setattr(nuisance, "unit_folds", unit_folds)
+        patch.setattr(nuisance, "fit_hazard", fit_hazard)
+        with pytest.raises(_Stop):
+            _fit(frame, cross_fit=True, n_folds=3)
+    return seen[0], outer[0], calls[0]
+
+
+def _one_label_per_unit(seg: Any, folds: Any, inner: Any) -> bool:
+    """Whether the first outer fold's training rows carry one inner label per unit."""
+    train = folds[seg.unit] != np.unique(folds)[0]
+    units = seg.unit[train]
+    if inner.size != units.size:
+        return False
+    return all(np.unique(inner[units == unit]).size == 1 for unit in np.unique(units))
+
+
+def test_folds_are_drawn_by_unit(frame: pd.DataFrame, monkeypatch: Any) -> None:
+    """T-e21: every unit's rows share one outer fold and one inner label.
+
+    The fit stops after its first hazard fit, which holds the labels. Mutation: the labels
+    copied to the rows by row rather than by unit; the assertion fails.
+    """
+    seg, folds, inner = _first_hazard_fit(frame, monkeypatch)
+    assert folds.shape == (frame["id"].nunique(),)
+    assert _one_label_per_unit(seg, folds, inner)
+
+    def by_row(labels: Any, unit: Any) -> Any:
+        return np.random.default_rng(0).permutation(labels[unit])
+
+    monkeypatch.setattr(longitudinal, "by_unit", by_row)
+    assert not _one_label_per_unit(*_first_hazard_fit(frame, monkeypatch))
+
+
+def _cap_by_hand(frame: pd.DataFrame, folds: Any, level: int, last: float) -> int:
+    """K* counted from the frame: the largest K whose every training fold holds 5 followers.
+
+    A follower through visit K - 1 took ``level`` at baseline and at visits 1 to K - 1, and
+    counts when its visit K falls before the last target time.
+    """
+    ids = {unit: i for i, unit in enumerate(np.sort(frame["id"].unique()))}
+    histories = [
+        (ids[unit], rows["start"].to_numpy(), rows["A"].to_numpy())
+        for unit, rows in frame.sort_values(["id", "start"]).groupby("id")
+    ]
+    K = 0
+    while True:
+        K += 1
+        units = np.array(
+            [
+                i
+                for i, start, a in histories
+                if start.size > K and start[K] < last and np.all(a[:K] == level)
+            ],
+            dtype=int,
+        )
+        if units.size == 0:
+            return K - 1
+        if min(np.count_nonzero(folds[units] != fold) for fold in np.unique(folds)) < 5:
+            return K - 1
+
+
+def test_visit_cap_under_cross_fitting(monkeypatch: Any) -> None:
+    """T-e23: one unit holds the most visits; the cross-fitted fit runs at K* counted by hand.
+
+    A 200-unit draw (the plan's 400 halved for the fast tier; one unit still holds the most
+    visits). The share's hand computation is on PL2, in the exact file. Mutation: the cap at
+    the full-sample maximum; a training fold holds no follower that far and the fit fails.
+    """
+    frame = simulate_ct(200, 4)
+    counts = frame.groupby("id").size() - 1
+    assert (counts == counts.max()).sum() == 1
     outer: list[Any] = []
-    original_folds = nuisance.unit_folds
+    original = nuisance.unit_folds
 
     def unit_folds(event: Any, n_folds: int, rng: Any) -> Any:
-        labels = original_folds(event, n_folds, rng)
-        outer.append(labels)
-        return labels
+        outer.append(original(event, n_folds, rng))
+        return outer[-1]
 
-    monkeypatch.setattr(nuisance, "unit_folds", unit_folds)
-    _fit(frame, cross_fit=True, n_folds=3)
-    seg = seen[0]
-    folds = outer[0]
-    assert folds.shape == (frame["id"].nunique(),)
-    # The first cause's fit of the first outer fold: rows of the training units, inner by unit.
-    train = folds[seg.unit] != np.unique(folds)[0]
-    inner = calls[0][1]
-    units = seg.unit[train]
-    assert inner.size == units.size
-    for unit in np.unique(units):
-        assert np.unique(inner[units == unit]).size == 1
-
-
-def test_visit_cap_under_cross_fitting() -> None:
-    """T-e23: one unit holds the most visits; the cross-fitted fit runs at the rule's cap."""
-    frame = simulate_ct(400, 23)
-    counts = frame.groupby("id").size() - 1
-    top = int(counts.idxmax())
-    assert (counts == counts.max()).sum() == 1
-    with warnings.catch_warnings():
+    horizons = [10.0, 20.0, 30.0]
+    estimator = ContinuousLongitudinalTMLE(
+        horizons, regimes=REGIMES, reference="never", n_folds=10, random_state=0, **COX
+    )
+    with monkeypatch.context() as patch, warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fit = ContinuousLongitudinalTMLE(
-            [10.0, 20.0, 30.0],
-            regimes=REGIMES,
-            reference="never",
-            n_folds=10,
-            random_state=0,
-            **COX,
-        ).fit(frame, **CT_COLUMNS)
+        patch.setattr(nuisance, "unit_folds", unit_folds)
+        fit = estimator.fit(frame, **CT_COLUMNS)
     assert all(np.isfinite(e.psi) and np.isfinite(e.std_error) for e in fit.values())
-    assert max(fit.record.caps) < counts.max()
-    assert top >= 0
-    # The cap at the full-sample maximum leaves a training fold with no visit there.
-    with pytest.raises(Exception):  # noqa: B017
-        original = nuisance.visit_cap
+    hand = tuple(
+        _cap_by_hand(frame, outer[0], REGIMES[r], horizons[-1]) for r in fit.record.regimes
+    )
+    assert fit.record.caps == hand
+    assert max(hand) < counts.max()
 
-        def full(*args: Any, **kwargs: Any) -> Any:
-            return int(counts.max()), -1, 0
-
-        try:
-            nuisance.visit_cap = full
-            ContinuousLongitudinalTMLE(
-                [10.0, 20.0, 30.0], regimes=REGIMES, n_folds=10, random_state=0, **COX
-            ).fit(frame, **CT_COLUMNS)
-        finally:
-            nuisance.visit_cap = original
+    monkeypatch.setattr(nuisance, "visit_cap", lambda *args, **kwargs: (int(counts.max()), -1, 0))
+    with warnings.catch_warnings(), pytest.raises(ValueError):
+        warnings.simplefilter("ignore")
+        estimator.fit(frame, **CT_COLUMNS)
 
 
 # ---------------------------------------------------------------------- T-e22
@@ -444,6 +598,54 @@ def test_visit_jump_bound(monkeypatch: Any) -> None:
     assert skipped.record.visit_bound_share > 0.0
     assert all("bounded below one" in e.support.reason for e in skipped.values())
     assert all(np.isfinite(e.std_error) for e in skipped.values())
+
+
+def test_visit_jump_bound_under_cross_fitting(monkeypatch: Any) -> None:
+    """T-e22 under cross-fitting: the scheduled-visit judgment reads the full-sample rows.
+
+    The unit with the largest W2 skips the day-5 visit. It is held out of one fold, whose
+    training rows all visit at day 5, so its stitched jump reaches one there although it does
+    not visit; the full-sample judgment then bounds the jump. Mutation: keep a jump of one
+    wherever one is reached; the bound share falls to zero and the test fails.
+    """
+    calls: list[tuple[Any, Any, Any, Any]] = []
+    original = longitudinal.scheduled_visits
+
+    def spy(factual: Any, at_risk: Any, exits: Any) -> Any:
+        out = original(factual, at_risk, exits)
+        calls.append((factual, at_risk, exits, out))
+        return out
+
+    monkeypatch.setattr(longitudinal, "scheduled_visits", spy)
+    estimator = ContinuousLongitudinalTMLE(
+        [4.0, 10.0], regimes=REGIMES, n_folds=5, random_state=0, **COX
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        warnings.simplefilter("error", PositivityWarning)
+        with pytest.raises(PositivityWarning, match="a visit jump of one or more"):
+            estimator.fit(_scheduled(True), **CT_COLUMNS)
+    # Witness: a held-out row's stitched jump reaches one where it does not visit.
+    skipped = [bool(((f >= 1.0) & r & ~e).any() and not out.any()) for f, r, e, out in calls]
+    assert any(skipped)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = estimator.fit(_scheduled(True), **CT_COLUMNS)
+    assert fit.record.cross_fitted
+    assert fit.record.visit_bound_share > 0.0
+    assert all("bounded below one" in e.support.reason for e in fit.values())
+    assert all(np.isfinite(e.std_error) for e in fit.values())
+
+    def everywhere(factual: Any, at_risk: Any, exits: Any) -> Any:
+        return ((factual >= 1.0) & at_risk).any(axis=0)
+
+    monkeypatch.setattr(longitudinal, "scheduled_visits", everywhere)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mutated = ContinuousLongitudinalTMLE(
+            [4.0, 10.0], regimes=REGIMES, n_folds=5, random_state=0, max_iter=0, **COX
+        ).fit(_scheduled(True), **CT_COLUMNS)
+    assert mutated.record.visit_bound_share == 0.0
 
 
 def test_in_sample_fits_take_the_default_libraries(monkeypatch: Any) -> None:

@@ -2482,6 +2482,33 @@ def fit_continuous_survival_bootstrap() -> Any:
     return fit_continuous_survival(n_bootstrap=20, simultaneous=True, horizons=(1.0, 1.5))
 
 
+def fit_continuous_longitudinal() -> Any:
+    """The in-sample continuous-time longitudinal TMLE (X6 part (e)) of two causes, n = 300.
+
+    A draw of law CT (``tests.unit._continuous_longitudinal_support.simulate_ct``) to day 20,
+    the regimes "always" and "never" at days 8 and 16, one main-terms Cox model for each
+    intensity and the default treatment selection. Its diagnostics read the record; the
+    refutation, the truncation curve and every sensitivity row refuse.
+    """
+    from cleverly.survival import ContinuousLongitudinalTMLE, CoxHazard
+    from tests.unit._continuous_longitudinal_support import CT_COLUMNS, simulate_ct
+
+    cox = [CoxHazard("main")]
+    with warnings.catch_warnings():
+        # Warning W1: few units follow "never" to day 16 in a draw this small.
+        warnings.simplefilter("ignore")
+        return ContinuousLongitudinalTMLE(
+            [8.0, 16.0],
+            regimes={"always": 1, "never": 0},
+            reference="never",
+            cross_fit=False,
+            hazard_library=cox,
+            visit_library=cox,
+            censoring_library=cox,
+            random_state=0,
+        ).fit(simulate_ct(300, 3, end=20.0), **CT_COLUMNS)
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -2845,6 +2872,10 @@ KINDS: dict[str, Kind] = {
     "continuous_survival+bootstrap": _kind(
         fit_continuous_survival_bootstrap, *_READ, *_POINT, "evalue"
     ),
+    # X6 part (e): the continuous-time longitudinal TMLE. The three summaries read its record;
+    # no adapter replays a node pass, so refute and the truncation curve refuse (X105 part
+    # (d)), and every sensitivity row refuses with an inference gap. Nothing refits.
+    "continuous_longitudinal": _kind(fit_continuous_longitudinal, *_READ, refits=False),
     # X104: the effect curves. The summaries read the producing fit, and the five curve
     # operations refit its estimator on two folds or seeds. Every refutation and sensitivity
     # row refuses a curve (P1). Each witness kind loses the rows its fit-wide rule refuses.

@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
 
-from .._refusal import NO_ALTERNATIVE, RefusalReason
+from .._assessment_cache import AssessmentCache
+from .._continuous_longitudinal_family import CONTINUOUS_LONGITUDINAL_FAMILY, replay_refusal
+from .._refusal import RefusalReason
 from .._support import Support
 from .._typing import FloatArray
 from ..exceptions import CapabilityError
@@ -184,62 +186,6 @@ RESTRICTED_TEXT: Final[str] = (
     "A continuous-time longitudinal fit targets the risks at its target times only; a "
     "restricted mean is not one of its targets."
 )
-#: The refits and the default battery: no adapter replays a node pass (X105 part (d)).
-REPLAY_TEXT: Final[str] = (
-    "{operation} replays or refits a fit through an adapter, and no adapter replays the node "
-    "passes of the continuous-time longitudinal TMLE."
-)
-#: The sensitivity analyses: an E-value reads one point exposure's risk ratio.
-SENSITIVITY_TEXT: Final[str] = (
-    "The sensitivity analyses of this package bound the effect of one point exposure, and a "
-    "sustained regime over decision visits is not one: an E-value reads one point exposure's "
-    "risk ratio."
-)
-
-
-def _not_yet(operation: str, alternative: str) -> CapabilityError:
-    return CapabilityError(
-        f"{operation} is not built for a continuous-time longitudinal fit yet.",
-        reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative=alternative,
-        roadmap="X6",
-    )
-
-
-def replay_refusal(operation: str) -> CapabilityError:
-    """The refusal of a refit, a replay or the default battery on a longitudinal fit.
-
-    Parameters
-    ----------
-    operation : str
-        The operation, in words.
-
-    Returns
-    -------
-    CapabilityError
-        The refusal, ``IMPLEMENTATION_GAP`` with roadmap X105.
-    """
-    return CapabilityError(
-        REPLAY_TEXT.format(operation=operation),
-        reason=RefusalReason.IMPLEMENTATION_GAP,
-        alternative=NO_ALTERNATIVE,
-        roadmap="X105",
-    )
-
-
-def sensitivity_refusal() -> CapabilityError:
-    """The refusal of every sensitivity analysis on a longitudinal fit.
-
-    Returns
-    -------
-    CapabilityError
-        The refusal, ``INFERENCE_GAP``.
-    """
-    return CapabilityError(
-        SENSITIVITY_TEXT,
-        reason=RefusalReason.INFERENCE_GAP,
-        alternative="Read the regimes' risks and their differences with their intervals.",
-    )
 
 
 @dataclass(frozen=True)
@@ -288,6 +234,16 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
     estimator: ContinuousLongitudinalTMLE | None = field(default=None, repr=False)
     data: ContinuousLongitudinalData | None = field(default=None, repr=False)
 
+    #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
+    #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
+    #: another fit.
+    assessment_cache: AssessmentCache = field(
+        default_factory=AssessmentCache, init=False, repr=False, compare=False
+    )
+
+    #: The assessment family: one declaration per assessment operation in
+    #: :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`.
+    assessment_family: ClassVar[str] = CONTINUOUS_LONGITUDINAL_FAMILY
     #: The method identity of the result.
     fitted_method: ClassVar[str] = "tmle"
     _contrast_support: ClassVar[Support] = CONTRAST_SUPPORT
@@ -308,18 +264,26 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
         psi = self.record.initial_psi
         J, K = len(self.causes), len(self.horizons)
         single = J == 1
+        # The record is in the order the regimes were given; the result puts the reference
+        # first.
+        slot = {label: r for r, label in enumerate(self.record.regimes)}
+
+        def value(arm: str, j: int, k: int) -> float:
+            return float(psi[(slot[arm] * J + j) * K + k])
+
         out: dict[str, float] = {}
-        for a, arm in enumerate(self.arms):
+        for arm in self.arms:
             for j, cause in enumerate(self.causes):
                 for k, time in enumerate(self.horizons):
-                    out[level_name(arm, None if single else cause, time)] = psi[(a * J + j) * K + k]
-        for a, arm in enumerate(self.arms[1:], start=1):
+                    out[level_name(arm, None if single else cause, time)] = value(arm, j, k)
+        reference = self.arms[0]
+        for arm in self.arms[1:]:
             for j, cause in enumerate(self.causes):
                 for k, time in enumerate(self.horizons):
                     name = contrast_name(
-                        "ate_regimen", arm, self.arms[0], None if single else cause, time
+                        "ate_regimen", arm, reference, None if single else cause, time
                     )
-                    out[name] = psi[(a * J + j) * K + k] - psi[j * K + k]
+                    out[name] = value(arm, j, k) - value(reference, j, k)
         return out
 
     @property
@@ -643,87 +607,145 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
             f"regimes={len(self.arms)}, causes={len(self.causes)}, times={len(self.horizons)})"
         )
 
-    def plot(self, **kwargs: Any) -> Any:
-        """Refused in E1: the curve plot draws two arms of a baseline treatment.
+    @property
+    def bootstrap_band(self) -> None:
+        """``None``: a longitudinal fit runs no bootstrap."""
+        return None
+
+    @property
+    def restricted_horizons(self) -> tuple[float, ...]:
+        """``()``: a longitudinal fit targets no restricted mean (C9)."""
+        return ()
+
+    def summary(self, *, detail: Literal["short", "full"] = "short") -> Any:
+        """A printable report of the fit.
 
         Parameters
         ----------
-        **kwargs : Any
-            Ignored.
-
-        Returns
-        -------
-        Figure
-            Never returns.
-
-        Raises
-        ------
-        CapabilityError
-            Always, ``IMPLEMENTATION_GAP``, roadmap X6.
-        """
-        raise _not_yet("plot()", "Plot the rows of curve(), which hold every regime's risks.")
-
-    def summary(self, **kwargs: Any) -> Any:
-        """Refused in E1: no printed report is written for a longitudinal fit.
-
-        Parameters
-        ----------
-        **kwargs : Any
-            Ignored.
+        detail : {"short", "full"}
+            ``"full"`` adds the assumptions and how the node walks ended.
 
         Returns
         -------
         Summary
-            Never returns.
-
-        Raises
-        ------
-        CapabilityError
-            Always, ``IMPLEMENTATION_GAP``, roadmap X6.
+            The report.
         """
-        raise _not_yet("summary()", "Read to_frame() and record.")
+        from .._summary._continuous_longitudinal import continuous_longitudinal_summary
 
-    @property
-    def diagnostics(self) -> Any:
-        """Refused in E1: read :attr:`record`, which holds the selections and node scores."""
-        raise _not_yet("diagnostics", "Read record: the selections, caps and node scores.")
+        return continuous_longitudinal_summary(self, detail=detail)
 
-    # ------------------------------------------------------------- assessment
+    def _repr_html_(self) -> str:
+        return str(self.summary().as_html())
 
-    def validate(self) -> Any:
-        """Refused: no adapter replays the node passes (roadmap X105 part (d)).
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot each regime's risk and its difference from the reference at the target times.
 
-        Returns
-        -------
-        ValidationReport
-            Never returns.
-
-        Raises
-        ------
-        CapabilityError
-            Always, ``IMPLEMENTATION_GAP``.
-        """
-        raise replay_refusal("validate()")
-
-    def assess(self, **kwargs: Any) -> Any:
-        """Refused: no adapter replays the node passes (roadmap X105 part (d)).
+        Each estimate is drawn at its target time with its interval and, when the fit holds
+        one, its simultaneous band. Nothing is drawn between target times, where the fit
+        estimates no risk.
 
         Parameters
         ----------
         **kwargs : Any
-            Ignored.
+            Passed to :func:`cleverly.plotting.curve` (``scale=``, ``band=``, ``cause=``,
+            ``regimens=``, ``labels=``, ``units=``, ``time_label=``, ``truth=`` and
+            ``title=``).
 
         Returns
         -------
-        AssessmentReport
-            Never returns.
+        Figure
+            The levels above and the differences below, one column per cause.
 
         Raises
         ------
         CapabilityError
-            Always, ``IMPLEMENTATION_GAP``.
+            When the fit refuses the requested view, such as ``measure="rmst"`` (C9).
+        ValueError
+            When ``band=``, ``scale=`` or ``cause=`` do not fit together or the fit.
+        DataError
+            When ``cause=`` or ``regimens=`` names a cause or regime the fit does not hold.
         """
-        raise replay_refusal("assess()")
+        from ..plotting import curve
+
+        return curve(self, **kwargs)
+
+    # ------------------------------------------------------------- assessment
+
+    @property
+    def diagnostics(self) -> Any:
+        """The support, score, nuisance and influence diagnostics of the fit.
+
+        The support, score and nuisance reports read :attr:`record`; the refutation and the
+        truncation curve refuse (roadmap X105 part (d)).
+        """
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    @property
+    def sensitivity(self) -> Any:
+        """The sensitivity-analysis facade, whose every row refuses with an inference gap."""
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored fit."""
+        from ..assessment import replayability
+
+        return replayability(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive default battery without refitting.
+
+        Returns
+        -------
+        ValidationReport
+            The score-equation, support and nuisance checks, read off :attr:`record`.
+        """
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    def assess(
+        self,
+        *,
+        include_refits: bool = False,
+        include_retargets: bool = False,
+        arguments: Mapping[str, Mapping[str, Any]] | None = None,
+        random_state: int | None = None,
+    ) -> Any:
+        """Run the applicable post-fit assessment battery.
+
+        The validation rows read :attr:`record`. The refutation and the truncation curve
+        report their refusal (roadmap X105 part (d)), and so does every sensitivity row.
+
+        Parameters
+        ----------
+        include_refits : bool
+            Run requested operations that refit nuisance models; none runs on this fit.
+        include_retargets : bool
+            Include moderate retargets; none runs on this fit.
+        arguments : mapping or None
+            Per-operation keyword arguments.
+        random_state : int or None
+            Common seed for stochastic refit operations.
+
+        Returns
+        -------
+        AssessmentReport
+            Validation, diagnostics, and sensitivity in one report.
+        """
+        from ..assessment import assess_result
+
+        return assess_result(
+            self,
+            include_refits=include_refits,
+            include_retargets=include_retargets,
+            arguments=arguments,
+            random_state=random_state,
+        )
 
     def refute(self, **kwargs: Any) -> Any:
         """Refused: no adapter refits the node passes (roadmap X105 part (d)).
@@ -743,12 +765,7 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
         CapabilityError
             Always, ``IMPLEMENTATION_GAP``.
         """
-        raise replay_refusal("refute()")
-
-    @property
-    def sensitivity(self) -> Any:
-        """Refused: a sustained regime is not one point exposure (``INFERENCE_GAP``)."""
-        raise sensitivity_refusal()
+        raise CapabilityError.from_refusal(replay_refusal("refute()"))
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
