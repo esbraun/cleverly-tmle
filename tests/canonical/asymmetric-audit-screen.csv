@@ -52,7 +52,7 @@ ctmle-oat-per-arm-strata-missing,neutral,10,0,10,0.005,,robustness_contract/ate_
 default-simultaneous-bands,neutral,1,0,1,0.001,,default_fit/atc;default_fit/att,2,,ok,0,,0,scope refit: no unsettled group takes MOVER or the skew-widened t
 deterministic-regimes,neutral,1,0,0,0.0,,,14,interval_calibration/rule__correctly_specified@1.25,ok,10,,0,R_a bound: no verdict moves at either end of either side
 dose-response,current,0,0,0,0.0,,,0,,,0,,0,regenerated under the shipped intervals (Fix-9)
-dose-response-npcausal,neutral,0,0,0,0.0,,,6,,,0,,0,
+dose-response-npcausal,current,0,0,0,0.0,,,0,,,0,,0,regenerated under the shipped intervals (Fix-9)
 drtmle-foldwise,neutral,3,0,3,0.000333,,double_robustness/ate__benkeser_order;double_robustness/ate__bivariate;double_robustness/ate__bivariate_oc;double_robustness/ate__k5;double_robustness/ate__spline_qr;double_robustness/marginal_ate__stratified;double_robustness/v0_ate__stratified;double_robustness/v1_ate__stratified;double_robustness/v2_ate__stratified;fold_locality/ate__foldwise,7,,ok,11,,1,R_a bound: no verdict moves at either end of either side; 1 refit records missed their committed row and the replay rule accepted them (cause not diagnosed)
 drtmle-foldwise-n1500,neutral,1,0,1,0.001,,,4,,,0,,0,
 drtmle-one-wrong,neutral,7,0,7,0.00425,,,5,,,0,,0,
