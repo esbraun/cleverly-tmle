@@ -329,9 +329,15 @@ def modifier_stability_refusal(curve: Any) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        The record when the basis reads fewer than two modifiers, or when dropping a
-        modifier leaves an additive basis empty.
+        The record when the producing fit's method has no held-out curve checks (the row's
+        fit-wide rule, which comes first), when the basis reads fewer than two modifiers, or
+        when dropping a modifier leaves an additive basis empty.
     """
+    from .effect_modification import curve_tools_refusal
+
+    tools = curve_tools_refusal(getattr(curve, "fitted_method", None))
+    if tools is not None:
+        return tools
     estimator = _estimator_of(curve)
     if estimator is None:
         return None

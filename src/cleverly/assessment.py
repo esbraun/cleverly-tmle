@@ -6863,9 +6863,14 @@ class SensitivityFacade(_CapabilityFacade):
             or (_family(self._result) == CONTINUOUS_SURVIVAL_FAMILY and operation != "evalue")
             or _is_projection(self._result)
         ):
-            # The omitted-variable rows read the request, which can lift their refusal.
+            # The omitted-variable rows read the request, which can lift their refusal, and the
+            # benchmark row reads its covariates, which a projection fit refuses or runs by
+            # whether the declared basis reads them.
             self._require(
-                operation, kwargs if operation in self._CONSISTENT_MECHANISM_OPERATIONS else None
+                operation,
+                kwargs
+                if operation in self._CONSISTENT_MECHANISM_OPERATIONS or operation == "benchmark"
+                else None,
             )
 
     def _with_default_parameter(
