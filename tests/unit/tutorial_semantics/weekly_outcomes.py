@@ -257,7 +257,7 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     bound = "no longitudinal sensitivity derivation is registered"
     with pytest.raises(CapabilityError, match=bound):
         sensitivity.omitted_variable_bounds(result, estimand=estimand)
-    with pytest.raises(CapabilityError, match="F16"):
+    with pytest.raises(CapabilityError, match=bound):
         sensitivity.robustness_value(result, estimand=estimand)
     with pytest.raises(CapabilityError, match=bound):
         sensitivity.evalue(result, estimand)
