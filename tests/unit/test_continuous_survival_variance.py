@@ -374,6 +374,52 @@ def test_the_relative_sd_floor_labels_risks_and_differences(
     assert "sparse" in label(0.5, share=0.3).reason
 
 
+def test_an_in_sample_fit_reads_supported_only_in_the_variance_studys_cell() -> None:
+    """In sample: two causes, no restricted horizon, at least IN_SAMPLE_N units."""
+
+    def support(**extra: Any) -> Any:
+        values: dict[str, Any] = {
+            "scale": "level",
+            "event_share": 0.6,
+            "n": result_module.IN_SAMPLE_N,
+            "causes": 2,
+            "cross_fitted": False,
+            "default_nuisances": True,
+            "settings": result_module.MEASURED_DEFAULTS,
+            "variance_rel_sd": 0.1,
+        }
+        return continuous_survival_support(**(values | extra))
+
+    matched = support()
+    assert matched.label == "supported"
+    assert matched.evidence == ("continuous-survival-variance",)
+    assert support(scale="difference").label == "supported"
+    # Each departure from the cell is named; the cross-fitted floor of 500 does not apply.
+    assert "has 999 units" in support(n=999).reason
+    assert support(n=999, cross_fitted=True).label == "supported"
+    assert "has 3 causes" in support(causes=3).reason
+    assert "has 1 cause" in support(causes=1).reason
+    horizon = support(restricted_horizons=1)
+    assert horizon.label == "experimental"
+    assert "targets a restricted horizon" in horizon.reason
+    assert support(scale="ratio").label == "experimental"
+    assert support(event_share=0.3).label == "experimental"
+    assert support(default_nuisances=False).label == "experimental"
+
+
+def test_the_in_sample_floor_is_the_variance_studys_passed_cell() -> None:
+    """IN_SAMPLE_N is the n of the in-sample cell, and every primary row of it passed."""
+    import pandas as pd
+
+    from tests.studies import continuous_survival_variance as study
+
+    assert study.ALL_CELLS["v4_in_sample"][1:] == (result_module.IN_SAMPLE_N, False)
+    floors = pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE))
+    cell = floors[(floors["scenario"] == "v4_in_sample") & (floors["rule"] == "primary")]
+    assert len(cell) == 12
+    assert cell["rule_passed"].all()
+
+
 def test_the_engine_passes_each_curves_spread_to_the_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
