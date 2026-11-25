@@ -248,16 +248,25 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     nudge_result = namespace["nudge_result"]
     estimand = _key("always", 3)
     grid = sensitivity.ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1))
-    with pytest.raises(CapabilityError, match="repeated outcome"):
+    with pytest.raises(CapabilityError, match="has no replay for a repeated outcome") as excinfo:
         sensitivity.simulated_confounding(result, grid=grid, estimand=estimand)
+    assert "F13" in str(excinfo.value)
     with pytest.raises(CapabilityError, match="IPSI fit"):
         sensitivity.simulated_confounding(nudge_result, grid=grid, estimand=_tilt_key(3))
-    with pytest.raises(CapabilityError, match="F16"):
+    # "no bound on a missing confounder when treatments repeat over time".
+    bound = "no longitudinal sensitivity derivation is registered"
+    with pytest.raises(CapabilityError, match=bound):
         sensitivity.omitted_variable_bounds(result, estimand=estimand)
     with pytest.raises(CapabilityError, match="F16"):
         sensitivity.robustness_value(result, estimand=estimand)
-    with pytest.raises(CapabilityError, match="F16"):
+    with pytest.raises(CapabilityError, match=bound):
         sensitivity.evalue(result, estimand)
+    # The tracking-loss tilt is refused too.
+    with pytest.raises(
+        CapabilityError, match="no longitudinal missingness-tilt adapter"
+    ) as excinfo:
+        sensitivity.missingness_tilt(result, estimands=[estimand])
+    assert "F16" in str(excinfo.value)
 
 
 def _check_sdr(namespace: dict[str, Any]) -> None:

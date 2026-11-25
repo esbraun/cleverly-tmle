@@ -317,3 +317,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
         simulated_confounding(namespace["ate_fit"], grid=grid)
     assert "F12" in str(excinfo.value)
+    assert (
+        "moves the treatment of a missing-outcome fit only under a declared response mechanism "
+        "that reads the covariates alone" in str(excinfo.value)
+    )

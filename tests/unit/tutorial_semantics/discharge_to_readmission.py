@@ -46,6 +46,7 @@ UNPRINTED_DECIMALS = dict.fromkeys(
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "assessment-reading": {"0.01": "estimate"},
     "method-evidence": {"-0.1539": "data"},
+    "interpret": {"2.15": "evalue", "4.1": "sensitivity"},
 }
 
 

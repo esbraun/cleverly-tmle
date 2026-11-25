@@ -678,7 +678,9 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
     # The skipped checks of the reading, each refused as the reading states.
     wide = namespace["panel"].pivot(index="customer", columns="week")
     tenure = wide[("tenure", 1)].to_numpy()
-    with pytest.raises(CapabilityError, match="equals the adjustment column 'tenure'"):
+    with pytest.raises(
+        CapabilityError, match="the pre-treatment control equals the adjustment column 'tenure'"
+    ):
         refute(
             result,
             estimand=estimand,
