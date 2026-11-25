@@ -11,6 +11,7 @@ refusals, then a deliberately wrong row builder that the fit-level comparison mu
 from __future__ import annotations
 
 import dataclasses
+import pickle
 import tracemalloc
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -86,6 +87,11 @@ def _row_cases() -> Iterator[tuple[str, CausalData, Any, float | None]]:
     ).with_dose_declarations(dose_atoms=(0.0,))
     yield "dose atom, per-row shift", data_dose, np.asarray(dose["A"]) + 0.5, None
     yield "dose atom, fixed dose", data_dose, 0.0, None
+    yield "dose atom, fixed dose off the atom", data_dose, 1.5, None
+    plain = CausalData.from_frame(
+        dose, outcome="Y", treatment="A", covariates=_covariates(dose), treatment_kind="continuous"
+    )
+    yield "continuous, fixed dose", plain, 1.5, None
     cde = _frame()
     cde["Z"] = np.random.default_rng(6).binomial(1, 0.5, len(cde)).astype(float)
     data_z = CausalData.from_frame(
@@ -119,6 +125,30 @@ def test_rows_are_the_full_designs_rows(case: tuple[str, CausalData, Any, float 
     whole = lazy.rows(None)
     assert whole.tobytes() == full.tobytes()
     assert _layout(whole) == _layout(full)
+
+
+@pytest.mark.parametrize("case", list(_row_cases()), ids=lambda case: case[0])
+def test_a_pickled_row_design_builds_the_same_rows(
+    case: tuple[str, CausalData, Any, float | None],
+) -> None:
+    _, data, value, level = case
+    lazy = data.counterfactual_rows(value, intermediate_value=level)
+    back = pickle.loads(pickle.dumps(lazy))
+    index = np.array([4, 0, 9])
+    assert back.rows(index).tobytes() == lazy.rows(index).tobytes()
+    assert back.rows(None).tobytes() == lazy.rows(None).tobytes()
+    assert _layout(back.rows(None)) == _layout(lazy.rows(None))
+
+
+def test_a_constant_row_design_pickles_as_one_row() -> None:
+    # A worker process is sent one row per key, not n: the covariates dominate the payload.
+    frame = _frame(n=20_000)
+    data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=_covariates(frame))
+    constant = len(pickle.dumps(data.counterfactual_rows(1.0)))
+    per_row = len(pickle.dumps(data.counterfactual_rows(np.ones(data.n))))
+    covariates = len(pickle.dumps(data.covariates))
+    assert constant < covariates + 2_000
+    assert per_row > covariates + 8 * data.n
 
 
 def test_the_row_design_holds_no_copy_of_the_covariates() -> None:

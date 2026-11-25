@@ -263,6 +263,21 @@ class RowDesign:
         self.covariates = covariates
         self.level = level
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        # A broadcast block pickles as its one row: pickling the view would write all n rows,
+        # which is what a worker process would otherwise be sent for every key.
+        if self.treatment.ndim == 2 and self.treatment.strides[0] == 0:
+            return (
+                _broadcast_row_design,
+                (
+                    np.array(self.treatment[:1]),
+                    self.treatment.shape[0],
+                    self.covariates,
+                    self.level,
+                ),
+            )
+        return (RowDesign, (self.treatment, self.covariates, self.level))
+
     @property
     def shape(self) -> tuple[int, int]:
         """``(n, width)`` of the design this stands for."""
@@ -301,6 +316,13 @@ class RowDesign:
         if self.level is not None:
             blocks.append(np.full((blocks[0].shape[0], 1), float(self.level)))
         return np.hstack(blocks)
+
+
+def _broadcast_row_design(
+    row: FloatArray, n: int, covariates: FloatArray, level: float | None
+) -> RowDesign:
+    """Rebuild a pickled :class:`RowDesign` whose treatment block is one row for everybody."""
+    return RowDesign(np.broadcast_to(row, (n, row.shape[1])), covariates, level)
 
 
 @dataclass(frozen=True)
