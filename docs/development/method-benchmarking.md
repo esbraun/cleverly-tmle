@@ -173,6 +173,9 @@ the case `k = 0` reproduces the complete case.
 | S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
 | S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a ratio that must stay at or above its boundary | point exact, interval enumerated | `range` |
 | S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
+| S10m, S10x median and largest gap | `ic_gap` caps at 2,000 (median) and 20,000 (every draw) in `mtp-density-tails` | lost gaps at the survivor maximum for a positive, at the survivor minimum for a control | exact | `range` |
+| S10r ratio of median gaps | the `ic_gap` fall from 2,000 to 20,000 in `mtp-density-tails` | lost 20,000 gaps at the survivor maximum and lost 2,000 gaps at the survivor minimum for a positive, the reverse for a control | exact | `range` |
+| S3c warned-draw count | the `cluster_warning` counts in `mtp-density-tails` | lost draws at the indicator that turns the verdict red: unwarned for a floor, warned for a ceiling, and the reverse for a control | exact | `support` |
 | S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
 | S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` |
 | S14 two-size absolute-bias bound | single robustness, sequential robustness | the larger size at every vertex split, the smaller size at equal fills | exact | `range` |
@@ -257,6 +260,7 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
+| `unmoved and bound by: <clause>` | No kind of the binding search changes the estimates of the cells the clause reads, and the named clause of the same family and threshold has a witness of the subject that decides it | the pooled G and T draws of `mtp-density-tails`: none warns, so every kind leaves them at the truth, and the eager-helper control binds the ceiling |
 
 A study with thousands of cells would cost more than the job's time limit, because every
 extra-column kind of every cell summarizes every row. Its property module declares a subset

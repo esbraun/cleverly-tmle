@@ -387,15 +387,19 @@ def test_a_working_model_over_mixed_plans_reproduces_the_separate_fits() -> None
 
 
 def test_the_truncation_replay_reproduces_the_fit() -> None:
-    """The bound reaches no factor of a mixed node: its ratio sits in the numerator."""
+    """The bound reaches no factor of a mixed node on the classifier route: its ratio sits
+    in the numerator.  So the curve sweeps ``ratio_trim=``, and its fitted row is the fit."""
     from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 
     result = fit(("natural", "flag gated"), frame=law.mixed_sample(800, 9), g_bounds=(0.01, 1.0))
+    assert result.config.ratio_route.route == "classifier"
     curve = longitudinal_truncation_curve(
-        result, [(0.01, 1.0), (0.2, 1.0)], estimands=["ey_regimen[flag gated]"]
+        result, [None, 0.95], estimands=["ey_regimen[flag gated]"]
     ).set_index("is_fitted_bound")
     assert curve.loc[True, "delta_from_fitted"] == 0.0
-    assert abs(curve.loc[False, "delta_from_fitted"]) < 1e-12
+    # The trim at 0.95 binds and moves the estimate, so the sweep is not flat.
+    assert curve.loc[False, "trimmed_share"] > 0.0
+    assert abs(curve.loc[False, "delta_from_fitted"]) > 1e-8
 
 
 def test_a_bootstrap_refits_mixed_nodes() -> None:
@@ -507,12 +511,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.subset"): "point CausalData",
     ("data/causal_data.py", "RowDesign.rows"): "a counterfactual block, not a node slot",
     ("data/known_mechanism.py", "KnownNodeMechanisms.treatment_at"): "declared matrices",
-    ("estimators/_nuisance.py", "_retained_covariates"): "point CausalData",
     ("estimators/ctmle.py", "CTMLE._derivative_nuisances"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._intercept_propensity.proportions"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._fluctuate"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._lasso_propensities"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._ordering"): "point CausalData",
+    ("learners/screeners.py", "_TreatmentBasis.build"): "a plain treatment array of point data",
     ("longitudinal/collaborative.py", "_Mechanisms.__init__"): (
         "after survival_design_refusal refuses a non-categorical node"
     ),

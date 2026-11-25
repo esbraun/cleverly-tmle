@@ -15,10 +15,15 @@ kernel file names and which pytest captures; and the ``cleverly <version>`` line
 guards on its own.
 
 How two texts compare: whitespace runs collapse, and the text between number tokens must be
-equal.  An integer, such as a count of rows, must be equal.  Two decimals agree when they differ by at most one unit in the last place that both print,
-and a cell may hold at most one such last-place difference.  So a single rounding change from a
-library release passes, while a result that moved, even by one unit in several places at once,
-fails.  When a dependency release moves an output, the response is a re-execution that reads the
+equal.  An integer, such as a count of rows, must be equal.  Two decimals agree when they differ
+by at most :data:`RELATIVE_TOLERANCE` (1e-4) of their size.  Cells that read a learner fit print
+sums whose sixth significant figure changes with the machine's BLAS, CPU and Python build (CI
+printed an effective size of 5325.445 where the stored run printed 5325.470), and this tolerance
+absorbs that.  Two decimals also agree when they differ by at most one unit in the last place
+that both print, and a cell may hold at most one such last-place difference beyond the
+tolerance.  So a rounding change from a library release passes, while a result that moved, even
+by one unit in several places at once, fails; a re-estimated effect moves in its second or third
+figure, far beyond 1e-4.  When a dependency release moves an output, the response is a re-execution that reads the
 difference and updates the prose, never a pin.
 """
 
@@ -37,6 +42,9 @@ _WHITESPACE = re.compile(r"\s+")
 
 #: The ``text/plain`` reprs of a matplotlib figure or axes.
 FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
+
+#: The fraction of its size within which a decimal agrees (module docstring).
+RELATIVE_TOLERANCE = 1e-4
 
 #: The version line that every ``setup`` cell prints.
 VERSION_LINE = re.compile(r"^cleverly \d+\.\d+\.\d+\S*$", re.MULTILINE)
@@ -103,8 +111,11 @@ def text_moves(stored: str, fresh: str) -> list[str]:
         if not (_is_rounded(old) and _is_rounded(new)):
             moves.append(f"{old} -> {new}")
             continue
+        gap = abs(float(old) - float(new))
+        if gap <= RELATIVE_TOLERANCE * max(abs(float(old)), abs(float(new))):
+            continue
         unit = max(_last_place(old), _last_place(new))
-        if abs(float(old) - float(new)) <= unit * (1.0 + 1e-9):
+        if gap <= unit * (1.0 + 1e-9):
             rounding += 1
             if rounding > 1:
                 moves.append(f"{old} -> {new} (a second last-place change in one cell)")

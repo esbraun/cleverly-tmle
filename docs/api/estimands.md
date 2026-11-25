@@ -24,6 +24,8 @@ that reading adds.
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
    cleverly.OptimalRuleValue
+   cleverly.LearnedRuleContrast
+   cleverly.OptimalRuleContrast
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation
@@ -32,6 +34,7 @@ that reading adds.
    cleverly.MSMProjection
    cleverly.msm.MSM
    cleverly.msm.working_model_means
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.ConditionalContrast

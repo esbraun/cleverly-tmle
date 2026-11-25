@@ -91,10 +91,12 @@ learned-rule-arms
 learned-rule-optimal-value
 learned-rule-intermediate
 learned-rule-optimal-compositions
+learned-rule-contrast-comparators
 learned-regimen-ltmle
 conditional-projection
 projection-compositions
 projection-evidence
+projection-methods
 ep-cate
 ep-crr
 ep-assessment
@@ -115,6 +117,7 @@ continuous-modified-treatment-policies
 dose-response
 dose-response-npcausal
 point-modified-treatment-policies
+mtp-density-tails
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle

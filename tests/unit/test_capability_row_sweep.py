@@ -27,6 +27,7 @@ from tests.unit._capability_sweep_support import (
     KINDS,
     MUTATIONS,
     SEAMS,
+    STUDY_TWINS,
     problems,
     ran,
     sweep,
@@ -69,6 +70,17 @@ def test_every_row_a_request_resolves_available_answers_it(
     if result.assessment_family == "point":
         # A fit passed the refit preflight, and a reconfigured kind is one it refuses.
         assert replayability(result).refit_nuisances is KINDS[kind].refits
+
+
+@pytest.mark.parametrize(("kind", "twin"), list(STUDY_TWINS.items()))
+def test_a_study_kind_answers_the_rows_its_engine_twin_answers(kind: str, twin: str) -> None:
+    """X123: an option declared on the method object reaches the same result as the engine's."""
+    assert KINDS[kind].must_run == KINDS[twin].must_run
+    answered = {}
+    for name in (kind, twin):
+        result = KINDS[name].build()
+        answered[name] = ran(result, sweep_arguments(result, KINDS[name].arguments))
+    assert answered[kind] == answered[twin]
 
 
 def test_each_build_is_a_fresh_copy_of_one_fit() -> None:

@@ -43,6 +43,7 @@ PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_mechanism_plugin",
+    "reduced_regression_plugin",
     "estimated_weight_plugin",
     "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",

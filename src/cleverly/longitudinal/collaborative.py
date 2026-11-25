@@ -1707,6 +1707,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("collaborative_tmle", "greedy")
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
     #: A constant node keeps the constant-node status: the mechanism is selected along the
     #: fit, and no study measures the boundary-node supplement with that selection.
     _boundary_kind: ClassVar[str | None] = "collaborative"
@@ -1760,7 +1761,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         censoring_learner: Learner | None = None,
         competing_learner: Learner | None = None,
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         strategy: str = "greedy",
         patience: int | None = None,
         candidates: Any = None,
@@ -1789,6 +1790,13 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         self.selection_estimand = selection_estimand
         self.loss = loss
         self._pending: dict[tuple[str, int], SurvivalSelection] | None = None
+        if refused.pop("max_memory_bytes", None) is not None:
+            # Its memory is its own, outside the guard's calibration, and it fits static arms
+            # only, so the hazard path limit never runs: the budget would be read by nothing.
+            from ..exceptions import MethodConfigurationError
+            from ..methods import memory_budget_refusal
+
+            raise MethodConfigurationError.from_refusal(memory_budget_refusal("SurvivalCTMLE"))
         super().__init__(
             regimens,
             reference=reference,
@@ -1925,7 +1933,7 @@ class SurvivalCTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             )
         ):
             return LEARNERS_REFUSAL
-        if self.density_bins is not None or self.ratio != "density":
+        if self.density_bins is not None or self.ratio == "classifier":
             return DOSE_SETTINGS_REFUSAL
         return None
 

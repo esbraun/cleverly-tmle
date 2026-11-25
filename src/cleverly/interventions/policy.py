@@ -128,7 +128,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..learners.crossfit import Folds
-from ..learners.density import ConditionalDensity, MixedDensity, warn_if_unresolved
+from ..learners.density import UNMOVED_WARNING, ConditionalDensity, MixedDensity, warn_if_flat
 from .support import _intervention_loads, _InterventionLoadRow
 from .tuning import (
     DoseQuantile,
@@ -517,6 +517,12 @@ class Support:
     fit then refuses, before any learner, an observed dose outside the declared support
     and a policy that assigns a dose outside it.  Each check reads the observed history,
     on which the estimator conditions, so it covers the histories the data record.
+
+    On the density route the declaration also drives the reading of the binned density
+    (:mod:`cleverly.learners.density`): each row's bins are cut at its own bounds, a bin
+    outside them breaks the row's segment, and the density is zero beyond them.  A support
+    edge that moves with the history is then not read as a thin tail.  The hazard fit does
+    not read the declaration.
 
     .. code-block:: python
 
@@ -1550,6 +1556,125 @@ def lowered_ratio(lowered: LoweredMap, values: FloatArray, density: DensityAt) -
     for member in lowered.identity:
         covariate = covariate + np.asarray(member(b), dtype=bool).astype(float)
     return np.asarray(covariate, dtype=float)
+
+
+def _policy_steps(
+    branches_by_fold: Sequence[Sequence[_Branch]],
+    frame: FrameSource,
+    n: int,
+    bounds: tuple[FloatArray, FloatArray] | None,
+    observed: FloatArray,
+    atoms: Sequence[float] = (),
+) -> Callable[[FloatArray, IntArray, int, IntArray], FloatArray]:
+    """The classifier route's step columns of one or more branches (``steps=``).
+
+    On row ``i`` with support ``[L_i, U_i]``, Equation (3) of Díaz et al. (2023) jumps in
+    the dose only where one of these indicators jumps: per smooth piece ``k`` of a branch's
+    lowered map, ``s_k(x) = 1{b_k(x) finite, inside_k(b_k(x)), L_i <= b_k(x) <= U_i}``, and
+    per identity piece ``j``, ``t_j(x) = member_j(x)``.  The columns follow each branch's
+    lowered map: its smooth pieces, then its identity pieces.  An interval sent to an atom
+    adds none.
+
+    Parameters
+    ----------
+    branches_by_fold : sequence of sequence of _Branch
+        The branches whose steps are stacked, per outer fold.  One entry serves every
+        fold: a fold with a tuned cap of its own lowers its own map.
+    frame : callable
+        The policy frame of every row.
+    n : int
+        Rows of the frame.
+    bounds : tuple of ndarray or None
+        The declared support ``(lower, upper)`` on every row, which always wins.  ``None``
+        declares none.  Each side of the fold's observed training range then stands in for
+        the support only where some training row's image ``b_k(a)`` falls beyond it, so the
+        stack can learn the step there; a side no training row reaches reads as infinite.
+        An observed range is not a support, so a held-out row beyond a side no training row
+        reaches keeps its ratio, while a bounded dose shifted towards its edge keeps its
+        step one shift inside the edge.
+    observed : ndarray
+        ``(n,)`` observed dose.  It fills the rows the callable is not asked about.
+    atoms : sequence of float
+        The declared atoms.  Rows at an atom are left out of the observed range and its
+        images.
+
+    Returns
+    -------
+    callable
+        ``steps(dose, rows, fold, train)``, the ``(rows.size, S)`` columns at ``dose`` on
+        ``rows``.
+    """
+    natural = np.asarray(observed, dtype=float).reshape(-1)
+    maps: dict[int, list[LoweredMap]] = {}
+    declared = None
+    if bounds is not None:
+        lower = np.asarray(bounds[0], dtype=float).reshape(-1)
+        upper = np.asarray(bounds[1], dtype=float).reshape(-1)
+        declared = (
+            np.where(np.isnan(lower), -np.inf, lower),
+            np.where(np.isnan(upper), np.inf, upper),
+        )
+    off_atom = ~np.isin(natural, np.asarray(tuple(atoms), dtype=float))
+    observed_by_fold: dict[tuple[int, int, int], tuple[FloatArray, FloatArray]] = {}
+
+    def lowered(fold: int) -> list[LoweredMap]:
+        key = fold if len(branches_by_fold) > 1 else 0
+        if key not in maps:
+            maps[key] = [
+                branch.lowered(frame, n) for branch in branches_by_fold[key] if branch.continuous
+            ]
+        return maps[key]
+
+    def images(fold: int, x: FloatArray) -> list[tuple[FloatArray, BoolArray]]:
+        out = []
+        for lowered_map in lowered(fold):
+            for piece in lowered_map.smooth:
+                with np.errstate(all="ignore"):
+                    source = np.asarray(piece.inverse(x), dtype=float).reshape(-1)
+                usable = np.isfinite(source)
+                safe = np.where(usable, source, x)
+                out.append((safe, usable & np.asarray(piece.inside(safe), dtype=bool)))
+        return out
+
+    def observed_bounds(fold: int, train: IntArray) -> tuple[FloatArray, FloatArray]:
+        """The one-sided observed bound of a fold's fitted training rows (``bounds=None``)."""
+        rows = np.asarray(train, dtype=np.int64).reshape(-1)
+        key = (fold, rows.size, hash(rows.tobytes()))
+        if key not in observed_by_fold:
+            low, high = -np.inf, np.inf
+            seen = rows[off_atom[rows]]
+            if seen.size:
+                x = natural.copy()
+                smallest, largest = float(natural[seen].min()), float(natural[seen].max())
+                for source, inside in images(fold, x):
+                    reached = inside[seen]
+                    if np.any(source[seen][reached] < smallest):
+                        low = smallest
+                    if np.any(source[seen][reached] > largest):
+                        high = largest
+            observed_by_fold[key] = (np.full(n, low), np.full(n, high))
+        return observed_by_fold[key]
+
+    def steps(dose: FloatArray, rows: IntArray, fold: int, train: IntArray) -> FloatArray:
+        low, high = declared if declared is not None else observed_bounds(fold, train)
+        x = natural.copy()
+        x[rows] = np.asarray(dose, dtype=float).reshape(-1)
+        columns: list[BoolArray] = []
+        for lowered_map in lowered(fold):
+            for piece in lowered_map.smooth:
+                with np.errstate(all="ignore"):
+                    source = np.asarray(piece.inverse(x), dtype=float).reshape(-1)
+                usable = np.isfinite(source)
+                safe = np.where(usable, source, x)
+                inside = usable & np.asarray(piece.inside(safe), dtype=bool)
+                columns.append((inside & (safe >= low) & (safe <= high))[rows])
+            for member in lowered_map.identity:
+                columns.append(np.asarray(member(x), dtype=bool)[rows])
+        if not columns:
+            return np.zeros((rows.size, 0))
+        return np.column_stack(columns).astype(float)
+
+    return steps
 
 
 def _constant(value: float, n: int) -> Callable[[FloatArray], FloatArray]:
@@ -4393,6 +4518,14 @@ class PolicySet:
                     owners.append((index, probability))
                     columns.append(np.asarray(branch.assign(a, frame), dtype=float))
                     held.append(branch.held(a))
+                    # The checks of the density route that read no density: a policy
+                    # that moves nobody, and a dose assigned outside the observed range.
+                    # The natural course is meant to move nobody.
+                    if not branch.identity:
+                        if not np.any(columns[-1] != a):
+                            _warn(UNMOVED_WARNING, UserWarning, stacklevel=3)
+                        label = str(getattr(policy, "name", ""))
+                        _warn_outside_support(label, branch.cap, columns[-1], a)
         else:
             levels = tuple(data.arm_label(code) for code in data.arm_codes)
             observed_codes = a.astype(np.int64)
@@ -4426,6 +4559,17 @@ class PolicySet:
         # and ``atoms=`` adds the indicator of each declared atom.
         block = data.component_design if data.is_vector_treatment else _same
         atoms = tuple(data.dose_atoms) if data.is_continuous_treatment else ()
+        # A dose's step columns: each branch's own lowered map, and with
+        # a fold-tuned cap on several folds, each fold's own map.
+        branch_sets: list[list[_Branch]] = []
+        if data.is_continuous_treatment:
+            branch_sets.append([b for policy in declared for _, b in policy_branches(policy)])
+            if by_fold is not None and not folds.is_single:
+                branch_sets = [
+                    [b for policy in fold_policies for _, b in policy_branches(policy)]
+                    for fold_policies in by_fold
+                ]
+        bounds = declared_support_bounds(data) if data.is_continuous_treatment else None
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
@@ -4442,6 +4586,18 @@ class PolicySet:
                     None
                     if fold_columns is None
                     else [((1.0, block(fold[:, c])),) for fold in fold_columns]
+                ),
+                steps=(
+                    _policy_steps(
+                        [[branches[c]] for branches in branch_sets],
+                        frame,
+                        data.n,
+                        bounds,
+                        a,
+                        atoms,
+                    )
+                    if branch_sets
+                    else None
                 ),
             )
             ratio[:, c] = evaluated[0]
@@ -4598,16 +4754,17 @@ class PolicySet:
                     and component.name in mapping
                     and component.name in parts.densities
                 ):
-                    # Only the rows whose dose this policy changes: a gated map leaves
-                    # the others alone, and they say nothing about the bin width.  A dose
-                    # whose every row holds a declared atom fits no density to resolve.
-                    changed = shifted[:, c, index] != setup.natural[:, index]
-                    if not changed.any():
+                    # The share counts only the rows whose dose this policy changes: a
+                    # gated map leaves the others alone, and they say nothing about the
+                    # bin width.  Every row is passed, because each row reads its own
+                    # segments.  A dose whose every row holds a declared atom fits no
+                    # density to resolve.
+                    if not np.any(shifted[:, c, index] != setup.natural[:, index]):
                         continue
-                    warn_if_unresolved(
+                    warn_if_flat(
                         parts.densities[component.name],
-                        shifted[changed, c, index],
-                        setup.natural[changed, index],
+                        shifted[:, c, index],
+                        setup.natural[:, index],
                         component=component.name,
                     )
             warn_unsupported_values(policy.name, parts, c + 1, moved[:, c], setup.where)
@@ -4748,6 +4905,36 @@ class PolicySet:
         the observed treatment and block ``s + 1`` the covariate at :math:`d_s(A, W)`.
         """
         return np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
+
+    @property
+    def reads_bounded_probability(self) -> bool:
+        """Whether some policy's clever covariate reads a probability that ``g_bounds`` bounds.
+
+        :meth:`design_at` bounds only a categorical factor: the fitted probabilities of a
+        categorical treatment, or the categorical factor of a vector treatment on the
+        density route.  A component that leaves the categorical value of every row where
+        it is cancels that factor between the numerator and the denominator, and a ratio
+        from a classifier or of a dose reads no bounded probability at all.  So the bound
+        reaches the estimate only through a component that maps some categorical value to
+        another, and :func:`~cleverly.sensitivity.positivity.truncation_curve` refuses a fit
+        where none does.
+        """
+        if self.joint is not None:
+            induced = np.asarray(self.joint.induced)
+            targets = np.asarray(self.joint.targets)
+            cells = np.arange(induced.shape[-1])
+            # Mass from a cell other than the evaluated value's own cell: the categorical
+            # factor no longer cancels there.
+            off_target = cells[None, None, None, :] != targets[:, :, None, None]
+            # An evaluation with no target cell (code -1) has a zero ratio at every bound.
+            evaluated = (targets >= 0)[:, :, None, None]
+            return bool(np.any((induced != 0.0) & off_target & evaluated))
+        if self.component_codes is not None and self.observed_codes is not None:
+            codes = np.asarray(self.component_codes)
+            # A level map other than the identity at some row: the induced probability
+            # there sums fitted probabilities of other levels, which the bound reaches.
+            return bool(np.any(codes != np.arange(codes.shape[-1])))
+        return False
 
     def design_at(
         self, propensity: FloatArray | None, bounds: tuple[float, float] | None = None
@@ -4926,6 +5113,28 @@ def joint_policy_moves(policy: object) -> bool:
     )
 
 
+def component_support_layout(
+    components: Sequence[JointComponent], supports: Mapping[str, Any]
+) -> tuple[Any, ...]:
+    """Each dose's declared support, in the column order of the doses, or ``()`` for none.
+
+    Parameters
+    ----------
+    components : sequence of JointComponent
+        The node's components, in column order.
+    supports : mapping of str to Support
+        The declared support of each continuous component that declares one.
+
+    Returns
+    -------
+    tuple of Support or None
+        One entry per dose, empty when no dose declares a support.
+    """
+    if not supports:
+        return ()
+    return tuple(supports.get(component.name) for component in components if component.continuous)
+
+
 def component_atom_layout(
     components: Sequence[JointComponent], atoms: Mapping[str, Sequence[float]]
 ) -> tuple[tuple[float, ...], ...]:
@@ -5101,6 +5310,7 @@ def _vector_density_setup(policies: Sequence[object], data: CausalData) -> tuple
         np.asarray(data.mechanism_covariates, dtype=float),
         setup.where,
         component_atom_layout(setup.components, data.component_atoms),
+        component_support_layout(setup.components, data.component_supports),
     )
     branches = [
         JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
@@ -5284,7 +5494,7 @@ def _continuous_components(
         if branch.identity:
             continue
         if resolution is not None:
-            warn_if_unresolved(resolution, shifted[:, column], a)
+            warn_if_flat(resolution, shifted[:, column], a)
         _warn_outside_support(label, branch.cap, shifted[:, column], a)
     moved = np.asarray(shifted != a[:, None], dtype=bool)
     capped = np.column_stack([branch.held(a) for branch in branches])
@@ -5852,3 +6062,81 @@ def declared_support_bounds(data: CausalData) -> tuple[FloatArray, FloatArray] |
         )
     )
     return cast(Support, data.treatment_support).bounds(frame, data.n)
+
+
+def refuse_unsupported_doses(
+    data: CausalData,
+    intervals: Sequence[tuple[str, float, float]],
+    *,
+    subject: str,
+    reason: str,
+    alternative: str,
+) -> None:
+    """Refuse a declared dose support that the data or a target's doses contradict.
+
+    A declared support :math:`[l(W), u(W)]` asserts that the dose density is zero outside it.
+    A target that evaluates the outcome regression at a dose outside some row's support is
+    then not identified for that row: positivity fails by declaration.  This check runs before
+    any learner, on a point treatment with one continuous dose and a declared support.  It
+    first refuses an observed dose outside its row's support, as a policy fit does
+    (:func:`check_observed_support`), then every interval some row's support does not cover.
+
+    Parameters
+    ----------
+    data : CausalData
+        The validated data.  The check returns at once without a declared support, or for a
+        treatment that is not one continuous dose.
+    intervals : sequence of tuple
+        ``(label, lower, upper)`` per closed interval of doses the target evaluates on every
+        row.  A single dose is the interval ``(label, dose, dose)``.
+    subject : str
+        What the message says the intervals are, such as
+        ``"doses inside the kernel of pair(s)"``.
+    reason : str
+        The clause that says why the target needs those doses, with no closing stop.
+    alternative : str
+        The sentence that names what to declare instead.
+
+    Raises
+    ------
+    DataError
+        If an observed dose lies outside its row's declared support.
+    CapabilityError
+        If some row's declared support does not cover an interval, with
+        :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION`.
+    """
+    if data.treatment_kind != "continuous":
+        return
+    bounds = declared_support_bounds(data)
+    if bounds is None:
+        return
+    support = cast(Support, data.treatment_support)
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
+    )
+    check_observed_support(
+        np.asarray(data.treatment, dtype=float),
+        frame,
+        np.ones(data.n, dtype=bool),
+        support,
+        node=data.treatment_name,
+    )
+    lower, upper = bounds
+    cut = np.zeros(data.n, dtype=bool)
+    labels: list[str] = []
+    for label, low, high in intervals:
+        with np.errstate(invalid="ignore"):
+            rows = ~((lower <= float(low)) & (upper >= float(high)))
+        if rows.any():
+            labels.append(label)
+            cut |= rows
+    if not labels:
+        return
+    raise CapabilityError(
+        f"{int(cut.sum())} rows have a declared dose support that excludes {subject} "
+        f"{', '.join(labels)}: {reason}, so positivity fails by declaration.",
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative=alternative,
+    )

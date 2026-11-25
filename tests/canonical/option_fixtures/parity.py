@@ -533,7 +533,7 @@ def ctmle_fit(
         selection_split=np.asarray(payload["fold"], dtype=int),
         penalty=False,
         loss="loglik",
-        ctmle_estimand="ate",
+        selection_estimand="ate",
         cross_fit=False,
         outcome_learner=frozen_outcome(payload),
         treatment_learner=GLM(family="binomial"),

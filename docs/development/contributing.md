@@ -119,7 +119,8 @@ constrain the tree you work in. `tests/notebooks.py` gives the reason for the sp
 A hash comparison cannot see a library change that moved a published number while every cell kept
 its bytes, so the fast tier also compares what each tutorial notebook's cells print now with what
 the notebook stores (`tests/notebook_freshness.py`). The fast tier runs every cell but the refit
-cells, which the slow tier adds, and the comparison allows one last-place rounding per cell. The
+cells, which the slow tier adds. The comparison allows a relative difference of 1e-4, the machine
+noise in a learner fit's sixth figure, and one last-place rounding per cell beyond it. The
 TWINS notebook downloads its data, so it is checked statically instead. A library change that moves
 a published number therefore fails that notebook's semantic test.
 

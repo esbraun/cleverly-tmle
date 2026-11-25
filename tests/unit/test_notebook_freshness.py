@@ -83,3 +83,16 @@ def test_unreproduced_reports_moves_and_stale_exemptions() -> None:
     assert moved == {} and stale == ["c"]
     _, stale = unreproduced(stored, fresh, {"gone": "cell removed"})
     assert stale == ["gone"]
+
+
+def test_machine_noise_in_a_fitted_cell_passes_and_a_move_still_fails() -> None:
+    # The drift CI showed in sequential-pricing against a stamp from another machine: under the
+    # last-place rule alone this is four changes in one cell.
+    stored = "kish 5325.470 2922.186 21.835 1973.710"
+    assert text_moves(stored, "kish 5325.445 2922.193 21.834 1973.717") == []
+    assert text_moves(stored, "kish 5325.470 2922.186 21.835 1993.710") == [
+        "1973.710 -> 1993.710"
+    ], "a 1 percent move fails"
+    assert text_moves("psi 0.1025 0.1154", "psi 0.1026 0.1155") == [
+        "0.1154 -> 0.1155 (a second last-place change in one cell)"
+    ], "changes a reading would show still count against the one-rounding budget"

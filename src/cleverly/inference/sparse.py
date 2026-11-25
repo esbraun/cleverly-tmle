@@ -404,14 +404,16 @@ def influence_report(
 
 #: The advice of a fit whose full-refit bootstrap a study can license.
 _IN_SAMPLE_ADVICE = (
-    "Refit with n_bootstrap=199, bootstrap_interval='bca' for an interval that reads the "
-    "skew, and see result.diagnostics.influence(). The BCa interval is experimental until a "
+    "Refit with n_bootstrap=199, bootstrap_interval='bca' (Inference(n_bootstrap=199, "
+    "bootstrap_interval='bca') on a method object) for an interval that reads the skew, and "
+    "see result.diagnostics.influence(). The BCa interval is experimental until a "
     "registered study measures it."
 )
 #: The advice of an in-sample fit whose percentile bootstrap already ran.
 _PERCENTILE_ADVICE = (
     "The percentile bootstrap interval keeps the skew shortfall. Refit with "
-    "bootstrap_interval='bca' for an interval that reads the skew, and see "
+    "bootstrap_interval='bca' (Inference(bootstrap_interval='bca') on a method object) for an "
+    "interval that reads the skew, and see "
     "result.diagnostics.influence(). The BCa interval is experimental until a registered "
     "study measures it."
 )
@@ -431,10 +433,11 @@ _POLICY_IN_USE_NOTE = (
 #: (``mtp-policy-variance``) and the BCa reading of the Fix-5 probes, which is no better than
 #: the Wald interval here, so the advice does not name the bootstrap.
 _POLICY_VARIANCE_ADVICE = (
-    "For a modified treatment policy, variance='policy_weighted' (with simultaneous=False) "
-    "adds a standard error that reads the density ratio at each row's policy dose and reports "
-    "the larger of the two. It is validated only on the configurations its support label "
-    "names, with an exact or known ratio or, for a learned ratio, a correct outcome model. On "
+    "For a modified treatment policy, variance='policy_weighted' (with simultaneous=False; "
+    "Inference(variance='policy_weighted') on a method object) adds a standard error that "
+    "reads the density ratio at each row's policy dose and reports the larger of the two. It "
+    "is validated only on the configurations its support label names, with an exact or known "
+    "ratio or, for a learned ratio, a correct outcome model. On "
     "the five-node price rows of its study it covers 0.980 to 0.985, where the default interval "
     "covers 0.918 to 0.937 and the BCa interval 0.908 to 0.923. See "
     "result.diagnostics.influence()."

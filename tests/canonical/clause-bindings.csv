@@ -832,6 +832,17 @@ learned-rule-contrast,interval_calibration,se ratio in calibration band,affine
 learned-rule-contrast,targeting_necessity,bias discriminated,pair_collapse
 learned-rule-contrast,targeting_necessity,bias equivalent,bias
 learned-rule-contrast,targeting_necessity,least displacement over labels,control_concentrated
+learned-rule-contrast-comparators,conservative_coverage,bias equivalent,bias
+learned-rule-contrast-comparators,conservative_coverage,coverage at or above the calibration floor,se_low
+learned-rule-contrast-comparators,conservative_coverage,shrunken coverage below the calibration floor,se_high
+learned-rule-contrast-comparators,contrast_covariance,correlation-one coverage below its ceiling,coverage/0.8
+learned-rule-contrast-comparators,interval_calibration,coverage in calibration band,affine
+learned-rule-contrast-comparators,interval_calibration,noise se ratio below band,se_high
+learned-rule-contrast-comparators,interval_calibration,se ratio below band,se_high
+learned-rule-contrast-comparators,interval_calibration,se ratio in calibration band,affine
+learned-rule-contrast-comparators,targeting_necessity,bias discriminated,pair_collapse
+learned-rule-contrast-comparators,targeting_necessity,bias equivalent,bias
+learned-rule-contrast-comparators,targeting_necessity,least displacement over labels,control_concentrated
 learned-rule-cvtmle,fold_locality,bias discriminated,pair_collapse
 learned-rule-cvtmle,fold_locality,bias equivalent,bias
 learned-rule-cvtmle,fold_locality,least displacement over labels,control_concentrated
@@ -1059,14 +1070,14 @@ longitudinal-mtp,interval_calibration,efficiency above band,pair_collapse
 longitudinal-mtp,interval_calibration,efficiency empirical in efficiency band,none
 longitudinal-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
 longitudinal-mtp,interval_calibration,se ratio below band,se_high
-longitudinal-mtp,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-mtp,interval_calibration,se ratio in calibration band,se/0.95
 longitudinal-mtp,inverse_necessity,bias discriminated,pair_collapse
 longitudinal-mtp,inverse_necessity,bias equivalent,bias
 longitudinal-mtp,inverse_necessity,least displacement over labels,control_concentrated
 longitudinal-mtp,power,rejection floor,rejection/0.01
 longitudinal-mtp,root_n_and_efficiency,bias equivalent,shift/0.15
 longitudinal-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
-longitudinal-mtp,root_n_and_efficiency,coverage resolves,shift/0.15
+longitudinal-mtp,root_n_and_efficiency,coverage resolves,contract
 longitudinal-mtp,root_n_and_efficiency,se ratio sanity,se_high
 longitudinal-mtp,root_n_rate,slope in root-n band,contract
 longitudinal-mtp,simultaneous_coverage,joint coverage below nominal,se_low
@@ -1511,6 +1522,18 @@ projection-evidence,interval_calibration,se ratio below band,se_high
 projection-evidence,interval_calibration,se ratio in calibration band,affine
 projection-evidence,simultaneous_coverage,joint coverage below nominal,se_low
 projection-evidence,simultaneous_coverage,joint coverage in calibration band,se_low
+projection-methods,bias,bias discriminated,control_diffuse
+projection-methods,bias,bias equivalent,bias
+projection-methods,interval_calibration,coverage in calibration band,shift/0.7
+projection-methods,interval_calibration,se ratio below band,se_high
+projection-methods,interval_calibration,se ratio in calibration band,affine
+projection-methods,one_wrong_inference,bias beyond margin on the predicted side,bias
+projection-methods,one_wrong_inference,bias equivalent,bias
+projection-methods,one_wrong_inference,coverage floor,coverage/0.5
+projection-methods,one_wrong_inference,se ratio above calibration band,se/0.05
+projection-methods,one_wrong_inference,se ratio in union band,contract
+projection-methods,one_wrong_inference,se ratio sanity,se_high
+projection-methods,one_wrong_inference,standardized bias grows,pair_collapse
 refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
 refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 refuter-calibration-continuous-survival,refuter_power,detections at least 38 of 50,se_low
@@ -1747,6 +1770,22 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.mtp_density_tails_properties,cluster_warning,at least 26 of 30 C draws warn,control_concentrated
+tests.studies.mtp_density_tails_properties,cluster_warning,at most 6 of 220 G and T draws warn,positive_diffuse
+tests.studies.mtp_density_tails_properties,cluster_warning,eager helper breaks the G and T clause,pair_collapse
+tests.studies.mtp_density_tails_properties,cluster_warning,gap-disabled helper misses the C clause,pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,"2,000 median at or below its bound",positive_diffuse
+tests.studies.mtp_density_tails_properties,ic_gap,"20,000 median at most 0.6 of the 2,000 median",affine
+tests.studies.mtp_density_tails_properties,ic_gap,"control 2,000 median above its bound",pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,"control 20,000 gap above its bound",pair_collapse
+tests.studies.mtp_density_tails_properties,ic_gap,control median falls less than 0.6,centre/control/0
+tests.studies.mtp_density_tails_properties,ic_gap,"every 20,000 gap at or below its bound",positive_diffuse
+tests.studies.mtp_density_tails_properties,interval_calibration,both-wrong coverage below band,pair_collapse
+tests.studies.mtp_density_tails_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.mtp_density_tails_properties,interval_calibration,noise se ratio below band,none
+tests.studies.mtp_density_tails_properties,interval_calibration,pre-fix coverage below band,pair_collapse
+tests.studies.mtp_density_tails_properties,interval_calibration,se ratio below band,none
+tests.studies.mtp_density_tails_properties,interval_calibration,se ratio in calibration band,affine
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated
@@ -2081,3 +2120,18 @@ few-cluster-floor-tmle,few_cluster_reference,bias equivalent,none
 few-cluster-floor-tmle,few_cluster_reference,coverage floor,none
 few-cluster-floor-tmle,few_cluster_reference,paired iid/cluster se ratio under its ceiling,pair_collapse
 few-cluster-floor-tmle,few_cluster_reference,paired positive se ratio at most the sanity ceiling,none
+mtp-density-tails,cluster_warning,at least 26 of 30 C draws warn,control_concentrated
+mtp-density-tails,cluster_warning,eager helper breaks the G and T clause,pair_collapse
+mtp-density-tails,cluster_warning,gap-disabled helper misses the C clause,pair_collapse
+mtp-density-tails,ic_gap,"2,000 median at or below its bound",shift/3
+mtp-density-tails,ic_gap,"20,000 median at most 0.6 of the 2,000 median",control_concentrated
+mtp-density-tails,ic_gap,"control 2,000 median above its bound",pair_collapse
+mtp-density-tails,ic_gap,"control 20,000 gap above its bound",pair_collapse
+mtp-density-tails,ic_gap,control median falls less than 0.6,control_diffuse
+mtp-density-tails,ic_gap,"every 20,000 gap at or below its bound",positive_diffuse
+mtp-density-tails,interval_calibration,both-wrong coverage below band,pair_collapse
+mtp-density-tails,interval_calibration,coverage in calibration band,bias
+mtp-density-tails,interval_calibration,noise se ratio below band,se_high
+mtp-density-tails,interval_calibration,pre-fix coverage below band,pair_collapse
+mtp-density-tails,interval_calibration,se ratio below band,se_high
+mtp-density-tails,interval_calibration,se ratio in calibration band,affine

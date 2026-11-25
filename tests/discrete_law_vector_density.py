@@ -43,9 +43,11 @@ import pandas as pd
 
 from .discrete_law_policy_point import Branches, _mean_under
 
-#: The dose grid of both doses, and its bin edges, ``0.75 x`` below each point.
+#: The dose grid of both doses, and its bin edges: each point ``x`` in ``[0.875 x, 1.25 x]``,
+#: flanked by empty bins, so that each support bin is a one-bin segment of the density's
+#: reading and the widths double with the dose.
 DOSES = (1.0, 2.0, 4.0, 8.0)
-EDGES = (0.75, 1.5, 3.0, 6.0, 12.0)
+EDGES = (0.875, 1.25, 1.75, 2.5, 3.5, 5.0, 7.0, 10.0)
 #: ``(f, i1, i2)`` of each support index.
 CELLS = tuple(itertools.product(range(2), range(4), range(4)))
 #: ``P(W = w)``.

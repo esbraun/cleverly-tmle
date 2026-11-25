@@ -247,8 +247,10 @@ lists the refused compositions.
 
 ## Continuous treatment
 
-Set `treatment_kind="continuous"` when the target is a modified treatment policy. Arm-indexed
-estimands are refused on this design.
+Set `treatment_kind="continuous"` when the treatment is a dose, such as a price or a discount.
+The design answers a modified treatment policy, a working model over doses (`MSMProjection`)
+and the smoothed dose-response curve ([`DoseResponseCurve`](estimands.md#a-curve-over-a-continuous-dose)).
+Arm-indexed estimands are refused on this design.
 
 ```python
 dose_study = CausalStudy(

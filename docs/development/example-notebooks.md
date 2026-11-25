@@ -72,8 +72,11 @@ the refit test. That test checks every notebook at once, so run it by name.
 
 The fast tier compares what each executed cell prints, and the plain text of each value it
 displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
-left out. One last-digit rounding change per cell passes, so a library release that rounds
-differently does not fail; a count that changes, or a result that moves, fails. When it fails,
+left out. A relative difference of 1e-4 passes, since fitted values change in about the sixth
+figure from one machine to another, and so does one last-digit rounding change per cell beyond it.
+A count that changes, or a result that moves, fails.
+
+When it fails,
 re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
 to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
 callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces.
@@ -389,6 +392,13 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
+| Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
+| External scores | No tutorial fits `assess_score` |
+| Hazard targeting beyond a held baseline treatment | No tutorial fits it |
+| Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
+| Drift-corrected survival TMLE | No tutorial fits it |
+| Continuous-time survival and competing risks | plots draws one fit's risk curve and its overlap figure. No tutorial reads its estimates |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |

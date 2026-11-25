@@ -874,7 +874,7 @@ matching capability row therefore carry one reason.
 | an `rr_tilt` parameter axis | an implementation. A risk-ratio tilt mean is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | an `msm` axis with a continuous dose or a link other than `"identity"` | a representer. A continuous dose reads the treatment density at quadrature doses, and under another link the coefficient is not linear in the outcome regression |
 | a `policy` axis with a randomized, fold-tuned, or joint policy set | a combination of the component representers |
-| a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On a binned density, the doubly robust $\hat\nu^2$ is often negative |
+| a `policy` axis on a continuous dose, where an observed or a shifted dose is not a declared dose atom | a derived representer for a fitted dose density, and a guarantee for $\hat\nu^2$. On the binned density, read as a corrected log polygon, nothing keeps the doubly robust $\hat\nu^2$ positive |
 | a `learned_rule` fit of several splits, or of a `FrozenLearnedRule` | one set of fold rules to hold fixed. A fit of several splits has one set per split, and the median of their bounds estimates no defined parameter. A frozen rule holds one realized rule per row and no fold rule. The point bound of a learned-rule fit of one split is below |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
@@ -930,6 +930,7 @@ the clever covariate.
 | `regime` | `ey_regime`, `ate_regime` | $g^\star_r(A \mid W) / g(A \mid W)$, over $\pi$ and $q_z$ where the fit has them | $\sum_a g^\star_r(a \mid W) \alpha(a, W)$ | `regime` |
 | `policy` | `ey_policy`, `ate_policy` | the shift's ratio of dose probabilities $h_s(A, W)$, on declared dose atoms | $\alpha(d_s(A, W), W)$, at the dose the policy assigns | `shift` |
 | `msm` | `msm[term]` | $e_j^\top M^{-1} h(A, V) \varphi(A, V) / g(A \mid W)$ | $\sum_a e_j^\top M^{-1} h(a, V) \varphi(a, V) \alpha(a, W)$ | `msm` |
+| `effect_modification` | `cate_projection[term]` | $e_j^\top M^{-1} \varphi(V) s(A) / g(A \mid W)$, with $s(1) = 1$ and $s(0) = -1$ | $\sum_a e_j^\top M^{-1} s(a) \varphi(V) \alpha(a, W)$ | `projection` |
 
 $M = P_n \sum_a h \varphi \varphi^\top$ is the observation-weighted Gram matrix that the
 coefficient inverts. A contrast takes the difference of two representers and of two $m$ terms.
@@ -940,6 +941,17 @@ $z = M^{-1} K b$. Here $K$ is the matrix with $\nu^2 = b^\top K b$. The term is 
 of a marginal MSM, because each row's Gram contribution is $M$. The package derives this term,
 and no cited source gives it.
 
+A difference-scale projection coefficient has the same form with $M = P_n[w \varphi \varphi^\top]$,
+the target-weighted Gram matrix of the basis. Its $\hat M$ term is
+$-2 w [(z^\top \varphi)(\varphi^\top b) - \nu^2]$. The residual reads only the rows where
+$\varphi^\top b$ is nonzero. On a basis of disjoint stratum indicators, the term equals the share
+term of the stratum bound, so the coefficient of one indicator gives that stratum's bound. A
+log-ratio coefficient refuses with `implementation_gap`, because it is not linear in the outcome
+regression and the linearized bound it would need is not derived. A projection fitted with
+`strata=` refuses under [P1](../roadmap.md#p1-ep-learner), because its stratum and marginal
+coefficients read different representers. `sensitivity.evalue()` refuses on every projection
+coefficient, which is not a risk ratio.
+
 A shift representer is a ratio of dose probabilities. The bound covers a shift only when
 `dose_atoms` holds every observed dose and every shifted dose. A shift on a continuous dose refuses
 with `implementation_gap` under both estimators of $\nu^2$.
@@ -948,7 +960,8 @@ the refusal.
 
 `benchmark()` refits without the named covariates. The refit evaluates the declared regime,
 policy, or working model again. When a dropped covariate changes or breaks that declaration, the
-call refuses, because the short model would estimate another target.
+call refuses, because the short model would estimate another target. On a projection, `benchmark()` refuses a
+covariate that the declared basis reads, because the refit could not evaluate the same basis.
 
 `tests/unit/test_omitted_variable_axes.py` checks these claims:
 
@@ -957,6 +970,10 @@ call refuses, because the short model would estimate another target.
 - A static regime and a saturated MSM give the arm bound's $\nu^2$.
 - The MSM curve equals the Gateaux derivative on a design that reads $V$. A mutation that drops
   the $\hat M$ term departs from it.
+- The projection representer satisfies the Riesz identity on the outcome, intermediate, and
+  composite responses. Mutants that drop $M^{-1}$, double it, or read another term fail. The
+  projection curve equals the Gateaux derivative, and dropping the $\hat M$ term or the residual
+  mask departs from it. A basis of disjoint indicators reproduces the stratum bound.
 
 #### The bound after repeated cross-fitting
 
@@ -2200,23 +2217,26 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
 walks that table and returns the first reason that applies.
 
-Two named stops apply in this order: longitudinal and risk-ratio tilt fits. The longitudinal stop waits on a declared law.
-The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
-the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
-point rule. Each one has a row in the
-refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
-and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
+The stops that the science decides apply in this order: longitudinal fits (`longitudinal`), the
+projection of a conditional contrast (`projection`), risk-ratio tilt fits (`risk_ratio_tilt`), then
+the learned-rule stops (`optimal_rule`, `learned_rule_level`, `learned_rule_splits`). The
+longitudinal stop waits on a declared law, and it applies the ordered stops of the longitudinal
+latent; a longitudinal result that passes them meets no point rule. The tilt stop waits on a typed
+study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). Each of these
+stops has a row in the refusal table below. The missing-outcome, missing-treatment, and
+intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
-Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the risk-ratio tilt stop, because every later rule reads a
-field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
-below gives all twelve in contract order.
+The provenance and shape stops read the object you hold rather than the state of the science.
+The `result_type` stop runs second, before the projection stop, because every later rule reads a
+field that only a `TMLEResult` declares. `missing_estimator` and `repeat_provenance` follow the
+risk-ratio tilt stop, and the rest follow the learned-rule stops, in the order of the table.
 
 | rule | refuses |
 | --- | --- |
 | `result_type` | an artifact that is not exactly a point-treatment `TMLEResult` |
 | `missing_estimator` | a result that stores no replay estimator |
 | `repeat_provenance` | a stored draw count, a `config.crossfit.repeats`, and a replay estimator `repeats` that disagree |
+| `learned_rule_comparators` | a learned-rule value fitted beside known regimes or a natural course in `interventions=`: the replay freezes the learned rules and would also rebuild each comparator's value and contrast, which no witness checks (roadmap X11) |
 | `binary_estimator` | a binary fit made by an estimator whose class does not declare `simulated_confounding_replay = True` (`TMLE`, `CTMLE`, `DRTMLE` and `AdaptiveIPTW` declare it) |
 | `continuous_estimator` | a continuous fit made by anything but exact ordinary `TMLE` |
 | `outcome_family` | an outcome family other than `gaussian` or `binomial` |
@@ -2229,11 +2249,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all fourteen. A fit that reaches the `provider` stop reports
+execution name the same stop for every rule. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the two fit-wide named stops and the three grid stops, plus the estimands and compositions the
+The rows below record the fit-wide stops that the science decides and the grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -2243,6 +2263,10 @@ of the roadmap also has a part that waits on published theory, as the
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring on an end-of-study outcome, a survival outcome whose treatment is not held, eliminated causes, a repeated outcome, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
 | a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
+| the projection of a conditional contrast | `implementation_gap` | the surface is defined for a mean or a contrast of means, and a working-model coefficient of a conditional contrast has no derivation of it. Run it on `ATE()` or `RiskRatio()` on the same study |
+| the value of the optimal rule beside known regimes, with baseline strata, or with the intermediate held at a level | `implementation_gap` | the replay relearns the rule in every cell, and no witness checks those compositions. See [X11](../roadmap.md#x11-learned-policy-follow-ups) |
+| a learned-rule value with the intermediate held at a level | `implementation_gap` | the replay would freeze the rules learned at that level, and no witness checks a frozen rule there. See [X11](../roadmap.md#x11-learned-policy-follow-ups) |
+| a learned-rule fit of several splits (`repeats` above 1) | `different_estimand` | each row has one rule per split, and the reported target is the mean of the split targets, so a replay of one rule per row answers for one split. Refit with `repeats=1` |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
@@ -2445,6 +2469,14 @@ For $RR=2$, the E-value is $3.414$. Associations of $3$ and $4$ give a bounding 
 $3\times4/(3+4-1)=2$, so both associations need not reach $3.414$.
 The E-value does not decide whether a confounder of either strength is plausible.
 
+`EValue.plot()` draws the level set $B(x, y) = RR$ of that bounding factor, the curve
+$y = RR(x - 1)/(x - RR)$ for $x > RR$, once at the point ratio and once at the confidence limit
+nearest the null. Each curve meets the diagonal $x = y$ at its E-value. A ratio below 1 is drawn
+at its reciprocal. The limit curve is omitted when the limit E-value is 1. The curves are a
+deterministic function of the stored ratio and limit, so the figure adds no inference; the limit
+keeps the reading the E-value records. `tests/unit/test_plotting_evalue.py` checks every drawn
+vertex against the bounding factor.
+
 The selected path depends on the reported contrast and retained artifacts.
 
 | request | E-value path |
@@ -2532,6 +2564,7 @@ product.
 | outcome strength | one $RR_{UY}$ for each arm |
 | conditions | $Y_{az} \perp A \mid W, U$ and $Y_{az} \perp Z \mid A, W, U$; $U$ is a baseline latent that $A$ does not affect; positivity given $(W, U)$; no confounder of $Z$ and $Y$ that $A$ affects |
 | inversion | with four equal strengths the product is $BF(E, E)^2$, so the E-value is the ordinary E-value of $\sqrt{RR}$ |
+| figure | `EValue.plot()` draws the slice where both arms share one pair $(x, y)$, so the product is $B(x, y)^2$ and the curve is $B(x, y) = \sqrt{RR}$. Arms with unequal strengths can trade off, which the slice does not show |
 
 The square root comes after the path's own conversion. An odds ratio therefore enters as
 $OR^{1/4}$, and a Gaussian contrast as $\exp(0.905d)^{1/2}$. The confidence limit takes the root
@@ -2973,8 +3006,9 @@ These fit new models. They cost what a fit costs, multiplied by the number of dr
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships seven operations. Six test the implementation. The negative-control outcome tests a design,
-and the paragraph below states its boundary. Each operation prints a statistic against a stated
+ships the operations in the table below, one row each. The negative-control outcome and the
+future-treatment control test a design, and the negative-controls subsection below states their
+boundaries; the others test the implementation. Each operation prints a statistic against a stated
 reference. It prints `passed` or `failed` only where the evidence registry covers the fit, and
 `no pass or fail` otherwise. `summary()` gives one row per test, the statistic behind each
 reading, and one note per test with its purpose, its conditions and its rung in words.
@@ -2990,6 +3024,7 @@ reading, and one note per test with its purpose, its conditions and its rung in 
 | `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
+| `future_treatment` | fits a point-treatment TMLE of a declared control `C` on the longitudinal treatment at node `t + 1`, adjusted for the history | the control fit's own Wald test of the exact null, as for the negative-control outcome | the design: no unmeasured confounding of the later treatment, under the control conditions the negative-controls subsection below states |
 
 The placebo reads an MSM coefficient of a point treatment against its value under the placebo
 law. The table names the two cases. The code reads the case from the realised design and weight

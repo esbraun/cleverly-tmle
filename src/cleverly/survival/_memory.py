@@ -612,8 +612,8 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
         "the available memory is read at one instant."
     )
     alternative = (
-        "Pass max_memory_bytes= to ContinuousSurvivalTMLE to set the budget yourself, higher "
-        "or lower."
+        "Pass max_memory_bytes= to set the budget yourself, higher or lower (an argument of "
+        "ContinuousSurvivalTMLE, and a keyword of estimate() or a field of Runtime on a study)."
     )
     if estimate.phase == "bootstrap":
         alternative += (

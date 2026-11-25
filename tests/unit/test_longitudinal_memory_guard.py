@@ -202,6 +202,25 @@ def test_the_prediction_bounds_the_traced_peak_and_a_dropped_term_breaks_it(
     assert not _bound_holds(peak, mutated), mutated / peak
 
 
+def test_the_refined_grid_is_counted_and_a_nominal_count_breaks_the_mtp_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The density counts the bins of the refined grid, not ``density_bins``.
+
+    ``bin_edges`` splits the wide outer core bins, so the ``mtp`` case's 40 core bins fit 49.
+    Counted at 40, its prediction falls below the traced peak.
+    """
+    case, family, _ = TRACED["mtp"]
+    peak, counts = support.traced(case, N)
+    assert counts.family == family
+    assert counts.bins > case["B"]
+    assert _bound_holds(peak, _memory_guard.predicted_bytes(counts))
+    monkeypatch.setattr(_memory_guard, "refined_bins", lambda data, nominal: nominal)
+    _, nominal = support.traced(case, N)
+    assert nominal.bins == case["B"]
+    assert not _bound_holds(peak, _memory_guard.predicted_bytes(nominal))
+
+
 def test_the_two_cause_survival_bound() -> None:
     peak, counts = support.traced(
         {"est": "ltmle_surv", "T": 4, "R": 2, "folds": 1, "H": 4, "J": 2}, N
@@ -642,8 +661,11 @@ def _route_counts(est: str, n: int = 300, **case: Any) -> FitCounts:
 def test_each_density_route_is_its_own_family(
     est: str, prefix: str, overrides: dict[str, Any], route: str, bins: int
 ) -> None:
-    counts = _route_counts(est, overrides=overrides)
-    assert (counts.family, counts.bins) == (f"{prefix}_continuous{route}", bins)
+    # The classifier route fits no binned density and refuses a bin count, so it runs without
+    # one; a binned route's count is the refined grid of its 12 core bins.
+    counts = _route_counts(est, overrides=overrides, B=bins)
+    assert counts.family == f"{prefix}_continuous{route}"
+    assert counts.bins >= bins if bins else counts.bins == 0
 
 
 @pytest.mark.parametrize(
@@ -688,7 +710,7 @@ def test_mutation_ignoring_the_density_route_fails_the_route_witnesses(
     monkeypatch.setattr(_memory_guard, "density_route", lambda estimator: "")
     index = {"treatment_learner": _IndexLogistic(max_iter=1000)}
     assert _route_counts("mtp", overrides=index).family == "ltmle_continuous"
-    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}).bins == 12
+    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}, B=0).bins > 0
     counts = _route_counts("mtp", 2_000, R=4, B=320, overrides=index)
     assert _memory_guard.predicted_bytes(counts) > 2**30
 
@@ -898,7 +920,8 @@ def test_horizons_causes_and_bins_reach_the_counts() -> None:
     with support.captured_counts() as seen, warnings.catch_warnings():
         warnings.simplefilter("ignore")
         support.build({"est": "mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 12}, 500)[1]()
-    assert (seen[0].family, seen[0].bins) == ("ltmle_continuous", 12)
+    assert seen[0].family == "ltmle_continuous"
+    assert seen[0].bins >= 12
 
 
 def test_the_draw_is_the_written_out_sum_of_its_terms() -> None:
@@ -1204,7 +1227,7 @@ def test_a_budget_one_byte_short_refuses_before_any_learner(name: str) -> None:
     assert f"{predicted:,} bytes" in text
     assert f"{predicted - 1:,} bytes" in text
     assert "which max_memory_bytes sets" in text
-    assert f"{cls}(max_memory_bytes=...)" in str(error.refusal.alternative)
+    assert f"(an argument of {cls}, and a keyword of estimate()" in str(error.refusal.alternative)
     assert "No learner was fitted" in text
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1364,40 +1387,31 @@ def _study() -> tuple[CausalStudy, Any]:
     return study, effect
 
 
-def test_the_facade_spells_the_direct_call_and_that_call_reproduces_it(
+def test_the_facade_takes_the_budget_and_names_it_in_the_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A study reaches the budget as ``max_memory_bytes=``, and its refusal says so."""
     study, effect = _study()
     settings = _learners(n_folds=2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         facade = effect.estimate("tmle", **settings)
-    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+        budgeted = effect.estimate("tmle", **settings, max_memory_bytes=2**62)
+    for name, estimate in facade.estimates.items():
+        assert estimate.psi == budgeted.estimates[name].psi
+        assert estimate.std_error == budgeted.estimates[name].std_error
     for call in (effect.estimate, effect.planned_fits):
         with pytest.raises(LongitudinalMemoryError) as caught:
-            call("tmle", **settings)
+            call("tmle", **settings, max_memory_bytes=1)
+        assert "which max_memory_bytes sets" in str(caught.value)
         alternative = str(caught.value.refusal.alternative)
-        assert "cleverly.longitudinal.LTMLE(" in alternative
-        assert "max_memory_bytes=...).fit(study.data)" in alternative
-        assert "reference='never'" in alternative
-        assert "With this seed it returns the result this study would." in alternative
-        assert caught.value.predicted is not None and caught.value.budget == 1
-    monkeypatch.undo()
-    functional = effect.functional
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        direct = LTMLE(
-            functional.interventions,
-            reference=functional.reference,
-            horizons=functional.horizons,
-            msm=functional.msm,
-            **settings,
-            max_memory_bytes=2**62,
-        ).fit(study.data)
-    assert set(facade.estimates) <= set(direct.estimates)
-    for name, estimate in facade.estimates.items():
-        assert estimate.psi == direct.estimates[name].psi
-        assert estimate.std_error == direct.estimates[name].std_error
+        assert "keyword of estimate() or a field of Runtime on a study" in alternative
+        assert caught.value.budget == 1
+    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+    with pytest.raises(LongitudinalMemoryError) as caught:
+        effect.estimate("tmle", **settings)
+    assert "the memory available now" in str(caught.value)
+    assert study.data is not None
 
 
 # ------------------------------------------------------------------ construction and scope

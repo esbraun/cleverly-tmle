@@ -137,6 +137,15 @@ def test_a_dropped_column_is_quoted_and_left_out_of_the_adjustment() -> None:
 #: and the closing words of the sentence, which tell the entries apart; then how many
 #: statements print only in the full summary.
 PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
+    "dose_response": (
+        (
+            ("well-defined treatment", "no", "the same level has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding", "no", "none of them is affected by A."),
+            ("overlap", "partly", "each declared dose inside the declared range."),
+        ),
+        2,
+    ),
     "ate": (
         (
             ("well-defined treatment", "no", "the same level has the same effect."),
@@ -324,6 +333,17 @@ PINS: dict[str, tuple[tuple[tuple[str, str, str], ...], int]] = {
             ("no interference", "no", "treatment does not change another unit's outcome."),
             ("no hidden confounding at each time", "no", "to the outcomes it would have had."),
             ("overlap at each time", "partly", "regimen assigns and of staying in follow-up."),
+        ),
+        0,
+    ),
+    "regime_separable": (
+        (
+            ("well-defined treatment", "no", "the same treatment has the same effect."),
+            ("no interference", "no", "treatment does not change another unit's outcome."),
+            ("no hidden confounding at each time", "no", "to the outcomes it would have had."),
+            ("overlap at each time", "partly", "regimen assigns and of staying in follow-up."),
+            ("treatment splits into two parts", "no", "part could be given on its own."),
+            ("each part acts on one event", "no", "when an unrecorded cause affects both events."),
         ),
         0,
     ),
@@ -677,7 +697,7 @@ def test_methods_pickle_and_compare_as_a_tuple() -> None:
     assert tuple(methods) == methods
     assert all(isinstance(record, MethodAvailability) for record in methods)
     frame = methods.to_frame()
-    assert list(frame.columns) == ["method", "available", "reason_code", "reason"]
+    assert list(frame.columns) == ["method", "available", "only", "reason_code", "reason"]
     assert list(frame["method"]) == [record.name for record in methods]
 
 

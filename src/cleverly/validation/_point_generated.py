@@ -26,6 +26,7 @@ PLASMODE_G_BOUNDS = (0.01, 0.99)
 CONSTANT_TOLERANCE = 1e-12
 
 TargetKind = Literal[
+    "projection",
     "difference",
     "level",
     "rr",
@@ -254,6 +255,111 @@ class Projection:
         return float(self.coefficients(means, population)[self.term])
 
 
+@dataclass(frozen=True, eq=False)
+class ContrastProjection:
+    """One coefficient of a conditional contrast's projection onto a basis (P1 PR 3).
+
+    On the difference scale ``beta = M^{-1} P[w phi (Q_t - Q_r)]`` with
+    ``M = P[w phi phi']``.  On the log ratio ``beta`` solves
+    ``P[w phi {(Q_t + Q_r) expit(phi'beta) - Q_t}] = 0``, the projection of the log
+    conditional risk ratio.  :meth:`coefficients` solves both here, by a linear solve and by
+    Newton iterations, so the truth shares no code with the package's projection solver.
+
+    Parameters
+    ----------
+    design : ndarray
+        ``(n, p)`` basis ``phi(V)`` at each row.
+    scale : {"difference", "log_ratio"}
+        The contrast's scale.
+    term : int
+        The index of the reported coefficient.
+    """
+
+    design: np.ndarray
+    scale: str
+    term: int
+
+    def coefficients(
+        self, value: np.ndarray, reference: np.ndarray, population: np.ndarray
+    ) -> np.ndarray:
+        """Return the projection of the contrast of ``value`` and ``reference``.
+
+        Parameters
+        ----------
+        value : ndarray
+            ``(n,)`` process mean of the value arm.
+        reference : ndarray
+            ``(n,)`` process mean of the reference arm.
+        population : ndarray
+            ``(n,)`` population weight of each row.
+
+        Returns
+        -------
+        ndarray
+            ``(p,)`` projection coefficients.
+
+        Raises
+        ------
+        ValueError
+            If the log-ratio iterations do not converge.
+        """
+        phi = np.asarray(self.design, dtype=float)
+        w = np.asarray(population, dtype=float)
+        q_t = np.asarray(value, dtype=float)
+        q_r = np.asarray(reference, dtype=float)
+        if self.scale == "difference":
+            gram = np.einsum("i,ip,iq->pq", w, phi, phi)
+            return np.asarray(np.linalg.solve(gram, phi.T @ (w * (q_t - q_r))), dtype=float)
+        beta = np.zeros(phi.shape[1])
+        for _ in range(500):
+            e = 1.0 / (1.0 + np.exp(-(phi @ beta)))
+            score = phi.T @ (w * ((q_t + q_r) * e - q_t))
+            jacobian = np.einsum("i,ip,iq->pq", w * (q_t + q_r) * e * (1.0 - e), phi, phi)
+            step = np.linalg.solve(jacobian, score)
+            beta = beta - step
+            if float(np.max(np.abs(step))) <= 1e-13 * max(1.0, float(np.max(np.abs(beta)))):
+                return beta
+        raise ValueError("the conditional contrast's projection did not converge")
+
+    def covariate_part(
+        self, value: np.ndarray, reference: np.ndarray, population: np.ndarray
+    ) -> np.ndarray:
+        """Return the covariate part of the reported coefficient's curve at each row.
+
+        It is ``e_j' J^{-1} phi (tau - phi'beta)`` on the difference scale, and the row's
+        estimating function ``phi {Q_t - (Q_t + Q_r) expit(phi'beta)}`` through the same
+        inverse on the log ratio.
+
+        Parameters
+        ----------
+        value : ndarray
+            ``(n,)`` process mean of the value arm.
+        reference : ndarray
+            ``(n,)`` process mean of the reference arm.
+        population : ndarray
+            ``(n,)`` population weight of each row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` covariate part of the coefficient :attr:`term` names.
+        """
+        phi = np.asarray(self.design, dtype=float)
+        w = np.asarray(population, dtype=float)
+        beta = self.coefficients(value, reference, population)
+        q_t = np.asarray(value, dtype=float)
+        q_r = np.asarray(reference, dtype=float)
+        if self.scale == "difference":
+            gram = np.einsum("i,ip,iq->pq", w, phi, phi) / float(np.sum(w))
+            rows = phi * (q_t - q_r - phi @ beta)[:, None]
+        else:
+            e = 1.0 / (1.0 + np.exp(-(phi @ beta)))
+            gram = np.einsum("i,ip,iq->pq", w * (q_t + q_r) * e * (1.0 - e), phi, phi)
+            gram = gram / float(np.sum(w))
+            rows = phi * (q_t - (q_t + q_r) * e)[:, None]
+        return np.asarray(np.linalg.solve(gram, rows.T)[self.term], dtype=float)
+
+
 @dataclass(frozen=True)
 class PointTarget:
     """One arm-indexed point target and how its truth is summed.
@@ -267,7 +373,8 @@ class PointTarget:
         at each row's own arm. ``par`` is ``ey_obs - ey[r]`` and ``paf`` is
         ``par / ey_obs``. ``intervention`` is the mean under :attr:`value_law`, and
         ``intervention_difference`` subtracts the mean under :attr:`reference_law`.
-        ``msm`` is one coefficient of :attr:`projection`.
+        ``msm`` is one coefficient of :attr:`projection`, and ``projection`` one
+        coefficient of :attr:`contrast_projection`, a conditional contrast's projection.
     population : {"all", "value", "reference"}
         Rows the levels average over: every row (``ate``, levels, ratios, natural
         course), the rows of the value arm (``att``), or the rows of the reference arm
@@ -296,6 +403,9 @@ class PointTarget:
         On a continuous treatment, the dose each code of :attr:`arms` stands for at each
         row. A policy's codes are its branches, so its law puts each branch's probability
         on that branch's code.
+    contrast_projection : ContrastProjection or None
+        The basis of ``projection``, whose value and reference arms are
+        :attr:`value_code` and :attr:`reference_code`.
     """
 
     kind: TargetKind
@@ -310,6 +420,7 @@ class PointTarget:
     reference_law: InterventionLaw | None = field(default=None, compare=False)
     projection: Projection | None = field(default=None, compare=False)
     doses: dict[float, np.ndarray] | None = field(default=None, compare=False)
+    contrast_projection: ContrastProjection | None = field(default=None, compare=False)
 
     @property
     def ratio(self) -> bool:
@@ -416,6 +527,13 @@ class PointTarget:
             assert self.projection is not None
             table = np.column_stack([means[code] for code in self.arms])
             return self.projection.coefficient(table, weights)
+        if self.kind == "projection":
+            assert self.contrast_projection is not None
+            assert self.value_code is not None and self.reference_code is not None
+            coefficients = self.contrast_projection.coefficients(
+                means[self.value_code], means[self.reference_code], weights
+            )
+            return float(coefficients[self.contrast_projection.term])
         if self.natural:
             observed = average(self._natural(means, mixture))
             if self.kind == "natural":
@@ -502,6 +620,13 @@ class PointTarget:
             assert self.projection is not None
             table = np.column_stack([means[code] for code in self.arms])
             vectors = [self.projection.covariate_part(table, weights)[rows]]
+        elif self.kind == "projection":
+            assert self.contrast_projection is not None
+            assert self.value_code is not None and self.reference_code is not None
+            part = self.contrast_projection.covariate_part(
+                means[self.value_code], means[self.reference_code], weights
+            )
+            vectors = [part[rows]]
         elif self.intervention:
             vectors = [self._intervention_vector(means, mixture)[rows]]
         elif self.natural:

@@ -29,21 +29,23 @@ from .crossfit import (
 from .density import (
     ConditionalDensity,
     DensityDiagnostics,
+    DoseCluster,
     bin_edges,
     fit_conditional_density,
+    isolated_dose_clusters,
 )
 from .glm import GLM
 from .library import default_library
 from .parametric import ParametricFitDiagnostics, ParametricMechanism, ParametricOutcome
-from .screeners import CorrelationScreener, screen_by_correlation
+from .screeners import screen_by_outcome
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
 
 __all__ = [
     "GLM",
     "ConditionalDensity",
-    "CorrelationScreener",
     "CrossFitPlan",
     "DensityDiagnostics",
+    "DoseCluster",
     "FoldOrigin",
     "Folds",
     "ParametricFitDiagnostics",
@@ -60,13 +62,14 @@ __all__ = [
     "fit_learner",
     "get_thread_limit",
     "infer_task",
+    "isolated_dose_clusters",
     "make_folds",
     "predict_mean",
     "random_partition",
     "refresh_thread_pools",
     "refuse_scheme",
     "resolve_n_folds",
-    "screen_by_correlation",
+    "screen_by_outcome",
     "set_thread_limit",
     "supports_sample_weight",
     "thread_limit",

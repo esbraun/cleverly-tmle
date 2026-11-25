@@ -148,7 +148,7 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         selection_folds=3,
         selection_inner_folds=2,
         estimands=("ate",),
-        ctmle_estimand="ate",
+        selection_estimand="ate",
         simultaneous=False,
         g_bounds=G_BOUNDS,
         # Every cell here samples from a beta law, so every cell declares the support, and

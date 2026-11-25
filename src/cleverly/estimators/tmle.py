@@ -88,7 +88,7 @@ import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING, Any, Final, Literal, cast, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, cast, get_args
 
 import numpy as np
 
@@ -102,6 +102,14 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._planned_fits import FitCounter, PlanBuilder, PlanItem, PlannedFits
+from .._ratio_route import (
+    REQUESTED,
+    RatioRoute,
+    check_ratio,
+    refuse_classifier_settings,
+    resolve_ratio,
+    warn_isolated_clusters,
+)
 from .._summary._learners import learner_name
 from .._support import (
     Classification,
@@ -261,7 +269,12 @@ from ..interventions import (
     Support,
     as_interventions,
 )
-from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
+from ..interventions.base import (
+    refuse_mixed_interventions,
+    refuse_natural_course,
+    refuse_regime_densities,
+    split_natural_course,
+)
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_ARM_REMEDY,
@@ -283,6 +296,7 @@ from ..interventions.learned import (
     learned_rule_split,
     learned_rule_treat,
     mean_over_splits,
+    natural_course_of,
     optimal_rule_requested,
     refuse_learned_rule_composition,
     stacked_fold_estimates,
@@ -1070,7 +1084,13 @@ class TMLE:
         on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
         its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
         or the regime minus the rule with ``reference=`` naming the rule (experimental; the
-        contrast's curve is the difference of the two curves).  Such a fit builds no
+        contrast's curve is the difference of the two curves).  A
+        :class:`~cleverly.interventions.NaturalCourse` in ``interventions=`` is the observed
+        course: the fit reports its mean ``E[Y]`` (``ey_natural_course``), under the
+        report's fold weights, and the rule's contrast with it, from the stacked curves,
+        outside the joint fluctuation (experimental).  The interval is exact when the
+        outcome model is consistent or the mechanism is declared; with a misspecified
+        outcome model and a fitted mechanism no conservativeness result holds.  Such a fit builds no
         simultaneous band over those estimates, and ``summary()`` says why.  It refuses
         ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, a continuous
         treatment, missing outcomes, and a rule learner on more than two arms or with
@@ -1184,9 +1204,18 @@ class TMLE:
         logit is taken.
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
-    screen_treatment, screen_threshold, min_retain:
-        Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
-        beside a declared known mechanism, which replaces the treatment model.
+    screen_treatment, min_retain:
+        Pre-screen the covariates of the treatment model on the outcome, as R's
+        ``prescreenW.g`` does: inside each training set, a cross-validated lasso of the
+        outcome on the covariates, with the treatment held fixed, keeps the covariates that
+        predict the outcome (:func:`~cleverly.learners.screen_by_outcome`).  An instrument,
+        which predicts treatment only, is dropped.  ``min_retain`` is the fewest kept;
+        ``None`` is R's ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless
+        ``p`` is large next to the effective sample size.  A confounder dropped from the
+        treatment model leaves the estimate consistent when the outcome model is; the
+        interval then also needs the outcome model's error to be ``o_P(n^{-1/2})`` (or
+        ``DRTMLE``), and the estimate is biased when the outcome model is not consistent.
+        Refused beside a declared known mechanism, which replaces the treatment model.
     outcome_by_arm:
         Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
         fold fits a learner on the covariates alone for each arm, on that arm's rows with an
@@ -1257,9 +1286,11 @@ class TMLE:
         ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
         :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared treatment
         mechanism) and one stacked or in-sample split whose every fold holds two clusters,
-        and it is refused otherwise. The fit costs one refit per cluster and builds no
-        simultaneous band. The option is experimental until its validation study is
-        registered.
+        and it is refused otherwise. The fit would cost one refit per cluster and build no
+        simultaneous band. ``TMLE`` refuses ``"jackknife"`` on every fit today, before any
+        learner: the in-sample family failed its floor study (roadmap F28), and the stacked
+        cross-fitted family waits for its interval floor to be redeclared (roadmap X54).
+        ``LTMLE`` offers the option.
     random_state, n_jobs:
         Reproducibility and parallelism. ``n_jobs`` also runs the jackknife refits in
         parallel.
@@ -1470,7 +1501,6 @@ class TMLE:
         nuisance_bound: float = DEFAULT_NUISANCE_BOUND,
         target_weights: bool = False,
         screen_treatment: bool = False,
-        screen_threshold: float = 0.1,
         min_retain: int | None = None,
         outcome_by_arm: bool = False,
         conditional_form: ConditionalForm = "arm_mean",
@@ -1482,7 +1512,7 @@ class TMLE:
         effect_modification: EffectModification | None = None,
         learned_rule: LearnedRule | None = None,
         density_bins: int | None = None,
-        ratio: Literal["density", "classifier"] = "density",
+        ratio: Literal["density", "classifier"] | None = None,
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -1543,12 +1573,20 @@ class TMLE:
         self.nuisance_bound = nuisance_bound
         self.target_weights = target_weights
         self.screen_treatment = screen_treatment
-        self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.outcome_by_arm = outcome_by_arm
         self.conditional_form = conditional_form
         self.estimands = estimands
-        self.interventions = as_interventions(interventions)
+        # A natural course is accepted only beside a learned rule, where the fit reports its
+        # mean outside the regime set; anywhere else it refuses before any regime is built.
+        regimes, natural_course = split_natural_course(interventions)
+        if natural_course is not None and learned_rule is None:
+            declared = (
+                interventions if isinstance(interventions, (list, tuple)) else [interventions]
+            )
+            refuse_natural_course(list(declared), holder="interventions=")
+        self.interventions = as_interventions(regimes)
+        self.natural_course = natural_course
         self.policies = tuple(policies or ())
         self.incremental = tuple(incremental or ())
         refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
@@ -1841,12 +1879,8 @@ class TMLE:
             raise ValueError(
                 f"stratify_folds must be one of {allowed}; got {self.stratify_folds!r}"
             )
-        if self.ratio not in ("density", "classifier"):
-            raise ValueError(
-                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. 'density' "
-                "estimates a policy's ratio from a binned conditional density of the dose, and "
-                "'classifier' from a stacked classification (Diaz et al. 2023, Section 5.4)"
-            )
+        check_ratio(self.ratio)
+        refuse_classifier_settings(self.ratio, self.density_bins, self.treatment_learner)
         if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
@@ -1988,7 +2022,8 @@ class TMLE:
             (Díaz et al. 2023, Assumption 1).  A vector treatment maps each continuous
             component to its support, given the covariates, the categorical components and
             the doses before it in column order.  Each branch of a joint policy is checked
-            on the components it assigns.
+            on the components it assigns.  The density route reads each dose's density over
+            its declared support.
         dose_atoms : sequence of float, or mapping of str to sequence of float
             The doses with a recorded point mass, such as a list price.  The policy ratio
             is then taken against Lebesgue plus counting measure on these doses, on both
@@ -2065,6 +2100,12 @@ class TMLE:
             treatment_support=treatment_support,
             dose_atoms=dose_atoms,
         )
+        resolved = self._resolved(prepared)
+        resolved._warn_dose_clusters(prepared)
+        return resolved._fit_prepared(prepared)
+
+    def _fit_prepared(self, prepared: CausalData) -> TMLEResultSet:
+        """:meth:`fit` on prepared data, by an estimator whose ``ratio`` is resolved."""
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
         estimands = self._intermediate_preflight(prepared)
@@ -2144,7 +2185,7 @@ class TMLE:
             treatment_support=treatment_support,
             dose_atoms=dose_atoms,
         )
-        engine = copy.copy(self)
+        engine = copy.copy(self._resolved(prepared))
         engine._defers_learned_tuners = True
         return engine._plan_prepared(prepared)
 
@@ -2427,12 +2468,11 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=folds,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=policies,
             classifier_fits=classifier_fits,
-            policy_ratio=self.ratio,
+            policy_ratio=self._route,
             density_bins=self.density_bins,
             outcome_by_arm=self.outcome_by_arm,
             seed_fixed=state == "realized",
@@ -2516,7 +2556,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=inner_folds if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else inner_folds.n_folds,
@@ -2638,7 +2677,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=split if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else split.n_folds,
@@ -2715,12 +2753,11 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=None,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=() if declares_tuned(self.policies) else tuple(self.policies),
             classifier_fits=classifier_fits,
-            policy_ratio=self.ratio,
+            policy_ratio=self._route,
             density_bins=self.density_bins,
             outcome_by_arm=self.outcome_by_arm,
             nominal_folds=nominal,
@@ -2973,7 +3010,7 @@ class TMLE:
         frozen_seeds: Sequence[int] | None,
     ) -> TMLE:
         """The estimator :meth:`refit` fits: this one, or a configured copy."""
-        estimator = self._configured_for_refit(data)
+        estimator = self._configured_for_refit(data)._resolved(data)
         if frozen_folds is not None:
             if estimator is self:
                 estimator = copy.copy(self)
@@ -2992,6 +3029,86 @@ class TMLE:
                 estimator = copy.copy(self)
             estimator.random_state = random_state
         return estimator
+
+    #: Why every fit of this class reads the density route only, as the result records it
+    #: when ``ratio=None`` resolves; ``None`` where the default can be the classifier.
+    _density_only_ratio: ClassVar[str | None] = None
+    #: The rule that chose ``ratio`` on a resolved copy; a set ``ratio`` was requested.
+    _resolved_reason: str = REQUESTED
+
+    def ratio_route(self, data: CausalData) -> RatioRoute:
+        """The route this estimator estimates a policy ratio by on ``data``, and why.
+
+        ``ratio=None`` resolves to the classifier for a policy on a continuous or vector
+        dose, and to the binned density otherwise, and in these cases even with such a
+        dose: ``density_bins`` set, a treatment learner that declares ``bin_design``, a
+        declared treatment mechanism, and an estimator that reads the density only.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        RatioRoute
+            The route and the rule that chose it.
+        """
+        if self.ratio is not None and self._resolved_reason != REQUESTED:
+            # A resolved copy, as a result records it: the rule that chose its route.
+            return RatioRoute(str(self.ratio), self._resolved_reason)
+        only = self._density_only_ratio
+        if only is None and data.known_treatment is not None:
+            only = "a declared treatment mechanism fixes the ratio's denominator"
+        return resolve_ratio(
+            self.ratio,
+            policy_dose=bool(self.policies) and _has_no_arms(data),
+            density_bins=self.density_bins,
+            learner=self.treatment_learner,
+            density_only=only,
+        )
+
+    def _resolved(self, data: CausalData) -> TMLE:
+        """This estimator with its ``ratio`` resolved on ``data``.
+
+        Itself when ``ratio`` is set or no policy reads it, else a copy, so this instance
+        keeps ``ratio=None``.  The copy is the estimator the result records, so a refit of
+        the result reads the same route.
+        """
+        if self.ratio is not None or not self.policies:
+            return self
+        route = self.ratio_route(data)
+        resolved = copy.copy(self)
+        resolved.ratio = route.route  # type: ignore[assignment]
+        resolved._resolved_reason = route.reason
+        return resolved
+
+    def _warn_dose_clusters(self, data: CausalData) -> None:
+        """Warn of isolated dose clusters when this resolved fit reads the classifier."""
+        if self.ratio != "classifier" or not self.policies or not _has_no_arms(data):
+            return
+        if data.treatment_components is None:
+            doses = {data.treatment_name: data.treatment}
+        else:
+            doses = {
+                name: data.treatment_components[:, index]
+                for index, (name, levels) in enumerate(
+                    zip(data.component_names, data.component_levels, strict=True)
+                )
+                if not levels
+            }
+        warn_isolated_clusters(doses)
+
+    def _route_record(self) -> RatioRoute | None:
+        """The resolved route this estimator fits by, or ``None`` before resolution."""
+        if self.ratio is None:
+            return None
+        return RatioRoute(str(self.ratio), self._resolved_reason)
+
+    @property
+    def _route(self) -> str:
+        """The resolved ``ratio``; a fit reads it only after :meth:`_resolved`."""
+        return "density" if self.ratio is None else str(self.ratio)
 
     def _configured_for_refit(self, data: CausalData) -> TMLE:
         """The estimator a refit on ``data`` runs, which is this one.
@@ -3614,6 +3731,9 @@ class TMLE:
                     weighted=data.is_weighted,
                     strata=data.strata_names,
                     known_regimes=[str(item.name) for item in self.interventions],
+                    natural_course=(
+                        None if self.natural_course is None else str(self.natural_course.name)
+                    ),
                 ),
             }
         result = TMLEResult(
@@ -4846,7 +4966,7 @@ class TMLE:
                     lambda value: f"row(s) in arm {data.arm_label(value)}",
                 )
             )
-        cells = _fitted_cells(data, self.ratio) if fits_treatment else None
+        cells = _fitted_cells(data, self._route) if fits_treatment else None
         if cells is not None:
             # The density route's categorical factor classifies the cells, so a package
             # Super Learner there splits on them as it would on arms.
@@ -5083,7 +5203,7 @@ class TMLE:
 
         describe: Callable[[float], str] = describe_arm
         what, noun = "treatment arm", "arm"
-        cells = _fitted_cells(data, self.ratio)
+        cells = _fitted_cells(data, self._route)
         if cells is not None:
             treatment, arms, describe = cells
             what = f"cell of the categorical components of {data.treatment_name!r}"
@@ -5434,7 +5554,7 @@ class TMLE:
                 preflight_vector_policies(
                     in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
                     data,
-                    ratio=self.ratio,
+                    ratio=self._route,
                     density_bins=self.density_bins,
                 )
             return
@@ -5458,7 +5578,7 @@ class TMLE:
                 preflight_point_policies(
                     in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
                     data,
-                    ratio=self.ratio,
+                    ratio=self._route,
                     density_bins=self.density_bins,
                 )
         elif data.treatment_support is not None or data.dose_atoms:
@@ -5782,7 +5902,6 @@ class TMLE:
             intermediate_value=intermediate_value,
             extra_levels=extra_levels,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
             policy_reference=reference if tuned is None else None,
@@ -5791,7 +5910,7 @@ class TMLE:
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
-            policy_ratio=self.ratio,
+            policy_ratio=self._route,
             msm=msm,
             companion=companion,
             n_jobs=self.n_jobs,
@@ -5856,7 +5975,7 @@ class TMLE:
                 else preflight_point_policies
             )
             for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
-                preflight(fold_policies, data, ratio=self.ratio, density_bins=self.density_bins)
+                preflight(fold_policies, data, ratio=self._route, density_bins=self.density_bins)
         return tuned
 
     def _reads_fold_plug_in_rules(self) -> bool:
@@ -5960,7 +6079,6 @@ class TMLE:
             folds=folds,
             scaler=scaler,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             n_jobs=self.n_jobs,
             outcome_by_arm=self.outcome_by_arm,
@@ -5972,7 +6090,11 @@ class TMLE:
         The learned rule is code ``0`` and the known regimes of ``interventions=`` follow it
         (X11 (c)).  With ``reference=`` naming the learned rule, or with no known regime, the
         code is ``0``, and each contrast is a known regime minus the rule.  Otherwise it is
-        ``1``, and each contrast is the rule minus a known regime.
+        ``1``, and each contrast is the rule minus a known regime.  The contrast with a
+        natural course takes its sign from ``reference=`` alone
+        (:meth:`_natural_course_flip`), so a fit whose one comparator is the natural course,
+        whose regime set holds the rule alone and so has code ``0``, still reports the rule
+        minus the natural course.
         :func:`~cleverly.interventions.learned.learned_rule_configuration_refusal` has
         already refused any other ``reference=``.
         """
@@ -5982,6 +6104,14 @@ class TMLE:
         ):
             return 0.0
         return 1.0
+
+    def _natural_course_flip(self) -> bool:
+        """Whether the natural-course contrast is the natural course minus the rule.
+
+        ``True`` only when ``reference=`` names the learned rule, as for the known regimes.
+        """
+        rule = self.learned_rule
+        return rule is not None and self.reference is not None and str(self.reference) == rule.name
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
@@ -6108,6 +6238,7 @@ class TMLE:
                 else "estimated"
             ),
             continuous_treatment=_has_no_arms(data),
+            ratio_route=self._route_record() if self.policies else None,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             outcome_by_arm=self.outcome_by_arm,
@@ -7657,6 +7788,12 @@ class TMLE:
             ),
             natural_course=natural_course,
             known_score=known_score,
+            learned_natural_course=(
+                None
+                if (natural := natural_course_of(self)) is None or regimes is None
+                else str(natural.name)
+            ),
+            natural_course_flip=self._natural_course_flip(),
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

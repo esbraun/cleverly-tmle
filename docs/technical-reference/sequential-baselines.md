@@ -121,8 +121,10 @@ Ertefaie, Hejazi & van der Laan (2023), Section 3, Theorem 1, cover IPW with an 
 propensity at one time point only. For an interval with data-adaptive learners, fit `LTMLE` or
 `SDR`.
 
-The full-refit bootstrap runs and reports `bootstrap sd` with no percentile inference, as for
-`SDR`. No registered study measures it for the baselines.
+The full-refit bootstrap runs and reports the percentile interval under the `experimental` label.
+`bootstrap_interval="bca"` is refused
+([engine settings on a method object](scope-and-refusals.md#engine-settings-on-a-method-object)).
+No registered study measures the bootstrap for the baselines.
 
 ### Clusters
 
@@ -165,7 +167,7 @@ treatment.
 | `hazard_pooling="pooled"` | both | `CapabilityError`. Each baseline fits its own node models. `LTMLE` and `SDR` fit a pooled hazard |
 | an odds tilt with an estimated mechanism | both | `CapabilityError`. Fit `IPSI` |
 | a modified treatment policy | IPW | `CapabilityError`. IPW of a shifted law needs a density ratio |
-| `ratio=`, `density_bins=` | IPW | `CapabilityError` |
+| `ratio="classifier"`, `density_bins=` | IPW | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | g-computation | `CapabilityError`. The scale moves with the sample extremes. Declare `q_bounds=`, or pass `GLM(family="gaussian")` |
 | `longitudinal_truncation_curve` | g-computation | `CapabilityError`. `g_bounds` does not move the estimate |
 | a prediction through a `GLM` column that the followers alias | g-computation | `DataError`. The column has no coefficient, so the prediction assumes that the column has no effect |

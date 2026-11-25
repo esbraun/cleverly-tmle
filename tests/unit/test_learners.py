@@ -15,7 +15,6 @@ from sklearn.pipeline import Pipeline, make_pipeline
 
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.learners import (
-    CorrelationScreener,
     CrossFitPlan,
     Folds,
     SuperLearner,
@@ -27,7 +26,6 @@ from cleverly.learners import (
     predict_mean,
     refuse_scheme,
     resolve_n_folds,
-    screen_by_correlation,
     supports_sample_weight,
 )
 from tests.conftest import fast_tmle
@@ -745,35 +743,6 @@ class TestStratifyingOnARareOutcome:
             fast_tmle(stratify_folds="outcome")
 
 
-class TestScreening:
-    def test_associated_columns_are_kept_and_noise_dropped(self) -> None:
-        rng = np.random.default_rng(0)
-        n = 800
-        x = rng.normal(size=(n, 5))
-        a = rng.binomial(1, 1.0 / (1.0 + np.exp(-2.0 * x[:, 0]))).astype(float)
-        keep = screen_by_correlation(x, a, threshold=0.01, min_retain=1)
-        assert keep[0]
-        assert keep.sum() < 5
-
-    def test_min_retain_is_a_floor(self) -> None:
-        rng = np.random.default_rng(1)
-        x = rng.normal(size=(200, 6))
-        a = rng.binomial(1, 0.5, 200).astype(float)
-        # Nothing is associated, but screening must never empty the model.
-        keep = screen_by_correlation(x, a, threshold=1e-12, min_retain=3)
-        assert keep.sum() == 3
-
-    def test_screener_works_inside_a_pipeline(self, sample) -> None:
-        x, _, a = sample
-        model = make_pipeline(CorrelationScreener(min_retain=2), LogisticRegression())
-        model.fit(x, a)
-        assert model.predict_proba(x).shape == (len(a), 2)
-
-    def test_unfitted_screener_refuses_to_transform(self) -> None:
-        with pytest.raises(AttributeError, match="not been fitted"):
-            CorrelationScreener().get_support()
-
-
 class TestFittingHelpers:
     def test_sample_weight_support_is_detected(self) -> None:
         assert supports_sample_weight(LinearRegression())
@@ -1126,7 +1095,8 @@ class TestCrossFitRouting:
         wrapped one silently did not -- running both is what makes the fix visible as a
         difference rather than as a bare assertion.
         """
-        from cleverly.estimators._nuisance import _screened, cross_fit_predictions
+        from cleverly.estimators._nuisance import cross_fit_predictions
+        from cleverly.learners.screeners import OutcomeScreen, ScreenedLearner
 
         n = 240
         rng = np.random.default_rng(1)
@@ -1144,8 +1114,23 @@ class TestCrossFitRouting:
             random_state=0,
             clip=(0.0, 1.0),
         )
+        outcome = design[:, 1] + treatment + rng.normal(size=n)
+        screened = ScreenedLearner(
+            learner,
+            OutcomeScreen(
+                # A floor of every column: the spy reads row ids from column 0.
+                design,
+                treatment,
+                (True,),
+                outcome,
+                np.ones(n, bool),
+                np.ones(n),
+                cluster,
+                3,
+            ),
+        )
         cross_fit_predictions(
-            _screened(learner, 0.1, None) if screen else learner,
+            screened if screen else learner,
             design,
             treatment,
             np.ones(n),
@@ -1169,7 +1154,7 @@ class TestCrossFitRouting:
 
     def test_weights_still_reach_a_pipeline_wrapped_learner(self) -> None:
         """The routing rewrite must not lose the parameter it already handled."""
-        from cleverly.estimators._nuisance import _screened
+        from cleverly.learners.screeners import ScreenMask
 
         n = 200
         rng = np.random.default_rng(2)
@@ -1177,8 +1162,11 @@ class TestCrossFitRouting:
         outcome = design[:, 0] + rng.normal(scale=0.5, size=n)
         weights = rng.uniform(0.2, 2.0, n)
 
-        wrapped = _screened(
-            SuperLearner(library=[LinearRegression()], n_folds=3, random_state=0), 0.1, None
+        wrapped = Pipeline(
+            [
+                ("screen", ScreenMask(np.array([True, True, False]))),
+                ("model", SuperLearner(library=[LinearRegression()], n_folds=3, random_state=0)),
+            ]
         )
         plain = fit_learner(wrapped, design, outcome, None)
         weighted = fit_learner(wrapped, design, outcome, weights)

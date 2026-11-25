@@ -1068,6 +1068,36 @@ ARMS["drop_w1_contrast_0"] = (
     "learned-rule value minus the value of Static(0) under the fold-evaluated report"
 )
 
+#: The parameter labels of ``learned-rule-contrast-comparators`` (X123 (d)), one arm per law,
+#: report and tag, ``<law>_<report>_<tag>``, and the necessity label. Mirrored from
+#: ``tests.studies._learned_rule_contrast_comparators_law.TAGS``, which this module cannot import.
+#: ``coin`` treats with probability 0.5; ``offer`` treats with probability 0.5 where W1 > 0.
+_COMPARATOR_TAGS = {
+    "coin": "the value of the coin regime",
+    "offer": "the value of the offer regime",
+    "natural": "the natural-course mean E Y",
+    "contrast_0": "the learned-rule value minus the value of Static(0)",
+    "contrast_coin": "the learned-rule value minus the value of the coin regime",
+    "contrast_offer": "the learned-rule value minus the value of the offer regime",
+    "contrast_natural": "the learned-rule value minus the natural-course mean",
+    "alone_contrast_natural": (
+        "the learned-rule value minus the natural-course mean, from the fit beside the natural "
+        "course alone"
+    ),
+}
+ARMS.update(
+    {
+        f"{law}_{report}_{tag}": f"{law_words}, {tag_words} under {report_words}"
+        for law, law_words in _CONTRAST_LAWS.items()
+        for report, report_words in _CONTRAST_REPORTS.items()
+        for tag, tag_words in _COMPARATOR_TAGS.items()
+    }
+)
+ARMS["drop_w1_contrast_offer"] = (
+    "the learned-rule law with the blip 0.1 + W1 and RM30's drop_w1 outcome learner, the "
+    "learned-rule value minus the value of the offer regime under the fold-evaluated report"
+)
+
 #: The labels of ``learned-rule-arms`` (X11 PR H, X11 (d)): the three-arm law with each of its
 #: outcome learners. Mirrored from ``tests.studies._learned_rule_arms_law.TERMS``, which this
 #: module cannot import.
@@ -1837,10 +1867,7 @@ _HAZARD_MTP_FITS = {
     "vector": (
         "the one-visit arm-and-dose law under a joint shift of the dose by one, classifier ratio"
     ),
-    "untruncated_density": (
-        "the untruncated Gaussian dose law under a shift of one, binned density ratio, whose "
-        "tail bins are wider than the shift"
-    ),
+    "untruncated_density": "the untruncated Gaussian dose law under a shift of one, binned density ratio",
 }
 ARMS.update(
     {
@@ -7926,6 +7953,145 @@ STUDY_ARM_CELLS.update(
 )
 
 
+#: ``learned-rule-contrast-comparators`` (X123 (d)): the learned rule beside ``Static(0)``, two
+#: known stochastic regimes and the natural course in one fit (fit C), and beside the natural
+#: course alone (fit N). The laws and learners are RM30's; the cell names are those of
+#: ``tests/studies/learned_rule_contrast_comparators.py``.
+_COMPARATORS_SLUG = "learned-rule-contrast-comparators"
+_FIT_C = "the declared fit beside Static(0), coin, offer and the natural course"
+_FIT_N = "the declared fit beside the natural course alone"
+IMPLEMENTATIONS["cleverly-learned-rule-contrast-comparators"] = (
+    "`cleverly` cross-validated TMLE of the learned-rule value beside known stochastic regimes "
+    "and the natural course: each fold's plug-in rule and each known regime as columns of one "
+    "regime set under one pooled fluctuation, the natural course the fold mean of the observed "
+    "outcome outside it, and each contrast's curve the difference of the two curves"
+)
+_COMPARATOR_ESTIMANDS = {
+    "ey_learned_rule[learned rule]": (
+        "fold average of the values of the rules learned on each training fold"
+    ),
+    "ey_known_regime[always 0]": "mean outcome if no one is treated",
+    "ey_known_regime[coin]": "mean outcome if each person is treated with probability 0.5",
+    "ey_known_regime[offer]": (
+        "mean outcome if each person with W1 > 0 is treated with probability 0.5 and no one else"
+    ),
+    "ey_natural_course[natural course]": "mean outcome under the treatment people actually got",
+    "ate_learned_rule[learned rule vs always 0]": (
+        "the learned-rule value minus the mean outcome if no one is treated"
+    ),
+    "ate_learned_rule[learned rule vs coin]": (
+        "the learned-rule value minus the mean outcome under the coin regime"
+    ),
+    "ate_learned_rule[learned rule vs offer]": (
+        "the learned-rule value minus the mean outcome under the offer regime"
+    ),
+    "ate_learned_rule[learned rule vs natural course]": (
+        "the learned-rule value minus the mean outcome under the treatment people actually got"
+    ),
+}
+STUDY_ESTIMANDS.update(
+    {(_COMPARATORS_SLUG, name): words for name, words in _COMPARATOR_ESTIMANDS.items()}
+)
+STUDY_ESTIMANDS.update(
+    {
+        (_COMPARATORS_SLUG, f"natural course alone: {name}"): f"{words}, from the fit beside "
+        "the natural course alone"
+        for name, words in _COMPARATOR_ESTIMANDS.items()
+        if name.startswith(("ey_learned_rule", "ate_learned_rule[learned rule vs natural"))
+    }
+)
+STUDY_SCENARIOS[(_COMPARATORS_SLUG, "non_exceptional")] = (
+    "learned-rule law with the blip 0.1 + W1, a correct interaction logistic outcome learner, "
+    "fold-evaluated report"
+)
+_COMPARATOR_CONTRASTS = (
+    "contrast_0",
+    "contrast_coin",
+    "contrast_offer",
+    "contrast_natural",
+    "alone_contrast_natural",
+)
+
+
+def _comparator_fit(tag: str) -> str:
+    return _FIT_N if tag.startswith("alone_") else _FIT_C
+
+
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "interval_calibration",
+            f"non_exceptional_{report}_{tag}",
+            "declared",
+        ): (
+            f"{_comparator_fit(tag)}, with the study's logistic learners",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_TAGS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "declared",
+        ): (
+            f"{_comparator_fit(tag)}, with the correct logistic treatment model fitted by "
+            "maximum likelihood",
+            "bias interval inside the margin, and the coverage interval's lower end at or "
+            "above 0.92; the SE ratio is read by no verdict",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (
+            _COMPARATORS_SLUG,
+            "conservative_coverage",
+            f"misspecified_limit_{report}_{tag}",
+            "shrunken_coverage_control",
+        ): (
+            "the declared fit's standard errors multiplied by 0.60",
+            "the coverage interval must lie wholly below 0.92",
+        )
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_COMPARATORS_SLUG, family, f"{law}_{report}_{tag}", kind): (
+            words[0].replace("the known value", "the comparator's value").replace("se_K", "se_C"),
+            words[1],
+        )
+        for (family, kind), words in _CONTRAST_SE_CELLS.items()
+        for law in _CONTRAST_LAWS
+        for report in _CONTRAST_REPORTS
+        for tag in _COMPARATOR_CONTRASTS
+    }
+)
+STUDY_ARM_CELLS.update(
+    {
+        (_COMPARATORS_SLUG, "targeting_necessity", "drop_w1_contrast_offer", "targeted"): (
+            f"{_FIT_C} with drop_w1, a saturated outcome learner in (A, W2) with no W1 term, so "
+            "targeting does the adjusting",
+            "bias interval inside the equivalence margin",
+        ),
+        (_COMPARATORS_SLUG, "targeting_necessity", "drop_w1_contrast_offer", "untargeted"): (
+            "the same fit's initial plug-in contrast, the difference of the fold-weighted "
+            "untargeted values, with no fluctuation",
+            "bias interval must fall entirely outside the margin",
+        ),
+    }
+)
+
+
 #: ``learned-rule-arms`` (X11 PR H, X11 (d)): the plug-in rule over three arms, the argmax of
 #: each fold's outcome model with a tie to the lowest arm code. The law and learners are those
 #: of ``tests/studies/_learned_rule_arms_law.py``; the cell names are those of
@@ -8854,6 +9020,132 @@ STUDY_CELLS.update(
                 _PE_NO_VERDICT,
             )
             for label, (group, grid) in _PE_DIAGNOSTIC_BANDS.items()
+        },
+    }
+)
+
+#: ``projection-methods`` (P1 PR 3): the DR-TMLE projection and the per-arm outcome-adaptive
+#: C-TMLE projection on law P, in sample.  The groups and cell names are those of
+#: ``tests/studies/projection_methods.py``, which this module cannot import;
+#: ``tests/unit/test_projection_methods_design.py`` pins the two equal.
+_PM_SLUG = "projection-methods"
+IMPLEMENTATIONS["cleverly-projection-methods"] = (
+    "`cleverly` DR-TMLE projection on the difference scale, in sample, with guards Q and g, the "
+    "univariate reduction and cubic reduced regressions"
+)
+_PM_LAW = (
+    "law P (W1, W2 independent standard normal, P(A = 1) = expit(0.6 W1 + 0.3 W2) given W, "
+    "and E[Y] = expit(-0.2 + A (0.5 + 0.6 W1) - W1 + 2 W2) given A and W)"
+)
+_PM_WRONG_Q = "the wrong outcome regression (a logistic GLM on A and W1)"
+_PM_DRTMLE = "the DR-TMLE projection with guards Q and g and cubic reduced regressions"
+_PM_GROUPS = {
+    "dr_known_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the declared mechanism "
+        "(treatment_probabilities=), n = 4,000"
+    ),
+    "dr_both_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, the correct logistic outcome regression and the correct "
+        "logistic mechanism, n = 4,000"
+    ),
+    "dr_glm_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the correct logistic mechanism, n = 4,000"
+    ),
+    "dr_slow": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the correct logistic mechanism plus the "
+        "constructed logit offset n^(-1/3) W2 (1 + W1)"
+    ),
+    "ctmle_points_4k": (
+        f"{_PM_LAW}, the per-arm outcome-adaptive C-TMLE projection with the correct logistic "
+        "outcome regression and a logistic per-arm design, n = 4,000"
+    ),
+}
+_PM_TERMS = {"intercept": "intercept", "W1": "W1 slope"}
+_PM_TARGET = "of the projection of the CATE on (1, W1)"
+_PM_BIAS_POSITIVE = "the 99% interval of the standardized bias inside +-0.25"
+_PM_PLUGIN = "the plug-in SE beside the spread, withheld by the fit's status"
+_PM_GROWTH = (
+    "the lower bound of the 99% interval of the signed growth of bias/SD from n = 4,000 to "
+    "n = 64,000 lies above zero"
+)
+
+STUDY_SCENARIOS[(_PM_SLUG, "dr_known_4k")] = _PM_GROUPS["dr_known_4k"]
+STUDY_ESTIMANDS[(_PM_SLUG, "cate_projection[(intercept)]")] = (
+    "the intercept of the least-squares projection of the CATE on (1, W1)"
+)
+STUDY_CELLS.update(
+    {
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_intercept__dr_known_intercept"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the influence-curve Wald interval of the intercept "
+            f"{_PM_TARGET}",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_W1__dr_known_slope"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the influence-curve Wald interval of the W1 slope "
+            f"{_PM_TARGET}",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_intercept__shrunken_se_control"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the reported SE of the intercept times 0.70",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            (_PM_SLUG, "bias", f"{group}_{term}"): (
+                f"{_PM_GROUPS[group]}: the point estimate of the {words} {_PM_TARGET}",
+                _PM_BIAS_POSITIVE,
+            )
+            for group in ("dr_known_4k", "dr_both_4k", "ctmle_points_4k")
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "bias", f"wrong_q_witness_4k_{term}"): (
+                f"{_PM_GROUPS['dr_known_4k']}: the plug-in of the wrong outcome regression, "
+                f"with no targeting, for the {words} {_PM_TARGET}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "spread", f"{group}_{term}__plugin_reading"): (
+                f"{_PM_GROUPS[group]}: {_PM_PLUGIN}, for the {words} {_PM_TARGET}",
+                "none. The row is a reading and states no verdict",
+            )
+            for group in ("dr_both_4k", "ctmle_points_4k")
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "spread", f"dr_known_4k_{term}__d_star_reading"): (
+                f"{_PM_GROUPS['dr_known_4k']}: the SE read off the projection's own curve D* "
+                f"without the mechanism correction, beside the spread, for the {words} "
+                f"{_PM_TARGET}",
+                "none. The row is a reading and states no verdict",
+            )
+            for term, words in _PM_TERMS.items()
+        },
+        (_PM_SLUG, "one_wrong_inference", "dr_glm__intercept__conservative"): (
+            f"{_PM_GROUPS['dr_glm_4k']}: the plug-in Wald interval of the intercept "
+            f"{_PM_TARGET}, which the fit's status withholds",
+            _ONE_WRONG_RULES["conservative"],
+        ),
+        (_PM_SLUG, "one_wrong_inference", "dr_glm__W1__valid"): (
+            f"{_PM_GROUPS['dr_glm_4k']}: the plug-in Wald interval of the W1 slope "
+            f"{_PM_TARGET}, which the fit's status withholds",
+            _ONE_WRONG_RULES["valid"],
+        ),
+        **{
+            (_PM_SLUG, "one_wrong_inference", f"dr_slow_n{size}__{term}__first_order"): (
+                f"{_PM_GROUPS['dr_slow']}: the {words} {_PM_TARGET}, at n = {size:,}",
+                _ONE_WRONG_RULES["first_order"],
+            )
+            for size in (4_000, 16_000, 64_000)
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "one_wrong_inference", f"dr_slow__{term}__growth"): (
+                f"{_PM_GROUPS['dr_slow']}: the {words} {_PM_TARGET}, across the ladder",
+                _PM_GROWTH,
+            )
+            for term, words in _PM_TERMS.items()
         },
     }
 )
@@ -11668,16 +11960,6 @@ _HAZARD_MTP_DIFFERENCE_CELLS = {
 }
 STUDY_ARM_CELLS.update(
     {
-        (_HAZARD_MTP_SLUG, "interval_calibration", f"untruncated_density_{arm}", "reported"): (
-            "the density route's interval on the untruncated Gaussian law, whose quantile tail "
-            "bins are wider than the shift",
-            "no verdict; coverage, SE ratio and efficiency ratio are reported",
-        )
-        for arm in ("contrast", "risk")
-    }
-)
-STUDY_ARM_CELLS.update(
-    {
         (_HAZARD_MTP_SLUG, "iterated_mean_difference", f"{fit}_{arm}", base): words
         for fit in ("levels", "gaussian_density")
         for arm in ("contrast", "risk")
@@ -12571,6 +12853,216 @@ for _fcfv_law, _fcfv_law_words in _FCFV_LAWS.items():
                 _FCFV_REQUIRED.get(_fcfv_arm, _DIAGNOSTIC_REQUIRED),
             )
 
+#: ``mtp-density-tails`` (Fix-9): the point MTP density and classifier routes on laws G, T, C,
+#: S, B and U, and the longitudinal default route on ``longitudinal-mtp``'s continuous law.  The
+#: laws are those of ``tests/mtp_density_tails_law.py``, and the cells those of
+#: ``tests.studies.canonical_mtp_density_tails``, which this module cannot import.
+_MDT_SLUG = "mtp-density-tails"
+_MDT_LAWS = {
+    "G": "a Gaussian dose, N(c(W), 1.5^2) given W, under a shift of one; the ratio is unbounded",
+    "T": (
+        "the Gaussian dose truncated to [-2, 4.5] under a shift of one capped at 4.5; the ratio "
+        "is bounded"
+    ),
+    "C": "the Gaussian dose with a 0.15% far component near 20, beyond a gap, under a shift of one",
+    "S": "the dose c(W) + 1.5 t_5, heavy tailed, under a shift of one",
+    "B": (
+        "a truncated normal dose on [0, u(W)] with u = 6 + 2 W2, declared as Support(0, u(W)); "
+        "the policy adds one below u - 1 and holds the dose above it"
+    ),
+    "U": (
+        "a truncated normal dose on [0, u(W)] with u = 7 + 0.8 W1, declared as Support(0, u(W)); "
+        "the policy adds one below u - 1 and holds the dose above it"
+    ),
+}
+STUDY_SCENARIOS.update(
+    {
+        (_MDT_SLUG, law): f"{words}; outcome Q0(A, W) + N(0, 1), n = 2,000"
+        for law, words in _MDT_LAWS.items()
+    }
+)
+STUDY_ESTIMANDS[(_MDT_SLUG, "policy_mean")] = "the mean outcome under the law's policy"
+PROPERTIES.update(
+    {
+        "ic_gap": (
+            "the density fit's influence curve against the exact efficient influence curve, "
+            "SD(IC - D0) / SD(D0) with the oracle hazard"
+        ),
+        "cluster_warning": (
+            "the isolated-dose-cluster warning, isolated_dose_clusters(A, min_rows=3), on the "
+            "ic_gap draws' doses"
+        ),
+    }
+)
+_MDT_GAP_SMALL = {"G": 0.10, "C": 0.10, "T": 0.05, "B": 0.04, "U": 0.04}
+_MDT_GAP_LARGE = {"G": 0.10, "C": 0.10, "T": 0.04, "B": 0.03, "U": 0.03}
+_MDT_CALIBRATION = "SE ratio and coverage intervals both inside their calibration bands"
+_MDT_SE_CONTROL = "the SE-ratio interval must fall below the calibration band"
+_MDT_COVERAGE_CONTROL = "the coverage interval must fall below the calibration band"
+_MDT_REPORTED = (
+    "none. The row is reported with its SE ratio and coverage; one outside the band is "
+    "diagnosed on the page"
+)
+_MDT_ROUTES = {
+    "": "the density route, oracle hazard on the default grid, correct outcome regression, in "
+    "sample",
+    "_classifier": "the classifier route ratio=None resolves to: the default stack, five outer "
+    "folds, the policy's step columns, correct outcome regression",
+}
+_mdt_cells: dict[tuple[str, str, str], tuple[str, str]] = {}
+for _law in ("G", "T", "C"):
+    _mdt_cells[("interval_calibration", f"{_law}__correctly_specified")] = (
+        f"law {_law}, {_MDT_ROUTES['']}, n = 2,000",
+        _MDT_CALIBRATION,
+    )
+for _law in ("S", "B", "U"):
+    _mdt_cells[("interval_calibration", f"{_law}__reported")] = (
+        f"law {_law}, {_MDT_ROUTES['']}, n = 2,000",
+        _MDT_REPORTED,
+    )
+for _law in ("G", "T"):
+    _mdt_cells[("interval_calibration", f"{_law}_classifier__correctly_specified")] = (
+        f"law {_law}, {_MDT_ROUTES['_classifier']}, n = 2,000",
+        _MDT_CALIBRATION,
+    )
+    _mdt_cells[("interval_calibration", f"{_law}_dr__wrong_outcome")] = (
+        f"law {_law}, the oracle density and the wrong outcome regression (OLS on "
+        "[1, A, W1, W2]), n = 8,000",
+        _MDT_CALIBRATION,
+    )
+    _mdt_cells[("interval_calibration", f"{_law}_dr__both_wrong_control")] = (
+        f"law {_law}, the wrong outcome regression and a density that ignores W1, n = 8,000",
+        _MDT_COVERAGE_CONTROL,
+    )
+    _mdt_cells[("interval_calibration", f"{_law}_classifier_dr__reported")] = (
+        f"law {_law}, the classifier route with the wrong outcome regression (OLS on "
+        "[1, A, W1, W2]), n = 2,000",
+        "none. Bias, coverage and the mean remainder proxy are reported against the declared "
+        "reading",
+    )
+_mdt_cells[("interval_calibration", "S_classifier__reported")] = (
+    f"law S, {_MDT_ROUTES['_classifier']}, n = 2,000; S's influence curve has an infinite "
+    "fourth moment",
+    _MDT_REPORTED,
+)
+_mdt_cells[("interval_calibration", "G_classifier_dr_both_wrong__reported")] = (
+    "law G, the wrong outcome regression and a classifier that omits W1, n = 2,000",
+    "none. Bias, coverage and the mean remainder proxy are reported",
+)
+_mdt_cells[("interval_calibration", "G_dr__pre_fix_control")] = (
+    "law G, the pre-fix one-step reading with the wrong outcome regression, n = 8,000",
+    _MDT_COVERAGE_CONTROL,
+)
+for _arm, _route in (("G", ""), ("G_classifier", "_classifier")):
+    _mdt_cells[("interval_calibration", f"{_arm}__shrunken_se_control")] = (
+        f"law G, {_MDT_ROUTES[_route]}, on its own 1,000 draws: each SE multiplied by 0.70",
+        _MDT_SE_CONTROL,
+    )
+    _mdt_cells[("interval_calibration", f"{_arm}__noise_control")] = (
+        f"law G, {_MDT_ROUTES[_route]}, on its own 1,000 draws: a declared scale of "
+        "independent noise added to each estimate",
+        _MDT_SE_CONTROL,
+    )
+_MDT_LONGITUDINAL = (
+    "longitudinal-mtp's continuous law, {estimator} on the default route at both continuous "
+    "nodes (the classifier, default stack, five outer folds, per-node steps), n = 2,000: {target}"
+)
+_MDT_TARGETS = {
+    "ate_up_vs_natural": f"{REGIMENS['up']}, minus the natural course",
+    "ate_scale_at_2_vs_natural": f"{REGIMENS['scale at 2']}, minus the natural course",
+    "ate_up_then_history_vs_natural": f"{REGIMENS['up then history']}, minus the natural course",
+    "ey_natural": "the mean under the natural course",
+    "ey_up": f"the mean under {REGIMENS['up']}",
+    "ey_scale_at_2": f"the mean under {REGIMENS['scale at 2']}",
+    "ey_up_then_history": f"the mean under {REGIMENS['up then history']}",
+}
+for _estimator in ("LTMLE", "SDR"):
+    for _target, _target_words in _MDT_TARGETS.items():
+        _words = _MDT_LONGITUDINAL.format(estimator=_estimator, target=_target_words)
+        if _target == "ate_up_vs_natural":
+            _mdt_cells[("interval_calibration", f"{_estimator}_{_target}__correctly_specified")] = (
+                _words,
+                _MDT_CALIBRATION,
+            )
+        else:
+            _mdt_cells[("interval_calibration", f"{_estimator}_{_target}__reported")] = (
+                _words,
+                _MDT_REPORTED,
+            )
+for _kind in ("shrunken_se_control", "noise_control"):
+    _mdt_cells[("interval_calibration", f"LTMLE_ate_up_vs_natural__{_kind}")] = (
+        _MDT_LONGITUDINAL.format(estimator="LTMLE", target=_MDT_TARGETS["ate_up_vs_natural"])
+        + (
+            ", on its own 1,000 draws: each SE multiplied by 0.70"
+            if _kind == "shrunken_se_control"
+            else ", on its own 1,000 draws: a declared scale of independent noise "
+            "added to each estimate"
+        ),
+        _MDT_SE_CONTROL,
+    )
+for _law in ("G", "T", "C", "B", "U"):
+    _small, _large = _MDT_GAP_SMALL[_law], _MDT_GAP_LARGE[_law]
+    _mdt_cells[("ic_gap", f"{_law}__n_2000")] = (
+        f"law {_law}, the shipped density reading, 80 draws at n = 2,000",
+        f"median gap at most {_small}",
+    )
+    _mdt_cells[("ic_gap", f"{_law}__n_20000")] = (
+        f"law {_law}, the shipped density reading, 30 draws at n = 20,000",
+        f"every gap at most {_large}, and the median at most 0.6 times the 2,000 median",
+    )
+    _mdt_cells[("ic_gap", f"{_law}__pre_fix_n_2000")] = (
+        f"law {_law}, the pre-fix reading (equal-mass grid read as a histogram), n = 2,000",
+        f"must fail the 2,000 bound: median gap above {_small}",
+    )
+_mdt_cells[("ic_gap", "G__pre_fix_n_20000")] = (
+    "law G, the pre-fix reading, n = 20,000",
+    "must fail the fall clause: median above 0.6 times the 2,000 median",
+)
+_mdt_cells[("ic_gap", "T__pre_fix_n_20000")] = (
+    "law T, the pre-fix reading, n = 20,000",
+    "none. The row is reported; T's pre-fix control is read at n = 2,000 only",
+)
+for _law in ("C", "B", "U"):
+    _mdt_cells[("ic_gap", f"{_law}__pre_fix_n_20000")] = (
+        f"law {_law}, the pre-fix reading, n = 20,000",
+        f"must fail the 20,000 clause: some gap above {_MDT_GAP_LARGE[_law]}",
+    )
+for _law in ("B", "U"):
+    _mdt_cells[("ic_gap", f"{_law}__support_ignored_n_2000")] = (
+        f"law {_law}, the shipped reading with the declared support ignored, n = 2,000",
+        "none. The row is reported",
+    )
+    _mdt_cells[("ic_gap", f"{_law}__support_ignored_n_20000")] = (
+        f"law {_law}, the shipped reading with the declared support ignored, n = 20,000",
+        f"must fail the 20,000 clause: some gap above {_MDT_GAP_LARGE[_law]}",
+    )
+    _mdt_cells[("ic_gap", f"{_law}__no_row_break_n_2000")] = (
+        f"law {_law}, the reading with no row-wise break at the support edge, n = 2,000",
+        f"must fail the 2,000 bound: median gap above {_MDT_GAP_SMALL[_law]}",
+    )
+for _law, _words in (("S", "law S"), ("Gscale", "law G under Scale(1.25)")):
+    for _n, _draws in ((2000, 80), (20000, 30)):
+        _mdt_cells[("ic_gap", f"{_law}__n_{_n}")] = (
+            f"{_words}, the shipped density reading, {_draws} draws at n = {_n:,}",
+            "none. The row is reported",
+        )
+_mdt_cells[("cluster_warning", "C__n_20000")] = (
+    "law C at n = 20,000, the doses of the 30 ic_gap draws",
+    "the helper warns on at least 26 of the 30 draws",
+)
+_mdt_cells[("cluster_warning", "GT__pooled")] = (
+    "laws G and T at n = 2,000 and 20,000, the doses of the 220 ic_gap draws",
+    "the helper warns on at most 6 of the 220 draws",
+)
+_mdt_cells[("cluster_warning", "C__gap_disabled_control")] = (
+    "law C at n = 20,000, the helper with its gap rule disabled (every bin read as occupied)",
+    "must fail the C clause: fewer than 26 of the 30 draws warn",
+)
+_mdt_cells[("cluster_warning", "GT__eager_control")] = (
+    "laws G and T, an eager helper (an absolute gap test with min_rows = 1)",
+    "must fail the G and T clause: more than 6 of the 220 draws warn",
+)
+STUDY_CELLS.update({(_MDT_SLUG, family, key): words for (family, key), words in _mdt_cells.items()})
 
 #: ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` (X54 parts (a) to
 #: (c)): the interval floor of each fit family and the part (c) comparison of two small-sample

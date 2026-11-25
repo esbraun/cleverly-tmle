@@ -5,11 +5,11 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-mtp-policy-variance",
-      "cleverly_version": "0.2.4",
-      "cleverly_commit": "a1c62db0601796d5c61b2c8ee14f77d075043f32",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "58538bfa7ce7a5395afa2137aa447db1b707e81e",
       "cleverly_worktree_clean": true,
-      "python": "3.13.16",
-      "numpy": "2.5.4",
+      "python": "3.13.18",
+      "numpy": "2.5.5",
       "scipy": "1.18.1",
       "pandas": "3.1.1",
       "scikit_learn": "1.9.1",
@@ -142,17 +142,17 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_mtp_policy_variance.py": "b2bc00e8686521c24c7993c66b2287371e4676a4a3a8e606b0fcd3cf7c158d43",
-    "tests/studies/mtp_policy_variance_properties.py": "aa202b5c9f3ec95a9ae7b41049b328d654319c3aebbfc4d96d2aa69edf8ce2d6",
-    "tests/studies/canonical_mtp_boundaries.py": "a0a186cedebd3120440655936a288c2f8421ddd0d902a207015ab7738f5c168b",
+    "tests/studies/canonical_mtp_policy_variance.py": "8cedc88c7b584c3558b3f1051632acfdf00ec037e114df9258b9171d879faf7a",
+    "tests/studies/mtp_policy_variance_properties.py": "6bf7e0dfdb60acd3014aaac02c1fdccc71600442546cd46805fec662b982698b",
+    "tests/studies/canonical_mtp_boundaries.py": "aaeff91ac6089d1098c2ae08efe19ef0b36f3e11c5995cc00de8c1caf6f27214",
     "tests/studies/canonical_mtp_pricing.py": "e7882b1e7b1508d2694fa1dabf2bb7d09170f00b2d17e882aa28fedf879e899a",
-    "tests/studies/mtp_boundaries_common.py": "efa8ba7e0501271d55e632ab19edb7a6720f18077a3fe31a495e8e509c3d53af",
+    "tests/studies/mtp_boundaries_common.py": "1cc4432fa2122dc02bd150febac388fca49f3534667ee27d4c4ff99a484cfe09",
     "tests/studies/mtp_boundaries_properties.py": "1412fc9c418b132d4c84a4bebbc1e750cd36439acf363b9f236b22c501468898",
-    "tests/studies/mtp_pricing_common.py": "5da8c15baaee240013f43988653f9ed2fdf6b3e8a538a7ac99a3b6e343d70e3a",
-    "tests/studies/mtp_pricing_properties.py": "a002f3576110dfe4e755092eec5619065fcfe418abf0326f6a1445d0fc0e773d",
-    "tests/studies/mtp_study_tools.py": "673cff2ca2cd20a3e047768abf3f38323de62d4d990ba4d65cbc2d062b720fd2",
-    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
-    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/mtp_pricing_common.py": "4e70917bb9ed2bb553fc4369d64b3556fc26ff7d6d051cc3fc3408d6b88d2323",
+    "tests/studies/mtp_pricing_properties.py": "dfe4d45fea7fbde4eeb25450f8c4f4bb43df97d7b4da3f77e54b783fae7caa77",
+    "tests/studies/mtp_study_tools.py": "b7bb5aefd466fbc69bd490ca2f8043c1b7654d209f0cdb54d5a3e8953cc903b9",
+    "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
+    "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
     "tests/diagnostics/fix5_heavy_ratios/law_p_moments.csv": "1eb01db6ec9695b7dd1f75442f3b0f3bac403efc844c03a6e2911f713424cc60",
     "tests/diagnostics/fix5_heavy_ratios/quadrature.csv": "272cb47ba03138c1b2d03856e5ce6a3a2010349425943b422a60c274522d2242",
     "tests/diagnostics/fix5_heavy_ratios/law_b_own_moments.csv": "ffa3ffb0552dbb8b96cca6d366d86ee80cffbe8d1a1a5ce38ba1f9e2464cb9fa",
@@ -161,12 +161,12 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "38b4d4907a0484aac0bbebb27f80e2ead2b7db76e54de6857db4463dacea7c24",
-    "summary.csv": "9c5066ae354b9ac9992d52cc3c82affcc2b8fd1fe4d04eb970990e87917d6b0f",
+    "replicates.parquet": "cfb793d0ee2773a9b938b50f221bbbc5a53bd6625529b4a5897f965fa68b598d",
+    "summary.csv": "fbe32e6efbdb40e23094c4f180c77c78e69ec036c56119a7811ea2e8683a37e6",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "535d2943d8d4cfe3829bc8894633f0163509c9b0cbadb13858efb967004402ca",
-    "property-replicates.parquet": "c84ae7b719c1bb08a3139906504a593f9b8c38c73fd7eb2caade93ee5437af15",
-    "properties.csv": "1eee220ea3f49878a319f7d9f41b4a480ac3a4b91ba75a0682d193725237c2df",
-    "coverage-controls.csv": "2cc9d48e81958cc3e800d38c372ccf469c8723fdce741b2e945da22f13ac3e7b"
+    "performance-tests.csv": "a264c4f09308c9ae00d1b8fd3e54d0d75c3c0dd5a5dc1d18ff13156755e04684",
+    "property-replicates.parquet": "b1ebec1f8c0bcfb9ec1688212ad4fb8fb99abc9b60cd0a766c87b38cb41827b7",
+    "properties.csv": "e3b4017b0a112002914e830c45a736544982845047b993672ea0b14dd3418643",
+    "coverage-controls.csv": "28094bd9d5b72ea7e7151f32e66c10517c4b28eb1b9062b3ed23bd3917531aa7"
   }
 }

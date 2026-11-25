@@ -470,6 +470,7 @@ def _subclasses(base: type) -> set[type]:
 
 def engine_classes() -> set[type]:
     """The engines the study dispatches to, and every subclass of one loaded."""
+    from cleverly.estimators.dose_response import DoseResponseTMLE
     from cleverly.estimators.ep import EPEstimator
     from cleverly.estimators.tmle import TMLE
     from cleverly.longitudinal.estimator import _SequentialEstimator
@@ -477,7 +478,7 @@ def engine_classes() -> set[type]:
 
     package_classes()  # every module imported, so every subclass is loaded
     found = _subclasses(TMLE) | _subclasses(_SequentialEstimator)
-    return found | {EPEstimator, ContinuousSurvivalTMLE}
+    return found | {EPEstimator, ContinuousSurvivalTMLE, DoseResponseTMLE}
 
 
 def standalone_engines() -> set[type]:

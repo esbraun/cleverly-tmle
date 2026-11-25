@@ -3707,6 +3707,19 @@ def reduced_correction_parts(
     d_g: dict[float, FloatArray] = {}
     d_q: dict[float, FloatArray] = {}
     clip_bias: dict[float, FloatArray] = {}
+    if getattr(reduced, "n_terms", None) is not None:
+        # A projection's set: one correction per arm and basis term, ``(n, p)`` per arm, each
+        # weight already inside Q_{r,j} and g_{r,2,j} (P1 PR 3 plan, 2.1).
+        residual = (y - np.asarray(targeted.observed, dtype=float))[:, None]
+        for j, arm in enumerate(reduced.arms):
+            indicator = (a == float(arm)).astype(float)[:, None]
+            g_a = mechanism[arm][:, None]
+            qr_terms = np.asarray(reduced.qr, dtype=float)[:, j, :]
+            d_g[arm] = qr_terms / g_a * (indicator - g_a)
+            ratio_terms = np.asarray(reduced.gr2, dtype=float)[:, j, :] / gr[:, j, None]
+            d_q[arm] = indicator * ratio_terms * residual
+            clip_bias[arm] = qr_terms / g_a * (untruncated[arm][:, None] - g_a)
+        return CorrectionParts(d_g, d_q, clip_bias, clipped, tuple(guard))
     for j, arm in enumerate(reduced.arms):
         # The residual and the mechanism have to denote the same event -- `mechanism` is
         # P(A = a | W), so the indicator is 1(A = a) and nothing else multiplies it.  A
@@ -4248,6 +4261,7 @@ def effect_modification_coefficients(
     weights: FloatArray,
     scaler: OutcomeScaler,
     observed: BoolArray | None = None,
+    corrections: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     r"""A conditional contrast's projection coefficients and their influence curves.
 
@@ -4301,6 +4315,11 @@ def effect_modification_coefficients(
         Maps the targeted predictions back off ``[0, 1]``.
     observed : ndarray or None
         The outcome-observation mask.
+    corrections : mapping of float to ndarray, or None
+        The doubly-robust corrections of a DR-TMLE projection, ``(n, p)`` per arm on the
+        scaled outcome: :math:`D_{A,j,a} + D_{Y,j,a}`, or the one a single guard solved.
+        Subtracted inside the bracket as :math:`\sum_a s(a) (D_{A,a} + D_{Y,a})`, the
+        difference scale only (P1 PR 3 plan, 2.1).  ``None`` for every other fit.
 
     Returns
     -------
@@ -4323,8 +4342,17 @@ def effect_modification_coefficients(
     if model.scale == "difference":
         plugin = phi * (predictions[:, t] - predictions[:, r] - phi @ beta)[:, None]
         contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
+        if corrections is not None:
+            pair = model.pair
+            correction = scaler.unscale_influence(
+                np.asarray(corrections[pair[0]], dtype=float)
+                - np.asarray(corrections[pair[1]], dtype=float)
+            )
+            contribution = contribution - w[:, None] * correction
         influence = np.linalg.solve(fit.jacobian, contribution.T).T
     else:
+        if corrections is not None:  # pragma: no cover - refused before any learner
+            raise ValueError("corrections must be None on a log-ratio projection")
         e = expit(phi @ beta)
         total = predictions[:, t] + predictions[:, r]
         plugin = phi * (total * e - predictions[:, t])[:, None]
