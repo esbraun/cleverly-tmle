@@ -122,6 +122,10 @@ categorized API tables.
    cleverly.survival.ContinuousSurvivalResult
    cleverly.survival.ContinuousSurvivalRecord
    cleverly.survival.CoxHazard
+   cleverly.survival.ContinuousLongitudinalTMLE
+   cleverly.survival.ContinuousLongitudinalData
+   cleverly.survival.ContinuousLongitudinalResult
+   cleverly.survival.ContinuousLongitudinalRecord
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
