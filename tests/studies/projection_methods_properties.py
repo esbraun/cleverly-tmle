@@ -23,7 +23,11 @@ A withheld group's rows read ``plugin_std_error`` and ``plugin_interval``
 columns are the plug-in ones the one-wrong rule reads (plan 5.2).
 
 Every draw names its stream (:data:`STREAMS`): the declared run reads ``property``, the pilot
-``pilot`` and its extension ``pilot_2``, and a smoke ``smoke``.
+``pilot`` and its extension ``pilot_2``, and a smoke ``smoke``.  In the declared run a group whose
+:attr:`~tests.studies.projection_methods.Group.stream` names another stream draws there instead
+(rev 3 R3.6: ``dr_glm_4k`` and the ladder on ``property_r3``).  :func:`sample_seed` and
+:func:`fold_seed` both route through :func:`stream_labels`, and so do the draw, the fit and the
+failure accounting's ``seed_of``, so a lost replicate records the seed it was drawn with.
 """
 
 from __future__ import annotations
@@ -65,26 +69,45 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 #: The families whose rows each answer to their own standardized-bias interval.
 BIAS_FAMILIES = (study.BIAS,)
 
-#: The sample and fold labels of each stream.  ``property`` is the declared run.
+#: The sample and fold labels of each stream.  ``property`` is the declared run, and
+#: ``property_r3`` the rev 3 stream of the re-declared groups.  The three probe streams of
+#: :mod:`tests.studies.projection_methods_limit` are named here for the uniqueness test; no group
+#: reads them.
 STREAMS: dict[str, tuple[str, str]] = {
     "property": ("property_sample", "fold_partition"),
+    "property_r3": ("property_r3_sample", "property_r3_fold_partition"),
     "pilot": ("pilot_sample", "pilot_fold_partition"),
     "pilot_2": ("pilot_2_sample", "pilot_2_fold_partition"),
     "smoke": ("smoke_sample", "smoke_fold_partition"),
+    "glm4k_probe": ("glm4k_probe_sample", "glm4k_probe_fold_partition"),
+    "ladder_probe": ("ladder_probe_sample", "ladder_probe_fold_partition"),
+    "limit_probe": ("limit_probe_sample", "limit_probe_fold_partition"),
 }
 
 #: The positive calibration kinds, one per gated arm (the cell suffix after ``__``).
 POSITIVE_ARMS: tuple[str, ...] = tuple(arm.removeprefix("__") for arm in study.CALIBRATION_ARMS)
 
 
+def stream_labels(label: str, stream: str) -> tuple[str, str]:
+    """The sample and fold labels ``label`` draws on ``stream``.
+
+    On ``property`` a declared group reads its own :attr:`~tests.studies.projection_methods.
+    Group.stream`; every other stream is read as named, for every group.
+    """
+    group = study.GROUP_BY_LABEL.get(label)
+    if stream == study.PROPERTY_STREAM and group is not None:
+        return STREAMS[group.stream]
+    return STREAMS[stream]
+
+
 def sample_seed(label: str, replicate: int, stream: str = "property") -> int:
     """The sample seed of replication ``replicate`` of a group on ``stream``."""
-    return stream_seed(STUDY, STREAMS[stream][0], label, replicate)
+    return stream_seed(STUDY, stream_labels(label, stream)[0], label, replicate)
 
 
 def fold_seed(label: str, replicate: int, stream: str = "property") -> int:
     """The fold seed of replication ``replicate`` of a group on ``stream``."""
-    return stream_seed(STUDY, STREAMS[stream][1], label, replicate)
+    return stream_seed(STUDY, stream_labels(label, stream)[1], label, replicate)
 
 
 def _draw(label: str, replicate: int, stream: str) -> Any:

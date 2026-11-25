@@ -743,11 +743,16 @@ $g_0(1 \mid W) = \mathrm{expit}(0.6 W_1 + 0.3 W_2)$,
 $\bar Q_0(a, W) = \mathrm{expit}(-0.2 + a(0.5 + 0.6 W_1) - W_1 + 2 W_2)$, the basis
 `Linear(["W1"])` and an outcome regression that omits $W_2$. Both fits target that regression, so
 the SDs are taken at its limit after the projection's fluctuation, not at the regression itself.
-At $n = 4{,}000$, quadrature gives intercept and slope SDs of 0.0157 and 0.0162 for the DR-TMLE
-projection with the mechanism declared and 0.0163 and 0.0171 for the TMLE projection, about 4%
-and 5% wider. The efficient bound, which needs a correct outcome regression, is 0.0128 and 0.0136.
-No study has measured this, so the figures are predictions and the composition reads
-`experimental`. The gap lies inside the study's calibration band, so the study cannot see
+Fits at $n = 200{,}000$ give, scaled to $n = 4{,}000$, intercept and slope SDs of about 0.0152
+and 0.0163 for the DR-TMLE projection with the mechanism declared and 0.0163 and 0.0170 for the
+TMLE projection, about 7% and 4% wider (`tests/studies/projection_methods_limit.csv`). Quadrature
+gives 0.0157 and 0.0162 for the DR-TMLE projection. That is the limit without equation (10),
+whose fluctuation along a covariate that vanishes at a correct mechanism moves the outcome
+regression's limit by an amount that does not vanish with $n$. The efficient bound, which needs a
+correct outcome regression, is 0.0128 and 0.0136.
+
+No registered study has measured these SDs, so the figures are predictions and the composition
+reads `experimental`. The gap lies inside the study's calibration band, so the study cannot see
 whether the fit subtracts $D_A$; the exact-law curve test in `tests/unit/test_drtmle_projection.py`
 checks that term.
 

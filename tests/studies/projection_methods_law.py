@@ -20,6 +20,15 @@ reduced regressions, the conditioning norms, the ladder and the conservative rat
 ``Qbar*``.  The wrong-``Qbar`` witness reads the plug-in of the initial regression, so its
 displacement takes the untargeted GLM and is stated in SDs of the curve at ``Qbar*``.
 
+The quadrature models the outcome regression's limit under equations (8) and (9) only.  The
+declared estimator also solves equation (10), whose covariate vanishes at a correct mechanism
+while its fitted fluctuation grows like ``sqrt(n)``, so it moves ``Qbar*`` by an amount that does
+not shrink with ``n`` (plan rev 3).  The SDs and the conservative ratio here are therefore the
+readings of the (8)+(9) estimator, the fit under ``guard=("Q",)``; the declared fit's limits are
+measured by :mod:`tests.studies.projection_methods_limit`.  The ladder's ``R_3`` proxy ignores
+equation (10)'s response to a slow mechanism and overstates the bias, so it fixes only the signs
+and the 0.4 SD floor at the smallest rung.
+
 Every number of plan 5.1 is computed here by ``120 x 120`` Gauss--Hermite quadrature on the
 ``g_0`` index ``u = (0.6 W1 + 0.3 W2) / sqrt(0.45)`` and its orthogonal coordinate ``v``.  The two
 are independent standard normals, so a mean given ``u`` (the population reduced regression on
@@ -44,8 +53,9 @@ TERMS = ("(intercept)", "W1")
 NODES = 120
 #: ``logit Qbar_0(a, W) = -0.2 + a (0.5 + 0.6 W1) - W1 + 2 W2``.
 OUTCOME = {"intercept": -0.2, "a": 0.5, "a_w1": 0.6, "w1": -1.0, "w2": 2.0}
-#: The ladder of the slow mechanism (plan 5.2).
-LADDER = (1_000, 4_000, 16_000)
+#: The ladder of the slow mechanism (plan rev 3 R3.2: the 1,000-row rung measured an opposing
+#: finite-sample bias, so the ladder keeps its factor-4 spacing from 4,000 to 64,000 rows).
+LADDER = (4_000, 16_000, 64_000)
 #: The size of every 4k group, at which the SDs are stated.
 N = 4_000
 
@@ -364,12 +374,12 @@ def design_table() -> dict[str, Any]:
         "gram": p.gram,
         "wrong_limit": tuple(p.wrong_limit),
         "efficient_sd": tuple(p.sd(p.efficient)),
-        "dr_known_sd": tuple(p.sd(p.dr_known)),
+        "dr_known_sd_8_9": tuple(p.sd(p.dr_known)),
         "d_star_sd": tuple(p.sd(p.d_star)),
         "d_star_ratio": tuple(p.sd(p.d_star) / p.sd(p.dr_known)),
         "plugin_displacement": tuple(p.plugin_displacement()),
         "conditioning_norms": {a: tuple(v) for a, v in p.conditioning_norms().items()},
-        "conservative_ratio": tuple(p.conservative_ratio()),
+        "conservative_ratio_8_9": tuple(p.conservative_ratio()),
         "correlation": p.correlation(),
         "ladder": {name: p.ladder(name) for name in ("product", "w2", "w1w2", "w1")},
     }

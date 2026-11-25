@@ -1,8 +1,8 @@
 group,fits,seconds_per_fit
 dr_known_4k,20,0.5408
 dr_both_4k,20,0.3176
-dr_slow_1k,20,0.2849
 dr_slow_4k,20,0.6916
 dr_slow_16k,19,1.872
+dr_slow_64k,5,5.642
 dr_glm_4k,20,0.4934
 ctmle_points_4k,20,0.02604
