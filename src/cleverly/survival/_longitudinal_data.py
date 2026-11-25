@@ -51,7 +51,7 @@ def dropped_visit_text(count: int) -> str:
 
 
 @dataclass(frozen=True)
-class ContinuousLongitudinalData:
+class ContinuousLongitudinalData:  # numpydoc ignore=PR01
     """Units followed in continuous time, with covariates and a treatment that change at visits.
 
     Parameters
