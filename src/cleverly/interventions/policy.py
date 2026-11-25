@@ -4749,6 +4749,34 @@ class PolicySet:
         """
         return np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
 
+    @property
+    def reads_bounded_probability(self) -> bool:
+        """Whether some policy's clever covariate reads a probability that ``g_bounds`` bounds.
+
+        :meth:`design_at` bounds only a categorical factor: the fitted probabilities of a
+        categorical treatment, or the categorical factor of a vector treatment on the
+        density route.  A component that leaves the categorical value of every row where
+        it is cancels that factor between the numerator and the denominator, and a ratio
+        from a classifier or of a dose reads no bounded probability at all.  So the bound
+        reaches the estimate only through a component that maps some categorical value to
+        another, and :func:`~cleverly.sensitivity.positivity.truncation_curve` refuses a fit
+        where none does.
+        """
+        if self.joint is not None:
+            induced = np.asarray(self.joint.induced)
+            targets = np.asarray(self.joint.targets)
+            cells = np.arange(induced.shape[-1])
+            # Mass from a cell other than the evaluated value's own cell: the categorical
+            # factor no longer cancels there.
+            off_target = cells[None, None, None, :] != targets[:, :, None, None]
+            return bool(np.any((induced != 0.0) & off_target))
+        if self.component_codes is not None and self.observed_codes is not None:
+            codes = np.asarray(self.component_codes)
+            # A level map other than the identity at some row: the induced probability
+            # there sums fitted probabilities of other levels, which the bound reaches.
+            return bool(np.any(codes != np.arange(codes.shape[-1])))
+        return False
+
     def design_at(
         self, propensity: FloatArray | None, bounds: tuple[float, float] | None = None
     ) -> FloatArray:

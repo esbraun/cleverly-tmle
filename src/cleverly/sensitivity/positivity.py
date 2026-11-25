@@ -1330,6 +1330,30 @@ def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | Non
     )
 
 
+def _refuse_unbounded_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
+    """Refuse the propensity axis of a policy fit whose ratios read no bounded probability.
+
+    ``g_bounds`` reaches a policy's clever covariate only through a categorical factor
+    that the policy changes (:attr:`~cleverly.interventions.PolicySet.reads_bounded_probability`).
+    A ratio of doses, a ratio from a classifier, or a factor that cancels leaves every
+    point of the curve equal to the fit, while its truncated fraction still reports the
+    rows a bound would have clipped.
+    """
+    policies = result.nuisance.policies
+    if axis or policies is None or policies.reads_bounded_probability:
+        return None
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "this fit's policies divide by a density ratio that the g(W) bounds of a "
+        "truncation curve do not bound, so every point of the curve would equal the fit.",
+        alternative=(
+            "Use diagnostics.support() for the policy weights; to trim the ratio, fit a "
+            "one-node LongitudinalTreatment with ratio_trim=, or pass mechanism=True when "
+            "an observation mechanism was fitted."
+        ),
+    )
+
+
 #: Every refusal of a point-treatment truncation curve that the requested axis decides, in
 #: the one order the module call and the capability row both use.  Each rule reads the
 #: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
@@ -1339,6 +1363,7 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
     ("learned_rule_splits", _refuse_learned_rule_splits),
+    ("density_ratio", _refuse_unbounded_ratio),
 )
 
 
@@ -1458,6 +1483,11 @@ def truncation_curve(
     the targeting walk at each floor on :math:`\pi(a \mid L) S_c(u^- \mid a, L)`
     (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`, which documents its
     grid and columns).  It refuses ``mechanism=True``.
+
+    A **modified treatment policy** fit moves under the treatment bound only through a
+    categorical component's fitted probability, on the density route, that some policy
+    maps to another value.  A dose's density ratio and a classifier ratio read no bound, so
+    the curve refuses a fit whose policies all read one: each point would equal the fit.
 
     A curve that is flat over the plausible range of bounds says the estimate does not
     hinge on the truncation choice.  A curve that drifts monotonically says the estimate

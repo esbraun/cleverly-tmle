@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -910,6 +910,20 @@ def _trial_role_refusal(role: str, reason: str) -> Refusal:
     )
 
 
+def _trial_role_declared(value: object, default: object) -> bool:
+    """Whether a refused role holds anything other than its default.
+
+    Compared with the default rather than read for truth, so an array of weights is refused
+    instead of raising on its ambiguous truth value, and ``0`` or ``{}`` is refused too.
+    """
+    if value is None or default is None:
+        return value is not default
+    if isinstance(value, (list, tuple)) and isinstance(default, tuple):
+        return tuple(value) != default
+    # A value of another type than the default, an array among them, is a declaration.
+    return type(value) is not type(default) or bool(value != default)
+
+
 #: The roles of :class:`PointTreatment` that the pooled design declares only to refuse, in the
 #: order ``TrialWithExternalData.__post_init__`` checks them: the field, then its record.
 TRIAL_ROLE_REFUSALS: Final[tuple[tuple[str, Refusal], ...]] = (
@@ -1040,8 +1054,9 @@ class TrialWithExternalData:
     treatment_missingness: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        defaults = {item.name: item.default for item in fields(self)}
         for role, refusal in TRIAL_ROLE_REFUSALS:
-            if getattr(self, role):
+            if _trial_role_declared(getattr(self, role), defaults[role]):
                 raise CapabilityError.from_refusal(refusal)
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         if not isinstance(self.treatment, str):
@@ -2668,8 +2683,10 @@ class LearnedRuleValue:
     The fit needs cross-fitting with at least two folds.  The fold-evaluated report,
     ``CrossFitting(fold_evaluation=True)``, weights each fold by ``1/V``.  The default
     ``CrossFitting()`` gives the stacked report, which weights each fold by its share of
-    the rows (of the weight mass under weights), and reads experimental until its study
-    registers.
+    the rows (of the weight mass under weights).  The ``learned-rule-stacked`` study registers
+    the stacked report of the plug-in rule on rows, with a known weight and with clusters,
+    with one split and pooled targeting.  Strata, fold targeting, a rule-learner loss,
+    repeats above 1 and weights with clusters read experimental.
 
     With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
     the binary intermediate is held at ``z``: each fold learns the best treatment given

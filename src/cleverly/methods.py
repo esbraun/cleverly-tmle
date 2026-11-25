@@ -1039,7 +1039,8 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 _POINT_RATIO_TRIM = Refusal(
     RefusalReason.API_REDIRECTION,
     "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
-    "does. A point-treatment fit bounds its mechanism with g_bounds=.",
+    "does. A point-treatment fit bounds an arm probability with g_bounds=, and no "
+    "option bounds its density ratio.",
     alternative=(
         "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
     ),
@@ -1747,7 +1748,7 @@ default="greedy"
             "selection_inner_folds": self.selection_inner_folds,
             "loss": self.loss,
             "penalty": self.penalty,
-            "ctmle_estimand": self.selection_estimand,
+            "selection_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
@@ -2298,8 +2299,9 @@ class SDRMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile interval and
+        a sup-t band beside the fit's own interval, labelled ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str
@@ -2715,8 +2717,9 @@ class IPSIMethod(TMLEMethod):
         ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
         estimator fits no fluctuation.
     inference : Inference
-        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
-        with no percentile inference.
+        Interval and resampling settings.  The bootstrap publishes a percentile interval and
+        a sup-t band beside the fit's own interval, labelled ``experimental``: no registered
+        row lists a bootstrap kind for this estimator.
     runtime : Runtime
         Seed, run identifier, and parallelism.
     name : str

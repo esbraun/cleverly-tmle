@@ -409,6 +409,7 @@ class TestTheTruncationRowResolvesEachRequest:
             "incremental",
             "natural_course",
             "learned_rule_splits",
+            "density_ratio",
         ]
 
     @pytest.mark.parametrize("kind", list(TRUNCATION_STATUS_OF))
@@ -1035,6 +1036,24 @@ class TestThePublicRowIsTheBareRequestsRow:
         with pytest.raises(CapabilityError) as error:
             result.diagnostics.refute(n_replicates=1)
         assert str(error.value) == f"diagnostic 'refute' is unavailable: {reason}"
+
+    def test_the_refit_preview_names_itself_and_keeps_the_record(
+        self, ambiguous_fits: dict[str, Any]
+    ) -> None:
+        """``planned_refits`` previews ``refute``: its refusal is ``refute``'s record, and
+        its message names the preview the caller ran, not only ``refute``."""
+        result = ambiguous_fits["multi_arm"]
+        reason = _text(refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS))
+        with pytest.raises(CapabilityError) as preview:
+            result.diagnostics.planned_refits(n_replicates=1)
+        with pytest.raises(CapabilityError) as call:
+            result.diagnostics.refute(n_replicates=1)
+        assert str(preview.value) == (
+            f"diagnostic 'planned_refits' previews 'refute', which is unavailable: {reason}"
+        )
+        assert preview.value.refusal is not None and call.value.refusal is not None
+        assert preview.value.refusal.reason is call.value.refusal.reason
+        assert preview.value.refusal.alternative == call.value.refusal.alternative
 
     def test_a_call_that_names_an_estimand_is_not_refused(
         self, ambiguous_fits: dict[str, Any]

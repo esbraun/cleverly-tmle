@@ -2673,7 +2673,11 @@ class _CapabilityFacade:
         return bound.arguments[argument]
 
     def _require(
-        self, operation: str, arguments: Mapping[str, Any] | None = None
+        self,
+        operation: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        called_as: str | None = None,
     ) -> AssessmentCapability:
         """Refuse a direct call by the row its request resolves to.
 
@@ -2684,6 +2688,10 @@ class _CapabilityFacade:
         a direct call resolves its own estimand default and raises its own refusal, which
         names the estimands the fit reports.  So a call that names an estimand is never
         refused by the deferral that :meth:`capability` reports for the bare request.
+
+        ``called_as`` names the method the caller used when it previews ``operation``
+        rather than running it, as :meth:`planned_refits` previews ``refute``, so the
+        message names both.
         """
         item = self._request_gated(self._gated(operation), arguments or {})
         if not item.available:
@@ -2696,11 +2704,15 @@ class _CapabilityFacade:
             declared = item.refusal
             if declared is None:
                 declared = Refusal(RefusalReason.INVALID_DECLARATION, item.interpretation)
+            subject = (
+                f"{self._kind} {operation!r} is"
+                if called_as is None
+                else f"{self._kind} {called_as!r} previews {operation!r}, which is"
+            )
             raise CapabilityError.from_refusal(
                 replace(
                     declared,
-                    condition=f"{self._kind} {operation!r} is {item.status.value}: "
-                    f"{declared.condition}",
+                    condition=f"{subject} {item.status.value}: {declared.condition}",
                 )
             )
         return item
@@ -3951,8 +3963,9 @@ class DiagnosticsFacade(_CapabilityFacade):
     def planned_refits(self, **kwargs: Any) -> Any:
         """Count the refits and model fits :meth:`refute` would make, without fitting.
 
-        Takes exactly :meth:`refute`'s keywords and raises what :meth:`refute` raises before
-        its first refit. Nothing is cached, so a later :meth:`refute` call runs as usual.
+        Takes exactly :meth:`refute`'s keywords and raises the refusal :meth:`refute` would
+        raise before its first refit, with a message that names this preview. Nothing is
+        cached, so a later :meth:`refute` call runs as usual.
 
         Parameters
         ----------
@@ -3978,7 +3991,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         _, kwargs = _single_pass((), kwargs)
         bound = self._bind_arguments("refute", kwargs, partial=False)
         _validate_refute_arguments(bound)
-        self._require("refute", kwargs)
+        self._require("refute", kwargs, called_as="planned_refits")
         return planned_refits(self._result, **kwargs)
 
     def run_all(

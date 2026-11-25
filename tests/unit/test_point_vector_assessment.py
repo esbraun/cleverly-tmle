@@ -83,8 +83,11 @@ def test_the_capability_table_is_the_scalar_dose_table() -> None:
     vector, scalar = point_tests._sample_fits()
     table = _capabilities(vector)
     assert table == _capabilities(scalar)
-    for operation in ("support", "score_equations", "nuisance_models", "truncation_curve"):
+    for operation in ("support", "score_equations", "nuisance_models"):
         assert table[operation][0], operation
+    # Both fits take the classifier ratio, which reads no bound of g(W): the curve would
+    # repeat the fit at every bound, so its row refuses on both.
+    assert not table["truncation_curve"][0]
 
 
 @pytest.mark.usefixtures("exact_grid_law")

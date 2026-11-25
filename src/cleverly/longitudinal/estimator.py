@@ -9947,8 +9947,10 @@ class IPSI(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  No registered study measures the
-        IPSI bootstrap, so the draws report a bootstrap sd and no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  The bootstrap publishes a
+        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
+        band beside the fit's own interval.  No registered row lists a bootstrap kind for
+        an ``IPSI`` fit, so they carry the label ``experimental``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     hazard_pooling : {"node", "pooled"}
@@ -9964,7 +9966,9 @@ class IPSI(_SequentialEstimator):
         :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
         point-treatment keyword that :class:`LTMLE` refuses.  ``ratio_trim`` other than
         ``None`` raises :class:`~cleverly.exceptions.CapabilityError`
-        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).
+        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).  ``bootstrap_interval``
+        (``"percentile"`` or ``"bca"``) is not refused: it passes to the bootstrap, as for
+        :class:`LTMLE`.
 
     See Also
     --------
@@ -10453,10 +10457,18 @@ class SequentialGComputation(_Baseline):  # numpydoc ignore=PR01,PR02
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
-        no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
+        (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
+        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
+        band, with the label ``experimental``: no registered row lists a bootstrap kind for
+        this estimator.  When the fit withholds its interval
+        (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
+        as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile", "bca"}, default="percentile"
+        The bootstrap interval: the percentile interval, or the bias-corrected and
+        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
     density_bins : int or None
         The bin count of a continuous node's diagnostic density.
     ratio : {"density", "classifier"}
@@ -10678,10 +10690,18 @@ class SequentialIPW(_Baseline):  # numpydoc ignore=PR01,PR02
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
-        no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  When the fit publishes its interval
+        (every model a :class:`~cleverly.learners.GLM`), the bootstrap publishes a
+        percentile interval (a BCa interval with ``bootstrap_interval="bca"``) and a sup-t
+        band, with the label ``experimental``: no registered row lists a bootstrap kind for
+        this estimator.  When the fit withholds its interval
+        (``"adaptive_baseline_plugin"``), the bootstrap sd and percentile range are reported
+        as diagnostics only.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile", "bca"}, default="percentile"
+        The bootstrap interval: the percentile interval, or the bias-corrected and
+        accelerated (BCa) interval.  ``"bca"`` needs ``n_bootstrap``.
     **refused : Any
         ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
         which raise because the estimator fits no outcome regression and no density ratio;
@@ -10945,8 +10965,11 @@ class ParametricGFormula(_Baseline):
         mechanism), ``censoring_learner``, ``competing_learner``, ``g_bounds``, ``q_bounds``,
         ``alpha_sig``, ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``band_scale``,
         ``band_reference``, ``random_state``, ``run_id``, ``n_jobs``, ``n_bootstrap``,
-        ``bootstrap_resampling``, ``density_bins`` and ``ratio``.  ``n_folds`` must be ``1``.
-        ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
+        ``bootstrap_resampling``, ``bootstrap_interval``, ``density_bins`` and ``ratio``.
+        ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and ``tol`` are refused.
+        The bootstrap behaves as for :class:`SequentialGComputation`: a percentile or BCa
+        interval and a sup-t band, labelled ``experimental``, when the fit publishes its
+        interval, and diagnostics only when it withholds it.
 
     See Also
     --------

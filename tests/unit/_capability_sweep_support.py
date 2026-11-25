@@ -2602,7 +2602,8 @@ KINDS: dict[str, Kind] = {
     # ATT and ATC requests refuse (tests/unit/test_known_score_att.py::TestReaders).
     "known_score": _kind(fit_known_score, *_LIVE, *_BOUND),
     "missing": _kind(fit_missing, "marginal_bounds", *_LIVE, *_TILT),
-    "shift": _kind(fit_shift, *_LIVE),
+    # A dose's density ratio reads no bound of g(W), so no truncation curve exists.
+    "shift": _kind(fit_shift, *_READ, "refute"),
     "cde": _kind(fit_cde, *_LIVE),
     "multi_arm": _kind(fit_multi_arm, "marginal_bounds", *_ARM),
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
@@ -2676,6 +2677,7 @@ KINDS: dict[str, Kind] = {
         fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
     ),
     "ctmle_ordered": _kind(fit_ctmle_ordered, "marginal_bounds", *_LIVE),
+    # The default axis refuses as on "shift"; the row defers on mechanism=True, which runs.
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
@@ -2709,7 +2711,7 @@ KINDS: dict[str, Kind] = {
     "drtmle+constant_pair": _kind(
         fit_drtmle_constant_pair, *_LIVE, "corrections", "evalue", "marginal_bounds"
     ),
-    "policy_means": _kind(fit_policy_means, *_LIVE),
+    "policy_means": _kind(fit_policy_means, *_READ, "refute"),
     "natural_course_study": _kind(fit_natural_course_study, "marginal_bounds", *_LIVE),
     # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
     "reconfigured_stratified": _kind(
@@ -2813,7 +2815,8 @@ KINDS: dict[str, Kind] = {
     "fold_targeted_repeated": _kind(
         fit_fold_targeted_repeated, "marginal_bounds", *_LIVE, *_PLUGIN_BOUND, "benchmark"
     ),
-    "vector_policy": _kind(fit_vector_policy, *_LIVE),
+    # A classifier ratio reads no bound of g(W), so no truncation curve exists.
+    "vector_policy": _kind(fit_vector_policy, *_READ, "refute"),
     # Every bound and refutation row refuses the adaptive working-model fit by name.
     "atmle": _kind(fit_atmle, "corrections", "nuisance_models", "score_equations", "support"),
     # SDR fits no fluctuation, so it solves no score equation.

@@ -835,7 +835,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "selection_inner_folds": (_anything, "any value; the oat strategy selects nothing"),
     "loss": (_anything, "any value; the oat strategy selects nothing"),
     "penalty": (_anything, "any value; the oat strategy selects nothing"),
-    "ctmle_estimand": (lambda v: v == "ate", "ctmle_estimand='ate'"),
+    "selection_estimand": (lambda v: v == "ate", "selection_estimand='ate'"),
     "lambdas": (lambda v: v is None, "lambdas=None"),
     "treatment_candidates": (lambda v: v is None, "treatment_candidates=None"),
     "selection_split": (lambda v: v is None, "selection_split=None"),
@@ -1111,7 +1111,7 @@ _ORDER_TIE_TOLERANCE: Final[float] = 0.01
 #: TMLE cross-fits by default, so the text names the settings under which each runs.
 _SELECTION_SPLIT_REMEDY = (
     "fit strategy='oat' with every selector setting (selection_folds, selection_inner_folds, "
-    "loss, penalty, ctmle_estimand) at its default, or the ordinary TMLE in sample, "
+    "loss, penalty, selection_estimand) at its default, or the ordinary TMLE in sample, "
     "TMLE(cross_fit=False), neither of which draws a selection split"
 )
 
@@ -1910,7 +1910,7 @@ default="greedy"
         ``"derivative"`` or ``"oat"``.  ``"derivative"`` is C-TMLE0: one TMLE update with a
         derivative column for each arm (see ``lambdas`` and ``treatment_candidates``).
         The selector strategies fit one shared categorical propensity path and jointly
-        score all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
+        score all components of ``selection_estimand``; ``"oat"`` fits treatment on the arm-specific
         outcome predictions without a candidate path (see ``oat_design``).
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
@@ -1937,7 +1937,7 @@ default="greedy"
     penalty : bool, default=True
         Add the variance/bias penalty to the selection loss.  Leave it on unless you
         specifically want the unpenalized log-likelihood selector.
-    ctmle_estimand : str, default="ate"
+    selection_estimand : str, default="ate"
         Which estimand the selection is *for*.  A collaborative selection is
         parameter-specific -- the loss involves that estimand's influence curve --
         so unlike a plain TMLE, one fit cannot serve every estimand equally. At ``K``
@@ -2390,7 +2390,7 @@ default="greedy"
         selection_inner_folds: int = 2,
         loss: CTMLELoss = "auto",
         penalty: bool = True,
-        ctmle_estimand: str = "ate",
+        selection_estimand: str = "ate",
         oat_design: CTMLEOatDesign | None = None,
         lambdas: Sequence[float] | None = None,
         treatment_candidates: Sequence[Any] | None = None,
@@ -2427,7 +2427,7 @@ default="greedy"
         self.selection_inner_folds = selection_inner_folds
         self.loss = loss
         self.penalty = penalty
-        self.ctmle_estimand = ctmle_estimand
+        self.selection_estimand = selection_estimand
         self.oat_design = oat_design
         self.lambdas = lambdas
         self.treatment_candidates = treatment_candidates
@@ -2536,10 +2536,10 @@ default="greedy"
             raise ValueError(
                 f"selection_inner_folds must be at least 2; got {self.selection_inner_folds}"
             )
-        if self.ctmle_estimand not in MEAN_GROUP_ESTIMANDS:
+        if self.selection_estimand not in MEAN_GROUP_ESTIMANDS:
             raise ValueError(
-                f"ctmle_estimand must be one of {sorted(MEAN_GROUP_ESTIMANDS)}; "
-                f"got {self.ctmle_estimand!r}"
+                f"selection_estimand must be one of {sorted(MEAN_GROUP_ESTIMANDS)}; "
+                f"got {self.selection_estimand!r}"
             )
         if self.targeting_scheme != "pooled":
             fold_item = "F18" if is_selector_strategy(self.strategy) else "F19"
@@ -2552,14 +2552,14 @@ default="greedy"
                 roadmap=fold_item,
             )
 
-        if self.strategy == "derivative" and self.ctmle_estimand != "ate":
+        if self.strategy == "derivative" and self.selection_estimand != "ate":
             raise ValueError(
-                "ctmle_estimand= does not apply to strategy='derivative': the derivative "
+                "selection_estimand= does not apply to strategy='derivative': the derivative "
                 "update targets every treatment-specific mean together"
             )
-        if self.strategy == "oat" and self.ctmle_estimand != "ate":
+        if self.strategy == "oat" and self.selection_estimand != "ate":
             raise ValueError(
-                "ctmle_estimand= does not apply to strategy='oat': ctmle3's "
+                "selection_estimand= does not apply to strategy='oat': ctmle3's "
                 "outcome-adaptive construction targets all treatment-specific means together"
             )
         overridden = [] if is_selector_strategy(self.strategy) else self._selector_only_overrides()
@@ -2838,7 +2838,7 @@ default="greedy"
             preorder=("custom" if self.ordering is not None else self.preorder)
             if self.strategy == "ordered"
             else None,
-            estimand=self.ctmle_estimand,
+            estimand=self.selection_estimand,
             target_names=selector.target_names,
             loss=selector.loss_kind,
             penalized=self.penalty,
@@ -4260,23 +4260,23 @@ default="greedy"
                 ),
                 roadmap="F5",
             )
-        if is_selector_strategy(self.strategy) and self.ctmle_estimand not in estimands:
+        if is_selector_strategy(self.strategy) and self.selection_estimand not in estimands:
             raise ValueError(
-                f"ctmle_estimand={self.ctmle_estimand!r} is not among the requested estimands "
-                f"{list(estimands)}; the selection has to be made for an estimand you are "
-                "actually reporting."
+                f"selection_estimand={self.selection_estimand!r} is not among the requested "
+                f"estimands {list(estimands)}; the selection has to be made for an estimand "
+                "you are actually reporting."
             )
         supported = {"ate", "ey", "rr", "or"}
         if data.is_binary_treatment:
             supported.update(("ey1", "ey0"))
-        if is_selector_strategy(self.strategy) and self.ctmle_estimand not in supported:
+        if is_selector_strategy(self.strategy) and self.selection_estimand not in supported:
             raise CapabilityError(
-                f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
+                f"selection_estimand={self.selection_estimand!r} has no selector criterion; choose "
                 f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "
                 "and require a separate collaborative derivation.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative=(
-                    f"Choose a ctmle_estimand from {sorted(supported)}, or fit a plain TMLE."
+                    f"Choose a selection_estimand from {sorted(supported)}, or fit a plain TMLE."
                 ),
                 roadmap="F5",
             )
@@ -4547,7 +4547,7 @@ class _Selector:
             self.data.weights[rows],
             self.data.observed[rows],
         )
-        estimand = self.est.ctmle_estimand
+        estimand = self.est.selection_estimand
         if estimand == "ey1":
             return np.asarray(means[1.0].influence_curve, dtype=float)
         if estimand == "ey0":
@@ -4577,7 +4577,7 @@ class _Selector:
 
     def _target_names(self) -> tuple[str, ...]:
         """Registry-compatible labels for the jointly optimized components."""
-        stem = self.est.ctmle_estimand
+        stem = self.est.selection_estimand
         if stem in {"ey1", "ey0"}:
             return (stem,)
         if stem == "ey":

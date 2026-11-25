@@ -335,7 +335,7 @@ def _shared(g_bounds: tuple[float, float]) -> dict[str, Any]:
         "selection_inner_folds": SELECTION_INNER_FOLDS,
         "penalty": False,
         "estimands": ("ate",),
-        "ctmle_estimand": "ate",
+        "selection_estimand": "ate",
         "simultaneous": False,
         "g_bounds": g_bounds,
         "stratify_folds": STRATIFY_FOLDS,
