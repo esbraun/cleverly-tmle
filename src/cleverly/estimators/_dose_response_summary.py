@@ -83,7 +83,9 @@ def _settings(result: DoseResponseResult) -> SummarySection:
         if estimate.support.label == vocabulary.EXPERIMENTAL and estimate.support.reason
     )
     for reason in reasons:
-        lines.append(f"Why the rows are experimental: {plain_support_reason(reason)}")
+        lines.append(
+            vocabulary.DOSE_SETTINGS_ROWS_REASON.format(reason=plain_support_reason(reason))
+        )
     return SummarySection(vocabulary.SECTION_SETTINGS, tuple(lines))
 
 

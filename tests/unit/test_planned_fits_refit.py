@@ -224,8 +224,8 @@ def test_refit_plan_refuses_a_result_with_no_estimator_as_refute_does() -> None:
 # ------------------------------------------------------------------ coverage
 
 #: The engine classes the study's estimate dispatches to (``study.py``: the point engines,
-#: the longitudinal engines, the effect-curve, continuous-time and dose-response engines).  The trial route
-#: is a function, priced by ``plan_trial_effect``.
+#: the longitudinal engines, the effect-curve, continuous-time and dose-response engines).
+#: The trial route is a function, priced by ``plan_trial_effect``.
 DISPATCHED: frozenset[type] = frozenset(
     {
         TMLE,

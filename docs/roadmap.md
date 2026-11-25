@@ -2100,9 +2100,9 @@ Kish size of 141 with an SE ratio of 0.93. This item has five parts.
   `DoseResponseTMLE` on a `PointTreatment` design and refuses, before any learner, a dose given
   over time (`LongitudinalTreatment`, `TimeToEvent` and `LongPanel`) and four method settings:
   repeated cross-fitting (`repeats > 1`), a reused `split_plan`, the bootstrap (`n_bootstrap`,
-  `bootstrap_resampling`) and treatment screening (`screen_treatment`). Repeats need a median rule for each pair and for the band.
-  The bootstrap needs a refit of the curve per draw. Each setting reads experimental until a
-  registered study measures it.
+  `bootstrap_resampling`) and treatment screening (`screen_treatment`). Repeats need a median
+  rule for each pair and for the band. The bootstrap needs a refit of the curve per draw. Once
+  implemented, each setting reads experimental until a registered study measures it.
 
 ### X98. Score assessment compositions
 

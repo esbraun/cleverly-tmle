@@ -226,6 +226,19 @@ def test_a_band_the_study_did_not_measure_reads_experimental(field: str, value: 
     result = _route(_frame(), _curve(), **{field: value})
     assert result.band.support.label == "experimental"
     assert _labels(result) == {"supported"}
+    # The band itself moves, not only its label: a label read from the settings would flip
+    # even if the settings never reached the multiplier draw.
+    band, default = result.band, _route(_frame(), _curve()).band
+    attribute = {"n_multiplier": "n_replicates", "multiplier_kind": "kind"}.get(field, "reference")
+    assert getattr(band, attribute) == value
+    assert getattr(default, attribute) != value
+    if field == "band_reference":
+        # The t reference keeps the max-t quantile and widens each row on its own t margin.
+        assert band.critical_value == default.critical_value
+        assert band.critical_values != default.critical_values
+        assert band.bands != default.bands
+    else:
+        assert band.critical_value != default.critical_value
 
 
 def test_the_run_label_reaches_the_provenance() -> None:
@@ -354,6 +367,21 @@ def test_a_support_that_cuts_a_kernel_is_refused_before_any_learner(
         DoseResponseTMLE(
             _support_curve(doses), outcome_learner=NeverFit(), treatment_learner=NeverFit()
         ).fit(study.data)
+
+
+def test_a_kernel_is_checked_only_inside_the_dose_range() -> None:
+    """The kernel of dose 0.6 at bandwidth 0.4 reaches 0.2, below the range's 0.5.
+
+    Rows with ``W1 > 0.2`` cannot receive doses in ``[0.2, 0.5)``, but the smoothed curve never
+    reads them, so the support covers the pair's kernel inside the range and the curve is
+    identified.  Checking the untruncated kernel would refuse it.
+    """
+    frame = _support_frame()
+    support = Support(lambda h: np.minimum(np.asarray(h["W1"]), 0.5), lambda h: h["W1"] + 3.0)
+    curve = _support_curve((0.6, 2.0))
+    assert (frame["W1"] > 0.2).any()
+    effect = _study(frame, treatment_support=support).identify(DoseResponseCurve(curve))
+    assert effect.functional.interventions == curve.pairs
 
 
 def test_an_observed_dose_outside_its_support_is_refused_first() -> None:
@@ -648,9 +676,23 @@ def test_a_longitudinal_study_refuses_the_curve() -> None:
 @pytest.mark.parametrize(
     ("change", "design", "fragment", "error"),
     [
-        ("missing", {"missingness": "R"}, "missing", CapabilityError),
-        ("cluster", {"cluster": "C"}, "", CapabilityError),
-        ("few doses", {}, "distinct", CapabilityError),
+        ("missing outcome", {"missingness": "R"}, "a missing outcome", CapabilityError),
+        (
+            "missing treatment",
+            {"treatment_missingness": "R"},
+            "the law of A given W is not identified",
+            DataError,
+        ),
+        ("intermediate", {"intermediate": "Z"}, "an intermediate variable", CapabilityError),
+        ("atoms", {"dose_atoms": (0.0,)}, "declared dose atoms", CapabilityError),
+        (
+            "declared mechanism",
+            {"treatment_probabilities": {1.0: "g"}},
+            "A known density is not supported",
+            CapabilityError,
+        ),
+        ("cluster", {"cluster": "C"}, "does not yet support clustered rows", CapabilityError),
+        ("19 doses", {}, "the dose takes only 19 distinct values", CapabilityError),
         ("range", {}, "observed dose range", DataError),
     ],
 )
@@ -659,19 +701,45 @@ def test_the_engine_refusals_now_raise_at_identify(
 ) -> None:
     frame = _frame()
     curve = _curve()
-    if change == "missing":
-        frame["R"] = (np.arange(len(frame)) % 7 != 0).astype(int)
+    rows = np.arange(len(frame))
+    if change == "missing outcome":
+        frame["R"] = (rows % 7 != 0).astype(int)
         frame.loc[frame["R"] == 0, "Y"] = np.nan
+    elif change == "missing treatment":
+        frame["R"] = (rows % 7 != 0).astype(int)
+        frame.loc[frame["R"] == 0, "A"] = np.nan
+    elif change == "intermediate":
+        frame["Z"] = (frame["W1"] > 0).astype(int)
+    elif change == "atoms":
+        frame.loc[:39, "A"] = 0.0
+    elif change == "declared mechanism":
+        frame["g"] = 0.3
     elif change == "cluster":
-        frame["C"] = np.arange(len(frame)) // 4
-    elif change == "few doses":
-        frame["A"] = np.round(frame["A"].clip(0.5, 4.5) * 2) / 2
+        frame["C"] = rows // 4
+    elif change == "19 doses":
+        # One value short of the 20 distinct doses a density needs.
+        frame["A"] = np.linspace(0.3, 4.7, 19)[rows % 19]
     else:
         curve = DoseResponse(doses=(2.0,), bandwidths=(0.5,), support=(-10.0, 10.0))
-    study = _study(frame, **design)
     assert_refused_before_any_call(
-        lambda: study.identify(DoseResponseCurve(curve)), None, "", fragment, error=error
+        lambda: _study(frame, **design).identify(DoseResponseCurve(curve)),
+        None,
+        "",
+        fragment,
+        error=error,
     )
+
+
+def test_the_trial_design_refuses_the_curve_end_to_end() -> None:
+    from tests.unit.test_atmle_workflow import _frame as trial_frame
+
+    frame = trial_frame(external_treated=0.3)
+    design = TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S")
+    study = CausalStudy(frame, design=design)
+    raised = assert_refused_before_any_call(
+        lambda: study.identify(DoseResponseCurve(_curve())), None, "", "it declares no dose"
+    )
+    assert raised.refusal.reason == RefusalReason.INVALID_DECLARATION
 
 
 # ------------------------------------------------------------------ protocol and provenance
@@ -716,9 +784,8 @@ def test_the_result_carries_the_question_and_its_keys() -> None:
     )
     assert set(result.parameter_keys) == set(result.estimates)
     stratified = _route(_frame(), _curve(), {"strata": ("W2",)})
-    strata = {(row.stratum,) for row in stratified.pair_support}
-    assert len(strata) == 2
-    assert {key.stratum for key in stratified.parameter_keys.values()} == strata
+    levels = {key.stratum for key in stratified.parameter_keys.values()}
+    assert levels == {(0.0,), (1.0,)}
 
 
 # ------------------------------------------------------------------ planned fits
@@ -765,3 +832,17 @@ def test_save_and_load_keep_the_study_record(tmp_path: Any) -> None:
     assert loaded.identified_effect.functional == result.identified_effect.functional
     assert _facts(loaded)[:-2] == _facts(result)[:-2]
     assert str(loaded.summary()) == str(result.summary())
+
+    def statuses(fit: Any) -> dict[str, Any]:
+        rows = {row.operation: row.status for row in fit.diagnostics.capabilities}
+        rows.update({row.operation: row.status for row in fit.sensitivity.capabilities})
+        return rows
+
+    assert statuses(loaded) == statuses(result)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        checked = result.validate()
+        reloaded = loaded.validate()
+    assert [(item.name, item.status) for item in checked.items] == [
+        (item.name, item.status) for item in reloaded.items
+    ]

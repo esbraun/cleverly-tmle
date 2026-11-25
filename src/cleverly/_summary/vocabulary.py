@@ -5091,6 +5091,7 @@ DOSE_SETTINGS_DECLARATION: Final = (
 )
 DOSE_SETTINGS_BAND: Final = "The band over every row reads {label}."
 DOSE_SETTINGS_BAND_REASON: Final = "Why the band is experimental: {reason}"
+DOSE_SETTINGS_ROWS_REASON: Final = "Why the rows are experimental: {reason}"
 #: The conditions a direct fit rests on, which a fit through a study reads off its
 #: identification record instead.
 DOSE_RESPONSE_ASSUMPTIONS: Final[tuple[str, ...]] = (

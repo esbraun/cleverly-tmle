@@ -7090,7 +7090,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_dose_response(self, method: EstimationMethod) -> DoseResponseResult:
         """Fit the curve on the study's data and stamp the study's record onto the result."""
         assert self._study is not None and isinstance(self._study.data, CausalData)
-        result = self._dose_response_estimator(method).fit(self._study.data)
+        data = self._study.data
+        result = self._dose_response_estimator(method).fit(data)
+        # A pair's stratum is the stratum's level tuple, as ``_point_parameter_keys`` writes it.
+        levels = {
+            data.stratum_label(code): data.strata_levels[code] for code in range(data.n_strata)
+        }
         keys = {
             row.name: ParameterKey(
                 row.name,
@@ -7098,7 +7103,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 axis="dose",
                 value=row.dose,
                 bandwidth=row.bandwidth,
-                stratum=None if row.stratum is None else (row.stratum,),
+                stratum=None if row.stratum is None else levels[row.stratum],
             )
             for row in result.pair_support
         }

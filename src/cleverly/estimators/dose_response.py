@@ -1164,7 +1164,7 @@ class DoseResponseTMLE:
         DoseResponseResult
             The curve, its intervals and its band.
         """
-        engine, prepared = self._prepared(
+        engine, prepared, quadrature = self._prepared(
             data,
             outcome=outcome,
             treatment=treatment,
@@ -1173,7 +1173,7 @@ class DoseResponseTMLE:
             id=id,
             strata=strata,
         )
-        return self._fit_prepared(engine, prepared)
+        return self._fit_prepared(engine, prepared, quadrature)
 
     def _planned_fits(
         self,
@@ -1213,7 +1213,7 @@ class DoseResponseTMLE:
         PlannedFits
             One row per nuisance model.
         """
-        engine, prepared = self._prepared(
+        engine, prepared, (n_bins, _, _, _) = self._prepared(
             data,
             outcome=outcome,
             treatment=treatment,
@@ -1222,7 +1222,6 @@ class DoseResponseTMLE:
             id=id,
             strata=strata,
         )
-        n_bins, _, _, _ = self._quadrature(prepared)
         folds = engine._folds(prepared, self.random_state)
         state: Literal["realized", "one draw"] = (
             "realized" if self.random_state is not None else "one draw"
@@ -1260,8 +1259,8 @@ class DoseResponseTMLE:
         weights: str | None,
         id: str | None,
         strata: Sequence[str] | None,
-    ) -> tuple[Any, CausalData]:
-        """The engine and the prepared data, after every check that precedes a learner."""
+    ) -> tuple[Any, CausalData, tuple[int, FloatArray, QuadratureRule, QuadratureRule]]:
+        """The engine, the prepared data and the quadrature, after every pre-learner check."""
         engine = self._engine()
         prepared = engine._prepare(
             data,
@@ -1278,8 +1277,7 @@ class DoseResponseTMLE:
         dose_response_preflight(prepared, self.curve)
         if self.cross_fit:
             engine._refuse_unbounded_cross_fitted_scale(prepared)
-        self._quadrature(prepared)
-        return engine, prepared
+        return engine, prepared, self._quadrature(prepared)
 
     def _quadrature(
         self, data: CausalData
@@ -1292,9 +1290,14 @@ class DoseResponseTMLE:
         self._preflight_memory(data, rule.n_nodes + fine.n_nodes)
         return n_bins, edges, rule, fine
 
-    def _fit_prepared(self, engine: Any, data: CausalData) -> DoseResponseResult:
+    def _fit_prepared(
+        self,
+        engine: Any,
+        data: CausalData,
+        quadrature: tuple[int, FloatArray, QuadratureRule, QuadratureRule],
+    ) -> DoseResponseResult:
         curve = self.curve
-        n_bins, edges, rule, fine = self._quadrature(data)
+        n_bins, edges, rule, fine = quadrature
         nodes = np.concatenate([rule.nodes, fine.nodes])
         folds = engine._folds(data, self.random_state)
         scaler = engine._scaler(data)
