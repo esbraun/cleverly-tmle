@@ -19,15 +19,15 @@ by_object = TMLEMethod(
 )
 ```
 
-Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` is the question
+Pass `**by_keyword` or `method=by_object` to `effect.estimate`, where `effect` is the object
 `study.identify(...)` returned ([quickstart](../getting-started/quickstart.md)). The five group
 objects are `ModelSpec`, `CrossFitting`, `Targeting`, `Inference` and `Runtime`.
 
 The "used on" column names the fits that read the setting: *point* is a single treatment
 decision (`PointTreatment`), *over time* treatments or outcomes recorded at several times,
 including a time to an event checked at set times, *exact times* a
-`TimeToEvent(grid="continuous")` fit, and *trial* a trial with external data. When you change a
-setting from its default, a fit that does not read it raises an error.
+`TimeToEvent(grid="continuous")` fit, and *trial* a trial with external data. A kind of fit not
+in that column raises an error when you change the setting from its default.
 
 ## Models and learners: `ModelSpec`
 
@@ -73,7 +73,7 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 | `n_folds` | `n_folds` | `10` | point, over time, exact times, trial | the number of outer folds |
 | `learner_folds` | `learner_folds` | `5` | point, over time, exact times, trial | the folds a Super Learner uses inside each training set to weigh its candidates |
 | `repeats` | `repeats` | `1` | point, over time | independent fold draws, combined by their median; the value of a treatment rule learned from the data combines them by their mean |
-| `stratify_by` | `stratify_folds` | `'none'` | point | folds balanced on the treatment (`"treatment"`) or also the outcome. Only an in-sample fit (`cross_fit=False`) accepts a value other than `"none"` |
+| `stratify_by` | `stratify_folds` | `'none'` | point | fold stratification, which no fit applies yet: a cross-fitted fit refuses any value but `"none"`, and an in-sample fit (`cross_fit=False`) ignores it |
 | `targeting_scheme` | `targeting_scheme` | `'pooled'` | point | one correction step over all folds (`"pooled"`), or one per fold (`"fold"`) |
 | `fold_evaluation` | `cv_evaluation` | `False` | point | also report the estimate evaluated fold by fold |
 | `split_plan` | `split_plan` | `None` | point, trial | reuse the outer folds of an earlier fit |
@@ -84,7 +84,7 @@ Outer folds give each row a prediction from models trained without it (cross-fit
 ## The correction step: `Targeting`
 
 After the models are fitted, a correction step uses the treatment model to remove the bias the
-outcome model leaves. Each round shrinks the score, an average over the rows that measures the
+outcome model leaves. The rounds drive the score, an average over the rows that measures the
 bias left, toward zero.
 
 | setting | keyword | default | used on | what it changes |
@@ -93,7 +93,7 @@ bias left, toward zero.
 | `algorithm` | `targeting` | `'iterative'` | point, over time | repeat the correction until the score is near zero (`"iterative"`), or take small steps along one path (`"one_step"`) |
 | `g_bounds` | `g_bounds` | `'auto'` | point, over time, exact times, trial | the cap on extreme treatment probabilities. `"auto"` uses 5/(√n log n) for most quantities and 0.025 for the effect among the treated (ATT) or untreated (ATC); over time, (0.01, 1.0) |
 | `q_bounds` | `q_bounds` | `None` | point, over time | the known range of a continuous outcome. A cross-fitted fit of a continuous outcome raises an error without it; give the range the outcome can logically take |
-| `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of an observed intermediate variable) |
+| `nuisance_bound` | `nuisance_bound` | `0.01` | point | the smallest fitted chance of an observed outcome (and of the intermediate variable's level a direct effect fixes) |
 | `submodel_alpha` | `submodel_alpha` | `0.9995` | point, over time | how far inside the range the logistic correction keeps predictions. Not the interval's `alpha` |
 | `target_weights` | `target_weights` | `False` | point | whether observation weights enter the correction |
 | `step_size` | `step_size` | `0.001` | point, over time, exact times | the step of `algorithm="one_step"` |
@@ -125,11 +125,12 @@ states their contracts.
 | `band_scale` | `band_scale` | `'logit'` | point, over time, exact times | build the band of a probability on the logit scale, so it stays inside 0 to 1, or on the estimate's own scale (`"identity"`) |
 | `band_reference` | `band_reference` | `'normal'` | point, over time | the reference distribution of the band: normal, or a Student t for each estimate (`"t"`) |
 
-With `simultaneous=None` a fit with several estimates adds the band where it can. Collaborative TMLE
-and DR-TMLE over time, which fit only an event outcome, report an interval for each estimate but no
-band, and a fit with repeated outer splits and the collaborative TMLE strategies that select a model
-report no band. [How every method reports uncertainty](../technical-reference/inference.md) states
-when each interval and band holds.
+With `simultaneous=None` a fit with several estimates adds the band. Over time, where they fit only
+an event outcome, DR-TMLE reports an interval for each estimate and no band, and collaborative TMLE
+reports no interval. The collaborative TMLE strategies that select a model report no interval
+either. A point fit with repeated outer splits and several estimates raises an error until you set
+`simultaneous=False`. [How every method reports uncertainty](../technical-reference/inference.md)
+states when each interval and band holds.
 
 Each bootstrap replicate refits every model; [count the fits](methods-learners.md) before a long
 run.
@@ -176,12 +177,12 @@ of their own.
 ### DR-TMLE
 
 `DRTMLEMethod` adds equations that keep the interval valid when one of the two models is wrong,
-provided the other is right and its extra regressions fit well.
+provided the other is right and its reduced regressions fit well.
 
 | setting | default | what it changes |
 | --- | --- | --- |
 | `guard` | `('Q', 'g')` | which extra equations to solve: `'Q'` against a wrong outcome model, `'g'` against a wrong treatment model |
-| `reduction` | `'univariate'` | the form of the extra regressions, which regress the outcome and the treatment on each other's fitted values |
+| `reduction` | `'univariate'` | the form of the reduced regressions, which regress the outcome and the treatment on each other's fitted values: `"univariate"` or `"bivariate"` |
 | `reduced_outcome_learner` | `None` | the reduced regression of the outcome |
 | `reduced_treatment_learner` | `None` | the reduced regression of the treatment |
 | `reduced_mechanism_residual_learner` | `None` | the reduced regression of the treatment model's residual |
@@ -263,7 +264,7 @@ formula ([conditional effects](conditional-effects.md#fit-the-effect-without-cho
 | `step_size` | exact times | `0.1` |
 | `tol` | exact times | `None` |
 
-On exact times, `tol=None` stops the correction once the mean of each score is within
-1/(√n log n) of its standard deviation. `GComputationMethod`, `IPWMethod` and
+On exact times, `tol=None` stops the correction once each score's mean divided by its standard
+deviation is at most 1/(√n log n). `GComputationMethod`, `IPWMethod` and
 `ParametricGFormulaMethod` also fit a main-terms GLM for every learner left at `None`, in place of
 the default library ([report the sequential baselines](longitudinal.md)).

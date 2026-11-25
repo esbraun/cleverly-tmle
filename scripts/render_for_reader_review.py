@@ -36,7 +36,8 @@ BUDGETS = {
     "sequential-pricing": 2600,
     # A lookup reference: one table row per setting, read by row rather than front to back.
     # Its rows are counted as main-path words, so the budget follows the number of settings.
-    "settings": 2500,
+    # Re-set to the measured page (2,515 words, after the reader-review glosses) plus about 10%.
+    "settings": 2750,
 }
 
 #: The words of the guide's "Library words" table, with the pattern that finds each one. The

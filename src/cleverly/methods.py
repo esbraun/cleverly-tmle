@@ -1100,7 +1100,9 @@ def _point_over_time_learners(names: list[str]) -> Refusal:
         RefusalReason.INVALID_DECLARATION,
         f"{', '.join(names)} fit the backward regressions, follow-up and competing events of a "
         "fit over time, and a point-treatment fit has none of them.",
-        alternative="Remove them, or declare a longitudinal or TimeToEvent design.",
+        alternative=(
+            "Remove them, or declare a longitudinal design or a TimeToEvent design on a grid."
+        ),
     )
 
 

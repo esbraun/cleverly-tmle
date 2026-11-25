@@ -136,7 +136,7 @@ workflow.
 | `"discrete"` | picks among adjustment sets you declare in `candidates=` | one treatment model per set |
 | `"lasso"` | walks a lasso penalty grid, `lambdas=` | one lasso fit per penalty |
 | `"learners"` | picks among treatment learners you declare, least to most flexible | one fit per learner |
-| `"derivative"` | selects nothing; adds one extra covariate per option along the lasso penalty | one TMLE |
+| `"derivative"` | selects nothing; adds one extra term per option to the correction step, along the lasso penalty | one TMLE |
 | `"oat"` | fits, for each option, a treatment model on that option's predicted outcome | one treatment model per option |
 
 The selecting strategies (`"greedy"`, `"ordered"`, `"discrete"`, `"lasso"` and `"learners"`)
