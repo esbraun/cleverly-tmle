@@ -35,9 +35,10 @@ $$
 the risk had every unit followed $r$ at baseline and at every decision visit, with censoring
 removed and the visit process left as it runs under the regime (Rytgaard et al. 2022, display
 (8), with $Y = N^{d_j}(\tau)$). A regime is a treatment level held at every decision visit, a
-`Static` intervention, or a deterministic rule: a callable that takes a frame of the decision
-visits (`time`, `visit`, the covariates by name and `previous_treatment`) and returns a level
-per row. The fit reports every $\psi_{r,j,\tau}$, each regime's risk difference from the
+`Static` intervention, or a deterministic rule: a `Rule` declared `rule_kind="known"`, whose
+function takes a frame of the decision visits (`time`, `visit`, the covariates by name and
+`previous_treatment`) and returns a level per row. A bare callable carries no declaration and is
+refused, as everywhere in the package. The fit reports every $\psi_{r,j,\tau}$, each regime's risk difference from the
 reference regime and their ratio. With one cause the names read `risk_regimen[r @ t=...]`, and
 with several `cif_regimen[r, cause @ t=...]`.
 
@@ -68,7 +69,13 @@ $$
 $$
 
 `ContinuousLongitudinalRecord.past_cap_share` estimates the right side per regime and target
-time, inverse weighted to the regime. The fit warns when it exceeds 0.05.
+time, inverse weighted to the regime. The fit warns when it exceeds 0.05. Past the cap, censoring and the
+hazards read the window of visit $K^*_r$, not that of the unit's later visits. The death terms of
+node $K^*_r$ stay the efficient influence curve of $\psi^{(K^*)}_r$, but the fit identifies
+$\psi^{(K^*)}_r$ only when censoring after visit $K^*_r + 1$ does not depend on the later $L$ or
+$A$ given $x_{K^*_r}$; otherwise the inverse censoring weight on those paths is wrong, and the
+bound above does not cover that error. $K^*_r$ is chosen once on the full sample, so it reads
+every fold's held-out units: a discrete tuning choice, not fitted out of fold.
 
 ## The efficient influence curve
 
@@ -111,7 +118,7 @@ where the product runs over the observed history before visit $k$, $\pi$ is the 
 probability at a decision visit (one elsewhere), $S_c$ the censoring survival and $\delta_n$ the
 floor (`g_bounds`, by default $5 / (\sqrt n \log n)$). The baseline node adds
 $Z^p_0(0) - \psi_p$. Saturated fits on an exact law reproduce the Gateaux derivative of the
-full-history g-formula to $10^{-14}$
+full-history g-formula to $10^{-10}$, the asserted bound
 (`tests/unit/test_continuous_longitudinal_exact.py::test_saturated_fit_equals_g_formula_and_gateaux`).
 
 ## Initial fits
@@ -122,7 +129,7 @@ full-history g-formula to $10^{-14}$
 | the visit intensity | the segment rows before the cap; a death row stops at its time less $\delta$ | the same three |
 | the censoring hazard | the segment rows, entering at $s_k - \delta$; a row that exits by death or visit stops at its time less $\delta$ | the same three |
 | the treatment at each decision visit | the decision visits, design $x_k$ without $A(s_k)$ | a main-terms and an L1 logistic model, selected by cross-validated log loss |
-| the continuation $F^\nu_k$ | node $k + 1$'s rows; label: node $k + 1$'s targeted binned sub-distribution after its visit | a main-terms and an L1 logistic model of each bin's event fraction, selected by cross-validated soft log loss |
+| the continuation $F^\nu_k$ | node $k + 1$'s rows; label: node $k + 1$'s binned sub-distribution after its visit, targeted in sample; under cross-fitting, each fold's untargeted training pass fits it and the folds are stitched, as the discrete-time hazard LTMLE does | a main-terms and an L1 logistic model of each bin's event fraction, selected by cross-validated soft log loss |
 
 $\delta$ is half the smallest gap between distinct observed times, so the tie order above holds in
 every fit. `CoxHazard`, `StratifiedNelsonAalen`, `partial_log_likelihood` and `select_hazard`
@@ -137,10 +144,15 @@ keeps both shares and the estimates name the bound in their label.
 
 ## Targeting
 
-Each regime runs one backward pass. Node $K^*_r$ is walked first. Its targeted curve gives node
-$K^*_r - 1$'s continuation labels and the value $Z_{k+1}$ of its covariate term, and so on to the
-baseline node, each node walked once after every later node is final. Node $k$'s walk tilts its
-exits along $\sum_p v_p \tilde h_k c^p_e$ and its continuation's bin hazards along
+Each regime runs one backward pass. Node $K^*_r$ is walked first. Its targeted curve gives the
+value $Z_{k+1}$ of node $K^*_r - 1$'s covariate term and so on to the baseline node, each node
+walked once after every later node is final. In sample, the targeted curve is also the label of
+node $k$'s continuation, which is refitted on it before node $k$ walks. Under cross-fitting
+(the default) the continuation stays the stitched out-of-fold fit of the untargeted training
+passes, and node $k$'s walk tilts it but does not refit it. Either way the walk solves the
+covariate term's score.
+
+Node $k$'s walk tilts its exits along $\sum_p v_p \tilde h_k c^p_e$ and its continuation's bin hazards along
 $\sum_p v_p \tilde h_k \kappa^p$, with the slot weight $\tilde h_k$ on every row, deviating or not.
 A step is accepted when it shortens the node's score in the metric held at the initial fit; the
 step halves on a rejection and doubles back after an acceptance, as in the baseline walk.
@@ -163,8 +175,9 @@ scale. `simultaneous=True` adds a sup-t band over every risk and risk difference
 
 Every estimate reads `experimental` with the reason "No registered study measures the
 continuous-time longitudinal TMLE yet (continuous-time-longitudinal is declared and pending)"
-(`continuous_longitudinal_support`). The reason also names a user learner for any nuisance (such
-a fit never reads supported, because a study can measure only fixed libraries), a bounded hazard
+(`continuous_longitudinal_support`). The reason also names a library or learner other than the
+default for any nuisance, a one-member Cox library included (such a fit never reads supported,
+because a study measures the default libraries only), a bounded hazard
 jump, fewer than 30 units following the regime at every decision visit and at risk at the last
 target time, and an estimated share past the cap above 0.05. The ratio, smooth contrasts and the
 band read experimental with reasons of their own.
@@ -184,7 +197,7 @@ The diagnostics read `record` and refit nothing:
 | `diagnostics.nuisance_models()` | `ContinuousLongitudinalNuisances` | each hazard's, the visit intensity's, the censoring hazard's and the treatment model's candidates, losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | the influence report | the influence curves of the estimates |
 
-`validate()` runs the score, support and nuisance checks. The three report classes live in
+`validate()` runs the score, support and nuisance checks, and fails when a node walk stopped short of its cutoff. The design of roadmap X6 part (e) refused `validate()` and `assess()` outright. They run instead, as on a continuous-time survival fit, because every kind's battery runs in the capability sweep; the items that would replay the fit (the refutation and the truncation curve) and the sensitivity rows name their refusals. The three report classes live in
 `cleverly.survival.longitudinal_diagnostics`, and `tests/unit/test_continuous_longitudinal.py`
 checks each against the record.
 
@@ -195,6 +208,7 @@ checks each against the record.
 | a known stochastic policy, a modified treatment policy, an odds tilt, a continuous treatment, or an intervention on the visit intensity | `CapabilityError`, implementation gap: the continuous-time submodel of these policies is not written. The discrete-time hazard LTMLE fits known stochastic policies |
 | a treatment with more than two levels | `CapabilityError`, implementation gap: the treatment model at each visit is a binary logistic library |
 | `rmtl()` or `rmst()` | `CapabilityError`, API redirection: the fit targets the risks at its target times only |
+| a bare callable as a regime, or a `Rule` whose `rule_kind` is not `"known"` | `CapabilityError`, invalid declaration (an implementation gap for `"estimated"`), with the package's text: a callable can close over an estimate, so the declaration is the check |
 | a rule that returns a level outside the treatment's levels, or a missing value | `DataError` naming the rule, the value and the count |
 | a target time past the follow-up of the units following some regime at baseline | `DataError`, as the baseline engine |
 | no event of a cause by the first target time among the units following some regime at baseline | `DataError`, as the baseline engine |
@@ -221,10 +235,10 @@ second visit node).
 | --- | --- |
 | saturated fits equal the g-formula and the Gateaux derivative, for static regimes and a rule | `test_continuous_longitudinal_exact.py` |
 | wrong intensities and continuation with the right mechanism: the walk reaches the truth | `test_walk_repairs_wrong_intensities` |
-| each score term, the guard, the order rule, the treatment factor at every visit, the censoring weight, the slot, the continuation at counterfactual visit times, the soft-outcome chain, the earlier treatment, the floor, the rule at decision visits, the non-followers and the slot-weight tilt each have a mutation that breaks the exact check, with a control where the term vanishes | `test_continuous_longitudinal_exact.py` |
+| each score term, the guard, the order rule, the treatment factor at every visit, the censoring weight, the slot, the continuation at counterfactual visit times, the soft-outcome chain, the earlier treatment, the floor, the rule at decision visits, the non-followers and the slot-weight tilt each have a mutation that breaks the exact check, with a control where the term vanishes where the plan names one | `test_continuous_longitudinal_exact.py` |
 | the fit at $K^*_r = 1$ on PL2 equals $\psi^{(K^*)}$ and its Gateaux derivative | `test_target_past_the_cap` |
 | with no visit, the initial fits and influence curves equal the baseline engine's, and under saturated learners the estimates, standard errors and influence curves agree to $10^{-10}$ | `test_continuous_longitudinal.py::test_reduces_to_the_baseline_engine`, `test_saturated_fits_reduce_to_the_baseline_engine` |
-| on law (M) of the discrete-time hazard LTMLE, shift-mapped into continuous time, both engines' estimates agree to $10^{-9}$ and their influence curves agree up to that engine's weight scaling | `test_x70_agreement_on_law_m` |
+| against the discrete-time hazard LTMLE on its law (M), shift-mapped into continuous time, saturated and in sample: on the exact law, where both engines sit at the truth and take no step, estimates agree to $10^{-9}$ and influence curves agree up to that engine's weight scaling (the efficient influence curve term by term); on a 20,000-unit draw with no step, at fitted nuisances, the untargeted estimates and influence curves agree to $10^{-12}$. Targeted estimates on a draw differ at second order, because the window does not hold the history the slot weight's prefix reads and each engine walks its own submodel | `test_x70_agreement_on_law_m`, `test_x70_agreement_on_a_draw_with_no_step` |
 | a binding weight floor moves only the rare cell's influence curves, by the closed form $A + B / \delta$ of the floored weight | `test_weight_floor` |
 | per-node cutoffs $s_n / N$ bound every target's total score by $s_n$, on PL2 and on a stub node problem with fixed linear scores | `test_node_cutoffs_bound_the_total`, `test_node_cutoffs_bound_the_total_on_a_stub` |
 | the share past the cap equals the g-formula of a second visit before the target time | `test_past_cap_share_is_the_g_formula` |

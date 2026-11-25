@@ -417,7 +417,9 @@ print(visit_risks.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
 A regime can also be a rule: a function that takes a frame of the visits, with each covariate
-by name, and returns the treatment at each. The estimate assumes that the models read a
+by name, and returns the treatment at each. Wrap it as
+`Rule(function, "treat when l is high", rule_kind="known")` from `cleverly.interventions`, which
+declares that the rule was fixed before you saw the data; a bare function is refused. The estimate assumes that the models read a
 person's history only through the last visit's covariates and treatment, the one before it, and
 the visit's time and count. The [technical reference](../technical-reference/continuous-time-longitudinal.md)
 states this assumption, the cap on the number of visits modelled, and what the fit refuses.
