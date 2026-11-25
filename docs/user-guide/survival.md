@@ -280,10 +280,14 @@ in-sample fit reads `experimental`.
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
-the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
-and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
-lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
-name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
+the step that adjusts the risks met the stopping rule its intervals rely on. The checks that refit
+the analysis, namely the refutation tests (placebo, random common cause and subset), the
+truncation curve (how the estimates move as the floor on small chances is raised), and the
+simulated-confounder stress test, run when you call them, and the report lists them as waiting for that call. The refutation and the stress test also need you to name the
+estimate to check. The E-value of a risk ratio waits too, until you name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder)
+shows. The omitted-variable bound, the marginal bound and the missingness tilt are refused for this
+fit, each with its reason; the [Assessment](../technical-reference/continuous-time-survival.md#assessment)
+table lists every check.
 
 The plots draw the risks and the same checks from what the fit kept:
 
@@ -298,8 +302,11 @@ learners(exact_risks)
 
 `curve` draws each plan's risk of each event, one column per event, and the difference below.
 Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
-those times, because the fit estimates no risk there. No simultaneous band is drawn, because this
-fit did not compute one; `simultaneous=True` adds it.
+those times, because the fit estimates no risk there. Brackets at each time mark the
+simultaneous band, which covers all the reported risks and differences at once. A study fit
+computes it by default, and a direct `ContinuousSurvivalTMLE` fit needs `simultaneous=True`. No
+study has measured this band yet, so it reads `experimental`. `curve(..., band="none")` leaves it
+out, and `band="bootstrap"` draws the bootstrap band of a fit with `n_bootstrap=`.
 
 `overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
 for each arm, the chance of that arm times the chance of staying in follow-up just before the last
@@ -490,8 +497,11 @@ intervals on that kind of fit.
 :::{dropdown} Details: where eliminate= works, and its study
 With one cause left, `ratio()` and `rmst()` work on the fit.
 `eliminate=` works on `TimeToEvent`, `LongitudinalTreatment` and the long layout `LongPanel`, and
-on every longitudinal estimator except structural nested means. A learned plan and a separable
-effect refuse it.
+on every longitudinal estimator except structural nested means and the collaborative and doubly
+robust survival fits (`CollaborativeTMLEMethod`, `DRTMLEMethod`). A learned plan and a separable
+effect refuse it too, and
+[the refusals for eliminated events](../technical-reference/scope-and-refusals.md#eliminated-competing-events)
+give each reason.
 The [registered study](../technical-reference/method-evidence/eliminated-competing-events.md)
 covers iterated-mean longitudinal TMLE (`LTMLE`) on two binary treatment decisions and hazard
 `LTMLE` on a three-level baseline treatment, both at n = 16,000 with saturated models. Those fits
