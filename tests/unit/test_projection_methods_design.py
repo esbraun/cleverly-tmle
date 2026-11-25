@@ -527,7 +527,7 @@ def test_the_smoke_cost_stays_inside_the_cost_gate() -> None:
         declared = study.GROUP_BY_LABEL[row.group].seconds
         assert row.seconds_per_fit <= study.COST_GATE * declared, row.group
     assert numbers()["cpu_hours"] == pytest.approx(study.run_cpu_hours())
-    assert study.run_cpu_hours() == pytest.approx(2.28, abs=0.05)
+    assert study.run_cpu_hours() == pytest.approx(2.59, abs=0.05)  # at the declared R = 5,600
     assert study.run_cpu_hours(10_800) == pytest.approx(3.38, abs=0.05)
     assert study.pilot_cpu_hours() == pytest.approx(0.49, abs=0.02)
 

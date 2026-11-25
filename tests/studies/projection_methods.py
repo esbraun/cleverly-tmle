@@ -32,8 +32,9 @@ rule over the two one-row arms (plan 6.1).  :data:`BUDGETED_R` is the ``R`` at p
 the rule after ``pilot_2``, each row is read at its pooled pilot ratio and ``R`` is the smallest
 multiple of 400 at which the product of the rows' pass probabilities reaches
 :data:`POINT_READING_TARGET`, under the two-sided precondition of
-:mod:`tests.studies.point_reading`.  The study is declared and not registered: no pilot and no run
-has been made.
+:mod:`tests.studies.point_reading`.  The pilot (SE ratios 1.0005 on the
+intercept and 0.9795 on the slope) gives ``R`` = 5,600 by X32a.  The study is declared and not
+registered: its run has not been made.
 """
 
 from __future__ import annotations
@@ -185,8 +186,9 @@ class Group:
 #: The declared seconds of each ladder rung: the 20-replicate smoke's, rounded up.
 LADDER_SECONDS: Mapping[int, float] = {1_000: 0.29, 4_000: 0.70, 16_000: 1.88}
 
-#: The declared calibration ``R``: :data:`BUDGETED_R` until the pilot runs (plan 5.4).
-DECLARED_R = BUDGETED_R
+#: The declared calibration ``R``: X32a's rule on the 3,200-draw pilot (SE ratios 1.0005 and
+#: 0.9795), larger than :data:`BUDGETED_R` (plan 5.4).
+DECLARED_R = 5_600
 R = DECLARED_R
 
 GROUPS: tuple[Group, ...] = (
