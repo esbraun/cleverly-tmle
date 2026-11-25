@@ -40,8 +40,10 @@ comparison keeps it, and the emulation (:mod:`tests.studies.ep_hte3_pilot`) repr
 :func:`design_numbers`.  The margins are fixed here: non-inferiority below
 :data:`NONINFERIORITY_MARGIN` (``log 1.25``), similarity inside ``+-log 1.25``, reference validity
 at the parent's margin, the targeting witness above :data:`WITNESS_MARGIN`, and the mutation
-controls above their rescue margins.  :data:`REPLICATES` is empty until the declaration commit,
-which pins it to ``design_numbers()["replicates"]`` and :data:`REPORTED` to its reported cells.
+controls above their rescue margins.  The declaration commit pins :data:`REPLICATES` to
+``design_numbers()["replicates"]`` from the committed pilot (R = 100 for every reading cell, 20
+for M1 and M2; the gated family passes with probability above 0.9999, and each mutation control
+misses with probability below ``1e-12``) and :data:`REPORTED` to its reported cells, none.
 
 **A red reading** (plan 4.1).  A non-inferiority reading that fails is published red in
 ``comparison.csv`` and on the comparison page; no test asserts a pass.  The row thread
@@ -72,39 +74,63 @@ declaration commit, never after the run.  In the declared run the agreement is a
 not block reading the run.
 
 **The gates re-declared after the R smoke, before any declared run.**  The smoke at
-``005b1dad`` used 54% of the first log-ISE gate (``1e-3``), 31% of the first RMS gate
-(``1e-2``) and exceeded the first cutoff gate (``1e-10``, worst ``1.06e-8``).  Under the rule
-above all three are re-declared, and each now rests on the numerical precision of the two
-programs rather than on the smoke's gaps; the smoke only confirms the headroom.
+``005b1dad`` (committed as ``0112674c``) used 54% of the first log-ISE gate (``1e-3``), 31% of
+the first RMS gate (``1e-2``) and exceeded the first cutoff gate (``1e-10``, worst
+``1.06e-8``).  Under the rule above all three are re-declared before the declared run, and this
+loosens the earlier gates 10 times (log-ISE), 5 times (RMS) and 2000 times (cutoff).  The RMS
+and cutoff gates rest on the numerical precision of the two programs; the log-ISE gate is a
+materiality bound taken from the margin, not a precision bound.  The smoke's gaps only confirm
+the headroom (at most 5.4%, 6.1% and 5.3% of the new gates).  The runner's header comment
+still says ``1e-10``; it is left as written because the runner's hash is gated, and this
+docstring is the declaration.
 
-- *RMS gate* :data:`EMULATION_RMS_GATE` ``= 0.05``.  glmnet stops coordinate descent when no
-  coefficient update lowers the objective by more than ``thresh`` times the null deviance, so
-  at exit the objective is within about ``p * thresh * dev0`` of its minimum (``p`` columns).
-  For a quadratic objective that is a fitted-value error of RMS about
-  ``sqrt(2 p thresh) * sigma0``, with ``sigma0^2 = dev0 / n`` the weighted null deviance per
-  row.  Divided by the oracle's root ISE this scale is 0.011 to 0.025 across the cells (E1
-  0.011, E5 0.013, C4 0.013, C6 0.015, E8 0.025, where ``sigma0`` is 3 on the noise-2 law; one
-  smoke-stream draw each).  The gate is twice the largest.  It is a curve distance of
-  ``0.05^2 = 0.0025``, a quarter of a percent of :data:`CURVE_DISTANCE_THRESHOLD`.  The emulation
-  solves exactly, and the runner-local final stages are ``glm.fit`` at ``epsilon = 1e-14``, so
-  glmnet's stopping rule is the only solver tolerance between the two curves.
-- *Log-ISE gate* :data:`EMULATION_LOG_ISE_GATE` ``= 0.01``.  It bounds the shift a solver error
-  can put into ``D`` directly, so it is set from the smallest margin, ``log 1.25 = 0.223``
-  (non-inferiority and similarity): 0.01 is 4.5% of it, too small to change what a reading
-  means.  It is consistent with glmnet's precision because a curve error ``delta`` of relative
-  size ``r`` moves ``log ISE`` by ``2 r cos(e, delta) sqrt(ISE_oracle / ISE_hte3)`` to first
-  order, where ``e`` is hte3's estimation error.  At the precision scale ``r <= 0.025`` the gate
-  holds unless the solver's error is aligned with the estimation error (cosine above 0.2), which
-  a stopping rule that does not see the truth has no reason to produce.
-- *Cutoff gate* :data:`CUTOFF_TOLERANCE` ``= 2e-7``.  ``optim(method = "Brent")`` calls
-  ``optimize`` with ``tol = reltol = sqrt(.Machine$double.eps)``, about ``1.5e-8`` (not
-  ``optimize``'s own default ``.Machine$double.eps^0.25``), and the emulation ports the same
-  ``Brent_fmin`` at the same ``tol``.  ``Brent_fmin`` stops when the minimizer is bracketed to
-  ``t2 = 2 (sqrt(eps) |x| + tol / 3)``, at most about ``2.5e-8`` on ``[1/n, 0.5]``.  Two runs
-  whose risk sums differ in the last bits (R's ``mean`` against numpy's pairwise sum) can stop
-  anywhere in that bracket, up to about ``2 t2 = 5e-8`` apart; the gate is four times that.  A
-  cutoff moved by ``2e-7`` moves a weight ``1 / pi`` by at most ``5e-6`` of itself at the
-  smallest truncated propensity, far below either curve gate.
+- *RMS gate* :data:`EMULATION_RMS_GATE` ``= 0.05``, mostly from glmnet's precision.  glmnet
+  stops coordinate descent when no coefficient update lowers the objective by more than
+  ``thresh`` (``1e-7``) times the null deviance ``dev0``.  The objective gap at exit is then at
+  most ``1/2 g' H^{-1} g``, about ``p thresh dev0 kappa`` for ``p`` columns and ``kappa`` the
+  condition number of the weighted Gram matrix ``H``.  With near-orthogonal columns
+  (``kappa`` near 1) that is a fitted-value error of RMS about ``sqrt(2 p thresh) * sigma0``,
+  with ``sigma0^2 = dev0 / n``; divided by the oracle's root ISE this scale estimate is 0.011
+  to 0.025 across the cells (E1 0.011, E5 0.013, C4 0.013, C6 0.015, E8 0.025, where ``sigma0``
+  is 3 on the noise-2 law; one smoke-stream draw each), and the gate is twice the largest.
+  ``kappa`` on the same draws is 2.3 (E1, E8), 3.0 (C1, C4), 5.3 (C6) and 27 (E5, d = 20), so
+  the gate is a scale estimate, not a worst-case bound: at E5 the worst case
+  ``sqrt(kappa)`` times the scale is 0.07.  The CRR cells' debiasing is binomial glmnet, whose
+  outer reweighting loop has its own convergence rule on top of ``thresh``.  The gate is a
+  curve distance of ``0.05^2 = 0.0025``, a quarter of a percent of
+  :data:`CURVE_DISTANCE_THRESHOLD`.  The emulation solves exactly, and the runner-local final
+  stages are ``glm.fit`` at ``epsilon = 1e-14``, so glmnet's stopping rules are the only solver
+  tolerance between the two curves.
+- *Log-ISE gate* :data:`EMULATION_LOG_ISE_GATE` ``= 0.01``, a materiality bound.  It bounds the
+  shift an emulation difference can put into ``D`` directly, so it is taken from the smallest
+  margin, ``log 1.25 = 0.223`` (non-inferiority and similarity): 0.01 is 4.5% of it, too small
+  to change what a reading means.  It does not follow from glmnet's precision: a curve error of
+  relative size ``r`` moves ``log ISE`` by up to about ``2 r`` to first order, and the smoke's
+  C5 replicate 1 already shows half that alignment (log-ISE gap ``5.2e-4`` at RMS ratio
+  ``5.0e-4``).
+- *Cutoff gate* :data:`CUTOFF_TOLERANCE` ``= 2e-7``, from Brent's precision.  hte3 calls
+  ``optim(method = "Brent")`` with no ``control`` (``R/utils.R:1175`` and ``:1184``), which
+  calls ``optimize`` with ``tol = reltol = sqrt(.Machine$double.eps)``, about ``1.5e-8``, and the
+  emulation ports the same ``Brent_fmin`` at the same ``tol``.  ``Brent_fmin`` stops when the
+  minimizer is bracketed to ``t2 = 2 (sqrt(eps) |x| + tol / 3)``, at most about ``2.5e-8`` on
+  ``[1/n, 0.5]``.  Two runs whose risk sums differ in the last bits (R's ``mean`` against
+  numpy's pairwise sum) can stop up to about ``4 t2 = 1e-7`` apart, provided both converge in
+  the same basin: the risk is piecewise smooth with kinks at the propensities, and a run that
+  lands in another local minimum is not covered.  The gate is twice that worst case.  A cutoff
+  moved by ``2e-7`` moves a weight ``1 / pi`` by at most ``5e-6`` of itself at the smallest
+  truncated propensity.
+
+**An agreement exceedance in the declared run** goes to the diagnosis of a red reading, and its
+first step is pre-declared here: a replicate whose log-ISE gap exceeds its gate while its RMS
+ratio is inside its gate (and, likewise, a replicate over the RMS gate) is refitted in R with
+glmnet at ``thresh = 1e-12``.  If the refitted gap falls inside the gates, the exceedance was
+solver tolerance and the comparison page says so; if it does not, it is an emulation or runner
+fault and the diagnosis continues.
+
+**Cost.**  The committed smoke ran about 2x oversubscribed on the local laptop and projects the
+declared run at 73.4 CPU-h (Python 70.1, R 3.3; :func:`recost`).  The 35 to 40 CPU-h expected
+for an uncontended local run assumes that oversubscription is the cause of the difference; the
+guard is the in-run projection against :data:`LOCAL_BUDGET_CPU_HOURS`, not this figure.
 
 **Lost replicates.**  A replicate whose Python fit or hte3 call fails is counted and published
 (``failed`` and ``failed_share`` in ``comparison.csv``, the records in ``failures.csv``), never
@@ -177,8 +203,8 @@ MUTATION_GATE_BELOW = 1e-3
 
 #: The emulation's agreement with hte3 in R, per replicate (see the module docstring): the
 #: log-ISE gap, the curve gap in units of the oracle's root ISE, and hte3's truncation cutoffs.
-#: Re-declared after the R smoke and before any declared run (module docstring); the first
-#: declared values were ``1e-3``, ``1e-2`` and ``1e-10``.
+#: Re-declared after the R smoke and before any declared run (module docstring): 10, 5 and
+#: 2000 times looser than the first declared values ``1e-3``, ``1e-2`` and ``1e-10``.
 EMULATION_LOG_ISE_GATE = 1e-2
 EMULATION_RMS_GATE = 5e-2
 CUTOFF_TOLERANCE = 2e-7
@@ -301,9 +327,12 @@ READING_CELLS: tuple[Cell, ...] = tuple(cell for cell in CELLS if cell.role != M
 MUTATION_CELLS: tuple[Cell, ...] = tuple(cell for cell in CELLS if cell.role == MUTATION)
 
 #: ``R`` per cell and the cells declared reported, pinned by the declaration commit to
-#: :func:`design_numbers` (the design test checks the pin).  Empty while the comparison is
-#: pending; the driver refuses a declared run until they are set.
-REPLICATES: Mapping[str, int] = {}
+#: :func:`design_numbers` from the committed pilot (the design test checks the pin).
+REPLICATES: Mapping[str, int] = {
+    **{cell.label: 100 for cell in CELLS if cell.role != MUTATION},
+    "M1": MUTATION_REPLICATES,
+    "M2": MUTATION_REPLICATES,
+}
 REPORTED: frozenset[str] = frozenset()
 
 

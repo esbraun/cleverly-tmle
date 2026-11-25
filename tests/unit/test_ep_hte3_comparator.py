@@ -59,8 +59,7 @@ class TestThePendingState:
     @pytest.mark.skipif(MANIFEST.exists(), reason="the comparison has been run")
     def test_no_run_file_is_committed(self) -> None:
         present = [name for name in study.RUN_FILES if (study.ARTIFACTS / name).exists()]
-        assert present == [], "a run file is committed while REPLICATES is empty"
-        assert not study.REPLICATES and not study.REPORTED
+        assert present == [], "a run file is committed before the declared run"
 
     @pytest.mark.skipif(MANIFEST.exists(), reason="the comparison has been run")
     @pytest.mark.parametrize("parent", sorted(PAGES))
@@ -78,9 +77,14 @@ class TestThePendingState:
         for label in named:
             assert re.search(rf"\b{label}\b", body), f"{label} is not in the table"
 
-    @pytest.mark.skipif(bool(study.REPLICATES), reason="the comparison has been declared")
-    def test_the_driver_refuses_a_declared_run(self, tmp_path: Path) -> None:
-        with pytest.raises(SystemExit, match="pending its declaration"):
+    def test_the_driver_refuses_a_declared_run_outside_its_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Pending, it refuses for the missing declaration; declared, a thread variable that is
+        # not 1 is refused before anything runs.
+        monkeypatch.setenv("OMP_NUM_THREADS", "4")
+        match = "pending its declaration" if not study.REPLICATES else "OMP_NUM_THREADS is 4"
+        with pytest.raises(SystemExit, match=match):
             regenerate.main(["--output", str(tmp_path / "run")])
 
     @pytest.mark.parametrize("smoke", [0, study.MUTATION_REPLICATES + 1])
@@ -128,41 +132,43 @@ class TestTheImage:
 class TestTheReadings:
     def test_a_red_noninferiority_reading_is_published_false(self) -> None:
         rows = synthetic_rows("E1", d=math.log(1.6), hte3_ratio=0.0, t_gap=0.0)
-        reading = study.readings(rows).set_index("cell").loc["E1"]
+        reading = study.readings(rows, declared={}).set_index("cell").loc["E1"]
         assert reading["role"] == study.GATED
         assert not bool(reading["noninferior"])
         assert reading["d_upper"] > study.NONINFERIORITY_MARGIN
 
     def test_a_green_reading_is_published_true(self) -> None:
         rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)
-        reading = study.readings(rows).set_index("cell").loc["E1"]
+        reading = study.readings(rows, declared={}).set_index("cell").loc["E1"]
         assert bool(reading["noninferior"]) and bool(reading["similar"])
 
     def test_the_witness_fails_when_hte3_is_replaced_by_the_t_learner(self) -> None:
         rows = synthetic_rows("E8", d=0.0, hte3_ratio=0.0, t_gap=math.log(3.0))
-        reading = study.readings(rows).set_index("cell").loc["E8"]
+        reading = study.readings(rows, declared={}).set_index("cell").loc["E8"]
         assert bool(reading["witness"]), "the synthetic hte3 beats its T-learner"
         copied = rows.assign(log_ise_hte3=rows["log_ise_t"])
-        reading = study.readings(copied).set_index("cell").loc["E8"]
+        reading = study.readings(copied, declared={}).set_index("cell").loc["E8"]
         assert not bool(reading["witness"]), "a comparator that is its T-learner passes"
 
     def test_a_mutation_reads_failed_when_it_moves_the_curve(self) -> None:
         rows = synthetic_rows("M2", d=0.0, hte3_ratio=math.log(5.0), t_gap=0.0)
-        reading = study.readings(rows).set_index("cell").loc["M2"]
+        reading = study.readings(rows, declared={}).set_index("cell").loc["M2"]
         assert reading["role"] == study.MUTATION and bool(reading["mutation_failed"])
         unmoved = synthetic_rows("M2", d=0.0, hte3_ratio=0.0, t_gap=0.0)
-        reading = study.readings(unmoved).set_index("cell").loc["M2"]
+        reading = study.readings(unmoved, declared={}).set_index("cell").loc["M2"]
         assert not bool(reading["mutation_failed"])
 
     def test_an_emulation_exceedance_is_a_reading_not_a_refusal(self) -> None:
         rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)
         rows.loc[3, "emulation_log_ise_gap"] = 2 * study.EMULATION_LOG_ISE_GATE
-        reading = study.readings(rows).set_index("cell").loc["E1"]
+        reading = study.readings(rows, declared={}).set_index("cell").loc["E1"]
         assert not bool(reading["emulation_agrees"])
         assert bool(reading["noninferior"]), "the other readings are still published"
         rows.loc[3, "emulation_log_ise_gap"] = 0.0
         rows.loc[5, "emulation_rms_ratio"] = 2 * study.EMULATION_RMS_GATE
-        assert not bool(study.readings(rows).set_index("cell").loc["E1", "emulation_agrees"])
+        assert not bool(
+            study.readings(rows, declared={}).set_index("cell").loc["E1", "emulation_agrees"]
+        )
 
     def test_lost_replicates_are_counted_and_report_the_cell_above_five_percent(self) -> None:
         rows = synthetic_rows("E1", d=0.0, hte3_ratio=0.0, t_gap=0.0)  # 40 replicates
@@ -181,7 +187,7 @@ class TestTheReadings:
 
     def test_a_reported_cell_keeps_its_reading(self) -> None:
         rows = synthetic_rows("E7", d=math.log(1.6), hte3_ratio=0.0, t_gap=0.0)
-        reading = study.readings(rows, frozenset({"E7"})).set_index("cell").loc["E7"]
+        reading = study.readings(rows, frozenset({"E7"}), declared={}).set_index("cell").loc["E7"]
         assert reading["role"] == "reported" and not bool(reading["noninferior"])
 
 

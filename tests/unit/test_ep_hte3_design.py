@@ -372,7 +372,8 @@ class TestTheEmulation:
         eps = math.sqrt(np.finfo(float).eps)
         assert eps == emulation.BRENT_TOL
         t2 = 2.0 * (eps * 0.5 + emulation.BRENT_TOL / 3.0)
-        assert 4 * 2 * t2 * 0.99 <= study.CUTOFF_TOLERANCE
+        # Two runs in the same basin stop at most 4 t2 apart; the gate is twice that.
+        assert 2 * 4 * t2 <= study.CUTOFF_TOLERANCE
 
     def test_the_gates_stay_small_against_the_margins(self) -> None:
         smallest = min(study.NONINFERIORITY_MARGIN, study.SIMILARITY_MARGIN)
