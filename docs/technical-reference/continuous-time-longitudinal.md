@@ -169,6 +169,25 @@ jump, fewer than 30 units following the regime at every decision visit and at ri
 target time, and an estimated share past the cap above 0.05. The ratio, smooth contrasts and the
 band read experimental with reasons of their own.
 
+## Summary, plots and diagnostics
+
+`summary()` prints the question, the target times, the regimes, the method, each nuisance
+model's selection, each regime's visit cap $K^*_r$, the accepted update steps and the
+estimates; `summary(detail="full")` adds the assumptions and how the node walks ended. `plot()`
+draws each regime's risk curves with a panel of the risk differences against the reference.
+The diagnostics read `record` and refit nothing:
+
+| call | returns | reads |
+| --- | --- | --- |
+| `diagnostics.support()` | `ContinuousLongitudinalSupport` | the weight floor and the share of followers' cells it raised, with the severity tiers of the point support report; the shares of node rows whose death or visit jump was bounded; each regime's $K^*_r$, its share past the cap and its followers at the last target time |
+| `diagnostics.score_equations()` | `ContinuousLongitudinalScores` | each target's final $\lvert P_n D^* \rvert / \hat\sigma$ against $s_n$, each node's score and its accepted steps |
+| `diagnostics.nuisance_models()` | `ContinuousLongitudinalNuisances` | each hazard's, the visit intensity's, the censoring hazard's and the treatment model's candidates, losses and choice; a cross-fitted fit records the first fold's |
+| `diagnostics.influence()` | the influence report | the influence curves of the estimates |
+
+`validate()` runs the score, support and nuisance checks. The three report classes live in
+`cleverly.survival.longitudinal_diagnostics`, and `tests/unit/test_continuous_longitudinal.py`
+checks each against the record.
+
 ## What is refused
 
 | request | refusal |
@@ -181,9 +200,10 @@ band read experimental with reasons of their own.
 | no event of a cause by the first target time among the units following some regime at baseline | `DataError`, as the baseline engine |
 | a user learner for any nuisance with `cross_fit=False` | `MethodConfigurationError`: Lemma S8 of Rytgaard et al. (2022) needs nuisances of bounded variation, which a user learner fitted in sample does not guarantee |
 | a cap $K^*_r < 1$ while some unit visits before the last target time | `DataError` naming the regime, the fold and the count |
-| `validate()`, `assess()`, `refute()` | `CapabilityError`, implementation gap, roadmap [X105](../roadmap.md#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) part (d): no adapter replays a node pass |
-| `sensitivity` | `CapabilityError`, inference gap: an E-value reads one point exposure's risk ratio, and a sustained regime is not one |
-| `plot()`, `summary()`, `diagnostics` | `CapabilityError`, implementation gap, roadmap [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks) part (e): not built yet; `curve()`, `to_frame()` and `record` hold the same numbers |
+| `refute()` and the truncation curve (`continuous_truncation_curve()`) | `CapabilityError`, implementation gap, roadmap [X105](../roadmap.md#x105-negative-controls-generated-outcomes-and-resampling-for-continuous-time-fits) part (d): no adapter replays a node pass. `validate()` and `assess()` run, and their refutation and truncation-curve items name this refusal |
+| a sensitivity analysis, through `sensitivity` or `evalue()` | `CapabilityError`, inference gap: an E-value reads one point exposure's risk ratio, and a sustained regime is not one. The sensitivity rows of `assess()` name this refusal |
+| `score_equations(tolerance=...)` | `CapabilityError`, invalid declaration: the node walks stop at $s_n / N$, and the report gates on $s_n$ |
+| the overlap, weight, balance, calibration and repeat plots | `CapabilityError` or `ValueError` from the plot: the record keeps no per-row treatment probability, weight or repeat |
 
 The fit warns (`UserWarning`) when fewer than 30 units follow a regime at every decision visit
 and are at risk at the last target time, and when the estimated share past the cap exceeds
@@ -203,7 +223,11 @@ second visit node).
 | wrong intensities and continuation with the right mechanism: the walk reaches the truth | `test_walk_repairs_wrong_intensities` |
 | each score term, the guard, the order rule, the treatment factor at every visit, the censoring weight, the slot, the continuation at counterfactual visit times, the soft-outcome chain, the earlier treatment, the floor, the rule at decision visits, the non-followers and the slot-weight tilt each have a mutation that breaks the exact check, with a control where the term vanishes | `test_continuous_longitudinal_exact.py` |
 | the fit at $K^*_r = 1$ on PL2 equals $\psi^{(K^*)}$ and its Gateaux derivative | `test_target_past_the_cap` |
-| with no visit, the initial fits and influence curves equal the baseline engine's | `test_continuous_longitudinal.py::test_reduces_to_the_baseline_engine` |
+| with no visit, the initial fits and influence curves equal the baseline engine's, and under saturated learners the estimates, standard errors and influence curves agree to $10^{-10}$ | `test_continuous_longitudinal.py::test_reduces_to_the_baseline_engine`, `test_saturated_fits_reduce_to_the_baseline_engine` |
+| on law (M) of the discrete-time hazard LTMLE, shift-mapped into continuous time, both engines' estimates agree to $10^{-9}$ and their influence curves agree up to that engine's weight scaling | `test_x70_agreement_on_law_m` |
+| a binding weight floor moves only the rare cell's influence curves, by the closed form $A + B / \delta$ of the floored weight | `test_weight_floor` |
+| per-node cutoffs $s_n / N$ bound every target's total score by $s_n$, on PL2 and on a stub node problem with fixed linear scores | `test_node_cutoffs_bound_the_total`, `test_node_cutoffs_bound_the_total_on_a_stub` |
+| the share past the cap equals the g-formula of a second visit before the target time | `test_past_cap_share_is_the_g_formula` |
 | delayed entry in the hazard learners against a hand computation | `test_cox_entry.py` |
 
 A `nol` walk reaches the truth to about $10^{-9}$, not to the requested $10^{-10}$: the walk's
