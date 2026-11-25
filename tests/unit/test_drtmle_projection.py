@@ -886,7 +886,9 @@ class TestTheOpenedPaths:
         note = STATUS_RECORDS["reduced_regression_plugin"].bootstrap_note
         for estimate in result.estimates.values():
             assert estimate.inference == "reduced_regression_plugin"
-            assert estimate.support.label == "experimental"
+            # The withheld fit reports its point, which row T49.drtmle covers in sample.
+            assert estimate.support.label == "supported"
+            assert estimate.support.row == "T49.drtmle"
             assert estimate.bootstrap is not None
             assert f"range [{estimate.bootstrap.ci[0]:.5g}" in bootstrap_line(estimate)
             assert bootstrap_line(estimate).endswith(f"({note})")

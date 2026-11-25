@@ -8687,6 +8687,132 @@ STUDY_CELLS.update(
     }
 )
 
+#: ``projection-methods`` (P1 PR 3): the DR-TMLE projection and the per-arm outcome-adaptive
+#: C-TMLE projection on law P, in sample.  The groups and cell names are those of
+#: ``tests/studies/projection_methods.py``, which this module cannot import;
+#: ``tests/unit/test_projection_methods_design.py`` pins the two equal.
+_PM_SLUG = "projection-methods"
+IMPLEMENTATIONS["cleverly-projection-methods"] = (
+    "`cleverly` DR-TMLE projection on the difference scale, in sample, with guards Q and g, the "
+    "univariate reduction and cubic reduced regressions"
+)
+_PM_LAW = (
+    "law P (W1, W2 independent standard normal, P(A = 1) = expit(0.6 W1 + 0.3 W2) given W, "
+    "and E[Y] = expit(-0.2 + A (0.5 + 0.6 W1) - W1 + 2 W2) given A and W)"
+)
+_PM_WRONG_Q = "the wrong outcome regression (a logistic GLM on A and W1)"
+_PM_DRTMLE = "the DR-TMLE projection with guards Q and g and cubic reduced regressions"
+_PM_GROUPS = {
+    "dr_known_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the declared mechanism "
+        "(treatment_probabilities=), n = 4,000"
+    ),
+    "dr_both_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, the correct logistic outcome regression and the correct "
+        "logistic mechanism, n = 4,000"
+    ),
+    "dr_glm_4k": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the correct logistic mechanism, n = 4,000"
+    ),
+    "dr_slow": (
+        f"{_PM_LAW}, {_PM_DRTMLE}, {_PM_WRONG_Q} and the correct logistic mechanism plus the "
+        "constructed logit offset n^(-1/3) W2 (1 + W1)"
+    ),
+    "ctmle_points_4k": (
+        f"{_PM_LAW}, the per-arm outcome-adaptive C-TMLE projection with the correct logistic "
+        "outcome regression and a logistic per-arm design, n = 4,000"
+    ),
+}
+_PM_TERMS = {"intercept": "intercept", "W1": "W1 slope"}
+_PM_TARGET = "of the projection of the CATE on (1, W1)"
+_PM_BIAS_POSITIVE = "the 99% interval of the standardized bias inside +-0.25"
+_PM_PLUGIN = "the plug-in SE beside the spread, withheld by the fit's status"
+_PM_GROWTH = (
+    "the lower bound of the 99% interval of the signed growth of bias/SD from n = 4,000 to "
+    "n = 64,000 lies above zero"
+)
+
+STUDY_SCENARIOS[(_PM_SLUG, "dr_known_4k")] = _PM_GROUPS["dr_known_4k"]
+STUDY_ESTIMANDS[(_PM_SLUG, "cate_projection[(intercept)]")] = (
+    "the intercept of the least-squares projection of the CATE on (1, W1)"
+)
+STUDY_CELLS.update(
+    {
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_intercept__dr_known_intercept"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the influence-curve Wald interval of the intercept "
+            f"{_PM_TARGET}",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_W1__dr_known_slope"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the influence-curve Wald interval of the W1 slope "
+            f"{_PM_TARGET}",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_PM_SLUG, "interval_calibration", "dr_known_4k_intercept__shrunken_se_control"): (
+            f"{_PM_GROUPS['dr_known_4k']}: the reported SE of the intercept times 0.70",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            (_PM_SLUG, "bias", f"{group}_{term}"): (
+                f"{_PM_GROUPS[group]}: the point estimate of the {words} {_PM_TARGET}",
+                _PM_BIAS_POSITIVE,
+            )
+            for group in ("dr_known_4k", "dr_both_4k", "ctmle_points_4k")
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "bias", f"wrong_q_witness_4k_{term}"): (
+                f"{_PM_GROUPS['dr_known_4k']}: the plug-in of the wrong outcome regression, "
+                f"with no targeting, for the {words} {_PM_TARGET}",
+                "the 99% interval of the standardized bias must lie wholly outside +-0.25",
+            )
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "spread", f"{group}_{term}__plugin_reading"): (
+                f"{_PM_GROUPS[group]}: {_PM_PLUGIN}, for the {words} {_PM_TARGET}",
+                "none. The row is a reading and states no verdict",
+            )
+            for group in ("dr_both_4k", "ctmle_points_4k")
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "spread", f"dr_known_4k_{term}__d_star_reading"): (
+                f"{_PM_GROUPS['dr_known_4k']}: the SE read off the projection's own curve D* "
+                f"without the mechanism correction, beside the spread, for the {words} "
+                f"{_PM_TARGET}",
+                "none. The row is a reading and states no verdict",
+            )
+            for term, words in _PM_TERMS.items()
+        },
+        (_PM_SLUG, "one_wrong_inference", "dr_glm__intercept__conservative"): (
+            f"{_PM_GROUPS['dr_glm_4k']}: the plug-in Wald interval of the intercept "
+            f"{_PM_TARGET}, which the fit's status withholds",
+            _ONE_WRONG_RULES["conservative"],
+        ),
+        (_PM_SLUG, "one_wrong_inference", "dr_glm__W1__valid"): (
+            f"{_PM_GROUPS['dr_glm_4k']}: the plug-in Wald interval of the W1 slope "
+            f"{_PM_TARGET}, which the fit's status withholds",
+            _ONE_WRONG_RULES["valid"],
+        ),
+        **{
+            (_PM_SLUG, "one_wrong_inference", f"dr_slow_n{size}__{term}__first_order"): (
+                f"{_PM_GROUPS['dr_slow']}: the {words} {_PM_TARGET}, at n = {size:,}",
+                _ONE_WRONG_RULES["first_order"],
+            )
+            for size in (4_000, 16_000, 64_000)
+            for term, words in _PM_TERMS.items()
+        },
+        **{
+            (_PM_SLUG, "one_wrong_inference", f"dr_slow__{term}__growth"): (
+                f"{_PM_GROUPS['dr_slow']}: the {words} {_PM_TARGET}, across the ladder",
+                _PM_GROWTH,
+            )
+            for term, words in _PM_TERMS.items()
+        },
+    }
+)
+
 #: ``score-assessment-compositions`` (P1 PR 2): the paired score assessment of
 #: ``score-assessment`` in five compositions.  The groups and cell names are those of
 #: ``tests/studies/score_assessment_compositions.py``, which this module cannot import;

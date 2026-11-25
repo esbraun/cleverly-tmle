@@ -156,6 +156,7 @@ no longer imports. Remove the row when you regenerate the study.
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/conftest.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from `tests/studies/canonical_clustered_tmle.py`, which imports this module for its own fits. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_clustered_tmle.py` and `tests/studies/canonical_tmle.py` import this module for their own fits, and the study reaches them only through the constants of `tests/studies/clustered_crossfit_ltmle.py` and through `fitted_rows`, which runs the study's own sampler and fit. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/clustered_unequal_laws.py` | result-neutral: `tests/studies/few_cluster_floor.py` imports `ExactLongitudinalPropensity` from `tests/studies/clustered_few_cluster_tmle.py`, which imports this module, and that class reads `informative_propensity` from it. No fit of the study constructs `ExactLongitudinalPropensity` or its subclass `ParametricExactPropensity`; only `few-cluster-floor-tmle` does. No result of this study reads this module |
+| `projection-methods` | `tests/studies/point_study_helpers.py` | result-neutral: the study imports `tests/studies/drtmle_one_wrong.py` for law L's learners and quadrature (`OffsetLogistic`, `DeclaredOnly`, `CubicLeastSquares`, `CubicLogistic`, `newton_logistic`, `gauss_hermite`, `slow`, `g` and `G_BOUNDS`), and that module imports `primary_rows` and `initial_estimates` from this module for its own `cleverly_rows`. No fit of the study calls either function: the study writes its primary rows itself. The module list omitted it, so the manifest records no hash for it |
 
 ## Descriptive manifest text
 
@@ -779,3 +780,15 @@ Its edits are to the planned-fit counts (a `nominal` flag and the counted label)
 reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
 `85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
 control values, bit for bit.
+
+## Registration edits after the `projection-methods` run (P1)
+
+The second declared run ran at `d2e5a0e5` and was recorded at `32ac8489`. Registration then
+edited two modules its manifest records, and neither edit reaches a seed, a fit or a verdict:
+
+- `tests/studies/projection_methods.py`: the docstring now names the declared run and the
+  registration.
+- `src/cleverly/_support_rows.py` adds the `T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat`
+  rows. They set support labels, which the study's rows do not record.
+
+The seed-0 witness of the next section covers these edits too.

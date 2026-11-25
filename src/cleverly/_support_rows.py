@@ -3450,7 +3450,8 @@ def _projection_rows() -> tuple[SupportRow, ...]:
         "refuse. "
         "Missing treatment values in sample, strata=, repeats and the in-sample bootstrap "
         "have their own rows (study projection-compositions); the cross-fitted bootstrap "
-        "reads experimental. No comparator: no maintained package fits a projection TMLE of "
+        "reads experimental. DR-TMLE and the per-arm C-TMLE have rows of their own (study "
+        "projection-methods). No comparator: no maintained package fits a projection TMLE of "
         "the CATE on a declared basis.",
         "The projection of a controlled direct effect (ControlledDirectEffect with a "
         "ConditionalContrast contrast) carries the intermediate on the missing-data axis. "
@@ -3708,6 +3709,104 @@ def _projection_evidence_rows() -> tuple[SupportRow, ...]:
             )
         )
     return tuple(rows)
+
+
+def _projection_method_rows() -> tuple[SupportRow, ...]:
+    """The rows of ``projection-methods`` (P1 PR 3): the DR-TMLE and per-arm C-TMLE ``T49`` keys.
+
+    ``T49.drtmle.known`` is the in-sample DR-TMLE projection with ``guard=("Q", "g")`` and a
+    declared mechanism, whose interval the fit reports; ``T49.drtmle`` is the same fit with an
+    estimated mechanism, whose interval the fit withholds (``reduced_regression_plugin``), so it
+    licenses the point only; ``T49.ctmle_oat`` is the in-sample per-arm outcome-adaptive C-TMLE
+    projection, points only (``generated_design_plugin``).  The rows were added because every
+    declared verdict of the second declared run passed, with no failed fit: both
+    ``interval_calibration`` positives and the shrunken-SE control of ``dr_known_4k``, every
+    ``bias`` positive and the wrong-outcome witness, the one-wrong cells of ``dr_glm_4k`` and
+    the slow ladder, and the primary test.  The ``dr_glm_4k`` and ``dr_slow`` cells measure the
+    withheld plug-in interval and the bias under a slow mechanism, so they license no row.  The
+    numbers are the committed results (``tests/canonical/projection_methods``).
+    """
+    basis = (
+        "The basis, the law and n are not in the key, so another basis, law or n reads "
+        "supported and rests on the theory alone."
+    )
+    known_limits = [
+        "The study measures the pointwise Wald intervals of the coefficients of the projection "
+        "on Linear(['W1']) fitted by DRTMLE with guard=('Q', 'g'), the univariate reduction and "
+        "cubic reduced regressions, in sample, on a binary treatment whose probabilities are "
+        "declared (treatment_probabilities=), with complete binary outcomes and a wrong outcome "
+        "regression (a logistic GLM on the treatment and W1 that omits W2). The interval also "
+        "needs the reduced regressions to be consistent; cubic polynomials in the scalar index "
+        f"(the treatment probability or the outcome prediction) were used. {basis}",
+        "With the mechanism declared, the conditioning term of Benkeser et al. (2017) vanishes, "
+        "so the interval holds with a wrong outcome regression. With an estimated mechanism the "
+        "fit withholds its interval (reduced_regression_plugin), and row T49.drtmle covers the "
+        "point only. The study measured the withheld plug-in interval at a correct logistic "
+        "mechanism (cell dr_glm_4k: SE ratio 1.13 on the intercept, valid on the slope) and a "
+        "bias that grows with n under a mechanism error that breaks the level sets of the true "
+        "mechanism (ladder dr_slow at 4,000, 16,000 and 64,000 rows).",
+        "Every other DRTMLE composition of a projection reads experimental: another guard, "
+        "cross-fitting, repeats, the bootstrap, weights, clusters and a pair of a multi-arm "
+        "treatment. The log ratio, the bivariate reduction, strata=, missing outcomes or "
+        "treatments, an intermediate, targeting='one_step' and evaluation= refuse. No "
+        "comparator: R drtmle fits no projection.",
+    ]
+    estimated_limits = [
+        "The study measures the bias of the point estimate of the projection on "
+        "Linear(['W1']) fitted by DRTMLE with guard=('Q', 'g'), the univariate reduction and "
+        "cubic reduced regressions, in sample, with correctly specified logistic outcome and "
+        f"treatment models. {basis}",
+        "The interval is withheld (reduced_regression_plugin), so the row covers the point "
+        "only. Under a wrong outcome regression the point is consistent only when the "
+        "mechanism is; under a slow mechanism the study measured a bias that grows with n "
+        "(ladder dr_slow).",
+        known_limits[2],
+    ]
+    ctmle_limits = [
+        "The study measures the bias of the point estimate of the projection on "
+        "Linear(['W1']) fitted by the per-arm outcome-adaptive C-TMLE (strategy='oat', "
+        "oat_design='per_arm') in sample, with a correctly specified logistic outcome "
+        f"regression and a logistic per-arm design. {basis}",
+        "The interval is withheld (generated_design_plugin): condition (v) of Benkeser, Cai and "
+        "van der Laan (2020) fails for an estimated outcome regression, and the projection's "
+        "covariate reads phi(V), so the fluctuated regression is not a function of the outcome "
+        "prediction alone. A correct treatment model alone does not make the point consistent.",
+        "The log ratio and every other composition read experimental; strata=, missing "
+        "outcomes and missing treatments refuse. No comparator: no maintained package fits a "
+        "C-TMLE projection.",
+    ]
+    return (
+        point_row(
+            "T49.drtmle.known",
+            ["projection-methods"],
+            families=("P13",),
+            engine=("drtmle",),
+            qualifiers=("known_mechanism",),
+            cells=["dr_known_4k"],
+            # Roadmap: P1.
+            limits=known_limits,
+        ),
+        point_row(
+            "T49.drtmle",
+            ["projection-methods"],
+            families=("P13",),
+            engine=("drtmle",),
+            kinds=_POINT,
+            cells=["dr_both_4k"],
+            # Roadmap: P1.
+            limits=estimated_limits,
+        ),
+        point_row(
+            "T49.ctmle_oat",
+            ["projection-methods"],
+            families=("P13",),
+            engine=_ctmle("oat", "per_arm"),
+            kinds=_POINT,
+            cells=["ctmle_points_4k"],
+            # Roadmap: P1.
+            limits=ctmle_limits,
+        ),
+    )
 
 
 #: The band of a projection curve that ``projection-evidence`` measured: the shipped Rademacher
@@ -4076,6 +4175,7 @@ POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
         *_adaptive_iptw_rows(),
         *_with_projection_band((*_projection_rows(), *_projection_composition_rows())),
         *_projection_evidence_rows(),
+        *_projection_method_rows(),
         *_x76_stopping_point_rows(),
         *_x76_by_arm_rows(),
         *_x76_patience_rows(),

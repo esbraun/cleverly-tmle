@@ -1701,8 +1701,10 @@ compositions of each read experimental.
 
 `method="drtmle"` fits the difference-scale projection on complete, unstratified data. It keeps
 its interval with a declared treatment mechanism and reports points under
-`reduced_regression_plugin` with an estimated one. It reads experimental until a study measures
-it.
+`reduced_regression_plugin` with an estimated one. The per-arm outcome-adaptive C-TMLE fits it
+as points. The registered `projection-methods` study measured both in sample, and rows
+`T49.drtmle.known` (with its interval), `T49.drtmle` and `T49.ctmle_oat` (points) label those fits
+supported. Other compositions of either read experimental.
 
 What stays here is the compositions the shipped refusals name with this item: a continuous or
 vector treatment for `ConditionalContrast`; a conditional contrast from a method other than

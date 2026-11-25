@@ -482,6 +482,7 @@ row. A move to `gated` is a separate registry decision.
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 32 | 0 |
 | [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 89 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [Projection methods (DR-TMLE, per-arm C-TMLE)](projection-methods.md) | 22 | 0 |
 | [collaborative TMLE of a risk curve](survival-ctmle.md) | 14 | 0 |
 | [Stopping rules on point TMLE](option-stopping-point.md) | 32 | 0 |
 | [treatment-mechanism covariates on point TMLE](option-treatment-adjustment.md) | 12 | 0 |

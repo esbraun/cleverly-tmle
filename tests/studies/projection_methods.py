@@ -47,8 +47,9 @@ the rule after ``pilot_2``, each row is read at its pooled pilot ratio and ``R``
 multiple of 400 at which the product of the rows' pass probabilities reaches
 :data:`POINT_READING_TARGET`, under the two-sided precondition of
 :mod:`tests.studies.point_reading`.  The pilot (SE ratios 1.0005 on the
-intercept and 0.9795 on the slope) gives ``R`` = 5,600 by X32a.  The study is declared and not
-registered: its second run has not been made.
+intercept and 0.9795 on the slope) gives ``R`` = 5,600 by X32a.  The second declared run (at
+``d2e5a0e5``, artifacts ``32ac8489``) passed every gated cell and the primary test with no failed
+fit, and the study is registered.
 """
 
 from __future__ import annotations

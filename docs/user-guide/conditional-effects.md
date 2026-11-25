@@ -216,8 +216,13 @@ interval valid when one of the two models is wrong. It reports intervals only wh
 true treatment probabilities, as in a trial with `treatment_probabilities=`; those intervals stay
 valid when the outcome model is wrong, and they can be narrower than the default fit's. With
 estimated treatment probabilities it reports the estimates without intervals, because its error
-can then depend on the treatment model's error in a way no check on the data can rule out. The [reference page](../technical-reference/conditional-effects.md#the-dr-tmle-projection)
-gives the conditions and the cases it refuses.
+can then depend on the treatment model's error in a way no check on the data can rule out.
+
+In a simulation with known treatment probabilities and a wrong outcome model, its 95% intervals
+contained the true coefficients about 94% to 95% of the time
+([projection methods study](../technical-reference/method-evidence/projection-methods.md)). The
+[reference page](../technical-reference/conditional-effects.md#the-dr-tmle-projection) gives the
+conditions and the cases it refuses.
 
 ## Check a score fitted elsewhere
 

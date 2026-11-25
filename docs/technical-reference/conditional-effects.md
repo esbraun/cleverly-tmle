@@ -751,10 +751,20 @@ whose fluctuation along a covariate that vanishes at a correct mechanism moves t
 regression's limit by an amount that does not vanish with $n$. The efficient bound, which needs a
 correct outcome regression, is 0.0128 and 0.0136.
 
-No registered study has measured these SDs, so the figures are predictions and the composition
-reads `experimental`. The gap lies inside the study's calibration band, so the study cannot see
-whether the fit subtracts $D_A$; the exact-law curve test in `tests/unit/test_drtmle_projection.py`
-checks that term.
+The registered [projection-methods study](method-evidence/projection-methods.md) fitted the
+DR-TMLE projection with the mechanism declared on this law at $n = 4{,}000$. Over 5,600
+replications its estimates spread with SDs of 0.0153 and 0.0165, and the reported intervals are
+calibrated, with SE ratios of 0.9918 and 0.9729. Row `T49.drtmle.known` labels that in-sample
+composition `supported`. The study did not refit the TMLE projection, so the 7% and 4% gap stays a
+prediction. The gap in SE between the curve with and without $D_A$ lies inside the study's
+calibration band, so the study cannot see whether the fit subtracts $D_A$; the exact-law curve
+test in `tests/unit/test_drtmle_projection.py` checks that term.
+
+With an estimated mechanism the study measured the withheld interval and the point. At the
+correct logistic mechanism the plug-in interval is conservative on the intercept (SE ratio
+1.1277) and valid on the slope (0.9794). With both nuisances correct the point is unbiased, and
+row `T49.drtmle` labels the point `supported`. Under a mechanism error that breaks the level sets
+of $g_0$, the bias grows with $n$, to more than one SD on both coefficients at 64,000 rows.
 
 `tests/unit/test_reduced_projection.py` checks each weighted reduced regression against its
 closed form on exact laws, with ties in $g_0$ and in $\bar Q_0(1, \cdot)$ that catch a weight
@@ -777,8 +787,9 @@ outcome prediction, so their measurability step does not apply. The plug-in curv
 $M^{-1}[\varphi(\tau - \varphi^\top\beta) + \varphi \sum_a s(a) 1\{A = a\}(Y - \bar Q^*_a) / G_n(a)]$
 stays as a diagnostic. `tests/unit/test_ctmle_projection.py` checks the point at the oracle
 regression on both scales, the curve row by row on a law where the per-arm design differs from
-$g_0$, and that an arm-specific wrong regression moves the point. No study measures this
-composition, so it reads `experimental`.
+$g_0$, and that an arm-specific wrong regression moves the point. The projection-methods study
+measured the in-sample points with a correct outcome regression, at standardized biases of
+$-0.0123$ and $-0.0108$, and row `T49.ctmle_oat` labels them `supported`.
 
 ## Refusals
 
@@ -848,9 +859,11 @@ passed every one of its 64 property cells and its three primary tests, and the r
 [projection-compositions study](method-evidence/projection-compositions.md) passed every one of
 its 56 gated property cells and its two primary tests, and the registered
 [projection-evidence study](method-evidence/projection-evidence.md) passed every one of its 37
-gated property cells and its two primary tests. Their support rows `T49` (the CATE projection,
+gated property cells and its two primary tests, and the registered
+[projection-methods study](method-evidence/projection-methods.md), under the `reporting`
+policy, passed every one of its 21 gated property cells and its primary test. Their support rows `T49` (the CATE projection,
 family `P13`) and `T50` (the log-CRR projection, `P14`) label a fit `supported` when its key is
-one a study measured, with binary outcome and treatment, and, except on the `.pooled` rows, one
+one a study measured, with binary outcome and treatment, and, except on the `.pooled`, `.drtmle` and `.ctmle_oat` rows, one
 outcome regression per arm (`outcome_by_arm=True`):
 
 | row | composition | study |
@@ -868,6 +881,9 @@ outcome regression per arm (`outcome_by_arm=True`):
 | `T49.repeats`, `T50.repeats` | `repeats=3` with stacked cross-fitting | projection-compositions |
 | `T49.pooled`, `T50.pooled` | one pooled outcome regression, iid rows, complete outcomes, stacked cross-fitting | projection-evidence |
 | `T49.intermediate`, `T50.intermediate` | the controlled direct effect with Z held at 0 or 1, stacked cross-fitting | projection-evidence |
+| `T49.drtmle.known` | the DR-TMLE projection in sample with `guard=("Q", "g")` and `treatment_probabilities=`, with its interval | projection-methods |
+| `T49.drtmle` | the same fit with an estimated mechanism, the point only | projection-methods |
+| `T49.ctmle_oat` | the per-arm outcome-adaptive C-TMLE projection in sample, the point only | projection-methods |
 
 The simultaneous band has its own label: the Rademacher band with 1,000 draws reads `supported`
 on `T49`, `T50`, `T49.clustered` and `T49.repeats`, where `projection-evidence` measured its

@@ -3040,6 +3040,33 @@ def _projection_evidence_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _projection_method_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-methods`` (P1 PR 3): the DR-TMLE and per-arm C-TMLE ``T49`` rows.
+
+    Each runs the study's own in-sample fit of one group, on a draw of law P at the group's size,
+    up to the classifier: the DR-TMLE projection with the declared mechanism, with the correct
+    logistic mechanism, and the per-arm outcome-adaptive C-TMLE projection.
+    """
+    module, slug = "projection_methods", "projection-methods"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:529",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study.fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.drtmle.known", "dr_known_4k"),
+        case("T49.drtmle", "dr_both_4k"),
+        case("T49.ctmle_oat", "ctmle_points_4k"),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -3642,6 +3669,7 @@ CASES: tuple[RowCase, ...] = (
     *_projection_cases(),
     *_projection_composition_cases(),
     *_projection_evidence_cases(),
+    *_projection_method_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

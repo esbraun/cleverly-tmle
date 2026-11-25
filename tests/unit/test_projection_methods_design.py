@@ -92,12 +92,13 @@ def pooled_ratio() -> float:
 # ------------------------------------------------------------------------ seeds and record
 
 
-def test_the_study_is_declared_and_not_registered() -> None:
-    assert study.SLUG not in {record.slug for record in registered()}
+def test_the_study_is_registered_under_the_policy_its_runs_declared() -> None:
+    assert study.SLUG in {record.slug for record in registered()}
+    assert study.STUDY.publication_policy == "reporting"
 
 
 def test_the_seeds_are_unique_against_every_registered_study_and_pilot() -> None:
-    records = registered()
+    records = [r for r in registered() if r.slug != study.SLUG]
     taken = {r.seed for r in records} | {r.resampling_seed for r in records}
     pilots = set()
     for path in (ROOT / "tests").rglob("*.py"):
@@ -976,10 +977,12 @@ def test_the_study_hands_the_check_to_the_shared_driver() -> None:
 
 
 def test_the_study_page_quotes_the_first_run_and_the_probes() -> None:
-    """ "The re-declared cells" quotes the committed artifacts at the precision it prints.
+    """ "The re-declared cells" quotes the first run and the probes at the precision it prints.
 
-    The study is not registered, so :mod:`tests.studies.evidence.claims` does not resolve its
-    page yet; this test ties each printed figure to its row instead.
+    Those figures live in ``tests/studies/projection_methods_limit.csv``, not among the second
+    run's artifacts, so :mod:`tests.studies.evidence.claims` cannot resolve them; the page's
+    measured-values table quotes the second run through it.  This test ties each first-run and
+    probe figure to its row instead.
     """
     page = " ".join((ROOT / study.STUDY.document).read_text(encoding="utf-8").split())
     assert "## The re-declared cells" in page
