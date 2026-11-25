@@ -2,8 +2,8 @@
 
 Choose the object that names the scientific quantity, not the estimator you expect to use.
 
-Every fit on this page shares one parametric configuration, so the estimand is the only thing
-changing between them:
+Most fits on this page share one configuration, `quick`, so only the question changes between
+them:
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -139,7 +139,9 @@ choice.
 
 ## Known regimes
 
-Use `Static`, `Rule`, or `Stochastic` interventions with `RegimeMean` or `RegimeContrast`.
+Use `Static`, `Rule`, or `Stochastic` interventions with `RegimeMean`, which reports the mean
+outcome under each plan, or `RegimeContrast`, which reports each plan's difference from the
+reference plan.
 
 ```python
 import numpy as np
@@ -269,7 +271,7 @@ targeted = study.estimate(LearnedRuleValue(rule=by_w1), method=fold_evaluated, r
 The covariates must be ones the study adjusts for, and each continuous one needs a range that
 holds every value. `OptimalRuleValue` with this rule needs all of the adjustment covariates,
 because the best rule may use any of them. The curve also picks its own flexibility inside each
-fold, so a fit takes about 25 times as long as the default rule.
+fold, so a fit takes noticeably longer than one with the default rule.
 
 A [study](../technical-reference/method-evidence/learned-rule-ep.md) measured this rule with the
 default shapes on two simulated datasets. With 16,000 rows its 95% interval covered the target
@@ -302,10 +304,11 @@ fold alone and gives every fold equal weight, and the studies above measure that
 default `CrossFitting()` also runs: it scores all held-out rows together and weights each fold by
 its share of the rows (of the total weight, when you pass `weights=`). A
 [third study](../technical-reference/method-evidence/learned-rule-stacked.md) measures it with
-ten folds at n = 2,000, on rows, with known weights and with clusters. Over 8,800 samples of
-each setting its 95% interval covered the target 0.943 to 0.949 of the time. Prefer it when you
-pass `id=` and cluster sizes vary with the outcome: there the fold-evaluated estimate carries a
-small bias, about 0.11 standard errors in that study.
+ten folds at n = 2,000, on rows, with known weights and with clusters, and cleverly marks the
+default report `supported` in those settings. Over 8,800 samples of each setting its 95% interval
+covered the target 0.943 to 0.949 of the time. Prefer it when you pass `id=` and cluster sizes
+vary with the outcome: there the fold-evaluated estimate carries a small bias, about 0.11
+standard errors in that study.
 
 `CrossFitting(enabled=False)` runs too, and it answers a different question. It learns one rule
 from all the rows and reports the value of that one rule, scored on the same rows that chose it.
@@ -512,8 +515,8 @@ of where the doses stop. Declare the range with `treatment_support=` (below) whe
 as a dose that cannot fall below zero. A declaration always wins, so a dose with no limit can pass
 `Support(-np.inf, np.inf)` to turn the edge off.
 
-This route fits no density, and it accepts doses that a declared `dose_atoms=` marks as
-recorded on many rows, such as zero. The result's summary prints the route it used and why
+This route fits no density, and it accepts doses that `PointTreatment(dose_atoms=...)` declares
+as recorded on many rows, such as zero. The result's summary prints the route it used and why
 (`Policy ratio`). A learner that reads its input columns by position can set the class attribute
 `policy_steps = "omit"` to receive the plain design.
 
@@ -529,7 +532,9 @@ With `ratio="density"` the fit estimates the density on a grid of dose intervals
 intervals where the doses thin out, then draws a smooth curve through the interval probabilities,
 so even a small shift changes the ratio. The estimate is only as good as the treatment learner
 behind it, so pass a flexible one, such as gradient boosting. A simple parametric learner can fit
-the narrow outer intervals poorly.
+the narrow outer intervals poorly. Both `ratio=` and `density_bins=` are settings of `ModelSpec`,
+which `estimate` also takes as keywords, as in the example below
+([settings reference](settings.md)).
 
 Gradient boosting can also misfit a few rows in a thin tail. In
 the [design study](../technical-reference/method-evidence/mtp-density-tails.md#reported-readings),
@@ -577,7 +582,7 @@ of estimating that cap. It needs an outcome model that is accurate near the cap.
 population target over two decisions. A tuned cap at one decision rests on exact-law tests only
 (`tests/unit/test_point_tuned_caps.py`).
 
-Other maps of the dose use the same `policies=` axis. The table names each class.
+Other maps of the dose use the same `policies=` axis.
 
 | class | use it for |
 | --- | --- |
@@ -585,6 +590,7 @@ Other maps of the dose use the same `policies=` axis. The table names each class
 | `Piecewise(pieces)` | a `Shift` or a `Scale` on each interval of the dose |
 | `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
 | `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
+| `ModifiedPolicy(name, pieces={value: pieces}, randomizer=Randomizer(values, probabilities), policy_kind="known")` | a policy that picks one of several maps at random with known chances, such as raising the dose for a random quarter of customers |
 | `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt`. Fit it with `TMLE(policies=...)`. The typed study requests refuse it |
 | `JointPolicy(name, components={column: policy}, policy_kind="known")` | a vector treatment of several columns. It sets one policy for each component, as the [vector treatments](../technical-reference/point-treatment-tmle.md#vector-treatments) section states |
 
@@ -617,6 +623,35 @@ gives the details, and
 [limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
 lists what the studies do not cover. The [monthly prices](../examples/sequential-pricing.ipynb)
 example raises a price at each of three months.
+
+A randomized policy draws one of its maps for each row, with the chances you declare in
+`Randomizer`, and the fit averages over the draw. In the example, a random quarter of rows get 0.5
+more, held at their own dose where the raise would pass 4.0, as with the capped shifts above.
+`ModifiedTreatmentPolicy` reports the mean outcome under each policy, where
+`ModifiedTreatmentPolicyEffect` reports each policy's difference from the first one by default.
+`Shift(0.0, cap=None)` changes no dose, so its row is the mean under current practice, named
+`natural course`.
+
+```python
+from cleverly import ModifiedTreatmentPolicy
+from cleverly.interventions import ModifiedPolicy, Piece, Randomizer
+
+raise_some = ModifiedPolicy(
+    "raise a random quarter by 0.5",
+    pieces={
+        "raise": (
+            Piece(-float("inf"), 3.5, lambda a, h: a + 0.5, lambda b, h: b - 0.5, lambda b, h: 1.0),
+            Piece(3.5, float("inf")),
+        ),
+        "keep": (Piece(-float("inf"), float("inf")),),
+    },
+    randomizer=Randomizer(("raise", "keep"), (0.25, 0.75)),
+    policy_kind="known",
+)
+policy_means = dose_study.estimate(
+    ModifiedTreatmentPolicy((Shift(0.0, cap=None), raise_some)), method=quick, random_state=5
+)
+```
 
 ## Incremental propensity-score interventions
 
@@ -652,13 +687,37 @@ tilts = (Incremental(1.0), Incremental(2.0), Incremental(0.5))
 result = study.estimate(IncrementalEffect(tilts), method=quick, random_state=3)
 ```
 
+`IncrementalMean(tilts)` reports the mean outcome under each tilt rather than the differences.
+
+```python
+from cleverly import IncrementalMean
+
+odds_means = study.estimate(IncrementalMean(tilts), method=quick, random_state=3)
+```
+
 ## Marginal structural models
 
-`MSMProjection` defines a projection of counterfactual means onto a declared working model. A
-coefficient remains a projection parameter when the working model is misspecified. A written
-`design=` function needs `design_kind="known"`. A design that `MSM.linear` builds needs no
-declaration.
-[MSM projections](../technical-reference/msm-projections.md#variations) gives the refusals.
+`MSMProjection` summarizes the mean outcomes under the treatment options with a simple formula
+you choose, such as a straight line in the treatment (a marginal structural model, MSM).
+`MSM.linear()` builds that line and needs no declaration; a formula you write as a function needs
+`design_kind="known"`. The coefficients describe the formula's best fit to the true means, even
+when the true means do not follow it.
+[MSM projections](../technical-reference/msm-projections.md), section "Variations", gives the
+refusals.
+
+```python
+from cleverly import MSMProjection
+from cleverly.msm import MSM
+
+trend = study.estimate(MSMProjection(MSM.linear(modifiers=("W1",))), method=quick, random_state=3)
+dose_trend = dose_study.estimate(
+    MSMProjection(MSM.linear(doses=(1.0, 2.0, 3.0))), method=quick, random_state=5
+)
+```
+
+On the yes-or-no treatment, `msm[a]` is the line's effect at `W1` equal to 0, and `msm[a:W1]` is
+how the line's effect changes per unit of `W1`. On the dose, `msm[a]` is the slope of the best
+straight line through the mean outcome between doses 1 and 3.
 
 On a continuous dose, `MSMProjection` needs every outcome observed. `CausalStudy.identify`
 raises `CapabilityError` when an outcome is missing. The refused table of
@@ -743,9 +802,49 @@ those columns. [Conditional effects](conditional-effects.md) gives the workflow.
 
 ## Controlled direct effects
 
-`ControlledDirectEffect(intermediate=z)` compares treatment arms while setting the declared
-intermediate to `z`. Fits at two intermediate levels are two controlled direct effects, not an
-automatic direct / indirect decomposition.
+A controlled direct effect asks what the treatment does when a later yes-or-no variable is held
+at one value for everyone. The variable is one the treatment can change, such as whether a patient
+was readmitted. Declare it with `PointTreatment(intermediate="Z")` and ask for
+`ControlledDirectEffect(intermediate=z)`, with `z` equal to 0 or 1. Its `contrast=` takes `ATE()`
+(the default), `ATT()`, `ATC()`, `RiskRatio()`, `OddsRatio()`, or a `ConditionalContrast` from
+[effects that differ between people](conditional-effects.md).
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, ControlledDirectEffect, PointTreatment
+from cleverly.datasets import make_cde
+
+visits, _ = make_cde(n=1000, seed=2)
+cde_study = CausalStudy(
+    visits,
+    design=PointTreatment(
+        outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), intermediate="Z"
+    ),
+)
+held = {
+    z: cde_study.estimate(
+        ControlledDirectEffect(intermediate=z, contrast=ATE()),
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        intermediate_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        random_state=0,
+    )
+    for z in (0.0, 1.0)
+}
+```
+
+The example fits without cross-fitting because its outcome has no known range. With a known
+range, pass `Targeting(q_bounds=(lower, upper))` and keep the default cross-fitting.
+
+The two levels are two different effects, and together they do not split the total effect into a
+direct and an indirect part. Each needs no unmeasured common cause of the treatment and the
+outcome, given the covariates. It also needs none of the intermediate and the outcome once the
+treatment and the covariates are known. Every patient must have had a real chance of each
+treatment, and of the held value of the intermediate under either treatment.
+[Conditional effects](../technical-reference/conditional-effects.md), section "Controlled direct
+effects", states the conditions.
 
 See the [technical implementation matrix](../technical-reference/index.md) for assumptions and
 citations for every family.
