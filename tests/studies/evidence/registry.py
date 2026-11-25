@@ -814,6 +814,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.projection_evidence import STUDY as PROJECTION_EVIDENCE
+    from tests.studies.projection_methods import STUDY as PROJECTION_METHODS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_continuous_survival import (
         STUDY as REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
@@ -891,6 +892,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CONDITIONAL_PROJECTION,
         PROJECTION_COMPOSITIONS,
         PROJECTION_EVIDENCE,
+        PROJECTION_METHODS,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,

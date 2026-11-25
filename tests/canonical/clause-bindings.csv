@@ -1511,6 +1511,18 @@ projection-evidence,interval_calibration,se ratio below band,se_high
 projection-evidence,interval_calibration,se ratio in calibration band,affine
 projection-evidence,simultaneous_coverage,joint coverage below nominal,se_low
 projection-evidence,simultaneous_coverage,joint coverage in calibration band,se_low
+projection-methods,bias,bias discriminated,control_diffuse
+projection-methods,bias,bias equivalent,bias
+projection-methods,interval_calibration,coverage in calibration band,shift/0.7
+projection-methods,interval_calibration,se ratio below band,se_high
+projection-methods,interval_calibration,se ratio in calibration band,affine
+projection-methods,one_wrong_inference,bias beyond margin on the predicted side,bias
+projection-methods,one_wrong_inference,bias equivalent,bias
+projection-methods,one_wrong_inference,coverage floor,coverage/0.5
+projection-methods,one_wrong_inference,se ratio above calibration band,se/0.05
+projection-methods,one_wrong_inference,se ratio in union band,contract
+projection-methods,one_wrong_inference,se ratio sanity,se_high
+projection-methods,one_wrong_inference,standardized bias grows,pair_collapse
 refuter-calibration-band,refuter_power,detections at least 38 of 50,rejection/0.1
 refuter-calibration-band,refuter_size,rejections at most 20 of 200,se_low
 refuter-calibration-continuous-survival,refuter_power,detections at least 38 of 50,se_low

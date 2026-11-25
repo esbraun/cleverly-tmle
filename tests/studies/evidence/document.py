@@ -937,7 +937,13 @@ def measured(row: Any) -> str:
         )
     if family == "spread":
         # A diagnostic of a plug-in curve: the ratio of its standard error to the empirical
-        # spread, and the coverage of its interval.  No margin reads either one.
+        # spread, and the coverage of its interval.  No margin reads either one.  A reading
+        # published without a bootstrap interval (``projection-methods``) prints its point ratio.
+        if math.isnan(float(row.se_ratio_ci_lower)):
+            return (
+                f"SE ratio {render(float(row.se_ratio))}, "
+                f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+            )
         return (
             f"plug-in SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"

@@ -601,7 +601,6 @@ class TestTheRefuteRowResolvesEachRequest:
     def test_the_rule_table_is_ordered(self) -> None:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
-            "projection",
             "estimand",
             "structural_tests",
             "longitudinal_tests",

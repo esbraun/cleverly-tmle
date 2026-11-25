@@ -44,6 +44,8 @@ from .msm import ProjectionFit, check_projection_rank
 __all__ = [
     "CDE_CURVE_TOOLS_REFUSAL",
     "COMPOSITION_GAPS",
+    "CTMLE_CURVE_TOOLS_REFUSAL",
+    "DRTMLE_CURVE_TOOLS_REFUSAL",
     "EP_INTERMEDIATE_REFUSAL",
     "INTERMEDIATE_STRATA_REFUSAL",
     "SCALES",
@@ -227,6 +229,50 @@ def refuse_cde_curve_tools(data: Any) -> None:
     """
     if bool(getattr(data, "has_intermediate", False)):
         raise CapabilityError.from_refusal(CDE_CURVE_TOOLS_REFUSAL)
+
+
+#: Why the five held-out curve rows refuse a curve of a per-arm C-TMLE projection (P1 PR 3).
+CTMLE_CURVE_TOOLS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The held-out curve checks rebuild the TMLE pseudo-outcome from the fit's nuisances, and "
+    "a per-arm C-TMLE projection's estimate also reads the per-arm outcome-adaptive design, "
+    "which they would not reproduce.",
+    alternative="Read the projection's coefficients, or fit method='tmle' for these checks.",
+    roadmap="P1",
+)
+
+
+#: R-dr-tools of the P1 PR 3 plan: the five held-out curve rows refuse a curve of a DR-TMLE
+#: projection.
+DRTMLE_CURVE_TOOLS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "The held-out curve checks rebuild the TMLE pseudo-outcome from the fit's nuisances, and "
+    "a DRTMLE projection's estimate also solves the reduced-regression equations, which they "
+    "would not reproduce.",
+    alternative="Read the projection's coefficients, or fit method='tmle' for these checks.",
+    roadmap="P1",
+)
+
+
+def curve_tools_refusal(fitted_method: Any) -> Refusal | None:
+    """The refusal of the five held-out curve rows for the producing method, or ``None``.
+
+    Parameters
+    ----------
+    fitted_method : str or None
+        The method that produced the curve.
+
+    Returns
+    -------
+    Refusal or None
+        R-dr-tools for a DR-TMLE projection, the C-TMLE text for a per-arm C-TMLE one, and
+        ``None`` for every other method.
+    """
+    if fitted_method == "drtmle":
+        return DRTMLE_CURVE_TOOLS_REFUSAL
+    if fitted_method == "collaborative_tmle":
+        return CTMLE_CURVE_TOOLS_REFUSAL
+    return None
 
 
 def log_ratio_scale_refusal(
