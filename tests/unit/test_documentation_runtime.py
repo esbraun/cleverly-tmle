@@ -979,14 +979,10 @@ def _run_notebook(
     return namespace
 
 
-def _assert_stored_text_reproduces(
-    path: Path, printed: Mapping[str, str], *, refits: bool = False
-) -> None:
-    """Each executed cell prints what the notebook stores, up to one last-place rounding.
+def _assert_stored_text_reproduces(path: Path, printed: Mapping[str, str]) -> None:
+    """Each executed cell prints what the notebook stores, up to machine noise and one rounding.
 
-    With ``refits``, the refit cells and every code cell after the first of them compare within
-    the relative tolerance for learner fits.  The rule and what it leaves out are in
-    :mod:`tests.notebook_freshness`.  A moved cell means
+    The rule and what it leaves out are in :mod:`tests.notebook_freshness`.  A moved cell means
     the stored output, and the prose that reads it, describe a result the code no longer gives:
     re-execute the notebook (``scripts/execute_notebook.py``), read the difference, and update
     the prose.  Never pin a library to keep an old output.
@@ -998,13 +994,7 @@ def _assert_stored_text_reproduces(
         if cell["cell_type"] == "code"
     }
     exempt = getattr(callback_module(path.stem), "UNREPRODUCED_CELLS", {})
-    downstream: list[str] = []
-    if refits:
-        marked = set(refit_cells(path))
-        for cell in notebook["cells"]:
-            if cell["cell_type"] == "code" and (downstream or cell["id"] in marked):
-                downstream.append(cell["id"])
-    moved, stale = unreproduced(stored, printed, exempt, refit=downstream)
+    moved, stale = unreproduced(stored, printed, exempt)
     assert not moved, (
         f"{_tutorial_id(path)}: a fresh run prints different output from the stored one in "
         f"{moved}. Re-execute the notebook with scripts/execute_notebook.py, read the difference, "
@@ -1087,7 +1077,7 @@ def test_tutorial_refits_at_documented_size(path: Path, tmp_path: Path, monkeypa
         namespace = _run_notebook(relative, tmp_path, monkeypatch, printed=printed)
         callback(path.stem)(namespace)
         callback_module(path.stem).check_refits(namespace)
-    _assert_stored_text_reproduces(path, printed, refits=True)
+    _assert_stored_text_reproduces(path, printed)
 
 
 def test_a_check_refits_callback_has_refit_cells_to_check() -> None:

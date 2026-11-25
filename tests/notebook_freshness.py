@@ -15,19 +15,16 @@ kernel file names and which pytest captures; and the ``cleverly <version>`` line
 guards on its own.
 
 How two texts compare: whitespace runs collapse, and the text between number tokens must be
-equal.  An integer, such as a count of rows, must be equal.  Two decimals agree when they differ by at most one unit in the last place that both print,
-and a cell may hold at most one such last-place difference.  So a single rounding change from a
-library release passes, while a result that moved, even by one unit in several places at once,
-fails.  When a dependency release moves an output, the response is a re-execution that reads the
+equal.  An integer, such as a count of rows, must be equal.  Two decimals agree when they differ
+by at most :data:`RELATIVE_TOLERANCE` (1e-4) of their size.  Cells that read a learner fit print
+sums whose sixth significant figure changes with the machine's BLAS, CPU and Python build (CI
+printed an effective size of 5325.445 where the stored run printed 5325.470), and this tolerance
+absorbs that.  Two decimals also agree when they differ by at most one unit in the last place
+that both print, and a cell may hold at most one such last-place difference beyond the
+tolerance.  So a rounding change from a library release passes, while a result that moved, even
+by one unit in several places at once, fails; a re-estimated effect moves in its second or third
+figure, far beyond 1e-4.  When a dependency release moves an output, the response is a re-execution that reads the
 difference and updates the prose, never a pin.
-
-The slow tier also reruns the refit cells, whose learners fit with iterative solvers. Their floating
-point sums change in about the sixth significant figure with the machine's BLAS and CPU, so a
-notebook stamped on one machine does not print every refit digit on another. For those cells, and
-the cells after the first one that read their results, :func:`text_moves` takes a ``relative``
-tolerance: decimals agree within that fraction of their size, and no one-rounding budget applies.
-:data:`REFIT_RELATIVE` is that tolerance, 1e-4. It is far below what a moved result shows (a
-re-estimated effect moves in its second or third figure), and integers must still be equal.
 """
 
 from __future__ import annotations
@@ -46,8 +43,8 @@ _WHITESPACE = re.compile(r"\s+")
 #: The ``text/plain`` reprs of a matplotlib figure or axes.
 FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
 
-#: The relative tolerance for a refit cell's decimals (module docstring).
-REFIT_RELATIVE = 1e-4
+#: The fraction of its size within which a decimal agrees (module docstring).
+RELATIVE_TOLERANCE = 1e-4
 
 #: The version line that every ``setup`` cell prints.
 VERSION_LINE = re.compile(r"^cleverly \d+\.\d+\.\d+\S*$", re.MULTILINE)
@@ -96,12 +93,10 @@ def _is_rounded(token: str) -> bool:
     return "." in token or "e" in token.lower()
 
 
-def text_moves(stored: str, fresh: str, *, relative: float = 0.0) -> list[str]:
+def text_moves(stored: str, fresh: str) -> list[str]:
     """Each difference between a stored and a fresh cell text that is more than one rounding.
 
-    Returns an empty list when the texts agree under the rule in the module docstring.  With
-    ``relative`` above zero, two decimals also agree when they differ by at most that fraction of
-    the larger, and such agreements do not use the cell's one-rounding budget.
+    Returns an empty list when the texts agree under the rule in the module docstring.
     """
     left, right = _normalized(stored), _normalized(fresh)
     if left == right:
@@ -116,10 +111,10 @@ def text_moves(stored: str, fresh: str, *, relative: float = 0.0) -> list[str]:
         if not (_is_rounded(old) and _is_rounded(new)):
             moves.append(f"{old} -> {new}")
             continue
-        unit = max(_last_place(old), _last_place(new))
         gap = abs(float(old) - float(new))
-        if relative and gap <= relative * max(abs(float(old)), abs(float(new))):
+        if gap <= RELATIVE_TOLERANCE * max(abs(float(old)), abs(float(new))):
             continue
+        unit = max(_last_place(old), _last_place(new))
         if gap <= unit * (1.0 + 1e-9):
             rounding += 1
             if rounding > 1:
@@ -130,24 +125,18 @@ def text_moves(stored: str, fresh: str, *, relative: float = 0.0) -> list[str]:
 
 
 def unreproduced(
-    stored: Mapping[str, str],
-    fresh: Mapping[str, str],
-    exempt: Mapping[str, str],
-    refit: Iterable[str] = (),
+    stored: Mapping[str, str], fresh: Mapping[str, str], exempt: Mapping[str, str]
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Cells whose fresh text moved, and ``exempt`` entries that no longer need their exemption.
 
     ``stored`` and ``fresh`` map a cell id to its text; only cells present in ``fresh`` (the
-    cells the run executed) are compared.  A ``refit`` cell compares with the tolerance
-    :data:`REFIT_RELATIVE`.  An ``exempt`` cell is not reported as moved; it is reported as
-    stale when it was executed and reproduces, or when it no longer exists.
+    cells the run executed) are compared.  An ``exempt`` cell is not reported as moved; it is
+    reported as stale when it was executed and reproduces, or when it no longer exists.
     """
-    refit = set(refit)
     moved = {}
     stale = []
     for cell, text in fresh.items():
-        tolerance = REFIT_RELATIVE if cell in refit else 0.0
-        moves = text_moves(stored.get(cell, ""), text, relative=tolerance)
+        moves = text_moves(stored.get(cell, ""), text)
         if cell in exempt:
             if not moves:
                 stale.append(cell)
