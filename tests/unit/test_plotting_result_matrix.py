@@ -636,7 +636,7 @@ EXPECTED: dict[str, dict[str, str]] = {
         "influence": "draws",
         "overlap": "draws",
         "weights": "draws",
-        "balance": "X103",
+        "balance": "draws",
         "learners": "ValueError: no nuisance model here was",
         "calibration": "draws",
         "repeats": "ValueError: this fit has one cross-fitting",
