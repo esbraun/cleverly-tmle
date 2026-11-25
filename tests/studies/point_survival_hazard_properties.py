@@ -127,6 +127,10 @@ class AdditiveLogistic(BaseEstimator, ClassifierMixin):
     saturated, and its initial score is not zero: targeting moves every fit.
     """
 
+    #: A logistic model with one indicator per level is finite-dimensional and selects nothing, so
+    #: :func:`cleverly._support.learner_family` reads it as parametric.
+    cleverly_learner_family = "parametric"
+
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> AdditiveLogistic:
         self.model_ = make_pipeline(
             OneHotEncoder(drop="first", handle_unknown="ignore", sparse_output=False),

@@ -166,7 +166,8 @@ lost-replicate worst case.
 The fold-evaluated fit adds a
 reported `t_j_minus_2_reference` arm, which keeps $J-2$ on the same fits. Every learner is
 parametric. Wang, Park, Small and Li (2024), Remark 3, caution against complex learners at about
-20 clusters.
+20 clusters. [`few-cluster-adaptive-learners`](few-cluster-adaptive-learners.md) measures stacked
+`TMLE` with the default learner library at 10, 20 and 40 clusters.
 
 ## Changes since the first run
 

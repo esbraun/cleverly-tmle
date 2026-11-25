@@ -1039,8 +1039,22 @@ def test_the_support_reads_the_measured_configuration_and_times() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         refit = in_sample.fit(frame, time="time", event="event", treatment="Z", baseline=["X3"])
-    assert all(estimate.support.label == "experimental" for estimate in refit.values())
-    assert all("in-sample" in estimate.support.reason for estimate in refit.values())
+    # The variance study's in-sample cell measures this configuration at n = 1,000 (Eric,
+    # 2026-11-25): risks and differences read supported and name that study alone.
+    for name, estimate in refit.items():
+        if name.startswith("rr_regimen"):
+            assert estimate.support.label == "experimental", name
+        else:
+            assert estimate.support.label == "supported", name
+            assert estimate.support.evidence == ("continuous-survival-variance",), name
+    smaller = ContinuousSurvivalTMLE([middle], cross_fit=False, random_state=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        half = smaller.fit(
+            frame.iloc[:999], time="time", event="event", treatment="Z", baseline=["X3"]
+        )
+    assert all(estimate.support.label == "experimental" for estimate in half.values())
+    assert all("in-sample and has 999 units" in e.support.reason for e in half.values())
     changed = ContinuousSurvivalTMLE([middle], step_size=0.05, random_state=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
