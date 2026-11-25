@@ -68,6 +68,7 @@ the refit test. That test checks every notebook at once, so run it by name.
 | `test_every_narrated_decimal_reads_an_output_in_its_own_section` | a decimal that no code cell of the reading's own section prints, or a stale `NARRATION_SOURCES` entry (below). This test also reads the TWINS notebook |
 | `test_every_static_only_notebook_calls_the_current_api` | TWINS only: a `cleverly` call whose arguments the current signature refuses |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
+| `test_every_notebook_passes_the_gated_reader_measures` | a gated measure of the [reader review](writing-for-readers.md#the-reader-review) that fails, such as more main-path words than the page's budget, or a page without exactly one level-two "Go deeper" heading after its `interpret` cell |
 
 The fast tier compares what each executed cell prints, and the plain text of each value it
 displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
@@ -117,6 +118,8 @@ example is the failure mode that the [examples index](../examples/index.md) name
 such as "what happens when a model is wrong". Put it after the estimate and give it its own
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.
+
+The main path, everything before "Go deeper", has a word budget that the fast tier gates (the [reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed instead of given a larger one.
 
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
