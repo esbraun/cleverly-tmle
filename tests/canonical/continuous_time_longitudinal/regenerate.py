@@ -1,4 +1,4 @@
-"""Regenerate the continuous-time-longitudinal evidence (X6 part (e), E2) under the declared run form.
+r"""Regenerate the continuous-time-longitudinal evidence (X6 part (e), E2) under the declared run form.
 
 A declared run passes ``--output`` (an empty scratch directory outside the repository) and
 optionally ``--jobs`` and ``--fresh``, and nothing else (:mod:`tests.canonical.declared_run`,
@@ -15,7 +15,8 @@ witness, and 400 draws of each of ``day_cf``, ``cont_cf``, ``mechanism_correct``
 ``outcome_correct``.  This script refuses a declared run until that file is committed and agrees
 with the declaration (:func:`pilot_refusals`):
 
-* the law module's truths equal the pilot's truth rows, and the feasibility readings lie inside
+* the law module's truths equal the pilot's truth rows (the full risks :math:`\psi_r`, the capped
+  risks :math:`\psi^{(K)}` and the panel's risks), and the feasibility readings lie inside
   the plan's bounds (at least 30 expected events of each cause by day 10 among each regime's
   baseline followers, a 99th weight percentile at most 20);
 * the plug-in limit separates: some day-30 risk of always or never sits at least 0.5 true-weight
@@ -26,10 +27,16 @@ with the declaration (:func:`pilot_refusals`):
   coverage is below 0.925 move to reported before the declaration, which is a change to the
   record, not to this script;
 * each calibration row's plug-in pass at the primary count is at least 0.90, or its cell holds
-  the 800-draw extension and the row is named in a committed ``pilot-diagnosis.md``;
+  the 800-draw extension; after the extension a row still below 0.90 needs a diagnosis named in a
+  committed ``pilot-diagnosis.md`` only when it departs beyond chance (its 99% SE-ratio interval
+  excludes 1 or its coverage interval excludes 0.95, ``pilot.calibration_departure``), and is
+  otherwise recorded there as a chance reading (review S4: a calibrated row extends with
+  probability about 0.69);
 * the at-target pass of the calibration pair at the primary count is at least 0.95, the
-  plug-in control fires with probability at least 0.80 at ``mechanism_correct``'s count, and each
-  shrunk-SE control leaves the band with probability at least 0.999;
+  plug-in control fires with probability at least 0.80 at ``mechanism_correct``'s count, and a
+  shrunk-SE control leaves the band with probability at least 0.999 at a true SE ratio of 1
+  (plan 5's preface; 0.99996 at 2,400).  The same power at the pilot's point ratio is a report in
+  ``pilot-diagnosis.md``, never a refusal (review B1);
 * no gated cell's pilot predicts, with posterior predictive probability above 0.10 (Jeffreys
   prior), that the declared run loses more fits than the failure bound of 0.01 allows;
 * the pilot's seconds per fit project the declared run at no more than 200 CPU-h (plan 5.7's
@@ -44,7 +51,9 @@ run inside ``day_cf``'s replicates, each on its own stream and at its own count.
 Deviation (declared before any run).  The pairing reads the first 400 ``day_cf`` draws on a
 9-node panel whose nodes end at days 3, 6, 10, 13, 16, 20, 23, 26 and 30, in place of the plan's
 1,000 draws on a 30-node daily panel, which E1's smoke found infeasible
-(:mod:`tests.studies.continuous_time_longitudinal` states why).
+(:mod:`tests.studies.continuous_time_longitudinal` states why).  The target days agree, but the
+estimands differ by the coarsening: X70 is read against the panel's risk (``law.PANEL_TRUTHS``)
+and the continuous engine against :math:`\psi_r`.
 
 Budget.  ``pilot-diagnosis.md`` holds the smoke's measured seconds per fit and peak memory, the
 budget table and the ``--jobs`` rule.
@@ -75,15 +84,30 @@ row pass.
   runs paired arms on fresh seeds and reruns at most the affected cell, only for a code defect.
 * A red rule row keeps only rules experimental (plan 8.10).  Static regimes are labelled from
   their own rows, so a red rule row holds back no static label.
-* A plug-in control that does not fire, or a shrunk-SE control that stays in the band, is an
-  instrument failure: the run is void and goes back to the plan.
+* The visit cap (review S1).  The gates read the full risk :math:`\psi_r`, and the fit targets
+  :math:`\psi^{(K^*_r)}`.  A red bias at a day-30 row of never, or at a difference against never,
+  is first read against the capped truth at the fit's :math:`K^*_r` (``visit-cap.csv``): a row
+  green against it is a cap red, which the share condition of plan 3.5.9 governs, not an engine
+  defect suspect.
+* A plug-in control that does not fire is an instrument failure: the run is void and goes back
+  to the plan.  A shrunk-SE control leaves the band when its SE-ratio interval lies below 0.93.
+  When its calibration row reads conservative (that row's SE-ratio interval lies above 1, the
+  direction the bullet above expects), the control is read against the row instead: it passes
+  when its interval lies wholly below the row's own interval, and a conservative row never voids
+  the run through its control (review B1).  A shrunk-SE control that fails its reading is an
+  instrument failure.
 * ``outcome_correct``, ``sparse_calibration`` and ``both_wrong`` are reported and start no
-  diagnosis.  ``ltmle_daily`` gates nothing either; a mean paired difference above 0.5 of the
+  diagnosis.  ``ltmle_daily`` gates nothing either.  A mean paired difference that departs
+  from its expected value, the panel's risk minus :math:`\psi_r`, by more than 0.5 of the
   continuous engine's SE (``diagnose`` in ``ltmle-pairing.csv``) starts a diagnosis of both
-  engines on the same draws.
+  engines on the same draws, so the coarsening does not spend the trigger (review S5).
 * A replication that raises is never redrawn.  A ``DataError`` is a recordable fit failure
   bounded by 0.01 per cell; a ``day_cf`` replicate that raised also costs each secondary cell
-  below its count one fit (``account_failures``).
+  below its count one fit (``account_failures``).  A secondary fit records only an error
+  ``recordable`` judges a fit failure, with its class in ``<cell>_error``; any other error stops
+  the run (review S6).
+* Part (e)'s support constants are read after the run from ``floors.csv``
+  (``readings.floor_values``, plan 3.5.9) and set no verdict.
 """
 
 import sys
@@ -99,8 +123,12 @@ from tests.studies import (
 
 #: The plan's hold: a projection above this stops the run before it starts (plan 5.7).
 HOLD_CPU_HOURS = 200.0
-#: The smallest power of the plug-in control and of the shrunk-SE controls.
+#: The smallest power of the plug-in control at the pilot's plug-in biases.  The plan's 0.999 is
+#: what the separation of 0.5 IPW SDs gives, and the separation is checked on its own above; this
+#: floor reads the pilot's noisy point biases and refuses only a control the pilot shows to be
+#: weak, as a point-estimate floor at 0.999 would refuse by chance (review m6, B1).
 CONTROL_POWER = 0.80
+#: The smallest power of each shrunk-SE control, at a true SE ratio of 1 (plan 5's preface).
 SHRUNK_POWER = 0.999
 
 
@@ -118,6 +146,16 @@ def pilot_refusals() -> list[str]:
         out.append("the pilot holds no truth rows; run --kinds truth")
     elif truths != laws.TRUTH_RISKS:
         out.append("the law module's TRUTH_RISKS differ from the pilot's truth rows")
+    capped = pilot.capped_table(rows)
+    if not capped:
+        out.append("the pilot holds no capped truths; run --kinds truth_capped")
+    elif capped != laws.CAPPED_RISKS:
+        out.append("the law module's CAPPED_RISKS differ from the pilot's capped rows")
+    panel = pilot.panel_table(rows)
+    if not panel:
+        out.append("the pilot holds no panel truths; run --kinds truth_panel")
+    elif panel != laws.PANEL_RISKS:
+        out.append("the law module's PANEL_RISKS differ from the pilot's panel rows")
     out.extend(pilot.feasibility_refusals(rows))
     separated = pilot.separated(rows)
     if separated is None:
@@ -157,10 +195,16 @@ def pilot_refusals() -> list[str]:
                 f"{cell}'s calibration row passes with plug-in probability {passed:.3f}; extend "
                 f"its pilot to {pilot.EXTENSION_DRAWS} draws"
             )
-        elif f"{cell}/{study.CALIBRATION_ROW}" not in diagnosed:
+        elif (
+            pilot.calibration_departure(rows, cell)
+            and f"{cell}/{study.CALIBRATION_ROW}" not in diagnosed
+        ):
+            # Only a confirmed departure needs a diagnosis; a row below 0.90 whose SE-ratio
+            # interval holds 1 and whose coverage interval holds 0.95 is a chance reading,
+            # recorded in the diagnosis note (review S4).
             out.append(
-                f"{cell}/{study.CALIBRATION_ROW} stays below 0.90 on the extended pilot; commit "
-                f"its diagnosis in {pilot.DIAGNOSIS.name}"
+                f"{cell}/{study.CALIBRATION_ROW} departs from calibration on the extended "
+                f"pilot; commit its diagnosis in {pilot.DIAGNOSIS.name}"
             )
     if pilot.at_target_pass(primary) < 0.95:
         out.append(
@@ -169,9 +213,10 @@ def pilot_refusals() -> list[str]:
     power = pilot.control_power(rows, mechanism)
     if power < CONTROL_POWER:
         out.append(f"the plug-in control fires with probability {power:.3f}; back to the plan")
-    for cell, probability in pilot.shrunken_power(rows, primary).items():
-        if probability < SHRUNK_POWER:
-            out.append(f"{cell}'s shrunk-SE control leaves the band with {probability:.4f}")
+    if pilot.shrunken_power(primary) < SHRUNK_POWER:
+        out.append(
+            f"a shrunk-SE control leaves the band at target with {pilot.shrunken_power(primary):.4f}"
+        )
     out.extend(pilot.failure_refusals(rows, primary, mechanism))
     projected = sum(pilot.budget(rows, primary, mechanism).values())
     if projected > HOLD_CPU_HOURS:

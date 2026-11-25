@@ -369,53 +369,93 @@ SAMPLERS: dict[str, Callable[..., pd.DataFrame]] = {"ct": sample_ct, "ct_day": s
 # ------------------------------------------------------------------------ the truths
 
 
+def _decide(
+    regime: str,
+    state: _State,
+    visits: np.ndarray,
+    rng: np.random.Generator,
+    c: Coefficients,
+    cap: int | None,
+) -> np.ndarray:
+    """The treatment after a visit: the regime's through visit ``cap``, the law's after it.
+
+    ``visits`` counts each unit's visits after baseline, this one included.  With no cap no
+    draw is made, so the full regime's stream, and :data:`TRUTH_RISKS`, are those of the
+    simulator before caps existed.
+    """
+    level = regime_level(regime, state.l)
+    if cap is None:
+        return level
+    natural = (rng.random(visits.size) < c.p_a(state.l, state.a, state.w2)).astype(float)
+    return np.where(visits <= cap, level, natural)
+
+
 def _regime_events_ct(
-    n: int, rng: np.random.Generator, regime: str, c: Coefficients
+    n: int, rng: np.random.Generator, regime: str, c: Coefficients, cap: int | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Event time and cause per unit under ``regime`` in law CT, censoring removed."""
+    r"""Event time and cause per unit under ``regime`` in law CT, censoring removed.
+
+    With ``cap`` the regime acts at baseline and the first ``cap`` visits, and treatment
+    follows the law after them (:math:`\psi^{(K)}`, plan 3.5.3).
+    """
     state = _baseline(n, rng, c)
     state.a = regime_level(regime, state.l)
     time = np.full(n, np.inf)
     cause = np.zeros(n, dtype=int)
     rows = np.arange(n)
+    visits = np.zeros(n, dtype=int)
     t = np.zeros(n)
     while rows.size:
         r1, r2, rv, _ = c.rates(state)
         total = r1 + r2 + rv
         t = t + rng.exponential(1.0 / total)
         live = t < END
-        rows, t, state = rows[live], t[live], state.take(live)
+        rows, t, state, visits = rows[live], t[live], state.take(live), visits[live]
         r1, r2, total = r1[live], r2[live], total[live]
         u = rng.random(rows.size) * total
         dead = u < r1 + r2
         time[rows[dead]] = t[dead]
         cause[rows[dead]] = np.where(u[dead] < r1[dead], 1, 2)
-        rows, t, state = rows[~dead], t[~dead], state.take(~dead)
+        rows, t, state, visits = rows[~dead], t[~dead], state.take(~dead), visits[~dead] + 1
         state.l = (rng.random(rows.size) < c.p_l(state.l, state.a, state.w1)).astype(float)
-        state.a = regime_level(regime, state.l)
+        state.a = _decide(regime, state, visits, rng, c, cap)
     return time, cause
 
 
 def _regime_events_day(
-    n: int, rng: np.random.Generator, regime: str, c: Coefficients
+    n: int,
+    rng: np.random.Generator,
+    regime: str,
+    c: Coefficients,
+    cap: int | None = None,
+    resets: tuple[int, ...] = (),
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Event day and cause per unit under ``regime`` in law CT-day, censoring removed."""
+    """Event day and cause per unit under ``regime`` in law CT-day, censoring removed.
+
+    With ``cap`` as in :func:`_regime_events_ct`.  With ``resets`` (and ``cap=0``) treatment
+    follows the law at every visit and the regime is set at baseline and after each listed day's
+    visit: the risk that a panel whose nodes start on those days identifies (:func:`panel_risks`).
+    """
     state = _baseline(n, rng, c)
     state.a = regime_level(regime, state.l)
     time = np.full(n, np.inf)
     cause = np.zeros(n, dtype=int)
     rows = np.arange(n)
+    visits = np.zeros(n, dtype=int)
     for day in range(1, int(END) + 1):
         r1, r2, rv, _ = c.rates(state)
         dead = rng.random(rows.size) < 1.0 - np.exp(-(r1 + r2))
         which = np.where(rng.random(rows.size) * (r1 + r2) < r1, 1, 2)
         time[rows[dead]] = day
         cause[rows[dead]] = which[dead]
-        rows, state, rv = rows[~dead], state.take(~dead), rv[~dead]
+        rows, state, rv, visits = rows[~dead], state.take(~dead), rv[~dead], visits[~dead]
         visit = rng.random(rows.size) < 1.0 - np.exp(-rv)
+        visits = visits + visit
         l_new = (rng.random(rows.size) < c.p_l(state.l, state.a, state.w1)).astype(float)
         state.l = np.where(visit, l_new, state.l)
-        state.a = np.where(visit, regime_level(regime, state.l), state.a)
+        state.a = np.where(visit, _decide(regime, state, visits, rng, c, cap), state.a)
+        if day in resets:
+            state.a = regime_level(regime, state.l)
     return time, cause
 
 
@@ -429,12 +469,21 @@ def monte_carlo_risks(
     *,
     chunk: int = TRUTH_CHUNK,
     coefficients: Coefficients = COEFFICIENTS,
+    cap: int | None = None,
+    resets: tuple[int, ...] = (),
 ) -> dict[tuple[int, float], tuple[float, int]]:
-    """``(cause, time) -> (risk, units)`` under ``regime``: one chunk of ``chunk`` units per seed."""
+    r"""``(cause, time) -> (risk, units)`` under ``regime``: one chunk of ``chunk`` units per seed.
+
+    ``cap`` gives :math:`\psi^{(K)}` and ``resets`` the panel's risk (CT-day only).
+    """
     hits = {(j, t): 0 for j in CAUSES for t in TIMES}
     units = 0
     for seed in seeds:
-        time, cause = _REGIME_EVENTS[law](chunk, np.random.default_rng(seed), regime, coefficients)
+        rng = np.random.default_rng(seed)
+        if resets:
+            time, cause = _regime_events_day(chunk, rng, regime, coefficients, 0, resets)
+        else:
+            time, cause = _REGIME_EVENTS[law](chunk, rng, regime, coefficients, cap)
         units += chunk
         for j in CAUSES:
             for t in TIMES:
@@ -523,6 +572,115 @@ TRUTH_RISKS: dict[str, dict[str, dict[tuple[int, float], float]]] = {
 TRUTHS: dict[str, dict[str, float]] = {
     law: truth_from_risks(table) for law, table in TRUTH_RISKS.items()
 }
+
+#: The caps :math:`K` whose capped risks :math:`\psi^{(K)}` are committed.  The engine's
+#: :math:`K^*_r` at :math:`n = 1{,}000` lay in 3 to 5 in the design review's reimplementation of
+#: ``visit_cap`` (``pilot-diagnosis.md``); a fit outside this range has no capped truth.
+CAPS: tuple[int, ...] = tuple(range(1, 9))
+
+#: ``law -> regime -> K -> (cause, time) -> risk``: :math:`\psi^{(K)}`, the regime at baseline
+#: and at the first :math:`K` visits and the law's treatment after them, the target of a fit
+#: whose cap is :math:`K` (plan 3.5.3).  :func:`monte_carlo_risks` with ``cap=K`` on
+#: :data:`TRUTH_UNITS` units each, from the stream ``truth_capped`` (``pilot.capped_seeds``),
+#: written by the pilot's kind ``truth_capped``.  A reading, never a gate (review S1).
+#: The order of the six risks of a row of :data:`_CAPPED` and :data:`_PANEL`.
+_ORDER: tuple[tuple[int, float], ...] = tuple((j, t) for j in CAUSES for t in TIMES)
+#: The capped risks as rows ``(law, regime, K) -> risks`` in the order of :data:`_ORDER`.
+_CAPPED: dict[tuple[str, str, int], tuple[float, ...]] = {
+    ("ct", "never", 1): (0.1574101, 0.2687574, 0.3476422, 0.0849482, 0.1512711, 0.2034292),
+    ("ct", "never", 2): (0.1594304, 0.2760978, 0.3599470, 0.0842793, 0.1489400, 0.1993639),
+    ("ct", "never", 3): (0.1597438, 0.2787198, 0.3662092, 0.0842239, 0.1482712, 0.1975113),
+    ("ct", "never", 4): (0.1598725, 0.2797122, 0.3690066, 0.0842909, 0.1480151, 0.1968018),
+    ("ct", "never", 5): (0.1599378, 0.2800605, 0.3701028, 0.0843411, 0.1481825, 0.1965681),
+    ("ct", "never", 6): (0.1601144, 0.2803872, 0.3706753, 0.0843059, 0.1479433, 0.1963554),
+    ("ct", "never", 7): (0.1598520, 0.2802022, 0.3706052, 0.0842409, 0.1480321, 0.1964947),
+    ("ct", "never", 8): (0.1598806, 0.2799771, 0.3704323, 0.0843014, 0.1480079, 0.1963036),
+    ("ct", "always", 1): (0.0882898, 0.1589175, 0.2178363, 0.1034975, 0.1834039, 0.2465290),
+    ("ct", "always", 2): (0.0877464, 0.1557731, 0.2111885, 0.1037446, 0.1845574, 0.2486923),
+    ("ct", "always", 3): (0.0875574, 0.1549501, 0.2087511, 0.1037392, 0.1847162, 0.2493698),
+    ("ct", "always", 4): (0.0874780, 0.1544841, 0.2076260, 0.1038931, 0.1849157, 0.2496326),
+    ("ct", "always", 5): (0.0874862, 0.1545761, 0.2075462, 0.1037687, 0.1849069, 0.2496663),
+    ("ct", "always", 6): (0.0874641, 0.1544222, 0.2073579, 0.1037342, 0.1847484, 0.2496200),
+    ("ct", "always", 7): (0.0874885, 0.1544970, 0.2074375, 0.1038374, 0.1849924, 0.2497646),
+    ("ct", "always", 8): (0.0876090, 0.1545293, 0.2073514, 0.1035770, 0.1848582, 0.2496094),
+    ("ct", "rule", 1): (0.1153935, 0.2070525, 0.2789721, 0.0964212, 0.1716750, 0.2306532),
+    ("ct", "rule", 2): (0.1151910, 0.2061568, 0.2779270, 0.0964495, 0.1720760, 0.2313527),
+    ("ct", "rule", 3): (0.1151231, 0.2057594, 0.2774825, 0.0963718, 0.1720499, 0.2314051),
+    ("ct", "rule", 4): (0.1151294, 0.2057333, 0.2770901, 0.0964730, 0.1722385, 0.2318128),
+    ("ct", "rule", 5): (0.1150387, 0.2055929, 0.2769084, 0.0965051, 0.1722704, 0.2317160),
+    ("ct", "rule", 6): (0.1151875, 0.2056552, 0.2768631, 0.0964095, 0.1720910, 0.2316178),
+    ("ct", "rule", 7): (0.1151676, 0.2058492, 0.2770835, 0.0963461, 0.1719731, 0.2315441),
+    ("ct", "rule", 8): (0.1150917, 0.2056285, 0.2769741, 0.0965573, 0.1722517, 0.2318505),
+    ("ct_day", "never", 1): (0.1579946, 0.2703319, 0.3499859, 0.0848347, 0.1508539, 0.2028238),
+    ("ct_day", "never", 2): (0.1596750, 0.2771614, 0.3618185, 0.0842604, 0.1488118, 0.1989324),
+    ("ct_day", "never", 3): (0.1596232, 0.2792770, 0.3671174, 0.0844182, 0.1484742, 0.1974928),
+    ("ct_day", "never", 4): (0.1596804, 0.2797649, 0.3694466, 0.0842021, 0.1481294, 0.1967587),
+    ("ct_day", "never", 5): (0.1595941, 0.2798880, 0.3702224, 0.0844553, 0.1483190, 0.1966858),
+    ("ct_day", "never", 6): (0.1597251, 0.2800238, 0.3705891, 0.0842440, 0.1481134, 0.1965296),
+    ("ct_day", "never", 7): (0.1598725, 0.2802944, 0.3708796, 0.0842972, 0.1480813, 0.1963259),
+    ("ct_day", "never", 8): (0.1597492, 0.2800869, 0.3707820, 0.0842737, 0.1481785, 0.1964534),
+    ("ct_day", "always", 1): (0.0883693, 0.1589272, 0.2175145, 0.1036082, 0.1839016, 0.2471324),
+    ("ct_day", "always", 2): (0.0878959, 0.1558395, 0.2110245, 0.1039508, 0.1847700, 0.2490603),
+    ("ct_day", "always", 3): (0.0876908, 0.1549272, 0.2085799, 0.1039074, 0.1851632, 0.2498043),
+    ("ct_day", "always", 4): (0.0878063, 0.1548443, 0.2079911, 0.1041156, 0.1852883, 0.2500497),
+    ("ct_day", "always", 5): (0.0876483, 0.1546611, 0.2075214, 0.1038174, 0.1851416, 0.2499206),
+    ("ct_day", "always", 6): (0.0878417, 0.1549982, 0.2079699, 0.1037852, 0.1850311, 0.2499160),
+    ("ct_day", "always", 7): (0.0877435, 0.1548576, 0.2077260, 0.1040127, 0.1852493, 0.2502344),
+    ("ct_day", "always", 8): (0.0876536, 0.1548582, 0.2078419, 0.1037765, 0.1848557, 0.2498193),
+    ("ct_day", "rule", 1): (0.1154382, 0.2071608, 0.2794788, 0.0963121, 0.1716088, 0.2306854),
+    ("ct_day", "rule", 2): (0.1150914, 0.2060840, 0.2780118, 0.0965347, 0.1721067, 0.2314162),
+    ("ct_day", "rule", 3): (0.1148322, 0.2054976, 0.2771127, 0.0964516, 0.1722153, 0.2317509),
+    ("ct_day", "rule", 4): (0.1151300, 0.2057156, 0.2771716, 0.0964216, 0.1723239, 0.2318213),
+    ("ct_day", "rule", 5): (0.1151342, 0.2057827, 0.2771684, 0.0963959, 0.1721918, 0.2317810),
+    ("ct_day", "rule", 6): (0.1149566, 0.2054390, 0.2768850, 0.0964668, 0.1722525, 0.2317254),
+    ("ct_day", "rule", 7): (0.1149124, 0.2055263, 0.2766227, 0.0964200, 0.1720555, 0.2317070),
+    ("ct_day", "rule", 8): (0.1150932, 0.2056540, 0.2771386, 0.0964485, 0.1720565, 0.2316180),
+}
+CAPPED_RISKS: dict[str, dict[str, dict[int, dict[tuple[int, float], float]]]] = {}
+for (_law, _regime, _cap), _values in _CAPPED.items():
+    CAPPED_RISKS.setdefault(_law, {}).setdefault(_regime, {})[_cap] = dict(
+        zip(_ORDER, _values, strict=True)
+    )
+
+#: The days after whose visit the X70 panel sets the regime: every node start but day 0
+#: (``NODE_ENDS`` of the record without day 30).
+PANEL_RESETS: tuple[int, ...] = (3, 6, 10, 13, 16, 20, 23, 26)
+
+#: ``regime -> (cause, time) -> risk`` for always and never: the risk the X70 panel identifies.
+#: Inside a node a visit changes :math:`L` and, by the law, :math:`A`, which the panel sees only at
+#: the next node start, where the panel's regime resets :math:`A`.  :func:`monte_carlo_risks` with
+#: ``resets=PANEL_RESETS`` on :data:`TRUTH_UNITS` units each, from the stream ``truth_panel``,
+#: written by the pilot's kind ``truth_panel`` (review S5).
+#: The panel's risks as rows ``regime -> risks`` in the order of :data:`_ORDER`.
+_PANEL: dict[str, tuple[float, ...]] = {
+    "never": (0.1572731, 0.2758497, 0.3653426, 0.0850405, 0.1495908, 0.1985487),
+    "always": (0.0890393, 0.1570779, 0.2108247, 0.1036115, 0.1846132, 0.2493196),
+}
+PANEL_RISKS: dict[str, dict[tuple[int, float], float]] = {
+    regime: dict(zip(_ORDER, values, strict=True)) for regime, values in _PANEL.items()
+}
+
+#: Engine-named truths of the panel (static rows only).
+PANEL_TRUTHS: dict[str, float] = truth_from_risks(PANEL_RISKS)
+
+
+def capped_truth(law: str, name: str, cap: float, reference_cap: float = np.nan) -> float:
+    r""":math:`\psi^{(K^*_r)}` of an engine-named target, or NaN for a cap outside :data:`CAPS`.
+
+    A difference reads each regime's own cap: :math:`\psi^{(K^*_r)}_r - \psi^{(K^*_0)}_0`.
+    """
+    regime, cause, t = parse(name)
+    table = CAPPED_RISKS.get(law, {})
+
+    def risk(which: str, k: float) -> float:
+        if not np.isfinite(k) or int(k) not in table.get(which, {}):
+            return np.nan
+        return float(table[which][int(k)][(cause, t)])
+
+    value = risk(regime, cap)
+    if name.startswith("ate_regimen"):
+        value -= risk(REFERENCE, reference_cap)
+    return value
 
 
 # ---------------------------------------------------------- weights, feasibility, IPW
@@ -636,7 +794,8 @@ def feasibility(paths: DayPaths, n: int = 1_000) -> pd.DataFrame:
     ``events_cause<j>_day10`` is the expected count at ``n`` units of cause-``j`` events by
     day 10 among the regime's baseline followers (at least 30), and ``weight_p99`` the 99th
     percentile of the true inverse weight among the units that follow the regime to their exit
-    (at most 20).
+    (at most 20).  ``weight_p99_day30``, the same percentile among the followers still at risk
+    on day 30, is a report: the plan's bound does not name the population (review m3).
     """
     records = []
     scale = n / paths.time.size
@@ -648,6 +807,8 @@ def feasibility(paths: DayPaths, n: int = 1_000) -> pd.DataFrame:
             hit = base & (paths.event == j) & (paths.time <= TIMES[0])
             record[f"events_cause{j}_day10"] = float(scale * np.count_nonzero(hit))
         record["weight_p99"] = float(np.quantile(paths.inverse_weight(regime)[follow], 0.99))
+        late = follow & (paths.time >= END)
+        record["weight_p99_day30"] = float(np.quantile(paths.inverse_weight(regime)[late], 0.99))
         record["baseline_share"] = float(np.mean(base))
         record["followers_share"] = float(np.mean(follow))
         records.append(record)

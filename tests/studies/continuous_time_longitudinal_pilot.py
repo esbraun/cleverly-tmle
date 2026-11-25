@@ -7,11 +7,16 @@ the stream ``plugin_limit``.  The driver writes one file beside this module,
 
 * ``primary``: one fit of a pilot cell (:data:`CELLS`: ``day_cf``, ``cont_cf``,
   ``mechanism_correct`` and ``outcome_correct``, :data:`DRAWS` each), one row per target with the
-  targeted estimate, its SE, coverage and the untargeted plug-in, or one row with the error class
-  when the fit raised;
+  targeted estimate, its SE, coverage and the untargeted plug-in, the support readings
+  (``variance_rel_sd``, ``bounded_share``, ``followers_at_last``, ``past_cap_share``) and the
+  visit-cap readings (``cap``, ``reference_cap`` and ``capped_truth``, review S3), or one row with
+  the error class when the fit raised a recordable error (any other error stops the pilot);
 * ``truth``: the Monte Carlo risks of each law and regime, one row per cause and time, from
   :data:`~tests.studies.continuous_time_longitudinal_law.TRUTH_UNITS` units in chunks
   (:func:`truth_seeds`); the law module's ``TRUTH_RISKS`` must equal them;
+* ``truth_capped`` and ``truth_panel``: the capped risks :math:`\psi^{(K)}` for every cap in
+  ``law.CAPS`` (stream ``truth_capped``) and the risk the X70 panel identifies (stream
+  ``truth_panel``), on as many units; ``CAPPED_RISKS`` and ``PANEL_RISKS`` must equal them;
 * ``feasibility``: the truth-only feasibility readings of a draw of :data:`FEASIBILITY_N`
   CT-day units (``law.feasibility``);
 * ``plugin_limit``: one draw of :data:`PLUGIN_N` CT-day units fitted once with
@@ -24,7 +29,7 @@ declared run:
 
 * **the counts** (:func:`counts`): the cheapest pair of the primary count
   (:data:`~tests.studies.continuous_time_longitudinal.PRIMARY_RUNGS`) and
-  ``mechanism_correct``'s (``MECHANISM_RUNGS``) at which the product of the 60 gated rows'
+  ``mechanism_correct``'s (``MECHANISM_RUNGS``), the second no larger than the first, at which the product of the 60 gated rows'
   plug-in pass probabilities (:func:`row_pass`, rows taken as independent) reaches
   ``FAMILY_WISE_PASS`` 0.95; cost is the measured seconds per fit.  When no pair carries the
   family, every row whose plug-in coverage is below 0.925 moves to reported before the
@@ -32,14 +37,15 @@ declared run:
 * **the at-target family pass** (:func:`at_target_pass`): both calibration rows at SE ratio 1
   and coverage 0.95 at the primary count (0.954 for the pair at 2,400), and each calibration
   row's plug-in pass at the declared count (:func:`calibration_checks`): a row below 0.90
-  extends its cell's pilot to :data:`EXTENSION_DRAWS`, and a confirmed departure needs a
-  committed diagnosis;
+  extends its cell's pilot to :data:`EXTENSION_DRAWS`, and only a confirmed departure
+  (:func:`calibration_departure`) needs a committed diagnosis;
 * **the plug-in separation and the IPW-SD witness** (:func:`plugin_separation`): the largest
   bias of the limit over the true-weight IPW SD at day 30 for always or never, at least 0.5;
   the pilot's own ``mechanism_correct`` plug-in bias gives the control's power at the declared
   count (:func:`control_power`);
-* **feasibility** (:func:`feasibility_refusals`), the **shrunk-SE power**
-  (:func:`shrunken_power`), the **failure prediction** (:func:`failure_refusals`) and the
+* **feasibility** (:func:`feasibility_refusals`), the **shrunk-SE power** at a true SE ratio of
+  1 (:func:`shrunken_power`; at the pilot's ratio a report, :func:`shrunken_power_at_pilot`), the
+  **failure prediction** (:func:`failure_refusals`) and the
   **seconds per fit and peak memory** (:func:`seconds`, :func:`budget`).
 
 Run it as ``python -m tests.studies.continuous_time_longitudinal_pilot --jobs N [--kinds ...]``
@@ -62,10 +68,14 @@ import numpy as np
 import pandas as pd
 from scipy.stats import betabinom, norm
 
+from cleverly.inference.sparse import influence_row
 from cleverly.utils.parallel import map_parallel
+from cleverly.validation._failures import recordable
 from tests.studies import continuous_time_longitudinal as study
 from tests.studies import continuous_time_longitudinal_law as laws
 from tests.studies import repeated_sizing as sizing
+from tests.studies.evidence.inference import clopper_pearson
+from tests.studies.evidence.performance import se_ratio_interval
 from tests.studies.evidence.seeds import stream_seed
 
 OUTPUT = Path(__file__).with_name("continuous_time_longitudinal_pilot.csv.gz")
@@ -112,6 +122,20 @@ def truth_seeds(law: str, regime: str) -> list[int]:
     return [stream_seed(study.STUDY, "truth", law, regime, chunk) for chunk in range(chunks)]
 
 
+def capped_seeds(law: str, regime: str, cap: int) -> list[int]:
+    r"""The seeds of the chunks of :math:`\psi^{(K)}`, from the stream ``truth_capped``."""
+    chunks = laws.TRUTH_UNITS // laws.TRUTH_CHUNK
+    return [
+        stream_seed(study.STUDY, "truth_capped", law, regime, cap, chunk) for chunk in range(chunks)
+    ]
+
+
+def panel_seeds(regime: str) -> list[int]:
+    """The seeds of the chunks of the panel's risk, from the stream ``truth_panel``."""
+    chunks = laws.TRUTH_UNITS // laws.TRUTH_CHUNK
+    return [stream_seed(study.STUDY, "truth_panel", regime, chunk) for chunk in range(chunks)]
+
+
 def plugin_seed() -> int:
     """The seed of the plug-in limit's draw."""
     return stream_seed(study.STUDY, "plugin_limit")
@@ -137,7 +161,11 @@ def _primary(cell: str, replicate: int) -> list[dict[str, Any]]:
             start = time.perf_counter()
             result = study.fit_with(frame, study.engine(regimes, configuration))
             seconds = time.perf_counter() - start
-    except Exception as error:  # a raise is a pilot finding, recorded with its class
+    except Exception as error:
+        # A recordable failure (a DataError refusal of the draw, a numerical failure) is a pilot
+        # finding, recorded with its class; any other error is a defect and stops the pilot.
+        if not recordable(error):
+            raise
         return [{**head, "refusal": type(error).__name__}]
     initial = result.initial_estimates
     peak = _peak_mb()
@@ -159,17 +187,26 @@ def _primary(cell: str, replicate: int) -> list[dict[str, Any]]:
                 "seconds": seconds,
                 "peak_mb": peak,
                 "converged": float(result.record.converged),
+                "bounded_share": float(result.record.bounded_share),
+                "variance_rel_sd": float(
+                    influence_row(estimand, estimate.influence_curve).variance_rel_sd
+                ),
+                **study._regime_readings(result, estimand),
+                **study.cap_readings(result, estimand, law),
             }
         )
     return rows
 
 
-def _truth_chunk(law: str, regime: str, seed: int) -> list[dict[str, Any]]:
-    table = laws.monte_carlo_risks(law, regime, [seed])
+def _truth_chunk(
+    law: str, regime: str, seed: int, cap: int | None = None, panel: bool = False
+) -> list[dict[str, Any]]:
+    resets = laws.PANEL_RESETS if panel else ()
+    table = laws.monte_carlo_risks(law, regime, [seed], cap=cap, resets=resets)
+    label = f"panel/{regime}" if panel else f"{law}/{regime}" + ("" if cap is None else f"/{cap}")
     return [
         {
-            "kind": "truth_chunk",
-            "label": f"{law}/{regime}",
+            "label": label,
             "replicate": seed,
             "estimand": f"{cause}@{t:g}",
             "estimate": value,
@@ -177,6 +214,20 @@ def _truth_chunk(law: str, regime: str, seed: int) -> list[dict[str, Any]]:
         }
         for (cause, t), (value, units) in table.items()
     ]
+
+
+def _averaged(keys: list[tuple[Any, ...]], kind: str, n_jobs: int) -> pd.DataFrame:
+    chunks = pd.DataFrame(
+        [row for rows in map_parallel(_truth_chunk, keys, n_jobs=n_jobs) for row in rows]
+    )
+    out = (
+        chunks.groupby(["label", "estimand"], sort=True)
+        .agg(estimate=("estimate", "mean"), n=("n", "sum"))
+        .reset_index()
+    )
+    out["kind"] = kind
+    out["replicate"] = 0
+    return out
 
 
 def truth_rows(n_jobs: int) -> pd.DataFrame:
@@ -187,29 +238,65 @@ def truth_rows(n_jobs: int) -> pd.DataFrame:
         for regime in laws.REGIMES
         for seed in truth_seeds(law, regime)
     ]
-    chunks = pd.DataFrame(
-        [row for rows in map_parallel(_truth_chunk, keys, n_jobs=n_jobs) for row in rows]
-    )
-    out = (
-        chunks.groupby(["label", "estimand"], sort=True)
-        .agg(estimate=("estimate", "mean"), n=("n", "sum"))
-        .reset_index()
-    )
-    out["kind"] = "truth"
-    out["replicate"] = 0
+    return _averaged(keys, "truth", n_jobs)
+
+
+def capped_rows(n_jobs: int) -> pd.DataFrame:
+    r""":math:`\psi^{(K)}` of every law, regime and cap in ``law.CAPS`` (review S1)."""
+    keys = [
+        (law, regime, seed, cap)
+        for law in laws.SAMPLERS
+        for regime in laws.REGIMES
+        for cap in laws.CAPS
+        for seed in capped_seeds(law, regime, cap)
+    ]
+    return _averaged(keys, "truth_capped", n_jobs)
+
+
+def panel_rows(n_jobs: int) -> pd.DataFrame:
+    """The risk the X70 panel identifies, per static regime (review S5)."""
+    keys = [
+        ("ct_day", regime, seed, None, True)
+        for regime in laws.STATIC
+        for seed in panel_seeds(regime)
+    ]
+    return _averaged(keys, "truth_panel", n_jobs)
+
+
+def _risk_table(rows: pd.DataFrame, kind: str) -> dict[str, dict[tuple[int, float], float]]:
+    """``label -> (cause, time) -> risk`` of one kind of truth rows."""
+    out: dict[str, dict[tuple[int, float], float]] = {}
+    for _, row in rows.loc[rows["kind"] == kind].iterrows():
+        cause, t = str(row["estimand"]).split("@")
+        # A risk on 10^7 units is a multiple of 10^-7; rounding drops the mean's float noise.
+        out.setdefault(str(row["label"]), {})[(int(cause), float(t))] = round(
+            float(row["estimate"]), 7
+        )
     return out
+
+
+def capped_table(
+    rows: pd.DataFrame,
+) -> dict[str, dict[str, dict[int, dict[tuple[int, float], float]]]]:
+    """``law -> regime -> cap -> (cause, time) -> risk`` of the committed capped rows."""
+    out: dict[str, dict[str, dict[int, dict[tuple[int, float], float]]]] = {}
+    for label, table in _risk_table(rows, "truth_capped").items():
+        law, regime, cap = label.split("/")
+        out.setdefault(law, {}).setdefault(regime, {})[int(cap)] = table
+    return out
+
+
+def panel_table(rows: pd.DataFrame) -> dict[str, dict[tuple[int, float], float]]:
+    """``regime -> (cause, time) -> risk`` of the committed panel rows."""
+    return {label.split("/")[1]: table for label, table in _risk_table(rows, "truth_panel").items()}
 
 
 def truth_table(rows: pd.DataFrame) -> dict[str, dict[str, dict[tuple[int, float], float]]]:
     """``law -> regime -> (cause, time) -> risk`` of the committed truth rows."""
     out: dict[str, dict[str, dict[tuple[int, float], float]]] = {}
-    for _, row in rows.loc[rows["kind"] == "truth"].iterrows():
-        law, regime = str(row["label"]).split("/")
-        cause, t = str(row["estimand"]).split("@")
-        # A risk on 10^7 units is a multiple of 10^-7; rounding drops the mean's float noise.
-        out.setdefault(law, {}).setdefault(regime, {})[(int(cause), float(t))] = round(
-            float(row["estimate"]), 7
-        )
+    for label, table in _risk_table(rows, "truth").items():
+        law, regime = label.split("/")
+        out.setdefault(law, {})[regime] = table
     return out
 
 
@@ -263,7 +350,7 @@ def _one(cell: str, replicate: int) -> list[dict[str, Any]]:
 
 
 #: The kinds the driver runs.
-KINDS = ("truth", "feasibility", "plugin_limit", "primary")
+KINDS = ("truth", "truth_capped", "truth_panel", "feasibility", "plugin_limit", "primary")
 
 
 def run(
@@ -294,6 +381,12 @@ def run(
         if kind == "truth":
             frame = replace("truth", truth_rows(n_jobs))
             print("truth: written", flush=True)
+        elif kind == "truth_capped":
+            frame = replace("truth_capped", capped_rows(n_jobs))
+            print("truth_capped: written", flush=True)
+        elif kind == "truth_panel":
+            frame = replace("truth_panel", panel_rows(n_jobs))
+            print("truth_panel: written", flush=True)
         elif kind == "feasibility":
             frame = replace("feasibility", feasibility_rows())
             print("feasibility: written", flush=True)
@@ -449,7 +542,9 @@ def counts(rows: pd.DataFrame) -> tuple[int, int] | None:
     passing = [
         (cost(rows, primary, mechanism), primary, mechanism)
         for primary, mechanism in itertools.product(study.PRIMARY_RUNGS, study.MECHANISM_RUNGS)
-        if family_pass(rows, primary, mechanism) >= sizing.FAMILY_WISE_PASS
+        # mechanism_correct runs inside day_cf's replicates, so it holds at most the primary
+        # count (review S2).
+        if mechanism <= primary and family_pass(rows, primary, mechanism) >= sizing.FAMILY_WISE_PASS
     ]
     if not passing:
         return None
@@ -490,15 +585,59 @@ def calibration_checks(rows: pd.DataFrame, replicates: int) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
-def shrunken_power(rows: pd.DataFrame, replicates: int) -> dict[str, float]:
-    """The probability that each shrunk-SE control leaves the band below at ``replicates``."""
+def shrunken_power(replicates: int) -> float:
+    """The probability that a shrunk-SE control leaves the band below at ``replicates``, at a
+    true SE ratio of 1 (plan 5's preface: the shrunk control is detected at target).
+
+    It reads no pilot row: a 400-draw SE ratio has a relative SD near 0.035, so a power read at
+    the pilot's point ratio would refuse a calibrated estimator by chance (review B1).
+    """
+    return float(
+        sizing.calibration_control_probability(
+            study.MARGINS, replicates, study.SHRUNKEN_SE_FACTOR * 1.0
+        )
+    )
+
+
+def shrunken_power_at_pilot(rows: pd.DataFrame, replicates: int) -> dict[str, float]:
+    """The same probability at each calibration row's pilot SE ratio: a report, never a refusal.
+
+    Above a ratio near 1.01 the band reading falls below 0.999; the declared run then reads a
+    conservative row's control against the row's own interval (``readings.calibration``).
+    """
     checks = calibration_checks(rows, replicates)
     return {
-        cell: sizing.calibration_control_probability(
-            study.MARGINS, replicates, study.SHRUNKEN_SE_FACTOR * ratio
+        cell: float(
+            sizing.calibration_control_probability(
+                study.MARGINS, replicates, study.SHRUNKEN_SE_FACTOR * ratio
+            )
         )
         for cell, ratio in zip(checks["cell"], checks["se_ratio"], strict=True)
     }
+
+
+def calibration_departure(rows: pd.DataFrame, cell: str) -> bool:
+    """Whether a calibration row's pilot departs from calibration beyond chance (review S4).
+
+    True when the 99% interval of the pilot's SE ratio excludes 1 or the 99% Clopper-Pearson
+    interval of its coverage excludes 0.95.  Only such a row needs a committed diagnosis after
+    the extension; any other row below the plug-in pass of 0.90 is a chance reading.
+    """
+    chosen = kept_rows(rows, cell)
+    chosen = chosen.loc[chosen["estimand"] == study.CALIBRATION_ROW]
+    values = chosen["estimate"].to_numpy(dtype=float)
+    errors = chosen["std_error"].to_numpy(dtype=float)
+    ratio = se_ratio_interval(
+        values,
+        errors,
+        record=study.STUDY,
+        seed=stream_seed(study.STUDY, "pilot", "calibration", cell),
+    )
+    covered = chosen["covered"].to_numpy(dtype=int)
+    coverage = clopper_pearson(
+        int(covered.sum()), int(covered.size), confidence_level=study.MARGINS.confidence_level
+    )
+    return bool(not (ratio.low <= 1.0 <= ratio.high) or not (coverage.low <= 0.95 <= coverage.high))
 
 
 def plugin_separation(rows: pd.DataFrame) -> pd.DataFrame:

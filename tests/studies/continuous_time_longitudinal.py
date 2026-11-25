@@ -41,22 +41,50 @@ which projects past the plan's 200 CPU-h hold by itself.  The pairing therefore 
 :data:`PAIRED_REPLICATES` (400) draws on a 9-node panel whose nodes end at days
 :data:`NODE_ENDS` (3, 6, 10, 13, 16, 20, 23, 26, 30).  Nine nodes cost less than the ten 3-day
 nodes the brief named, and unlike them they end at every target day, so each of the 18 static
-rows is paired on the same estimand.  The rest is the plan's: covariates carried forward, a visit
-indicator and its product with the previous treatment among them, ``markov_order=0``, and the
-reading of the paired difference and the SE ratio.  The rule's rows are not paired.  X70
-withholds the interval of a row whose recursion read a constant node (``constant_node_plugin``,
-at day 30 of always in one of the smoke's two draws): the point estimate still pairs, and the SE
-and coverage of that draw are left out and counted (``x70_interval_refused``).
+rows pairs at its own target day.  The estimands differ by the coarsening: a visit inside a node
+changes :math:`L` and, by the law, :math:`A`, which the panel sees only at the next node start,
+where its regime resets :math:`A`.  X70 is therefore read against the panel's risk
+(``law.PANEL_TRUTHS``, simulated, review S5), the continuous engine against :math:`\psi_r`, and
+the diagnosis trigger against the expected paired difference, the panel's risk minus
+:math:`\psi_r` (at most 0.0085 in absolute value, at the cause-1 day-30 difference).  The rest is
+the plan's: covariates carried forward, a visit indicator and its product with the previous
+treatment among them, ``markov_order=0``, and the reading of the paired difference and the SE
+ratio.  The rule's rows are not paired.  X70 withholds the interval of a row whose recursion read
+a constant node (``constant_node_plugin``, at day 30 of always in one of the smoke's two draws):
+the point estimate still pairs, and X70's SE ratio and coverage read only the draws with an
+interval, whose share is reported (``x70_interval_refused_share``).  The row lead accepted this
+redesign in place of the plan's hold.
+
+**The visit cap** (plan 3.5.3, review S1).  Every gate compares with the full risk
+:math:`\psi_r`, which stays the target of inference; the fit targets :math:`\psi^{(K^*_r)}`, the
+regime through its first :math:`K^*_r` visits.  Each row records its regime's own cap (``cap``,
+and ``reference_cap`` for a difference) and the capped truth :math:`\psi^{(K^*_r)}`
+(``capped_truth``, from ``law.CAPPED_RISKS``), and ``visit-cap.csv`` reports the bias against
+both truths with the distribution of the caps, so a cap gap can be told from an estimator bias.
+On CT-day the gap at :math:`K = 4` is at most 0.0016 in absolute value (never, cause 1, day 30)
+and 0.0036 at :math:`K = 3`.
+
+**Support floors** (plan 3.5.9, review S7).  ``floors.csv`` (``readings.floors``) holds, per
+gated primary row, its verdict, its median ``variance_rel_sd`` and event share, its fewest
+followers at the last target time, its largest and 99th-percentile share past the cap and its
+largest weight-floor and jump-bound shares.  ``readings.floor_values`` reads part (e)'s constants
+from it after the run: ``LONGITUDINAL_REL_SD`` as the largest median rung at which every static
+row at or below it passes, the event-share window as the passing rows' range cut short of any red
+row, and the fewest followers and largest share past the cap over the passing static rows.  They
+set no verdict.
 
 **Calibration** (:mod:`tests.studies.continuous_time_longitudinal_readings`).  The risk difference
 always minus never of cause 1 at day 20 of ``day_cf`` and of ``cont_cf`` takes the calibration
 rule (the 99% interval of the SE ratio inside (0.93, 1.07) and the coverage interval inside
-(0.92, 0.98)); the shrunk-SE control multiplies their SEs by 0.85 and must leave the band below.
+(0.92, 0.98)); the shrunk-SE control multiplies their SEs by 0.85 and must leave the band below,
+or, when its row reads conservative (the row's SE-ratio interval above 1), fall wholly below the
+row's own interval (review B1).
 ``sparse_calibration`` reads ``day_cf``'s difference of cause 2 at day 10 under the same rule and
 gates nothing (review S5).  A gate reads code: :func:`scientific_failures`.
 
 **Size and seeds.**  :data:`PRIMARY_REPLICATES` and :data:`MECHANISM_REPLICATES` are the design
-values of plan 5.7 (2,400 and 1,600).  The pilot
+values of plan 5.7 (2,400 and 1,600); ``mechanism_correct`` runs inside ``day_cf``'s
+replicates, so its count never exceeds the primary count (review S2).  The pilot
 (:mod:`tests.studies.continuous_time_longitudinal_pilot`, :data:`PILOT_REPLICATES` draws of each
 of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) sets
 them by the family rule over the 60 gated primary rows (:func:`pilot.counts`): the cheapest pair
@@ -88,6 +116,16 @@ The projection, 92.6 CPU-h, is below the plan's hold of 200.  A local thread run
 third of a cloud core, so the run is about 280 thread-hours there.  ``cont_cf``'s 2.1 GB per
 worker binds the ``--jobs`` rule: ``--jobs 12`` on the local machine (34 GB, 16 threads; about
 25 GB of workers, about 23 hours) and ``--jobs 4`` on the 4-core cloud machine (about 23 hours).
+
+**Registration** (plan 7.3) lands with the declared run's artifacts, in the change that ships
+E1 and E2 together, and touches what a pending study cannot: the registry import and the
+scenario, estimand, arm and cell descriptions (``descriptions.py``); the ``EXEMPT_STUDIES`` entry
+(:data:`EXEMPT_REASON`); the clause bindings (``tests/canonical/clause-bindings.csv``); the
+interval-audit screen row (``interval-audit-screen.csv``), the asymmetric screen row
+(``asymmetric-audit-screen.csv``) and the asymmetric refit capture
+(``asymmetric-refit/continuous-time-longitudinal/capture.json``); and the evidence page's tables,
+grid row and toctree entry.  The study declares no property cells, so it needs no
+``UNCOMMITTED_MODULES`` entry.  Part (e)'s support constants follow from ``floors.csv``.
 """
 
 from __future__ import annotations
@@ -103,6 +141,7 @@ import pandas as pd
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.sparse import influence_row
 from cleverly.survival import ContinuousLongitudinalTMLE
+from cleverly.validation._failures import recordable
 from tests.parallel import STUDY_JOBS
 from tests.studies import continuous_time_longitudinal_law as laws
 from tests.studies.evidence import failures as evidence_failures
@@ -183,6 +222,8 @@ MECHANISM_FILE = "mechanism-correct.csv"
 MISSPECIFIED_FILE = "misspecified.csv"
 PAIRING_FILE = "ltmle-pairing.csv"
 READINGS_FILE = "targeting-readings.csv"
+VISIT_CAP_FILE = "visit-cap.csv"
+FLOORS_FILE = "floors.csv"
 
 STUDY = StudyRecord(
     name="continuous-time longitudinal TMLE",
@@ -208,6 +249,8 @@ STUDY = StudyRecord(
         MISSPECIFIED_FILE,
         PAIRING_FILE,
         READINGS_FILE,
+        VISIT_CAP_FILE,
+        FLOORS_FILE,
     ),
     modules=(
         "tests/studies/continuous_time_longitudinal.py",
@@ -320,6 +363,24 @@ def readings(result: Any) -> dict[str, float]:
     }
 
 
+def cap_readings(result: Any, name: str, law: str) -> dict[str, float]:
+    r"""The regime's own cap :math:`K^*_r`, the reference's for a difference, and the capped truth
+    :math:`\psi^{(K^*_r)}` at those caps (review S1), a reading beside the gate's :math:`\psi_r`."""
+    regime, _, _ = laws.parse(name)
+    record = result.record
+    cap = float(record.caps[record.regimes.index(regime)])
+    reference = (
+        float(record.caps[record.regimes.index(laws.REFERENCE)])
+        if name.startswith("ate_regimen")
+        else np.nan
+    )
+    return {
+        "cap": cap,
+        "reference_cap": reference,
+        "capped_truth": laws.capped_truth(law, name, cap, reference),
+    }
+
+
 def _regime_readings(result: Any, name: str) -> dict[str, float]:
     regime, _, t = laws.parse(name)
     record = result.record
@@ -373,6 +434,7 @@ def result_rows(
                 ),
                 "event_share": event_share(frame, name),
                 **_regime_readings(result, name),
+                **cap_readings(result, name, law_of(scenario)),
             }
         )
     return rows
@@ -478,7 +540,7 @@ def x70_fit(frame: pd.DataFrame) -> Any:
 # ----------------------------------------------------------------- secondary fits
 
 
-#: The fields a secondary fit writes per row.
+#: The numeric fields a secondary fit writes per row.
 SECONDARY_FIELDS = (
     "estimate",
     "std_error",
@@ -487,46 +549,63 @@ SECONDARY_FIELDS = (
     "failed",
     "interval_refused",
     "seconds",
+    "cap",
+    "reference_cap",
+    "capped_truth",
 )
+#: The text field: the error class of a recorded failure, empty otherwise.
+SECONDARY_TEXT = ("error",)
+#: The cap readings of a fit that has no visit cap (X70).
+_NO_CAP = {"cap": np.nan, "reference_cap": np.nan, "capped_truth": np.nan}
 
 
 def secondary_columns() -> tuple[str, ...]:
     """The extra columns that carry the secondary fits on ``day_cf``'s rows."""
-    return tuple(f"{cell}_{field}" for cell in SECONDARY for field in SECONDARY_FIELDS)
+    return tuple(
+        f"{cell}_{field}" for cell in SECONDARY for field in (*SECONDARY_FIELDS, *SECONDARY_TEXT)
+    )
 
 
-def _secondary(
-    cell: str, replicate: int, primary_frame: pd.DataFrame
-) -> dict[str, dict[str, float]]:
-    """``row -> field -> value`` of one secondary fit, or every row failed with its error."""
+def _secondary(cell: str, replicate: int, primary_frame: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    r"""``row -> field -> value`` of one secondary fit, or every row failed with its error class.
+
+    Only an error :func:`~cleverly.validation._failures.recordable` judges a fit failure (a
+    ``DataError`` refusal of the draw, a numerical failure) is recorded; any other error, a
+    configuration refusal or a defect, stops the run as the shared harness does (review S6).
+    X70's rows read the panel's truth (:data:`~tests.studies.continuous_time_longitudinal_law.PANEL_TRUTHS`),
+    every other cell's the full risk :math:`\psi_r` and, beside it, the capped truth at the fit's
+    own caps.
+    """
     configuration, count, names = SECONDARY[cell]
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, Any]] = {}
     if replicate >= count:
         return out
-    truth = laws.TRUTHS["ct_day"]
-    if cell == "ltmle_daily":
-        frame = primary_frame
-    else:
-        frame = laws.sample_day(PRIMARY_N, secondary_seed(cell, replicate))
+    paired = cell == "ltmle_daily"
+    truth = laws.PANEL_TRUTHS if paired else laws.TRUTHS["ct_day"]
+    frame = primary_frame if paired else laws.sample_day(PRIMARY_N, secondary_seed(cell, replicate))
     start = time.perf_counter()
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if cell == "ltmle_daily":
+            if paired:
                 result = x70_fit(frame)
                 values = {name: result.estimates[x70_name(name)] for name in names}
                 initial = dict.fromkeys(names, np.nan)
+                caps = dict.fromkeys(names, _NO_CAP)
             else:
                 result = fit_with(frame, engine(tuple(laws.STATIC), configuration))
                 values = {name: result[name] for name in names}
                 initial = {name: float(result.initial_estimates[name]) for name in names}
-    except Exception:  # a raise is recorded against the cell's failure bound
-        return {name: {"failed": 1.0} for name in names}
+                caps = {name: cap_readings(result, name, "ct_day") for name in names}
+    except Exception as error:
+        if not recordable(error):
+            raise
+        return {name: {"failed": 1.0, "error": type(error).__name__} for name in names}
     seconds = time.perf_counter() - start
     for name, estimate in values.items():
         try:
             low, high = estimate.ci
-            error, covered, refused = (
+            spread, covered, refused = (
                 float(estimate.std_error),
                 float(low <= truth[name] <= high),
                 0.0,
@@ -534,15 +613,17 @@ def _secondary(
         except CapabilityError:
             # X70 withholds the interval of a row whose recursion read a constant node
             # (``constant_node_plugin``); the point estimate stands and pairs.
-            error, covered, refused = np.nan, np.nan, 1.0
+            spread, covered, refused = np.nan, np.nan, 1.0
         out[name] = {
             "estimate": float(estimate.psi),
-            "std_error": error,
+            "std_error": spread,
             "covered": covered,
             "initial": initial[name],
             "failed": 0.0,
             "interval_refused": refused,
             "seconds": seconds,
+            **caps[name],
+            "error": "",
         }
     return out
 
@@ -563,6 +644,9 @@ EXTRA_COLUMNS = (
     "event_share",
     "followers_at_last",
     "past_cap_share",
+    "cap",
+    "reference_cap",
+    "capped_truth",
     *secondary_columns(),
 )
 
@@ -577,7 +661,7 @@ def _replicate(
 ) -> list[dict[str, Any]]:
     scenario, replicate, _ = key
     frame, truth = drawn
-    secondary: dict[str, dict[str, dict[str, float]]] = {}
+    secondary: dict[str, dict[str, dict[str, Any]]] = {}
     if scenario == "day_cf":
         secondary = {cell: _secondary(cell, replicate, frame) for cell in SECONDARY}
     with warnings.catch_warnings():
@@ -588,7 +672,8 @@ def _replicate(
     extra = {"seconds": seconds, **readings(result)}
     rows = []
     for row in result_rows(result, truth, scenario, replicate, frame):
-        values = dict.fromkeys(secondary_columns(), np.nan)
+        values: dict[str, Any] = dict.fromkeys(secondary_columns(), np.nan)
+        values.update({f"{cell}_{field}": "" for cell in SECONDARY for field in SECONDARY_TEXT})
         for cell, table in secondary.items():
             for field, value in table.get(row["estimand"], {}).items():
                 values[f"{cell}_{field}"] = value

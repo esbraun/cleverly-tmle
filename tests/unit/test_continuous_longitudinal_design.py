@@ -27,7 +27,7 @@ def test_the_declaration_is_the_plans() -> None:
     assert study.PRIMARY_REPLICATES in study.PRIMARY_RUNGS == (2_400, 3_200, 4_800)
     assert study.MECHANISM_REPLICATES in study.MECHANISM_RUNGS == (1_600, 2_400, 3_200)
     assert study.REPORTED_REPLICATES == 800 and study.PILOT_REPLICATES == 400
-    assert min(study.PRIMARY_RUNGS) >= study.MECHANISM_REPLICATES
+    assert study.PRIMARY_REPLICATES >= study.MECHANISM_REPLICATES
     assert record.n == study.PRIMARY_N == 1_000
     assert study.FAILURE_BOUND == 0.01 and study.SHRUNKEN_SE_FACTOR == 0.85
     assert study.MARGINS.standardized_bias == 0.2
@@ -44,6 +44,8 @@ def test_the_declaration_is_the_plans() -> None:
         study.MISSPECIFIED_FILE,
         study.PAIRING_FILE,
         study.READINGS_FILE,
+        study.VISIT_CAP_FILE,
+        study.FLOORS_FILE,
     }
 
 
@@ -60,7 +62,7 @@ def test_the_rows_are_the_plans() -> None:
     assert study.SPARSE_ROW == "ate_regimen[always vs never, cause2 @ t=10]"
     assert all(study.CALIBRATION_ROW in study.ESTIMANDS[cell] for cell in study.CALIBRATION_CELLS)
     for _, count, names in study.SECONDARY.values():
-        assert set(names) <= set(study.DAY_ROWS) and count <= min(study.PRIMARY_RUNGS)
+        assert set(names) <= set(study.DAY_ROWS) and count <= study.PRIMARY_REPLICATES
     assert len(study.PAIRED_ROWS) == 18 and study.SECONDARY["ltmle_daily"][1] == 400
     assert study.GATED_SECONDARY == ("mechanism_correct",)
 
@@ -100,6 +102,13 @@ def test_the_streams_are_disjoint() -> None:
             for law in laws.SAMPLERS
             for regime in laws.REGIMES
         },
+        **{
+            f"truth_capped/{law}/{regime}/{cap}": pilot.capped_seeds(law, regime, cap)
+            for law in laws.SAMPLERS
+            for regime in laws.REGIMES
+            for cap in laws.CAPS
+        },
+        **{f"truth_panel/{regime}": pilot.panel_seeds(regime) for regime in laws.STATIC},
         "plugin_limit": [pilot.plugin_seed()],
         "feasibility": [pilot.feasibility_seed()],
     }
@@ -138,26 +147,76 @@ def test_a_draw_is_a_counting_process_frame(law: str) -> None:
     assert data.dropped_visits == 0
 
 
-def test_the_true_weights_reproduce_the_truth_and_a_dropped_censoring_weight_does_not() -> None:
-    """A nonzero witness: the true-weight IPW mean equals the regime's risk, and the IPW with
-    the censoring factor removed misses it, so a wrong weight cannot pass."""
-    paths = laws.day_paths(laws.sample_day(300_000, 11))
-    risks = laws.monte_carlo_risks("ct_day", "never", [12], chunk=300_000)
+@pytest.fixture(scope="module")
+def paths() -> laws.DayPaths:
+    return laws.day_paths(laws.sample_day(300_000, 11))
+
+
+@pytest.mark.parametrize("regime", ["never", "always"])
+def test_the_true_weights_reproduce_the_truth_and_a_dropped_factor_does_not(
+    paths: laws.DayPaths, regime: str
+) -> None:
+    """A nonzero witness: the true-weight IPW mean equals the regime's risk, and the IPW with the
+    censoring factor or the treatment factor removed misses it, so a wrong weight cannot pass
+    (review m4).  Always carries the plug-in separation of 0.53."""
+    risks = laws.monte_carlo_risks("ct_day", regime, [12], chunk=300_000)
     for cause in laws.CAUSES:
-        values = laws.ipw_contributions(paths, "never", cause, 30.0)
+        values = laws.ipw_contributions(paths, regime, cause, 30.0)
         se = float(np.std(values, ddof=1) / np.sqrt(values.size))
         truth, _ = risks[(cause, 30.0)]
         assert abs(values.mean() - truth) < 4.5 * np.hypot(se, np.sqrt(truth / 300_000))
-    mutated = laws.DayPaths(
-        paths.time,
-        paths.event,
-        paths.baseline_follow,
-        paths.followed,
-        paths.log_pi,
-        np.zeros_like(paths.log_sc),
+    for field in ("log_sc", "log_pi"):
+        mutated = laws.DayPaths(
+            paths.time,
+            paths.event,
+            paths.baseline_follow,
+            paths.followed,
+            np.zeros_like(paths.log_pi) if field == "log_pi" else paths.log_pi,
+            np.zeros_like(paths.log_sc) if field == "log_sc" else paths.log_sc,
+        )
+        biased = laws.ipw_contributions(mutated, regime, 1, 30.0).mean()
+        assert abs(biased - risks[(1, 30.0)][0]) > 0.01, field
+
+
+def test_the_capped_risks_close_on_the_full_risk_and_open_at_a_small_cap() -> None:
+    r"""A nonzero witness for :math:`\psi^{(K)}` (review S1): at a cap no unit reaches it is the
+    full risk, at :math:`K = 2` never's cause-1 day-30 risk moves by more than 0.006 (about
+    -0.009), and the committed table is the pilot's and holds the declared caps."""
+    seeds = [41]
+    full = laws.monte_carlo_risks("ct_day", "never", seeds, chunk=1_000_000)
+    wide = laws.monte_carlo_risks("ct_day", "never", seeds, chunk=1_000_000, cap=12)
+    tight = laws.monte_carlo_risks("ct_day", "never", seeds, chunk=1_000_000, cap=2)
+    se = np.sqrt(2 * 0.37 * 0.63 / 1_000_000)
+    assert abs(wide[(1, 30.0)][0] - full[(1, 30.0)][0]) < 4.0 * se
+    assert tight[(1, 30.0)][0] - full[(1, 30.0)][0] < -0.006
+    table = laws.CAPPED_RISKS
+    assert set(table) == {"ct", "ct_day"}
+    assert all(set(table[law][r]) == set(laws.CAPS) for law in table for r in laws.REGIMES)
+    if not PILOT.empty and (PILOT["kind"] == "truth_capped").any():
+        assert pilot.capped_table(PILOT) == table
+    name = "ate_regimen[always vs never, cause1 @ t=30]"
+    expected = table["ct_day"]["always"][4][(1, 30.0)] - table["ct_day"]["never"][3][(1, 30.0)]
+    assert laws.capped_truth("ct_day", name, 4.0, 3.0) == pytest.approx(expected)
+    assert np.isnan(laws.capped_truth("ct_day", name, 4.0, 99.0))
+
+
+def test_the_panel_risk_is_the_coarsened_regime() -> None:
+    """The panel's risk (review S5): its resets are the node starts, a fresh draw reproduces the
+    committed value, and it differs from the full risk (a nonzero witness)."""
+    assert (*laws.PANEL_RESETS, 30) == study.NODE_ENDS
+    fresh = laws.monte_carlo_risks(
+        "ct_day", "never", [43], chunk=1_000_000, resets=laws.PANEL_RESETS
     )
-    biased = laws.ipw_contributions(mutated, "never", 1, 30.0).mean()
-    assert abs(biased - risks[(1, 30.0)][0]) > 0.02
+    value, units = fresh[(1, 30.0)]
+    assert abs(laws.PANEL_RISKS["never"][(1, 30.0)] - value) < 4.5 * np.sqrt(
+        value * (1 - value) / units
+    )
+    assert laws.PANEL_RISKS["never"][(1, 30.0)] - laws.TRUTH_RISKS["ct_day"]["never"][(1, 30.0)] < (
+        -0.003
+    )
+    assert set(laws.PANEL_TRUTHS) == set(study.PAIRED_ROWS)
+    if not PILOT.empty and (PILOT["kind"] == "truth_panel").any():
+        assert pilot.panel_table(PILOT) == laws.PANEL_RISKS
 
 
 def test_the_truths_are_the_monte_carlo_risks() -> None:
@@ -237,6 +296,19 @@ def test_the_panel_ends_its_nodes_on_the_target_days() -> None:
     assert study.x70_name(study.CALIBRATION_ROW) == "ate_regimen[always vs never, cause1 @ t=6]"
 
 
+_CAP_KEYS = ("cap", "reference_cap", "capped_truth")
+
+
+def _caps(law: str, name: str) -> dict[str, float]:
+    """Every regime at cap 4, the modal :math:`K^*` (``pilot-diagnosis.md``)."""
+    reference = 4.0 if name.startswith("ate_regimen") else np.nan
+    return {
+        "cap": 4.0,
+        "reference_cap": reference,
+        "capped_truth": laws.capped_truth(law, name, 4.0, reference),
+    }
+
+
 def _synthetic_rows(
     replicates: int, rng: np.random.Generator, se_scale: float = 1.0
 ) -> pd.DataFrame:
@@ -249,11 +321,14 @@ def _synthetic_rows(
                 se = 0.02
                 estimate = truth[name] + rng.normal(0.0, se)
                 record = {
+                    "implementation": study.SUBJECT,
+                    "inference_scale": "identity",
                     "scenario": scenario,
                     "replicate": r,
                     "estimand": name,
                     "truth": truth[name],
                     "estimate": estimate,
+                    "inference_estimate": estimate,
                     "std_error": se * se_scale,
                     "covered": int(abs(estimate - truth[name]) <= 1.96 * se * se_scale),
                     "initial_estimate": estimate,
@@ -268,21 +343,30 @@ def _synthetic_rows(
                     "visit_bound_share": 0.0,
                     "largest_cap": 4.0,
                     "seconds": 1.0,
+                    **_caps(study.law_of(scenario), name),
                 }
                 for cell, (_, count, rows) in study.SECONDARY.items():
                     run = scenario == "day_cf" and name in rows and r < count
-                    value = truth[name] + rng.normal(0.0, se)
+                    paired = cell == "ltmle_daily"
+                    centre = laws.PANEL_TRUTHS.get(name, np.nan) if paired else truth[name]
+                    value = centre + rng.normal(0.0, se)
+                    caps = _caps("ct_day", name) if not paired else dict.fromkeys(_CAP_KEYS, np.nan)
                     record.update(
                         {
                             f"{cell}_estimate": value if run else np.nan,
                             f"{cell}_std_error": se if run else np.nan,
-                            f"{cell}_covered": float(abs(value - truth[name]) <= 1.96 * se)
+                            f"{cell}_covered": float(abs(value - centre) <= 1.96 * se)
                             if run
                             else np.nan,
                             f"{cell}_initial": value + 0.01 if run else np.nan,
                             f"{cell}_failed": 0.0 if run else np.nan,
                             f"{cell}_interval_refused": 0.0 if run else np.nan,
                             f"{cell}_seconds": 1.0 if run else np.nan,
+                            **{
+                                f"{cell}_{key}": value if run else np.nan
+                                for key, value in caps.items()
+                            },
+                            f"{cell}_error": "",
                         }
                     )
                 records.append(record)
@@ -305,7 +389,156 @@ def test_the_gates_pass_a_calibrated_synthetic_run(synthetic: dict[str, pd.DataF
     pairing = synthetic[study.PAIRING_FILE]
     assert len(pairing) == 18 and (pairing["pairs"] == study.PAIRED_REPLICATES).all()
     assert not pairing["diagnose"].any()
+    assert (pairing["expected_difference"] == pairing["panel_truth"] - pairing["truth"]).all()
     assert study.account_failures(None, synthetic)["passed"].all()
+    caps = synthetic[study.VISIT_CAP_FILE]
+    assert set(caps["cell"]) == {*study.CELLS, "mechanism_correct", *readings.MISSPECIFIED}
+    assert (caps["fits_without_capped_truth"] == 0).all() and (caps["caps"] != "").all()
+    floors = synthetic[study.FLOORS_FILE]
+    assert len(floors) == len(study.DAY_ROWS) + len(study.CONT_ROWS)
+    assert floors["rule_passed"].all()
+    values = readings.floor_values(floors)
+    assert values["longitudinal_rel_sd"] == 0.05 and values["rules_supported"]
+    assert values["fewest_followers"] == 100.0 and not values["jump_bound_acted"]
+
+
+def test_a_conservative_calibration_row_does_not_void_through_its_control(
+    synthetic: dict[str, pd.DataFrame],
+) -> None:
+    """Review B1: at a true SE ratio of 1.08, the direction plan 5.7 expects, the calibration
+    rows read red (and then conservative, post-run), but each shrunk control is read against its
+    row's own interval and passes, where the band reading would have failed it."""
+    rows = synthetic["rows"].copy()
+    calibration = rows["estimand"] == study.CALIBRATION_ROW
+    rows.loc[calibration, "std_error"] *= 1.08
+    rows["covered"] = ((rows["estimate"] - rows["truth"]).abs() <= 1.96 * rows["std_error"]).astype(
+        int
+    )
+    table = readings.calibration(rows)
+    gates = readings.gates({**readings.artifacts(rows)})
+    assert len(gates[readings.CALIBRATION_GATE]) == 2
+    assert len(gates[readings.SHRUNK_GATE]) == 0
+    shrunk = table.loc[table["cell"] == "shrunk_se"]
+    assert (shrunk["reading"] == "below the row's interval").all()
+    assert (shrunk["se_ratio_ci_upper"] > study.MARGINS.calibration_se_ratio[0]).all()
+
+
+def test_the_counts_never_put_mechanism_correct_above_the_primary_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review S2: mechanism_correct runs inside day_cf's replicates."""
+    monkeypatch.setattr(pilot, "family_pass", lambda rows, primary, mechanism: mechanism >= 3_200)
+    monkeypatch.setattr(pilot, "cost", lambda rows, primary, mechanism: primary + mechanism)
+    assert pilot.counts(pd.DataFrame()) == (3_200, 3_200)
+    for primary in study.PRIMARY_RUNGS:
+        for mechanism in study.MECHANISM_RUNGS:
+            monkeypatch.setattr(
+                pilot, "family_pass", lambda rows, p, m, q=primary, k=mechanism: (p, m) == (q, k)
+            )
+            chosen = pilot.counts(pd.DataFrame())
+            assert chosen is None or chosen[1] <= chosen[0]
+
+
+def _pilot_rows(cell: str, draws: int, ratio: float, rng: np.random.Generator) -> pd.DataFrame:
+    truth = laws.TRUTHS[pilot.CELLS[cell][0]][study.CALIBRATION_ROW]
+    estimate = truth + rng.normal(0.0, 0.03, draws)
+    se = 0.03 * ratio
+    return pd.DataFrame(
+        {
+            "kind": "primary",
+            "label": cell,
+            "replicate": np.arange(draws),
+            "estimand": study.CALIBRATION_ROW,
+            "estimate": estimate,
+            "std_error": se,
+            "covered": (np.abs(estimate - truth) <= 1.96 * se).astype(int),
+            "refusal": "",
+        }
+    )
+
+
+def test_only_a_confirmed_calibration_departure_needs_a_diagnosis() -> None:
+    """Review S4: a calibrated 800-draw pilot is a chance reading; a ratio of 1.3 departs."""
+    rng = np.random.default_rng(3)
+    assert not pilot.calibration_departure(_pilot_rows("cont_cf", 800, 1.0, rng), "cont_cf")
+    assert pilot.calibration_departure(_pilot_rows("cont_cf", 800, 1.3, rng), "cont_cf")
+    # The at-target shrunk power, the refusal's input since review B1, needs no pilot row.
+    assert pilot.shrunken_power(study.PRIMARY_REPLICATES) >= regenerate.SHRUNK_POWER
+
+
+def test_a_secondary_fit_records_only_a_recordable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review S6: a DataError is a recorded failure with its class; a TypeError stops the run."""
+    from cleverly.exceptions import DataError
+
+    def refuse(frame: pd.DataFrame, subject: object) -> None:
+        raise DataError("no event of cause 1 before the first target time")
+
+    monkeypatch.setattr(study, "fit_with", refuse)
+    out = study._secondary("both_wrong", 0, pd.DataFrame())
+    assert {row["error"] for row in out.values()} == {"DataError"}
+    assert all(row["failed"] == 1.0 for row in out.values())
+
+    def defect(frame: pd.DataFrame, subject: object) -> None:
+        raise TypeError("a defect")
+
+    monkeypatch.setattr(study, "fit_with", defect)
+    with pytest.raises(TypeError):
+        study._secondary("both_wrong", 0, pd.DataFrame())
+
+
+def test_the_floor_rules() -> None:
+    """Review S7: the rung rule stops at the first red row; the window stops short of reds."""
+    assert readings.rel_sd_floor([0.1, 0.2, 0.3], [True, True, True]) == 0.3
+    assert readings.rel_sd_floor([0.1, 0.2, 0.3], [True, False, True]) == 0.1
+    assert readings.rel_sd_floor([0.1, 0.2], [False, True]) == 0.0
+    shares = [0.02, 0.05, 0.1, 0.2, 0.3]
+    assert readings.share_window(shares, [True] * 5) == (0.02, 0.3)
+    assert readings.share_window(shares, [False, True, True, True, False]) == (0.05, 0.2)
+    table = pd.DataFrame(
+        {
+            "regime_kind": ["static", "static", "rule"],
+            "median_rel_sd": [0.1, 0.2, 0.15],
+            "median_event_share": [0.1, 0.2, 0.15],
+            "fewest_followers": [80.0, 60.0, 40.0],
+            "largest_past_cap_share": [0.05, 0.09, 0.2],
+            "q99_past_cap_share": [0.04, 0.07, 0.1],
+            "largest_bounded_share": [0.0, 0.001, 0.0],
+            "largest_jump_bound_share": [0.0, 0.0, 0.0],
+            "rule_passed": [True, True, False],
+        }
+    )
+    values = readings.floor_values(table)
+    assert values["longitudinal_rel_sd"] == 0.2 and not values["rules_supported"]
+    assert values["rules_rel_sd"] is None and values["fewest_followers"] == 60.0
+    assert values["largest_past_cap_share"] == 0.09
+
+
+def test_the_omitted_columns_are_l_in_the_engines_designs() -> None:
+    """Review m5: ``HAZARD_L`` and ``TREATMENT_L`` are the engine's columns of :math:`L(s_k)`."""
+    from cleverly.survival import _longitudinal_nuisance as nuisance
+    from cleverly.survival._longitudinal_data import ContinuousLongitudinalData
+
+    frame = pd.DataFrame(
+        {
+            "id": [0, 0, 1],
+            "start": [0.0, 3.0, 0.0],
+            "stop": [3.0, 9.0, 7.0],
+            "event": [0, 1, 2],
+            "W1": [1.0, 1.0, 0.0],
+            "W2": [4.0, 4.0, 2.0],
+            "L": [0.0, 7.0, 5.0],
+            "A": [1, 0, 1],
+        }
+    )
+    data = ContinuousLongitudinalData.from_frame(frame, **laws.COLUMNS, causes=laws.CAUSES)
+    coded = np.asarray(frame["A"], dtype=int)
+    visits = np.arange(len(frame))
+    hazard = nuisance.design(data, coded, visits)
+    treatment = nuisance.treatment_design(data, coded, visits)
+    assert hazard[:, laws.HAZARD_L].tolist() == [0.0, 7.0, 5.0]
+    assert treatment[:, laws.TREATMENT_L].tolist() == [0.0, 7.0, 5.0]
 
 
 def test_each_gate_fails_its_mutation(synthetic: dict[str, pd.DataFrame]) -> None:
