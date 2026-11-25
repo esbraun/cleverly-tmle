@@ -13,7 +13,8 @@ no comparator. The publication policy is `reporting`.
 
 Every gated row passes, so stacked `TMLE`
 at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, keep
-their row's label (`T11.stacked`, `T10.unweighted` at 40 clusters, and `G07` from 20 clusters).
+their row's label (`T11.stacked` below 40 clusters and `G07` from 20 clusters). At 40 clusters a
+fit is on the clustered tier, whose row `T10.unweighted` rests on its own evidence.
 Another adaptive learner, `LTMLE` below 20 clusters and the fold-evaluated, `DRTMLE` and `SDR`
 fits are not measured, and read experimental. The in-sample fits are reported only: an in-sample
 fit with a data-adaptive learner stays experimental by theory. No row is red, so the study holds no row

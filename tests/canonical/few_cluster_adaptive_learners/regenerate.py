@@ -7,7 +7,7 @@ predicted reds (coverage 0.9425, 0.9437 and 0.9430), and the primary passes. No 
 takes an ``adaptive_nuisance`` shortfall, and no row is red. The red readings, their owners and
 the shortfall table that the routes below name were coded for a red row; with none, they were
 removed at registration, and the routes stay here as the record of the declaration. The study
-is evidence of the support rows ``T11.stacked``, ``T10.unweighted`` and ``G07``
+is evidence of the support rows ``T11.stacked`` and ``G07``
 (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`), and its page is
 ``docs/technical-reference/method-evidence/few-cluster-adaptive-learners.md``.
 

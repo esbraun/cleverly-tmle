@@ -2,8 +2,8 @@
 
 This study measures the Student $t_{J-2}$ interval of a clustered `TMLE` and a cross-fitted
 `LTMLE` whose nuisances are fitted by the default learner library, at 10, 20 and 40 clusters.
-Every gated row passes, so it is evidence of the support rows `T11.stacked`, `T10.unweighted`
-and `G07` (`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`). It has no comparator.
+Every gated row passes, so it is evidence of the support rows `T11.stacked` and
+`G07` (`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`). It has no comparator.
 
 | file | role |
 | --- | --- |
