@@ -139,7 +139,6 @@ SEPARABLE_ENGINE_REFUSAL = Refusal(
     "a Separable regimen needs the cause-specific hazards at two treatment levels, which only "
     "LTMLE(survival_model='hazard') fits.",
     alternative="Fit LTMLE(survival_model='hazard', targeting='one_step').",
-    roadmap="X91",
 )
 
 #: The same refusal as the study's method table gives it, with the method-spec alternative.
@@ -150,7 +149,6 @@ SEPARABLE_METHOD_REFUSAL = Refusal(
         "Use method=TMLEMethod(models=ModelSpec(survival_model='hazard'), "
         "targeting=Targeting(algorithm='one_step'))."
     ),
-    roadmap="X91",
 )
 
 
@@ -187,7 +185,6 @@ def separable_data_refusal(data: LongitudinalData) -> Refusal | None:
             "a Separable regimen is not combined with eliminate=: eliminating the competing "
             "cause removes it, so no component of the treatment acts on it.",
             alternative="Fit the separable regimens without eliminate=.",
-            roadmap="X91",
         )
     later = [name for block in data.time_varying_names for name in block]
     if later:
