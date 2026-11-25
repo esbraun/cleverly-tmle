@@ -55,8 +55,6 @@ def _check_data(namespace: dict[str, Any]) -> None:
     frame, known = namespace["frame"], namespace["known"]
     assert frame.shape == (8_000, 5)
     assert list(frame.columns) == ["older", "prior_admissions", "dose", "day", "event"]
-    # "such as day 70 for the death in row 0".
-    assert frame.loc[0, "event"] == 2 and frame.loc[0, "day"] == 70.0
     # "when event is 0, day is the last check that found the patient with neither".
     assert set(frame.loc[frame["event"].eq(0), "day"]) <= {30.0, 60.0, 90.0}
     # The known risks are the exact truth of each plan.

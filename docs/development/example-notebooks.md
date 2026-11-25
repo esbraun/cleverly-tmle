@@ -119,7 +119,13 @@ such as "what happens when a model is wrong". Put it after the estimate and give
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.
 
-The main path, everything before "Go deeper", has a word budget that the fast tier gates (the [reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed instead of given a larger one.
+The main path, everything before "Go deeper", has a word budget that the fast tier gates (the
+[reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes
+after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed
+instead of given a larger one. When trimming is not enough, "Try to break the result" and "What if a
+confounder is missing?" may move under "Go deeper" as lessons, on one condition: the conclusion
+(`interpret`) says in plain words what each moved check found and which conditions no check on the
+page covers.
 
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
