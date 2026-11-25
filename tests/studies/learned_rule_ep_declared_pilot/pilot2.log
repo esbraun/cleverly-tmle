@@ -1,0 +1,31 @@
+/home/user/cleverly-tmle/.venv/lib/python3.13/site-packages/sklearn/linear_model/_logistic.py:599: ConvergenceWarning: lbfgs failed to converge after 22 iteration(s) (status=2):
+ABNORMAL: 
+
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+Please also refer to the documentation for alternative solver options:
+    https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression
+  n_iter_i = _check_optimize_result(
+wrote /home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.csv
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 171, in <module>
+    main()
+    ~~~~^^
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 167, in main
+    print(f"calibration R from the pilot: {declared_replicates(summary)}", flush=True)
+                                           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/user/cleverly-tmle/tests/studies/learned_rule_ep_declared_pilot.py", line 129, in declared_replicates
+    out[str(arm).removeprefix("__")] = repeated_sizing.calibration_replicates(
+                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        study.STUDY.margins,
+        ^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        family_pass=ARM_FAMILY_PASS,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/cleverly-tmle/tests/studies/repeated_sizing.py", line 759, in calibration_replicates
+    raise ValueError("no budget up to 50,000 replications meets the calibration rule")
+ValueError: no budget up to 50,000 replications meets the calibration rule

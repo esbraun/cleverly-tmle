@@ -1717,9 +1717,11 @@ the rule learner of the learned-rule value
 The projection TMLE also fits a missing treatment in sample (through the composite indicator),
 `strata=`, `repeats` above 1 and the full-refit bootstrap. The registered `projection-compositions`
 study measured these, and its support rows label them supported, except the bootstrap of a
-cross-fitted fit, which stays with [F2](#f2-targeted-bootstrap-inference). The EP rule's interval
-with a declared `sieve=` or `learner=` reads experimental until the declared
-`learned-rule-ep-declared` study is run and registered.
+cross-fitted fit, which stays with [F2](#f2-targeted-bootstrap-inference). The registered
+`learned-rule-ep-declared` study measured the EP rule's interval with a declared `sieve=` (a
+fixed-size B-spline sieve) and a declared `learner=` (a shallow gradient-boosting regressor), and
+rows `T51` and `T51.optimal` label those fits supported. The value of the optimal rule with a
+declared final learner reads experimental, because no limit is claimed for a final learner.
 
 The projection of a controlled direct effect,
 `ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, has

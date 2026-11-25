@@ -57,6 +57,9 @@ PROPERTY_CELLS = study.PROPERTY_CELLS
 #: The share of a cell's requested replications that the accounting lets a run lose.
 FAILURE_BOUND = 0.01
 
+#: The factor of the shrunken-SE control, which ``claims.thresholds`` publishes.
+SHRUNKEN_SE_FACTOR = study.SHRUNKEN_SE_FACTOR
+
 #: The draw-level statistic the accounting reports for each lost replicate.
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
@@ -122,6 +125,7 @@ def _replicate(cell: str, replicate: int, stream: str, frame: pd.DataFrame) -> l
     requested = replicates_of(cell)
     if cell == study.LEAK_CONTROL:
         result, harness, warnings = study.control(frame, seed)
+        study.require_interval(result.estimates[study.ESTIMAND])
         row = _base_row(
             cell,
             "control",
@@ -176,6 +180,8 @@ def _replicate(cell: str, replicate: int, stream: str, frame: pd.DataFrame) -> l
     rows = [row]
     if cell == study.calibration_cell("nonexc", "S"):
         std_error = row["std_error"] * study.SHRUNKEN_SE_FACTOR
+        # The control's verdict reads only its SE ratio; its published ``covered`` uses the
+        # symmetric interval of the shrunken SE, as the shared helper does (design review 3, N2).
         half = base.CRITICAL * std_error
         rows.append(
             {

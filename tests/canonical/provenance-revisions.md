@@ -867,4 +867,56 @@ every row; the same edits refit bitwise equal for `hazard-mtp` and `vector-mtp`.
 `tests/studies/evidence/simultaneous.py`, whose Fix-9 edit the constant-arm section above covers.
 Merging main again at `a5d13ce6` (#743 to #747: sampled refutation, the 0.2.8 release and the
 band-less bootstrap replicate of the continuous-time TMLE) changes no module that any Fix-9
-study's manifest records.
+study's manifest records, and neither does merging main at `d30703e6` (#750, the
+`learned-rule-ep-declared` registration).
+
+## The `CONFIGURATION` publish step of `learned-rule-ep-declared`
+
+The declared run of `learned-rule-ep-declared` ran at `9bd7aa90` on a clean tree, fitted every
+primary and property replication, and stopped in `write_manifest` because
+`tests/studies/learned_rule_ep_declared.py` defined no `CONFIGURATION`. The publish step was
+finished by a wrapper kept with the plans (`rows/P1/ep-declared-publish/publish.py` in the
+plans repository), which set `CONFIGURATION` on the imported module in memory, from the
+dictionary in `configuration.py` beside it, and then ran the declared entry point
+`tests.canonical.learned_rule_ep_declared.regenerate` unchanged. HEAD stayed `9bd7aa90` and the
+tree stayed clean, so the resume key was the run's own, and the log records
+`resumed from ... reused the Python phase`. No replication was refitted. The wrapper rewrites
+`sys.argv` before it runs the module, so `run.log` records the entry point's command line with
+the wrapper's arguments. `CONFIGURATION` is descriptive text that no seed, fit or verdict reads.
+Registration commits that dictionary verbatim to the study module, and
+`tests/unit/test_learned_rule_ep_declared_design.py` checks it against the manifest's
+`configuration`. The module's recorded hash is the hash of the file without it.
+
+## Registration edits after the `learned-rule-ep-declared` run (P1)
+
+The declared run ran at `9bd7aa90` (artifacts `6ee7121f`). Registration then edited modules its
+manifest records, and none of the edits reaches a seed, a fit or a verdict:
+
+- `tests/studies/learned_rule_ep_declared.py` gains `CONFIGURATION` (previous section), and its
+  docstring now names the declared `R` and the registered run.
+- `tests/studies/learned_rule_ep_declared_properties.py` gains `SHRUNKEN_SE_FACTOR`, equal to the
+  study's own factor, which `claims.thresholds` reads for the measured-values table.
+- `src/cleverly/interventions/learned.py` narrows `ep_rule_condition` to the optimal value with a
+  declared final learner, and `src/cleverly/estimators/tmle.py` rewords the comment at its call.
+  The condition sets a support label, which no recorded row holds.
+
+The seed-0 witness of the next section, rerun on the tree with these edits, gives the same
+numbers bit for bit.
+
+## Main merged into `learned-rule-ep-declared` after its run
+
+Merging main at `05487679` after the run changed six modules the manifest records:
+`src/cleverly/effect_modification.py`, `src/cleverly/estimators/ep.py`,
+`src/cleverly/estimators/tmle.py`, `src/cleverly/inference/influence.py`,
+`tests/studies/evidence/properties.py` and `tests/studies/evidence/property_verdicts.py`. Main
+adds the projection of a controlled direct effect and the declared log-ratio final learner of the
+EP curve (P1 PR 2), the per-estimand few-cluster floors (X54 part (d)), the planned-fit counts
+(X106 G2), the continuous-time survival switched standard error and the published verdict
+families (X6 part (a)). None of these is reachable from a cross-fitted difference-scale EP rule
+fit on unclustered rows. The evidence: at seed 0 (sample and fold seed 0, the verified harness
+path) one replication of every cell, the four primaries and the six calibration cells at
+n = 4,000, the shrunken-SE control and the fold-locality control at n = 2,000, fitted through the
+study's own `primary_rows` and property `_replicate` at `537d9c53`, again at the merge and
+again with the registration edits, gives the same 12 rows: 176 numbers (estimates, standard errors, truths, oracle SEs, regrets and
+the paired limit fits) equal bit for bit. The committed verdicts recomputed under main's
+`property_verdicts.py` are unchanged, which `tests/unit/test_method_evidence.py` checks.

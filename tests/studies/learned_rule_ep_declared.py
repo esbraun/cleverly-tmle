@@ -18,11 +18,14 @@ learners, ten outer folds, ``cv_evaluation=True``, pooled targeting and ``g_boun
 the shipped study's; truth per replicate is rule L4 (each fold's rule refitted through
 ``fit_fold_rule``), so ``truth_varies_by_replicate``.
 
-The calibration ``R`` needs the 1,400-draw pilots per cell
-(:mod:`tests.studies.learned_rule_ep_declared_pilot`), which have not run;
-:data:`BUDGETED_R` is the plan's budget, which the declaration commit replaces by the computed
-``R`` when larger.  The study runs after Fix-3 PR 2 merges (plan section 7).  It is not
-registered: it joins :func:`tests.studies.evidence.registry.registered` with its declared run.
+The calibration ``R`` is :data:`BUDGETED_R`, 12,000 per cell, the point reading of the two
+pooled pilots (:mod:`tests.studies.learned_rule_ep_declared_pilot`).  The package forms the
+interval of every value this study estimates, an unclustered mean of a binary outcome, on the
+logit scale (``interval_scale == "range_logit"``), and ``covered`` reads that interval.  The
+standard error, and with it every SE ratio and the pilot's ``R``, does not depend on the
+interval.  The declared run at ``9bd7aa90`` is registered in
+:func:`tests.studies.evidence.registry.registered`; its artifacts are in
+``tests/canonical/learned_rule_ep_declared``.
 """
 
 from __future__ import annotations
@@ -76,17 +79,30 @@ CALIBRATION_N = 16_000
 PRIMARY_N = 2_000
 #: Design review S6: 2,000 per primary cell, so a correct estimator at the shipped pilot's
 #: coverage 0.930 passes each cell's coverage floor with probability 0.986 and all four with
-#: 0.945 (``tests/unit/test_learned_rule_ep_declared_design.py``).
+#: 0.945 (``tests/unit/test_learned_rule_ep_declared_design.py``).  0.930 is a planning figure
+#: read under the old symmetric interval; under the logit interval the shipped primaries move by
+#: at most +0.0005 (design review 3, N1), and the binomial calculation does not read the shape.
 PRIMARY_REPLICATES = 2_000
 CONTROL_REPLICATES = 500
 #: The diagnostic ``optimal__L`` cell's draws: it states no verdict, so it is sized as the
 #: shipped study's reporting cells are, not as a gated arm.
 DIAGNOSTIC_REPLICATES = 2_400
-#: The budgeted calibration ``R`` of each arm (plan 5.2): design review S3 raised ``L`` to the
-#: shipped sibling's assured count, 7,200, and design review 2 S-b raised ``S`` to match, where a
-#: cell at a true SE ratio of 0.97 passes with probability 0.991 rather than 0.928.  The declaration commit replaces either by the
-#: pilot's computed ``R`` when larger.
-BUDGETED_R = {"S": 7_200, "L": 7_200}
+#: The declared calibration ``R`` of each arm.  The plan budgeted 7,200 (design reviews S3 and
+#: 2 S-b) and meant the pilot's computed ``R`` to replace it where larger.  Neither the first
+#: pilot nor the pooled pilot (2,800 draws per cell on the ``pilot`` and ``pilot_2`` streams)
+#: gives X32a's rule a budget up to 50,000: the cells of an arm differ (``S`` reads 1.011, 0.969
+#: and 0.966), and the rule reads that gap as a spread of true ratios with an upper bound near
+#: 0.05, at which its family pass stays near 0.34 at 16,000.  The cells are fixed, so the
+#: declaration reads each at its pooled pilot ratio instead: at 12,000 the ``L`` arm passes with
+#: probability 0.9897 there and the ``S`` arm with 0.9996, both together 0.989
+#: (:data:`POINT_READING_PASS`); ``L`` first reaches 0.99 at 12,400.
+#: The rule's own figure is a stated plan deviation, and a red cell is read by the declared
+#: readings of ``tests/canonical/learned_rule_ep_declared/regenerate.py``.  Eric chose 12,000 on
+#: 2026-11-20 over 7,200 and 16,000.
+BUDGETED_R = {"S": 12_000, "L": 12_000}
+#: The family pass of both arms together at the declared ``R``, every cell at its pooled pilot
+#: ratio.
+POINT_READING_PASS = 0.989
 PILOT_DRAWS = 1_400
 SHRUNKEN_SE_FACTOR = 0.70
 #: The harness refits each fold's rule through ``fit_fold_rule`` and compares it with the rule
@@ -187,6 +203,7 @@ STUDY = StudyRecord(
         "src/cleverly/effect_modification.py",
         "src/cleverly/bases.py",
         "src/cleverly/estimators/tmle.py",
+        "src/cleverly/inference/influence.py",
         "tests/studies/evidence/properties.py",
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
@@ -200,10 +217,62 @@ STUDY = StudyRecord(
     truth_varies_by_replicate=True,
 )
 
+#: The estimator configuration the manifest records.  The declared run's publish step set it
+#: in memory to this dictionary (``tests/canonical/provenance-revisions.md``).
+CONFIGURATION = {
+    "fit": (
+        "TMLE(learned_rule=declared_rule(curve, random_state=<fold seed>), n_folds=10, "
+        "cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', "
+        "random_state=<fold seed>); primary n = 2000, interval_calibration n = 16000 "
+        "(the validation-rule control n = 2000); rows only, repeats=1"
+    ),
+    "rule_S": (
+        "LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], domains={'W1': (-1, 1)}, "
+        "levels={'W2': (0, 1)}), sieve=Sieve(Additive(BSpline(['W1'], 4), Indicators('W2')), "
+        "size=4)): the declared sieve, no size chosen"
+    ),
+    "rule_L": (
+        "LearnedRule(loss='ep', modifiers=<the same>, learner=HistGradientBoostingRegressor("
+        "max_depth=2, learning_rate=0.1, max_iter=100, early_stopping=False, "
+        "random_state=<fold seed>)): the declared final learner, the default sieve's size "
+        "chosen by cross-validation"
+    ),
+    "optimal_value": (
+        "the same fit with estimands=['ey_optimal_rule'] and treatment_probabilities=g0 at "
+        "non_exceptional (optimal_known_g)"
+    ),
+    "paired_limit_fit": (
+        "each S cell: the same estimator, sample and outer folds with every row's rule fixed at "
+        "the S limit rule of its law; truth the limit rule's value"
+    ),
+    "outcome_learner": (
+        "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), "
+        "LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)"
+    ),
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": "RM30 non_exceptional and misspecified_limit; optimal_known_g at non_exceptional",
+    "calibration_r": "12,000 per calibration cell (BUDGETED_R), the point reading of the pooled pilots",
+    "truth": (
+        "per replication: refit each fold's rule through fit_fold_rule with the recorded inner "
+        "seed, require the fit's rule on every validation row, and average the fold rules' "
+        "values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2"
+    ),
+    "fold_seed": (
+        "primary: stream_seed(record, 'fold_partition', 'primary', scenario, replicate); "
+        "property cells: fold_seed(cell, replicate) on the property stream"
+    ),
+}
+
+#: The pilot streams.  ``pilot_2`` is the second, independent pilot that the sizing rule pools
+#: with the first when the first alone gives no budget (the precedent of the per-arm C-TMLE
+#: study's pooled pilot steps).
+PILOT_STREAMS = ("pilot", "pilot_2")
+
 #: The sample and fold labels of each stream.  ``property`` is the declared run.
 STREAMS: dict[str, tuple[str, str]] = {
     "property": ("property_sample", "fold_partition"),
     "pilot": ("pilot_sample", "pilot_fold_partition"),
+    "pilot_2": ("pilot_2_sample", "pilot_2_fold_partition"),
     "smoke": ("smoke_sample", "smoke_fold_partition"),
 }
 
@@ -220,7 +289,7 @@ def fold_seed(cell: str, replicate: int, stream: str = "property") -> int:
 
 def verified(replicate: int, stream: str) -> bool:
     """Whether the harness refits and compares this replicate's fold rules (B4)."""
-    return stream == "pilot" or replicate % VERIFY_EVERY == 0
+    return stream in PILOT_STREAMS or replicate % VERIFY_EVERY == 0
 
 
 # ------------------------------------------------------------------------- the harness
@@ -386,7 +455,19 @@ def measured(
     estimate = result.estimates[OPTIMAL_ESTIMAND if optimal else ESTIMAND]
     if not (np.isfinite(estimate.psi) and np.isfinite(estimate.std_error)):
         raise RuntimeError(f"a non-finite estimate or standard error (rule L4): {estimate}")
+    require_interval(estimate)
     return Measured(result=result, truth=truth, warnings=count[0], verified=check)
+
+
+def require_interval(estimate: Any) -> None:
+    """Stop on a withheld interval (rule L4), which would otherwise count as uncovered.
+
+    Since Fix-3 a bounded mean on its bound or with a constant arm cell carries
+    ``plugin_interval == (nan, nan)`` with a finite standard error (design review 3, F2).
+    """
+    low, high = estimate.plugin_interval
+    if not (estimate.supplies_inference and np.isfinite(low) and np.isfinite(high)):
+        raise RuntimeError(f"a withheld interval ({estimate.inference}) (rule L4): {estimate}")
 
 
 def optimal_estimator(curve: str, fold_seed: int) -> TMLE:
@@ -495,6 +576,10 @@ def _row(cell: str, replicate: int, n: int, truth: float, estimate: Any) -> dict
         "std_error": std_error,
         "ci_lower": low,
         "ci_upper": high,
+        # ``inference_scale`` is the scale of ``std_error`` and ``inference_estimate``. The
+        # package forms this bounded mean's interval on the logit scale
+        # (``interval_scale == "range_logit"``); ``ci_lower``, ``ci_upper`` and ``covered``
+        # record that interval.
         "inference_scale": "identity",
         "covered": int(low <= truth <= high),
         "initial_estimate": float("nan"),

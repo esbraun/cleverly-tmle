@@ -54,8 +54,8 @@ readings from the committed pilot summaries.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose main-terms interaction logistic outcome learner has no W1^2 term, with `LearnedRule(loss='ep')` on the default sieve | `ey_learned_rule[learned rule]` | fold average of the value of the rule that the EP curve fitted on each fold's training rows sets | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the default sieve's size chosen by cross-validation over five inner folds | -0.000864 to 0.000896 | 0.9440 | 0.9827 | pass |
-| learned-rule law with the blip 0.1 + W1, whose main-terms interaction logistic outcome learner is correct, with `LearnedRule(loss='ep')` on the default sieve | `ey_learned_rule[learned rule]` | fold average of the value of the rule that the EP curve fitted on each fold's training rows sets | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the default sieve's size chosen by cross-validation over five inner folds | -0.0011 to 0.000673 | 0.9505 | 0.9938 | pass |
+| learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, whose main-terms interaction logistic outcome learner has no W1^2 term, with `LearnedRule(loss='ep')` on the default sieve | `ey_learned_rule[learned rule]` | fold average of the value of the rule that the EP curve fitted on each fold's training rows sets | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of the EP curve of the effect given (W1, W2) fitted on the fold's training rows, from the sieve and final stage the law names | -0.000864 to 0.000896 | 0.9440 | 0.9827 | pass |
+| learned-rule law with the blip 0.1 + W1, whose main-terms interaction logistic outcome learner is correct, with `LearnedRule(loss='ep')` on the default sieve | `ey_learned_rule[learned rule]` | fold average of the value of the rule that the EP curve fitted on each fold's training rows sets | `cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of the EP curve of the effect given (W1, W2) fitted on the fold's training rows, from the sieve and final stage the law names | -0.0011 to 0.000673 | 0.9505 | 0.9938 | pass |
 <!-- /generated -->
 
 ## Theory properties
@@ -219,8 +219,9 @@ outcome regression with the treatment model, and the gain is positive in most dr
 
 The readings do not show the items in this list.
 
-- A declared sieve, a fixed size, a schedule or a declared final learner. Each such fit reads
-  experimental.
+- A declared sieve, a fixed size, a schedule or a declared final learner. The
+  [declared-curve study](learned-rule-ep-declared.md) measures a fixed-size B-spline sieve and a
+  gradient-boosting final learner.
 - Another modifier set, or more than two modifiers.
 - Weights, clusters, fold targeting, or `repeats` above 1 with the EP rule. Each such fit reads
   experimental.
@@ -353,7 +354,7 @@ the committed results and checked at the precision printed.
 | The interval is calibrated at n = 16,000 only | At n = 2,000 both laws pass the primary screens. At n = 1,000 at `misspecified_limit` the reported SE is about 9% too small and the coverage 0.918. The support key holds no sample size, so a smaller fit also reads supported, and the rows' limits state the deficit |
 | The calibration size was moved once | The cells moved from 4,000 to 16,000 after the sizing pilot read an SE ratio of 0.970 at 4,000, and before any declared draw. The rows' limits name the move |
 | The exceptional law under-covers | At a law with no effect, or with an effect zero on a set of positive probability, the fold curves have no fixed sign and condition C3 fails. At the RM30 `exceptional` law the coverage is 0.901 and the SE ratio 0.833 at n = 2,000. No check detects such a law, and the rows make no claim there |
-| One sieve and one final stage | The study fits the default sieve with its size chosen by cross-validation and least squares. A declared sieve, a fixed size, a schedule or a declared final learner reads experimental |
+| One sieve and one final stage | The study fits the default sieve with its size chosen by cross-validation and least squares. The [declared-curve study](learned-rule-ep-declared.md) measures a declared sieve and a declared final learner |
 | Two laws and two modifiers | The study fits RM30 `non_exceptional` and `misspecified_limit` with the main-terms outcome learner and both adjustment columns as modifiers. Another law or modifier set rests on the theory alone |
 | The optimal value is measured with $g_0$ known at one law | The interval covers $\Psi_{d_0}$ up to the regret of the EP limit rule, which is 0.005 SE at `non_exceptional`. An estimated treatment mechanism reads experimental |
 | The fold-locality control resolves a gross violation only | It shows that a curve fitted on the validation rows reads far below the band. The subtle leaks rest on the unit witnesses W-c2 and W-c3 |

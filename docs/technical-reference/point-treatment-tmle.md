@@ -1804,12 +1804,15 @@ The key carries `rule_learner_ep`. The registered, gated
 [EP rule-learner study](method-evidence/learned-rule-ep.md) measures the default sieve with
 least squares, on unweighted rows with pooled targeting, `repeats=1` and no `id=`, at both RM30
 laws. Rows `T51` (the learned-rule value) and `T51.optimal` (the value of the optimal rule with
-the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported. A
-declared sieve, fixed size, schedule or final learner reads experimental through its own
-condition, because the key holds neither choice; the declared `learned-rule-ep-declared` study
-(`tests/studies/learned_rule_ep_declared.py`, not yet run; its declared run
-`python -m tests.canonical.learned_rule_ep_declared.regenerate` holds the red-cell readings) measures a fixed-size B-spline sieve and
-a shallow gradient-boosting final learner, and the condition goes when it is registered. An EP
+the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported.
+
+The registered, gated [declared-curve study](method-evidence/learned-rule-ep-declared.md) measures a
+fixed-size B-spline sieve and a shallow gradient-boosting final learner at both laws, and both
+rows cite it. The key holds neither choice, so any declared sieve, fixed size, schedule or final
+learner reads supported, and the interval then needs the fold rules to converge to a fixed rule
+(C3), which the package cannot check for the user's learner. The value of the optimal rule with
+a declared final learner reads experimental through its own condition: no limit is claimed for a
+final learner, and the study's cell for it states no verdict. An EP
 rule fit reports `rule_disagreement` for each split, as every learned rule does. Weights, clusters, fold targeting, `repeats`
 above 1, known regimes, a continuous outcome and, for the optimal value, an estimated $g$ read
 experimental too.
@@ -1829,6 +1832,12 @@ about 13% (SD 9%) of the error variance at n = 2,000 and 6.5% (SD 3%) at 4,000. 
 declared run each calibration draw also fits the fit whose rule is fixed at the EP limit rule,
 on the same draws. Its error variance is within about 1% of the learned fit's at both laws and
 about 2% for the optimal value, and its own SE ratios are 1.004, 1.011 and 0.996.
+
+With the declared sieve and the declared learner the interval is calibrated at n = 16,000 too:
+SE ratios 0.9965 and 0.9919 for the sieve and 0.9980 and 0.9956 for the learner at the two laws,
+and 0.9967 for the optimal value with the sieve, with coverage 0.9469 to 0.9501 (12,000 draws
+each). At n = 2,000 the SE ratios are 0.9289 and 0.9522 for the sieve and 1.0096 and 0.9544 for
+the learner, so a declared curve at that size can give an interval up to about 7% narrow.
 
 At the RM30 `exceptional` law the effect is zero everywhere, so C3 fails, and the interval
 under-covers: coverage 0.901 (99% interval 0.885 to 0.916) and SE ratio 0.833 at n = 2,000. No

@@ -1,7 +1,8 @@
 """The design of ``learned-rule-ep-declared`` (P1 plan rev 2.2, section 5.2), without a run.
 
-The declared sieve's limit is computed by quadrature on the RM30 grid; the calibration ``R``
-needs the 1,400-draw pilots per cell, which have not run.  The harness, the paired limit fit,
+The declared sieve's limit is computed by quadrature on the RM30 grid; the calibration ``R`` is
+the point reading of the two pooled pilots, and the manifest's configuration is the module's
+:data:`~tests.studies.learned_rule_ep_declared.CONFIGURATION`.  The harness, the paired limit fit,
 the streams, the summary and the cost gate are checked here on small fits (design review
 B3, B4, S3, S4, S6, S7).
 """
@@ -101,7 +102,7 @@ def test_the_primaries_pass_together_with_probability_090() -> None:
 
 
 def test_each_arm_budget_passes_at_the_plan_ratio() -> None:
-    """Design reviews S3 and 2 S-b: ``L`` and ``S`` at 7,200 pass a cell at SE ratio 0.97."""
+    """Design reviews S3 and 2 S-b: each arm's declared R passes a cell at SE ratio 0.97."""
     margins = study.STUDY.margins
     for curve in study.CURVES:
         assert (
@@ -311,5 +312,78 @@ def test_the_pilot_rule_sizes_each_arm_and_the_budget_covers_it() -> None:
     assert all(computed[curve] <= study.BUDGETED_R[curve] for curve in study.CURVES)
     if not pilot.PILOT_CSV.exists():
         pytest.skip("the pilot has not run; the declaration commit adds it (plan 5.2)")
-    computed = pilot.declared_replicates(pd.read_csv(pilot.PILOT_CSV))
-    assert all(computed[curve] <= study.BUDGETED_R[curve] for curve in study.CURVES)
+
+
+def test_the_declared_r_is_the_point_reading_of_the_pooled_pilot() -> None:
+    """The pooled pilot gives the rule no budget; 12,000 is the declared point reading."""
+    summary = pd.read_csv(pilot.PILOT_CSV)
+    assert set(summary["cell"]) == set(study.POSITIVE_CELLS)
+    assert (summary["replicates"] == 2 * pilot.REPLICATES).all()
+    with pytest.raises(ValueError, match="no budget"):
+        pilot.declared_replicates(summary)
+    passes = pilot.point_reading_pass(summary, study.BUDGETED_R)
+    assert set(passes) == set(study.CURVES)
+    assert math.prod(passes.values()) >= study.POINT_READING_PASS
+    smaller = {curve: r - 4 * repeated_sizing.BUDGET_STEP for curve, r in study.BUDGETED_R.items()}
+    assert math.prod(pilot.point_reading_pass(summary, smaller).values()) < study.POINT_READING_PASS
+
+
+@pytest.mark.xdist_group("learned_rule_ep_declared_fit")
+def test_the_rows_record_the_range_logit_interval() -> None:
+    """Fix-3: coverage reads the package's logit interval of this bounded mean; SE unchanged."""
+    frame, _, fitted = small_fit()
+    estimate = fitted.result.estimates[study.ESTIMAND]
+    assert estimate.interval_scale == "range_logit" and estimate.supplies_inference
+    row = properties._base_row(
+        "nonexc__S", "positive", 0, 1, len(frame), fitted.truth.truth, estimate
+    )
+    low, high = estimate.plugin_interval
+    assert row["std_error"] == estimate.plugin_std_error
+    # A nonzero witness: the identity interval would be symmetric about the estimate.
+    assert high - estimate.psi != pytest.approx(estimate.psi - low, rel=1e-6)
+    primary = study._row("S_nonexc_2k", 0, len(frame), fitted.truth.truth, estimate)
+    assert (primary["ci_lower"], primary["ci_upper"]) == (low, high)
+    assert primary["inference_scale"] == "identity"
+
+
+@pytest.mark.xdist_group("learned_rule_ep_declared_fit")
+def test_the_optimal_value_records_the_range_logit_interval() -> None:
+    cell = study.calibration_cell("optimal", "S")
+    frame = base.draw("non_exceptional", 2_000, study.sample_seed(cell, 0, "smoke"))
+    seed = study.fold_seed(cell, 0, "smoke")
+    fitted = study.measured(frame, "S", "non_exceptional", seed, optimal=True)
+    estimate = fitted.result.estimates[study.OPTIMAL_ESTIMAND]
+    assert estimate.interval_scale == "range_logit"
+
+
+def test_a_withheld_interval_stops_the_replicate() -> None:
+    withheld = SimpleNamespace(
+        plugin_interval=(float("nan"), float("nan")),
+        supplies_inference=False,
+        inference="constant_arm_cell_plugin",
+    )
+    with pytest.raises(RuntimeError, match="withheld interval"):
+        study.require_interval(withheld)
+
+
+def test_the_second_pilot_pools_only_distinct_pilot_streams() -> None:
+    """The sizing rule pools the independent ``pilot`` and ``pilot_2`` streams, each once."""
+    first = synthetic_rows(replicates=50).assign(stream="pilot")
+    second = synthetic_rows(replicates=50).assign(stream="pilot_2")
+    assert len(pilot.pooled([first, second])) == len(first) + len(second)
+    with pytest.raises(ValueError, match="distinct pilot streams"):
+        pilot.pooled([first, first])
+    with pytest.raises(ValueError, match="distinct pilot streams"):
+        pilot.pooled([first, second.assign(stream="property")])
+    with pytest.raises(ValueError, match="not a pilot stream"):
+        pilot.pilot_rows(stream="property")
+    assert study.verified(study.VERIFY_EVERY + 1, "pilot_2")
+
+
+def test_the_configuration_is_the_one_the_manifest_records() -> None:
+    """The publish step set ``CONFIGURATION`` in memory; the module now carries it verbatim."""
+    import json
+
+    manifest = json.loads((study.STUDY.artifacts / "manifest.json").read_text(encoding="utf-8"))
+    recorded = manifest["configuration"]
+    assert {key: recorded[key] for key in study.CONFIGURATION} == study.CONFIGURATION

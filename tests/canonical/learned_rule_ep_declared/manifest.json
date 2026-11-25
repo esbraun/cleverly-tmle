@@ -1,0 +1,146 @@
+{
+  "schema_version": 2,
+  "study": "Learned-rule value, EP rule with a declared sieve or learner",
+  "slug": "learned-rule-ep-declared",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-ep",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "9bd7aa906d88ee64e899f9f4f156bff3304ee070",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.5",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "declared_stack": {
+      "versions": {
+        "python": "3.13.7",
+        "numpy": "2.4.6",
+        "scipy": "1.18.0",
+        "pandas": "3.0.5",
+        "scikit_learn": "1.9.0",
+        "joblib": "1.5.3"
+      },
+      "differences": {
+        "python": {
+          "declared": "3.13.7",
+          "ran": "3.13.14"
+        },
+        "numpy": {
+          "declared": "2.4.6",
+          "ran": "2.5.5"
+        },
+        "scipy": {
+          "declared": "1.18.0",
+          "ran": "1.18.1"
+        },
+        "pandas": {
+          "declared": "3.0.5",
+          "ran": "3.1.1"
+        },
+        "scikit_learn": {
+          "declared": "1.9.0",
+          "ran": "1.9.1"
+        },
+        "joblib": {
+          "declared": "1.5.3",
+          "ran": "1.6.0"
+        }
+      }
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20261491,
+    "resampling_seed": 20261492,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "failure_bound": {
+      "cleverly-learned-rule-ep": 0.01
+    },
+    "scenarios": {
+      "S_nonexc_2k": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "S_misspec_2k": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "L_nonexc_2k": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "L_misspec_2k": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=declared_rule(curve, random_state=<fold seed>), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>); primary n = 2000, interval_calibration n = 16000 (the validation-rule control n = 2000); rows only, repeats=1",
+    "rule_S": "LearnedRule(loss='ep', modifiers=Modifiers(['W1', 'W2'], domains={'W1': (-1, 1)}, levels={'W2': (0, 1)}), sieve=Sieve(Additive(BSpline(['W1'], 4), Indicators('W2')), size=4)): the declared sieve, no size chosen",
+    "rule_L": "LearnedRule(loss='ep', modifiers=<the same>, learner=HistGradientBoostingRegressor(max_depth=2, learning_rate=0.1, max_iter=100, early_stopping=False, random_state=<fold seed>)): the declared final learner, the default sieve's size chosen by cross-validation",
+    "optimal_value": "the same fit with estimands=['ey_optimal_rule'] and treatment_probabilities=g0 at non_exceptional (optimal_known_g)",
+    "paired_limit_fit": "each S cell: the same estimator, sample and outer folds with every row's rule fixed at the S limit rule of its law; truth the limit rule's value",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "laws": "RM30 non_exceptional and misspecified_limit; optimal_known_g at non_exceptional",
+    "calibration_r": "12,000 per calibration cell (BUDGETED_R), the point reading of the pooled pilots",
+    "truth": "per replication: refit each fold's rule through fit_fold_rule with the recorded inner seed, require the fit's rule on every validation row, and average the fold rules' values E Qbar0(d, W) by the trapezoid rule on 4001 points of W1 for each W2",
+    "fold_seed": "primary: stream_seed(record, 'fold_partition', 'primary', scenario, replicate); property cells: fold_seed(cell, replicate) on the property stream",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_ep_declared.py": "4f770dc72573734028ffe23974e549296e22f5cc6e8d82639adf74124c0a79aa",
+    "tests/studies/learned_rule_ep_declared_properties.py": "d14ce3c7a35c6f5b55417862bdcf56007d5c8b6da305ac1b932e73df6b7a0574",
+    "tests/studies/_learned_rule_ep_law.py": "e6e197e68f3fbd100857c80306a4114ba735b21f13e852d0c4c6e10c1178f541",
+    "tests/studies/_learned_rule_law.py": "e2db2a8cf5db1850c1d484f41fe2fd081a2ccf83c464abfcad0f093da840d7ab",
+    "tests/studies/_learned_rule_optimal_law.py": "c3f19cd0f97834cf3a04ae69c5f3b7aa1e5679b98d6fc5759fefc82fcf2cb711",
+    "src/cleverly/interventions/_rule_learners.py": "a689a6ca24637a8a28a35dc2dd1c97b8ffbcb2b3214e3a6a1257e516c1911247",
+    "src/cleverly/interventions/learned.py": "dbf1d711b2ff072e947c935cae57c3f89ebcdf7f839dfb247c1dea4d7ae7f55e",
+    "src/cleverly/estimators/ep.py": "7e0461ec9743f787c1f273dc5c54c7058a0fd02fe994f3a296f66f4b45746efa",
+    "src/cleverly/effect_modification.py": "20384de10afa130773bf2cc803c4b420c99ad3b13001a9778b24430682faca92",
+    "src/cleverly/bases.py": "e771d1243f25406489d36da6f2edfe5c51e2912ec7285de7bdc9ca23f04f6908",
+    "src/cleverly/estimators/tmle.py": "f6f22d14a00647163ba9b8989120441b1084cdf0123492fd4d981eb0a264ac45",
+    "src/cleverly/inference/influence.py": "59aed830d199bdfd619b6af6e7f5ae0006d9ac15f49005949b0f9bde6bca2bb5",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "b1b6f464b9653368fccbffc05b206b9802395b0b8163cfad5a6f2028a9b199a9",
+    "summary.csv": "1e6756f3bd003f31f2539a95422ca2f41f144eb1d84939dd1c5a173513ee9500",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "3d1cd7205a708935e790b13f30d774ed3e8c04b58dd25a4ff26e7aba55426ee4",
+    "property-replicates.parquet": "f36507c304a7865ae1900c6a1a258d921ac08b5bbc62bfd584b4614d6ab05d6d",
+    "properties.csv": "e8b264d00fec717a05861d34c08ac7439a3307116ca501b891f4ac305684f4c0"
+  }
+}
