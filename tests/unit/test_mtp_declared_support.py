@@ -232,8 +232,12 @@ def test_t_a4_the_support_report_after_a_passing_check(ratio: str) -> None:
     assert undeclared.outside_declared_support is None
 
 
-@pytest.mark.parametrize("ratio", ["density", "classifier"])
+@pytest.mark.parametrize("ratio", ["density"])
 def test_t_a5_a_non_binding_declaration_leaves_the_estimate_bit_identical(ratio: str) -> None:
+    """The density route reads a support past every bin edge as no support.  The classifier
+    route is not bit-identical: without a declaration its step columns read a side of the
+    fold's observed range that a training image passes, which a declaration replaces
+    (``test_classifier_policy_steps.py``, W11b)."""
     frame = law.point_frame()
     plain = _fit(frame, ratio).single()["ey_policy[inside]"]
     declared = _fit(frame, ratio, treatment_support=Support(-10.0, 10.0)).single()
@@ -248,15 +252,28 @@ def test_t_a5_the_longitudinal_estimate_is_bit_identical() -> None:
     def fit(columns: Any) -> Any:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return LTMLE(regimens, reference="natural", **law.panel_learners()).fit(
-                frame, continuous_treatment=columns, **law.PANEL
-            )
+            # The witness reads the binned density's support cut.
+            return LTMLE(
+                regimens, reference="natural", ratio="density", **law.panel_learners()
+            ).fit(frame, continuous_treatment=columns, **law.PANEL)
 
     plain = fit(["A1", "A2"])
-    declared = fit({"A1": Support(-10.0, 10.0), "A2": Support(0.0, law.upper)})
+    # An h-dependent bound past every bin edge leaves the density's reading, and so the fit,
+    # unchanged.
+    declared = fit({"A1": Support(-10.0, 10.0), "A2": Support(-10.0, _past_the_edges)})
     for name in plain.estimates:
         assert declared[name].psi == plain[name].psi, name
         assert np.array_equal(declared[name].influence_curve, plain[name].influence_curve)
+    # A bound inside the bins cuts each row's density at it (``learners.density``), so the
+    # same declaration at u(h) moves the estimate: the nonzero witness of the reading.
+    # The move is about 8e-4, two percent of the standard error and far above rounding.
+    binding = fit({"A1": Support(-10.0, 10.0), "A2": Support(0.0, law.upper)})
+    moved = binding["ey_regimen[up at 2]"].psi - plain["ey_regimen[up at 2]"].psi
+    assert abs(moved) > 1e-4, moved
+
+
+def _past_the_edges(h: Any) -> Any:
+    return law.upper(h) + 10.0
 
 
 # ------------------------------------------------------------------ declarations

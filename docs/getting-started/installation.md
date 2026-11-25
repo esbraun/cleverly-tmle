@@ -9,13 +9,24 @@ python -m pip install cleverly
 ```
 
 The core install includes NumPy, SciPy, scikit-learn, narwhals, joblib, cloudpickle, and
-threadpoolctl. Install the `all` extra for pandas, polars, and plotting support. Install
-third-party nuisance estimators such as XGBoost or LightGBM separately and pass their
-sklearn-compatible objects directly:
+threadpoolctl. It holds no data-frame library, so the quickstart and the examples need an extra:
+
+| extra | adds |
+| --- | --- |
+| `pandas` | pandas tables |
+| `polars` | polars tables |
+| `plot` | matplotlib, for `cleverly.plotting` |
+| `all` | the three above |
 
 ```bash
 python -m pip install "cleverly[all]"
 ```
+
+Without a data-frame library, the dataset generators raise an `ImportError` that names
+`cleverly[pandas]` and `cleverly[polars]`. Arrow input, a `pyarrow.Table` or an Arrow-backed pandas
+frame, needs `pyarrow`, which no extra installs: run `python -m pip install pyarrow` as well.
+Install third-party learners such as XGBoost or LightGBM separately and pass their
+scikit-learn-compatible objects directly.
 
 Pin the complete version you analysed with, for example 0.2.8:
 
@@ -37,25 +48,11 @@ python -m pip install \
 
 Use a full commit hash. A branch name can move after you record an analysis.
 
-## Development install
+## Work on cleverly itself
 
-Clone the repository and create an editable environment with `uv`:
-
-```bash
-git clone https://github.com/esbraun/cleverly-tmle.git
-cd cleverly-tmle
-uv venv
-uv pip install -e ".[dev]"
-```
-
-Build this documentation site with:
-
-```bash
-nox -s docs
-```
-
-The build writes generated HTML to `docs/_build/html/`; that directory is not source and is not
-committed.
+To change `cleverly`, run its tests or build this site, follow
+[set up your environment](../development/contributing.md#set-up-your-environment) in the
+contributor guide.
 
 ## Verify the import
 
@@ -64,6 +61,3 @@ import cleverly
 
 print(cleverly.__version__)
 ```
-
-If an editable install points at another worktree, the test suite will refuse to run and name both
-paths. Reinstall the current checkout with `uv pip install -e ".[dev]"`.

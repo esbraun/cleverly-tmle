@@ -115,6 +115,7 @@ continuous-modified-treatment-policies
 dose-response
 dose-response-npcausal
 point-modified-treatment-policies
+mtp-density-tails
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle

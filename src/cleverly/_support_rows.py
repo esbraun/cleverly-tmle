@@ -672,8 +672,6 @@ def _t_rows() -> tuple[SupportRow, ...]:
             treatment=("continuous",),
             options={"ratio": "density"},
             cells=["continuous_modified_policy"],
-            # Roadmap: RM18.
-            limits=["One paired calibration leg is red."],
         )
     )
     rows.append(
@@ -2634,13 +2632,13 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "0.9079)."
     ),
     ("G39.ltmle.tau5", "wald"): (
-        "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration). "
+        "Row G39.ltmle.tau5 is red for the price_down contrast at five nodes and n = 5,000: "
+        "coverage 0.9200 and SE ratio 0.9310 (mtp-pricing-calibration). "
         "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     ("G39.sdr.tau5", "wald"): (
-        "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
-        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration). "
+        "Row G39.sdr.tau5 is red for the price_down contrast at five nodes and n = 5,000: "
+        "coverage 0.9230 and SE ratio 0.9339 (mtp-pricing-calibration). "
         "variance='policy_weighted' is supported on this row (mtp-policy-variance)."
     ),
     # band-finite-sample: default_bands:categorical_ltmle measures this configuration's default
@@ -2673,6 +2671,10 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
 #: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
 #: row note prints each sentence after the limits of the row itself.
 MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T15": (
+        "F3-constant-arm-replicate: coverage 0.9222 to 0.9506, SE ratio 0.9316 to 1.0113, "
+        "failures 1 of 2000 (worst case fails)",
+    ),
     "T36.three_arm_stacked": (
         "X26-plugin-conservative: coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, "
         "failures 32 of 10000 (complete case fails)",
@@ -2749,11 +2751,11 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G10.continuous": (
         (
-            "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, "
+            "mtp-longitudinal-limits: coverage 0.9283 to 0.9555, SE ratio 0.9432 to 1.0214, "
             "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
             " 1.1006"
         ),
-        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
+        "mtp-pricing-learned-density: coverage 0.9445 to 0.9683, SE ratio 0.9878 to 1.0786",
     ),
     "G14.survival": (
         (
@@ -2773,16 +2775,13 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         (
             "X39-below-tail-size: the Wald interval is validated only at n of at least twice the "
             "exact-law tail size of the quantity. At n = 2,000, below the tail size 2,326 of "
-            "ate_regimen[always vs never], coverage is 0.911; bias 0.000011 to 0.0112, SE ratio "
+            "ate_regimen[always vs never], coverage is 0.913; bias 0.000011 to 0.0112, SE ratio "
             "0.9459"
         ),
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G40.tau3": (
-        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
-    ),
-    "G40.tau5": (
-        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+        "mtp-pricing-learned-density: coverage 0.9383 to 0.9635, SE ratio 1.0000 to 1.0867",
     ),
     "G34.competing": (
         (
@@ -2816,18 +2815,11 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "to 1.0005"
         ),
     ),
-    "T21": (
-        (
-            "RM18-comparator-density: difference 0.000061 to 0.000361 within 0.000770, RMSE "
-            "ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, "
-            "calibration excess bound 0.0648 vs 0.0500, resolution 0.0439"
-        ),
-    ),
     "T22": (
         (
-            "mtp-point-calibration: coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, "
-            "empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to"
-            " 1.0034"
+            "mtp-point-calibration: coverage 0.9485 to 0.9713, SE ratio 1.0017 to 1.0886, "
+            "empirical efficiency ratio 0.9202 to 1.0000, reported efficiency ratio 1.0003 to"
+            " 1.0033"
         ),
     ),
     "AI.points.cross_fit": (
@@ -3005,14 +2997,14 @@ POLICY_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G10.continuous": (
         "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
-        "1.054 to 1.084, coverage 0.965 to 0.972, with the correct or the primary outcome "
+        "1.056 to 1.085, coverage 0.966 to 0.971, with the correct or the primary outcome "
         f"learners and the oracle hazard; {_POLICY_CONDITION}",
     ),
     "G24.mtp.in_sample": (
         "variance='policy_weighted' (mtp-policy-variance): conservative under plan p4, SE ratio "
-        "1.047 to 1.062, coverage 0.965 to 0.969, with a UnitRangePseudo or LinearRegression "
+        "1.046 to 1.062, coverage 0.966 to 0.969, with a UnitRangePseudo or LinearRegression "
         f"first node; {_POLICY_CONDITION}. With the default SuperLearner pseudo learner the "
-        "option covers 0.969 (reported)",
+        "option covers 0.971 (reported)",
     ),
 }
 
@@ -3039,18 +3031,18 @@ TAIL_NOTES: Final[Mapping[str, tuple[str, ...]]] = {
     "G10.continuous": (
         "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5 calibration cell are below "
         "the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
-        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.001 (0.972 to 1.032)",
+        "coverage 0.947, SE ratio 1.009 (truth twin) and 1.002 (0.972 to 1.032)",
     ),
     "G24.mtp.in_sample": (
         "X39-below-tail-size: ate_regimen[p5 vs natural] and the p5_sdr calibration cell are "
         "below the tail-size rule at the committed n (n_kappa 3,120); the 6,400-row twins read "
-        "coverage 0.951 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.024)",
-        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.936 and SE ratio 0.920 (0.891 to "
+        "coverage 0.950 and 0.947, SE ratio 0.991 (truth twin) and 0.993 (0.966 to 1.023)",
+        "X40: the p4_sdr cell at n = 4,000 reads coverage 0.937 and SE ratio 0.919 (0.891 to "
         "0.950), below its tail size; its 104,400-row twin reads SE ratio 0.990 (0.963 to 1.020) "
         "and coverage 0.946. The p4 rows at n = 5,000 read an RMS ratio interval that "
         "contains 1, so the committed shortfall reads as chance. With the default SuperLearner "
-        "pseudo learner the interval covers 0.944 (0.925 to 0.960), SE ratio 0.948 (0.905 to "
-        "0.996)",
+        "pseudo learner the interval covers 0.948 (0.930 to 0.963), SE ratio 0.946 (0.903 to "
+        "0.994)",
     ),
 }
 
@@ -6470,7 +6462,7 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
     ``LTMLE`` with a modified treatment policy at the baseline decision, ``survival_model=
     "hazard"`` and ``targeting="one_step"`` keys ``mtp`` on the hazard ``LTMLE`` key, with the
     baseline treatment held over the visits (a vector treatment has one visit).  The rows were
-    added because every declared verdict passed: 48 of 48 primary tests and 39 of 39 property
+    added because every declared verdict passed: 48 of 48 primary tests and 41 of 41 property
     cells with a verdict (calibration with its controls on every ratio route, the simultaneous
     band on two laws, robustness on every route, targeting necessity, the root-n rate and
     power), with no failed fit.  The numbers are the committed results
@@ -6516,15 +6508,17 @@ def _hazard_mtp_rows() -> tuple[SupportRow, ...]:
             held=True,
             treatment=continuous,
             kinds=_LONG_BAND,
-            cells=["gaussian_density"],
+            cells=["gaussian_density", "untruncated_density"],
             limits=[
                 "A Gaussian dose over five visits, truncated to [0, 5.5] and shifted by one with "
                 "the cap at 5.5, its ratio from the binned density at oracle_bins(n) bins. The "
                 "primary rows read coverage 0.944 to 0.956 over 2,400 draws, the calibration "
                 "cells SE ratio 0.997 and 1.000 over 4,400, and the band joint coverage 0.950. "
-                "On an unbounded dose the tail bins are wider than the shift and the influence "
-                "curve misses the efficient one by about a quarter of an efficiency SD at "
-                "n = 20,000; its reported rows carry no verdict.",
+                "On an untruncated dose with an uncapped shift the quantile tail bins are wider "
+                "than the shift; the route splits them, and the influence curve's gap from the "
+                "efficient one halves from n = 2,000 to n = 20,000 (0.12, then 0.03 efficiency "
+                "SDs on the contrast). Its calibration cells read SE ratio 1.006 and 0.976 with "
+                "coverage 0.950 and 0.944 over 4,400 draws.",
                 shared,
             ],
             **common,
@@ -7096,6 +7090,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "of a point row. cleverly.effect_curves.SCORE_ASSESSMENT_MEASURED and "
         "SCORE_PAIRED_MEASURED, not a support row, record the configurations the study "
         "licenses."
+    ),
+    "mtp-density-tails": (
+        "It measures the binned conditional-density route of modified treatment policies on "
+        "six dose laws with thin, capped and bounded tails, and the default ratio routes of "
+        "LTMLE and SDR. No support row was declared before the run, so the study licenses none "
+        "and moves no label."
     ),
     "score-assessment-compositions": (
         "It measures the score assessment of an external score in five compositions, which is "
