@@ -95,8 +95,17 @@ def _untiled(estimator: DoseResponseTMLE, data: Any, nuisance: Any, rule: Any, o
         mask = (data.strata == code).astype(float)
         for p, (h, a0) in enumerate(CURVE.pairs):
             weight_obs = CURVE.weight(h, a0, data.treatment)
-            h_obs = engine._clever_observed(weight_obs, g_obs)
-            h_nodes = engine._clever_nodes(CURVE.weight(h, a0, rule.nodes), g_nodes)
+            # Written out here rather than read from the engine, so a change there is caught.
+            h_obs = np.divide(
+                weight_obs, g_obs, out=np.zeros_like(weight_obs), where=weight_obs != 0.0
+            )
+            node_weight = CURVE.weight(h, a0, rule.nodes)
+            h_nodes = np.divide(
+                np.broadcast_to(node_weight, g_nodes.shape),
+                g_nodes,
+                out=np.zeros_like(g_nodes),
+                where=(node_weight != 0.0)[None, :] & (g_nodes > 0.0),
+            )
             fitted = target_pair(
                 y,
                 q_obs,
@@ -135,6 +144,55 @@ def test_tiles_give_the_untiled_numbers_bitwise(
                 assert estimates[name].psi == scale.unscale_level(psi), name
                 expected = (curve * scale.range).tobytes()
                 assert np.asarray(estimates[name].influence_curve).tobytes() == expected
+
+
+def test_tiles_stay_within_the_contract_on_four_blas_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A multithreaded BLAS splits the untiled product its own way, so the contract is 1e-12
+    # relative there.  Forced to four threads, which works under OPENBLAS_NUM_THREADS=1 too.
+    import threadpoolctl
+
+    monkeypatch.setattr(engine, "TILE_BYTES", 10**6)
+    with threadpoolctl.threadpool_limits(4, user_api="blas"):
+        estimator, data, nuisance, rules = _nuisance(3_001)
+        found = estimator._target(
+            data, nuisance, [(rules[0], 0), (rules[1], rules[0].n_nodes)], UNCLASSIFIED
+        )
+        offsets = [0, rules[0].n_nodes]
+        for rule, offset, (estimates, _, _) in zip(rules, offsets, found, strict=True):
+            reference = _untiled(estimator, data, nuisance, rule, offset)
+            scale = nuisance.scaler
+            for name, (psi, curve) in reference.items():
+                want = scale.unscale_level(psi)
+                assert abs(estimates[name].psi - want) <= 1e-12 * abs(want), name
+                np.testing.assert_allclose(
+                    estimates[name].influence_curve, curve * scale.range, rtol=1e-12, atol=1e-15
+                )
+
+
+@pytest.mark.parametrize("n", [1_025, 1_087, 4_097])
+@pytest.mark.parametrize("k", [7, 61, 333])
+def test_the_matrix_vector_product_is_bitwise_on_the_tile_rule(n: int, k: int) -> None:
+    """The kernel fact the node pass rests on, checked on the BLAS this test runs against.
+
+    Rows gathered in permuted fold order into fresh arrays, tiles of 64-row multiples and the
+    data's last ``64 + n mod 64`` rows last, give each row the value the untiled product gives,
+    at one thread.
+    """
+    rng = np.random.default_rng(n + k)
+    matrix = rng.standard_normal((n, k))
+    vector = rng.standard_normal(k)
+    order = rng.permutation(n)
+    folds = tuple(np.sort(part) for part in np.array_split(order, 5))
+    stored = NodePredictions(folds, tuple(matrix[part] for part in folds))
+    with thread_limit(1):
+        whole = matrix @ vector
+        for height in (64, 192, 1_024):
+            tiled = np.empty(n)
+            for rows in engine._tiles(stored, n, height):
+                tiled[rows] = stored.block(rows, 0, k) @ vector
+            assert tiled.tobytes() == whole.tobytes(), height
 
 
 def test_a_row_mix_up_in_the_tiles_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
