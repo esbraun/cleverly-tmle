@@ -103,7 +103,7 @@ def _density(learner: object, sparse: bool, monkeypatch: pytest.MonkeyPatch) -> 
     a = 1.5 + 0.6 * w[:, 0] + rng.standard_normal(n)
     folds = Folds(np.arange(n) % 3, 3)
     fitted, _ = density_module.fit_conditional_density(
-        learner, w, a, rng.uniform(0.5, 2.0, n), folds, n_bins=12
+        learner, w, a, rng.uniform(0.5, 2.0, n), folds, n_bins=40
     )
     monkeypatch.undo()
     return fitted.density_at(a)
@@ -116,9 +116,15 @@ def test_liblinear_fits_the_same_density_on_either_design(
     from sklearn.linear_model import LogisticRegression
 
     learner = LogisticRegression(solver="liblinear", random_state=0, **options)
-    assert density_module._sparse_route(learner, 10, 3)
-    dense = _density(learner, False, monkeypatch)
+    assert density_module._sparse_route(learner, 10, 3, 59)
+    calls: list[bool] = []
+    route = density_module._sparse_route
+    monkeypatch.setattr(
+        density_module, "_sparse_route", lambda *a: calls.append(route(*a)) or calls[-1]
+    )
     sparse = _density(learner, True, monkeypatch)
+    assert calls and all(calls)  # the fixture takes the sparse route
+    dense = _density(learner, False, monkeypatch)
     assert dense.tobytes() == sparse.tobytes()
 
 
@@ -128,12 +134,16 @@ def test_only_liblinear_logistic_regression_takes_the_sparse_design() -> None:
     class Subclass(LogisticRegression):
         pass
 
-    assert not density_module._sparse_route(LogisticRegression(), 10, 3)
-    assert not density_module._sparse_route(LogisticRegression(solver="newton-cholesky"), 10, 3)
-    assert not density_module._sparse_route(Subclass(solver="liblinear"), 10, 3)
-    assert not density_module._sparse_route(LogisticRegressionCV(solver="liblinear"), 10, 3)
+    assert not density_module._sparse_route(LogisticRegression(), 10, 3, 59)
+    assert not density_module._sparse_route(LogisticRegression(solver="newton-cholesky"), 10, 3, 59)
+    assert not density_module._sparse_route(Subclass(solver="liblinear"), 10, 3, 59)
+    assert not density_module._sparse_route(LogisticRegressionCV(solver="liblinear"), 10, 3, 59)
     liblinear = LogisticRegression(solver="liblinear")
-    assert not density_module._sparse_route(liblinear, 2**31 // 4, 3)
+    assert density_module._sparse_route(liblinear, 10, 3, 59)
+    assert not density_module._sparse_route(liblinear, 2**31 // 4, 3, 59)
+    # Few bins: the dense table (3 + 11 columns) is smaller than the sparse build's count.
+    assert not density_module._sparse_route(liblinear, 10, 3, 11)
+    assert density_module._record_columns(3, 11, False, True) >= 3 + 11
 
 
 def test_the_guard_counts_the_sparse_bytes() -> None:
@@ -185,14 +195,14 @@ def test_the_sparse_guard_refuses_one_byte_short(monkeypatch: pytest.MonkeyPatch
     w = rng.standard_normal((n, 3))
     a = rng.standard_normal(n)
     folds = Folds(np.zeros(n, dtype=np.int64), 1)
-    grid = density_module._grid(a, None, 12, None, None)
+    grid = density_module._grid(a, None, 40, None, None)
     records, columns, _ = density_module._table_size(learner, 3, grid, None)
     assert columns < 3 + grid.n_hazards  # the sparse count, below the dense width
     needed = records * columns * 8
 
     def fit(free: int) -> None:
         monkeypatch.setattr(density_module, "available_memory", lambda: free)
-        density_module.fit_conditional_density(learner, w, a, np.ones(n), folds, n_bins=12)
+        density_module.fit_conditional_density(learner, w, a, np.ones(n), folds, n_bins=40)
 
     fit(needed)
     with pytest.raises(MethodConfigurationError, match="needs"):

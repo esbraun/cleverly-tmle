@@ -1443,13 +1443,14 @@ def _index_only(learner: Any) -> bool:
 _SPARSE_NNZ_LIMIT = 2**31 - 1
 
 
-def _sparse_route(learner: Any, records: int, n_covariates: int) -> bool:
+def _sparse_route(learner: Any, records: int, n_covariates: int, n_hazards: int) -> bool:
     """Whether the pooled hazard design is passed as a CSR matrix rather than dense (X106 D1b).
 
     Only scikit-learn's own ``LogisticRegression`` with the ``liblinear`` solver, which turns
     a dense design into its nonzeros before it fits, so the two inputs give the same model
     bit for bit.  Every other learner, a subclass included, gets the dense design.  A design
-    whose nonzeros could pass 32-bit indexing stays dense too.
+    whose nonzeros could pass 32-bit indexing stays dense too, and so does one whose sparse
+    build counts no fewer bytes than the dense table (few bins: :func:`_record_columns`).
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -1458,6 +1459,8 @@ def _sparse_route(learner: Any, records: int, n_covariates: int) -> bool:
         and getattr(learner, "solver", None) == "liblinear"
         and not _index_only(learner)
         and records * (n_covariates + 2) <= _SPARSE_NNZ_LIMIT
+        and _record_columns(n_covariates, n_hazards, False, True)
+        < _record_columns(n_covariates, n_hazards, False, False)
     )
 
 
@@ -1714,7 +1717,7 @@ def _table_at(
         b = edges.size - 1
         bins = np.clip(np.digitize(values, edges) - 1, 0, b - 1)
         records = int(np.sum(np.minimum(bins, b - 2) + 1))
-        sparse = _sparse_route(learner, records, n_covariates)
+        sparse = _sparse_route(learner, records, n_covariates, b - 1)
         return records * _record_columns(n_covariates, b - 1, index_only, sparse) * 8
 
     return table
@@ -1727,7 +1730,7 @@ def _table_size(
     index_only = _index_only(learner)
     fitted_bins = grid.bins if mask is None else grid.bins[mask]
     records = int(np.sum(np.minimum(fitted_bins, grid.n_hazards - 1) + 1))
-    sparse = _sparse_route(learner, records, n_covariates)
+    sparse = _sparse_route(learner, records, n_covariates, grid.n_hazards)
     columns = _record_columns(n_covariates, grid.n_hazards, index_only, sparse)
     return records, columns, int(fitted_bins.size)
 
@@ -2096,7 +2099,7 @@ def fit_conditional_density(
         if mask is not None:
             rows = rows[mask[rows]]
         records = int(np.sum(np.minimum(bins[rows], n_hazards - 1) + 1))
-        sparse = _sparse_route(learner, records, w.shape[1])
+        sparse = _sparse_route(learner, records, w.shape[1], n_hazards)
         design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only, sparse)
         return fit_learner(
             learner,
