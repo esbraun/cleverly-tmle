@@ -183,6 +183,7 @@ CURRENT: dict[str, str] = {
     "vector-mtp": "regenerated under the shipped intervals (Fix-9)",
     "mtp-boundaries": "regenerated under the shipped intervals (Fix-9)",
     "longitudinal-sdr": "regenerated under the shipped intervals (Fix-9)",
+    "longitudinal-mtp": "regenerated under the shipped intervals (Fix-9)",
     "mtp-density-tails": "its rows were written under the shipped intervals (Fix-9)",
     # First run after the intervals shipped (X101 declared run at 927379cf).
     "refuter-calibration-continuous-survival": "run under the shipped intervals (X101 "

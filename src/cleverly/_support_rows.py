@@ -2716,7 +2716,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
     ),
     "G10.continuous": (
         (
-            "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, "
+            "mtp-longitudinal-limits: coverage 0.9283 to 0.9555, SE ratio 0.9432 to 1.0214, "
             "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
             " 1.1006"
         ),

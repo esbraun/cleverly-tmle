@@ -205,6 +205,11 @@ REGENERATED = {
         "Fix-9: regenerated in full on the refined conditional density, whose bin edges and "
         "log-linear read move every fit",
     ),
+    "longitudinal-mtp": (
+        "58538bfa7ce7a5395afa2137aa447db1b707e81e",
+        "Fix-9: regenerated in full on the refined conditional density, which moves its "
+        "continuous-dose and classifier-route fits",
+    ),
 }
 #: The text that shows a study's band options are explicit, for each excluded study.
 EXCLUSION_WITNESS = {

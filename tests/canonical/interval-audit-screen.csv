@@ -103,7 +103,7 @@ long-horizon-sdr,neutral,105,100,0.024167,,root_n_and_efficiency/respond_vs_ref_
 longitudinal-incremental,neutral,1,1,0.000333,,,1,
 longitudinal-incremental-dropout,neutral,18,9,0.002,,,1,
 longitudinal-msm,neutral,11,11,0.049,,double_robustness/(intercept)__both_correct;double_robustness/(intercept)__mechanism_correct;double_robustness/(intercept)__outcome_correct;double_robustness/duration__both_correct;root_n_and_efficiency/(intercept)__n_2000;root_n_and_efficiency/(intercept)__n_8000,0,
-longitudinal-mtp,neutral,28,21,0.0175,,double_robustness/up__mechanism_correct,1,
+longitudinal-mtp,neutral,28,14,0.017,,double_robustness/up__mechanism_correct,1,
 longitudinal-repeated-crossfit,neutral,25,18,0.00875,,root_n_and_efficiency/ltmle_static__n_8000;root_n_and_efficiency/sdr_static__n_8000,6,
 longitudinal-repeated-ipsi,neutral,49,49,0.00375,,,1,
 longitudinal-repeated-outcome,neutral,47,47,0.007857,,,1,
