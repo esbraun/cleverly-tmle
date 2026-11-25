@@ -240,6 +240,29 @@ def test_treatment_factor_at_every_visit(monkeypatch: Any) -> None:
     assert errors["psi"] > MISS
 
 
+def test_default_treatment_model_holds_a_baseline_mechanism_of_its_own(monkeypatch: Any) -> None:
+    """The default treatment model's shape: a baseline indicator interacted with every column.
+
+    PL treats at baseline with probability (1 + L + W) / 4 and at the visit with
+    (1 + L + A(s^-)) / 4, each additive on the logit scale but in different columns, so the
+    stratified main-terms logistic holds both and the pooled one holds neither. With every
+    other model saturated, the influence curve under the stratified fit equals the Gateaux
+    derivative. Mutation: one pooled main-terms fit; the curve misses, while the plug-in
+    stays exact (the saturated outcome side needs no mechanism).
+    """
+    from tests.unit._continuous_longitudinal_support import MainLogistic
+
+    stratified = exact_errors(
+        monkeypatch, point_law(), STATIC, treatment_learner=MainLogistic(stratified=True)
+    )
+    assert stratified["psi"] < 1e-10 and stratified["ic"] < 1e-8
+    pooled = exact_errors(
+        monkeypatch, point_law(), STATIC, treatment_learner=MainLogistic(stratified=False)
+    )
+    assert pooled["psi"] < 1e-10
+    assert pooled["ic"] > 1e-3
+
+
 def test_censoring_weight(monkeypatch: Any) -> None:
     """T-e7: S_c(u) in place of S_c(u-), or censoring before the visit, breaks PL."""
     law = point_law(censor_reads_a=True)

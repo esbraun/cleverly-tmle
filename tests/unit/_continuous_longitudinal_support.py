@@ -103,6 +103,46 @@ class CellClassifier(ClassifierMixin, BaseEstimator):
         return np.column_stack([1.0 - p, p])
 
 
+class MainLogistic(ClassifierMixin, BaseEstimator):
+    """The default treatment library's main-terms member, fitted to rounding by Newton steps.
+
+    ``stratified=True`` reads the engine's default design, :func:`by_baseline` of the
+    treatment design (the baseline indicator read off the visit count, column ``-2``);
+    ``False`` is one main-terms fit pooled over baseline and the visits. The weighted Newton
+    solve uses a pseudo-inverse, so collinear columns (a visit count constant over the visit
+    rows) leave the fitted probabilities unique.
+    """
+
+    def __init__(self, stratified: bool = True) -> None:
+        self.stratified = stratified
+
+    def _design(self, X: np.ndarray) -> np.ndarray:
+        from cleverly.survival._longitudinal_nuisance import by_baseline
+
+        X = np.asarray(X, dtype=float)
+        Z = by_baseline(X, X[:, -2] == 0) if self.stratified else X
+        return np.column_stack([np.ones(len(Z)), Z])
+
+    def fit(
+        self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None
+    ) -> MainLogistic:
+        Z, y = self._design(X), np.asarray(y, dtype=float)
+        w = np.ones_like(y) if sample_weight is None else np.asarray(sample_weight, dtype=float)
+        beta = np.zeros(Z.shape[1])
+        for _ in range(100):
+            p = 1.0 / (1.0 + np.exp(-(Z @ beta)))
+            grad = Z.T @ (w * (y - p))
+            if np.max(np.abs(grad)) < 1e-14:
+                break
+            beta = beta + np.linalg.pinv((Z * (w * p * (1 - p))[:, None]).T @ Z) @ grad
+        self.coef_, self.classes_ = beta, np.array([0, 1])
+        return self
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        p = 1.0 / (1.0 + np.exp(-(self._design(X) @ self.coef_)))
+        return np.column_stack([1.0 - p, p])
+
+
 class CellRegressor(RegressorMixin, BaseEstimator):
     """The weighted cell mean of a response."""
 

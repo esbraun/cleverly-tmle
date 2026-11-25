@@ -128,7 +128,7 @@ full-history g-formula to $10^{-10}$, the asserted bound
 | each cause's hazard | the segment rows, entering at $s_k$ (`entry=`), event: that cause at the stop | the three Cox models of `default_library`, selected by cross-validated partial likelihood |
 | the visit intensity | the segment rows before the cap; a death row stops at its time less $\delta$ | the same three |
 | the censoring hazard | the segment rows, entering at $s_k - \delta$; a row that exits by death or visit stops at its time less $\delta$ | the same three |
-| the treatment at each decision visit | the decision visits, design $x_k$ without $A(s_k)$ | a main-terms and an L1 logistic model, selected by cross-validated log loss |
+| the treatment at baseline and each decision visit | the decision visits, design $x_k$ without $A(s_k)$ | a main-terms and an L1 logistic model, selected by cross-validated log loss, each on $[x_k, b, b\,x_k]$ with $b = 1\{k = 0\}$ |
 | the continuation $F^\nu_k$ | node $k + 1$'s rows; label: node $k + 1$'s binned sub-distribution after its visit, targeted in sample; under cross-fitting, each fold's untargeted training pass fits it and the folds are stitched, as the discrete-time hazard LTMLE does | a main-terms and an L1 logistic model of each bin's event fraction, selected by cross-validated soft log loss |
 
 $\delta$ is half the smallest gap between distinct observed times, so the tie order above holds in
@@ -136,6 +136,14 @@ every fit. `CoxHazard`, `StratifiedNelsonAalen`, `partial_log_likelihood` and `s
 take `entry=` for delayed entry. With `cross_fit=True` (the default) every nuisance is fitted out
 of fold, with folds drawn per unit, so a unit's segment and visit rows share one outer fold and
 one label in each library's inner cross-validation.
+
+The baseline indicator $b$ gives the baseline treatment model coefficients of its own: without it,
+one logistic model pooled over baseline and later visits is misspecified whenever the two mechanisms
+differ, and on the study's law CT that made the influence curve 7 to 8% wider than the Monte Carlo
+spread at every $n$ (`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md`). At baseline
+$A(s_{k-1})$, $k$ and $s_k$ are zero, so the unpenalized member equals two separate fits; the L1
+members penalize the baseline's departure from the visit coefficients. A supplied
+`treatment_learner` reads $x_k$ as it is.
 
 A visit jump of one or more is kept at one only at a time where every row at risk whose own
 fitted jump reaches one exits there (a scheduled visit). Elsewhere it is bounded at
@@ -241,6 +249,7 @@ second visit node).
 | the fit at $K^*_r = 1$ on PL2 equals $\psi^{(K^*)}$ and its Gateaux derivative | `test_target_past_the_cap` |
 | with no visit, the initial fits and influence curves equal the baseline engine's, and under saturated learners the estimates, standard errors and influence curves agree to $10^{-10}$ | `test_continuous_longitudinal.py::test_reduces_to_the_baseline_engine`, `test_saturated_fits_reduce_to_the_baseline_engine` |
 | against the discrete-time hazard LTMLE on its law (M), shift-mapped into continuous time, saturated and in sample: on the exact law, where both engines sit at the truth and take no step, estimates agree to $10^{-9}$ and influence curves agree up to that engine's weight scaling (the efficient influence curve term by term); on a 20,000-unit draw with no step, at fitted nuisances, the untargeted estimates and influence curves agree to $10^{-12}$. Targeted estimates on a draw differ at second order, because the window does not hold the history the slot weight's prefix reads and each engine walks its own submodel | `test_x70_agreement_on_law_m`, `test_x70_agreement_on_a_draw_with_no_step` |
+| on law PL, whose baseline and visit treatment mechanisms differ, the default-shaped stratified logistic fit gives the exact efficient influence curve to $10^{-8}$; the pooled fit misses it by more than $10^{-3}$ | `test_default_treatment_model_holds_a_baseline_mechanism_of_its_own` |
 | a binding weight floor moves only the rare cell's influence curves, by the closed form $A + B / \delta$ of the floored weight | `test_weight_floor` |
 | per-node cutoffs $s_n / N$ bound every target's total score by $s_n$, on PL2 and on a stub node problem with fixed linear scores | `test_node_cutoffs_bound_the_total`, `test_node_cutoffs_bound_the_total_on_a_stub` |
 | the share past the cap equals the g-formula of a second visit before the target time | `test_past_cap_share_is_the_g_formula` |

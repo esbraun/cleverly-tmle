@@ -470,8 +470,11 @@ class ContinuousLongitudinalTMLE:
     censoring_library : sequence or None
         Learners for the censoring hazard; ``None`` takes the same three.
     treatment_learner : classifier or None
-        The treatment model at the decision visits; ``None`` selects among a main-terms and L1
-        logistic models by cross-validated log loss.
+        The treatment model at baseline and the decision visits; ``None`` selects among a
+        main-terms and three L1 logistic models by cross-validated log loss, each on the
+        treatment design with a baseline indicator interacted with every column, so baseline
+        and visit decisions have their own coefficients.  A supplied classifier reads the design
+        as it is.
     continuation_learner : regressor or None
         The regression of each bin's soft event fraction on the window, the visit time and the
         bin, with ``fit(X, y, sample_weight)`` and ``predict(X)``; ``None`` selects between a
@@ -997,6 +1000,7 @@ class _Fit:
                 by_unit(inner, data.unit)[train_visits],
                 seed,
                 visit_weight,
+                data.visit_index == 0,
             )
             p1[predict] = values
             p1s.append(p1)

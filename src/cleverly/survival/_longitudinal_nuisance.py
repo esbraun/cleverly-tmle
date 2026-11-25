@@ -13,6 +13,14 @@ intensity is a calendar-time model on the segment rows with delayed entry at :ma
 Andersen-Gill form), pooled over :math:`k`.  The window is a restriction of the observed-data
 model (:data:`HISTORY_RESTRICTION`).
 
+**The default treatment model** reads the treatment design :func:`treatment_design` with a
+baseline indicator interacted with every column (:func:`by_baseline`), so the baseline decision
+and the visit decisions have their own coefficients.  A treatment mechanism at baseline need not
+be the one at a visit, and one fit pooled over both misweights every clever covariate when they
+differ: on law CT the pooled fit's influence curve ran 7 to 8% wider than the exact one at any
+:math:`n` (``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``).  A supplied
+``treatment_learner`` reads the treatment design as it is.
+
 **The visit cap.**  For a regime, :math:`K^*` is the largest :math:`K` at which every outer
 training fold holds at least :data:`VISIT_CAP_MIN_FOLLOWERS` units that followed the regime
 through visit :math:`K - 1` and visit a :math:`K`-th time before the last target time.  Visits
@@ -241,6 +249,31 @@ def treatment_design(data: Any, coded: IntArray, visits: IntArray) -> FloatArray
     )
 
 
+def by_baseline(X: FloatArray, baseline: np.ndarray) -> FloatArray:
+    """``[X, b, b X]``: the design with a baseline indicator ``b`` interacted with every column.
+
+    The default treatment library fits on it, so each of its members gives the baseline rows
+    and the visit rows their own intercept and slopes.  For the unpenalized member that is the
+    two separate fits; a lasso member penalizes the baseline's departure from the visit
+    coefficients, shrinking toward one pooled fit.  At baseline the previous treatment, the
+    visit count and the visit time are zero, so their interactions are zero columns.
+
+    Parameters
+    ----------
+    X : ndarray
+        ``(R, p)`` treatment designs.
+    baseline : ndarray
+        ``(R,)`` whether each row is a unit's baseline.
+
+    Returns
+    -------
+    ndarray
+        ``(R, 2 p + 1)``.
+    """
+    b = np.asarray(baseline, dtype=float)[:, None]
+    return np.hstack([X, b, b * X])
+
+
 def unit_folds(event: IntArray, n_folds: int, rng: np.random.Generator) -> IntArray:
     """Seeded fold labels per unit, stratified by event code (the baseline engine's draw).
 
@@ -371,8 +404,12 @@ def fit_treatment(
     folds: IntArray,
     seed: int,
     weight: FloatArray | None,
+    baseline: np.ndarray,
 ) -> tuple[FloatArray, PropensitySelection | None]:
     """``P(A = 1 | x)`` at the prediction rows from a model fitted on the training rows.
+
+    The default selection fits on :func:`by_baseline` of the design; a supplied learner reads
+    the design as it is.
 
     Parameters
     ----------
@@ -392,6 +429,8 @@ def fit_treatment(
         The fit's seed.
     weight : ndarray or None
         ``(V,)`` the private row weights.
+    baseline : ndarray
+        ``(V,)`` whether each row is a unit's baseline.
 
     Returns
     -------
@@ -410,7 +449,8 @@ def fit_treatment(
 
         model = clone(seed_unset(learner, seed)).fit(X[train], At, sample_weight=weight[train])
         return model.predict_proba(X[predict])[:, 1], None
-    return _fit_propensity(learner, X, A, train, predict, folds, seed)
+    design = by_baseline(X, baseline) if learner is None else X
+    return _fit_propensity(learner, design, A, train, predict, folds, seed)
 
 
 class _SoftLogistic:

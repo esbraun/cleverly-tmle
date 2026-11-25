@@ -687,3 +687,40 @@ def test_in_sample_fits_take_the_default_libraries(monkeypatch: Any) -> None:
     estimator = ContinuousLongitudinalTMLE([10.0], regimes=REGIMES, cross_fit=False, **COX)
     assert estimator._default_nuisances_only()
     assert longitudinal.IN_SAMPLE_LEARNER_TEXT.startswith("an in-sample fit")
+
+
+class _Captured(Exception):
+    pass
+
+
+def test_default_treatment_model_reads_the_baseline_interaction(
+    frame: pd.DataFrame, monkeypatch: Any
+) -> None:
+    """The default treatment selection fits on ``[X, b, b X]``; a supplied learner on ``X``."""
+    seen: list[Any] = []
+
+    def spy(learner: Any, design: Any, *args: Any) -> Any:
+        seen.append((learner, design))
+        raise _Captured
+
+    monkeypatch.setattr(nuisance, "_fit_propensity", spy)
+    with pytest.raises(_Captured):
+        _fit(frame)
+    learner, design = seen[0]
+    assert learner is None
+    p = (design.shape[1] - 1) // 2
+    X, b, bX = design[:, :p], design[:, p], design[:, p + 1 :]
+    # The visit count is the design's second-to-last column; it is zero exactly at baseline.
+    assert set(np.unique(b)) == {0.0, 1.0}
+    np.testing.assert_array_equal(b, (X[:, -2] == 0).astype(float))
+    np.testing.assert_array_equal(bX, b[:, None] * X)
+
+    from sklearn.linear_model import LogisticRegression
+
+    supplied = LogisticRegression()
+    seen.clear()
+    monkeypatch.setattr(longitudinal, "_user_learners_in_sample", lambda estimator: None)
+    with pytest.raises(_Captured):
+        _fit(frame, treatment_learner=supplied)
+    assert seen[0][0] is supplied
+    np.testing.assert_array_equal(seen[0][1], X)
