@@ -5852,3 +5852,81 @@ def declared_support_bounds(data: CausalData) -> tuple[FloatArray, FloatArray] |
         )
     )
     return cast(Support, data.treatment_support).bounds(frame, data.n)
+
+
+def refuse_unsupported_doses(
+    data: CausalData,
+    intervals: Sequence[tuple[str, float, float]],
+    *,
+    subject: str,
+    reason: str,
+    alternative: str,
+) -> None:
+    """Refuse a declared dose support that the data or a target's doses contradict.
+
+    A declared support :math:`[l(W), u(W)]` asserts that the dose density is zero outside it.
+    A target that evaluates the outcome regression at a dose outside some row's support is
+    then not identified for that row: positivity fails by declaration.  This check runs before
+    any learner, on a point treatment with one continuous dose and a declared support.  It
+    first refuses an observed dose outside its row's support, as a policy fit does
+    (:func:`check_observed_support`), then every interval some row's support does not cover.
+
+    Parameters
+    ----------
+    data : CausalData
+        The validated data.  The check returns at once without a declared support, or for a
+        treatment that is not one continuous dose.
+    intervals : sequence of tuple
+        ``(label, lower, upper)`` per closed interval of doses the target evaluates on every
+        row.  A single dose is the interval ``(label, dose, dose)``.
+    subject : str
+        What the message says the intervals are, such as
+        ``"doses inside the kernel of pair(s)"``.
+    reason : str
+        The clause that says why the target needs those doses, with no closing stop.
+    alternative : str
+        The sentence that names what to declare instead.
+
+    Raises
+    ------
+    DataError
+        If an observed dose lies outside its row's declared support.
+    CapabilityError
+        If some row's declared support does not cover an interval, with
+        :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION`.
+    """
+    if data.treatment_kind != "continuous":
+        return
+    bounds = declared_support_bounds(data)
+    if bounds is None:
+        return
+    support = cast(Support, data.treatment_support)
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
+    )
+    check_observed_support(
+        np.asarray(data.treatment, dtype=float),
+        frame,
+        np.ones(data.n, dtype=bool),
+        support,
+        node=data.treatment_name,
+    )
+    lower, upper = bounds
+    cut = np.zeros(data.n, dtype=bool)
+    labels: list[str] = []
+    for label, low, high in intervals:
+        with np.errstate(invalid="ignore"):
+            rows = ~((lower <= float(low)) & (upper >= float(high)))
+        if rows.any():
+            labels.append(label)
+            cut |= rows
+    if not labels:
+        return
+    raise CapabilityError(
+        f"{int(cut.sum())} rows have a declared dose support that excludes {subject} "
+        f"{', '.join(labels)}: {reason}, so positivity fails by declaration.",
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative=alternative,
+    )

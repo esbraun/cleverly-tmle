@@ -593,13 +593,12 @@ raises `CapabilityError` when an outcome is missing. The refused table of
 
 ## A curve over a continuous dose
 
-`DoseResponseTMLE` estimates how the mean outcome changes with a continuous dose, such as a price
-or a discount. A curve at one exact dose has no interval that narrows at the usual rate as the
-data grow, so the estimator
-reports a smoothed curve: at each declared dose it averages the curve over nearby doses, within a
-declared bandwidth. You choose the doses, the bandwidths and the dose range before looking at the
-results. The fit gives an interval at each dose and bandwidth, and one band that covers all of them
-at once.
+`DoseResponseCurve` asks how the mean outcome changes with a continuous dose, such as a price or
+a discount. A curve at one exact dose has no interval that narrows at the usual rate as the data
+grow, so the fit reports a smoothed curve: at each declared dose it averages the curve over
+nearby doses, within a declared bandwidth. You choose the doses, the bandwidths and the dose range
+before looking at the results. The fit gives an interval at each dose and bandwidth, and one band
+that covers all of them at once.
 
 ```python
 import numpy as np
@@ -607,8 +606,8 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 
+from cleverly import CausalStudy, DoseResponseCurve, PointTreatment
 from cleverly.dose_response import DoseResponse
-from cleverly.estimators import DoseResponseTMLE
 
 rng = np.random.default_rng(1)
 n = 800
@@ -617,33 +616,46 @@ discount = np.clip(2.5 + 0.8 * income + rng.normal(size=n), -1.0, 6.0)
 bought = rng.binomial(1, 1 / (1 + np.exp(-(0.6 * np.sin(discount) + 0.5 * income))))
 orders = pd.DataFrame({"income": income, "discount": discount, "bought": bought})
 
+study = CausalStudy(
+    orders,
+    design=PointTreatment(
+        outcome="bought",
+        treatment="discount",
+        adjustment=("income",),
+        treatment_kind="continuous",
+    ),
+)
 curve = DoseResponse(doses=[1.0, 2.5, 4.0], bandwidths=[0.8, 1.2], support=(0.5, 4.5))
-dose_fit = DoseResponseTMLE(
-    curve,
+dose_fit = study.identify(DoseResponseCurve(curve)).estimate(
     outcome_learner=HistGradientBoostingClassifier(max_depth=2, max_iter=50),
     treatment_learner=LogisticRegression(),
     density_bins=10,
+    n_folds=5,
     random_state=0,
-).fit(orders, outcome="bought", treatment="discount", covariates=["income"])
+)
 table = dose_fit.to_frame()
 ```
 
 Each row of `table` is one dose and bandwidth. `lower` and `upper` are the interval for that row
 alone. `band_lower` and `band_upper` hold for every row together, so read the band when you compare
 bandwidths or pick one after seeing the results. A wider bandwidth usually gives a narrower interval
-and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with the square of the bandwidth where the curve bends, so
-prefer the narrower bandwidth when its interval is usable.
+and more smoothing, unless it reaches doses with few observations. The smoothing bias grows with
+the square of the bandwidth where the curve bends, so prefer the narrower bandwidth when its
+interval is usable. `dose_fit.summary()` prints the same rows, and its full form adds the
+conditions the answer rests on.
 
 The intervals need both models to be good: the outcome model, and the model of which dose each
 customer received given their characteristics. The dose range must lie inside the doses you
-observed, with a margin: the fit refuses a range that
-reaches past them. A row whose dose has few nearby observations is flagged in the `low_support`
-column, and its estimate's `inference` reads `low_dose_support_plugin`: its interval rests on few
-effective rows. Each estimate's `support.label` says whether a registered simulation study covers
-the fit's setup. It reads `supported` for a cross-fitted, unweighted fit of a binary outcome, or of
-a continuous outcome with `fluctuation="linear"`, except at a flagged row, and `experimental`
-otherwise. `cleverly.plotting.curve(dose_fit)` draws one
-line per bandwidth with the band.
+observed, with a margin: the fit refuses a range that reaches past them. A row whose dose has few
+nearby observations is flagged in the `low_support` column, and its estimate's `inference` reads
+`low_dose_support_plugin`: its interval rests on few effective rows. Each estimate's
+`support.label` says whether a registered simulation study covers the fit's setup;
+[the support-label table](../technical-reference/dose-response.md#support-label) lists the setups
+that read `supported`. A continuous outcome also needs `q_bounds=`, its known range.
+`dose_fit.assess()` runs the checks that apply, `dose_fit.diagnostics.influence()` shows each
+row's influence curve, and `cleverly.plotting.curve(dose_fit)` draws one line per bandwidth with
+the band. `DoseResponseTMLE(curve, ...).fit(orders, outcome=..., treatment=..., covariates=...)`
+is the same fit without a study.
 [Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
 conditions and the refusals.
 

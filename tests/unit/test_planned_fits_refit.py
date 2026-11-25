@@ -33,7 +33,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 import cleverly
 from cleverly._planned_fits import refit_plan
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW
+from cleverly.estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, DoseResponseTMLE
 from cleverly.estimators.ep import EPEstimator
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.longitudinal import (
@@ -224,7 +224,7 @@ def test_refit_plan_refuses_a_result_with_no_estimator_as_refute_does() -> None:
 # ------------------------------------------------------------------ coverage
 
 #: The engine classes the study's estimate dispatches to (``study.py``: the point engines,
-#: the longitudinal engines, the effect-curve and continuous-time engines).  The trial route
+#: the longitudinal engines, the effect-curve, continuous-time and dose-response engines).  The trial route
 #: is a function, priced by ``plan_trial_effect``.
 DISPATCHED: frozenset[type] = frozenset(
     {
@@ -242,6 +242,7 @@ DISPATCHED: frozenset[type] = frozenset(
         SurvivalCTMLE,
         SurvivalDRTMLE,
         ContinuousSurvivalTMLE,
+        DoseResponseTMLE,
     }
 )
 

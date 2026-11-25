@@ -157,8 +157,8 @@ returns its study description.
 On the [renewal discounts](dose-response.ipynb) page, the renewal engine gives each subscriber a
 discount of 0% to 40% off the renewal price, with bigger discounts for less active and newer
 subscribers. The page asks what share would renew if every subscriber got the same discount, for
-discounts from 5% to 30%. Its data are simulated in the notebook, and it has no study description
-object, because its estimator does not run inside `CausalStudy`.
+discounts from 5% to 30%. Its data are simulated in the notebook, and its study description is
+built in the notebook.
 
 All four retailer datasets are simulated. The [datasets reference](../api/datasets.md) lists the
 generators of the first three and their true answers.
