@@ -22,6 +22,9 @@ resolution-markers = [
     "python_full_version < '3.11.5' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+constraints = [{ name = "fonttools", specifier = "!=4.69.0" }]
+
 [[package]]
 name = "accessible-pygments"
 version = "0.0.5"
