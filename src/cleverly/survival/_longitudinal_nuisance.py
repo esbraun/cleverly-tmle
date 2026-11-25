@@ -17,7 +17,10 @@ model (:data:`HISTORY_RESTRICTION`).
 training fold holds at least :data:`VISIT_CAP_MIN_FOLLOWERS` units that followed the regime
 through visit :math:`K - 1` and visit a :math:`K`-th time before the last target time.  Visits
 after :math:`K^*` are ignored: their rows merge into segment :math:`K^*`, which runs to the
-unit's exit with the design :math:`x_{K^*}`, so its only exits are deaths.
+unit's exit with the design :math:`x_{K^*}`, so its only exits are deaths.  Past the cap,
+censoring and the hazards read the window of visit :math:`K^*` (:data:`HISTORY_RESTRICTION`).
+:math:`K^*` is chosen once on the full sample, so it reads every fold's held-out units too: a
+discrete tuning choice, not fitted out of fold.
 
 **Ties.**  Within one time the order is death, visit, censoring.  The visit model moves each
 death below the visit times it ties with, the censoring model moves each death and each visit
@@ -63,7 +66,10 @@ HISTORY_RESTRICTION: Final = (
     "through the window (W, L(s_k), A(s_k), A(s_{k-1}), k, s_k) at its last visit s_k, the "
     "treatment model without A(s_k): a statistical-model restriction, not a property of the "
     "estimator. Add summaries of a longer history (lags of L, cumulative treatment, the time "
-    "since the last switch) as time_varying columns to widen it."
+    "since the last switch) as time_varying columns to widen it. Past the visit cap K*, "
+    "censoring and the hazards read the window of visit K*, not of the unit's later visits, so "
+    "the fit identifies the capped risk only when censoring after visit K* + 1 does not depend "
+    "on the later L or A given that window."
 )
 
 

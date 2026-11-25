@@ -20,7 +20,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
     PositivityWarning,
 )
-from cleverly.interventions import Incremental, Shift, Static, Stochastic
+from cleverly.interventions import Incremental, Rule, Shift, Static, Stochastic
 from cleverly.sensitivity import evalue
 from cleverly.survival import (
     ContinuousLongitudinalData,
@@ -32,7 +32,7 @@ from cleverly.survival import (
 )
 from cleverly.survival import _longitudinal_nuisance as nuisance
 from cleverly.survival.diagnostics import continuous_truncation_curve
-from cleverly.survival.longitudinal_result import PENDING_REASON
+from cleverly.survival.longitudinal_result import PENDING_REASON, USER_LEARNER_REASON
 from cleverly.validation import refute
 from tests.unit._continuous_longitudinal_support import CT_COLUMNS, simulate_ct
 
@@ -227,6 +227,17 @@ def test_every_estimate_is_experimental(result: Any) -> None:
         assert PENDING_REASON in estimate.support.reason
 
 
+def test_a_chosen_shipped_library_names_the_user_learner_reason(result: Any) -> None:
+    """Review S6: the label reads the default libraries, not any shipped learner class.
+
+    The fixture's one-member Cox libraries are shipped learners, which C13 lets through in
+    sample, but they are not the default libraries a study would measure.
+    """
+    assert all(USER_LEARNER_REASON in e.support.reason for e in result.values())
+    assert ContinuousLongitudinalTMLE([10.0], regimes=REGIMES)._defaults
+    assert not ContinuousLongitudinalTMLE([10.0], regimes=REGIMES, **COX)._defaults
+
+
 def test_restricted_means_and_assessments_refuse(result: Any) -> None:
     """C9, and the refits and sensitivity analyses the plan refuses (3.5.11)."""
     with pytest.raises(CapabilityError, match="restricted mean is not one of its targets"):
@@ -287,7 +298,12 @@ def test_record_states_the_window_and_the_cap(result: Any) -> None:
 
 @pytest.mark.parametrize("seed", range(20))
 def test_risks_are_monotone_and_sum_below_one(seed: int) -> None:
-    """T-e14: each regime's plug-in risks rise with the target time; the causes sum to <= 1."""
+    """T-e14: each regime's plug-in risks rise with the target time; the causes sum to <= 1.
+
+    The plan names the default learners. The hazards here are one-member Cox libraries in
+    sample, with no step, for the fast tier. The property rests on the binned continuation,
+    which keeps its default learner here.
+    """
     fit = _fit(simulate_ct(120, 100 + seed), horizons=(20.0, 25.0, 30.0), max_iter=0)
     for arm in fit.arms:
         risks = np.array(
@@ -327,6 +343,31 @@ def test_other_policies_refuse(value: Any, kind: str) -> None:
     assert "not built in continuous time" in str(caught.value)
 
 
+def _known(function: Any) -> Rule:
+    return Rule(function, "rule", rule_kind="known")
+
+
+def test_rules_need_the_known_declaration(frame: pd.DataFrame) -> None:
+    """S1: a Rule declared known is a regime; a bare callable or an undeclared Rule refuses."""
+
+    def treat_when_l(f: Any) -> Any:
+        return (f["L"] == 1).astype(int)
+
+    fit = _fit(frame, regimes={"rule": _known(treat_when_l), "never": 0})
+    assert fit.arms == ("never", "rule")
+    with pytest.raises(CapabilityError, match="needs a declaration") as caught:
+        ContinuousLongitudinalTMLE([10.0], regimes={"rule": treat_when_l, "never": 0})
+    assert caught.value.refusal.reason.value == "invalid_declaration"
+    # A Rule whose declaration was changed after it was built refuses at the estimator.
+    undeclared = _known(treat_when_l)
+    object.__setattr__(undeclared, "rule_kind", None)
+    with pytest.raises(CapabilityError, match="needs a declaration"):
+        ContinuousLongitudinalTMLE([10.0], regimes={"rule": undeclared, "never": 0})
+    object.__setattr__(undeclared, "rule_kind", "estimated")
+    with pytest.raises(CapabilityError, match="learned from the analysis sample"):
+        ContinuousLongitudinalTMLE([10.0], regimes={"rule": undeclared, "never": 0})
+
+
 def test_static_intervention_reads_its_level(frame: pd.DataFrame) -> None:
     fit = _fit(frame, regimes={"always": Static(1), "never": Static(0)})
     assert fit.arms == ("never", "always")
@@ -345,9 +386,9 @@ def test_continuous_and_multilevel_treatments_refuse(frame: pd.DataFrame) -> Non
 def test_rule_outside_the_levels_refuses(frame: pd.DataFrame) -> None:
     """C10."""
     with pytest.raises(DataError, match="rule 'bad' returned 2 at"):
-        _fit(frame, regimes={"bad": lambda f: np.full(len(f), 2), "never": 0})
+        _fit(frame, regimes={"bad": _known(lambda f: np.full(len(f), 2)), "never": 0})
     with pytest.raises(DataError, match="returned None"):
-        _fit(frame, regimes={"bad": lambda f: [None] * len(f), "never": 0})
+        _fit(frame, regimes={"bad": _known(lambda f: [None] * len(f)), "never": 0})
 
 
 def test_follow_up_and_first_events_refuse(frame: pd.DataFrame) -> None:
@@ -538,7 +579,9 @@ def test_visit_cap_under_cross_fitting(monkeypatch: Any) -> None:
     assert max(hand) < counts.max()
 
     monkeypatch.setattr(nuisance, "visit_cap", lambda *args, **kwargs: (int(counts.max()), -1, 0))
-    with warnings.catch_warnings(), pytest.raises(ValueError):
+    # The continuation of the first node no training fold's follower reaches has labels of
+    # one class only, which its logistic learners refuse.
+    with warnings.catch_warnings(), pytest.raises(ValueError, match="2 classes"):
         warnings.simplefilter("ignore")
         estimator.fit(frame, **CT_COLUMNS)
 
@@ -605,8 +648,10 @@ def test_visit_jump_bound_under_cross_fitting(monkeypatch: Any) -> None:
 
     The unit with the largest W2 skips the day-5 visit. It is held out of one fold, whose
     training rows all visit at day 5, so its stitched jump reaches one there although it does
-    not visit; the full-sample judgment then bounds the jump. Mutation: keep a jump of one
-    wherever one is reached; the bound share falls to zero and the test fails.
+    not visit; the full-sample judgment then bounds the jump. That witness carries the check.
+    The plan's mutation (a jump of one kept everywhere) does not make the score non-finite:
+    the S_k = 0 guard keeps every term finite, and the bound share it would zero is computed
+    from the mutated rule itself, so the test does not run it.
     """
     calls: list[tuple[Any, Any, Any, Any]] = []
     original = longitudinal.scheduled_visits
@@ -635,17 +680,6 @@ def test_visit_jump_bound_under_cross_fitting(monkeypatch: Any) -> None:
     assert fit.record.visit_bound_share > 0.0
     assert all("bounded below one" in e.support.reason for e in fit.values())
     assert all(np.isfinite(e.std_error) for e in fit.values())
-
-    def everywhere(factual: Any, at_risk: Any, exits: Any) -> Any:
-        return ((factual >= 1.0) & at_risk).any(axis=0)
-
-    monkeypatch.setattr(longitudinal, "scheduled_visits", everywhere)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        mutated = ContinuousLongitudinalTMLE(
-            [4.0, 10.0], regimes=REGIMES, n_folds=5, random_state=0, max_iter=0, **COX
-        ).fit(_scheduled(True), **CT_COLUMNS)
-    assert mutated.record.visit_bound_share == 0.0
 
 
 def test_in_sample_fits_take_the_default_libraries(monkeypatch: Any) -> None:

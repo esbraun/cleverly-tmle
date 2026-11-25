@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
+from cleverly.interventions import Rule
 from cleverly.survival import longitudinal
 from cleverly.survival._longitudinal_data import ContinuousLongitudinalData, weighted
 from cleverly.survival.longitudinal import ContinuousLongitudinalTMLE
@@ -177,9 +178,12 @@ LEARNERS: dict[str, dict[str, Any]] = {
 }
 
 
-def rule_when_l(frame: Any) -> Any:
-    """The engine's form of the law's rule ``treat_when_l``: treat when the current L is 1."""
+def _when_l(frame: Any) -> Any:
     return (frame["L"] == 1).astype(int)
+
+
+#: The engine's form of the law's rule ``treat_when_l``: treat when the current L is 1.
+rule_when_l = Rule(_when_l, "treat when L", rule_kind="known")
 
 
 def exact_errors(
@@ -311,7 +315,7 @@ CT_COLUMNS: dict[str, Any] = {
 }
 
 
-def law_m_data(law: Any) -> ContinuousLongitudinalData:
+def law_m_data(law: Any, counts: Any = None) -> ContinuousLongitudinalData:
     """X70's law (M) under the shift map of the X6 plan 3.5.4, each support point weighted.
 
     Node ``k``'s ``L_k`` and ``A_k`` sit at the visit at time ``k - 1`` (node 1's absent
@@ -325,16 +329,22 @@ def law_m_data(law: Any) -> ContinuousLongitudinalData:
     ----------
     law : MultiNodeLaw
         Law (M), with two causes.
+    counts : ndarray or None
+        Per support point, a draw's count; the points with none are dropped. ``None`` weights
+        every point by its mass.
 
     Returns
     -------
     ContinuousLongitudinalData
-        One unit per support point, weighted by its mass.
+        One unit per kept support point, weighted by its mass or its count.
     """
     import pandas as pd
 
+    weights = law.probs if counts is None else np.asarray(counts, dtype=float)
+    kept = np.flatnonzero(weights > 0)
     rows = []
-    for unit, point in enumerate(law.support):
+    for unit, index in enumerate(kept):
+        point = law.support[index]
         w1, w2 = point[:2]
         for k in range(1, law.n_times + 1):
             l, a, c, y = (law.value(point, name, k) for name in "LACY")
@@ -364,9 +374,12 @@ def law_m_data(law: Any) -> ContinuousLongitudinalData:
         time_varying=["L"],
         causes={1: "relapse", 2: "death"},
     )
-    return weighted(data, law.probs)
+    return weighted(data, weights[kept])
 
 
-def law_m_rule(frame: Any) -> Any:
-    """Law (M)'s rule in the engine's form: at baseline treat when W1 = 1, then when L = +1."""
+def _law_m_rule(frame: Any) -> Any:
     return np.where(frame["visit"] == 0, frame["W1"], frame["L"] > 0).astype(int)
+
+
+#: Law (M)'s rule in the engine's form: at baseline treat when W1 = 1, then when L = +1.
+law_m_rule = Rule(_law_m_rule, "law M rule", rule_kind="known")

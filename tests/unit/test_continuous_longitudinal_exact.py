@@ -217,17 +217,24 @@ def test_death_before_visit(monkeypatch: Any) -> None:
 
 
 def test_treatment_factor_at_every_visit(monkeypatch: Any) -> None:
-    """T-e6: the baseline treatment factor only (pi = 1 at later visits) breaks ``nol``."""
-    original = longitudinal._Fit._fit_cap
+    """T-e6: the baseline treatment factor only (pi = 1 at later visits) breaks ``nol``.
 
-    def baseline_only(self: Any, cap: int) -> Any:
-        fits = original(self, cap)
-        later = self.data.visit_index >= 1
-        for p1 in fits.p1:
-            p1[later] = 1.0
-        return fits
+    The weights read the later visits as non-decision visits, so pi = 1 there for either
+    slot; the rule, the followers and the share past the cap still read every decision.
+    """
+    for method in ("_prefix", "_node_base"):
+        original = getattr(longitudinal._Fit, method)
 
-    monkeypatch.setattr(longitudinal._Fit, "_fit_cap", baseline_only)
+        def baseline_only(self: Any, *args: Any, _original: Any = original, **kw: Any) -> Any:
+            saved = self.data
+            decision = np.asarray(saved.decision, dtype=bool) & (saved.visit_index == 0)
+            object.__setattr__(self, "data", replace(saved, decision=decision))
+            try:
+                return _original(self, *args, **kw)
+            finally:
+                object.__setattr__(self, "data", saved)
+
+        monkeypatch.setattr(longitudinal._Fit, method, baseline_only)
     regimes = {"always": (1, static(1)), "never": (0, static(0))}
     errors = exact_errors(monkeypatch, point_law(), regimes, learners="nol")
     assert errors["psi"] > MISS
@@ -292,7 +299,13 @@ def test_regime_slot(monkeypatch: Any) -> None:
 
 
 def test_continuation_at_counterfactual_visit_times(monkeypatch: Any) -> None:
-    """T-e9: Z read only at the observed next visit, or the continuation at s_k, breaks PL2."""
+    """T-e9: Z read only at the observed next visit, or the continuation at s_k, breaks PL2.
+
+    The plan's mutation (c), the first bin started at s_k while the features keep u, is not
+    checked: every continuation learner here reads u and the bin, so it learns zero in the
+    bins between s_k and u, where no label has mass, and the estimate stays exact. Only a
+    learner blind to u could show it.
+    """
     law = point_law_2()
     original_curves = T.node_curves
 
@@ -309,13 +322,26 @@ def test_continuation_at_counterfactual_visit_times(monkeypatch: Any) -> None:
         patch.setattr(T, "node_curves", observed_only)
         assert exact_errors(patch, law, STATIC)["ic"] > MISS
         assert exact_errors(patch, point_law(), STATIC)["ic"] > MISS
+    # The continuation read at s_k in place of u (features and live bins), one node at a time:
+    # node 0 breaks both laws; node 1 breaks PL2, and on PL, whose node 1 has no later visit
+    # and so no continuation, it is the control.
     original_hazards = ContinuationModel.hazards
 
-    def at_visit(self: Any, x: Any, u: Any) -> Any:
-        return original_hazards(self, x, x[:, -1])
+    def at_visit(node: int) -> Any:
+        def hazards(self: Any, x: Any, u: Any) -> Any:
+            # The window's last two columns are k and s_k.
+            return original_hazards(self, x, np.where(x[:, -2] == node, x[:, -1], u))
 
-    monkeypatch.setattr(ContinuationModel, "hazards", at_visit)
-    assert exact_errors(monkeypatch, law, STATIC, learners="gnol")["psi"] > MISS
+        return hazards
+
+    for node, laws in ((0, (law, point_law())), (1, (law,))):
+        with monkeypatch.context() as patch:
+            patch.setattr(ContinuationModel, "hazards", at_visit(node))
+            for each in laws:
+                assert exact_errors(patch, each, STATIC, learners="gnol")["psi"] > MISS, node
+    with monkeypatch.context() as patch:
+        patch.setattr(ContinuationModel, "hazards", at_visit(1))
+        assert exact_errors(patch, point_law(), STATIC, learners="gnol")["psi"] < 1e-10
 
 
 def _chain(monkeypatch: Any) -> list[tuple[Any, Any, Any]]:
@@ -664,8 +690,11 @@ def test_past_cap_share_is_the_g_formula(monkeypatch: Any) -> None:
 # ---------------------------------------------------------------------- T-e3
 
 
-def _x70_agreement(monkeypatch: Any) -> tuple[Any, Any]:
+def _x70_agreement(monkeypatch: Any, counts: Any = None, tol: Any = None) -> tuple[Any, Any]:
     """Both engines on law (M), saturated, in sample, ``g_bounds=1e-3``, one window.
+
+    ``counts`` passes a draw by its count per support point in place of the law's masses, and
+    ``tol`` sets both engines' stopping tolerance (a huge one takes no step).
 
     X70 runs with ``markov_order=0``: its node-``k`` window ``(W, L_k, A_{k-1})`` plus
     ``A_k`` is the continuous window ``x_k`` with ``k`` and ``s_k = k - 1`` fixed by the node.
@@ -688,11 +717,15 @@ def _x70_agreement(monkeypatch: Any) -> tuple[Any, Any]:
         {"never": 0, "always": 1, "rule": law_m_rule},
         reference="never",
         g_bounds=1e-3,
+        **({} if tol is None else {"tol": tol}),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        mine = estimator.fit_data(law_m_data(law))
-    window = replace(LongitudinalData.from_frame(law.frame(), **law.columns()), markov_order=0)
+        mine = estimator.fit_data(law_m_data(law, counts))
+    frame = law.frame()
+    if counts is not None:
+        frame = frame.assign(wt=np.asarray(counts, dtype=float))[np.asarray(counts) > 0]
+    window = replace(LongitudinalData.from_frame(frame, **law.columns()), markov_order=0)
     theirs = x70_fit(
         law,
         _M_REGIMES,
@@ -704,6 +737,7 @@ def _x70_agreement(monkeypatch: Any) -> tuple[Any, Any]:
         treatment=CellProbabilities(),
         censoring=CellMeans(),
         g_bounds=(1e-3, 1.0),
+        **({} if tol is None else {"tol": tol}),
     )
     return mine, theirs
 
@@ -744,6 +778,34 @@ def test_x70_agreement_on_law_m(monkeypatch: Any) -> None:
     assert mine.record.caps == (2, 2, 2)
     assert all(step == 0 for steps in mine.record.steps for step in steps)
     assert mine.record.visit_bound_share == 0.0
+
+
+def test_x70_agreement_on_a_draw_with_no_step(monkeypatch: Any) -> None:
+    """T-e3 off the truth (review S5): on a draw of law (M), untargeted, the engines agree.
+
+    A 20,000-unit multinomial draw passed by its counts puts both engines at fitted nuisances
+    rather than the truth, and fills every window cell, so the saturated test learners of the
+    two suites (which predict different defaults in an empty cell) fit the same cells. With a
+    tolerance no score reaches, neither engine steps, so the plug-ins and per-unit influence
+    curves of the initial fits must agree: the two engines combine the same nuisances into the
+    same estimate and the same curve. The targeted estimates differ at second order on a draw,
+    because the window does not hold the history the slot weight's prefix reads, and each
+    engine walks its own submodel.
+    """
+    law = _LAW_M
+    counts = np.random.default_rng(20261125).multinomial(20_000, law.probs)
+    mine, theirs = _x70_agreement(monkeypatch, counts=counts, tol=1e6)
+    kept = counts[counts > 0].astype(float)
+    scale = kept / kept.mean()
+    assert all(step == 0 for steps in mine.record.steps for step in steps)
+    assert mine.record.visit_bound_share == 0.0
+    for label in _M_REGIMES:
+        for _, cause, t in _M_TARGETS:
+            name = f"cif_regimen[{label}, {cause} @ t={t}]"
+            ours, x70 = mine[name], theirs.estimates[name]
+            assert ours.psi == pytest.approx(x70.psi, abs=1e-12), name
+            curve = np.asarray(ours.influence_curve) * scale
+            assert np.max(np.abs(curve - np.asarray(x70.influence_curve))) < 1e-12, name
 
 
 def test_x70_agreement_needs_the_guard(monkeypatch: Any) -> None:

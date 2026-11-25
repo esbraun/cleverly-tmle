@@ -352,16 +352,24 @@ class _Regime:
 
 
 def _read_regimes(regimes: Any) -> list[_Regime]:
-    """The regimes as static levels or rules; C7 for any other policy."""
+    """The regimes as static levels or declared rules; C7 for any other policy.
+
+    A rule is a :class:`~cleverly.interventions.Rule` declared ``rule_kind="known"``, as
+    everywhere in the package: a callable can close over an estimate, and no code can inspect
+    a closure, so the declaration is the check. A bare callable carries no declaration and is
+    refused with the package's undeclared-rule text.
+    """
     from ..interventions import (
         Incremental,
         Intervention,
         ModifiedPolicy,
         RiskRatioTilt,
+        Rule,
         Shift,
         Static,
         Stochastic,
     )
+    from ..interventions.base import _RULE_DECLARATION, refuse_regime_densities
 
     if not isinstance(regimes, Mapping) or len(regimes) < 2:
         raise ValueError(
@@ -378,10 +386,14 @@ def _read_regimes(regimes: Any) -> list[_Regime]:
             raise policy_refusal("a modified treatment policy")
         elif isinstance(value, (Incremental, RiskRatioTilt)):
             raise policy_refusal("an odds tilt")
+        elif isinstance(value, Rule):
+            # None or "estimated" raise the package's refusals; "known" passes.
+            refuse_regime_densities((value,))
+            out.append(_Regime(str(label), rule=value.rule))
         elif isinstance(value, Intervention):
             raise policy_refusal(f"a {type(value).__name__} intervention")
         elif callable(value):
-            out.append(_Regime(str(label), rule=value))
+            _RULE_DECLARATION.refuse(None)
         elif isinstance(value, (Mapping, list, tuple, np.ndarray)):
             raise policy_refusal("an intervention on the visit intensity or a policy object")
         else:
@@ -434,10 +446,12 @@ class ContinuousLongitudinalTMLE:
     ----------
     horizons : sequence of float
         The target times :math:`\tau_1 < \dots < \tau_K`.
-    regimes : mapping of str to level or callable
-        Each regime: a treatment level held at every decision visit, or a rule that takes a
-        frame of the decision visits (``time``, ``visit``, the covariates by name and
-        ``previous_treatment``) and returns a level per row.
+    regimes : mapping of str to level, Static or Rule
+        Each regime: a treatment level held at every decision visit, or a
+        :class:`~cleverly.interventions.Rule` declared ``rule_kind="known"`` whose function
+        takes a frame of the decision visits (``time``, ``visit``, the covariates by name and
+        ``previous_treatment``) and returns a level per row. A bare callable carries no
+        declaration and is refused, as elsewhere in the package.
     reference : str or None
         The comparison regime of the risk differences; ``None`` takes the first.
     causes : mapping of int to str, or None

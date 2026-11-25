@@ -56,8 +56,8 @@ PENDING_REASON: Final[str] = (
 
 #: Why a fit with a user learner never reads supported.
 USER_LEARNER_REASON: Final[str] = (
-    "The fit uses a learner of its own for some nuisance; a study measures fixed libraries "
-    "and cannot measure an arbitrary learner."
+    "The fit uses a library or learner other than the default for some model; a study "
+    "measures the default libraries and cannot measure another choice."
 )
 
 #: Why a fit whose engine bounded a hazard jump reads experimental.
@@ -73,7 +73,10 @@ LONGITUDINAL_LIMITS: Final[tuple[str, ...]] = (
     "risk is identified under that restriction, no unmeasured confounding at each treatment "
     "time, positivity and censoring independent of the outcome given the history.",
     "Visits after the cap K* are not modelled: the regime holds at baseline and the first K* "
-    "visits, and the record's past_cap_share bounds the gap to the regime at every visit.",
+    "visits, and the record's past_cap_share bounds the gap to the regime at every visit. Past "
+    "the cap, censoring and the hazards read the window of visit K*, so the capped risk is "
+    "identified only when censoring after visit K* + 1 does not depend on the later L or A "
+    "given that window. K* is chosen on the full sample.",
     "The variance is the influence-curve variance P_n D^2, with no study of its calibration.",
 )
 
@@ -161,7 +164,7 @@ def continuous_longitudinal_support(
     Parameters
     ----------
     default_nuisances : bool
-        Whether every nuisance is a shipped default learner.
+        Whether every nuisance takes its default library (no library or learner given).
     jump_bounded : bool
         Whether the engine bounded some hazard jump below one.
     extra : sequence of str
@@ -825,7 +828,10 @@ def build_result(
     n = int(data.n)
     alpha = est.alpha
     last = est.horizons[-1]
-    default = est._default_nuisances_only()
+    # The label reads the default libraries (plan 3.5.9), not any shipped learner class: a
+    # one-member Cox library is the user's choice, which a study of the defaults does not
+    # measure. ``_default_nuisances_only`` gates C13 alone.
+    default = est._defaults
 
     def reasons(r: int) -> list[str]:
         out = []
