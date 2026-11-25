@@ -41,16 +41,16 @@ Notes:
 The row `ate` is the average treatment effect: the change in the mean score if every patient got the
 offer, compared with no patient. The `estimate` is on the scale of the outcome, here score points.
 The `std. error` measures how much the estimate would move from sample to sample, and the `p-value`
-tests whether the effect is zero. The `95% CI` is the 95% confidence interval: a range built so that,
-if the analysis were repeated on many new samples, about 95 in 100 such ranges would contain the
-true effect. That holds in large samples when the models are reasonably accurate.
+tests whether the effect is zero. The `95% CI` is the 95% confidence interval: a range built so
+that, if the analysis were repeated on many new samples, about 95 in 100 such ranges would contain
+the true effect. That holds in large samples when the models are reasonably accurate.
 
 In words a manager can follow: offering navigation raised the mean score by about 1.5 points, and
 the data are consistent with an effect between 1.42 and 1.60 points. That sentence is causal only if
 the adjusted covariates include everything that drove both the offer and the score, and no data can
 check that. [Sensitivity analysis](sensitivity.md) asks how strong a missing one would have to be.
 
-The block above the table says what was asked and how it was fitted. The fit uses two models: the
+The header records the question and how it was fitted. The fit uses two models: the
 outcome model predicts the score from the offer and the covariates, and the treatment model predicts
 each patient's chance of the offer from the covariates. The method, targeted maximum likelihood
 estimation (TMLE), starts from the outcome model's predictions and adds a correction step that uses
@@ -59,39 +59,43 @@ close to right. The correction weights each patient by one over their predicted 
 they got.
 
 `Out-of-fold predictions: no` means both models were fitted and scored on every row
-(`cross_fit=False`). That is sound for simple models like these linear and logistic regressions, and
-a continuous score with no fixed range has no other route. With flexible models, such as random
-forests or boosting, it can make the interval too narrow, and the summary then warns. Use the default
-instead: each row's predictions come from models trained without that row, like out-of-fold
-predictions in cross-validation (cross-fitting), and a continuous outcome then needs its known range
-([quickstart, on your own data](../getting-started/quickstart.md)).
+(`cross_fit=False`). That is sound for simple models like these linear and logistic regressions.
+With flexible models, such as random forests or boosting, it can make the interval too narrow, and
+the summary then warns. For those, keep the default, cross-fitting: each row's predictions come from
+models trained without that row, like out-of-fold predictions in cross-validation. A cross-fitted
+continuous outcome needs the range its values can take by how it is measured, such as
+`q_bounds=(0, 100)` for a 0-to-100 score, passed to `estimate()`. The quickstart's score has no such
+range, so fitting on every row with simple models is its only route ([quickstart, on your own
+data](../getting-started/quickstart.md)).
 
 The `Probability limits` cap each predicted chance, so that no patient gets an extreme weight. When
 the cap changes some patients' weights, a note says so; no such note prints here, so the cap changed
 no patient. [Read cleverly's output](reading-output.md) explains every other header line.
 
-Numbered notes follow the table, and they appear only when something changes how to read a number.
-The quickstart's note says its interval is widened on the side a skewed outcome misses on. A note can
-also say that an estimate is experimental (see [the support label](#read-the-support-label) below), or
-that a row has no interval and why. A warning prints before an ordinary note. A summary with no notes
-has nothing to flag. `summary(detail="full")` adds the assumptions the causal reading needs, one per
-line, and the settings that change how to read the numbers, such as the limits on predicted chances
-and how many patients reached them.
+Numbered notes follow the table, and they appear only when something changes how to read a number,
+with any warning first; a summary with no notes has nothing to flag. The quickstart's note says its
+interval is widened on the side a skewed outcome misses on. A note can also say that an estimate is
+experimental (see [the support label](#read-the-support-label) below), or that a row has no interval
+and why. `summary(detail="full")` adds the assumptions under which the effect can be read as caused
+by the treatment, one per line, and the settings that change how to read the numbers, such as the
+limits on predicted chances and how many patients reached them.
 
 ## Read the support label
 
 Every estimate carries a support label, `supported` or `experimental`. It answers one question: has
 a simulation study checked the coverage of this kind of interval for this kind of fit? Coverage is
 the share of intervals that hold the true value across many simulated data sets; a 95% interval
-should cover about 95% of the time. The package holds a fixed list of support entries, each pairing
-a kind of fit (the method, the kind of treatment and data, and the question) with the simulation
-study that checked it. You do not request the label, and no argument turns it off.
+should cover about 95% of the time. The package keeps a fixed list of the setups its simulation
+studies checked, each one a combination of method, kind of treatment and data, and question. You do
+not request the label, and no argument turns it off.
 
-A `supported` label means that a support entry covers this kind of fit and its simulation study
-passed. The label names the study, and its limits record the conditions the study checked, such as
-the learners or the smallest number of rows. An `experimental` label means that the package computes
-the estimate but makes no coverage claim: no entry covers this kind of fit, or a stated condition
-applies, such as too few clusters (groups of related rows). The label carries the reason.
+A `supported` label means that a simulation study checked a setup like your fit and passed. The
+label names the study, and `result["ate"].support.limits` lists any conditions the study set, such
+as the models it used for the outcome and the treatment or the smallest number of rows. An
+`experimental` label means that the package computes the estimate but makes no coverage claim: no
+study checked this setup, or a stated condition applies, such as too few clusters (groups of related
+rows). The label carries the reason. The quickstart's `ate` reads `supported`, with no extra
+conditions.
 
 An `experimental` label does not mean the estimate is wrong. It means no simulation has checked the
 number you read: the interval, the band of several estimates described below, or a value computed
@@ -104,7 +108,7 @@ Read the label with `result["ate"].support.label`, or in the `support` column of
 `result.to_frame()`. The summary prints a `support` column and a note only when an estimate is
 experimental. [Where the label appears](#where-the-label-appears) lists every place, and the
 [validation grid](../technical-reference/method-evidence/validation-grid.md) lists the studies
-behind the entries.
+behind the labels.
 
 ## Confidence intervals, the bootstrap and bands
 
@@ -163,9 +167,9 @@ replicates keep the example fast; use a few hundred in an analysis, and [count t
 fits](methods-learners.md#count-the-model-fits-before-a-long-run) first, since each replicate refits
 every model.
 
-The bootstrap interval carries its own label, in `result["ate"].bootstrap.support`. A simulation
-study covers it for a few fits. It reads `supported` on a yes/no outcome fitted on every row
-(`cross_fit=False`), the setup the [full-refit bootstrap
+The bootstrap interval carries its own label, in `bootstrapped["ate"].bootstrap.support`. A
+simulation study covers it for a few fits. It reads `supported` on a yes/no outcome fitted on every
+row (`cross_fit=False`), the setup the [full-refit bootstrap
 study](../technical-reference/method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
 checked, and `experimental` on a continuous outcome such as the quickstart's, as note 2 says. For a
 treatment decided once (not at several times) with cross-fitting, the default, it reads
@@ -185,11 +189,11 @@ assert type(restored.method.models.outcome_learner) is type(result.method.models
 ```
 
 Change the file name to your own. The three `assert` lines only show that the loaded result names
-the same estimates, method and learners; you do not need them. The file holds the whole result,
-including unfitted copies of the outcome and treatment learners, so a loaded result can still run
+the same estimates, method and models; you do not need them. The file holds the whole result,
+including unfitted copies of the outcome and treatment models, so a loaded result can still run
 the checks that refit its models. `save()` writes the result with `cloudpickle`. It saves an
 importable function or class by reference, and a lambda, a closure, or an object defined in a
-notebook or in `__main__` by value, so a result keeps the treatment rules, learners and other
+notebook or in `__main__` by value, so a result keeps the treatment rules, models and other
 functions you wrote inline. A by-value object loads only under the Python minor version that saved
 it.
 
@@ -249,11 +253,11 @@ coverage = CoverageStudy(
 print(coverage.summary())
 ```
 
-`simulate_data` is the part you write: a function that simulates data like yours. It takes a row count and
-a seed, and returns a data frame and the true value of each quantity you estimate. `CoverageStudy`
-takes a function that builds a fresh estimator from `cleverly.estimators`, not a `CausalStudy`, and
-passes the column names through `fit_kwargs`. Give it the learners and the `cross_fit` setting of
-your own fit.
+`simulate_data` is the part you write: a function that simulates data like yours. It takes a row
+count and a seed, and returns a data frame and the true value of each quantity you estimate.
+`CoverageStudy` takes a function that builds a fresh estimator from `cleverly.estimators`, not a
+`CausalStudy`, and passes the column names through `fit_kwargs`. Give it the learners and the
+`cross_fit` setting of your own fit.
 
 The summary has three numbers to read. `coverage` is the share of intervals that held the truth,
 which should be near 95%. `bias` is the mean error of the estimates, and `summary(detail="full")`
@@ -264,12 +268,12 @@ number of draws. The line under the table flags coverage below 95% by more than 
 standard errors, or a bias more than three of its standard errors from zero.
 
 The numbers hold only for the process you simulated, so make it resemble your data: the row count,
-the covariates, the treated share and the kind of outcome. The truth that `simulate_data` returns must be
-the quantity your fit estimates, on the same population. Fifty draws keep the example fast, but at
-50 draws the coverage has a Monte Carlo standard error of about 3 points, so it cannot tell 92% from
-95%; an analysis needs several hundred. Each draw is one full fit: `n_jobs=` runs draws in parallel,
-and `checkpoint=` lets a stopped study resume. A draw whose fit fails stays in the study as a
-failure and is not dropped.
+the covariates, the treated share and the kind of outcome. The truth that `simulate_data` returns
+must be the quantity your fit estimates, on the same population. Fifty draws keep the example fast,
+but at 50 draws the coverage has a Monte Carlo standard error of about 3 points, so it cannot tell
+92% from 95%; an analysis needs several hundred. Each draw is one full fit: `n_jobs=` runs draws in
+parallel, and `checkpoint=` lets a stopped study resume. A draw whose fit fails stays in the study
+as a failure and is not dropped.
 
 Your study does not change the support label. Labels come from the fixed support entries in the
 package, each backed by a study in the [validation
@@ -338,9 +342,9 @@ group. [Plotting](../api/plotting.md) lists which results each plot draws.
 
 ### Which interval each estimate carries
 
-In a TMLE fit without clusters, the interval of the mean of a yes/no outcome is built on a scale that
-keeps it between 0 and 1, and the interval of a difference of two such means is built from the two
-means' intervals. For an outcome on a continuous scale, without clusters, the interval uses a t
+In a TMLE fit without clusters, the interval of the mean of a yes/no outcome is built on a scale
+that keeps it between 0 and 1, and the interval of a difference of two such means is built from the
+two means' intervals. For an outcome on a continuous scale, without clusters, the interval uses a t
 distribution and is widened on the side where a skewed outcome makes misses more likely. Some
 effects, such as the effect among the treated or the untreated (`att`, `atc`), keep the ordinary
 interval centred on the estimate, and so does a fit with clusters. On a clustered fit the summary
@@ -445,8 +449,8 @@ conditions under which a collaborative `"oat"` fit reports one. The property
 `result.inference_status` gives the status of the fit, and `point.supplies_inference` gives it for
 one estimate. On a fit that withholds its interval, `point.plugin_std_error` and
 `point.plugin_interval` give the standard error and interval that the usual formula would report,
-which no theory or study shows to be valid for this fit. Each is a diagnostic, and neither is a confidence
-statement.
+which no theory or study shows to be valid for this fit. Each is a diagnostic, and neither is a
+confidence statement.
 
 `result.parameter_keys` maps each row name to a `ParameterKey`, which holds the parts of the name as
 fields, such as the treatment level (`key.value`) and the subgroup (`key.stratum`). Select rows in
@@ -523,8 +527,9 @@ Such a result still gives its point estimates and the checks that rerun the corr
 stored models, such as the curve over caps on extreme weights. Checks that fit new models, such as
 `refute()` and `simulated_confounding()`, read `unavailable`, and `estimator.refit()` raises
 `CapabilityError` before it fits anything. Fit the analysis again under a setup the package accepts.
-[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
-lists each refused setup and the code the result records, and [truncation
+[Replay-only
+unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability) lists each
+refused setup and the code the result records, and [truncation
 stability](../technical-reference/validation-methods.md#truncation-stability) covers the weight-cap
 curve of a guarded `DRTMLE` fit.
 
@@ -541,12 +546,12 @@ new rows after loading.
 ### Limit the memory of saved answers
 
 A result keeps every check answer it has computed in its assessment cache, so a repeated call
-returns at once. Most answers
-are a few kilobytes. The inputs to the missing-confounder bound that `result.sensitivity.elements()`
-returns, and that `run_all()` and `assess()` compute along the way, hold four numbers per row. At a
-million rows that is about 32 MB for each estimate and each choice of `nu2_estimator`, the estimator
-of the bound's weight term ([sensitivity analysis](sensitivity.md)). A derived risk ratio holds one
-number per row. Many distinct requests on a large fit can therefore add up.
+returns at once. Most answers are a few kilobytes. The inputs to the missing-confounder bound that
+`result.sensitivity.elements()` returns, and that `run_all()` and `assess()` compute along the way,
+hold four numbers per row. At a million rows that is about 32 MB for each estimate and each choice
+of `nu2_estimator`, the estimator of the bound's weight term ([sensitivity
+analysis](sensitivity.md)). A derived risk ratio holds one number per row. Many distinct requests on
+a large fit can therefore add up.
 
 Set `result.assessment_cache.max_bytes` to a number of bytes to cap the memory of all saved answers.
 When the total passes the cap, the cache drops the answers it can compute again exactly from the

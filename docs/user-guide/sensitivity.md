@@ -21,21 +21,21 @@ is plausible is your judgement about the subject.
 - `simulated_confounding()` plants a confounder of chosen strengths in the data and refits.
 
 The robustness value and the E-value each answer "how strong would a missing confounder have to be
-to explain the effect away?" with one number. They measure strength on different scales, shares of
-explained variation and risk ratios, and `gamma` is a third scale, on the odds of treatment alone;
-the package does not convert one into another. For a manager, the clearest sentence compares a
-missing confounder with a covariate you recorded, as [Compare with a covariate you
-recorded](#compare-with-a-covariate-you-recorded) shows; report the robustness value and the E-value
-beside it.
+to explain the effect away?" with one number, on different scales: shares of explained variation
+and risk ratios. `gamma` is a third scale, and the package converts none into another. For a
+manager, the clearest sentence compares a missing confounder with a covariate you recorded ([Compare
+with a covariate you recorded](#compare-with-a-covariate-you-recorded)); report the robustness value
+and the E-value beside it.
 
 ## Run the quick analyses
 
 The examples on this page use one small simulated fit of an average treatment effect, the change in
-the mean outcome `Y` if every row got the treatment `A` compared with none. It fits its outcome model and
-treatment model on every row (`cross_fit=False`), as a continuous outcome with no fixed range
-requires. If you have your
-own fitted result, skip the fit and use your result, with its own settings, in place of
-`linear_fit`.
+the mean outcome `Y` if every row got the treatment `A` compared with none. The fit uses two models:
+the outcome model predicts `Y` from `A` and the covariates, and the treatment model predicts each
+row's chance of getting `A`. It fits both on every row (`cross_fit=False`). The package's default,
+cross-fitting, predicts each row from models trained without it, and on a continuous outcome it
+needs a declared range of values, which this simulated `Y` lacks. If you have your own fitted
+result, skip the fit and use your result, with its own settings, in place of `linear_fit`.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -95,21 +95,23 @@ worst-case bounds            on request       not run by default because it
 
 The `unmeasured confounding` and `E-value` rows answer the main question. A missing confounder would
 need strengths of about half (0.509) on both sides, or a risk ratio of 3.4 with both the treatment
-and the outcome, to erase an effect of 1.46; the next two sections say what those strengths mean.
-The benchmark and the planted confounder need an argument you choose, and the worst-case bounds
-(`marginal_bounds()`) fit extra models, so `run_all()` runs them only with `include_refits=True` or
-when you call them.
+and the outcome, to erase an effect of 1.46. The benchmark and the planted confounder need an
+argument you choose, and the worst-case bounds (`marginal_bounds()`) fit extra models, so
+`run_all()` runs them only with `include_refits=True` or when you call them.
 
 ## How far could a missing confounder move the estimate?
 
-`omitted_confounding()` describes a missing confounder by two strengths, each a share between 0 and
-1. The outcome-side strength (`cf_y`) is the share of the outcome's variation, left after adjusting
-for your covariates, that the confounder would explain. The treatment-side strength (`cf_d`) says how
-much knowing the confounder would sharpen the prediction of who got the treatment, which would make
-the weights larger. Each row's weight is one over its predicted chance of its own treatment, and at
-a strength of 0.05 the average squared weight would be about 5% larger (1 / (1 - 0.05) times). The
-bound reports the range of estimates such a confounder allows, when its two links line up in the way
-that moves the estimate most (the worst alignment).
+`omitted_confounding()` describes a missing confounder by two strengths, each a share between 0
+and 1. The outcome-side strength (`cf_y`) is the share of the outcome's variation, left after
+adjusting for your covariates, that the confounder would explain. The treatment-side strength
+(`cf_d`) says how much knowing the confounder would sharpen the prediction of who got the treatment.
+
+The estimate weights each row by one over its predicted chance of its own treatment, so that the
+treated and the untreated rows each stand in for everyone. Sharper predictions push chances toward 0
+or 1 and make the weights larger, and larger weights leave more room for bias. At a `cf_d` of 0.05
+the average squared weight would be about 5% larger (1 / (1 - 0.05) times). The bound reports the
+range of estimates such a confounder allows, when its two links line up in the way that moves the
+estimate most (the worst alignment).
 
 ```python
 bounds = linear_fit.sensitivity.omitted_confounding(cf_y=0.05, cf_d=0.05)
@@ -134,14 +136,16 @@ A confounder with both strengths at 0.05 could move the estimate anywhere in the
 effect. There is no standard strength to declare: try the strengths of a covariate you recorded, as
 the next section does.
 
-The robustness value needs no choice. It is the strength, equal on both
-sides, that would move the estimate to 0: here 0.51, or 0.48 for the 95% limit nearest 0
-(`robustness_value()` returns it alone). A value near 0 means a weak confounder could erase the
+The robustness value needs no choice. It is the strength, equal on both sides, that would move the
+estimate to 0: here 0.51, or 0.48 for the 95% limit nearest 0 (`robustness_value()` returns it
+alone). A value near 0 means a weak confounder could erase the
 effect; a value near 1 means only one that explains almost all the remaining variation on both sides
 could.
 
-The bound assumes a treatment model that is right in large samples; a wrong one makes the bounds too
-narrow. [The weight term of the bound](#the-weight-term-of-the-bound) gives the details.
+The bound also assumes that the treatment model gets each row's chance of treatment right, at least
+approximately, and more closely as the data grow. If it does not, the average squared weight comes
+out too small and the bounds too narrow. No check proves this, but the treatment-model and balance
+checks on [Check a fitted result](assessment.md) look for signs of a poor treatment model.
 
 ### Compare with a covariate you recorded
 
@@ -165,12 +169,11 @@ ate      1.463   [1.205, 1.721]         [1.099, 1.827]
 ```
 
 `W1` explains almost all the outcome variation the others leave (0.995) but adds little to
-predicting the treatment (0.016). A confounder as strong as `W1` on both sides at once could move the
-estimate at most to between 1.21 and 1.72, or 1.10 to 1.83 with sampling uncertainty, under the
-bound's assumptions. Those are the declared strengths, the worst alignment, and a treatment model
-that is right in large samples. That range excludes 0, which is the sentence to give a manager. Name
-your own covariates in `covariates=`: ones you understand well and believe matter for both the
-treatment and the outcome, so that you can judge whether a missing confounder could be as strong.
+predicting the treatment (0.016). Under the bound's assumptions, the sentence for a manager is: "A
+missing factor as strong as `W1` could at worst lower the estimated effect from 1.46 to 1.21, or to
+1.10 allowing for sampling uncertainty, so it would not erase the effect." Name your own covariates
+in `covariates=`: ones you understand well and believe matter for both the treatment and the
+outcome, so that you can judge whether a missing confounder could be as strong.
 
 ## The E-value: link strength that explains the effect away
 
@@ -191,18 +194,19 @@ estimate                          1.998       3.41
 95% limit nearest the null        1.884       3.17
 ```
 
-The `risk ratio` column is the effect itself on the risk-ratio scale: on a continuous outcome, as
-here, the summary converts the mean difference of 1.46 to a risk ratio of about 2.0, and each step
-of that conversion is an approximation. A confounder would need a risk ratio of 3.4 with both the
-treatment and the outcome, beyond the covariates, to explain the effect away, and 3.2 to pull the
-interval to no effect. An E-value of 1 means no confounding at all is needed, so larger means more
-robust. There is no fixed cutoff; judge it against how strongly your recorded covariates relate to
-the treatment and the outcome. The two links can trade off, one below the E-value if the other is
-above it.
+The `risk ratio` column is the effect itself on the risk-ratio scale. On a continuous outcome, as
+here, the summary divides the mean difference of 1.46 by the outcome's standard deviation and turns
+that into a risk ratio of about 2.0 with a standard formula for a roughly normal outcome. Read it as
+roughly how much more likely the treated would be to land in the upper part of the outcome; it is an
+approximation.
 
-Some setups have no simulation study for their interval-limit E-value yet. On those, a note under
-the table calls that E-value descriptive, so report it as a description of this sample, and
-`EValue.limit_descriptive` is true; this example prints no such note. The [E-value
+An E-value of 1 means no confounding at all is needed, so larger means more robust. There is no
+fixed cutoff, and the package does not compute your covariates' risk ratios. Ask
+whether any factor you know of could make both the treatment and the outcome about 3.4 times as
+likely. The two links can trade off, one below the E-value if the other is above it.
+
+Some setups have no simulation study for their interval-limit E-value yet; a note then calls it
+descriptive, and `EValue.limit_descriptive` is true. The [E-value
 reference](../technical-reference/validation-methods.md#e-value) lists those setups.
 `evalue.plot()` draws the trade-off: each curve holds the weakest pairs of links that could explain
 the estimate, or its interval limit, away, and the E-value is the point where the two links are
@@ -233,10 +237,12 @@ Warnings:
 
 Read the `lower` and `upper` columns at each `gamma`. At `gamma=1`, no missing confounder, the range
 shrinks to one value, the bound's own estimate, which is close to the fit's. Here even a confounder
-that doubles or halves the odds of treatment leaves the range above 0. `odds_bounds.breakdown` is the
-smallest grid `gamma` whose range contains 0, or `None` when no grid value reaches it; try larger
-values to find it. Report the interval column as a description of this sample, since no simulation
-study backs it for this fit. [Marginal sensitivity model
+that doubles or halves the odds of treatment leaves the range above 0. `odds_bounds.breakdown` is
+the smallest grid `gamma` whose range contains 0, or `None` when no grid value reaches it; try
+larger values to find it. The warning means no simulation study has checked how often this interval
+holds the true range for this kind of fit. You may report it, but say so, for example "an interval
+of 0.78 to 2.14, which no simulation study has checked for this kind of analysis". [Marginal
+sensitivity model
 bounds](../technical-reference/validation-methods.md#marginal-sensitivity-model-bounds) gives the
 fits it covers, its conditions and each refusal.
 
@@ -244,9 +250,12 @@ fits it covers, its conditions and each refusal.
 
 `simulated_confounding()` adds a made-up confounder of chosen strengths to the data, refits the
 whole analysis at each pair of strengths, and reports how far the estimate moves. It draws one
-hidden value per row. On a yes/no treatment of strength `k`, it switches the treatment of the share
-`k` of rows with the highest hidden values. It subtracts the outcome strength times the hidden value
-from a continuous outcome, or switches a yes/no outcome in the same tail ([how the confounder is
+hidden value per row from a standard normal distribution. The treatment strength is a share of rows:
+on a yes/no treatment of strength 0.05, it switches the treatment of the 5% of rows with the highest
+hidden values. The outcome strength is in the outcome's own units: on a continuous outcome it
+subtracts the strength times the hidden value, so 0.25 lowers the outcome by 0.25 for each standard
+deviation of the hidden value. A yes/no outcome is switched in the same tail instead ([how the
+confounder is
 planted](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)).
 
 ```python
@@ -296,11 +305,13 @@ W2          outcome        0.456
 
 Each cell's `movement` is its estimate minus the original one; in `surface.to_frame()` it is the
 `displacement` column. The last table puts the covariates you named in `benchmark_covariates` on the
-same scale as the grid. Here `W1` sits at 0.26 on the treatment axis and 1.10 on the outcome axis,
-beyond the largest values of this grid, so to ask whether a confounder as strong as `W1` would
-matter, widen the grid to reach it, such as `treatment=(0.0, 0.15, 0.3)` and `outcome=(0.0, 0.6,
-1.2)`; each cell is one more refit. Read the surface as a stress test: it shows how far the estimate
-moves, and gives no corrected estimate, bound, interval or pass or fail.
+grid's scales: on the treatment axis, the share of rows whose predicted treatment changes when that
+covariate is set to its average, and on the outcome axis, how much the outcome changes per standard
+deviation of it. Here `W1` sits at 0.26 on the treatment axis and 1.10 on the outcome axis, beyond
+the largest values of this grid, so to ask whether a confounder as strong as `W1` would matter,
+widen the grid to reach it, such as `treatment=(0.0, 0.15, 0.3)` and `outcome=(0.0, 0.6, 1.2)`; each
+cell is one more refit. Read the surface as a stress test: it shows how far the estimate moves, and
+gives no corrected estimate, bound, interval or pass or fail.
 
 Check the `Associations` table before you read a movement along the treatment axis as confounding.
 It gives, for each cell, the correlation between the hidden value and the switched treatment. On a
@@ -308,27 +319,26 @@ yes/no treatment that association depends on the treated share, and it is zero w
 are treated. Here it is about -0.05, near zero, so switching treatments mostly mislabelled rows
 instead of tying the treatment to the hidden value.
 
-Cells 4 and 7 show the effect: with no outcome
-strength they carry no confounding path at all, yet move the estimate by up to -0.22. On this fit,
-then, the treatment-axis movements measure the damage of mislabelled treatments, not the bias a real
-confounder would cause. Each cell reports its own association in `induced_treatment_association`.
-
-Pass the seed of the original fit, or pass no `random_state` at all: on a cross-fitted fit, the
-surface reproduces the fit's split of the rows into folds (the groups that cross-fitting holds out
-in turn) only under its seed. [More on the planted confounder](#more-on-the-planted-confounder)
-gives the reading rules for a continuous treatment and the checks the call runs first.
+Cells 4 and 7 show this: with no outcome strength they carry no confounding path at all, yet move
+the estimate by up to -0.22. On this fit, then, the treatment-axis movements measure the damage of
+mislabelled treatments rather than the bias a real confounder would cause. Each cell reports its own
+association in `induced_treatment_association`. Run the planted confounder when you want to watch
+the whole analysis rerun under a confounder as strong as a recorded covariate. Pass the seed of the
+original fit as `random_state`, and see [More on the planted
+confounder](#more-on-the-planted-confounder) for why and for the reading rules on a continuous
+treatment.
 
 ## Go deeper
 
 ### The weight term of the bound
 
-The bound needs one more number from the fit, a term that grows as the weights get more extreme
-(the average squared weight, $\nu^2$, set by `nu2_estimator`). The default estimator of it is doubly
-robust in a narrow sense: it stays close to the truth if either the outcome model or the treatment
-model is close, so small errors in the fitted treatment model move it only slightly, and its
-one-sided limits hold for any treatment learner (the model you pass as `treatment_learner`). It
-still needs a treatment model that is right in large samples; a wrong one makes the bounds too
-narrow ([omitted-variable
+The bound needs one more number from the fit, a term that grows as the weights get more extreme (the
+average squared weight, $\nu^2$, set by `nu2_estimator`). The default estimator of it is doubly
+robust in a narrow sense: its error is second order in the treatment model's error, so small errors
+in the fitted treatment model move it only slightly, and it gives one-sided limits for any treatment
+learner (the model you pass as `treatment_learner`). It reads only the treatment model, so the
+condition under the bound still applies: a treatment model that is wrong even in large samples makes
+the term too small and the bounds too narrow ([omitted-variable
 bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)).
 The plug-in estimator below is the alternative.
 
@@ -401,11 +411,12 @@ arguments. It names the omitted strength when you supply only one. The arguments
 both numbers.
 
 The E-value row records the estimate it read, such as `estimand="ate"`, so the call can be run
-again. A derived ratio can carry another name, such as `rr`. For a default odds-ratio source, the
-row keeps `estimand=None`, because an explicit name chooses the approximation. The returned E-value
-records that source in `source_estimand`. On a `TimeToEvent` fit, name two reported risks at one
-time point, numerator first: `result.sensitivity.evalue(("risk_regimen[a1 @ t=2]", "risk_regimen[a0
-@ t=2]"))`.
+again. When the E-value comes from a ratio the package derived, the row may record that ratio's
+name, such as `rr`. When it comes from an odds ratio by default, the row keeps `estimand=None`,
+because naming the odds ratio would switch the E-value to an approximate conversion. Either way, the
+returned E-value names the estimate it read in `source_estimand`. On a `TimeToEvent` fit, name two
+reported risks at one time point, numerator first: `result.sensitivity.evalue(("risk_regimen[a1 @
+t=2]", "risk_regimen[a0 @ t=2]"))`.
 
 ### When outcomes are missing
 
@@ -415,8 +426,9 @@ and `tipping_gamma()` searches for the `gamma` at which the conclusion changes. 
 mean outcome of each treatment group (arm) and their contrasts and ratios, `ey_obs` (the mean
 outcome under the treatments people actually got), the population attributable risk and fraction
 (PAR and PAF), the means under treatment rules (regime parameters), and the coefficients of a
-working model across treatment levels (MSM, a trend line across the levels). Away from $\gamma = 0$ on an ordinary `TMLE` fit, the arm means, their contrasts and ratios,
-`ey_obs`, PAR and PAF are re-estimated at each $\gamma$, each with its own confidence interval, and
+working model across treatment levels (MSM, a trend line across the levels). Away from $\gamma = 0$
+on an ordinary `TMLE` fit, the arm means, their contrasts and ratios, `ey_obs`, PAR and PAF are
+re-estimated at each $\gamma$, each with its own confidence interval, and
 `tipping_gamma(use_ci=True)` finds where an interval limit reaches the null.
 
 A [simulation study](../technical-reference/method-evidence/missingness-tilt.md) backs those
@@ -437,22 +449,25 @@ parameter is still the shift parameter has not been derived. An incremental fit 
 its correction step also adjusts the treatment model, and no derivation covers the tilt of that
 joint adjustment.
 
-A per-arm outcome-adaptive `CTMLE` fit, a collaborative fit (`strategy="oat"`) that fits its
-models on the outcome model's predictions, predicts who has an outcome recorded from the outcome model's predictions only. Both methods
-instead read a separate model of who has an outcome recorded that uses every covariate
-(`nuisance.tilt_missingness`), which no correction step reads.
+One collaborative fit needs care. With `CTMLE(strategy="oat")`, its model of who has an outcome
+recorded reads only the outcome model's predictions, not the covariates. On that fit both methods
+read a separate model of who has an outcome recorded, one that uses every covariate
+(`nuisance.tilt_missingness`) and that no correction step reads.
 
-Both capability rows read `unavailable` before any call, with the sentence that the call raises. A
-fit with no missing outcome reads `not_applicable`. The combined report shows the same row instead
-of substituting an armwise analysis. A completed `tipping_gamma` search can return `None` when its
-interval contains no tipping point.
+Where a fit gets neither method, its rows in `result.sensitivity.capability(...)` read `unavailable`
+before any call, with the sentence that the call raises. A fit with no missing outcome reads
+`not_applicable`. The combined report shows the same row instead of substituting an armwise
+analysis. A completed `tipping_gamma` search can return `None` when its interval contains no tipping
+point.
 
 ### More on the planted confounder
 
-A different seed gives every cell but the zero cell (the anchor) new folds, and a fit that declared
-no seed has the same effect. The anchor keeps the original folds, so movement near the anchor can
-carry an artifact of the new folds. The call refits the complete estimator at each nonzero strength
-pair, and the zero cell equals the original estimate exactly. Additive surfaces record
+Pass the seed of the original fit, or pass no `random_state` at all: on a cross-fitted fit, the
+surface reproduces the fit's split of the rows into folds only under its seed. A different seed
+gives every cell but the zero cell (the anchor) new folds, and a fit that declared no seed has the
+same effect. The anchor keeps the original folds, so movement near the anchor can carry an artifact
+of the new folds. The call refits the complete estimator at each nonzero strength pair, and the zero
+cell equals the original estimate exactly. Additive surfaces record
 `movement_scale="estimate_difference"`.
 
 On a continuous treatment, the hidden value changes the dose by construction, so the association
@@ -477,9 +492,9 @@ stops at the first limit your fit meets and names it in the same words a direct 
 each refusal comes before the hidden-value draw or any refit. A fit whose adjustment set was not
 declared as an explicit list of covariates is one example. Its row reports `available=False`, with a
 reason that states this requirement in the package's own terms (`"simulated_confounding needs
-registered explicit-adjustment backdoor provenance"`). The
-[stress surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
-lists every limit.
+registered explicit-adjustment backdoor provenance"`). The [stress
+surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface) lists
+every limit.
 
 ### A continuous dose
 
@@ -538,9 +553,9 @@ mean is $E[Y]$ and no common cause can move it through the treatment. The surfac
 by name. It still accepts an `ate_policy[...]` contrast that uses the zero-delta policy as its
 reference, because the contrast keeps its treatment dependence.
 
-The planted confounder moves a continuous treatment by $A'=A+k_AU$. It keeps the declared modified treatment policies fixed
-during each ordinary-TMLE refit. The outcome changes and the shared random draws stay the same as on
-the yes/no surface.
+The planted confounder moves a continuous treatment by $A'=A+k_AU$. It keeps the declared modified
+treatment policies fixed during each ordinary-TMLE refit. The outcome changes and the shared random
+draws stay the same as on the yes/no surface.
 
 ### The planted confounder on other fits
 
@@ -561,6 +576,6 @@ how the planted confounder moves each kind of fit, and every limit.
 | a clustered fit | `latent_level="row"`, `"cluster"`, or `"mixed"` with `latent_rho` | a treatment constant within every cluster accepts only `"cluster"` when a cell moves the treatment |
 | a missing outcome or a missing treatment | `observation_reads=`, the covariates every missingness model reads, for a cell that moves the treatment | only recorded values move, and every missingness indicator stays. The report states the declaration, which the surface cannot verify |
 | a controlled direct effect | `ConfounderStrengthGrid(intermediate=(0.0, 0.2))` | the treatment is held and the intermediate switches; a nonzero treatment strength is refused |
-| a continuous outcome fitted with a declared range (`q_bounds`) | `bounded_outcome_law="logit"` (the default) or `"normal_score"` | moved outcomes stay inside the bounds, so the outcome strength is not in outcome standard deviations; compare `induced_outcome_association` across fits |
+| a continuous outcome fitted with a declared range (`q_bounds`) | `bounded_outcome_law="logit"` (the default) or `"normal_score"` | moved outcomes stay inside the bounds, so the outcome strength is not in the outcome's own units; compare `induced_outcome_association` across fits |
 | observation weights | nothing | each weight stays on its row, and the replay does not regenerate estimated weights. `surface.target_measure` and `surface.weight_report` describe the weights |
 | a treatment over time, fitted with `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula`, on a panel with no covariate measured after the first node: an uncensored end-of-study outcome, or a survival outcome with the treatment held from baseline ([survival](survival.md#check-sensitivity-to-a-missing-confounder)) | `estimand=`, such as `"ate_regimen[never vs always]"`. `treatment={"A2": (0.0, 0.1)}` moves one node | one hidden value per person is shared by every node and the outcome. Each cell reports one association per node, and a later node's includes the path through the earlier ones |
