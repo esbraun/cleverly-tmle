@@ -49,8 +49,10 @@ from .effect_modification import (
     TARGET_OF_SCALE,
     EffectModification,
     EffectModificationSet,
+    conditional_contrast_alternative,
     effect_modification_data_refusal,
     effect_modification_ep_refusal,
+    no_projection_target,
 )
 from .estimators import (
     CTMLE,
@@ -107,10 +109,14 @@ from .longitudinal import (
 )
 from .longitudinal import estimator as _sequential
 from .longitudinal.data import check_markov_order, markov_restriction
+from .longitudinal.drift import RESTRICTED_MEAN_CONDITION
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
     IPW_MTP_REFUSAL,
+    _restricted_times,
+    refuse_curve_functional,
+    restriction,
 )
 from .longitudinal.regimen import (
     declares_mtp,
@@ -2670,13 +2676,25 @@ class RegimeMean:
     horizons : sequence of float or None
         Follow-up times to report for a longitudinal outcome: grid times on a binned
         design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
+    restricted_horizons : sequence of float, default=()
+        Restriction times ``tau`` of a time to an event. Each adds every regimen's
+        restricted mean survival time ``rmst_regimen[d @ t=.]`` and its restricted mean time
+        lost to each cause ``rmtl_regimen[d, cause @ t=.]``. On a binned grid each
+        ``tau`` is a grid time (a node index on the wide layout), the name carries its
+        node index, and the fit reads it from the targeted risks at every grid time below
+        it. With ``TimeToEvent(grid="continuous")`` the continuous-time walk targets it, and
+        the name carries ``tau`` itself.
     """
 
     regimens: Any
     reference: str | None = None
     horizons: Sequence[int] | None = None
+    restricted_horizons: Sequence[float] = ()
     name: str = field(default="ey_regime", init=False)
     definition: str = field(default="mean outcome under each declared regime", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "restricted_horizons", _restricted_times(self.restricted_horizons))
 
 
 @dataclass(frozen=True)
@@ -2694,6 +2712,14 @@ class RegimeContrast:
     horizons : sequence of float or None
         Follow-up times to report for a longitudinal outcome: grid times on a binned
         design, any times within every arm's follow-up on ``TimeToEvent(grid="continuous")``.
+    restricted_horizons : sequence of float, default=()
+        Restriction times ``tau`` of a time to an event. Each adds the difference of
+        each regimen's restricted mean survival time from the reference's,
+        ``rmst_regimen[d vs ref @ t=.]``, and of its restricted mean time lost to each cause,
+        ``rmtl_regimen[d vs ref, cause @ t=.]``. On a binned grid each ``tau`` is a
+        grid time (a node index on the wide layout), the name carries its node index, and
+        the fit reads it from the targeted risks at every grid time below it. With
+        ``TimeToEvent(grid="continuous")`` the continuous-time walk targets it.
 
     See Also
     --------
@@ -2711,13 +2737,40 @@ class RegimeContrast:
     ... )
     >>> estimand.reference
     'never'
+
+    The difference in restricted mean survival time up to grid time 4, on a binned
+    survival design:
+
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import CausalStudy, TimeToEvent
+    >>> from cleverly.datasets import make_point_survival
+    >>> frame, _ = make_point_survival(n=300, seed=4, n_times=4)
+    >>> design = TimeToEvent(
+    ...     time="time", event="event", treatment="A", baseline=("W1", "W2"),
+    ...     grid=(1, 2, 3, 4),
+    ... )
+    >>> result = CausalStudy(frame, design=design).estimate(
+    ...     RegimeContrast(
+    ...         {"arm1": 1, "arm0": 0}, reference="arm0", restricted_horizons=(4,)
+    ...     ),
+    ...     outcome_learner=LinearRegression(),
+    ...     pseudo_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     cross_fit=False,
+    ... )
+    >>> result.rmst("arm1", 4, versus="arm0").name
+    'rmst_regimen[arm1 vs arm0 @ t=4]'
     """
 
     regimens: Any
     reference: str | None = None
     horizons: Sequence[int] | None = None
+    restricted_horizons: Sequence[float] = ()
     name: str = field(default="ate_regime", init=False)
     definition: str = field(default="contrast of each regime against the reference", init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "restricted_horizons", _restricted_times(self.restricted_horizons))
 
 
 def _check_learned_rule_level(owner: str, level: float | None) -> None:
@@ -3578,6 +3631,25 @@ IPSI_POLICY_REFUSAL = Refusal(
 )
 
 
+#: Why ``method="drtmle"`` is unavailable for an estimand that declares restricted means.
+RESTRICTED_DRTMLE_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
+    RESTRICTED_MEAN_CONDITION,
+    alternative="Fit method='tmle'.",
+    roadmap="X62",
+)
+
+#: Why the longitudinal baselines are unavailable for an estimand that declares restricted
+#: means. Their engines' ``result.rmst()`` from the risks is unchanged.
+RESTRICTED_BASELINE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "restricted_horizons= adds restricted means to the targeted fits: LTMLE, SDR and the "
+    "collaborative TMLE. The sequential g-computation, IPW and parametric g-formula baselines "
+    "are comparators for those fits, and take no restricted means.",
+    alternative="Fit method='tmle' or method='sdr'.",
+)
+
+
 def _narrow_bands(
     result: Any, retained: Mapping[str, Any], method: EstimationMethod
 ) -> SimultaneousBands | None:
@@ -3652,6 +3724,15 @@ _NARROWED_BAND: Final[Support] = Support(
 )
 
 
+def _declared_nodes(data: LongitudinalData, horizons: Sequence[float]) -> set[int]:
+    """The node indices of declared ``horizons=``: grid times on a grid, nodes otherwise."""
+    grid = data.time_grid
+    if grid is None:
+        return {int(horizon) for horizon in horizons}
+    values = np.asarray(grid, dtype=float)
+    return {int(np.flatnonzero(values == float(horizon))[0]) + 1 for horizon in horizons}
+
+
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     """Bootstrap draws for the parameters this effect reports, and no others.
 
@@ -3714,6 +3795,9 @@ class BackdoorMeanContrast:
         For a longitudinal functional, each treatment node with the set that its treatment
         mechanism conditions on: the covariates measured before the node, then the earlier
         treatment nodes. Empty for a point treatment.
+    restricted_horizons : tuple of float
+        The restriction times of the restricted means a time-to-event functional reports
+        beside its risks. Empty when the estimand declares none.
     """
 
     outcome: Any
@@ -3734,6 +3818,7 @@ class BackdoorMeanContrast:
     treatment_missingness: str | None = None
     treatment_value: Any = None
     history: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    restricted_horizons: tuple[float, ...] = ()
 
     @property
     def reference_arm(self) -> Any:
@@ -3777,7 +3862,11 @@ class BackdoorMeanContrast:
             ``save()`` persists, which is a wrong answer rather than a missing one.
         """
         if self.longitudinal:
-            return "sequential g-formula under the declared treatment regimen"
+            expression = "sequential g-formula under the declared treatment regimen"
+            if self.restricted_horizons:
+                shown = ", ".join(f"{tau:g}" for tau in self.restricted_horizons)
+                expression += f", with the restricted means up to {shown}"
+            return expression
         if self.axis == "dose_response":
             pairs = ", ".join(f"({h:g}, {a0:g})" for h, a0 in self.interventions)
             return (
@@ -3957,6 +4046,10 @@ class ParameterKey:
         Competing-risk cause label.
     term : str or None
         Marginal structural model term.
+    measure : {"rmst", "rmtl"} or None
+        On a restricted mean, whether it is the restricted mean survival time or the
+        restricted mean time lost to ``cause``; ``horizon`` is then the node index of its
+        restriction time. ``None`` on every other parameter.
     bandwidth : float or None
         Kernel bandwidth of a dose-response pair.
     """
@@ -3971,6 +4064,7 @@ class ParameterKey:
     horizon: int | None = None
     cause: str | None = None
     term: str | None = None
+    measure: Literal["rmst", "rmtl"] | None = None
     bandwidth: float | None = None
 
 
@@ -4964,12 +5058,18 @@ MODIFIER_ADJUSTMENT_REFUSAL = Refusal(
 )
 
 
+#: The longitudinal baselines, which a point-treatment conditional contrast refuses with the
+#: record that names their longitudinal fit.
+_BASELINE_METHODS = ("gcomp", "ipw", "parametric_gformula")
+
+
 def _refuse_conditional_contrast(
     estimand: ConditionalContrast, design: PointTreatment, data: CausalData
 ) -> None:
     """Refuse what a conditional contrast cannot be identified or fitted on, before learners.
 
-    The compositions outside P1 (R7) and a modifier outside the adjustment set (R6).  A
+    A dose (R7-ct), strata beside an intermediate (R-int-strata) and a modifier outside the
+    adjustment set (R6).  A
     declared basis is then evaluated on the rows, which checks the domains, the levels,
     the pair of arms and the rank of the Gram matrix, in every baseline stratum too
     (R7-strata-rank), without fitting anything.
@@ -5487,6 +5587,7 @@ class ExplicitAdjustmentProvider:
             horizons=tuple(float(t) for t in estimand.horizons),
             longitudinal=True,
             history=((design.treatment, tuple(design.baseline)),),
+            restricted_horizons=tuple(float(t) for t in estimand.restricted_horizons),
         )
         return IdentifiedEffect(
             estimand=estimand,
@@ -5642,6 +5743,13 @@ class ExplicitAdjustmentProvider:
                 "LongitudinalTreatment to ask that question",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
+        if getattr(actual, "restricted_horizons", ()):
+            raise CapabilityError(
+                f"{type(actual).__name__}(restricted_horizons=...) asks for restricted means "
+                "of a time to an event, and a point-treatment design has one outcome and no "
+                "follow-up time; declare TimeToEvent to ask that question",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         if isinstance(actual, MSMProjection) and actual.regimens is not None:
             raise CapabilityError(
                 "MSMProjection(regimens=...) projects over longitudinal regimen cells; on a "
@@ -5752,6 +5860,14 @@ class ExplicitAdjustmentProvider:
         target = "msm_regimen" if isinstance(estimand, MSMProjection) else estimand.name
         data = study.data
         assert isinstance(data, LongitudinalData)
+        restricted: tuple[float, ...] = tuple(getattr(estimand, "restricted_horizons", ()))
+        if restricted:
+            # R-g2 and R-g3, from the held data before any learner.
+            refuse_curve_functional(
+                data, msm=False, what="restricted_horizons=", subject="this design"
+            )
+            for tau in restricted:
+                restriction(tau, data.n_times, data.time_grid, "RMST")
         # The conditioning set of the treatment mechanism at each decision, in the column
         # order of ``LongitudinalData.history_design``: the covariate history up to that
         # node, then every earlier treatment.  A held design has one decision, at node 1.
@@ -5771,6 +5887,7 @@ class ExplicitAdjustmentProvider:
             msm=estimand.model if isinstance(estimand, MSMProjection) else None,
             longitudinal=True,
             history=history,
+            restricted_horizons=restricted,
         )
         identification = (
             _LONGITUDINAL_SEPARABLE_IDENTIFICATION
@@ -6733,6 +6850,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 tmle, tmle_reason = False, SEPARABLE_COMBINATION_REFUSAL
             elif data_refusal is not None:
                 tmle, tmle_reason = False, data_refusal
+        if self.functional.restricted_horizons:
+            # After every other blocker, so a method already unavailable keeps its reason.
+            if drtmle:
+                drtmle, drtmle_blocker = False, RESTRICTED_DRTMLE_REFUSAL
+            if gcomp:
+                gcomp, gcomp_reason = False, RESTRICTED_BASELINE_REFUSAL
+            if ipw:
+                ipw, ipw_reason = False, RESTRICTED_BASELINE_REFUSAL
+            if gformula:
+                gformula, gformula_reason = False, RESTRICTED_BASELINE_REFUSAL
         iptw_reason = self._adaptive_iptw_refusal(design)
         if iptw_reason is None and estimated_declaration:
             iptw_reason = KNOWN_SAMPLE_ADAPTIVE_IPTW_REFUSAL
@@ -6941,7 +7068,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         cross-validation chooses.  ``collaborative_tmle`` fits the same fixed basis by the
         per-arm outcome-adaptive design, as a point estimate, and ``drtmle`` fits it on the
         difference scale with one block of reduced regressions per basis term (P1 PR 3).
-        Every other method has no projection target.
+        Both read the TMLE refusal when the model is not a fixed basis.  The longitudinal
+        baselines keep their own records; every other method, the adaptive TMLE among them,
+        has no projection target and is redirected
+        (:func:`~cleverly.effect_modification.no_projection_target`).
         """
         estimand = _unwrapped_contrast(self.estimand)
         assert isinstance(estimand, ConditionalContrast)
@@ -6952,34 +7082,47 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if estimand.model is None
             else TMLE_CV_SIEVE_REFUSAL
         )
+        data = None if self._study is None else self._study.data
+        data_ep_refusal = (
+            effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
+        )
+        ep_refusal = data_ep_refusal
+        if ep_refusal is None and isinstance(estimand.model, Sieve) and estimand.model.chosen_by_cv:
+            ep_refusal = EP_CV_MODEL_REFUSAL
+        # A redirection names ``ep`` only where the data let it fit the curve: a model that
+        # cross-validation sizes is a declaration the caller changes with ``model=None``.
+        ep_fits = data_ep_refusal is None
+        alternative = conditional_contrast_alternative(ep=ep_fits)
         out = []
         for record in records:
             if record.name == "tmle":
                 out.append(MethodAvailability("tmle", tmle_refusal is None, tmle_refusal))
             elif record.name == "ep":
-                model = estimand.model
-                data = None if self._study is None else self._study.data
-                ep_refusal = (
-                    effect_modification_ep_refusal(data) if isinstance(data, CausalData) else None
-                )
-                if ep_refusal is None and isinstance(model, Sieve) and model.chosen_by_cv:
-                    ep_refusal = EP_CV_MODEL_REFUSAL
                 out.append(MethodAvailability("ep", ep_refusal is None, ep_refusal))
-            elif record.name == "collaborative_tmle" and tmle_refusal is None:
-                out.append(self._collaborative_projection_record())
-            elif record.name == "drtmle" and tmle_refusal is None:
-                out.append(self._drtmle_projection_record(str(estimand.scale)))
+            elif record.name in ("collaborative_tmle", "drtmle"):
+                if tmle_refusal is not None:
+                    # Both fit the projection on a fixed basis, as TMLE does, so a model they
+                    # cannot fit is the declaration TMLE refuses (R2, R4).
+                    out.append(MethodAvailability(record.name, False, tmle_refusal))
+                elif record.name == "collaborative_tmle":
+                    out.append(self._collaborative_projection_record())
+                else:
+                    out.append(self._drtmle_projection_record(str(estimand.scale)))
+            elif record.name in _BASELINE_METHODS and record.refusal is not None:
+                # The longitudinal baselines keep their own true record, with the working
+                # call of a conditional contrast in place of the point-treatment one.
+                out.append(
+                    replace(
+                        record,
+                        refusal=replace(record.refusal, alternative=alternative),
+                    )
+                )
             else:
+                # ``atmle`` lands here too: its own record asks for trial membership, and a
+                # trial with external data refuses a conditional contrast.
                 out.append(
                     MethodAvailability(
-                        record.name,
-                        False,
-                        Refusal(
-                            RefusalReason.IMPLEMENTATION_GAP,
-                            f"{record.name} has no projection target for a conditional contrast.",
-                            alternative="Fit method='tmle' with model= declared.",
-                            roadmap="P1",
-                        ),
+                        record.name, False, no_projection_target(record.name, ep=ep_fits)
                     )
                 )
         return tuple(out)
@@ -7931,6 +8074,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             functional.horizons or (),
             arms=functional.interventions,
             reference=functional.reference,
+            restricted_horizons=functional.restricted_horizons,
             **continuous_kwargs(method),
         )
 
@@ -7954,13 +8098,42 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, DRTMLEMethod)
             else LTMLE
         )
+        restricted: dict[str, Any] = {}
+        if functional.restricted_horizons:
+            # Every grid time below the largest restriction time joins the fitted horizons,
+            # since each restricted mean sums the risks there; ``None`` already fits them all.
+            restricted = {
+                "restricted_horizons": functional.restricted_horizons,
+                "horizons": self._restricted_fit_horizons(),
+            }
         return engine(
             functional.interventions,
             reference=functional.reference,
-            horizons=functional.horizons,
             msm=functional.msm,
+            **{"horizons": functional.horizons, **restricted},
             **method.estimator_kwargs(longitudinal=True),
         )
+
+    def _restricted_fit_horizons(self) -> tuple[float, ...] | None:
+        """The declared horizons and every grid time below the largest restriction time.
+
+        Grid times on a time grid and node indices on the wide layout, as ``horizons=``
+        names them. ``None`` when the estimand declares no horizons, which fits every node.
+        """
+        functional = self.functional
+        if functional.horizons is None:
+            return None
+        assert self._study is not None and isinstance(self._study.data, LongitudinalData)
+        data = self._study.data
+        node = max(
+            restriction(tau, data.n_times, data.time_grid, "RMST")[0]
+            for tau in functional.restricted_horizons
+        )
+        grid = data.time_grid
+        below = [t if grid is None else grid[t - 1] for t in range(1, node)]
+        if grid is None:
+            return tuple(sorted({*(int(h) for h in functional.horizons), *below}))
+        return tuple(sorted({*(float(h) for h in functional.horizons), *below}))
 
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
@@ -7977,9 +8150,26 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         estimates = {
             name: value for name, value in raw.estimates.items() if name.startswith(prefixes)
         }
+        if functional.horizons is not None and functional.restricted_horizons:
+            # The risks at grid times the fit added for the restricted means only.
+            declared = _declared_nodes(raw.data, functional.horizons)
+            estimates = {
+                name: value
+                for name, value in estimates.items()
+                if raw.parameter_index is None or raw.parameter_index[name][2] in declared
+            }
+        # The band narrows over the risks alone: a restricted mean never joins a band.
+        banded = dict(estimates)
+        contrast = functional.target in ("ate_regime", "ate_ipsi")
+        restricted_index = {
+            name: key
+            for name, key in raw.restricted_index.items()
+            if (key[1] is not None) == contrast
+        }
+        estimates.update({name: raw.estimates[name] for name in restricted_index})
         index = None
         if raw.parameter_index is not None:
-            index = {name: raw.parameter_index[name] for name in estimates}
+            index = {name: raw.parameter_index[name] for name in banded}
         # Every draw keeps the same names as the report, so a per-draw functional, the
         # repeat spread and the narrowed band read the identified target's family only.
         repeats = tuple(
@@ -7993,9 +8183,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             raw,
             estimates=estimates,
             parameter_index=index,
-            simultaneous=_narrow_bands(raw, estimates, method),
+            simultaneous=_narrow_bands(raw, banded, method),
             bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
             repeats=repeats,
+            restricted_index=restricted_index,
+            restricted_weights={name: raw.restricted_weights[name] for name in restricted_index},
         )
         return replace(
             raw,
@@ -8032,7 +8224,27 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             for label in labels:
                 regimens[label] = (label, None)
                 regimens[f"{label} vs {reference}"] = (label, reference)
+            for alias, (
+                regimen_label,
+                versus,
+                cause,
+                node,
+                measure,
+            ) in result.restricted_index.items():
+                keys[alias] = ParameterKey(
+                    alias,
+                    self.functional.target,
+                    "regimen",
+                    value=regimen_label,
+                    reference=versus,
+                    regimen=regimen_label,
+                    cause=cause,
+                    horizon=node,
+                    measure="rmst" if measure == "rmst" else "rmtl",
+                )
             for alias in result.estimates:
+                if alias in result.restricted_index:
+                    continue
                 if alias not in result.parameter_index:
                     raise CleverlyError(
                         f"the longitudinal estimator reported {alias!r} with no entry in its "

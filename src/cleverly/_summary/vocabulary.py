@@ -3361,6 +3361,16 @@ LONGITUDINAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
             "that probability under plan {r}"
         ),
         "msm": "coefficient of {term} in the working model of the plan means",
+        "rmst": "mean event-free time up to time {t} if every unit followed plan {d}",
+        "rmst_ate": (
+            "mean event-free time up to time {t} if every unit followed plan {d}, minus that "
+            "mean under plan {r}"
+        ),
+        "rmtl": "mean time lost to {cause} before time {t} if every unit followed plan {d}",
+        "rmtl_ate": (
+            "mean time lost to {cause} before time {t} if every unit followed plan {d}, minus "
+            "that mean under plan {r}"
+        ),
     }
 )
 
@@ -3385,6 +3395,12 @@ LONGITUDINAL_QUESTIONS: Final[Mapping[str, str]] = MappingProxyType(
         "cif": "risk of {cause} by time {t} under plan {d}",
         "cif_ate": "change in the risk of {cause} by time {t}, plan {d} instead of {r}",
         "msm": "working-model coefficient of {term}",
+        "rmst": "mean event-free time up to time {t} under plan {d}",
+        "rmst_ate": "change in the mean event-free time up to time {t}, plan {d} instead of {r}",
+        "rmtl": "mean time lost to {cause} before time {t} under plan {d}",
+        "rmtl_ate": (
+            "change in the mean time lost to {cause} before time {t}, plan {d} instead of {r}"
+        ),
     }
 )
 

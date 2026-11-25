@@ -1,0 +1,493 @@
+"""The settings reference agrees with the configuration objects it documents.
+
+``docs/user-guide/settings.md`` lists every field of the five setting groups (``ModelSpec``,
+``CrossFitting``, ``Targeting``, ``Inference``, ``Runtime``) with its keyword, its default and the
+fits that use it, and every option of each typed method with its default. Each of those cells is
+a fact the code owns, so this module derives it from the code and compares:
+
+* the field names, against :func:`dataclasses.fields`;
+* the defaults, against ``repr`` of the field default;
+* the keyword, against :data:`cleverly.methods.SHORTCUTS`;
+* the "used on" kinds, by translating a method that changes the field
+  (:meth:`TMLEMethod.estimator_kwargs`) and from the read sets of the exact-times engine
+  (``cleverly.survival.data._READ``), of the trial method (``ATMLE_FIELDS``) and of the
+  dose-response curve (``DOSE_RESPONSE_FIELDS``);
+* the table of changed defaults, against each method's groups and the resolved translations.
+
+A field added to a group, a renamed keyword, a changed default or a newly routed setting fails
+here until the page says so. Each check has a deliberate-mutation control that runs it on a
+doctored page.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from pathlib import Path
+from typing import Any
+
+import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly
+from cleverly import (
+    CrossFitting,
+    Inference,
+    ModelSpec,
+    Runtime,
+    SplitPlan,
+    Targeting,
+    TMLEMethod,
+)
+from cleverly.learners import random_partition
+from cleverly.methods import ATMLE_FIELDS, DOSE_RESPONSE_FIELDS, SHORTCUTS
+from cleverly.survival import CoxHazard
+from cleverly.survival.data import _READ, continuous_kwargs
+
+PAGE = Path(__file__).resolve().parents[2] / "docs" / "user-guide" / "settings.md"
+
+#: Section heading on the page to the group it documents, as ``(attribute, class)``.
+GROUP_SECTIONS: dict[str, tuple[str, type]] = {
+    "Models and learners: `ModelSpec`": ("models", ModelSpec),
+    "Folds: `CrossFitting`": ("cross_fitting", CrossFitting),
+    "The correction step: `Targeting`": ("targeting", Targeting),
+    "Intervals and bands: `Inference`": ("inference", Inference),
+    "Seeds, run labels and parallel jobs: `Runtime`": ("runtime", Runtime),
+}
+
+#: ``###`` heading under "Method options" to the method class it documents.
+METHOD_SECTIONS: dict[str, str] = {
+    "Collaborative TMLE": "CollaborativeTMLEMethod",
+    "DR-TMLE": "DRTMLEMethod",
+    "Adaptive-propensity IPTW": "AdaptiveIPTWMethod",
+    "Adaptive TMLE for a trial with external data": "AdaptiveTMLEMethod",
+    "EP learner": "EPMethod",
+    "Sequential IPW": "IPWMethod",
+    "Parametric g-formula": "ParametricGFormulaMethod",
+}
+
+#: Every typed method. Those absent from :data:`METHOD_SECTIONS` must have no own options.
+METHODS = (
+    "TMLEMethod",
+    "CollaborativeTMLEMethod",
+    "DRTMLEMethod",
+    "AdaptiveIPTWMethod",
+    "AdaptiveTMLEMethod",
+    "EPMethod",
+    "SDRMethod",
+    "IPSIMethod",
+    "GComputationMethod",
+    "IPWMethod",
+    "ParametricGFormulaMethod",
+)
+
+GROUP_FIELDS = ("models", "cross_fitting", "targeting", "inference", "runtime")
+
+CHANGES_SECTION = "Where a method changes a default"
+
+#: A value other than the default for each group field, used to ask whether a translation
+#: reads the field. ``EXTRA`` holds companion settings a value needs to be constructible.
+SAMPLE: dict[str, dict[str, Any]] = {
+    "models": {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(),
+        "missingness_learner": LogisticRegression(),
+        "intermediate_learner": LogisticRegression(),
+        "pseudo_learner": LinearRegression(),
+        "censoring_learner": LogisticRegression(),
+        "competing_learner": LogisticRegression(),
+        "density_bins": 10,
+        "ratio": "density",
+        "screen_treatment": True,
+        "min_retain": 2,
+        "hazard_pooling": "pooled",
+        "outcome_by_arm": True,
+        "survival_model": "hazard",
+        "hazard_library": (CoxHazard("main"),),
+        "censoring_library": (CoxHazard("main"),),
+    },
+    "cross_fitting": {
+        "enabled": False,
+        "n_folds": 5,
+        "learner_folds": 3,
+        "repeats": 2,
+        "stratify_by": "treatment",
+        "targeting_scheme": "fold",
+        "fold_evaluation": True,
+        "split_plan": SplitPlan.from_folds([random_partition(50, 10, seed=1)]),
+    },
+    "targeting": {
+        "fluctuation": "linear",
+        "algorithm": "one_step",
+        "g_bounds": 0.05,
+        "q_bounds": (0.0, 1.0),
+        "nuisance_bound": 0.02,
+        "submodel_alpha": 0.99,
+        "target_weights": True,
+        "step_size": 0.01,
+        "max_iter": 30,
+        "tol": 1e-8,
+        "stopping": "sample_size",
+        "step_bound": 0.5,
+        "step_search": False,
+        "iterate": "best",
+        "conditional_form": "known_score",
+        "isotonic": True,
+        "ratio_trim": 0.99,
+        "node_bounds": {1: (0.0, 1.0)},
+        "norm": "variance",
+    },
+    "inference": {
+        "alpha": 0.1,
+        "n_bootstrap": 50,
+        "bootstrap_resampling": "iid",
+        "simultaneous": False,
+        "n_multiplier": 500,
+        "multiplier_kind": "normal",
+        "band_scale": "identity",
+        "band_reference": "t",
+        "bootstrap_interval": "bca",
+        "variance": "policy_weighted",
+        "cluster_variance": "jackknife",
+    },
+    "runtime": {"random_state": 3, "run_id": "label", "n_jobs": 2, "max_memory_bytes": 10**9},
+}
+EXTRA: dict[tuple[str, str], dict[str, dict[str, Any]]] = {
+    ("targeting", "step_search"): {"targeting": {"step_bound": 0.5}},
+    ("inference", "bootstrap_interval"): {"inference": {"n_bootstrap": 50}},
+    # Only "none" is accepted when folds are drawn; an in-sample fit carries the declaration.
+    ("cross_fitting", "stratify_by"): {"cross_fitting": {"enabled": False}},
+    # The policy-weighted variance needs an in-sample fit.
+    ("inference", "variance"): {"cross_fitting": {"enabled": False}},
+}
+
+
+def _with(base: TMLEMethod, changes: dict[str, dict[str, Any]]) -> TMLEMethod:
+    """``base`` with each group's fields replaced as ``changes`` gives them."""
+    return dataclasses.replace(
+        base,
+        **{
+            group: dataclasses.replace(getattr(base, group), **fields)
+            for group, fields in changes.items()
+        },
+    )
+
+
+def _pair(base: TMLEMethod, group: str, field: str) -> tuple[TMLEMethod, TMLEMethod]:
+    """The method with the field's companions, and the same with the field changed too."""
+    extra = EXTRA.get((group, field), {})
+    reference = _with(base, extra)
+    changed = _with(reference, {group: {**extra.get(group, {}), field: SAMPLE[group][field]}})
+    return reference, changed
+
+
+#: An engine keyword to the field it carries, where the two names differ.
+_FIELD_OF_KEY = {
+    keyword: field
+    for group in GROUP_FIELDS
+    for keyword, field in SHORTCUTS[group].items()
+    if keyword != field
+}
+
+
+# --- parsing -------------------------------------------------------------------------------
+
+
+def _sections(text: str, level: str) -> dict[str, str]:
+    """Each heading of ``level`` (``"##"`` or ``"###"``) to the text under it.
+
+    A section ends at the next heading of the same level or a higher one.
+    """
+    depth = len(level)
+    out: dict[str, str] = {}
+    current: str | None = None
+    lines: list[str] = []
+    for line in text.splitlines():
+        hashes = len(line) - len(line.lstrip("#"))
+        if hashes and line[hashes : hashes + 1] == " " and hashes <= depth:
+            if current is not None:
+                out[current] = "\n".join(lines)
+            current = line[hashes + 1 :].strip() if hashes == depth else None
+            lines = []
+        elif current is not None:
+            lines.append(line)
+    if current is not None:
+        out[current] = "\n".join(lines)
+    return out
+
+
+def _table(text: str) -> list[list[str]]:
+    """The body rows of the first pipe table in ``text``, each a list of stripped cells."""
+    rows: list[list[str]] = []
+    started = False
+    for line in text.splitlines():
+        if line.startswith("|"):
+            cells = [cell.strip() for cell in line.strip().strip("|").split(" | ")]
+            if all(set(cell) <= {"-", " "} for cell in cells):
+                started = True
+                continue
+            if started:
+                rows.append(cells)
+        elif started:
+            break
+    return rows
+
+
+def _code(cell: str) -> str:
+    """The text of a cell written as one backticked literal."""
+    assert cell.startswith("`") and cell.endswith("`"), cell
+    return cell[1:-1]
+
+
+# --- what the code says -------------------------------------------------------------------
+
+
+def _default(field: dataclasses.Field) -> Any:
+    if field.default is not dataclasses.MISSING:
+        return field.default
+    if field.default_factory is not dataclasses.MISSING:
+        return field.default_factory()
+    raise AssertionError(f"{field.name} has no default")
+
+
+def _translation(method: TMLEMethod, longitudinal: bool) -> dict[str, Any] | None:
+    try:
+        return method.estimator_kwargs(longitudinal=longitudinal)
+    except cleverly.exceptions.MethodConfigurationError:
+        return None
+
+
+def _reads(group: str, field: str, longitudinal: bool, base: TMLEMethod | None = None) -> bool:
+    """Whether the point or longitudinal translation carries a changed value of the field."""
+    reference, changed = _pair(base or TMLEMethod(), group, field)
+    after = _translation(changed, longitudinal)
+    before = _translation(reference, longitudinal)
+    if after is None or before is None:
+        return False
+    return any(
+        after.get(key) is not before.get(key) and repr(after.get(key)) != repr(before.get(key))
+        for key in set(after) | set(before)
+    )
+
+
+def used_on(group: str, field: str) -> set[str]:
+    kinds = set()
+    if _reads(group, field, longitudinal=False):
+        kinds.add("point")
+    if _reads(group, field, longitudinal=True):
+        kinds.add("over time")
+    if (group, field) in _READ:
+        kinds.add("exact times")
+    if (group, field) in ATMLE_FIELDS:
+        kinds.add("trial")
+    if (group, field) in DOSE_RESPONSE_FIELDS:
+        kinds.add("dose curve")
+    return kinds
+
+
+def _keyword(group: str, field: str) -> str:
+    matches = [key for key, name in SHORTCUTS[group].items() if name == field]
+    assert len(matches) == 1, (group, field, matches)
+    return matches[0]
+
+
+def expected_changes() -> set[tuple[str, str, str]]:
+    """Every ``(setting, where, value)`` at which a method or design replaces a default."""
+    out: set[tuple[str, str, str]] = set()
+    base = TMLEMethod()
+    for name in METHODS:
+        method = getattr(cleverly, name)()
+        for group in GROUP_FIELDS:
+            for field in dataclasses.fields(getattr(method, group)):
+                ours = getattr(getattr(method, group), field.name)
+                if repr(ours) != repr(getattr(getattr(base, group), field.name)):
+                    out.add((field.name, name, repr(ours)))
+    for name in METHODS:
+        method = getattr(cleverly, name)()
+        # The same groups on the default method: what differs is the method's own resolution.
+        reference = TMLEMethod(**{group: getattr(method, group) for group in GROUP_FIELDS})
+        for longitudinal, place in ((False, "at a point"), (True, "over time")):
+            ours = _translation(method, longitudinal)
+            theirs = _translation(reference, longitudinal)
+            if ours is None or theirs is None:
+                continue
+            for key in sorted(ours.keys() & theirs.keys()):
+                if repr(ours[key]) != repr(theirs[key]):
+                    out.add((_FIELD_OF_KEY.get(key, key), f"{name} {place}", repr(ours[key])))
+    base_over_time = base.estimator_kwargs(longitudinal=True)
+    if repr(base_over_time["g_bounds"]) != repr(base.targeting.g_bounds):
+        out.add(("g_bounds", "over time", repr(base_over_time["g_bounds"])))
+    exact = continuous_kwargs(base)
+    for field in ("max_iter", "step_size", "tol"):
+        if repr(exact[field]) != repr(getattr(base.targeting, field)):
+            out.add((field, "exact times", repr(exact[field])))
+    return out
+
+
+# --- the checks ----------------------------------------------------------------------------
+
+
+def group_problems(text: str) -> list[str]:
+    problems = []
+    sections = _sections(text, "##")
+    for heading, (group, cls) in GROUP_SECTIONS.items():
+        if heading not in sections:
+            problems.append(f"no section {heading!r}")
+            continue
+        rows = {_code(row[0]): row for row in _table(sections[heading])}
+        fields = {field.name: field for field in dataclasses.fields(cls)}
+        for name in sorted(fields.keys() - rows.keys()):
+            problems.append(f"{cls.__name__}.{name} is not on the page")
+        for name in sorted(rows.keys() - fields.keys()):
+            problems.append(f"{heading}: {name} is not a field of {cls.__name__}")
+        for name in sorted(fields.keys() & rows.keys()):
+            _setting, keyword, default, kinds, _what = rows[name]
+            if _code(keyword) != _keyword(group, name):
+                problems.append(f"{name}: keyword {keyword} is not {_keyword(group, name)!r}")
+            if _code(default) != repr(_default(fields[name])):
+                problems.append(f"{name}: default {default} is not {_default(fields[name])!r}")
+            written = {kind.strip() for kind in kinds.split(",") if kind.strip()}
+            derived = used_on(group, name)
+            if written != derived:
+                problems.append(f"{name}: used on {sorted(written)} is not {sorted(derived)}")
+    return problems
+
+
+def method_problems(text: str) -> list[str]:
+    problems = []
+    options = _sections(text, "##").get("Method options", "")
+    sections = _sections(options, "###")
+    for name in METHODS:
+        cls = getattr(cleverly, name)
+        own = {
+            field.name: field
+            for field in dataclasses.fields(cls)
+            if field.name not in {*GROUP_FIELDS, "name"}
+        }
+        heading = next((h for h, n in METHOD_SECTIONS.items() if n == name), None)
+        if heading is None:
+            if own:
+                problems.append(f"{name} has options {sorted(own)} and no section")
+            elif f"`{name}`" not in options:
+                problems.append(f"{name} is not named as a method with no options")
+            continue
+        if heading not in sections:
+            problems.append(f"no section {heading!r}")
+            continue
+        rows = {_code(row[0]): row for row in _table(sections[heading])}
+        for field in sorted(own.keys() - rows.keys()):
+            problems.append(f"{name}.{field} is not on the page")
+        for field in sorted(rows.keys() - own.keys()):
+            problems.append(f"{heading}: {field} is not an option of {name}")
+        for field in sorted(own.keys() & rows.keys()):
+            if _code(rows[field][1]) != repr(_default(own[field])):
+                problems.append(f"{name}.{field}: default {rows[field][1]}")
+    return problems
+
+
+def change_problems(text: str) -> list[str]:
+    rows = _table(_sections(text, "##").get(CHANGES_SECTION, ""))
+    written = set()
+    for setting, where, value in rows:
+        place = where.replace("`", "")
+        written.add((_code(setting), place, _code(value)))
+    derived = expected_changes()
+    problems = [
+        f"changed default missing from the page: {row}" for row in sorted(derived - written)
+    ]
+    problems += [
+        f"page lists a change the code does not make: {row}" for row in sorted(written - derived)
+    ]
+    return problems
+
+
+def silent_problems(method: TMLEMethod | None = None) -> list[str]:
+    """Settings a point or longitudinal fit accepts without reading them.
+
+    The page says a fit refuses a setting it does not read when the setting is changed from its
+    default. ``method`` replaces the default method, for the mutation control.
+    """
+    base = method or TMLEMethod()
+    problems = []
+    for group in GROUP_FIELDS:
+        for field in dataclasses.fields(getattr(base, group)):
+            _reference, changed = _pair(base, group, field.name)
+            for longitudinal, kind in ((False, "point"), (True, "over time")):
+                after = _translation(changed, longitudinal)
+                if after is not None and not _reads(group, field.name, longitudinal, base):
+                    problems.append(f"{field.name} is accepted and ignored on {kind}")
+    return problems
+
+
+def test_group_tables_match_the_dataclasses():
+    problems = group_problems(PAGE.read_text(encoding="utf-8"))
+    assert not problems, "\n".join(problems)
+
+
+def test_method_tables_match_the_method_objects():
+    problems = method_problems(PAGE.read_text(encoding="utf-8"))
+    assert not problems, "\n".join(problems)
+
+
+def test_changed_defaults_match_the_translations():
+    problems = change_problems(PAGE.read_text(encoding="utf-8"))
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    ("check", "old", "new"),
+    [
+        (group_problems, "| `n_folds` | `n_folds` | `10` |", "| `n_folds` | `n_folds` | `9` |"),
+        (group_problems, "| `enabled` | `cross_fit` |", "| `enabled` | `enabled` |"),
+        (
+            group_problems,
+            "| `isotonic` | `isotonic` | `False` | over time |",
+            "| `isotonic` | `isotonic` | `False` | point, over time |",
+        ),
+        (group_problems, "| `run_id` |", "| `run_label` |"),
+        (method_problems, "| `patience` | `None` |", "| `patience` | `3` |"),
+        (method_problems, "| `normalization` |", "| `weights` |"),
+        (change_problems, "| `n_folds` | `AdaptiveTMLEMethod` | `5` |\n", ""),
+        (
+            change_problems,
+            "| `DRTMLEMethod` over time | `200` |",
+            "| `DRTMLEMethod` over time | `100` |",
+        ),
+        (
+            change_problems,
+            "| `max_iter` | `DRTMLEMethod` over time |",
+            "| `max_iter` | `CollaborativeTMLEMethod` over time |",
+        ),
+        (
+            group_problems,
+            "| `alpha` | `alpha` | `0.05` | point, over time, exact times, trial, dose curve |",
+            "| `alpha` | `alpha` | `0.05` | point, over time, trial, dose curve |",
+        ),
+    ],
+)
+def test_each_check_fails_on_a_doctored_page(check, old, new):
+    """Deliberate-mutation controls: the doctored page must produce a finding."""
+    text = PAGE.read_text(encoding="utf-8")
+    assert text.count(old) == 1, old
+    assert check(text.replace(old, new))
+
+
+def test_a_fit_refuses_a_setting_it_does_not_read():
+    problems = silent_problems()
+    assert not problems, "\n".join(problems)
+
+
+class _IgnoresCensoring(TMLEMethod):
+    """A doctored method whose point translation drops a learner it should refuse."""
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        if not longitudinal and self.models.censoring_learner is not None:
+            models = dataclasses.replace(self.models, censoring_learner=None)
+            return dataclasses.replace(self, models=models).estimator_kwargs()
+        return super().estimator_kwargs(longitudinal=longitudinal)
+
+
+def test_silent_check_fails_on_a_method_that_ignores_a_setting():
+    """Deliberate-mutation control: a translation that drops a setting must be found."""
+    assert silent_problems(_IgnoresCensoring()) == [
+        "censoring_learner is accepted and ignored on point"
+    ]

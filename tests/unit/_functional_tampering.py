@@ -34,6 +34,7 @@ DESIGN_FREE_FIELDS: tuple[str, ...] = (
     "reference",
     "interventions",
     "horizons",
+    "restricted_horizons",
     "msm",
     "effect_modification",
     "intermediate",

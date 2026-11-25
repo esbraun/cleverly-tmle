@@ -309,6 +309,7 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/longitudinal.md": "",
     "docs/user-guide/survival.md": "",
     "docs/user-guide/reading-output.md": "",
+    "docs/user-guide/settings.md": "",
     "docs/user-guide/conditional-effects.md": _CONDITIONAL,
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,

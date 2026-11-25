@@ -25,6 +25,7 @@ data-design
 estimands
 conditional-effects
 methods-learners
+settings
 trial-with-external-data
 results-assessment
 longitudinal

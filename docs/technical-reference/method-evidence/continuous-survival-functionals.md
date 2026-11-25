@@ -32,6 +32,8 @@ integral of the risks over $(0, \tau)$ and each RMST against $\tau$ minus the RM
 
 ## The fit
 
+A study on `TimeToEvent(grid="continuous")` with `restricted_horizons=` on `RegimeMean` or
+`RegimeContrast` builds this same engine call, so its restricted means carry the same evidence.
 The fit is the registered study's gated configuration: the default hazard and treatment
 libraries, cross-fitted with 10 outer folds and selection inside 5 inner folds, at n = 1,000,
 with target times at the three event-time quartiles and the restricted horizon added. Every

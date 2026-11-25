@@ -5,7 +5,10 @@ competing-risks outcome under each arm of a binary baseline treatment, at declar
 no time grid. It is the one-step TMLE of Rytgaard and van der Laan (2024). The study route reaches
 it through `TimeToEvent(grid="continuous")` with `TMLEMethod`, whose groups carry the hazard and
 censoring libraries, the norm, the variance, the bootstrap interval and the memory budget to it.
-`restricted_horizons=` stays on the estimator. The discrete-time engines are in
+The restricted horizons are targets, so the study declares them on the estimand,
+`RegimeMean(..., restricted_horizons=(tau,))` or `RegimeContrast(..., restricted_horizons=(tau,))`,
+which passes them to the estimator's `restricted_horizons=`; the method objects refuse the
+keyword. The discrete-time engines are in
 [longitudinal TMLE](longitudinal-tmle.md#survival-and-competing-risks).
 
 ## Estimand and identification
@@ -356,7 +359,8 @@ study the score equation also held at about 40% of 100 random times on average
 (`tests/canonical/continuous_survival/targeting-readings.csv`, `mean_off_grid_share`), so the
 integral of the targeted curve has no solved score. Rytgaard and van der Laan (2024), Theorem 1,
 cover the whole curve only on a grid of mesh $O_P(n^{-1/3-\eta})$, which a user's few target times
-do not meet. Each restriction time in `restricted_horizons=` therefore adds
+do not meet. Each restriction time in `restricted_horizons=`, or in the estimand field of the same name on the
+study route, therefore adds
 $\mathrm{RMTL}_{a,j}(\tau)$, for both arms and every cause, to the targets of the walk.
 
 A target

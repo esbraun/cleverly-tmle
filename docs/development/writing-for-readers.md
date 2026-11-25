@@ -80,7 +80,7 @@ gained one.
 | what a fit refuses, and with which error | [scope and refusals](../technical-reference/scope-and-refusals.md) and each method's own refusal section | each row quotes the message the code raises |
 | when a result reads `supported` or `experimental` | `src/cleverly/_support_rows.py`, and the method's study page under [method evidence](../technical-reference/method-evidence/validation-grid.md) | the fast suite recomputes each verdict from the committed artifacts |
 | whether a study has run, and what it found | the study's page under method evidence, and the validation grid | the same recomputation; a study that has not run has no verdict |
-| an argument default | the docstring signature on the API page | the signature is the code |
+| an argument default | the docstring signature on the API page, and for the five setting groups and the method options the [settings reference](../user-guide/settings.md) | the signature is the code; `tests/unit/test_documentation_settings.py` reads the settings reference against the dataclasses and the method translations |
 
 Before you write one of these facts on a reader page, read it off the owning page and the code it
 cites, not off another reader page. State the case the page needs in plain words, and link the

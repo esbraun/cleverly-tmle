@@ -516,9 +516,11 @@ class ModelSpec:
     survival_model : {"iterated_mean", "hazard"} or None
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
-        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the engine's own
-        model: ``"hazard"`` for :class:`~cleverly.longitudinal.SurvivalCTMLE` and
-        ``"iterated_mean"`` everywhere else.  A point-treatment fit refuses ``"hazard"``.
+        :class:`~cleverly.longitudinal.LTMLE`.  ``None``, the default, is the method's own
+        model: ``"hazard"`` for :class:`CollaborativeTMLEMethod` and :class:`DRTMLEMethod` on
+        an event outcome over time (the :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and ``"iterated_mean"``
+        everywhere else.  A point-treatment fit refuses ``"hazard"``.
     hazard_library : tuple or None
         The hazard learners of every cause on ``TimeToEvent(grid="continuous")``, from which
         cross-validation selects; see :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
@@ -863,8 +865,11 @@ class Inference:
         Unit or cluster resampling policy.
     simultaneous : bool or None, default=None
         Whether multi-parameter results include simultaneous bands.  ``None`` is the
-        engine's own default: no band for :class:`~cleverly.longitudinal.SurvivalCTMLE`,
-        which has none, and a band everywhere else.
+        method's own default: no band for :class:`CollaborativeTMLEMethod` and
+        :class:`DRTMLEMethod` on an event outcome over time (the
+        :class:`~cleverly.longitudinal.SurvivalCTMLE` and
+        :class:`~cleverly.longitudinal.SurvivalDRTMLE` routes), and a band wherever the
+        engine can build one elsewhere.
     n_multiplier : int, default=10_000
         Multiplier draws for simultaneous bands, on every engine.
     multiplier_kind : {"rademacher", "mammen", "normal"}, default="mammen"
@@ -1351,14 +1356,12 @@ def memory_budget_refusal(estimator: str, verb: str = "runs") -> Refusal:
 ENGINE_ONLY: Mapping[str, Refusal] = {
     "restricted_horizons": Refusal(
         RefusalReason.API_REDIRECTION,
-        "restricted_horizons= adds the restricted mean time lost to each cause, and its "
-        "differences, to the targets the continuous-time walk solves. It declares targets, not "
-        "a method setting, and no CausalStudy estimand declares a restricted mean yet.",
+        "restricted_horizons= declares restricted means, which are targets of the estimand, not "
+        "a method setting.",
         alternative=(
-            "On a binned grid, read result.rmst(regimen, horizon). With exact times, fit "
-            "cleverly.survival.ContinuousSurvivalTMLE(horizons, restricted_horizons=(tau,), "
-            "arms=..., reference=..., plus the method's settings).fit_data(study.data), and "
-            "read result.rmst(arm, tau) or result.rmtl(arm, tau)."
+            "Declare them on the estimand: RegimeMean(regimens, horizons=..., "
+            "restricted_horizons=(tau,)) or RegimeContrast(..., restricted_horizons=(tau,)), then "
+            "read result.rmst(arm, tau) or result.rmtl(arm, tau, cause)."
         ),
     ),
     "tilt": Refusal(
@@ -1419,6 +1422,17 @@ def _refuse_ipsi_variance(method: TMLEMethod) -> None:
     _refuse_jackknife(method, jackknife_learner_refusal(IPSI_JACKKNIFE_CONSTRUCTION))
     if method.inference.variance == "policy_weighted":
         raise MethodConfigurationError.from_refusal(IPSI_POLICY_VARIANCE_REFUSAL)
+
+
+def _point_over_time_learners(names: list[str]) -> Refusal:
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"{', '.join(names)} fit the backward regressions, follow-up and competing events of a "
+        "fit over time, and a point-treatment fit has none of them.",
+        alternative=(
+            "Remove them, or declare a longitudinal design or a TimeToEvent design on a grid."
+        ),
+    )
 
 
 def _differs_from_default(value: Any, default: Any) -> bool:
@@ -1697,6 +1711,13 @@ class TMLEMethod:
             raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
         if targeting.node_bounds is not None:
             raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
+        over_time = [
+            name
+            for name in ("pseudo_learner", "censoring_learner", "competing_learner")
+            if getattr(models, name) is not None
+        ]
+        if over_time:
+            raise MethodConfigurationError.from_refusal(_point_over_time_learners(over_time))
         if inference.variance is not None:
             raise MethodConfigurationError.from_refusal(_POINT_VARIANCE)
         if inference.bootstrap_interval != "percentile":
@@ -2712,10 +2733,6 @@ DOSE_RESPONSE_GAP_FIELDS: Mapping[tuple[str, str], str] = MappingProxyType(
             "the curve checks its quadrature nodes against its own fixed memory budget"
         ),
         ("models", "screen_treatment"): (
-            "the dose density reads every adjustment column, or the declared "
-            "treatment_adjustment= subset"
-        ),
-        ("models", "screen_threshold"): (
             "the dose density reads every adjustment column, or the declared "
             "treatment_adjustment= subset"
         ),

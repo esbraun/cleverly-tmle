@@ -1192,7 +1192,7 @@ PROJECTION_STRATEGY_REFUSAL = Refusal(
     "of the arm means, and the shared design's vector mechanism has no derivation for a "
     "weighted target.",
     alternative="Use CTMLE(strategy='oat', oat_design='per_arm'), or method='tmle' with model=.",
-    roadmap="P1",
+    roadmap="F5",
 )
 
 #: R-ct-data: the per-arm design's point contract for strata and missing data covers the
@@ -1202,7 +1202,7 @@ PROJECTION_DATA_REFUSAL = Refusal(
     "The per-arm outcome-adaptive C-TMLE fits a projection on complete, unstratified data "
     "only. Its point contract for strata and missing data covers the arm means.",
     alternative="Fit method='tmle' with model=.",
-    roadmap="P1",
+    roadmap="X51",
 )
 
 

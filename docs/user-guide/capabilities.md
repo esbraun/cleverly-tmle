@@ -42,7 +42,7 @@ afterwards. The trend and learned-rule rows also apply to a treatment that repea
 | The changed dose must stay inside limits you declare, or uses a cap learned from the data | `ModifiedTreatmentPolicy` with `treatment_support=` on the design, or a cap tuned on the data | [estimands](estimands.md), "Modified treatment policies"; [theory](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node) |
 | What if everyone's odds of treatment were doubled? | `IncrementalMean`, `IncrementalEffect` | [estimands](estimands.md), "Incremental propensity-score interventions"; [theory](../technical-reference/point-treatment-tmle.md#incremental-propensity-score-interventions) |
 | The same, for a treatment with three or more levels | `Incremental` with one odds factor per level | [estimands](estimands.md), "Incremental propensity-score interventions"; [theory](../technical-reference/point-treatment-tmle.md#incremental-propensity-score-interventions) |
-| How does the average outcome change across a range of doses? | `DoseResponseTMLE` from `cleverly.estimators`, with intervals and one band over the range; called directly, because `CausalStudy` does not offer it yet | [estimands](estimands.md), "A curve over a continuous dose"; [theory](../technical-reference/dose-response.md) |
+| How does the average outcome change across a range of doses? | `DoseResponseCurve`, with intervals and one band over the range | [estimands](estimands.md), "A curve over a continuous dose"; [theory](../technical-reference/dose-response.md) |
 
 ## Who benefits
 
@@ -109,7 +109,7 @@ readmission, prevents it.
 | Can I estimate with treatment weights alone (IPTW), with no outcome model? | `AdaptiveIPTWMethod` | [methods and learners](methods-learners.md), "Method presets"; [theory](../technical-reference/adaptive-iptw.md) |
 | How do I use my own scikit-learn models? | `outcome_learner=`, `treatment_learner=` and other `ModelSpec` settings | [methods and learners](methods-learners.md), "Learner choices" |
 | How are the models trained out of fold, and when are the folds reused? | `CrossFitting` | [methods and learners](methods-learners.md), "Two fold layers"; [theory](../technical-reference/cv-tmle.md) |
-| How does the correction step stop, and which other fitting options exist? | `Targeting`, `ModelSpec` | [methods and learners](methods-learners.md), "Targeting and bounds"; [theory](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) |
+| How does the correction step stop, and which other fitting options exist? | `Targeting`, `ModelSpec` | [settings reference](settings.md); [theory](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) |
 | How are intervals, bands, diagnostics and sensitivity analyses computed? | `Inference`; `result.diagnostics`, `result.sensitivity` | [results and assessment](results-assessment.md); [theory](../technical-reference/inference.md) |
 | How far does the evidence for analyses over time reach, in number of treatment times? | studies cover three to five times; a fit no study covers is marked experimental | [analyses over time](longitudinal.md); [theory](../technical-reference/longitudinal-tmle.md) |
 
