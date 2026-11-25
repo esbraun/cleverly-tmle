@@ -135,6 +135,11 @@ time point, or whose rows come from a trial and an external source.
   drawn between those times, because the fit estimates no risk there.
   `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
   `restricted_horizons=`. `result.plot()` calls `curve`.
+- On a time-to-event fit with a grid of check times, `curve(result, measure="rmst")` or
+  `"rmtl"` draws the restricted mean at each grid time whose lower risks the fit holds, and the
+  restricted means declared in `restricted_horizons=` otherwise. A `RegimeContrast` fit draws the
+  differences in one panel. `forest` puts a plan's restricted mean, in time units, in the same
+  level panel as its risks, since it groups rows by scale only; read the axis with that in mind.
 
 - `balance` draws a longitudinal, time-to-event or continuous-time survival fit's covariate
   balance over time, which `covariate_balance` computes. At each treatment time it compares the

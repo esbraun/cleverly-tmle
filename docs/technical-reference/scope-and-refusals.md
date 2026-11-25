@@ -744,8 +744,33 @@ settings stand, such as the point-TMLE cluster jackknife and the policy-weighted
 | `variance="policy_weighted"` on `IPSI` or `IPSIMethod` | construction | `CapabilityError` or `MethodConfigurationError`, `inference_gap` | IPSI's influence function (Kennedy 2019, Theorem 2) has a term for the estimated treatment mechanism that the policy-weighted computation does not read |
 | `variance="policy_weighted"`, `bootstrap_interval="bca"` or `cluster_variance="jackknife"` on the g-computation, IPW and parametric g-formula baselines | construction | `MethodConfigurationError` on the method, `CapabilityError` on the engine; `invalid_declaration`, `api_redirection` and `inference_gap` in that order | the baselines report their own variance and the percentile bootstrap interval only, under the experimental label. The alternative is `LTMLE` or `SDR` |
 | a value outside a field's domain; `bootstrap_interval="bca"` with `n_bootstrap=0`; `cluster_variance="jackknife"` with `n_bootstrap` or `variance="policy_weighted"`; an empty hazard library | construction | `MethodConfigurationError`, `invalid_declaration` | the declaration names no fit |
-| `restricted_horizons=` in `with_overrides` or `estimate()` | method configuration | `MethodConfigurationError`, `api_redirection` | it declares targets, not a method setting, and no study estimand declares a restricted mean. The alternative names the `ContinuousSurvivalTMLE(...).fit_data(study.data)` call and the reads `result.rmst(arm, tau)` and `result.rmtl(arm, tau)` |
+| `restricted_horizons=` in `with_overrides` or `estimate()` | method configuration | `MethodConfigurationError`, `api_redirection` | restricted means are targets of the estimand, not a method setting. The alternative declares them on the estimand, `RegimeMean(regimens, horizons=..., restricted_horizons=(tau,))` or `RegimeContrast(..., restricted_horizons=(tau,))`, then reads `result.rmst(arm, tau)` or `result.rmtl(arm, tau, cause)` |
 | `tilt=` in `with_overrides` or `estimate()` | method configuration | `MethodConfigurationError`, `invalid_declaration` | `tilt="factual"` is a mutation control that loses double robustness |
+
+### Restricted means on the study route
+
+`RegimeMean(..., restricted_horizons=(tau,))` and `RegimeContrast(..., restricted_horizons=(tau,))`
+declare restricted means on a time-to-event design
+([longitudinal TMLE](longitudinal-tmle.md#restricted-means-declared-on-the-estimand)).
+`tests/unit/test_restricted_mean_estimand.py` asserts each row.
+
+| refused | where | type and code | why |
+| --- | --- | --- | --- |
+| the field on a point-treatment design | `identify` | `CapabilityError`, `invalid_declaration` | the design has one outcome and no follow-up time; the message names `TimeToEvent` |
+| the field on an end-of-study or repeated outcome | `identify`, and engine `fit` | `CapabilityError`, `different_estimand` | a restricted mean sums a risk curve, which these designs do not report |
+| a binned $\tau$ that is not a grid time, or not an integer from 2 to $K + 1$ on a unit grid | `identify`, and engine `fit` | `DataError` | the restricted mean up to the first time is the constant first grid time |
+| an exact-time $\tau$ that is not positive and finite, or times not strictly increasing | estimand construction | `DataError` | the engine's own checks of `restricted_horizons=` |
+| `method="drtmle"`, and `SurvivalDRTMLE(restricted_horizons=...)` | `available_methods`, engine construction | `CapabilityError`, `inference_gap`, roadmap X62 | the drift correction regresses residuals on scalar indices of the initial fits (Díaz 2019, Section 5), a pattern whose remainder has not been audited for any new target. `rmst()` and `rmtl()` on its result raise the same reason |
+| `method="gcomp"`, `"ipw"` or `"parametric_gformula"` | `available_methods` | `CapabilityError`, `api_redirection` | the baselines are comparators for the targeted fits and take no restricted means. The alternative is `method='tmle'` or `method='sdr'` |
+| engine `restricted_horizons=` with `horizons=` that omit a grid time below $\tau$ | engine `fit`, before any learner | `MethodConfigurationError`, `invalid_declaration` | the restricted mean sums the risk at every grid time below $\tau$ |
+| `rmst()` or `rmtl()` on a `RegimeContrast` result, other than a declared difference against the reference | the call | `CapabilityError`, `api_redirection` | the result reports contrasts against the reference only, so it holds no risk curve of one regimen |
+| `rmst()` or `rmtl()` at an undeclared $\tau$ whose lower risks the binned fit lacks | the call | `ValueError` | the message adds the estimand field to the refit advice |
+| `rmst()` or `rmtl()` at an undeclared $\tau$ on an exact-time result | the call | `CapabilityError` | the risks do not solve the score of the integral; the alternative names the engine keyword and the estimand field |
+| `restricted_horizons=` on the method object or `estimate()` | method configuration | `MethodConfigurationError`, `api_redirection` | see [Engine settings on a method object](#engine-settings-on-a-method-object) |
+
+The other methods (`ipsi`, `adaptive_iptw`, `riesz_tmle`, `ep`, `atmle`) refuse `RegimeMean` and
+`RegimeContrast` on these designs whatever the field holds, and the exact-time route runs
+`tmle` only.
 
 ### Collaborative TMLE of a risk curve
 

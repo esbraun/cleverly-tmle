@@ -155,9 +155,11 @@ configuration that produced the estimate. You do not request it, and no argument
 
 An `experimental` label does not mean the estimate is wrong. It means the package has no
 registered evidence for the interval, the band, or the derived value you read. A configuration
-that no row covers also reads `experimental`. A derived estimate, such as a ratio, a contrast, or
-a restricted mean, is `supported` only when its row lists the `derived` kind and every input is
-`supported`. Where a row, a status, or a condition makes the estimate experimental, the label
+that no row covers also reads `experimental`. A derived estimate, such as a ratio or a contrast, is
+`supported` only when its row lists the `derived` kind and every input is `supported`. A
+restricted mean from a grid of check times needs its own kind instead, one for a single plan's
+mean and one for a difference of two plans, since a study that checked the difference does not
+check each plan's mean. Where a row, a status, or a condition makes the estimate experimental, the label
 carries the reason.
 
 | surface | where the label appears |

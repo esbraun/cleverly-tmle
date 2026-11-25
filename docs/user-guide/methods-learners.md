@@ -257,8 +257,10 @@ fitting and says what is missing, instead of fitting without it.
 
 Two settings of the exact-time
 estimator stay off the method object: `restricted_horizons=`, which adds quantities to estimate
-rather than changing how they are estimated, and `tilt=`, a test control. A study refuses both;
-for `restricted_horizons=` the error names the estimator call that computes it.
+rather than changing how they are estimated, and `tilt=`, a test control. A study refuses both.
+Declare restricted means on the plan comparison instead, as
+`RegimeMean(..., restricted_horizons=(tau,))` or `RegimeContrast(..., restricted_horizons=(tau,))`;
+the error names that call.
 [Engine settings on a method object](../technical-reference/scope-and-refusals.md#engine-settings-on-a-method-object)
 lists each refusal.
 

@@ -2009,6 +2009,60 @@ $\tau$, an end-of-study fit, and a working-model fit.
 `tests/studies/survival_grid_law.py` states the RMST truth by enumeration over the event times. It
 sums no risk curve.
 
+### Restricted means declared on the estimand
+
+`RegimeMean(..., restricted_horizons=(tau,))` and `RegimeContrast(..., restricted_horizons=(tau,))`
+on a time-to-event design declare restricted means as targets. The study passes the field to
+`LTMLE(restricted_horizons=...)`, `SDR(restricted_horizons=...)` or `SurvivalCTMLE`, adds every
+grid time below each $\tau$ to the fitted horizons, and reports only the declared risks. The fit
+stores $\mathrm{RMST}_d(\tau)$ and $\mathrm{RMTL}_{d,j}(\tau)$ for each regimen, and their
+differences against the reference, under the node-indexed names of the table above, keyed by
+`ParameterKey(measure="rmst" | "rmtl", horizon=m)`. `RegimeMean` keeps the levels and
+`RegimeContrast` the differences. `rmst` and `rmtl` read the stored estimate for $\tau$, $\tau$
+given as the grid time or as a float equal to it. On the exact-time route the field is the
+engine's `restricted_horizons=`, which adds each $\mathrm{RMTL}_{a,j}(\tau)$ to the walk's targets
+([continuous-time survival](continuous-time-survival.md#restricted-means-ratios-and-the-curve)).
+
+On the binned route the restricted mean is read from the targeted risks, not targeted again. It is
+a fixed linear combination $\psi = c + \sum_k \omega_k F_d(g_k)$ of the risks, so its efficient
+influence curve is $\sum_k \omega_k D_k$, with $D_k$ the curve of $F_d(g_k)$. Each risk solves
+$P_n D_k^* = 0$ at its targeted fit, so the plug-in solves $P_n \sum_k \omega_k D_k^* = 0$, and its
+remainder is the same combination of the risks' second-order remainders. The plug-in is therefore
+the TMLE of $\psi$ with the risks' conditions. `score_equations()` keeps one solver row per node
+and adds none for a restricted mean, whose equation is that weighted sum of the listed ones. On
+the default iterated-mean model the added grid times leave the declared risks unchanged. On
+`survival_model="hazard", targeting="one_step"` they join the joint walk, which then moves the
+declared risks slightly; the fit stays a TMLE of each reported risk and restricted mean.
+
+The binned $\mathrm{RMST}_d(g_m)$ is the left Riemann sum of $S_d$ on the grid, so for a continuous
+event time $0 \le \mathrm{RMST}^{\text{binned}} - \int_0^{g_m} S_d(u)\,du \le
+\max_k (g_k - g_{k-1})\,\{1 - S_d(g_m)\}$, with $g_0 = 0$. The Wald interval of a stored binned
+restricted mean is symmetric, unlike the exact-time interval, which is bounded on $(0, \tau)$.
+
+| composition | evidence | label |
+| --- | --- | --- |
+| RMST difference, LTMLE iterated mean, one baseline treatment held over five nodes, in sample | `point-treatment-survival` cell `rmst_5`, row `G14.survival` with kind `restricted_mean_difference` | supported |
+| RMST level on that configuration | no cell measures a level | experimental |
+| RMST level and difference, LTMLE iterated mean, four treatment nodes, in sample | `full-refit-bootstrap-and-derived-contrasts` cells `rmst_survival` and `rmst_contrast_survival`, row `G11.nodes4` | supported |
+| the same, cross-fitted | cells `rmst_crossfit` and `rmst_contrast_crossfit`, row `G12.nodes4` | supported |
+| every other binned composition: other node counts, competing-risk restricted means, the hazard model, `SDR`, the collaborative TMLE, weights, clusters, `eliminate=`, stochastic or modified policies, separable regimens, repeats | the input risks' rows lack the kinds | experimental, or withheld with the risks |
+
+On a one-event fit $\mathrm{RMTL}_d = \tau - \mathrm{RMST}_d$, so its interval is the RMST's
+reflected and the same kinds license it. The level and difference kinds are separate because a
+bias common to both arms cancels in a difference, so a difference cell cannot certify a level.
+The derived bootstrap interval of a restricted mean keeps the `derived` kind.
+
+The study refuses, before any learner, a restricted mean on an end-of-study or repeated outcome
+(`CapabilityError`, `different_estimand`), a $\tau$ that is not a grid time from the second on
+(`DataError`), `method="drtmle"` (`inference_gap`: the drift correction regresses residuals on
+scalar indices of the initial fits, Díaz 2019, Section 5, a pattern whose remainder has not been
+audited for any new target), and the sequential g-computation, IPW and parametric g-formula
+baselines (`api_redirection`; their engine results still compute `rmst` from the risks). A read
+from a `RegimeContrast` result other than a declared difference raises `CapabilityError` (`api_redirection`), since that
+result holds no risk curve of a single regimen.
+[Restricted means on the study route](scope-and-refusals.md#restricted-means-on-the-study-route)
+lists every case.
+
 ### The full-refit bootstrap
 
 `LTMLE(n_bootstrap=B)` refits the whole estimator on `B` resamples.

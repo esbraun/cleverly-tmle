@@ -113,10 +113,47 @@ analysis with this design.
 
 ## Ratios and the restricted mean survival time
 
-A fitted risk curve also gives ratios and the restricted mean survival time (RMST), the average
-event-free time up to a cut-off. The fit below uses `RegimeMean`, which reports each plan's risk
-at the `horizons=` given; `RegimeContrast` above reports only differences. `ratio` and `rmst`
-refit nothing, and `.psi` is the point estimate.
+The restricted mean survival time (RMST) up to a cut-off `tau` is the average event-free time
+over the window from 0 to `tau`: a person who has the event at time 1.5 counts 1.5, and a person
+still event-free at `tau` counts `tau`. Declare each cut-off in `restricted_horizons=` on the
+plan comparison, and read the difference of the two plans with `rmst`. `.psi` is the point
+estimate.
+
+```python
+gain = CausalStudy(frame, design=design).estimate(
+    RegimeContrast(
+        {"arm1": 1, "arm0": 0}, reference="arm0", horizons=(4,), restricted_horizons=(4,)
+    ),
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+rmst = gain.rmst("arm1", 4, versus="arm0")
+print(rmst.name, rmst.ci)
+```
+
+`rmst_regimen[arm1 vs arm0 @ t=4]` is the event-free time that treating everyone adds, on
+average, over the first 4 grid time units. `RegimeMean(..., restricted_horizons=(4,))` reports
+each plan's own RMST instead, and `rmtl(arm, tau, cause)` the restricted mean time lost to one
+cause, the average time spent after that event within the window. The fit needs the risk at every
+grid time before `tau`, so it adds those times to the fit and reports only the ones in
+`horizons=`. That costs $K(K+1)/2$ regressions per plan and cause for $K$ grid times up to `tau`
+on the default model. On `survival_model="hazard"` with `targeting="one_step"`, the added times
+also join the adjustment step and move the reported risks slightly.
+
+The RMST is read off the grid: an event counts at the next check time, so this average is never
+below the one from exact event times, and exceeds it by less than the longest gap between check
+times, counting from time 0. The name keeps the cut-off's position on the grid, as for a risk,
+and the `time` column of `to_frame()` gives `tau` itself. Its interval is the plain symmetric
+interval of a sum of risks, unlike the exact-time one below, which stays inside 0 to `tau`.
+Whether it reads `supported` depends on the design that was checked by simulation:
+[Read and save results](results-assessment.md) explains the labels, and
+[point-treatment survival](../technical-reference/method-evidence/point-treatment-survival.md)
+gives the evidence for this design.
+
+A fit with every grid time in `horizons=` also gives ratios, and computes the RMST of any cut-off
+from its risks without declaring it. Neither call refits anything.
 
 ```python
 from cleverly import RegimeMean
@@ -132,8 +169,7 @@ risk_ratio = risks.ratio("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")
 survival_ratio = risks.ratio(
     "risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]", view="survival"
 )
-rmst = risks.rmst("arm1", 4, versus="arm0")
-print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
+print(risk_ratio.ci, survival_ratio.psi, risks.rmst("arm1", 3).psi)
 ```
 
 | call | what it reports |
@@ -146,11 +182,13 @@ print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
 | `rmtl(d, tau, cause)` | the restricted mean time lost to one cause |
 
 :::{dropdown} Details: what `rmst` needs and its units
-`rmst` needs the risk at every time from the first to the one before `tau`, since for unit-spaced times it is
-$\tau - \sum_{t<\tau} F_d(t)$ with $F_d(t)$ the risk by `t` under plan `d`. On a `TimeToEvent`
-grid with other spacing, each risk is weighted by the gap to the next grid time. On a `TimeToEvent`
-grid the times are grid times. On the wide layout they count time points, so for points spaced
-$\Delta$ apart, multiply by $\Delta$ to get calendar time.
+For unit-spaced times the RMST is $\tau - \sum_{t<\tau} F_d(t)$, with $F_d(t)$ the risk by `t`
+under plan `d`. On a `TimeToEvent` grid with other spacing, each risk is weighted by the gap to
+the next grid time. On a `TimeToEvent` grid the times are grid times. On the wide layout they
+count time points, so for points spaced $\Delta$ apart, multiply by $\Delta$ to get calendar
+time. For a `tau` not in `restricted_horizons=`, `rmst` needs the risk at every grid time before `tau` in
+the fit, and a `RegimeContrast` fit keeps no risk of a single plan, so it then refuses and names
+the field.
 :::
 
 ## Exact event times, without a grid
@@ -290,21 +328,20 @@ gives the method, its conditions and what it refuses.
 
 ### Restricted means and risk ratios with exact times
 
-With exact times, call `ContinuousSurvivalTMLE` directly to get the restricted mean survival time
-(RMST), the average time without either event up to a cut-off, and the restricted mean time lost
-to one event. Name each cut-off in `restricted_horizons=` before the fit.
+With exact times, declare each cut-off in `restricted_horizons=` on the plan comparison to get the
+restricted mean survival time (RMST), the average time without either event up to the cut-off,
+and the restricted mean time lost to one event.
 
 ```python
-from cleverly.survival import ContinuousSurvivalTMLE
-
-exact_fit = ContinuousSurvivalTMLE(
-    (0.5, 2.0),
-    restricted_horizons=(2.0,),
-    arms={"treated": 1, "control": 0},
-    reference="control",
-    causes={1: "relapse", 2: "death"},
+exact_fit = CausalStudy(exact, design=exact_design).estimate(
+    RegimeContrast(
+        {"treated": 1, "control": 0},
+        reference="control",
+        horizons=(0.5, 2.0),
+        restricted_horizons=(2.0,),
+    ),
     random_state=0,
-).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+)
 gained = exact_fit.rmst("treated", 2.0, versus="control")
 lost = exact_fit.rmtl("treated", 2.0, "relapse", versus="control")
 ratio = exact_fit.ratio(
@@ -330,11 +367,30 @@ give the other conditions, among them that a cut-off past the last target time r
 
 The fit adjusts its predicted event rates until each reported number satisfies the equation its
 interval rests on. A cut-off it was not told about was never part of that adjustment, so `rmst`
-and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from the first argument, the
-target times. The "What is refused" table of
+and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from `horizons=`. The "What
+is refused" table of
 [continuous-time survival](../technical-reference/continuous-time-survival.md) lists each case.
 The extra cut-offs join the adjustment, so the risks of this fit differ slightly
 from those of a fit without them.
+
+:::{dropdown} Details: the same fit without a study
+The study builds this call to `ContinuousSurvivalTMLE`, which takes the cut-offs as
+`restricted_horizons=` and returns the same estimates:
+
+```python
+from cleverly.survival import ContinuousSurvivalTMLE
+
+engine_fit = ContinuousSurvivalTMLE(
+    (0.5, 2.0),
+    restricted_horizons=(2.0,),
+    arms={"treated": 1, "control": 0},
+    reference="control",
+    causes={1: "relapse", 2: "death"},
+    random_state=0,
+).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+print(round(engine_fit.rmst("treated", 2.0, versus="control").psi, 3))
+```
+:::
 
 ## Treatments over time with an event outcome
 
