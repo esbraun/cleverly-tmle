@@ -317,6 +317,20 @@ no configuration key names a record field. No module the main study's manifest l
 between the two commits, and every other module the held-out manifest lists has the same bytes at
 both, so the two runs drew and fitted with the same code.
 
+## The constant-arm skip in `joint_coverage_rows` (Fix-9)
+
+Fix-9 changed `tests/studies/evidence/simultaneous.py` from
+`f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b` to
+`e127a51b6de3e6b502755d649f9b1047643bd7692a8f2b858b6c014f4ce03f85`. Since Fix-3 the package builds
+no band over a family that holds a `constant_arm_cell_plugin` estimate. `joint_coverage_rows` then
+raised `AssertionError`, which is not a recordable failure, so the property phase stopped. The
+`canonical-stratified-incremental-msm` run at `58538bfa` stopped this way at the ipsi calibration
+replicate 398, whose treated arm of stratum `V=2` has one observed outcome value. The row builder
+now counts such a skipped band as not covered, with the refused-band sentinel, as
+`band-t-reference` already does. It also raises if a fit builds a band over a constant arm cell.
+The edit is result-neutral for every committed record: the new branch runs only
+where the old code raised, and a run that raised wrote no record.
+
 ## Completed manifest provenance
 
 The stacked missing-outcome natural-course manifest initially omitted two Python helpers that
