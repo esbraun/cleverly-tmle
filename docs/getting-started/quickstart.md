@@ -3,7 +3,8 @@
 This page estimates one average treatment effect from simulated observational data. It follows the
 order of a real analysis: the situation, the question, the method, the fit, the checks, and the
 reading. The data come from a law with a known answer, so you can compare the estimate with the
-truth.
+truth. It needs a data-frame library: install `cleverly[all]` or `cleverly[pandas]`
+([installation](installation.md)).
 
 ## The situation
 
@@ -59,14 +60,15 @@ offer. The average effect on the treated (ATT) answers a different question: the
 patients the teams chose. In this law the effect is constant, so the ATT equals the ATE. On real
 data they can differ.
 
-Four assumptions identify $\psi$ from the observed data.
+Four assumptions identify $\psi$ from the observed data. The summary the code prints below uses
+the names in the first column; textbooks use the names in parentheses.
 
 | assumption | what it requires | how you check it |
 | --- | --- | --- |
-| consistency | the observed score equals the counterfactual score under the received offer | scientific judgment: one well-defined offer protocol |
+| well-defined treatment (consistency) | the observed score equals the counterfactual score under the received offer | scientific judgment: one well-defined offer protocol |
 | no interference | one patient's offer does not change another patient's score | scientific judgment: the program design |
-| no unmeasured confounding | $Y^a$ is independent of $A$ given `W` | scientific judgment. No test on these data can confirm it |
-| positivity | each kind of patient has a nonzero chance of each arm | partly from the data: the fitted offer probabilities |
+| no hidden confounding (no unmeasured confounding) | $Y^a$ is independent of $A$ given `W` | scientific judgment. No test on these data can confirm it |
+| overlap (positivity) | each kind of patient has a nonzero chance of each arm | partly from the data: the fitted offer probabilities |
 
 Under these assumptions, $\psi = E_W[E(Y \mid A=1, W) - E(Y \mid A=0, W)]$. The code declares the
 design and identifies the estimand before it fits anything.
@@ -110,9 +112,10 @@ study's population, timing, and treatments. The [workflow](../workflow.md) shows
 Targeted maximum likelihood estimation (TMLE) fits $Q$, then updates it with a term built from $g$.
 The update makes the plug-in estimate solve the efficient influence-curve equation.
 
-The Wald interval from that influence curve is valid under three conditions. Positivity holds. The
-nuisance estimates converge fast enough. Either the nuisance models are simple enough (a Donsker
-class), or the fit is cross-fitted. [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) states the conditions.
+The interval comes from that influence curve and is valid under three conditions. Overlap holds.
+The nuisance estimates converge fast enough. Either the nuisance models are simple enough (a
+Donsker class), or the fit is cross-fitted.
+[Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) states the conditions.
 
 Each setting of the fit below matches a feature of this problem.
 
@@ -162,8 +165,28 @@ print(f"population ATE: {truth['ate']:.3f}")
 The header names the two models and shows the limits on the predicted offer probabilities,
 [0.01471, 0.9853], which the assessment rounds to [0.015, 0.985]. The package keeps $g$ away from 0 and 1. The assessment below reports that no
 patient was capped at a limit. The package also maps the score to $[0, 1]$ for the
-logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from 1.422 to 1.603. The
-interval contains the true value of 1.5.
+logistic update, and maps the estimate back. The TMLE estimate is 1.513, with a 95% interval from
+1.422 to 1.603. The interval contains the true value of 1.5.
+
+The note under the table describes the interval. For a continuous outcome without clusters, the
+package uses a t distribution and widens the interval on the side where a skewed outcome makes
+misses more likely, so the interval need not be centred on the estimate. These data show almost
+no skew, so the two sides differ by less than 0.0001, and with this many rows the t distribution
+is close to the normal one. For a yes/no outcome, the interval of a mean or of the ATE is built
+differently, so that it stays inside the possible range.
+[Small-sample scale](../technical-reference/inference.md#small-sample-scale) gives both
+constructions.
+
+The last column of `result.to_frame()` names this interval (`interval_scale` is `skew_t`), and
+its `support` column holds the support label: `supported` means a registered study covers the
+configuration of this fit, and `experimental` means none does or a stated condition applies.
+
+```python
+print(result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper", "support", "interval_scale"]])
+```
+
+This fit reads `supported`. [Read the support label](../user-guide/results-assessment.md#read-the-support-label)
+says where the label comes from and how to look up its study.
 
 ## Check the fit
 
@@ -174,8 +197,9 @@ interval comes from repeated sampling.
 | --- | --- | --- |
 | the truth of the simulated law | this estimate is 0.013 from $\psi$ | the behavior of the interval over repeated samples |
 | the equations-solved check, `result.diagnostics.score_equations()` | the targeting step solved the efficient influence-curve equation | that $Q$ or $g$ is correct |
-| the overlap check, `result.diagnostics.support()` | no patient's $g(W)$ reaches the bound. The effective-sample-size ratio is above 0.97 in each arm | structural positivity in the population |
-| the [canonical point-treatment TMLE study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md) | the ATE interval covers the true ATE in 94.81% of 1,600 replications at n = 1,000, with GLM nuisances and no cross-fitting | coverage on this law. The study law has a bounded outcome and effect modification |
+| the overlap check, `result.diagnostics.support()` | no patient's $g(W)$ reaches the bound. The effective-sample-size ratio is above 0.97 in each arm | structural overlap in the population |
+| the [canonical point-treatment TMLE study](../technical-reference/method-evidence/canonical-point-treatment-tmle.md), the coverage study behind this fit's `supported` label | the symmetric normal interval covers the true ATE in 94.81% of 1,600 replications at n = 1,000, with GLM nuisances and no cross-fitting. The printed interval contains that symmetric interval, because it only widens it | coverage on this law. The study law has a bounded outcome and effect modification |
+| the [asymmetric interval study](../technical-reference/method-evidence/asymmetric-wald-intervals.md) | the skew-widened t interval keeps close to 95% coverage for subgroup estimates of skewed and symmetric continuous outcomes | coverage on this law |
 | the omitted-variable sensitivity analysis | the confounder strength that would move the estimate to zero | whether such a confounder exists |
 
 `assess()` runs the overlap, model, equations-solved, and sensitivity checks on the fitted result. It
@@ -211,7 +235,7 @@ This page establishes less than a real analysis must.
 | --- | --- |
 | the four identification assumptions hold | true by construction of the law. On real data, each needs a design argument |
 | the nuisance models are correct | true by construction. On real data, flexible learners and cross-fitting replace this |
-| the interval has 95% coverage | partly supported. The registered study covers in-sample GLM TMLE on a bounded-outcome law. No study covers this unbounded law, and one sample cannot |
+| the interval has 95% coverage | supported by the package's label, with a limit. The label's coverage study fits in-sample GLM TMLE on a bounded-outcome law, not on this unbounded one, and measured the symmetric interval. One sample cannot show coverage |
 | the effect is the same for every patient | not supported. The ATE is an average |
 | the effect holds in another health plan | not supported. The estimand is specific to its population |
 

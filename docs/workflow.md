@@ -45,6 +45,29 @@ target-trial protocol or proof of ICH estimand compliance.
 Use `PointTreatment` for one treatment node and `LongitudinalTreatment` for an ordered treatment
 history. Column roles are part of the design rather than learner arguments.
 
+The code below calls your table `data`. This page's table has a yes/no `outcome`, a 0/1
+`treatment`, two baseline covariates, a sampling weight, and a `household` column, because people
+in one household share outcomes. To run the page as written, build a simulated table first.
+
+:::{dropdown} Build a practice table
+```python
+import numpy as np
+from cleverly.datasets import make_clustered
+
+data, _ = make_clustered(n=400, cluster_size=10, seed=7, family="binomial")
+data = data.rename(
+    columns={
+        "Y": "outcome",
+        "A": "treatment",
+        "W1": "age",
+        "W2": "baseline_score",
+        "cluster": "household",
+    }
+)
+data["sampling_weight"] = np.random.default_rng(7).uniform(0.5, 1.5, len(data))
+```
+:::
+
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, PointTreatment
@@ -54,7 +77,7 @@ study = CausalStudy(
     design=PointTreatment(
         outcome="outcome",
         treatment="treatment",
-        adjustment=("age", "baseline_score", "site"),
+        adjustment=("age", "baseline_score"),
         weights="sampling_weight",
         cluster="household",
     ),
@@ -67,8 +90,8 @@ omission, justifies it. `randomized=True` does not give the fit the allocation p
 treatment mechanism is still estimated. A trial that records its allocation probabilities declares
 them with `treatment_probabilities=`, and every method that accepts the design then divides by them
 ([known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)).
-With `weights=` as well, the design also names `mechanism_law=`
-([known chances beside weights](user-guide/data-design.md#known-chances-beside-weights)).
+With `treatment_probabilities=` and weights that are not all equal, the design also names
+`mechanism_law=` ([known chances beside weights](user-guide/data-design.md#known-chances-beside-weights)).
 
 Each public object keeps one responsibility:
 
@@ -80,9 +103,10 @@ Each public object keeps one responsibility:
 | identification | the observed-data functional, assumptions, nuisances, and remainder condition | the evidence that assumptions hold in this study |
 | typed method | learners, cross-fitting, targeting, inference, and runtime settings | the causal question or identification argument |
 
-`CausalStudy` stamps the optional protocol onto the identified effect and each fitted result. A
-summary prints the analysis by default. `summary(detail="full")` also prints the protocol's
-fields, or says that no study protocol was recorded.
+`CausalStudy` stamps the optional protocol onto the identified effect (`effect.protocol`), and
+every fitted result keeps it through `result.identified_effect`. A summary prints the analysis by
+default. `summary(detail="full")` also prints the protocol's fields, or says that no study protocol
+was recorded.
 
 ## 3. Choose a typed estimand
 
@@ -137,7 +161,8 @@ Common keyword shortcuts normalize into the same objects. Unknown or inapplicabl
 `MethodConfigurationError` before an engine is constructed.
 
 The example above fits a binary outcome. A cross-fitted fit of a *continuous* outcome also needs
-`Targeting(q_bounds=(lower, upper))`, holding the outcome's known support. Without it the fit
+`targeting=Targeting(q_bounds=(lower, upper))` on the method object, holding the outcome's known
+support; with keyword arguments, pass `q_bounds=(lower, upper)` to `estimate()`. Without it the fit
 would read its scale off every observed outcome, held-out rows included, and `cleverly` refuses it
 before any learner runs. If the transition score has a fixed scale, declare its minimum and
 maximum. An unbounded outcome has no such range, so fit it in sample with
@@ -172,18 +197,18 @@ print(result.sensitivity.run_all().summary())
 ## 7. Report the result and its limits
 
 Report the parameter definition, population, identification assumptions, learner and cross-fitting
-configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
-version or commit. This page's fit is weighted and clustered by household, every fold keeps a
-household whole, and the households differ in size. The rule below counts households with
-positive weight, and this page's 40 keep the normal reference.
+configuration, estimate and interval, support diagnostics, and sensitivity analysis. Report also
+what `result.provenance` records: the `cleverly`, NumPy and scikit-learn versions and fingerprints
+of the data and the folds. The package records no git commit; set `Runtime(run_id=...)` to tie the
+fit to your own commit or job.
 
-From 3 to 39 households the interval uses a Student t reference. Below a floor, 10 households
-for this page's cross-fitted fit, the fit still reports the interval, labelled experimental, and
-`result.inference_status` is `"few_cluster_plugin"`. A few fits have a lower floor for the average
-treatment effect only (for longitudinal TMLE, the difference between always treating and never
-treating), and [few clusters](technical-reference/inference.md#few-clusters) lists them. Below 3 households it
-withholds the interval: report the point estimate and the reason the status gives in its place
-([few clusters](technical-reference/inference.md#few-clusters)).
+This page's fit is weighted and clustered by household, and every fold keeps a household whole.
+The interval then rests on the number of households, not of people. With many households the fit
+uses the normal reference. With few, it switches to a Student t reference (a fit evaluated on
+held-out folds uses one at every count), and below a floor it still reports the interval but labels
+it experimental, with `result.inference_status` equal to `"few_cluster_plugin"`. With fewer than three households it withholds the interval: report the
+point estimate and the reason the status gives in its place.
+[Few clusters](technical-reference/inference.md#few-clusters) gives the thresholds for each method.
 
 In a TMLE fit of a yes/no outcome without clusters, `cleverly` computes the interval of a group mean
 on a scale that keeps it inside the possible range, and builds the interval of a difference from
