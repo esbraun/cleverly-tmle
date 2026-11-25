@@ -517,11 +517,12 @@ class TestPackageSurface:
             for name in module.__all__:
                 assert hasattr(module, name), f"{module_name}.{name}"
 
-    def test_the_readme_quickstart_runs(self) -> None:
-        """The quickstart in the README, executed as written.
+    def test_the_engine_api_runs_on_polars(self) -> None:
+        """The engine API (``TMLE.fit``) on a polars frame, with the calls a fit report uses.
 
-        Cheaper learners and a smaller ``n`` than the README's, which is the fast tier's
-        rule; what is pinned is that every call in it exists and returns what it claims.
+        This is not the README quickstart: that runs as written, through ``CausalStudy``, in
+        ``tests/unit/test_documentation_runtime.py``.  What is pinned is that each engine call
+        exists and returns what it claims on polars input.
         """
         from cleverly.datasets import make_nonlinear_ate
 
@@ -547,12 +548,12 @@ class TestPackageSurface:
         assert res.estimates["ate"].influence_curve.shape == (800,)
         assert "ate" in truth
 
-    def test_the_readme_end_to_end_example_runs(self, tmp_path: Path) -> None:
-        """The README's end-to-end fit: every diagnostic it shows, off one fitted result.
+    def test_every_diagnostic_runs_off_one_engine_fit(self, tmp_path: Path) -> None:
+        """Each diagnostic and sensitivity call off one ``TMLE.fit`` result, with no refit.
 
-        The point of that section is that nothing after ``fit`` refits, so the assertions
-        are that each call exists and returns its own report -- not what the numbers are,
-        which the README states for the default learner library rather than for ``glm``.
+        This is not a README example (the README's one example runs in
+        ``tests/unit/test_documentation_runtime.py``).  The assertions are that each call
+        exists and returns its own report, not what the numbers are.
         """
         import cleverly
         from cleverly.datasets import make_nonlinear_ate

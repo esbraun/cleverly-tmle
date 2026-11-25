@@ -482,8 +482,8 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         "CTMLE does not support estimand(s) ['att']",
     ),
     "CTMLE no selector criterion": (
-        lambda: _plain_fit(CTMLE(ctmle_estimand="par", estimands=("ate", "par"), **spies())),
-        "ctmle_estimand='par' has no selector criterion",
+        lambda: _plain_fit(CTMLE(selection_estimand="par", estimands=("ate", "par"), **spies())),
+        "selection_estimand='par' has no selector criterion",
     ),
     "DRTMLE evaluation= with repeats=": (
         lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=3),

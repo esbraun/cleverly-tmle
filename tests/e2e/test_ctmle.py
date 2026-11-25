@@ -965,7 +965,7 @@ class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
                 selection_folds=3,
                 selection_inner_folds=2,
                 estimands=("ate",),
-                ctmle_estimand="ate",
+                selection_estimand="ate",
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()

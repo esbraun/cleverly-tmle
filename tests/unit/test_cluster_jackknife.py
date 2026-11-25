@@ -700,3 +700,43 @@ def cluster_jackknife_contrast(estimates: Any) -> Any:
 
 def test_the_module_lists_every_public_name() -> None:
     assert set(cluster_jackknife.__all__) <= set(dir(cluster_jackknife))
+
+
+def _tmle_jackknife_paragraph(families: Any) -> str:
+    """The ``cluster_variance`` paragraph of ``TMLE.__doc__``, checked against ``families``.
+
+    Returns the paragraph after asserting that it promises no study and names exactly the
+    roadmap ids of the family refusals, so a family that the refusal map lifts or adds fails
+    the check until the paragraph is rewritten.
+    """
+    import inspect
+    import re
+
+    doc = inspect.cleandoc(TMLE.__doc__ or "")
+    start = doc.index("\ncluster_variance:")
+    end = doc.index("\nrandom_state", start)
+    paragraph = " ".join(doc[start:end].split())
+    assert "experimental until" not in paragraph
+    named = set(re.findall(r"roadmap ([A-Z]+\d+)", paragraph))
+    assert named == {roadmap for _, roadmap in families.values()}, named
+    return paragraph
+
+
+class TestTheDocstringStatesTheShippedRefusals:
+    """M2: the docstring said the option was experimental, while both TMLE families refuse."""
+
+    shipped_refusals = True
+
+    def test_the_paragraph_names_each_family_refusal(self) -> None:
+        paragraph = _tmle_jackknife_paragraph(cluster_jackknife.JACKKNIFE_FAMILY_REFUSALS)
+        assert "refuses" in paragraph
+
+    def test_a_lifted_family_fails_the_check(self) -> None:
+        """Mutation control: when a family stops refusing, the paragraph must change."""
+        lifted = {
+            name: value
+            for name, value in cluster_jackknife.JACKKNIFE_FAMILY_REFUSALS.items()
+            if name != "tmle_stacked"
+        }
+        with pytest.raises(AssertionError):
+            _tmle_jackknife_paragraph(lifted)

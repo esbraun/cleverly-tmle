@@ -445,6 +445,7 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | fold evaluation | `cv_evaluation=True`, with one pooled fluctuation or one per validation fold; every other report refuses before any learner |
 | the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
 | no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
+| the natural course is not a regime | `NaturalCourse()` sits on the learned-rule state (`TMLE.natural_course`), outside the regime set, the joint fluctuation and the density array. Every reader of `nuisance.regimes` and of the fluctuation sees the fit without it, and a regime fit, a regime target or a longitudinal regimen refuses it before any learner |
 
 [Learned rules](technical-reference/point-treatment-tmle.md#learned-rules) states the contract, and
 [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) records its delivery. *Reconsider when* the

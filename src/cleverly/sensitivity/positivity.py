@@ -1331,33 +1331,30 @@ def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | Non
 
 
 def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
-    """Refuse the propensity axis of a policy fit on a dose, whose propensity is empty.
+    """Refuse the propensity axis of a policy fit whose ratios read no bounded probability.
 
-    On a continuous or vector dose the policy's density ratio is the fit's only treatment
-    weight, and a point fit has no bound on it: ``ratio_trim=`` is refused there.  A
-    ``g(W)`` bound would act on the empty propensity and move nothing.  The density route
-    at a vector whose categorical component a policy moves is the exception: the bound
-    reaches that component's factor of the ratio, as the fit's own ``g_bounds`` does.
+    ``g_bounds`` reaches a policy's clever covariate only through a categorical factor
+    that the policy changes (:attr:`~cleverly.interventions.PolicySet.reads_bounded_probability`).
+    On a continuous or vector dose a point fit fits no propensity ``g(W)``, and the density
+    ratio is its only treatment weight; a classifier ratio reads no probability either; and
+    a factor that cancels moves nothing. Each leaves every point of the curve equal to the
+    fit. The density route at a vector whose categorical component a policy moves is the
+    case that sweeps.
     """
-    nuisance = result.nuisance
-    if axis or nuisance.policies is None or np.asarray(nuisance.propensity.values).shape[1]:
+    policies = result.nuisance.policies
+    if axis or policies is None or policies.reads_bounded_probability:
         return None
-    joint = nuisance.policies.joint
-    if joint is not None and any(len(cell) for cell in joint.cells):
-        # The density route at a vector with a categorical component: the bound reaches
-        # the categorical factor of the ratio wherever a policy moves that component.
-        targets = np.asarray(joint.targets)
-        if np.any(targets[:, 1:] != targets[:, :1]):
-            return None
     return Refusal(
         RefusalReason.INVALID_DECLARATION,
-        "on a modified treatment policy of a continuous or vector dose the density ratio "
-        "is the only treatment weight, and a point fit fits no propensity g(W) and has no "
-        "bound on that ratio, so a g(W) bound would move nothing.",
+        "this fit's policies divide by a density ratio that no g(W) bound reaches: a point "
+        "fit fits no propensity g(W) on a continuous or vector dose, a classifier ratio "
+        "reads no treatment probability, and a categorical factor reaches the ratio only "
+        "where a policy changes the value, so every point of the curve would equal the fit.",
         alternative=(
-            "Declare the treatment as a one-node LongitudinalTreatment and sweep its "
-            "ratio_trim= with longitudinal_truncation_curve(), or pass mechanism=True "
-            "where the fit has missing outcomes."
+            "Read the policy weights with diagnostics.support(). To trim the ratio, declare "
+            "the treatment as a one-node LongitudinalTreatment and sweep its ratio_trim= with "
+            "longitudinal_truncation_curve(), or pass mechanism=True where the fit has "
+            "missing outcomes."
         ),
     )
 
@@ -1492,6 +1489,11 @@ def truncation_curve(
     (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`, which documents its
     grid and columns).  It refuses ``mechanism=True``.
 
+    A **modified treatment policy** fit moves under the treatment bound only through a
+    categorical component's fitted probability, on the density route, that some policy
+    maps to another value.  A dose's density ratio and a classifier ratio read no bound, so
+    the curve refuses a fit whose policies all read one: each point would equal the fit.
+
     A curve that is flat over the plausible range of bounds says the estimate does not
     hinge on the truncation choice.  A curve that drifts monotonically says the estimate
     is sensitive to this finite-sample regularisation.  It does not change the requested
@@ -1543,10 +1545,8 @@ def truncation_curve(
     CapabilityError
         When the requested axis is refused, as :func:`truncation_refusal` states, or when an
         explicit ``g(W)`` bound moves a value of a declared known mechanism.  A modified
-        treatment policy of a continuous or vector dose refuses the ``g(W)`` axis: its fit
-        has no propensity, and the density ratio, its only treatment weight, has no bound.
-        A vector whose categorical component a policy moves, on the density route, is the
-        exception.
+        treatment policy fit whose ratios read no bounded probability refuses the ``g(W)``
+        axis, as the paragraph on those fits above says.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
     if is_continuous_survival(result):

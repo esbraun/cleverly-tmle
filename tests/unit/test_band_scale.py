@@ -251,6 +251,7 @@ DECLARED = {
             "ey_learned_rule",
             "ey_optimal_rule",
             "ey_known_regime",
+            "ey_natural_course",
             "ey_ipsi",
             "ey_policy",
             "ey_rr_tilt",

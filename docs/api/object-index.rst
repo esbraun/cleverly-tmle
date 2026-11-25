@@ -57,6 +57,8 @@ categorized API tables.
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
    cleverly.OptimalRuleValue
+   cleverly.LearnedRuleContrast
+   cleverly.OptimalRuleContrast
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation
@@ -64,6 +66,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.msm.working_model_means
@@ -176,6 +179,7 @@ categorized API tables.
    cleverly.interventions.Static
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
+   cleverly.interventions.NaturalCourse
    cleverly.longitudinal.DynamicRegimen
    cleverly.longitudinal.each_node
    cleverly.longitudinal.NodeRule

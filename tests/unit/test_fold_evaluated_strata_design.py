@@ -449,6 +449,8 @@ def _other_x11_sample_seeds() -> set[int]:
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_contrast as g
+    from tests.studies import learned_rule_contrast_comparators as g2
+    from tests.studies import learned_rule_contrast_comparators_properties as g2_properties
     from tests.studies import learned_rule_contrast_properties as g_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_boundary as boundary
@@ -486,6 +488,7 @@ def _other_x11_sample_seeds() -> set[int]:
         (h, h.PRIMARY_REPLICATES, h_properties),
         (i, i.PRIMARY_REPLICATES, i_properties),
         (f3, f3.PRIMARY_REPLICATES, f3_properties),
+        (g2, g2.PRIMARY_REPLICATES, g2_properties),
         (j, j.PRIMARY_REPLICATES, j_properties),
         (k, k.PRIMARY_REPLICATES, k_properties),
     ):

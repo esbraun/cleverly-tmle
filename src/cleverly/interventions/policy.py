@@ -4906,6 +4906,36 @@ class PolicySet:
         """
         return np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
 
+    @property
+    def reads_bounded_probability(self) -> bool:
+        """Whether some policy's clever covariate reads a probability that ``g_bounds`` bounds.
+
+        :meth:`design_at` bounds only a categorical factor: the fitted probabilities of a
+        categorical treatment, or the categorical factor of a vector treatment on the
+        density route.  A component that leaves the categorical value of every row where
+        it is cancels that factor between the numerator and the denominator, and a ratio
+        from a classifier or of a dose reads no bounded probability at all.  So the bound
+        reaches the estimate only through a component that maps some categorical value to
+        another, and :func:`~cleverly.sensitivity.positivity.truncation_curve` refuses a fit
+        where none does.
+        """
+        if self.joint is not None:
+            induced = np.asarray(self.joint.induced)
+            targets = np.asarray(self.joint.targets)
+            cells = np.arange(induced.shape[-1])
+            # Mass from a cell other than the evaluated value's own cell: the categorical
+            # factor no longer cancels there.
+            off_target = cells[None, None, None, :] != targets[:, :, None, None]
+            # An evaluation with no target cell (code -1) has a zero ratio at every bound.
+            evaluated = (targets >= 0)[:, :, None, None]
+            return bool(np.any((induced != 0.0) & off_target & evaluated))
+        if self.component_codes is not None and self.observed_codes is not None:
+            codes = np.asarray(self.component_codes)
+            # A level map other than the identity at some row: the induced probability
+            # there sums fitted probabilities of other levels, which the bound reaches.
+            return bool(np.any(codes != np.arange(codes.shape[-1])))
+        return False
+
     def design_at(
         self, propensity: FloatArray | None, bounds: tuple[float, float] | None = None
     ) -> FloatArray:
@@ -6032,3 +6062,81 @@ def declared_support_bounds(data: CausalData) -> tuple[FloatArray, FloatArray] |
         )
     )
     return cast(Support, data.treatment_support).bounds(frame, data.n)
+
+
+def refuse_unsupported_doses(
+    data: CausalData,
+    intervals: Sequence[tuple[str, float, float]],
+    *,
+    subject: str,
+    reason: str,
+    alternative: str,
+) -> None:
+    """Refuse a declared dose support that the data or a target's doses contradict.
+
+    A declared support :math:`[l(W), u(W)]` asserts that the dose density is zero outside it.
+    A target that evaluates the outcome regression at a dose outside some row's support is
+    then not identified for that row: positivity fails by declaration.  This check runs before
+    any learner, on a point treatment with one continuous dose and a declared support.  It
+    first refuses an observed dose outside its row's support, as a policy fit does
+    (:func:`check_observed_support`), then every interval some row's support does not cover.
+
+    Parameters
+    ----------
+    data : CausalData
+        The validated data.  The check returns at once without a declared support, or for a
+        treatment that is not one continuous dose.
+    intervals : sequence of tuple
+        ``(label, lower, upper)`` per closed interval of doses the target evaluates on every
+        row.  A single dose is the interval ``(label, dose, dose)``.
+    subject : str
+        What the message says the intervals are, such as
+        ``"doses inside the kernel of pair(s)"``.
+    reason : str
+        The clause that says why the target needs those doses, with no closing stop.
+    alternative : str
+        The sentence that names what to declare instead.
+
+    Raises
+    ------
+    DataError
+        If an observed dose lies outside its row's declared support.
+    CapabilityError
+        If some row's declared support does not cover an interval, with
+        :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION`.
+    """
+    if data.treatment_kind != "continuous":
+        return
+    bounds = declared_support_bounds(data)
+    if bounds is None:
+        return
+    support = cast(Support, data.treatment_support)
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
+    )
+    check_observed_support(
+        np.asarray(data.treatment, dtype=float),
+        frame,
+        np.ones(data.n, dtype=bool),
+        support,
+        node=data.treatment_name,
+    )
+    lower, upper = bounds
+    cut = np.zeros(data.n, dtype=bool)
+    labels: list[str] = []
+    for label, low, high in intervals:
+        with np.errstate(invalid="ignore"):
+            rows = ~((lower <= float(low)) & (upper >= float(high)))
+        if rows.any():
+            labels.append(label)
+            cut |= rows
+    if not labels:
+        return
+    raise CapabilityError(
+        f"{int(cut.sum())} rows have a declared dose support that excludes {subject} "
+        f"{', '.join(labels)}: {reason}, so positivity fails by declaration.",
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative=alternative,
+    )

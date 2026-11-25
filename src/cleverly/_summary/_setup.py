@@ -685,7 +685,10 @@ def methods_table(records: Sequence[MethodAvailability], *, fits: bool = True) -
         plain = vocabulary.METHOD_NAMES.get(record.name, record.name)
         cells = [Cell(record.name, record.name)]
         if fits:
-            cells.append(Cell(record.available, "yes" if record.available else "no"))
+            fits_text = "no" if not record.available else "yes"
+            if record.available and record.only is not None:
+                fits_text = f"only with {record.only}"
+            cells.append(Cell(record.available, fits_text))
         cells.append(Cell(plain, plain))
         rows.append(tuple(cells))
     columns = ("method", "fits", "name") if fits else ("method", "name")

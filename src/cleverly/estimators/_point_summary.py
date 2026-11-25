@@ -559,11 +559,15 @@ class _Clipping:
 def _bounded(result: TMLEResult) -> bool:
     """Whether a treatment-probability bound applies to this fit at all."""
     config = result.config
-    return (
-        config.fits_treatment
-        and config.treatment_mechanism != "known"
-        and not (config.parameter_axis == "policy" and config.continuous_treatment)
-    )
+    if config.parameter_axis == "policy":
+        # A policy's ratio reads the bound only through a categorical factor it changes
+        # (PolicySet.reads_bounded_probability); otherwise no bound moves the estimate.
+        policies = getattr(result.nuisance, "policies", None)
+        if config.continuous_treatment or (
+            policies is not None and not policies.reads_bounded_probability
+        ):
+            return False
+    return config.fits_treatment and config.treatment_mechanism != "known"
 
 
 def _clipping(result: TMLEResult) -> _Clipping:

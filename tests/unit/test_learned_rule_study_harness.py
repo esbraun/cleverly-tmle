@@ -128,6 +128,9 @@ class TestTheSeedRules:
         # X11's learned-rule-optimal-compositions (X11 (f3), PR 2) adds 22,000 primary and 51,200
         # property seeds, none of which equals another X11 study's seed or a committed X11 pilot's
         # (``test_learned_rule_optimal_compositions_design``).
+        # T58's learned-rule-contrast-comparators adds 1,600 primary and 15,200 property seeds,
+        # none of which equals another X11 study's seed
+        # (``test_learned_rule_contrast_comparators_design``).
         assert len(declared) == (
             46_310
             + 6_000
@@ -146,6 +149,7 @@ class TestTheSeedRules:
             + 16_400
             + 32_500
             + 73_200
+            + 16_800
         )
         for study in (
             gated,

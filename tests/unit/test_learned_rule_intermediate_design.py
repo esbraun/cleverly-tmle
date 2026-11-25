@@ -205,6 +205,8 @@ def _x11_modules() -> list[tuple[Any, Any]]:
     from tests.studies import learned_rule_compositions as compositions
     from tests.studies import learned_rule_compositions_properties as composition_properties
     from tests.studies import learned_rule_contrast as g
+    from tests.studies import learned_rule_contrast_comparators as g2
+    from tests.studies import learned_rule_contrast_comparators_properties as g2_properties
     from tests.studies import learned_rule_contrast_properties as g_properties
     from tests.studies import learned_rule_cvtmle as gated
     from tests.studies import learned_rule_cvtmle_properties as gated_properties
@@ -239,6 +241,7 @@ def _x11_modules() -> list[tuple[Any, Any]]:
         (h, h_properties),
         (i, i_properties),
         (f3, f3_properties),
+        (g2, g2_properties),
         (k, k_properties),
     ]
 

@@ -1,0 +1,28 @@
+=== learned-rule-contrast-comparators declared run
+command: /home/user/venv-t58/bin/python /home/user/wt-t58-run/tests/canonical/learned_rule_contrast_comparators/regenerate.py --output /home/user/s58/declared-2 --jobs 4
+commit: 2dd4600430bdb94b087aee3c9dc796f8444c0fc4; upstream 2dd4600430bdb94b087aee3c9dc796f8444c0fc4
+clean tree: True
+cleverly 0.2.8 from /home/user/wt-t58-run/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 117, sha256 87ff5612cfa88d2d88d638ff6a15e5a9ce3785971a598cb41ee043e88235b4c6
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-25T10:01:36+00:00
+note: warning: python is 3.13.14, not the declared 3.13.7
+note: warning: numpy is 2.5.5, not the declared 2.4.6
+note: warning: scipy is 1.18.1, not the declared 1.18.0
+note: warning: pandas is 3.1.1, not the declared 3.0.5
+note: warning: scikit_learn is 1.9.1, not the declared 1.9.0
+note: warning: joblib is 1.6.0, not the declared 1.5.3
+finished: 2026-11-25T10:59:48+00:00
+wall seconds: 3491.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: 02dd738fff9cf701077da00f20b2216374282137ec45cdaf65f74488065b7c22
+sha256 manifest.json: 5e9706bab3885b6a068669a23eea7f9f20e972ffb91b66da8d840e2a26939c14
+sha256 performance-tests.csv: 89b84dd7daae5c9627587b43ddaed679676c9a1077b73e6a899944a26c9a3ea6
+sha256 properties.csv: 65971a7f7eeb8e5357683fe3824c57ff044821c07c399bf40cb297d15607890b
+sha256 property-replicates.parquet: 3575653571db0a3f28c96698fe1e6d6eae8e98d0ecb95d65b696381a0c8931ae
+sha256 replicates.parquet: 699b8319d452cee0e5d6d9ce48e8e87a827cce8f6bcccfd927bdc99cefcab3df
+sha256 summary.csv: bbdc43135233888fc4827f02e212ad38c2bb57c7332b9aae19503fc19fb7993a
+

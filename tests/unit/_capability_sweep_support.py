@@ -1270,6 +1270,55 @@ def fit_learned_rule_known() -> Any:
     return learned_rule_support.fit(interventions=[Static(1)])
 
 
+def _learned_contrast_study(estimand: Any) -> Any:
+    """A typed learned-rule contrast on the learned-rule support law, fold-evaluated."""
+    from cleverly import CrossFitting, PointTreatment, TMLEMethod
+
+    study = CausalStudy(
+        learned_rule_support.law_frame(),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=learned_rule_support.COVARIATES
+        ),
+    )
+    method = TMLEMethod(cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True))
+    return study.identify(estimand).estimate(
+        method,
+        outcome_learner=learned_rule_support.outcome_learner(),
+        treatment_learner=learned_rule_support.treatment_learner(),
+        simultaneous=False,
+        random_state=0,
+    )
+
+
+def fit_learned_rule_contrast_study() -> Any:
+    """``LearnedRuleContrast(against=(Static(0), offer))``, a fixed and a random plan."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import Static, Stochastic
+
+    def offer(w: Any) -> Any:
+        p = 0.5 * (np.asarray(w["W1"]) > 0)
+        return np.column_stack([1.0 - p, p])
+
+    plan = Stochastic(offer, name="offer", density_kind="known")
+    return _learned_contrast_study(LearnedRuleContrast(against=(Static(0), plan)))
+
+
+def fit_learned_rule_natural_course() -> Any:
+    """``LearnedRuleContrast(against=(NaturalCourse(),))``, the rule against current practice."""
+    from cleverly import LearnedRuleContrast
+    from cleverly.interventions import NaturalCourse
+
+    return _learned_contrast_study(LearnedRuleContrast(against=(NaturalCourse(),)))
+
+
+def fit_optimal_rule_contrast_study() -> Any:
+    """``OptimalRuleContrast(against=(Static(0),))`` with g estimated (X11 (f3))."""
+    from cleverly import OptimalRuleContrast
+    from cleverly.interventions import Static
+
+    return _learned_contrast_study(OptimalRuleContrast(against=(Static(0),)))
+
+
 def fit_optimal_rule_estimated_g() -> Any:
     """The fold-evaluated value of the optimal rule with g estimated (X11 (f), family P12)."""
     return learned_rule_support.fit(estimands=["ey_optimal_rule"])
@@ -1427,6 +1476,34 @@ def fit_dose_response() -> Any:
             n_folds=2,
         ).fit(
             pd.DataFrame({"Y": y, "A": dose, "W": w}), outcome="Y", treatment="A", covariates=["W"]
+        )
+
+
+def fit_dose_response_study() -> Any:
+    """The curve of :func:`fit_dose_response`, fitted through ``CausalStudy``."""
+    from cleverly import CausalStudy, DoseResponseCurve, PointTreatment
+    from cleverly.dose_response import DoseResponse
+
+    rng = np.random.default_rng(0)
+    n = 500
+    w = rng.normal(size=n)
+    dose = rng.normal(2.5 + 0.6 * w, 1.2)
+    y = rng.binomial(1, expit(-1 + 0.5 * dose - 0.08 * dose * dose + 0.4 * w))
+    study = CausalStudy(
+        pd.DataFrame({"Y": y, "A": dose, "W": w}),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return study.identify(
+            DoseResponseCurve(DoseResponse.spanning((1.0, 4.0), 3, fractions=(0.25,)))
+        ).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            n_folds=2,
         )
 
 
@@ -2822,6 +2899,7 @@ KINDS: dict[str, Kind] = {
         fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
     ),
     "ctmle_ordered": _kind(fit_ctmle_ordered, "marginal_bounds", *_LIVE),
+    # The default axis refuses as on "shift"; the row defers on mechanism=True, which runs.
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
     "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
@@ -2946,6 +3024,11 @@ KINDS: dict[str, Kind] = {
     # The point bound holds the fold rules fixed; the benchmark refit relearns them.
     "learned_rule_known": _kind(fit_learned_rule_known, *_LIVE, *_PLUGIN_BOUND),
     "optimal_rule+estimated_g": _kind(fit_optimal_rule_estimated_g, *_LIVE, *_PLUGIN_BOUND),
+    "learned_rule_contrast_study": _kind(fit_learned_rule_contrast_study, *_LIVE, *_PLUGIN_BOUND),
+    "learned_rule_natural_course": _kind(fit_learned_rule_natural_course, *_LIVE, *_PLUGIN_BOUND),
+    # Beside known regimes the value of the optimal rule refuses its bounds' benchmark replay
+    # and every plug-in bound row (X11 (f4)), so only the live rows must answer.
+    "optimal_rule_contrast_study": _kind(fit_optimal_rule_contrast_study, *_LIVE),
     # A projection coefficient runs refute with no verdict, and the omitted-variable rows
     # bound a difference-scale coefficient (P1 PR 3).
     "cate_projection": _kind(fit_cate_projection, *_READ, *_POINT, *_PLUGIN_BOUND),
@@ -3070,6 +3153,7 @@ KINDS: dict[str, Kind] = {
     "snmm": _kind(fit_snmm, "refute"),
     # No refutation or sensitivity analysis is implemented for a dose-response curve.
     "dose_response": _kind(fit_dose_response, *_READ),
+    "dose_response_study": _kind(fit_dose_response_study, *_READ),
     # Variable importance: each row runs on every candidate's own fit, so a run answers the
     # rows its candidates' point fits answer.
     "variable_importance": _kind(fit_variable_importance, "marginal_bounds", *_ARM),
@@ -3447,6 +3531,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "learned_rule+estimated_weights",
                 "learned_rule+level",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 *OPTIMAL_RULE_KINDS,
             )
         ),
@@ -3455,6 +3541,8 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
+        # A policy fit whose ratio reads no bound would return a curve that repeats the
+        # fit. With missing outcomes the default axis still refuses; only mechanism=True runs.
         frozenset(
             {
                 "incremental",
@@ -3466,7 +3554,7 @@ MUTATIONS: dict[str, Mutation] = {
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
         + r"the truncation curve re-targets the fitted nuisances"
-        + "|on a modified treatment policy of a continuous or vector dose)",
+        + "|this fit's policies divide by a density ratio that no g\\(W\\) bound reaches)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
@@ -3591,6 +3679,8 @@ MUTATIONS: dict[str, Mutation] = {
                 "tmle_known_sample_weights",
                 "known_score",
                 "learned_rule_known",
+                "learned_rule_contrast_study",
+                "learned_rule_natural_course",
                 # X104: candidate X2 adjusts for one covariate, so its benchmark row reads
                 # available and its call refuses; the run's call refuses with it.
                 "variable_importance_mixed",

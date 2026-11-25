@@ -25,6 +25,9 @@ import numpy as np
 
 from .._assessment_cache import AssessmentCache
 from .._inference_status import STATUS_RECORDS
+from .._planned_fits import PlanBuilder, PlannedFits
+from .._summary import Detail, Summary, check_detail
+from .._summary._learners import learner_name
 from .._support import Support, combine_support
 from .._typing import FloatArray
 from .._warnings import warn
@@ -38,11 +41,20 @@ from ..dose_response import (
 )
 from ..exceptions import CapabilityError, DataError, DataWarning, RefusalReason
 from ..inference.influence import ParameterEstimate, make_estimate
-from ..inference.multiplier import DEFAULT_N_REPLICATES, SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import (
+    DEFAULT_BAND_REFERENCE,
+    DEFAULT_KIND,
+    DEFAULT_N_REPLICATES,
+    BandReference,
+    MultiplierKind,
+    SimultaneousBands,
+    simultaneous_bands,
+)
 from ..learners.density import ConditionalDensity, bin_edges, default_density_bins
+from ..provenance import record
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import frame_from_dict
-from ._nuisance import NuisanceEstimates, fit_nuisances
+from ._nuisance import NuisanceEstimates, fit_nuisances, plan_nuisances
 
 __all__ = [
     "DOSE_RESPONSE_BAND_MEASURED",
@@ -182,6 +194,18 @@ class DoseResponseResult:
     backend : str or None
         The dataframe library the fit's data arrived in, which :meth:`to_frame` returns by
         default.
+    provenance : Provenance or None
+        The fit's data and fold fingerprints, seed and run label.  On a fit through
+        :class:`~cleverly.CausalStudy` it also holds the study protocol's fingerprint.
+    identified_effect : IdentifiedEffect or None
+        The identified question of a fit through :class:`~cleverly.CausalStudy`, or ``None``
+        on a direct fit.
+    method : TMLEMethod or None
+        The method configuration of a fit through :class:`~cleverly.CausalStudy`, or
+        ``None`` on a direct fit.
+    parameter_keys : dict
+        The structured identity of each pair's estimate, keyed by its name, on a fit through
+        :class:`~cleverly.CausalStudy`; empty on a direct fit.
     """
 
     curve: DoseResponse
@@ -195,6 +219,10 @@ class DoseResponseResult:
     nuisance_record: DoseNuisanceRecord = field(repr=False, compare=False)
     warnings: tuple[str, ...] = field(default=())
     backend: str | None = None
+    provenance: Any = field(default=None, compare=False)
+    identified_effect: Any = field(default=None, repr=False, compare=False)
+    method: Any = field(default=None, compare=False)
+    parameter_keys: dict[str, Any] = field(default_factory=dict, compare=False)
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.
@@ -378,6 +406,26 @@ class DoseResponseResult:
             columns["kish"].append(support.kish)
             columns["low_support"].append(support.below_floor)
         return frame_from_dict(columns, backend=backend or self.backend)
+
+    def summary(self, *, detail: Detail = "short") -> Summary:
+        """The estimate of each pair, its interval and band, and what the fit rests on.
+
+        Parameters
+        ----------
+        detail : {"short", "full"}, default="short"
+            ``"full"`` adds the assumptions, the settings and the study description.
+
+        Returns
+        -------
+        Summary
+            The summary. It prints as text and renders as HTML in a notebook.
+        """
+        from ._dose_response_summary import dose_response_summary
+
+        return dose_response_summary(self, check_detail(detail))
+
+    def _repr_html_(self) -> str:
+        return self.summary().as_html()
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
@@ -670,6 +718,60 @@ def dose_nuisance_report(result: DoseResponseResult) -> Any:
 MIN_DISTINCT_DOSES: Final[int] = 20
 
 
+def dose_response_preflight(data: CausalData, curve: DoseResponse) -> None:
+    """Refuse, before any learner, a dose-response fit the data or the declaration cannot carry.
+
+    :class:`DoseResponseTMLE` and ``CausalStudy.identify`` of a
+    :class:`~cleverly.study.DoseResponseCurve` both run it, so both refuse alike.  The checks
+    run in this order: one continuous dose, at least :data:`MIN_DISTINCT_DOSES` distinct doses,
+    no clustered rows, no declared treatment mechanism, no second mechanism, no declared dose
+    atoms, a dose interval inside the observed dose range, and a declared conditional support
+    that holds every observed dose and every pair's kernel on every row.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    curve : DoseResponse
+        The declaration.
+
+    Raises
+    ------
+    CapabilityError
+        If the data or the declaration is not supported.
+    DataError
+        If the dose interval leaves the observed dose range, or an observed dose lies outside
+        its row's declared support.
+    """
+    _refuse_unsupported(data)
+    lower, upper = curve.support
+    observed_low, observed_high = float(data.treatment.min()), float(data.treatment.max())
+    if lower < observed_low or upper > observed_high:
+        raise DataError(
+            f"the dose interval [{lower:g}, {upper:g}] must lie inside the observed dose "
+            f"range [{observed_low:g}, {observed_high:g}]: the fitted density is zero "
+            "outside it. Declare the interval with a margin inside the expected range."
+        )
+    from ..interventions.policy import refuse_unsupported_doses
+
+    kernels = []
+    for (h, a0), name in zip(curve.pairs, curve.names, strict=True):
+        kernels.append((name, max(a0 - h, lower), min(a0 + h, upper)))
+    refuse_unsupported_doses(
+        data,
+        kernels,
+        subject="doses inside the kernel of pair(s)",
+        reason=(
+            "the smoothed curve at those pairs averages the outcome regression over doses "
+            "those rows cannot receive"
+        ),
+        alternative=(
+            "Narrow the bandwidths or move the doses so every pair's kernel lies inside each "
+            "row's declared support."
+        ),
+    )
+
+
 def _refuse_unsupported(data: CausalData) -> None:
     if not data.is_continuous_treatment or data.treatment_kind == "vector":
         raise CapabilityError(
@@ -752,13 +854,17 @@ def dose_response_support(
     cross_fitted: bool,
     weighted: bool,
     n_replicates: int = DEFAULT_N_REPLICATES,
+    restricted_mechanism: bool = False,
+    multiplier_kind: str = DEFAULT_KIND,
+    band_reference: str = DEFAULT_BAND_REFERENCE,
 ) -> tuple[Support, Support]:
     """The support of a dose-response fit's pointwise intervals and of its band.
 
     A fit's intervals read ``supported`` when its configuration is one of
-    :data:`DOSE_RESPONSE_MEASURED` and it is cross-fitted and unweighted.  Its band reads
-    ``supported`` when, in addition, the configuration is :data:`DOSE_RESPONSE_BAND_MEASURED`
-    and the band uses at least :data:`DOSE_RESPONSE_BAND_DRAWS` multiplier draws.  Otherwise
+    :data:`DOSE_RESPONSE_MEASURED` and it is cross-fitted, unweighted and fits its dose density
+    on every adjustment column.  Its band reads ``supported`` when, in addition, the
+    configuration is :data:`DOSE_RESPONSE_BAND_MEASURED` and the band is the Mammen multiplier
+    band with the normal reference at at least :data:`DOSE_RESPONSE_BAND_DRAWS` draws.  Otherwise
     each reads ``experimental``, with every reason that applies.  A pair below the support
     floor is experimental whatever this returns (status ``low_dose_support_plugin``).
 
@@ -776,6 +882,13 @@ def dose_response_support(
         Whether the rows carry observation weights.
     n_replicates : int, default=10_000
         The multiplier draws behind the band.
+    restricted_mechanism : bool, default=False
+        Whether the dose density reads a declared proper subset of the adjustment columns
+        (``PointTreatment(treatment_adjustment=)``).
+    multiplier_kind : {"mammen", "rademacher", "normal"}, default="mammen"
+        The multiplier distribution behind the band.
+    band_reference : {"normal", "t"}, default="normal"
+        The reference distribution of the band's critical values.
 
     Returns
     -------
@@ -800,6 +913,11 @@ def dose_response_support(
         )
     if weighted:
         reasons.append("No registered study measures a dose-response curve with weighted rows.")
+    if restricted_mechanism:
+        reasons.append(
+            "No registered study measures a dose-response curve whose dose density reads a "
+            "declared subset of the adjustment columns (treatment_adjustment=)."
+        )
     if configuration not in DOSE_RESPONSE_MEASURED:
         strata_words = " with baseline strata" if strata else ""
         reasons.append(
@@ -825,6 +943,14 @@ def dose_response_support(
         limits=limits,
     )
     if configuration == DOSE_RESPONSE_BAND_MEASURED:
+        if (multiplier_kind, band_reference) != (DEFAULT_KIND, DEFAULT_BAND_REFERENCE):
+            return pairs, Support(
+                "experimental",
+                f"The registered {DOSE_RESPONSE_STUDY} study measured the Mammen multiplier "
+                "band with the normal reference; this band uses the "
+                f"{multiplier_kind} multiplier with the {band_reference} reference.",
+                limits=limits,
+            )
         if n_replicates >= DOSE_RESPONSE_BAND_DRAWS:
             return pairs, Support(
                 "supported",
@@ -869,9 +995,20 @@ def _pair_support(configured: Support, below_floor: bool) -> Support:
     )
 
 
+def _restricted_mechanism(data: CausalData) -> bool:
+    """Whether the dose density reads a proper subset of the adjustment columns."""
+    names = data.treatment_covariate_names
+    return names is not None and set(names) != set(data.covariate_names)
+
+
 def _experimental_notes(data: CausalData, *, cross_fit: bool) -> list[str]:
     """Name the accepted compositions that no registered study has measured."""
     notes = []
+    if _restricted_mechanism(data):
+        notes.append(
+            "experimental: a declared treatment-mechanism subset; no registered study measures "
+            "a restricted dose density"
+        )
     if not cross_fit:
         notes.append(
             "experimental: an in-sample fit; the registered study measures cross-fitted fits only"
@@ -917,11 +1054,20 @@ class DoseResponseTMLE:
     alpha : float
         The level of the intervals and of the band.
     n_replicates : int, default=10_000
-        Multiplier draws behind the band, with the Mammen multiplier.
+        Multiplier draws behind the band.
+    multiplier_kind : {"mammen", "rademacher", "normal"}, default="mammen"
+        The multiplier distribution behind the band.  A band other than the Mammen band reads
+        ``experimental``.
+    band_reference : {"normal", "t"}, default="normal"
+        The reference of the band's critical values
+        (:func:`~cleverly.inference.multiplier.simultaneous_bands`).  The ``"t"`` reference
+        reads ``experimental``.
     random_state : int or None
         Seed of the split, the learners and the band.
     n_jobs : int
         Parallel jobs for the nuisance fits.
+    run_id : str or None
+        A label the result's provenance records.
     """
 
     def __init__(
@@ -938,8 +1084,11 @@ class DoseResponseTMLE:
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.05,
         n_replicates: int = DEFAULT_N_REPLICATES,
+        multiplier_kind: MultiplierKind = DEFAULT_KIND,
+        band_reference: BandReference = DEFAULT_BAND_REFERENCE,
         random_state: int | None = None,
         n_jobs: int = 1,
+        run_id: str | None = None,
     ) -> None:
         if not isinstance(curve, DoseResponse):
             raise DataError("curve must be a cleverly.dose_response.DoseResponse")
@@ -956,8 +1105,11 @@ class DoseResponseTMLE:
         self.q_bounds = q_bounds
         self.alpha = alpha
         self.n_replicates = n_replicates
+        self.multiplier_kind = multiplier_kind
+        self.band_reference = band_reference
         self.random_state = random_state
         self.n_jobs = n_jobs
+        self.run_id = run_id
 
     def _engine(self) -> Any:
         from .tmle import TMLE
@@ -1012,6 +1164,103 @@ class DoseResponseTMLE:
         DoseResponseResult
             The curve, its intervals and its band.
         """
+        engine, prepared, quadrature = self._prepared(
+            data,
+            outcome=outcome,
+            treatment=treatment,
+            covariates=covariates,
+            weights=weights,
+            id=id,
+            strata=strata,
+        )
+        return self._fit_prepared(engine, prepared, quadrature)
+
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        outcome: str | None = None,
+        treatment: str | None = None,
+        covariates: Sequence[str] | None = None,
+        weights: str | None = None,
+        id: str | None = None,
+        strata: Sequence[str] | None = None,
+    ) -> PlannedFits:
+        """The learner fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        It runs every check :meth:`fit` runs before its first learner, draws the folds as the
+        fit draws them, and counts the outcome regression and the dose density of each fold.
+
+        Parameters
+        ----------
+        data : Any
+            As :meth:`fit` takes it.
+        outcome : str or None
+            As :meth:`fit` takes it.
+        treatment : str or None
+            As :meth:`fit` takes it.
+        covariates : Sequence[str] or None
+            As :meth:`fit` takes it.
+        weights : str or None
+            As :meth:`fit` takes it.
+        id : str or None
+            As :meth:`fit` takes it.
+        strata : Sequence[str] or None
+            As :meth:`fit` takes it.
+
+        Returns
+        -------
+        PlannedFits
+            One row per nuisance model.
+        """
+        engine, prepared, (n_bins, _, _, _) = self._prepared(
+            data,
+            outcome=outcome,
+            treatment=treatment,
+            covariates=covariates,
+            weights=weights,
+            id=id,
+            strata=strata,
+        )
+        folds = engine._folds(prepared, self.random_state)
+        state: Literal["realized", "one draw"] = (
+            "realized" if self.random_state is not None else "one draw"
+        )
+        outcome_task = "classification" if prepared.family == "binomial" else "regression"
+        roles = plan_nuisances(
+            prepared,
+            outcome_learner=engine._resolve_learner(self.outcome_learner, task=outcome_task),
+            treatment_learner=engine._resolve_learner(
+                self.treatment_learner, task="classification"
+            ),
+            missingness_learner=None,
+            intermediate_learner=None,
+            folds=folds,
+            density_bins=n_bins,
+            seed_fixed=state == "realized",
+            n_jobs=self.n_jobs,
+        )
+        labels = {
+            "outcome_learner": learner_name(self.outcome_learner),
+            "treatment_learner": learner_name(self.treatment_learner),
+        }
+        builder = PlanBuilder()
+        for item in roles:
+            builder.add(item.role, f"{item.what}, per fold", labels[item.role], item.count)
+        return builder.build(state)
+
+    def _prepared(
+        self,
+        data: Any,
+        *,
+        outcome: str | None,
+        treatment: str | None,
+        covariates: Sequence[str] | None,
+        weights: str | None,
+        id: str | None,
+        strata: Sequence[str] | None,
+    ) -> tuple[Any, CausalData, tuple[int, FloatArray, QuadratureRule, QuadratureRule]]:
+        """The engine, the prepared data and the quadrature, after every pre-learner check."""
         engine = self._engine()
         prepared = engine._prepare(
             data,
@@ -1025,30 +1274,34 @@ class DoseResponseTMLE:
             strata=strata,
             treatment_kind=None if isinstance(data, CausalData) else "continuous",
         )
-        _refuse_unsupported(prepared)
+        dose_response_preflight(prepared, self.curve)
         if self.cross_fit:
             engine._refuse_unbounded_cross_fitted_scale(prepared)
-        return self._fit_prepared(engine, prepared)
+        return engine, prepared, self._quadrature(prepared)
 
-    def _fit_prepared(self, engine: Any, data: CausalData) -> DoseResponseResult:
-        curve = self.curve
-        lower, upper = curve.support
-        observed_low, observed_high = float(data.treatment.min()), float(data.treatment.max())
-        if lower < observed_low or upper > observed_high:
-            raise DataError(
-                f"the dose interval [{lower:g}, {upper:g}] must lie inside the observed dose "
-                f"range [{observed_low:g}, {observed_high:g}]: the fitted density is zero "
-                "outside it. Declare the interval with a margin inside the expected range."
-            )
+    def _quadrature(
+        self, data: CausalData
+    ) -> tuple[int, FloatArray, QuadratureRule, QuadratureRule]:
+        """The density bins, their edges and the two quadrature rules, after the memory check."""
         n_bins = default_density_bins(data.n) if self.density_bins is None else self.density_bins
         edges = bin_edges(data.treatment, n_bins, name=data.treatment_name)
         # The density is log-linear between a bin edge and a bin centre, so both break the
         # rule and every piece integrates a smooth integrand.
         breaks = np.concatenate([edges, 0.5 * (edges[:-1] + edges[1:])])
-        rule = curve.quadrature(breaks)
-        fine = curve.quadrature(breaks, refine=2)
+        rule = self.curve.quadrature(breaks)
+        fine = self.curve.quadrature(breaks, refine=2)
+        self._preflight_memory(data, rule.n_nodes + fine.n_nodes)
+        return n_bins, edges, rule, fine
+
+    def _fit_prepared(
+        self,
+        engine: Any,
+        data: CausalData,
+        quadrature: tuple[int, FloatArray, QuadratureRule, QuadratureRule],
+    ) -> DoseResponseResult:
+        curve = self.curve
+        n_bins, edges, rule, fine = quadrature
         nodes = np.concatenate([rule.nodes, fine.nodes])
-        self._preflight_memory(data, nodes.size)
         folds = engine._folds(data, self.random_state)
         scaler = engine._scaler(data)
         outcome_task = "classification" if data.family == "binomial" else "regression"
@@ -1078,6 +1331,9 @@ class DoseResponseTMLE:
             cross_fitted=self.cross_fit,
             weighted=not np.allclose(data.weights, data.weights[0]),
             n_replicates=self.n_replicates,
+            restricted_mechanism=_restricted_mechanism(data),
+            multiplier_kind=self.multiplier_kind,
+            band_reference=self.band_reference,
         )
         coarse = self._target(data, nuisance, rule, 0, configured)
         refined = self._target(data, nuisance, fine, rule.n_nodes, configured)
@@ -1091,8 +1347,10 @@ class DoseResponseTMLE:
             estimates,
             alpha=self.alpha,
             n_replicates=self.n_replicates,
+            kind=self.multiplier_kind,
             random_state=self.random_state,
             cluster=data.cluster,
+            band_reference=self.band_reference,
         )
         # simultaneous_bands() leaves the band unclassified.  With every pair supported, the band
         # reads its own measured configuration; otherwise it joins the pairs' reasons.
@@ -1142,6 +1400,7 @@ class DoseResponseTMLE:
             ),
             warnings=tuple(notes),
             backend=data.backend,
+            provenance=record(data, folds, random_state=self.random_state, run_id=self.run_id),
         )
 
     def _preflight_memory(self, data: CausalData, n_nodes: int) -> None:

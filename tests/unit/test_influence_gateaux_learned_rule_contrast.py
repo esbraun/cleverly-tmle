@@ -12,6 +12,12 @@ law with its own covariate shares, the oracle mechanism and :math:`\bar Q^*`.
 fold's law, must equal the fold's curve at every support point. The control reads each
 contrast's curve against the derivative of the learned value alone, which drops the known
 regime's term.
+
+The fit also declares ``NaturalCourse()``, whose mean sits outside the regime set and its
+fluctuation. Fold :math:`v` reports :math:`\bar Y_v`, the plug-in of the fold's empirical law,
+so its curve is the derivative of :math:`E[Y]` at that law, and the contrast's curve is the
+learned value's derivative at the fold's model law minus that one. The control reads the
+contrast's curve against the learned value's derivative alone, which drops :math:`D_N`.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ import numpy as np
 import pytest
 
 from cleverly.estimators import TMLE
-from cleverly.interventions import LearnedRule, Static
+from cleverly.interventions import LearnedRule, NaturalCourse, Static
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.unit.test_influence_gateaux_learned_rule import COUNTS, PROBS, WRONG_Q, _cells, _law
@@ -30,13 +36,15 @@ from tests.unit.test_influence_gateaux_learned_rule import COUNTS, PROBS, WRONG_
 LEARNED = f"ey_learned_rule[{law.LEARNED_RULE_LABEL}]"
 KNOWN = law.PER_ARM_NAMES["ey_known_regime"]
 CONTRASTS = law.PER_ARM_NAMES["ate_learned_rule"]
+(NATURAL,) = law.PER_ARM_NAMES["ey_natural_course"]
+NATURAL_CONTRAST = f"ate_learned_rule[{law.LEARNED_RULE_LABEL} vs {law.NATURAL_COURSE_LABEL}]"
 
 
 @pytest.fixture(scope="module")
 def fit() -> Any:
     estimator = TMLE(
         learned_rule=LearnedRule(),
-        interventions=[Static(1), Static(0)],
+        interventions=[Static(1), Static(0), NaturalCourse()],
         outcome_learner=OracleOutcome(law.DiscreteLaw(_law(WRONG_Q))),
         treatment_learner=OracleTreatment(law.DiscreteLaw(PROBS)),
         cross_fit=True,
@@ -49,7 +57,7 @@ def fit() -> Any:
 
 
 def test_the_fit_reports_every_oracle_name(fit: Any) -> None:
-    assert {LEARNED, *KNOWN, *CONTRASTS} == set(fit.estimates)
+    assert {LEARNED, *KNOWN, *CONTRASTS, NATURAL, NATURAL_CONTRAST} == set(fit.estimates)
 
 
 def test_every_column_s_update_moves(fit: Any) -> None:
@@ -115,6 +123,62 @@ def test_control_a_contrast_without_its_known_term_is_caught(fit: Any, name: str
     gaps = [
         np.max(np.abs(raw[cells == point] - law.gateaux(LEARNED, int(point), probs=probs)))
         for cells, raw, probs in _fold_curves(fit, name)
+        for point in np.unique(cells)
+    ]
+    assert float(np.max(gaps)) > 1e-2
+
+
+def _empirical_laws(fit: Any) -> list[tuple[np.ndarray, np.ndarray]]:
+    """For each fold: the support point of each validation row and the fold's empirical law."""
+    cells = _cells()
+    folds = [np.asarray(test) for _, test in fit.nuisance.folds]
+    out = []
+    for test in folds:
+        probs = np.zeros((3, 2, 2))
+        for point in cells[test]:
+            probs[law.SUPPORT[point]] += 1.0 / test.size
+        out.append((cells[test], probs))
+    return out
+
+
+def test_the_oracle_branch_of_the_natural_course_is_the_observed_mean() -> None:
+    assert law.TRUTH[NATURAL] == pytest.approx(law.TRUTH["ey_obs"], abs=1e-15)
+    np.testing.assert_allclose(law.eif(NATURAL), law.eif("ey_obs"), atol=1e-14, rtol=0)
+    assert float(law.functional(law.PROBS, NATURAL_CONTRAST)) == pytest.approx(
+        law.TRUTH[LEARNED] - law.TRUTH[NATURAL], abs=1e-15
+    )
+    np.testing.assert_allclose(
+        law.eif(NATURAL_CONTRAST), law.eif(LEARNED) - law.eif(NATURAL), atol=1e-14, rtol=0
+    )
+
+
+def test_each_fold_curve_of_the_natural_course_is_its_derivative(fit: Any) -> None:
+    """``Y - Ybar_v`` at each fold's empirical law, and the contrast's curve the difference."""
+    n = fit.data.n
+    natural = np.asarray(fit.estimates[NATURAL].influence_curve, dtype=float)
+    contrast = np.asarray(fit.estimates[NATURAL_CONTRAST].influence_curve, dtype=float)
+    folds = [np.asarray(test) for _, test in fit.nuisance.folds]
+    learned_pieces = _fold_curves(fit, LEARNED)
+    for test, (cells, empirical), (_, _, model) in zip(
+        folds, _empirical_laws(fit), learned_pieces, strict=True
+    ):
+        scale = len(folds) * test.size / n
+        for point in np.unique(cells):
+            rows = test[cells == point]
+            expected = law.gateaux(NATURAL, int(point), probs=empirical)
+            np.testing.assert_allclose(natural[rows] * scale, expected, atol=1e-10, rtol=0)
+            learned = law.gateaux(LEARNED, int(point), probs=model)
+            np.testing.assert_allclose(
+                contrast[rows] * scale, learned - expected, atol=1e-10, rtol=0
+            )
+
+
+def test_control_the_natural_contrast_without_its_term_is_caught(fit: Any) -> None:
+    """The learned value's derivative alone misses the contrast's curve by far more than the
+    tolerance above, so the natural course's term is seen."""
+    gaps = [
+        np.max(np.abs(raw[cells == point] - law.gateaux(LEARNED, int(point), probs=probs)))
+        for cells, raw, probs in _fold_curves(fit, NATURAL_CONTRAST)
         for point in np.unique(cells)
     ]
     assert float(np.max(gaps)) > 1e-2
