@@ -1211,10 +1211,11 @@ class TMLE:
         predict the outcome (:func:`~cleverly.learners.screen_by_outcome`).  An instrument,
         which predicts treatment only, is dropped.  ``min_retain`` is the fewest kept;
         ``None`` is R's ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless
-        ``p`` is large next to the effective sample size.  Dropping a confounder from the
-        treatment model costs nothing when the outcome model is consistent, and biases the
-        estimate when it is not.  Refused beside a declared known mechanism, which replaces
-        the treatment model.
+        ``p`` is large next to the effective sample size.  A confounder dropped from the
+        treatment model leaves the estimate consistent when the outcome model is; the
+        interval then also needs the outcome model's error to be ``o_P(n^{-1/2})`` (or
+        ``DRTMLE``), and the estimate is biased when the outcome model is not consistent.
+        Refused beside a declared known mechanism, which replaces the treatment model.
     outcome_by_arm:
         Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
         fold fits a learner on the covariates alone for each arm, on that arm's rows with an

@@ -141,7 +141,12 @@ def _inner_splits(rows: IntArray, groups: IntArray | None) -> list[tuple[IntArra
     if groups is not None:
         labels, codes = np.unique(np.asarray(groups), return_inverse=True)
         k = min(SCREEN_FOLDS, labels.size)
-        keys = np.arange(labels.size, dtype=np.uint64)
+        # The cluster's own code, so it keeps its inner fold across nested training sets.
+        keys = (
+            labels.astype(np.int64).astype(np.uint64)
+            if np.issubdtype(labels.dtype, np.integer)
+            else np.arange(labels.size, dtype=np.uint64)
+        )
     else:
         k = min(SCREEN_FOLDS, rows.size)
         codes = np.arange(rows.size)
@@ -161,16 +166,24 @@ def _inner_splits(rows: IntArray, groups: IntArray | None) -> list[tuple[IntArra
 
 
 def _residualise(matrix: FloatArray, basis: FloatArray) -> FloatArray:
-    """Residuals of each column of ``matrix`` after least squares on ``basis``."""
-    q, _ = np.linalg.qr(basis)
-    return matrix - q @ (q.T @ matrix)
+    """Residuals of each column of ``matrix`` after least squares on ``basis``.
+
+    The projection is onto the column space of ``basis`` read from its singular vectors at
+    a relative tolerance, so a rank-deficient basis (repeated spline knots, collinear
+    components) projects out its span and nothing else.
+    """
+    u, singular, _ = np.linalg.svd(basis, full_matrices=False)
+    if singular.size == 0:
+        return matrix
+    span = u[:, singular > singular[0] * max(basis.shape) * np.finfo(float).eps]
+    return matrix - span @ (span.T @ matrix)
 
 
 class _TreatmentBasis:
     """The treatment terms the screen holds fixed, built on one training set.
 
     A discrete column enters as drop-first indicators of its levels; a continuous column
-    as a natural cubic spline with quantile knots, so a nonlinear dose response leaves no
+    as a cubic B-spline with knots at its distinct quantiles, so a nonlinear dose response leaves no
     treatment signal in the residuals.  ``linear`` is the part the covariates interact
     with: the indicators, and the centred dose.
     """
@@ -192,11 +205,13 @@ class _TreatmentBasis:
                 continue
             centred = column - column.mean()
             linear.append(centred[:, None])
-            if np.unique(column).size > _SPLINE_KNOTS + 2:
+            # Knots at the distinct quantiles: a dose with a point mass repeats quantiles,
+            # and a repeated knot only adds empty columns.
+            knots = np.unique(np.quantile(column, np.linspace(0.0, 1.0, _SPLINE_KNOTS + 2)))
+            if knots.size >= 3:
                 spline = SplineTransformer(
-                    n_knots=_SPLINE_KNOTS + 2,
+                    knots=knots[:, None],
                     degree=3,
-                    knots="quantile",
                     extrapolation="linear",
                     include_bias=False,
                 )
@@ -365,13 +380,16 @@ def _lasso_screen(
     keep = np.zeros(p, dtype=bool)
     entry = np.full(p, np.inf)
     strength = np.zeros(p)
-    splits = _inner_splits(rows, groups)
-    if not live.any() or np.std(target) == 0.0 or len(splits) < 2:
+    # A constant outcome leaves residuals at rounding level: nothing to select on.
+    if not live.any() or np.std(target) <= 1e-10 * max(1.0, float(np.std(y))):
         return keep, entry, strength
     x_std = x[:, live] / scale[live]
     owners = owner[live]
     correlation = np.abs(x_std.T @ target) / (np.sqrt(n) * np.linalg.norm(target))
     np.maximum.at(strength, owners, correlation)
+    splits = _inner_splits(rows, groups)
+    if len(splits) < 2:
+        return keep, entry, strength
     model = LassoCV(fit_intercept=False, cv=splits, max_iter=20_000, tol=1e-6)
     model.fit(x_std, target)
     np.logical_or.at(keep, owners, model.coef_ != 0.0)
@@ -537,10 +555,15 @@ class ScreenedLearner:
         self.learner = learner
         self.screen = screen
 
-    @property
-    def bin_design(self) -> Any:
-        """The wrapped learner's ``bin_design``, read by the density route."""
-        return getattr(self.learner, "bin_design", None)
+    def __getattr__(self, name: str) -> Any:
+        """The wrapped learner's opt-in attributes (``bin_design``, ``policy_steps``).
+
+        Routes read such class-level flags off the learner before fitting; the screen must
+        not hide them.
+        """
+        if name.startswith("_") or "learner" not in self.__dict__:
+            raise AttributeError(name)
+        return getattr(self.__dict__["learner"], name)
 
     def fit(self, *args: Any, **kwargs: Any) -> ScreenedLearner:  # numpydoc ignore=PR01
         """Refuse: a screened learner is fitted through :func:`learner_for_rows`.

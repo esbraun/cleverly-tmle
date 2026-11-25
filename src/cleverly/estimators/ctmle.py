@@ -2051,10 +2051,9 @@ default="greedy"
     :class:`~cleverly.TMLE`.
 
     ``screen_treatment`` is redundant here and does not apply to the candidate
-    propensity models, and ``strategy="derivative"`` refuses it.  It is a *static* marginal
-    pre-screen for exactly the problem this class solves collaboratively, and running both
-    would mean the covariate a correlation filter rejected never reaches the search that
-    might have wanted it.
+    propensity models, and ``strategy="derivative"`` refuses it.  It is a *static* outcome
+    pre-screen for the problem this class solves collaboratively, and running both would mean
+    a covariate the screen rejected never reaches the search that might have wanted it.
     """
 
     _assessment_method = "collaborative_tmle"

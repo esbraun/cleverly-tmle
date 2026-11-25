@@ -1245,14 +1245,19 @@ correlation with the outcome.
 The rule holds the treatment fixed because an exposure-only covariate (an instrument) predicts
 the outcome marginally through $A$, so a marginal outcome screen keeps it. Shortreed and
 Ertefaie (2017, Section 3) weight their propensity penalty by an outcome regression on $X$ and
-$A$ for this reason, and Brookhart et al. (2006, pages 1152 and 1155 to 1156) define the
-covariate roles by an outcome model that includes the exposure. Both report that exposure-only
-covariates inflate the variance without reducing bias, and that outcome-only covariates reduce
-it.
+$A$ for this reason, adding treatment-covariate interactions under effect heterogeneity
+(Section 5). Brookhart et al. (2006, pages 1152 and 1155 to 1156) define the covariate roles by
+an outcome model that includes the exposure. Both report that exposure-only covariates inflate
+the variance without reducing bias, and that outcome-only covariates reduce it.
 
-Dropping a confounder from the treatment mechanism costs nothing when the outcome regression is
-consistent, and biases the estimate when it is not. `lambda.min` errs towards keeping covariates,
-which protects against that bias and lets some exposure-only or noise covariates through. The
+A confounder dropped from the treatment mechanism leaves the estimate consistent when the
+outcome regression is consistent. The remainder is then first order in the outcome-regression
+error, so the influence-curve interval also needs that error to be $o_P(n^{-1/2})$, which a
+data-adaptive regression does not give ([DR-TMLE](dr-tmle/index.md) addresses this case). The
+estimate is biased when the outcome regression is not consistent. Brookhart et al. (2006, page 1156) advise
+against excluding an exposure-related covariate in a moderate-sized study unless it is known to
+be unrelated to the outcome. `lambda.min` errs towards keeping covariates, which reduces the
+risk of that bias and lets some exposure-only or noise covariates through. The
 selection is data-adaptive, so the plug-in robustness value refuses it (`screened` and
 `treatment_design` in [validation methods](validation-methods.md)).
 

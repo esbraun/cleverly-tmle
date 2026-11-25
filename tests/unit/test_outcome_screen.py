@@ -111,16 +111,18 @@ class TestTheScreenDropsInstruments:
             P,
         }
 
-    def test_a_categorical_treatment_is_partialled_by_arm(self) -> None:
-        rng = np.random.default_rng(3)
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_a_categorical_treatment_is_partialled_by_arm(self, seed: int) -> None:
+        rng = np.random.default_rng(seed)
         n = 3000
         w = rng.normal(size=(n, 3))  # instrument, outcome-only, noise
         logits = np.column_stack([np.zeros(n), 2.0 * w[:, 0], -2.0 * w[:, 0]])
         probabilities = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
         a = (rng.uniform(size=n)[:, None] > np.cumsum(probabilities, axis=1)).sum(axis=1)
         y = 3.0 * (a == 2) + 0.5 * w[:, 1] + rng.normal(size=n)
-        order = _order(w, a.astype(float), y, discrete=True)[1]
-        assert order[0] == 1
+        assert _order(w, a.astype(float), y, discrete=True)[1][0] == 1
+        # Control: a marginal outcome screen ranks the instrument of arm 2 first.
+        assert _order(w, a.astype(float), y, discrete=True, mutation="marginal")[1][0] != 1
 
     def test_a_covariate_orthogonal_to_the_outcome_in_each_arm_is_dropped(self) -> None:
         """An exact zero, not a ranking: its lasso coefficients vanish at every penalty."""
@@ -157,6 +159,18 @@ class TestTheFloor:
         keep = screen_by_outcome(w, a, y)
         assert keep[0] and keep[1]
         assert 20 <= keep.sum() < p
+
+    def test_the_entry_order_follows_the_outcome_coefficients(self) -> None:
+        """Orthogonal covariates with coefficients 3, 2, 1, 0 enter in that order."""
+        rng = np.random.default_rng(8)
+        n = 1000
+        a = (rng.uniform(size=n) < 0.5).astype(float)
+        raw = rng.normal(size=(n, 4))
+        basis = np.column_stack([np.ones(n), a])
+        w = np.linalg.qr(screeners._residualise(raw, basis))[0] * np.sqrt(n)
+        y = a + w @ np.array([3.0, 2.0, 1.0, 0.0]) + 0.5 * rng.normal(size=n)
+        screen = OutcomeScreen(w, a, (True,), y, np.ones(n, bool), np.ones(n), None, 4)
+        assert screen.entry_order().tolist() == [0, 1, 2, 3]
 
     def test_the_floor_fills_in_entry_order(self) -> None:
         w, a, y = instrument_law(1)
@@ -223,6 +237,23 @@ class TestTheRowsTheScreenReads:
         w, a, y = instrument_law(7)
         first = screen_by_outcome(w, a, y, min_retain=1)
         np.testing.assert_array_equal(first, screen_by_outcome(w, a, y, min_retain=1))
+
+    def test_a_rank_deficient_basis_projects_out_its_span_only(self) -> None:
+        rng = np.random.default_rng(2)
+        basis = rng.normal(size=(200, 3))
+        matrix = rng.normal(size=(200, 5))
+        np.testing.assert_allclose(
+            screeners._residualise(matrix, np.column_stack([basis, basis[:, :1], basis[:, :2]])),
+            screeners._residualise(matrix, basis),
+            atol=1e-10,
+        )
+
+    def test_a_dose_with_a_point_mass_gets_a_spline_without_empty_columns(self) -> None:
+        dose = np.maximum(0.0, np.random.default_rng(4).normal(size=500) - 0.5)
+        assert np.mean(dose == 0.0) > 0.5
+        partial, _ = screeners._TreatmentBasis(dose[:, None], (False,)).build(np.arange(500))
+        assert np.all(np.abs(partial).sum(axis=0) > 0.0)
+        assert np.linalg.matrix_rank(partial) == partial.shape[1]
 
     def test_inner_folds_keep_each_cluster_whole(self) -> None:
         rows = np.arange(100)
@@ -388,3 +419,60 @@ def test_a_vector_treatment_screens_its_training_sets(
         assert abs(fit(screen_treatment=True).estimates[name].psi - estimate.psi) <= 1e-10
     dropped = fit(screen_treatment=True, min_retain=1)
     assert all(np.isfinite(estimate.psi) for estimate in dropped.estimates.values())
+    assert "W" in dropped.repeats[0].nuisance.treatment_covariates
+
+
+class TestEachRouteMasksTheCovariatesOfItsTrainingSet:
+    """The mask sits on the covariate block, and each support reads one training set."""
+
+    @pytest.mark.parametrize("route", list(ROUTES))
+    def test_the_mask_and_its_rows(self, route: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        options, atom = ROUTES[route]
+        masks: list[np.ndarray] = []
+        supports: list[tuple[np.ndarray | None, np.ndarray]] = []
+        fit_mask = screeners.ScreenMask.fit
+        support = OutcomeScreen.support
+
+        def spy_fit(self: Any, X: Any, y: Any = None) -> Any:
+            masks.append(np.asarray(self.support, dtype=bool))
+            return fit_mask(self, X, y)
+
+        def spy_support(self: Any, rows: Any = None) -> np.ndarray:
+            kept = support(self, rows)
+            supports.append((None if rows is None else np.sort(np.asarray(rows)), kept))
+            return kept
+
+        monkeypatch.setattr(screeners.ScreenMask, "fit", spy_fit)
+        monkeypatch.setattr(OutcomeScreen, "support", spy_support)
+        result = _dose_fit(_dose_frame(atom=atom), True, 1, **dict(options))
+        p = 4
+        trains = [np.sort(train) for train, _ in result.repeats[0].nuisance.folds]
+        fold_supports = [kept for rows, kept in supports if rows is not None]
+        # The rows a fit trains on: a whole training set, or its non-atom rows on the
+        # continuous part of a mixed density.
+        assert all(
+            any(np.isin(rows, train).all() for train in trains)
+            for rows, _ in supports
+            if rows is not None
+        ), "a support read rows outside one training set"
+        assert any(
+            any(np.array_equal(rows, train) for train in trains)
+            for rows, _ in supports
+            if rows is not None
+        )
+        assert masks
+        last = route == "classifier"
+        for mask in masks:
+            block, rest = (mask[-p:], mask[:-p]) if last else (mask[:p], mask[p:])
+            assert rest.all(), "the mask dropped a column that is not a covariate"
+            assert any(np.array_equal(block, kept) for kept in fold_supports)
+        assert any(not mask.all() for mask in masks), "no fold dropped a covariate: vacuous"
+
+
+def test_a_screened_learner_shows_the_learner_opt_in_flags() -> None:
+    """The classifier route reads ``policy_steps`` off the learner before fitting."""
+    w, a, y = instrument_law(0, n=100)
+    screen = OutcomeScreen(w, a, (True,), y, np.ones(100, bool), np.ones(100), None, 1)
+    screened = ScreenedLearner(_NoStepsLogit(), screen)
+    assert screened.policy_steps == "omit"
+    assert getattr(ScreenedLearner(LogisticRegression(), screen), "bin_design", None) is None

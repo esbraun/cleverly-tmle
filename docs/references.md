@@ -855,15 +855,19 @@ the public `Intervention`, `Rule`, `DynamicRegimen`, or `MSM` callables.
 
 - Shortreed & Ertefaie (2017), *Outcome-adaptive lasso: variable selection for causal
   inference*, Biometrics 73(4), 1111–1122. Read first-hand through the local research thread
-  (Fix-20). Section 3, display 3: the propensity penalty weights are $|\tilde\beta_j|^{-\gamma}$
-  from an outcome regression on the covariates and the treatment. Section 2.2: exposure-only
-  covariates inflate standard errors without reducing bias and bring near-positivity violations.
-  Cited for holding the treatment fixed in `screen_treatment=True`.
+  (Fix-20), in the author's accepted manuscript (PMC5591052), which has no journal pages, so the
+  locators are sections and displays. Section 3, display 3: the propensity penalty weights are
+  $|\tilde\beta_j|^{-\gamma}$ from an outcome regression on the covariates and the treatment.
+  Section 5: with effect heterogeneity the outcome model adds treatment-covariate interactions.
+  Section 2.2: exposure-only covariates inflate standard errors without reducing bias and bring
+  near-positivity violations. Cited for holding the treatment fixed, and for the interaction
+  terms, in `screen_treatment=True`.
 - Brookhart, Schneeweiss, Rothman, Glynn, Avorn & Stürmer (2006), *Variable selection for
   propensity score models*, American Journal of Epidemiology 163(12), 1149–1156. Read first-hand
   through the local research thread (Fix-20). Pages 1152 and 1155–1156: covariate roles are defined
   by an outcome model that includes the exposure; including outcome-only covariates reduced
-  variance, and exposure-only ones raised it.
+  variance, and exposure-only ones raised it. Page 1156: in moderate-sized studies a covariate
+  related to exposure should not be excluded unless it is known to be unrelated to the outcome.
 - CRAN `tmle` 2.1.1, `R/tmle.R`, `.prescreenW.g` and the `min.retain` default in `tmle()`,
   read first-hand from the `cran/tmle` mirror (Fix-20): a `cv.glmnet` lasso of the outcome on
   $W$ at `lambda.min`, filled to `min.retain` by `order(abs(cor(A, W)))`.
