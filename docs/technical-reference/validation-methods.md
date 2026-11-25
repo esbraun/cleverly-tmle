@@ -2200,17 +2200,19 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
 walks that table and returns the first reason that applies.
 
-Two named stops apply in this order: longitudinal and risk-ratio tilt fits. The longitudinal stop waits on a declared law.
-The tilt stop waits on a typed study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). The longitudinal stop applies
-the ordered stops of the longitudinal latent, and a longitudinal result that passes them meets no
-point rule. Each one has a row in the
-refusal table below, and each one carries a roadmap item. The missing-outcome, missing-treatment,
-and intermediate stops read the grid, so they run in `_validate_request` and not in this table.
+The stops that the science decides apply in this order: longitudinal fits (`longitudinal`), the
+projection of a conditional contrast (`projection`), risk-ratio tilt fits (`risk_ratio_tilt`), then
+the learned-rule stops (`optimal_rule`, `learned_rule_level`, `learned_rule_splits`). The
+longitudinal stop waits on a declared law, and it applies the ordered stops of the longitudinal
+latent; a longitudinal result that passes them meets no point rule. The tilt stop waits on a typed
+study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). Each of these
+stops has a row in the refusal table below. The missing-outcome, missing-treatment, and
+intermediate stops read the grid, so they run in `_validate_request` and not in this table.
 
-Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the risk-ratio tilt stop, because every later rule reads a
-field that only a `TMLEResult` declares. The other eleven follow the risk-ratio tilt stop. The table
-below gives all twelve in contract order.
+The provenance and shape stops read the object you hold rather than the state of the science.
+The `result_type` stop runs second, before the projection stop, because every later rule reads a
+field that only a `TMLEResult` declares. `missing_estimator` and `repeat_provenance` follow the
+risk-ratio tilt stop, and the rest follow the learned-rule stops, in the order of the table.
 
 | rule | refuses |
 | --- | --- |
@@ -2229,11 +2231,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all fourteen. A fit that reaches the `provider` stop reports
+execution name the same stop for every rule. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the two fit-wide named stops and the three grid stops, plus the estimands and compositions the
+The rows below record the fit-wide stops that the science decides and the grid stops, plus the estimands and compositions the
 surface refuses. The `code` column holds the reason code of the raise site. The codes are those of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). A row that cites an `F` item
 of the roadmap also has a part that waits on published theory, as the
@@ -2243,6 +2245,10 @@ of the roadmap also has a part that waits on published theory, as the
 | --- | --- | --- |
 | a longitudinal result outside the time-fixed latent | `implementation_gap` | no time-indexed latent law covers censoring on an end-of-study outcome, a survival outcome whose treatment is not held, eliminated causes, a repeated outcome, a time-varying covariate after the first treatment node, a declared later-node mechanism, an `IPSI` tilt, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). A node with more than two levels, a vector node, and a clustered panel wait on [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) parts (j) and (k) |
 | a risk-ratio tilt fit | `implementation_gap` | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the surface reads. See [X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt) |
+| the projection of a conditional contrast | `implementation_gap` | the surface is defined for a mean or a contrast of means, and a working-model coefficient of a conditional contrast has no derivation of it. Run it on `ATE()` or `RiskRatio()` on the same study |
+| the value of the optimal rule beside known regimes, with baseline strata, or with the intermediate held at a level | `implementation_gap` | the replay relearns the rule in every cell, and no witness checks those compositions. See [X11](../roadmap.md#x11-learned-policy-follow-ups) |
+| a learned-rule value with the intermediate held at a level | `implementation_gap` | the replay would freeze the rules learned at that level, and no witness checks a frozen rule there. See [X11](../roadmap.md#x11-learned-policy-follow-ups) |
+| a learned-rule fit of several splits (`repeats` above 1) | `different_estimand` | each row has one rule per split, and the reported target is the mean of the split targets, so a replay of one rule per row answers for one split. Refit with `repeats=1` |
 | a cell that moves the treatment of a fit with a missing outcome, and no `observation_reads=` | `implementation_gap` | the observation mechanism may read the treatment, and then the flip breaks missing at random. Outcome-axis cells run. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves a declared missing treatment, and no `observation_reads=` | `implementation_gap` | as the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a cell that moves the treatment of a controlled direct effect | `implementation_gap` | a flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. The intermediate and outcome axes run. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
@@ -2973,8 +2979,9 @@ These fit new models. They cost what a fit costs, multiplied by the number of dr
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships seven operations. Six test the implementation. The negative-control outcome tests a design,
-and the paragraph below states its boundary. Each operation prints a statistic against a stated
+ships the operations in the table below, one row each. The negative-control outcome and the
+future-treatment control test a design, and [Negative controls](#negative-controls) states their
+boundaries; the others test the implementation. Each operation prints a statistic against a stated
 reference. It prints `passed` or `failed` only where the evidence registry covers the fit, and
 `no pass or fail` otherwise. `summary()` gives one row per test, the statistic behind each
 reading, and one note per test with its purpose, its conditions and its rung in words.
@@ -2990,6 +2997,7 @@ reading, and one note per test with its purpose, its conditions and its rung in 
 | `plasmode` | resamples units, draws `A` from a frozen treatment model, draws `Y` from `m(a, W)`, and refits | bias, standard-error ratio, and coverage against the same bands | operating characteristics on a law fitted to resemble the data |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits; each copy of a unit keeps the unit's original fold | how far the estimate moves from the original; no verdict | stability under the declared measurement error |
 | `bootstrap_stability` | bootstraps units that keep their original folds and seeds, and refits | the spread, and the shift of the mean against the original fit; no verdict | how far the estimate moves under resampling |
+| `future_treatment` | fits a point-treatment TMLE of a declared control `C` on the longitudinal treatment at node `t + 1`, adjusted for the history | the control fit's own Wald test of the exact null, as for the negative-control outcome | the design: no unmeasured confounding of the later treatment, under the control conditions [Negative controls](#negative-controls) states |
 
 The placebo reads an MSM coefficient of a point treatment against its value under the placebo
 law. The table names the two cases. The code reads the case from the realised design and weight
