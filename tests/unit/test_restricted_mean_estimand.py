@@ -1030,3 +1030,27 @@ class TestPlotsAndSummary:
             "mean event-free time up to time 7 if every unit followed plan one, minus that "
             "mean under plan zero"
         )
+
+
+def test_each_draw_of_a_repeated_fit_stores_its_own_restricted_means() -> None:
+    """Each cross-fitting draw holds every restricted mean as the sum of its own risks.
+
+    The repeat registry of ``test_longitudinal_repeats`` names this test as the witness of
+    ``restricted_horizons=`` and of the result's ``restricted_*`` fields.
+    """
+    result = _quiet(
+        lambda: _engine(restricted_horizons=(7.0,), n_folds=2, repeats=2).fit(_container())
+    )
+    assert result.n_repeats == 2
+    assert result.restricted_horizons == (7.0,)
+    assert set(result.restricted_index) == set(result.restricted_weights)
+    for name, (constant, weights) in result.restricted_weights.items():
+        draws = []
+        for repeat in result.repeats:
+            expected = constant + sum(
+                weight * repeat.estimates[risk].psi for risk, weight in weights.items()
+            )
+            assert repeat.estimates[name].psi == pytest.approx(expected, abs=1e-12)
+            draws.append(repeat.estimates[name].psi)
+        # The two draws differ, so a pooled value copied into each draw would fail above.
+        assert draws[0] != draws[1]

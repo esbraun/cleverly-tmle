@@ -2200,8 +2200,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The warnings the fit raised (:mod:`cleverly._warnings`), so a summary printed later
     #: still names them.
     fit_warnings: tuple[FitWarning, ...] = field(default=(), kw_only=True)
-    #: One complete single-draw fit per draw of the cross-fitting split.
-    repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
     #: The restriction times of ``restricted_horizons=``, as the fit was given them.
     restricted_horizons: tuple[float, ...] = field(default=(), kw_only=True)
     #: ``name -> (regimen, versus, cause, node, measure)`` for every stored restricted mean,
@@ -2212,6 +2210,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     restricted_weights: dict[str, tuple[float, dict[str, float]]] = field(
         default_factory=dict, kw_only=True
     )
+    #: One complete single-draw fit per draw of the cross-fitting split.
+    repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
     #: The studentized bootstrap sup-t band over the estimates that supply inference, when
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.

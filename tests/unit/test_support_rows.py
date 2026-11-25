@@ -59,6 +59,9 @@ KINDS = {
     "derived",
     # Fix-5: ``variance="policy_weighted"``, licensed from ``mtp-policy-variance``.
     "wald_policy",
+    # X123 (g): the binned restricted means, licensed from their RMST cells.
+    "restricted_mean",
+    "restricted_mean_difference",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
 #: The options of X76 in a point key, at the values of a fit that declares none of them.
