@@ -677,7 +677,7 @@ def test_methods_pickle_and_compare_as_a_tuple() -> None:
     assert tuple(methods) == methods
     assert all(isinstance(record, MethodAvailability) for record in methods)
     frame = methods.to_frame()
-    assert list(frame.columns) == ["method", "available", "reason_code", "reason"]
+    assert list(frame.columns) == ["method", "available", "only", "reason_code", "reason"]
     assert list(frame["method"]) == [record.name for record in methods]
 
 

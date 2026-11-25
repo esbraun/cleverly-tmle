@@ -1054,10 +1054,13 @@ class TrialWithExternalData:
     treatment_missingness: str | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        # Every refused role has a plain default; a default_factory would read MISSING here.
         defaults = {item.name: item.default for item in fields(self)}
         for role, refusal in TRIAL_ROLE_REFUSALS:
             if _trial_role_declared(getattr(self, role), defaults[role]):
                 raise CapabilityError.from_refusal(refusal)
+        # An empty list of strata declares nothing; store it as the default.
+        object.__setattr__(self, "strata", ())
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         if not isinstance(self.treatment, str):
             raise CapabilityError.from_refusal(TRIAL_BINARY_TREATMENT_REFUSAL)
@@ -2685,8 +2688,9 @@ class LearnedRuleValue:
     ``CrossFitting()`` gives the stacked report, which weights each fold by its share of
     the rows (of the weight mass under weights).  The ``learned-rule-stacked`` study registers
     the stacked report of the plug-in rule on rows, with a known weight and with clusters,
-    with one split and pooled targeting.  Strata, fold targeting, a rule-learner loss,
-    repeats above 1 and weights with clusters read experimental.
+    with ``repeats=1`` and pooled targeting.  Strata, fold targeting, a rule-learner loss,
+    repeats above 1, weights declared estimated, weights with clusters, and fewer than 40
+    clusters (the t reference) read experimental.
 
     With ``intermediate=z`` on a design that declares ``PointTreatment(intermediate=...)``,
     the binary intermediate is held at ``z``: each fold learns the best treatment given
@@ -6158,6 +6162,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "collaborative_tmle",
                 collaborative,
                 None if collaborative else collaborative_blocker,
+                # Every strategy but the derivative one refuses id= before its first learner.
+                only=(
+                    "strategy='derivative'"
+                    if collaborative
+                    and isinstance(design, PointTreatment)
+                    and design.cluster is not None
+                    else None
+                ),
             ),
             MethodAvailability("drtmle", drtmle, None if drtmle else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),

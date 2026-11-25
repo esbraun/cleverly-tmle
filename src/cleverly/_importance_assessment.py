@@ -290,8 +290,8 @@ class _CandidateFacade(_CapabilityFacade):
         bare = (error.refusal.condition if error.refusal is not None else "") or ""
         # A preview (``planned_refits`` of ``refute``) names itself before the operation.
         match = re.match(
-            rf"{re.escape(facade._kind)} (?:'\w+' previews )?{re.escape(repr(operation))}"
-            rf",? (?:which )?is (\w+): ",
+            rf"{re.escape(facade._kind)} (?:'\w+' previews {re.escape(repr(operation))}, which "
+            rf"|{re.escape(repr(operation))} )is (\w+): ",
             bare,
         )
         if match is None:
@@ -467,7 +467,10 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
             stacks the candidates' test rows.
         """
         _, kwargs = _single_pass((), kwargs)
-        self._require_call("refute", (), kwargs)
+        try:
+            self._require_call("refute", (), kwargs)
+        except CapabilityError as error:
+            raise self._as_preview(error) from error
         reports = {}
         for name, facade in self._facades.items():
             try:
@@ -475,8 +478,25 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
                     **_candidate_checkpoint("refute", name, kwargs, record=False)
                 )
             except CapabilityError as error:
-                raise self._candidate_error("refute", name, facade, error) from error
+                composed = self._candidate_error("refute", name, facade, error)
+                raise self._as_preview(composed) from error
         return CandidateReports("planned_refits", reports, self._result.backend)
+
+    def _as_preview(self, error: CapabilityError) -> CapabilityError:
+        """The composed refusal of ``refute``, named as :meth:`planned_refits` previews it.
+
+        The per-fit facade names the preview (``"<kind> 'planned_refits' previews
+        'refute', which is <status>: "``), so the composed call does too.
+        """
+        refusal = error.refusal
+        prefix = f"{self._kind} 'refute' is "
+        if refusal is None or not (refusal.condition or "").startswith(prefix):
+            return error
+        condition = (
+            f"{self._kind} 'planned_refits' previews 'refute', which is "
+            f"{refusal.condition[len(prefix) :]}"
+        )
+        return CapabilityError.from_refusal(replace(refusal, condition=condition))
 
     def influence(self) -> Any:
         """Refused: each candidate's influence curves are its own fit's.

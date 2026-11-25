@@ -280,3 +280,24 @@ def test_the_validation_rows_combine_the_candidates(clean: Any) -> None:
             AssessmentStatus.COMPLETED,
         )
         assert item.status is next(status for status in order if status in each), item
+
+
+def test_the_composed_refit_preview_names_itself(
+    clean: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """X124 B5: a candidate's preview refusal keeps the preview's name in the composed call."""
+    original = DiagnosticsFacade.planned_refits
+    target = clean.fits["X2"]
+    preview = "diagnostic 'planned_refits' previews 'refute', which is unavailable: "
+
+    def refusing(self: Any, **kwargs: Any) -> Any:
+        if self._result is target:
+            raise CapabilityError(
+                f"{preview}no refit here", reason=RefusalReason.INVALID_DECLARATION
+            )
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(DiagnosticsFacade, "planned_refits", refusing)
+    with pytest.raises(CapabilityError) as caught:
+        replace(clean).diagnostics.planned_refits(n_replicates=2, random_state=0)
+    assert caught.value.refusal.condition == f"{preview}candidate X2: no refit here"

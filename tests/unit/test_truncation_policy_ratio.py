@@ -40,6 +40,10 @@ SETTINGS: dict[str, Any] = {
 }
 
 
+def _keep(a: Any, h: Any) -> Any:
+    return a
+
+
 def _fit(case: str) -> Any:
     frame = density_tests._m1_frame()
     with warnings.catch_warnings():
@@ -49,9 +53,12 @@ def _fit(case: str) -> Any:
         )
         flag = CausalData.from_frame(frame, outcome="Y", treatment="F", covariates=["W", "D"])
         set_flag = ModifiedPolicy("set flag", apply=density_tests.set_flag, policy_kind="known")
+        keep = ModifiedPolicy("keep", apply=_keep, policy_kind="known")
         cells = {"treatment_learner": CellProbabilities()}
         fits = {
             "categorical density": lambda: TMLE(policies=[set_flag], **cells, **SETTINGS).fit(flag),
+            # The identity map on the density route: the bounded factor cancels.
+            "categorical identity": lambda: TMLE(policies=[keep], **cells, **SETTINGS).fit(flag),
             "categorical classifier": lambda: TMLE(
                 policies=[set_flag], ratio="classifier", **SETTINGS
             ).fit(flag),
@@ -73,6 +80,7 @@ def _dose_fits() -> dict[str, Any]:
 
 MOVING = ("categorical density", "vector flag density")
 FLAT = (
+    "categorical identity",
     "categorical classifier",
     "vector flag classifier",
     "vector dose density",
@@ -83,7 +91,7 @@ FLAT = (
 @pytest.fixture(scope="module")
 def fits(exact_grid_law_module: Any) -> dict[str, Any]:
     """Every case, fitted once.  Both laws are exact grids, so the atom refusal is off."""
-    m1 = (*MOVING, "categorical classifier", "vector flag classifier")
+    m1 = (*MOVING, "categorical identity", "categorical classifier", "vector flag classifier")
     return {**{case: _fit(case) for case in m1}, **_dose_fits()}
 
 
@@ -130,3 +138,20 @@ def test_without_the_rule_the_curve_repeats_the_fit(
 
 def test_the_rule_is_on_the_propensity_axis_only(fits: dict[str, Any]) -> None:
     assert positivity._refuse_unbounded_ratio(fits["vector dose density"], True) is None
+
+
+@pytest.mark.parametrize(("ratio", "noted"), [("density", True), ("classifier", False)])
+def test_the_capped_weights_note_appears_only_where_the_bound_reaches_the_ratio(
+    exact_grid_law_module: Any, ratio: str, noted: bool
+) -> None:
+    """The note sends the reader to truncation_curve(), so it must not appear where that
+    curve refuses: a classifier ratio reads no bound even though the bound clips rows."""
+    frame = density_tests._m1_frame()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        flag = CausalData.from_frame(frame, outcome="Y", treatment="F", covariates=["W", "D"])
+        set_flag = ModifiedPolicy("set flag", apply=density_tests.set_flag, policy_kind="known")
+        learner = {"treatment_learner": CellProbabilities()} if ratio == "density" else {}
+        settings = {**SETTINGS, "g_bounds": (0.3, 0.7)}
+        result = TMLE(policies=[set_flag], ratio=ratio, **learner, **settings).fit(flag).single()
+    assert ("weights_capped" in result.summary().note_codes) is noted

@@ -4769,7 +4769,9 @@ class PolicySet:
             # Mass from a cell other than the evaluated value's own cell: the categorical
             # factor no longer cancels there.
             off_target = cells[None, None, None, :] != targets[:, :, None, None]
-            return bool(np.any((induced != 0.0) & off_target))
+            # An evaluation with no target cell (code -1) has a zero ratio at every bound.
+            evaluated = (targets >= 0)[:, :, None, None]
+            return bool(np.any((induced != 0.0) & off_target & evaluated))
         if self.component_codes is not None and self.observed_codes is not None:
             codes = np.asarray(self.component_codes)
             # A level map other than the identity at some row: the induced probability

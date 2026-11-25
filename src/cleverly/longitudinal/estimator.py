@@ -9636,14 +9636,15 @@ class SDR(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  No registered row lists a
-        bootstrap kind for an ``SDR`` fit, so its intervals carry the label
-        ``experimental``.  The replicates are computed as for :class:`LTMLE`.
+        Full-refit bootstrap replicates, ``0`` for none, computed as for :class:`LTMLE`.
+        The registered long-horizon SDR rows (``G46.sdr``) license the BCa interval of an
+        in-sample fit in their settings at the gated size; every other bootstrap interval,
+        and every bootstrap band, carries the label ``experimental``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     bootstrap_interval : {"percentile", "bca"}, default="percentile"
-        The pointwise bootstrap interval, as for :class:`LTMLE`.  It carries the label
-        ``experimental``.
+        The pointwise bootstrap interval, as for :class:`LTMLE`.  ``"bca"`` reads supported
+        where a ``G46.sdr`` row licenses it, as ``n_bootstrap`` says.
     density_bins : int or None
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"}

@@ -86,3 +86,22 @@ def test_no_docstring_denies_the_percentile_interval(owner: type) -> None:
     text = " ".join((owner.__doc__ or "").split())
     assert "no percentile" not in text
     assert "experimental" in text
+
+
+def test_the_sdr_docstrings_name_the_rows_that_license_a_bootstrap_kind() -> None:
+    """The SDR docstrings said no registered row lists a bootstrap kind for SDR.
+
+    The ``G46.sdr`` rows license ``bootstrap_bca`` and no ``bootstrap_band``, so each
+    docstring must name those rows and the BCa interval, and keep the band experimental.
+    """
+    from cleverly._support_rows import LONGITUDINAL_ROWS
+    from cleverly.longitudinal import SDR
+
+    rows = [row for row in LONGITUDINAL_ROWS if row.id.startswith("G46.sdr.")]
+    assert any("bootstrap_bca" in row.kinds for row in rows)
+    assert not any("bootstrap_band" in row.kinds for row in rows)
+    for owner in (SDR, SDRMethod):
+        text = " ".join((owner.__doc__ or "").split())
+        assert "no registered row lists a bootstrap kind" not in text
+        assert "G46.sdr" in text and "BCa" in text
+        assert "every bootstrap band, carries the label ``experimental``" in text

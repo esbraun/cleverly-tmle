@@ -126,7 +126,15 @@ def test_an_unsupported_role_is_refused_with_its_record(field: str) -> None:
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("weights", np.ones(4)), ("weights", 0), ("weights", ""), ("strata", ["W"]), ("cluster", {})],
+    [
+        ("weights", np.ones(4)),
+        ("weights", 0),
+        ("weights", ""),
+        ("strata", ["W"]),
+        ("strata", None),
+        ("strata", 3),
+        ("cluster", {}),
+    ],
 )
 def test_any_value_but_the_default_is_refused(field: str, value: Any) -> None:
     """An array would raise on its truth value, and a falsy value would pass a truth test."""
@@ -135,6 +143,11 @@ def test_any_value_but_the_default_is_refused(field: str, value: Any) -> None:
     with pytest.raises(CapabilityError) as caught:
         _design(**{field: value})
     assert caught.value.refusal == dict(TRIAL_ROLE_REFUSALS)[field]
+
+
+def test_an_empty_strata_list_is_the_default() -> None:
+    """A list equal to the default tuple declares nothing, so the design is the default's."""
+    assert _design(strata=[]) == _design()
 
 
 def test_every_refused_role_is_a_point_treatment_role() -> None:
