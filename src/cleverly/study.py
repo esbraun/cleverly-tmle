@@ -155,7 +155,13 @@ from .methods import (
     TMLEMethod,
     dose_response_estimator_kwargs,
 )
-from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
+from .msm import (
+    MSM,
+    MSMSet,
+    reads_numeric_levels,
+    refuse_continuous_msm_mechanisms,
+    tuple_level_refusal,
+)
 from .protocol import StudyProtocol, protocol_summary_lines
 from .provenance import fingerprint_array
 from .survival import ContinuousSurvivalResult, ContinuousSurvivalTMLE
@@ -534,8 +540,8 @@ class PointTreatment:
         Discrete treatment or continuous dose column, or the columns of a vector
         treatment.  A vector of categorical columns is one categorical treatment over the
         observed tuples.  A vector with a column in ``continuous_treatment`` takes
-        ``ModifiedTreatmentPolicy`` with :class:`~cleverly.interventions.JointPolicy`
-        declarations only.
+        ``ModifiedTreatmentPolicy`` and ``ModifiedTreatmentPolicyEffect`` with
+        :class:`~cleverly.interventions.JointPolicy` declarations only.
     adjustment : sequence of str
         Baseline adjustment columns. Supply at least one unless ``randomized=True``.
     randomized : bool
@@ -5749,6 +5755,14 @@ class ExplicitAdjustmentProvider:
                 "of a time to an event, and a point-treatment design has one outcome and no "
                 "follow-up time; declare TimeToEvent to ask that question",
                 reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if (
+            isinstance(actual, MSMProjection)
+            and reads_numeric_levels(actual.model)
+            and len(design.treatment_columns) > 1
+        ):
+            raise CapabilityError.from_refusal(
+                tuple_level_refusal(f"treatment {design.treatment_name!r}")
             )
         if isinstance(actual, MSMProjection) and actual.regimens is not None:
             raise CapabilityError(
