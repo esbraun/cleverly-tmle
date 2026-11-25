@@ -688,21 +688,48 @@ def _replicate(
     return rows
 
 
+def shard_keys(
+    replicates: int,
+    shard: tuple[int, int] | None = None,
+    scenarios: tuple[str, ...] | None = None,
+) -> list[tuple[str, int]]:
+    """The ``(cell, replicate)`` keys of a run, or of shard ``(index, total)`` of it.
+
+    Shard ``i`` of ``k`` holds every replicate ``r`` with ``r % k == i - 1`` in every cell, so
+    the shards are disjoint, cover the run, and each holds a third of the ``cont_cf`` fits and
+    of the secondary fits inside ``day_cf``'s replicates when ``k`` is 3.  A replicate's seed is
+    a function of its key alone, so a shard draws and fits what the unsharded run does.
+    """
+    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
+    index, total = (1, 1) if shard is None else shard
+    if not 1 <= index <= total:
+        raise ValueError(f"shard {index}/{total} is not one of 1/{total} to {total}/{total}")
+    return [
+        (scenario, replicate)
+        for scenario in chosen
+        for replicate in range(replicates)
+        if replicate % total == index - 1
+    ]
+
+
 def draw_and_fit(
     *,
     replicates: int,
     n: int,
     n_jobs: int = STUDY_JOBS,
     scenarios: tuple[str, ...] | None = None,
+    shard: tuple[int, int] | None = None,
 ) -> replication.PhaseResult:
-    """Every cell of ``scenarios`` (all by default), each at its declared size."""
+    """Every cell of ``scenarios`` (all by default), each at its declared size.
+
+    ``shard`` fits only that shard's keys (:func:`shard_keys`), for a declared run split across
+    machines (``regenerate.py --shard``).
+    """
     sizes = STUDY.sizes(n)
-    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
     outcomes = replication.fit_primary(
         [
             (scenario, replicate, sizes[scenario])
-            for scenario in chosen
-            for replicate in range(replicates)
+            for scenario, replicate in shard_keys(replicates, shard, scenarios)
         ],
         _replicate,
         draw=_draw,

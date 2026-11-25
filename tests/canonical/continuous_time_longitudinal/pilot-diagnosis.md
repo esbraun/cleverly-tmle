@@ -156,6 +156,46 @@ first smoke's peak; the rerun read 1.9 GB, and the rule keeps the larger). Allow
 
 On the local machine, (34 - 6) / 2.2 allows 12 workers; 16 would need about 35 GB at the peak.
 
+## Sharded declared run
+
+The declared run splits across three 4-core cloud machines, each under 24 hours. Shard `i/3`
+fits every replicate whose index leaves remainder `i - 1` on division by 3, in both cells, with
+the secondary fits that run inside each `day_cf` replicate. Each shard therefore holds a third
+of the `cont_cf` fits and of the X70 pairing, the two costliest fits. At the second pilot's
+seconds per fit (`day_cf` 21.5, `cont_cf` 143.1, `mechanism_correct` 6.1 and `outcome_correct`
+12.9, with the smoke's 2.4 for `both_wrong` and 51.0 for
+X70), a shard costs:
+
+| primary / `mechanism_correct` fits | each shard | three shards | wall hours at `--jobs 4` |
+| --- | --- | --- | --- |
+| 2,400 / 1,600 | 40.5 CPU-h | 121.5 CPU-h | 10.1 |
+| 3,200 / 2,400 | 53.2 CPU-h | 159.5 CPU-h | 13.3 |
+
+At 3,200 and 2,400 no split into three shards brings each one below about 50 CPU-h, since the
+whole run costs 159.5. The split by halves of `cont_cf` with everything else in a third shard
+would cost 63.6, 63.6 and 32.3 CPU-h, so the longest shard would run about 16 hours. Each shard
+uses the `--jobs` rule above.
+
+```
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 1/3 --output /scratch/shard-1 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 2/3 --output /scratch/shard-2 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 3/3 --output /scratch/shard-3 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --merge /scratch/shard-1 /scratch/shard-2 /scratch/shard-3 --output /scratch/merged
+```
+
+Each shard runs at the same pushed commit with every thread variable at 1, and copies nothing
+into the repository. A crashed shard resumes when run again into the same `--output`. The merge
+runs at that commit too, on a machine that holds the three shard outputs. It refuses a shard that
+is incomplete or that ran at another commit, tree, declaration or library stack, and a set of
+shards that overlaps or leaves a gap. It joins their checkpoints and runs the declared run
+from them, which fits nothing, writes the record as an unsharded run does and copies it here.
+The manifest adds each shard's commit and runtime under `generated_with.shards`.
+
+A smoke of two replicates, split into two shards and merged on 2026-11-25, matched an unsharded
+smoke of the same replicates byte for byte in every artifact but two: the wall-clock `seconds`
+of `secondary-rows.csv.gz` and the `median_seconds` of `targeting-readings.csv`, which differ
+between any two runs. The merge fitted nothing and took 5 seconds.
+
 ## Calibration rules
 
 **The shrunk-SE controls** (review B1). The pilot's refusal reads a shrunk control's power at a

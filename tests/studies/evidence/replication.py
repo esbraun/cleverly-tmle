@@ -267,6 +267,16 @@ def _digest(parts: Sequence[Any]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
 
 
+def checkpoint_file(implementation: str, label: str, cell: str, replicate: int) -> Path:
+    """Where a replicate's checkpoint sits under a run's checkpoint root.
+
+    A run split across machines (``continuous-time-longitudinal``'s ``--shard``) reads it to
+    tell a complete shard from an incomplete one and to join the shards' checkpoints.
+    """
+    ident = _digest((implementation, label, cell, int(replicate)))
+    return Path(implementation) / label / f"{ident}.pkl.gz"
+
+
 @dataclass(frozen=True)
 class _Task:
     key: Any
