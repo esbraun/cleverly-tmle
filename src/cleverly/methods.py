@@ -2715,10 +2715,6 @@ DOSE_RESPONSE_GAP_FIELDS: Mapping[tuple[str, str], str] = MappingProxyType(
             "the dose density reads every adjustment column, or the declared "
             "treatment_adjustment= subset"
         ),
-        ("models", "screen_threshold"): (
-            "the dose density reads every adjustment column, or the declared "
-            "treatment_adjustment= subset"
-        ),
         ("models", "min_retain"): (
             "the dose density reads every adjustment column, or the declared "
             "treatment_adjustment= subset"
