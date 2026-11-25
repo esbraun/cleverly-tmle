@@ -2782,10 +2782,9 @@ KINDS: dict[str, Kind] = {
         *_BOUND,
         refits=False,
     ),
-    # A shift fit answers no bound row.
-    "reconfigured_unbounded_scale": _kind(
-        unbounded_scale, *_READ, "truncation_curve", refits=False
-    ),
+    # A shift fit answers no bound row, and its density ratio reads no g(W) bound, so
+    # its truncation row refuses too.
+    "reconfigured_unbounded_scale": _kind(unbounded_scale, *_READ, refits=False),
     "reconfigured_unbounded_scale_ate": _kind(
         unbounded_scale_ate, "marginal_bounds", *_READ, "truncation_curve", *_BOUND, refits=False
     ),
@@ -3325,10 +3324,24 @@ MUTATIONS: dict[str, Mutation] = {
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
-        frozenset({"incremental", "incremental+missing"}),
+        # A shift, policy-mean or vector-policy fit whose ratio reads no bound would return
+        # a curve that repeats the fit (X124 B6). With missing outcomes the default axis
+        # still refuses; only mechanism=True runs.
+        frozenset(
+            {
+                "incremental",
+                "incremental+missing",
+                "shift",
+                "shift+missing",
+                "policy_means",
+                "vector_policy",
+                "reconfigured_unbounded_scale",
+            }
+        ),
         _RAISED.format("truncation_curve")
         + r"(the propensity g is \*inside\* the estimand|"
-        + r"the truncation curve re-targets the fitted nuisances)",
+        + r"the truncation curve re-targets the fitted nuisances|"
+        + r"this fit's policies divide by a density ratio)",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",

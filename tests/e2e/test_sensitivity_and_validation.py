@@ -795,16 +795,15 @@ class TestTruncationCurve:
         assert "selected no parameter" in str(refusal.value)
         assert "['ate']" in str(refusal.value)
 
-    def test_a_continuous_treatment_withholds_the_truncated_fraction(self) -> None:
-        """No arms, no share of units the bound moved. The column says so.
+    def test_a_continuous_treatment_refuses_the_curve_it_cannot_move(self) -> None:
+        """A shift fit's ratio reads no bound, so the curve refuses rather than repeat the fit.
 
-        A shift fit's propensity is ``(n, 0)``: the mechanism it truncates is a density
+        A shift fit's propensity is ``(n, 0)``: the mechanism it divides by is a density
         ratio, and no column of it is a treatment probability the ``g_bounds`` pair clips.
-        ``np.any`` over that empty axis is ``False``, so counting units returned a
-        well-formed ``0.0`` beside a real resolved ``fitted_lower_bound`` -- a positive
-        claim that the bound moved no unit, about a mechanism with no unit to move. The
-        previous code averaged the empty matrix and produced ``nan`` with a
-        ``RuntimeWarning``; the answer withheld is the same, and the warning is not.
+        Every point of a curve would equal the fit, with a withheld ``truncated_fraction``
+        beside it. The capability row reads unavailable, and the call raises the same
+        record (X124 B6; ``tests/unit/test_truncation_policy_ratio.py`` holds the moving
+        and flat cases).
         """
         frame, _ = make_shift_dose(n=300, seed=0)
         with warnings.catch_warnings():
@@ -814,16 +813,11 @@ class TestTruncationCurve:
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )
-            curve = nw.from_native(
-                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]).to_frame(), eager_only=True
-            )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
-        assert np.all(np.isnan(np.array(curve["truncated_fraction"].to_list())))
-        # The rest of the row is answered, so the withheld column is a judgement about
-        # this mechanism and not a curve that failed to run.
-        assert np.all(np.isfinite(np.array(curve["psi"].to_list())))
-        assert set(curve["fitted_lower_bound"].to_list()) == {result.config.g_bounds[0]}
+        assert not result.diagnostics.capability("truncation_curve").available
+        with pytest.raises(CapabilityError, match="every point of the curve would equal the fit"):
+            result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
 
 
 class TestOmittedVariableBias:
