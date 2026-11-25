@@ -2769,11 +2769,13 @@ def ep_rule_condition(estimator: Any) -> Refusal | None:
     """Return the support condition of a cross-fitted EP rule fit that no study measured.
 
     The registered ``learned-rule-ep`` study fits ``LearnedRule(loss="ep", modifiers=...)``
-    with ``sieve=None``, which reads ``Sieve.default(modifiers)`` with its size chosen by
-    cross-validation, and ``learner=None``, the least-squares final stage.  A declared sieve
-    (another basis, a fixed size or a schedule) or a declared final learner changes the curve
-    each fold's rule reads, and no study measured it.  Such a fit runs, labelled
-    experimental.  The support key holds neither choice, so the rows ``T51`` and
+    with the default sieve and the least-squares final stage. The registered
+    ``learned-rule-ep-declared`` study fits a declared fixed-size sieve and a declared final
+    learner, for the learned-rule value at both laws and, with the declared sieve, for the value
+    of the optimal rule. Its optimal-value cell with the declared learner states no verdict:
+    its truth is the value of the optimal rule, and no limit is claimed for a final learner, so
+    it measures that learner's regret, which no claim covers. That fit runs, labelled
+    experimental. The support key holds neither the sieve nor the learner, so the row
     ``T51.optimal`` would otherwise cover it.
 
     Parameters
@@ -2784,30 +2786,24 @@ def ep_rule_condition(estimator: Any) -> Refusal | None:
     Returns
     -------
     Refusal or None
-        An ``INFERENCE_GAP`` condition that names the declared choices, or ``None`` for a fit
-        that is not a cross-fitted EP rule fit or that uses the measured curve.
+        An ``INFERENCE_GAP`` condition for a cross-fitted EP rule fit of the optimal value with a
+        declared final learner, or ``None`` for every other fit.
     """
     rule = getattr(estimator, "learned_rule", None)
     if rule is None or rule.loss != "ep" or not estimator.cross_fit:
         return None
-    from ..bases import Sieve
-
-    declared = []
-    if rule.sieve is not None and rule.sieve != Sieve.default(rule.modifiers):
-        declared.append("a declared sieve=")
-    if rule.learner is not None:
-        declared.append("a declared final learner (learner=)")
-    if not declared:
+    if rule.learner is None or not optimal_rule_requested(estimator):
         return None
     return Refusal(
         RefusalReason.INFERENCE_GAP,
-        f"This EP rule fit uses {' and '.join(declared)}. The registered learned-rule-ep "
-        "study measures the default sieve, Sieve.default(modifiers) with its size chosen by "
-        "cross-validation, with the least-squares final stage, and no study measures another "
-        "curve.",
+        "This EP rule fit of the value of the optimal rule uses a declared final learner "
+        "(learner=). The interval covers the optimal value only up to the regret of the rules "
+        "the learner sets, and no limit is claimed for a final learner. The registered "
+        "learned-rule-ep-declared study measured this fit without a verdict.",
         alternative=(
-            "LearnedRule(loss='ep', modifiers=...) with sieve=None and learner=None is the "
-            "measured fit."
+            "learner=None, the least-squares final stage, with the default or a declared "
+            "sieve= is the measured fit of the optimal value; a declared final learner is "
+            "measured for the learned-rule value (LearnedRuleValue)."
         ),
         roadmap="P1",
     )

@@ -8165,8 +8165,8 @@ STUDY_ARM_CELLS.update(
 _EP_RULE_SLUG = "learned-rule-ep"
 IMPLEMENTATIONS["cleverly-learned-rule-ep"] = (
     "`cleverly` fold-evaluated CV-TMLE of the learned-rule value, each fold's rule the sign of "
-    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, with the "
-    "default sieve's size chosen by cross-validation over five inner folds"
+    "the EP curve of the effect given (W1, W2) fitted on the fold's training rows, from the "
+    "sieve and final stage the law names"
 )
 STUDY_ESTIMANDS[_EP_RULE_SLUG, "ey_learned_rule[learned rule]"] = (
     "fold average of the value of the rule that the EP curve fitted on each fold's training rows "
@@ -8233,6 +8233,76 @@ STUDY_ARM_CELLS.update(
             "have no fixed sign",
             "none. The cell reports its coverage with the declared reading: an upper 99% "
             "coverage endpoint below 0.95 reads under-coverage",
+        ),
+    }
+)
+
+
+#: ``learned-rule-ep-declared`` (P1 PR 1): the learned-rule value when the EP rule is fitted
+#: from a declared sieve (``S``) or a declared final learner (``L``). The laws and learners are
+#: those of ``learned-rule-ep``; the cell names are those of
+#: ``tests/studies/learned_rule_ep_declared.py``.
+_EP_DECLARED_SLUG = "learned-rule-ep-declared"
+_EP_DECLARED_CURVES = {
+    "S": (
+        "`LearnedRule(loss='ep')` on the declared sieve Additive(BSpline(['W1'], 4), "
+        "Indicators('W2')) at its fixed size 4"
+    ),
+    "L": (
+        "`LearnedRule(loss='ep')` on the default sieve with its size chosen by cross-validation "
+        "and the declared final learner HistGradientBoostingRegressor(max_depth=2)"
+    ),
+}
+_EP_DECLARED_LAWS = {"nonexc": "non_exceptional", "misspec": "misspecified_limit"}
+STUDY_ESTIMANDS[_EP_DECLARED_SLUG, "ey_learned_rule[learned rule]"] = (
+    "fold average of the value of the rule that the EP curve, from the declared sieve or final "
+    "learner, fitted on each fold's training rows sets"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_EP_DECLARED_SLUG, f"{curve}_{label}_2k"): (
+            f"{_EP_RULE_LAWS[law].removeprefix('the ')}, with {words}"
+        )
+        for curve, words in _EP_DECLARED_CURVES.items()
+        for label, law in _EP_DECLARED_LAWS.items()
+    }
+)
+STUDY_CELLS.update(
+    {
+        **{
+            (_EP_DECLARED_SLUG, "interval_calibration", f"{label}__{curve}"): (
+                f"{_EP_RULE_LAWS[law]}, with {words}: the declared fit at n = 16,000 with the "
+                "study's logistic nuisance learners",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for curve, words in _EP_DECLARED_CURVES.items()
+            for label, law in _EP_DECLARED_LAWS.items()
+        },
+        (_EP_DECLARED_SLUG, "interval_calibration", "optimal__S"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            f"{_EP_DECLARED_CURVES['S']} on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115: the declared fit at "
+            "n = 16,000",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "optimal__L"): (
+            "the value of the optimal rule at the learned-rule law with the blip 0.1 + W1, with "
+            f"{_EP_DECLARED_CURVES['L']} on both adjustment columns and the treatment mechanism "
+            "known, read against the fixed optimal value 0.577115: the declared fit at "
+            "n = 16,000, which measures the learner's regret",
+            "none. The cell reports its coverage, its SE ratio with its interval and the mean "
+            "regret, with no verdict",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "nonexc_S__shrunken_se_control"): (
+            f"{_EP_RULE_LAWS['non_exceptional']}, with {_EP_DECLARED_CURVES['S']}: the "
+            "reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        (_EP_DECLARED_SLUG, "interval_calibration", "nonexc_L__validation_rule_control"): (
+            f"{_EP_RULE_LAWS['non_exceptional']}, with {_EP_DECLARED_CURVES['L']}: the same "
+            "fit at n = 2,000 with each fold's EP curve fitted on that fold's own validation "
+            "rows, so the rule has seen the rows that evaluate it",
+            "the coverage interval must fall below the calibration band",
         ),
     }
 )
