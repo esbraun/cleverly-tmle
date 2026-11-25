@@ -233,6 +233,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     from cleverly.validation import refute
 
     plain = next(name for name in contrast_fit.estimates if "supplement" not in name)
+    assert "high dose vs no pill" in plain
     for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
         with pytest.raises(
             CapabilityError, match="has no generated process for a fit with a Separable regimen"

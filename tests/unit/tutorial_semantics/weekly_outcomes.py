@@ -27,6 +27,8 @@ from cleverly.datasets import weekly_orders_protocol, weekly_orders_truth
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     covers,
     figure_title,
     stored_output,
@@ -73,6 +75,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_ipsi(namespace)
     _check_assessment(namespace)
     _check_sensitivity(namespace)
+    _check_weights_lesson(namespace)
     _check_sdr(namespace)
     _check_probe_logs(namespace)
     _check_prose_phrases()
@@ -257,7 +260,7 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     bound = "no longitudinal sensitivity derivation is registered"
     with pytest.raises(CapabilityError, match=bound):
         sensitivity.omitted_variable_bounds(result, estimand=estimand)
-    with pytest.raises(CapabilityError, match="F16"):
+    with pytest.raises(CapabilityError, match=bound):
         sensitivity.robustness_value(result, estimand=estimand)
     with pytest.raises(CapabilityError, match=bound):
         sensitivity.evalue(result, estimand)
@@ -396,3 +399,23 @@ def check_refits(namespace: dict[str, Any]) -> None:
     subset = tests["subset"]
     assert round(float(subset.statistic), 2) == 0.80
     assert "descriptive" in stored_output(NOTEBOOK, "refute")
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights and balance week by week" lesson under "Go deeper"."""
+    assert_weights_lesson(namespace, feedback=True)
+    largest = namespace["balance_by_check"].groupby("diagnostic")["after"].max()
+    # "... from 0.24 to 0.07" for the censoring check: under a tenth after weighting.
+    assert largest["censoring"] < 0.1
+    rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
+    # "to 45.1 for never and 44.2 for always in week 3, while win_back stays at 6.0 or below".
+    assert rows["never", 3] > 40 and rows["always", 3] > 40
+    assert rows["win_back"].max() < 6.05
+    moves = cap_moves(namespace)
+    # "Raising the floor to 0.02 moves nothing".
+    assert moves[0.02].abs().max() < 0.005
+    # "raising it to 0.05 moves the week-3 effects by 0.32 and 0.55 standard errors": both move
+    # by a fraction of a standard error, and the earlier weeks stay put.
+    week3 = [name for name in moves.index if name.endswith("@ t=3]")]
+    assert moves.loc[week3, 0.05].between(0.2, 0.8).all()
+    assert moves.drop(index=week3)[0.05].abs().max() < 0.005

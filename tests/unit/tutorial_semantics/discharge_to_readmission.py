@@ -19,6 +19,8 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     changed_fields,
     covers,
     figure_title,
@@ -261,6 +263,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_evalue(namespace)
     _check_teams(namespace)
     _check_sensitivity(namespace)
+    _check_weights_lesson(namespace)
 
 
 def _check_surface(namespace: dict[str, Any]) -> None:
@@ -344,3 +347,18 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert EquivalenceBands().minimum_draws == 400
     for test in generated.values():
         assert "no simulation study backs a verdict for this kind of fit" in test.evidence
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights and balance check by check" lesson under "Go deeper"."""
+    assert_weights_lesson(namespace, feedback=False)
+    balance = namespace["balance_by_check"]
+    censoring = balance[balance["diagnostic"].eq("censoring")]
+    worst = censoring.loc[censoring["after"].idxmax()]
+    # "falls from 0.41 to 0.13, which is living alone at day 30".
+    assert worst["covariate"] == "lives_alone" and worst["exposure"] == "censoring at 30"
+    assert (censoring.drop(index=worst.name)["after"] < 0.1).all()
+    # "The weights stay at 4.284 or below for both plans".
+    assert namespace["weight_rows"]["max_weight"].max() < 4.3
+    # "raising it to 0.02 or 0.05 moves no risk".
+    assert cap_moves(namespace).abs().max().max() < 1e-9
