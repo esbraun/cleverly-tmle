@@ -21,9 +21,12 @@ from cleverly import (
     CausalStudy,
     LongitudinalTreatment,
     RegimeContrast,
+    plotting,
     sensitivity,
 )
 from cleverly.datasets import weekly_orders_protocol, weekly_orders_truth
+from cleverly.interventions import RiskRatioTilt
+from cleverly.longitudinal import DynamicRegimen
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -50,6 +53,8 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/sweep.log",
     "0.098": f"mean amount by which the week-3 separate fit falls below the truth, 400 draws: "
     f"{_PROBE}/sweep.log",
+    "0.0004": f"the largest absolute mean bias of the nine plan shares, 400 draws: "
+    f"{_PROBE}/means_sweep.log",
 }
 
 PLANS = ("always", "win_back")
@@ -77,6 +82,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_sensitivity(namespace)
     _check_weights_lesson(namespace)
     _check_sdr(namespace)
+    _check_means(namespace)
     _check_probe_logs(namespace)
     _check_prose_phrases()
 
@@ -209,6 +215,21 @@ def _check_ipsi(namespace: dict[str, Any]) -> None:
     result = namespace["result"]
     for week in WEEKS:
         assert nudge_result[_tilt_key(week)].psi < result[_key("always", week)].psi
+    # "The TMLE route to a softer policy is a risk-ratio tilt ... on this fit its rows read
+    # experimental".
+    tilts = {
+        name: DynamicRegimen(name, (RiskRatioTilt(delta),) * len(WEEKS))
+        for name, delta in (("natural course", 1.0), ("rr 1.5", 1.5))
+    }
+    risk_ratio = (
+        namespace["study"]
+        .identify(RegimeContrast(tilts, reference="natural course"))
+        .estimate(method=namespace["ltmle"])
+    )
+    assert {estimate.support.label for estimate in risk_ratio.estimates.values()} == {
+        "experimental"
+    }
+    assert "`IPSIMethod` is not a TMLE" in _prose("ipsi-reading")
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
@@ -270,6 +291,11 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     ) as excinfo:
         sensitivity.missingness_tilt(result, estimands=[estimand])
     assert "F16" in str(excinfo.value)
+    # The dropdown gives the code's reason for the replay refusal and links F13 and F16.
+    reading = _prose("sensitivity-reading")
+    assert "the later orders would also depend on the made-up confounder" in reading
+    assert "f13-longitudinal-simulated-confounding-replay" in reading
+    assert "f16-longitudinal-sensitivity-bound-estimation" in reading
 
 
 def _check_sdr(namespace: dict[str, Any]) -> None:
@@ -282,6 +308,68 @@ def _check_sdr(namespace: dict[str, Any]) -> None:
     # "SDR's intervals hold the same five true values and miss win-back's week 3".
     held = {key: covers(sdr_result[key], truth[key]) for key in result.estimates}
     assert [key for key, value in held.items() if not value] == [_key("win_back", 3)]
+
+
+def _ey(plan: str, week: int) -> str:
+    return f"ey_regimen[{plan} @ t={week}]"
+
+
+def _check_means(namespace: dict[str, Any]) -> None:
+    """The "Each plan's weekly order share" lesson under "Go deeper"."""
+    means, result, truth = namespace["means_result"], namespace["result"], namespace["truth"]
+    plans = ("never", *PLANS)
+    assert set(means.estimates) == {_ey(plan, week) for plan in plans for week in WEEKS}
+    assert {estimate.support.label for estimate in means.estimates.values()} == {"supported"}
+    assert figure_title(namespace["means_fig"]) == "What share orders each week under each plan?"
+    notes = " ".join(plotting.notes(namespace["means_fig"]))
+    assert "At the last one the interval is drawn as a bar" in notes
+    # "0.513 in week 1 ... lifts that to 0.681 in week 1, and the gap narrows over the weeks".
+    assert round(means[_ey("never", 1)].psi, 3) == 0.513
+    assert round(means[_ey("always", 1)].psi, 3) == 0.681
+    # "Each effect on the main path is exactly the gap between a policy's curve and never's":
+    # a nonzero witness too, since every gap is far from zero.
+    for plan in PLANS:
+        for week in WEEKS:
+            gap = means[_ey(plan, week)].psi - means[_ey("never", week)].psi
+            assert gap == pytest.approx(result[_key(plan, week)].psi, abs=1e-12)
+            assert gap > 0.04
+    # "Eight of the nine intervals hold their true values": never's week 3 misses.
+    missed = [key for key, estimate in means.estimates.items() if not covers(estimate, truth[key])]
+    assert missed == [_ey("never", 3)]
+    # "never's week-3 share is 0.036 too high ... most of win-back's week-3 miss (-0.045) and of
+    # always's week-3 shortfall (-0.034)".
+    never_error = means[_ey("never", 3)].psi - truth[_ey("never", 3)]
+    assert round(never_error, 3) == 0.036
+    for plan, error in (("win_back", -0.045), ("always", -0.034)):
+        contrast_error = result[_key(plan, 3)].psi - truth[_key(plan, 3)]
+        assert round(contrast_error, 3) == error
+        assert abs(never_error) > abs(contrast_error) / 2
+    # The committed sweep of this fit.
+    folder = Path(__file__).resolve().parents[3] / _PROBE
+    log = (folder / "means_sweep.log").read_text()
+    frame = pd.read_csv(folder / "means_sweep.csv", float_precision="round_trip")
+    assert log.startswith(f"draws: {DRAWS} (seeds 3000 to 3399)")
+    assert len(frame) == DRAWS and frame["seed"].tolist() == list(range(3000, 3000 + DRAWS))
+    first = frame.iloc[0]
+    sweep_truth = weekly_orders_truth()
+    biases = []
+    for plan in plans:
+        for week in WEEKS:
+            stem = f"{plan}_{week}"
+            assert first[f"{stem}_psi"] == pytest.approx(means[_ey(plan, week)].psi, abs=1e-9)
+            assert set(frame[f"{stem}_label"]) == {"supported"}
+            biases.append(frame[f"{stem}_psi"].mean() - sweep_truth[_ey(plan, week)])
+    assert round(max(abs(value) for value in biases), 4) == 0.0004
+    # The declared rule for calling never's week-3 miss chance: its bias within 2 Monte Carlo
+    # standard errors of zero and its coverage's Monte Carlo interval holding 0.95.
+    never_bias = frame["never_3_psi"] - sweep_truth[_ey("never", 3)]
+    assert abs(never_bias.mean()) < 2 * never_bias.std() / np.sqrt(DRAWS)
+    coverage = frame["never_3_covers"].mean()
+    assert abs(coverage - 0.95) < 1.96 * np.sqrt(coverage * (1 - coverage) / DRAWS)
+    counts = [_hits(frame, f"{plan}_{week}_covers") for plan in plans for week in WEEKS]
+    reading = _prose("means-reading")
+    assert f"held its true value on {_span(counts)}" in reading
+    assert f"`never`'s week-3 interval on {_hits(frame, 'never_3_covers')}," in reading
 
 
 def _sweep() -> tuple[str, pd.DataFrame]:
