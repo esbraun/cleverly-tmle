@@ -2144,6 +2144,16 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
 #: the cause hazards, the censoring hazard and the treatment model.
 CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
 
+#: The battery's label of the nuisance row of an adaptive TMLE fit, which adds the
+#: trial-membership model (and, with missing outcomes, the missingness model) to the two models
+#: the default label names. Short enough to keep the checks table's finding column whole.
+ATMLE_NUISANCE_NAME: Final = "the three prediction models"
+ATMLE_NUISANCE_NAME_MISSING: Final = "the four prediction models"
+
+#: The battery's label of the corrections row of an adaptive TMLE fit: the effect- and
+#: bias-model steps and the trial-membership passes after selection, not DR-TMLE corrections.
+ATMLE_CORRECTIONS_NAME: Final = "targeting updates"
+
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
     {

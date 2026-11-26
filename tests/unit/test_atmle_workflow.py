@@ -302,6 +302,40 @@ def test_the_assessment_reads_the_fit_and_refuses_every_bound(result: AdaptiveTM
     assert replay.rerun_configuration and not replay.retarget_cached_nuisances
 
 
+def test_the_battery_names_the_adaptive_models_and_updates(result: AdaptiveTMLEResult) -> None:
+    """The nuisance and corrections rows name what an adaptive fit reports, not DR-TMLE's.
+
+    The default labels ("outcome and treatment models", "DR-TMLE corrections") would misname the
+    trial-membership model and the adaptive fit's own targeting updates.
+    """
+    shown = " ".join(str(result.assess().summary()).split())
+    assert "the three prediction models" in shown
+    assert "targeting updates" in shown
+    assert "DR-TMLE corrections" not in shown
+    assert "outcome and treatment models" not in shown
+    missing = _fit(_frame(missing=True), missingness="R", missingness_learner=LogisticRegression())
+    label = missing.diagnostics.nuisance_models().check_label
+    assert label == "the four prediction models"
+    assert label in " ".join(str(missing.assess().summary()).split())
+
+
+def test_the_full_summary_prints_the_study_protocol() -> None:
+    """A recorded protocol prints in the full summary's Study section, and its absence says so."""
+    from cleverly.datasets import navigation_protocol
+
+    protocol = navigation_protocol()
+    design = TrialWithExternalData(outcome="Y", treatment="A", adjustment=("W",), source="S")
+    effect = CausalStudy(_frame(), design=design, protocol=protocol).identify(
+        TrialATE(population="trial")
+    )
+    fitted = effect.estimate(method=_method(form="pooled"))
+    full = " ".join(str(fitted.summary(detail="full")).split())
+    assert protocol.summary_lines()[0] in full
+    assert "Population:" not in str(fitted.summary())
+    unrecorded = _fit(_frame(), form="pooled")
+    assert "No study protocol was recorded." in str(unrecorded.summary(detail="full"))
+
+
 # ----------------------------------------------------------------------- the entry points
 
 #: Placeholder values for a required argument the refusal must precede.
