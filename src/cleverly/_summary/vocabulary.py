@@ -4810,38 +4810,60 @@ BALANCE_SPREAD_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 #: How a unit counts after weighting, by estimand and by whether the data carry weights.
+#: ``{own}`` and ``{prob}`` name where the probabilities come from (BALANCE_PROBABILITY_WORDS).
 BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
     {
         ("ate", False): (
-            "After weighting, each unit counts as the inverse of the probability the fit "
-            "gave its own arm{limits}. Before weighting, every unit counts once."
+            "After weighting, each unit counts as the inverse of {own}{limits}. Before "
+            "weighting, every unit counts once."
         ),
         ("ate", True): (
-            "After weighting, each unit counts as its data weight divided by the probability "
-            "the fit gave its own arm{limits}. Before weighting, units count as the data's "
-            "weights say."
+            "After weighting, each unit counts as its data weight divided by {own}{limits}. "
+            "Before weighting, units count as the data's weights say."
         ),
         ("att", False): (
             "After weighting, units of the first group count once and units of the second "
-            "as the fit's probability of the first group's arm over that of their own"
+            "as {prob} of the first group's arm over that of their own"
             "{limits}. Before weighting, every unit counts once."
         ),
         ("att", True): (
             "After weighting, units of the first group count as their data weight and units "
-            "of the second as their data weight times the fit's probability of the first "
+            "of the second as their data weight times {prob} of the first "
             "group's arm over that of their own{limits}. Before weighting, units count as "
             "the data's weights say."
         ),
         ("atc", False): (
             "After weighting, units of the second group count once and units of the first "
-            "as the fit's probability of the second group's arm over that of their own"
+            "as {prob} of the second group's arm over that of their own"
             "{limits}. Before weighting, every unit counts once."
         ),
         ("atc", True): (
             "After weighting, units of the second group count as their data weight and units "
-            "of the first as their data weight times the fit's probability of the second "
+            "of the first as their data weight times {prob} of the second "
             "group's arm over that of their own{limits}. Before weighting, units count as "
             "the data's weights say."
+        ),
+    }
+)
+#: The words for the probabilities, by whether the fit estimated them or the data declared them.
+BALANCE_PROBABILITY_WORDS: Final[Mapping[str, Mapping[str, str]]] = MappingProxyType(
+    {
+        "fitted": MappingProxyType(
+            {
+                "own": "the probability the fit gave its own arm",
+                "prob": "the fit's probability",
+                "weights": "the fitted weights",
+                "cause": "the treatment model has not made the groups alike on it",
+            }
+        ),
+        "declared": MappingProxyType(
+            {
+                "own": "the declared probability of its own arm",
+                "prob": "the declared probability",
+                "weights": "the weights from the declared probabilities",
+                "cause": "weighting by the declared probabilities has not made the groups "
+                "alike on it",
+            }
         ),
     }
 )
@@ -4849,6 +4871,9 @@ BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
 BALANCE_SOURCE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "in_sample": "The probabilities are in-sample predictions; the fit was not cross-fitted.",
+        "declared": (
+            "The probabilities are the ones the data declare; no treatment model was fitted."
+        ),
         "out_of_fold": "The probabilities are out-of-fold predictions.",
         "repeats": (
             "The probabilities are the first of {repeats} cross-fitting repeats' out-of-fold "
@@ -4871,7 +4896,7 @@ NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_NOTE_CODES})
 BALANCE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "balance_descriptive": (
-            "These differences describe the data and the fitted weights and carry no "
+            "These differences describe the data and {weights} and carry no "
             "interval or test. Each is the mean in the first group minus the mean in the "
             "second, divided by {spread}."
         ),
@@ -4896,8 +4921,7 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "residual": (
             "{before} of {total} covariate differences are larger than {threshold} before "
-            "weighting and {after} after. The largest left is {worst} ({size}), so the "
-            "treatment model has not made the groups alike on it."
+            "weighting and {after} after. The largest left is {worst} ({size}), so {cause}."
         ),
     }
 )

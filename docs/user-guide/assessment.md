@@ -301,6 +301,11 @@ Here `discharge_risk` starts at 0.27 and ends near zero. The check describes the
 interval or test, and it ignores covariates you did not adjust for. A treatment decided at several
 times gets a balance over time ([balance over time](#balance-when-treatment-repeats-over-time)).
 
+When the data declare each row's chances (`treatment_probabilities=`), no treatment model is
+fitted: the weights read the declared chances, and the summary says so. A gap past 0.1 is then a
+chance difference or a sign that treatment did not follow those chances, as the
+[randomized pilot](../examples/randomized-pilot.ipynb) example discusses.
+
 ## Go deeper
 
 ### Read a calibration-slope finding
