@@ -1828,6 +1828,13 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
 
+The support key names each declared factor by role and node, `known_treatment@t` or
+`known_censoring@t`, and never by column name, so renaming the columns leaves the support row and
+label unchanged. `LongitudinalConfig.known_factors` and the summary keep the column names. On a
+time-to-event design, grid time $g_j$ declares the retention of node $j+1$, so the key reads the
+node and not the grid value. `tests/unit/test_known_node_support_keys.py` refits two registered
+cases with every column renamed, and on a grid of 2 to 10.
+
 **Weights.** A weighted fit estimates the regimen mean in the tilted law
 $dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
 $P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the

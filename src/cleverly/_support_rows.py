@@ -4447,8 +4447,9 @@ def long_row(
     dependence : str, default "iid"
         The dependence axis.
     qualifiers : iterable of str, default ()
-        The known treatment and censoring factors, and ``tilted_mechanism`` for a declared node
-        read in the weighted sample.
+        The known treatment and censoring factors by role and 1-based node,
+        ``known_treatment@t`` and ``known_censoring@t``, and ``tilted_mechanism`` for a declared
+        node read in the weighted sample.
     engine : str or tuple of str, default "tmle"
         ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``, or the whole engine tuple of a
         class that records one, such as ``("collaborative_tmle", "greedy")``.
@@ -5013,7 +5014,12 @@ def _long_rows() -> tuple[SupportRow, ...]:
         long_row(
             "G21",
             ["known-node-mechanisms"],
-            qualifiers=("A1", "A2", "C1", "C2"),
+            qualifiers=(
+                "known_treatment@1",
+                "known_treatment@2",
+                "known_censoring@1",
+                "known_censoring@2",
+            ),
             cells=["smart_q_correct"],
         ),
         # The band is the default simultaneous band of the in-sample calibration fits, which
@@ -5188,7 +5194,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             **ipsi,
             missing=("complete",),
             splitting=xf,
-            qualifiers=("A1", "A2", "A3"),
+            qualifiers=("known_treatment@1", "known_treatment@2", "known_treatment@3"),
             cells=["known_x2"],
         ),
         long_row(
@@ -5426,7 +5432,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
     ]
     # Node bounds on a held survival fit (`survival-node-bounds`): every node bounded, the
     # censoring model pooled over the nodes, and node 1's retention declared known (the
-    # qualifier ``time>=1``), in sample with GLM learners on one five-visit law at n = 2,000.
+    # qualifier ``known_censoring@1``), in sample with GLM learners on one five-visit law at
+    # n = 2,000.
     bounds = ["survival-node-bounds"]
     bounds_limit = (
         "The study's survtmle comparator runs are pending, so the evidence is Python property "
@@ -5439,7 +5446,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             held=True,
             treatment=("2",) * 5,
-            qualifiers=("time>=1",),
+            qualifiers=("known_censoring@1",),
             node_bounds=True,
             hazard_pooling="pooled",
             cells=["interval_calibration", "binding_witness", "bound_necessity"],
@@ -5455,7 +5462,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
             outcome_kind="survival",
             held=True,
             treatment=("2",) * 5,
-            qualifiers=("time>=1",),
+            qualifiers=("known_censoring@1",),
             survival_model="hazard",
             node_bounds=True,
             hazard_pooling="pooled",
@@ -6244,7 +6251,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
         engine,
         arms,
     ), nodes, folds, msm, learned, kinds, stochastic, cells, limits in declared:
-        roles = "C" if learned else "AC"
+        roles = ("censoring",) if learned else ("treatment", "censoring")
         if name in _LH_GATED_N:
             wald, bca = _LH_GATED_N[name]
             limits = (_lh_note(wald, bca, static_bca=name in _LH_STATIC_BCA_ROWS), *limits)
@@ -6256,7 +6263,7 @@ def _long_horizon_rows() -> tuple[SupportRow, ...]:
                 msm=msm,
                 treatment=tuple(str(arms) for _ in range(nodes)),
                 splitting=("cross_fitted",) if folds > 1 else ("in_sample",),
-                qualifiers=[f"{role}{k}" for role in roles for k in range(1, nodes + 1)],
+                qualifiers=[f"known_{role}@{k}" for role in roles for k in range(1, nodes + 1)],
                 engine=engine,
                 kinds=kinds,
                 cells=cells,
@@ -6580,7 +6587,13 @@ def _survival_dr_tmle_rows() -> tuple[SupportRow, ...]:
         long_row(
             "G51.declared",
             slug,
-            qualifiers=("A", "time>=2", "time>=3", "time>=4", "time>=5"),
+            qualifiers=(
+                "known_treatment@1",
+                "known_censoring@2",
+                "known_censoring@3",
+                "known_censoring@4",
+                "known_censoring@5",
+            ),
             cells=["known_1k", "known_4k", "known_16k"],
             limits=[
                 "The treatment and retention probabilities declared on a randomized law, with "

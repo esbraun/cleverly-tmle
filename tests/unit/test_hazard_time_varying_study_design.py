@@ -972,6 +972,7 @@ def _fit_key(fit_label: str, monkeypatch: pytest.MonkeyPatch) -> Any:
             "outcome_kind",
             "cross_fitted",
             "known_factors",
+            "known_nodes",
             "has_msm",
             "regimen_kinds",
             "tuned_cap",

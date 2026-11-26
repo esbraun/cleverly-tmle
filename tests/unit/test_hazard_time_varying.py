@@ -1510,6 +1510,7 @@ def test_a_hazard_fit_with_later_covariates_reads_no_baseline_hazard_row() -> No
             outcome_kind="survival",
             cross_fitted=False,
             known_factors=(),
+            known_nodes=(),
             has_msm=False,
             regimen_kinds=("static",),
         )
