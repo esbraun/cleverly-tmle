@@ -50,7 +50,12 @@ from ..utils.frames import frame_from_dict
 if TYPE_CHECKING:
     import pandas as pd
 
-__all__ = ["learned_rule_truth", "make_treatment_rules", "treatment_rule_value"]
+__all__ = [
+    "learned_rule_truth",
+    "make_treatment_rules",
+    "treatment_rule_value",
+    "treatment_rules_effect",
+]
 
 #: The coefficients of the law, each on the logit scale.
 _LAW = {
@@ -83,6 +88,11 @@ def _home(offer: Any, need: Any, alone: Any) -> Any:
         + _LAW["home_alone"] * alone
         + offer * (_LAW["blip_intercept"] + _LAW["blip_need"] * need)
     )
+
+
+def _offer_chance(need: Any, alone: Any) -> Any:
+    """``P(offer = 1 | need, lives_alone)``, the chance of an offer in the recorded data."""
+    return expit(_LAW["offer_intercept"] + _LAW["offer_need"] * need + _LAW["offer_alone"] * alone)
 
 
 def _integral(offer: float, alone: float, low: float, high: float) -> float:
@@ -157,6 +167,46 @@ def treatment_rule_value(
     return total
 
 
+def treatment_rules_effect(need: Any) -> np.ndarray:
+    r"""Return the true effect of the offer at each need score, averaged over living situation.
+
+    Parameters
+    ----------
+    need : array_like
+        Need scores in ``[-1, 1]``.
+
+    Returns
+    -------
+    numpy.ndarray
+        :math:`E[\bar Q(1, W) - \bar Q(0, W) \mid \text{need}]`, the difference in the chance of
+        staying home for 30 days, offered minus not offered, at each need score.  Living alone
+        is independent of need, so the average gives each living situation weight one half.
+        This is the curve that ``ConditionalContrast(Modifiers(["need"], ...))`` estimates.
+
+    See Also
+    --------
+    cleverly.datasets.make_treatment_rules : The law, whose effect on the logit scale changes
+        sign at ``need = -0.1``.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import treatment_rules_effect
+    >>> treatment_rules_effect([-0.1, 0.5]).round(4).tolist()
+    [0.0, 0.134]
+    """
+    need = np.asarray(need, dtype=float)
+    if np.any((need < -1.0) | (need > 1.0)) or not np.all(np.isfinite(need)):
+        raise ValueError("need must hold finite scores in [-1, 1]")
+    mass = _LAW["lives_alone"]
+    return np.asarray(
+        sum(
+            weight * (_home(1.0, need, alone) - _home(0.0, need, alone))
+            for alone, weight in ((1.0, mass), (0.0, 1.0 - mass))
+        ),
+        dtype=float,
+    )
+
+
 def make_treatment_rules(
     n: int = 2_000,
     *,
@@ -182,8 +232,10 @@ def make_treatment_rules(
     truth : dict of str to float
         The share who stay home for 30 days had every patient been offered navigation
         (``ey_all``), had none been (``ey_none``), and under the best rule (``ey_best_rule``),
-        each exact; their difference ``ate`` (``ey_all - ey_none``); and ``best_rule_cutoff``,
-        the need score above which the best rule offers navigation.
+        each exact; their difference ``ate`` (``ey_all - ey_none``); ``best_rule_cutoff``,
+        the need score above which the best rule offers navigation; and ``ey_natural_course``,
+        the share under the recorded offers (current practice), from
+        :func:`treatment_rule_value` of the offer's chance.
 
     See Also
     --------
@@ -204,10 +256,7 @@ def make_treatment_rules(
     rng = np.random.default_rng(seed)
     need = rng.uniform(-1.0, 1.0, n)
     alone = rng.binomial(1, _LAW["lives_alone"], n).astype(float)
-    offer = rng.binomial(
-        1,
-        expit(_LAW["offer_intercept"] + _LAW["offer_need"] * need + _LAW["offer_alone"] * alone),
-    ).astype(float)
+    offer = rng.binomial(1, _offer_chance(need, alone)).astype(float)
     home = rng.binomial(1, _home(offer, need, alone)).astype(float)
     payload = {"need": need, "lives_alone": alone, "offer": offer, "home_30": home}
     truth = {
@@ -217,6 +266,9 @@ def make_treatment_rules(
         "best_rule_cutoff": BEST_RULE_CUTOFF,
     }
     truth["ate"] = truth["ey_all"] - truth["ey_none"]
+    truth["ey_natural_course"] = treatment_rule_value(
+        lambda rows: _offer_chance(rows["need"].to_numpy(), rows["lives_alone"].to_numpy())
+    )
     return frame_from_dict(payload, backend=backend), truth
 
 

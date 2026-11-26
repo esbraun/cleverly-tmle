@@ -101,7 +101,12 @@ from .synthetic import (
     shift_dgp,
     weak_overlap_dgp,
 )
-from .treatment_rules import learned_rule_truth, make_treatment_rules, treatment_rule_value
+from .treatment_rules import (
+    learned_rule_truth,
+    make_treatment_rules,
+    treatment_rule_value,
+    treatment_rules_effect,
+)
 from .weekly_orders import (
     ORDER_PLANS,
     ORDER_TILTS,
@@ -211,6 +216,7 @@ __all__ = [
     "team_readmission_protocol",
     "team_readmission_truth",
     "treatment_rule_value",
+    "treatment_rules_effect",
     "weak_overlap_dgp",
     "weekly_orders_protocol",
     "weekly_orders_truth",
