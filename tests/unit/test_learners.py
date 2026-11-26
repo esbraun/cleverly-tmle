@@ -809,6 +809,91 @@ class TestLibrary:
         assert isinstance(library[1][1], RandomForestRegressor)
         assert isinstance(library[2][1], Pipeline)
 
+    def test_the_classification_lasso_fits_without_a_future_warning(self) -> None:
+        """The lasso candidate uses the scikit-learn 1.8 form, so a fit warns about nothing.
+
+        The old ``penalty="l1"`` form printed three ``FutureWarning`` lines per fit, 90 on a
+        five-fold default fit, under every notebook cell that fits the default library.
+        """
+        import warnings
+
+        rng = np.random.default_rng(4)
+        x = rng.normal(size=(300, 3))
+        a = (rng.uniform(size=300) < 1 / (1 + np.exp(-x[:, 0]))).astype(float)
+        lasso = dict(default_library("classification", random_state=4))["lasso"]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            lasso.fit(x, a)
+
+    def test_the_classification_lasso_predicts_as_the_l1_penalty_form(self) -> None:
+        """``l1_ratios=(1.0,)`` is the same estimator as the deprecated ``penalty="l1"``."""
+        from sklearn.base import clone
+        from sklearn.linear_model import LogisticRegressionCV
+
+        rng = np.random.default_rng(5)
+        x = rng.normal(size=(300, 3))
+        a = (rng.uniform(size=300) < 1 / (1 + np.exp(-x[:, 0] + 0.5 * x[:, 1]))).astype(float)
+        lasso = dict(default_library("classification", random_state=5))["lasso"]
+        old = clone(lasso)
+        model = old.named_steps["model"]
+        try:
+            old.set_params(
+                model=LogisticRegressionCV(
+                    Cs=model.Cs,
+                    cv=model.cv,
+                    penalty="l1",
+                    solver=model.solver,
+                    scoring=model.scoring,
+                    max_iter=model.max_iter,
+                    random_state=5,
+                )
+            )
+            with pytest.warns(FutureWarning):
+                old.fit(x, a)
+        except (TypeError, ValueError):  # pragma: no cover - a release that removed `penalty`
+            pytest.skip("this scikit-learn no longer accepts penalty='l1'")
+        new = lasso.fit(x, a).predict_proba(x)[:, 1]
+        np.testing.assert_allclose(new, old.predict_proba(x)[:, 1], rtol=1e-10, atol=0.0)
+
+    def test_the_default_lasso_runs_as_a_standalone_treatment_learner(self) -> None:
+        """Its scalar ``C_`` reaches the mechanism record, which once indexed a legacy array."""
+        from cleverly.datasets import make_binary_outcome
+
+        frame, _ = make_binary_outcome(n=300, seed=6)
+        lasso = dict(default_library("classification", random_state=6))["lasso"]
+        result = (
+            fast_tmle(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=lasso,
+                random_state=6,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+            .single()
+        )
+        assert np.isfinite(result["ate"].psi)
+
+    @pytest.mark.parametrize("legacy", [True, False])
+    def test_the_mechanism_record_reads_either_layout_of_c(self, legacy: bool) -> None:
+        """``C_`` is an array per class under the legacy layout and a float otherwise."""
+        from sklearn.linear_model import LogisticRegressionCV
+
+        from cleverly.estimators._mechanism_fit import describe_mechanism
+
+        rng = np.random.default_rng(7)
+        x = rng.normal(size=(200, 2))
+        a = (rng.uniform(size=200) < 1 / (1 + np.exp(-x[:, 0]))).astype(float)
+        model = LogisticRegressionCV(
+            Cs=4,
+            cv=3,
+            l1_ratios=(0.0,),
+            scoring="neg_log_loss",
+            use_legacy_attributes=legacy,
+            max_iter=1000,
+        ).fit(x, a)
+        assert np.ndim(model.C_) == (1 if legacy else 0)
+        recorded = describe_mechanism(model).C
+        assert recorded == pytest.approx(float(np.ravel(model.C_)[0]))
+
     def test_bare_estimators_get_names(self) -> None:
         from cleverly.learners.library import _resolve_library
 

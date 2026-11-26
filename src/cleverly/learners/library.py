@@ -69,10 +69,11 @@ def default_library(task: Task, *, random_state: int | None = None) -> list[Libr
                     LogisticRegressionCV(
                         Cs=np.logspace(-3, 2, 8),
                         cv=5,
-                        penalty="l1",
+                        l1_ratios=(1.0,),
                         solver="saga",
                         scoring="neg_log_loss",
                         max_iter=2000,
+                        use_legacy_attributes=False,
                         random_state=random_state,
                     ),
                 ),

@@ -187,7 +187,7 @@ def describe_mechanism(model: Any) -> MechanismFit:
     class_weight = params.get("class_weight")
     n_iter = np.asarray(getattr(final, "n_iter_", [0]))
     C = (
-        float(getattr(final, "C_", [params.get("C", 1.0)])[0])
+        float(np.ravel(getattr(final, "C_", params.get("C", 1.0)))[0])
         if type(final) is LogisticRegressionCV
         else float(params.get("C", 1.0))
     )
