@@ -15,10 +15,10 @@ treatment plan followed at every node, by iterating a regression backward throug
 | --- | --- | --- |
 | repeated treatment with time-varying confounders | the mean outcome under a plan, identified by the g-formula and estimated as a plug-in | one regression per node per regimen, and positivity is now a statement about a *cumulative* product |
 | units drop out over time | censoring enters the same cumulative product as treatment, and each node's regression uses only its uncensored followers | a censoring model per node |
-| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
+| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference; [learned regimens](#learned-regimens) give it for a two-node binary rule |
 | the plan draws the arm at random | a known policy $q_t(a \mid H_t)$ at a node, with the integrated influence curve | the policy is part of the estimand and must be fixed before the fit |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
-| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one baseline treatment held over the nodes, and `targeting="one_step"` when a covariate is measured after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
+| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model takes one baseline treatment held over the nodes or [a categorical treatment at several nodes](#a-treatment-at-several-nodes-on-the-hazard-path), and needs `targeting="one_step"` when a covariate is measured after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
 
@@ -31,7 +31,10 @@ specified `GLM` models.
 Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
 target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
 
-DR-TMLE has no longitudinal derivation. Collaborative TMLE has one for the risk curve of a binary
+DR-TMLE has a survival derivation, through `SurvivalDRTMLE`, for one binary baseline treatment,
+baseline covariates, one event type and right censoring
+([DR-TMLE: time-to-event outcomes](dr-tmle/theorem.md#time-to-event-outcomes)), and none for a
+treatment at several nodes. Collaborative TMLE has one for the risk curve of a binary
 baseline treatment under right censoring, through `SurvivalCTMLE`
 ([collaborative TMLE: time-to-event outcomes](collaborative-tmle.md#time-to-event-outcomes)), and
 none for a treatment at several nodes. `available_methods()` says which applies before any model is
@@ -515,7 +518,8 @@ regimen.
 effects](method-evidence/separable-effects.md) measures the fit with one and two folds on a held
 three-level baseline treatment, at n = 16,000 with saturated learners, counting the second of the
 data's two causes first. Those fits read supported from rows `G49`. No separable-effects TMLE
-implementation was located to compare against.
+implementation was located to compare against. The [separable effects tutorial](../examples/separable-effects.ipynb) runs one
+analysis end to end.
 
 The rows key the position of the cause counted first, so a fit that counts the first-listed cause
 first reads experimental, as does every other composition with a `Separable` regimen.
@@ -605,6 +609,9 @@ the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
 without $Y_{s}$, and one seed at $Y_T$ for every horizon.
+
+The registered [repeated-outcome study](method-evidence/repeated-outcome-longitudinal-tmle.md) pairs these fits
+with R `ltmle` 1.3-0 (`survivalOutcome = FALSE`).
 
 ### Known stochastic policies
 
@@ -1828,6 +1835,13 @@ pins the refusal, the flat curve and the estimated-censoring case.
 | a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
 | a continuous node | refused. A known density is not supported |
 
+The support key names each declared factor by role and node, `known_treatment@t` or
+`known_censoring@t`, and never by column name, so renaming the columns leaves the support row and
+label unchanged. `LongitudinalConfig.known_factors` and the summary keep the column names. On a
+time-to-event design, grid time $g_j$ declares the retention of node $j+1$, so the key reads the
+node and not the grid value. `tests/unit/test_known_node_support_keys.py` refits two registered
+cases with every column renamed, and on a grid of 2 to 10.
+
 **Weights.** A weighted fit estimates the regimen mean in the tilted law
 $dP_w = w\,dP/E[w]$ and divides by that law's node factors. At a treatment node Bayes' rule gives
 $P_w(A_t=a\mid H_t) \propto g_{0,t}(a\mid H_t)\,E[w\mid A_t=a,H_t]$, and a retention node is the
@@ -2159,7 +2173,7 @@ prefix. A control at `g_bounds=(0.05, 1)` checks that the bound leaves each unit
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, fixed rowwise dynamic rules, categorical arms, or [known stochastic policies](#known-stochastic-policies). A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
+| `regimens=` | static plans, fixed rowwise dynamic rules, categorical arms, or [known stochastic policies](#known-stochastic-policies). A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract, except `LearnedRegimen`, the two-node binary rule of [learned regimens](#learned-regimens). The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `survival_model=` | `"iterated_mean"` (default) runs one backward recursion per horizon. `"hazard"` fits and targets the cause-specific hazards, as [hazard-based survival targeting](#hazard-based-survival-targeting) states. The outcome learner is then the hazard learner |
@@ -2171,6 +2185,7 @@ prefix. A control at `g_bounds=(0.05, 1)` checks that the bound leaves each unit
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=`, `band_scale=`, `band_reference=` | interval level, and the simultaneous bands across the reported regimens. [Simultaneous bands](inference.md#simultaneous-bands) states each band option and the rows that license it |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
+| `cluster_variance=` | `"jackknife"` replaces the cluster influence-curve variance with the delete-one-cluster jackknife on a clustered fit with parametric nuisances, keeping the $t_{J-2}$ reference, under the `experimental` label. [Cluster jackknife](inference.md#cluster-jackknife) states its conditions and refusals. `SDR` and `IPSI` take no such argument |
 | `ratio_trim=` | trims the per-node density ratios at a declared quantile, as `lmtp` does. A fit whose trim moves a ratio reports no interval. [Ratio trimming](#ratio-trimming) states the rule |
 | `hazard_pooling=` | `"pooled"` fits one censoring model over every at-risk unit and node, with the grid time as a column. Under `survival_model="hazard"` it also fits each cause's hazard once over every node. [Pooled censoring](#pooled-censoring) states the rows |
 | `LongitudinalTreatment(markov_order=k)` | restricts every nuisance design to `W` and a window of the last nodes. The estimand does not change. [Markov order](#markov-order) states the windows |
@@ -2662,7 +2677,8 @@ node is included too. [`IPSI`](#incremental-interventions-over-time) uses the sa
 tilt.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
-it reduces `n_folds` to the cluster count, and a fit with fewer than 4 takes `"few_cluster_plugin"`, and below 20 every estimate other than the always-against-never contrast of a two-binary-node censored panel takes `"few_cluster_estimand_plugin"`: each such $t$ interval is shown under the `experimental` label. At few clusters a training fold can lack a first-node
+it reduces `n_folds` to the cluster count. 3 clusters take `"few_cluster_plugin"`, and fewer
+than 3 take `"no_cluster_variance_plugin"`, which withholds the interval. Below 20 every estimate other than the always-against-never contrast of a two-binary-node censored panel takes `"few_cluster_estimand_plugin"`: each such $t$ interval is shown under the `experimental` label. At few clusters a training fold can lack a first-node
 level. The fit then raises `LongitudinalError` after the draw, and the message names the
 in-sample fit. A training fold whose followers all hold one outcome value reads that value, as
 [a node with no event](#a-node-with-no-event) states.
@@ -2784,6 +2800,10 @@ recursion to `1e-12`, in sample and at five folds.
 | consistency without a rate | Lemma 4: at each node, the ratio is consistent or $\lVert \check m_t - \tilde m_t \rVert \to 0$. Lemma 4 gives no interval |
 | in sample | `n_folds=1` rests on Donsker-type conditions (Luedtke et al. 2017, condition DC), not on Theorem 4, as for LTMLE |
 | no interval claimed | multiply robust intervals. Page 854 states that neither SDR nor TMLE gives them |
+
+The registered [sequentially doubly robust study](method-evidence/sequentially-doubly-robust-estimation.md)
+pairs `SDR` with R `lmtp` 1.5.4 (`cf_sdr`) on end-of-study, cross-fitted, survival, modified
+treatment policy and stochastic-policy scenarios.
 
 ### Cross-fitting
 
@@ -3253,7 +3273,7 @@ stays exact to $10^{-12}$. The Taylor remainder along a path is second order and
 | survival horizons | one backward pass per horizon, with the survival target above | the survival exact law |
 | competing risks | one cause at a time, with the all-cause survival factor | the competing exact law |
 | observation weights | every regression and mechanism is weighted, and the estimate is the weighted mean of $\varphi$ | the weighted exact law. A second test shows that the weights move $\pi_t$ by more than 0.05 |
-| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The few-cluster rules of `LTMLE` apply: below 20 clusters the fit takes `"few_cluster_plugin"` and shows an `experimental` $t$ interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
+| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The default longitudinal floor applies, not the lower floors of `LTMLE` ([few clusters](inference.md#few-clusters)): from 3 to 19 clusters the fit takes `"few_cluster_plugin"` and shows an `experimental` $t$ interval, and below 3 it takes `"no_cluster_variance_plugin"`, which withholds the interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
 | contrasts and bands | a fixed-dimension stack of the plan and horizon curves. The multiplier band covers the declared plans and horizons | `tests/unit/test_ipsi_e2e.py` |
 | `msm=` | each cell's $\varphi$ is projected onto the working model. The identity link is supported. A logit or log link is accepted only when its projection converges | the exact-law projection linear in $\log\delta$; the logit refusal in `tests/unit/test_ipsi_e2e.py` |
 | known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$ for every level of the node. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law; for three levels, `tests/unit/test_categorical_ipsi_declaration.py` |
@@ -3343,8 +3363,10 @@ because its call counted the replicates.
 `estimate()`, to the estimator it builds, and guards at the default budget without it. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
 the hazard fit with one treatment node, with a backward pass, with path fits and with separable
 arms), `SDR`, `IPSI`, and every route that builds them. It does not cover `SurvivalCTMLE` and
-`SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md)
-or `StructuralNestedMean`. The guard predicts one call. A caller that runs guarded refits in
+`SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md),
+`ParametricGFormula` or `StructuralNestedMean`. `CausalStudy.planned_fits` still counts the learner
+fits of the baselines and `ParametricGFormula` before they run
+(`tests/unit/test_planned_fits_longitudinal.py`). The guard predicts one call. A caller that runs guarded refits in
 parallel processes owns their sum.
 
 ### What the prediction counts
@@ -3770,8 +3792,9 @@ One reporting row is red. In the `sdr_categorical_k5_switch` scenario, the Wald 
 
 ### Refutation and sensitivity checks
 
-`refute()` runs on `LTMLE`, `SDR` and `IPSI` fits, survival, competing-risk, repeated-outcome and
-MSM fits included. The "Longitudinal refutation" part of
+`refute()` runs on `LTMLE`, `SDR`, `IPSI`, the sequential baselines and `ParametricGFormula`
+fits, survival, competing-risk, repeated-outcome and MSM fits included
+([which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)). The "Longitudinal refutation" part of
 [refutation operations](validation-methods.md#refutation-operations) gives each test and the scope
 inside which it prints a verdict. The
 [longitudinal refutation study](method-evidence/refuter-calibration-longitudinal.md) and the
@@ -3781,7 +3804,10 @@ The [E-value](validation-methods.md#e-value) of a longitudinal fit covers one ca
 of two static regimens at one horizon of a `TimeToEvent` fit. A `TimeToEvent` fit without an
 explicit pair reports `deferred`, and every other longitudinal fit reports `unavailable`. The
 [simulated common-cause stress surface](validation-methods.md#simulated-common-cause-stress-surface)
-runs on `LTMLE`, `SDR`, the sequential baselines and `ParametricGFormula`, on an uncensored,
-unclustered end-of-study panel with no time-varying covariate after the first node. It reports a
-displacement and claims no interval. Bound estimation for an unmeasured confounder over time is
+runs on `LTMLE`, `SDR`, the sequential baselines and `ParametricGFormula`, on an unclustered panel
+with no time-varying covariate after the first node. The outcome is an uncensored end-of-study
+outcome, or a survival or competing-risk outcome with the treatment held from baseline, censored or
+not, whose follow-up the surface replays; the stress-surface section states the scope and its
+refusals. It
+reports a displacement and claims no interval. Bound estimation for an unmeasured confounder over time is
 refused, as the refusal table under [cross-fitting the recursion](#cross-fitting-the-recursion) states.

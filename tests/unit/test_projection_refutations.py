@@ -290,6 +290,34 @@ class TestRefutationsRun:
         for estimand in result.estimates:
             assert REFUTE._no_effect_null(result, estimand) == 0.0
 
+    @pytest.mark.parametrize("scale", ["difference", "log_ratio"])
+    def test_a_call_that_names_no_coefficient_raises_the_row_s_sentence(self, scale: str) -> None:
+        """A projection reports no ``ate``, so the bare call raises the row's deferral.
+
+        The call's own default refusal, "estimand 'ate' was not requested in this fit",
+        names none of the coefficients; the row names them all.  The preview raises the
+        same record under its own name.
+        """
+        result = fit("plain", scale)
+        row = result.diagnostics.capability("refute")
+        assert row.status.value == "deferred" and row.refusal is not None
+        assert row.refusal.condition == (
+            f"refute answers for one estimand; choose an explicit estimand from "
+            f"{list(result.estimates)}"
+        )
+        with pytest.raises(CapabilityError) as caught:
+            result.diagnostics.refute()
+        assert str(caught.value) == f"diagnostic 'refute' is deferred: {row.refusal.condition}"
+        assert caught.value.refusal.reason is row.refusal.reason
+        assert caught.value.refusal.alternative == row.refusal.alternative
+        assert "'ate'" not in str(caught.value)
+        with pytest.raises(CapabilityError) as preview:
+            result.diagnostics.planned_refits()
+        assert str(preview.value) == (
+            "diagnostic 'planned_refits' previews 'refute', which is deferred: "
+            f"{row.refusal.condition}"
+        )
+
     def test_a_gaussian_outcome_on_the_log_ratio_refuses(self) -> None:
         result = fit("plain", "log_ratio")
         with pytest.raises(CapabilityError) as caught:

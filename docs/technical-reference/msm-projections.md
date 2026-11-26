@@ -48,6 +48,10 @@ reproduces the per-arm report exactly, at the point estimate and at the influenc
 On a continuous dose, a trapezoid sum over the declared grid `doses=` replaces the sum over arms.
 The clever covariate then divides by the conditional treatment density at the observed dose and
 at each grid dose. `build_submodel` in `src/cleverly/estimators/targeting.py` builds it.
+A continuous dose can also be read without a working model, as the
+[kernel-smoothed dose-response curve](dose-response.md) at declared doses and bandwidths. That
+curve reports a Wald interval per declared pair and a simultaneous band over the pairs, and its
+own registered study measures it cross-fitted.
 
 Theory: Neugebauer and van der Laan (2007), Rosenblum and van der Laan (2010), and chapter 12 of
 van der Laan and Rose (2011). Petersen et al. (2014) gives the longitudinal construction. See the
@@ -319,7 +323,7 @@ A weight computed from the sample and declared `"known"` still fits, because the
 your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with
 the arm share as the weight. The reported curve is the efficient influence function of the
 fixed-weight coefficient. The table gives its standard error over that of the estimated-weight
-coefficient. [RM13](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm13-estimated-msm-projection-weights) records the defect.
+coefficient. The retired roadmap item [RM13](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm13-estimated-msm-projection-weights), linked at the commit that held it, recorded the defect.
 
 | coefficient | standard-error ratio |
 | --- | --- |
@@ -331,8 +335,8 @@ A design computed from the sample and declared `"known"` also still fits.
 `tests/unit/test_msm_design_declaration.py` measures the cost on an exact law with the design
 $[1, a, W-c]$. Here $c$ is the sample mean of $W$, which is 0.7. The reported curve is the efficient
 influence function of the fixed-centre coefficient. The table gives its standard error over that of
-the estimated-centre coefficient. [RM27](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm27-declared-msm-design-functions) records
-the defect.
+the estimated-centre coefficient. The retired roadmap item [RM27](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm27-declared-msm-design-functions),
+linked at the commit that held it, recorded the defect.
 
 | coefficient | standard-error ratio |
 | --- | --- |
@@ -346,6 +350,20 @@ change can have either sign, and it vanishes at $\beta_W=0$. The class
 `TestAKnownDesignKeepsItsInterval` fits two controls, a design with the fixed centre 0.7 and
 `MSM.linear`. Both keep their intervals. The code cannot detect the false `"known"` declaration: the
 fixed-centre curve and the witness curve are bitwise equal.
+
+## Assessing a projection
+
+A projection fit runs the assessment operations of its result family, point-treatment or
+longitudinal, which
+[which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+lists, and the boundaries of [refutation operations](validation-methods.md#refutation-operations)
+and the [simulated common-cause stress surface](validation-methods.md#simulated-common-cause-stress-surface)
+apply. Of the declared operations, one differs on a continuous dose: `support` is unavailable,
+because the arm support report does not cover a dose grid, while a projection over discrete arms
+keeps it. The [omitted-variable bounds](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+and some refutations refuse a continuous-dose coefficient too, as those sections state. The
+simulated common-cause surface runs on the continuous-dose coefficients
+(`tests/unit/test_continuous_msm_assessment.py`).
 
 ## Validation issues special to this method
 

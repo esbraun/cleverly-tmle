@@ -103,9 +103,9 @@ def plain_support_reason(reason: str) -> str:
     def qualifier_words(name: str) -> str:
         if name in vocabulary.SUPPORT_QUALIFIERS:
             return vocabulary.SUPPORT_QUALIFIERS[name]
-        # A longitudinal fit's qualifiers are the names of the treatment and censoring
-        # columns it declares known, which differ from the validated fit's columns by name
-        # alone; the names, and the ids they look like, would mean nothing to a reader.
+        # A longitudinal fit's other qualifiers name each treatment and censoring factor it
+        # declares known by role and node (``known_censoring@2``); the ids would mean nothing
+        # to a reader.
         return vocabulary.SUPPORT_KNOWN_FACTORS
 
     def axis_words(axis: str) -> str:

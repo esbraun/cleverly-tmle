@@ -437,11 +437,24 @@ class TestLongitudinalControls:
             ("G01", "treatment", ("2", "2", "2")),
             ("G01", "outcome", ("gaussian", "unbounded")),
             ("G01", "missing", ("complete",)),
-            ("G01", "qualifiers", frozenset({"A1"})),
+            ("G01", "qualifiers", frozenset({"known_treatment@1"})),
             ("G01", "engine", ("sdr",)),
             ("G01", "family", frozenset({"end_of_study", "regimens", "mtp"})),
             ("G01", "family", frozenset({"survival", "regimens", "static"})),
-            ("G21", "qualifiers", frozenset({"A1", "A2"})),
+            ("G21", "qualifiers", frozenset({"known_treatment@1", "known_treatment@2"})),
+            # A partial declaration: both treatments, but retention at node 1 only.
+            (
+                "G21",
+                "qualifiers",
+                frozenset({"known_treatment@1", "known_treatment@2", "known_censoring@1"}),
+            ),
+            # The full declaration keyed without the node index, or without the role.
+            ("G21", "qualifiers", frozenset({"known_treatment", "known_censoring"})),
+            ("G21", "qualifiers", frozenset({"known@1", "known@2"})),
+            # Retention declared at node 2 instead of node 1.
+            ("G45.mean_model", "qualifiers", frozenset({"known_censoring@2"})),
+            ("G45.hazard_model", "qualifiers", frozenset({"known_censoring@2"})),
+            ("G45.mean_model", "qualifiers", frozenset({"known_treatment@1"})),
             ("G28.d2.ipw.hajek", "options", (("normalization", "hajek"),)),
             ("G10.continuous", "treatment", ("continuous", "2")),
             ("G35.density", "treatment", ("continuous", "continuous")),
