@@ -505,6 +505,12 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     raised = {test.name: test for test in namespace["raise_refutation"].tests}
     assert np.mean(raised["placebo"].values) > 0.0 and raised["placebo"].statistic > 2.0
     assert raised["subset"].statistic > 1.0
+    stored = stored_output(NOTEBOOK, "refute-regimes")
+    assert (
+        "raise placebo: t = 3.01" in stored and "raise subset: scatter ratio rho = 1.29" in stored
+    )
+    # "a standard error of about 16%" (20 refits) and "about 24%" (10): 1 / sqrt(2 (R - 1)).
+    assert round(100 / np.sqrt(2 * 19)) == 16 and round(100 / np.sqrt(2 * 9)) == 24
     # The screen and nudge placebos sit near zero, a control for the raise's.
     for key in ("screen_refutation", "nudge_refutation"):
         placebo_i = {test.name: test for test in namespace[key].tests}["placebo"]
