@@ -15,7 +15,7 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty-two tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries twenty tutorials and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
@@ -36,7 +36,7 @@ that fits its question.
 | [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 | [conditional effects](technical-reference/conditional-effects.md) | conditional-effects, subgroup-effects |
 
-The tutorials share two narratives. Fifteen follow one health program: a health plan's hospital
+The tutorials share two narratives. Fourteen follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
 tutorial is that case, because the health program has no continuous price. Four tutorials follow a
