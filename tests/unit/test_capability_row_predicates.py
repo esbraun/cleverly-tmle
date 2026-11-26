@@ -1016,7 +1016,8 @@ class TestThePublicRowIsTheBareRequestsRow:
     """``capability()`` reads the estimand gate, as the bare request does.
 
     Before, the public row read ``passed`` on these fits, while the bare request deferred
-    on ``estimand`` and the bare call refused the default ``ate``.
+    on ``estimand`` and the bare call refused the default ``ate`` in a sentence that named
+    no estimand.  The bare call now raises the row's deferral.
     """
 
     @pytest.mark.parametrize("kind", ["natural_course", "multi_arm"])
@@ -1029,12 +1030,15 @@ class TestThePublicRowIsTheBareRequestsRow:
         assert row.requires_arguments == ("estimand",)
         assert row == result.diagnostics._capability_for_arguments("refute", {})
         assert row in result.diagnostics.capabilities
-        # The bare call refuses, in the call's sentence, through the same predicate.
+        # The bare call refuses in the row's sentence, which names the estimands, and not in
+        # the default's, which names none.
         reason = _text(refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS))
         assert reason == "estimand 'ate' was not requested in this fit"
+        assert row.refusal is not None
         with pytest.raises(CapabilityError) as error:
             result.diagnostics.refute(n_replicates=1)
-        assert str(error.value) == f"diagnostic 'refute' is unavailable: {reason}"
+        assert str(error.value) == f"diagnostic 'refute' is deferred: {row.refusal.condition}"
+        assert reason not in str(error.value)
 
     def test_the_refit_preview_names_itself_and_keeps_the_record(
         self, ambiguous_fits: dict[str, Any]
@@ -1042,13 +1046,15 @@ class TestThePublicRowIsTheBareRequestsRow:
         """``planned_refits`` previews ``refute``: its refusal is ``refute``'s record, and
         its message names the preview the caller ran, not only ``refute``."""
         result = ambiguous_fits["multi_arm"]
-        reason = _text(refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS))
+        row = result.diagnostics.capability("refute")
+        assert row.refusal is not None
+        reason = row.refusal.condition
         with pytest.raises(CapabilityError) as preview:
             result.diagnostics.planned_refits(n_replicates=1)
         with pytest.raises(CapabilityError) as call:
             result.diagnostics.refute(n_replicates=1)
         assert str(preview.value) == (
-            f"diagnostic 'planned_refits' previews 'refute', which is unavailable: {reason}"
+            f"diagnostic 'planned_refits' previews 'refute', which is deferred: {reason}"
         )
         assert preview.value.refusal is not None and call.value.refusal is not None
         assert preview.value.refusal.reason is call.value.refusal.reason
@@ -1057,7 +1063,7 @@ class TestThePublicRowIsTheBareRequestsRow:
     def test_a_call_that_names_an_estimand_is_not_refused(
         self, ambiguous_fits: dict[str, Any]
     ) -> None:
-        """The nonzero witness: a direct call applies no estimand gate, so it runs."""
+        """The nonzero witness: a call that names an estimand passes the estimand gate."""
         result = ambiguous_fits["multi_arm"]
         chosen = next(iter(result.estimates))
         assert result.sensitivity.capability("omitted_confounding").status is (
