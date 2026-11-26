@@ -1274,16 +1274,20 @@ REGIMEN_KINDS: Final[tuple[str, ...]] = (
     "tilt",
     "learned",
     "separable",
+    "rule",
 )
 
 
-def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
+def regimen_kinds(plans: Iterable[Any], *, simulated_rules: bool = False) -> frozenset[str]:
     """The kinds of regimen in resolved longitudinal plans.
 
     Parameters
     ----------
     plans : iterable of RegimenPlan
         The resolved plans. Each one is read for ``has_mtp``, ``has_tilt`` and ``has_policy``.
+    simulated_rules : bool, default=False
+        Whether the fit evaluates a rule on simulated histories, as the parametric g-formula
+        does.  A plan with a rule node is then ``rule`` instead of ``static``.
 
     Returns
     -------
@@ -1293,6 +1297,14 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
         a :class:`~cleverly.longitudinal.LearnedRegimen` is ``learned``.  A fit with a
         :class:`~cleverly.longitudinal.Separable` adds ``separable`` itself: its static arms go
         through the factor-wise engine, so no static-arm row covers them.
+
+        An estimator that reads a rule on observed histories (LTMLE, SDR, ICE, IPW) follows it
+        through the indicator that the observed treatment equals the rule's, the mechanism of a
+        fixed plan, so a known deterministic rule shares the ``static`` key there.  A forward
+        simulation instead evaluates the rule on simulated covariates, so each covariate model
+        reaches the estimate through the treatment it assigns, which no fixed plan exercises.
+        With ``simulated_rules`` such a plan is ``rule``, and only a row with a rule cell
+        covers it.
     """
     kinds: set[str] = set()
     for plan in plans:
@@ -1304,8 +1316,14 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
             kinds.add("mtp")
         if tilt:
             kinds.add("tilt")
+        rule = simulated_rules and bool(getattr(getattr(plan, "regimen", None), "has_rule", False))
+        if rule:
+            kinds.add("rule")
         if not (mtp or tilt):
-            kinds.add("stochastic" if plan.has_policy else "static")
+            if plan.has_policy:
+                kinds.add("stochastic")
+            elif not rule:
+                kinds.add("static")
     return frozenset(kinds)
 
 

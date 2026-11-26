@@ -2246,8 +2246,21 @@ def fit_ipw() -> Any:
     return _fit_baseline("ipw")
 
 
-def fit_gformula() -> Any:
-    """The two-node regime fit of ``make_longitudinal(400, 12)``, by the parametric g-formula."""
+def fit_gformula(rule: bool = False) -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by the parametric g-formula.
+
+    With ``rule``, a known rule that reads the simulated ``L2`` joins the plans: the g-formula
+    evaluates it on simulated histories, so its support kind is ``rule``.
+    """
+    from cleverly.longitudinal import DynamicRegimen
+
+    plans: dict[str, Any] = {"always": 1, "never": 0}
+    if rule:
+        plans["rule"] = DynamicRegimen(
+            "rule",
+            (1, lambda history: (np.asarray(history["L2"], dtype=float) > 0).astype(int)),
+            rule_kind="known",
+        )
     frame, _ = make_longitudinal(n=400, seed=12)
     study = CausalStudy(
         frame,
@@ -2259,7 +2272,9 @@ def fit_gformula() -> Any:
             censoring=["C1", "C2"],
         ),
     )
-    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+    # The rule's contrast with ``never`` has the fixed null 0 the placebo refits read.
+    estimand = RegimeContrast(plans, reference="never") if rule else RegimeMean(plans)
+    return study.identify(estimand).estimate(
         method=ParametricGFormulaMethod(covariate_types={"L2": "normal"}),
         random_state=5,
         simultaneous=False,
@@ -3277,6 +3292,10 @@ KINDS: dict[str, Kind] = {
     "ipw": _kind(fit_ipw, "nuisance_models", "support", *_POINT),
     # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
     "gformula": _kind(fit_gformula, "nuisance_models", "support", "refute"),
+    # A known rule read on simulated covariates is its own regimen kind on the g-formula.
+    "gformula_rule": _kind(
+        functools.partial(fit_gformula, rule=True), "nuisance_models", "support", "refute"
+    ),
     # A direct fit records no identification, so simulated confounding reads unavailable.
     "att": _kind(fit_att, *_LIVE, *_BOUND, "benchmark", "marginal_bounds"),
     "atc": _kind(fit_atc, *_LIVE, *_BOUND, "benchmark", "marginal_bounds"),

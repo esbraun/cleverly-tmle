@@ -635,10 +635,17 @@ class TestLongitudinalControls:
 
 class TestRegimenKinds:
     @staticmethod
-    def plan(*, mtp: bool = False, tilt: bool = False, policy: bool = False) -> Any:
+    def plan(
+        *, mtp: bool = False, tilt: bool = False, policy: bool = False, rule: bool = False
+    ) -> Any:
         from types import SimpleNamespace
 
-        return SimpleNamespace(has_mtp=mtp, has_tilt=tilt, has_policy=policy)
+        return SimpleNamespace(
+            has_mtp=mtp,
+            has_tilt=tilt,
+            has_policy=policy,
+            regimen=SimpleNamespace(has_rule=rule),
+        )
 
     def test_each_kind_has_a_plan_that_makes_it(self) -> None:
         make = self.plan
@@ -646,6 +653,16 @@ class TestRegimenKinds:
         assert regimen_kinds([make(policy=True)]) == {"stochastic"}
         assert regimen_kinds([make(mtp=True, policy=True)]) == {"mtp"}
         assert regimen_kinds([make(tilt=True, policy=True)]) == {"tilt"}
+        assert regimen_kinds([make(rule=True)], simulated_rules=True) == {"rule"}
+
+    def test_a_rule_is_static_unless_the_fit_simulates_it(self) -> None:
+        make = self.plan
+        assert regimen_kinds([make(rule=True)]) == {"static"}
+        assert regimen_kinds([make(rule=True), make()], simulated_rules=True) == {"rule", "static"}
+        assert regimen_kinds([make(rule=True, policy=True)], simulated_rules=True) == {
+            "stochastic",
+            "rule",
+        }
 
     def test_mixed_plans_hold_every_kind(self) -> None:
         make = self.plan
@@ -657,9 +674,8 @@ class TestRegimenKinds:
 
     def test_the_kinds_are_the_declared_ones(self) -> None:
         make = self.plan
-        assert regimen_kinds([make(), make(mtp=True), make(tilt=True), make(policy=True)]) <= set(
-            REGIMEN_KINDS
-        )
+        plans = [make(), make(mtp=True), make(tilt=True), make(policy=True), make(rule=True)]
+        assert regimen_kinds(plans, simulated_rules=True) <= set(REGIMEN_KINDS)
 
 
 class TestTheoryAndOptions:
