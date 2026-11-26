@@ -700,6 +700,52 @@ def exposed(rows: pd.DataFrame, mechanism_table: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
+def ledger_entries(exposed_table: pd.DataFrame, replicates_sha256: str) -> dict[str, Any]:
+    """What the red-cell ledger needs for each routed row of a declared run.
+
+    A routed ``day_cf`` rule row stays red in ``performance-tests.csv``, which
+    ``red_cells.red_rows`` reads, so it needs an ``ACCEPTED_BY_EXCEPTION`` entry (``accepted``),
+    granted by Eric's decision of 2026-11-25 and keyed to the run's ``replicates.parquet``, and a
+    ``CLAIMS`` entry under ``study.RULE_OWNER`` (``claims``): an exception with an owner lifts the
+    ``reporting`` requirement and keeps the row owned.  A routed ``mechanism_correct`` row lives
+    in the ``scientific_failures`` hook, which the ledger does not read, so it needs a roadmap
+    entry under ``study.ROBUST_OWNER`` that cites ``exposed-rows.csv`` (``roadmap``).  The
+    change that registers the record enters them, with the owners' rows in the roadmap's
+    Red-cell owners table.
+    """
+    from tests.studies.evidence.red_cells import AcceptedRow, RedKey
+
+    routed_rows = exposed_table.loc[exposed_table["route"] == "routed"]
+    accepted: dict[Any, Any] = {}
+    claims: dict[Any, str] = {}
+    roadmap: list[str] = []
+    for _, row in routed_rows.iterrows():
+        name = str(row["estimand"])
+        bias = (
+            f"standardized bias {row['standardized_bias']:+.3f} (99% interval "
+            f"{row['bias_ci_lower']:+.3f} to {row['bias_ci_upper']:+.3f}), coverage and SE ratio "
+            "passing"
+        )
+        if row["cell"] == "day_cf":
+            key = RedKey(study.STUDY.slug, "truth", f"{study.SUBJECT}/day_cf/{name}")
+            accepted[key] = AcceptedRow(
+                reason=(
+                    f"{study.ROUTE_DECISION}. {name} is red on its bias clause alone ({bias}); "
+                    f"its foreseen mode: {row['foreseen_mode']}. Rule regimes stay experimental, "
+                    f"and {study.RULE_OWNER} owns the row until the bias is diagnosed."
+                ),
+                replicates_sha256=replicates_sha256,
+            )
+            claims[key] = study.RULE_OWNER
+        else:
+            roadmap.append(
+                f"{study.ROBUST_OWNER}: mechanism_correct {name} is red on its bias clause alone "
+                f"({bias}) and routed by {study.ROUTE_DECISION} (exposed-rows.csv); "
+                f"{row['claim']} stays experimental until the bias is diagnosed"
+            )
+    return {"accepted": accepted, "claims": claims, "roadmap": roadmap}
+
+
 def artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Every extra artifact of the record, from the primary rows."""
     secondary = secondary_table(rows)

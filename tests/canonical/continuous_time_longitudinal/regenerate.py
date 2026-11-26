@@ -113,15 +113,32 @@ row pass.
   30 (the visit cap: -0.112 SD against the full risk, -0.076 against the capped truth) and
   ``mechanism_correct``'s always minus never, cause 1, day 30 (+0.134 SD against the full
   difference, +0.094 against the capped one: about 0.04 SD is the cap's gap on the never arm, and
-  the rest has no identified cause and may be pilot noise).  An exposed row red on its bias
-  clause alone, with its coverage floor and SE-ratio band passing, does not fail the record
+  the capped +0.09 SD is the always arm's +0.07 SD less the never arm's -0.08 SD against its
+  capped truth, each within about 1.5 pilot SEs of zero).  The difference's route and the never
+  row's route are therefore correlated: one cause can turn both red.  An exposed row red on its
+  bias clause alone, with its coverage floor and SE-ratio band passing, does not fail the record
   (``readings.routed``; the shared driver drops it from its independent-performance gate through
   ``study.routed_performance``, and ``readings.gates`` from the ``mechanism_correct`` gate).
-  The record registers, ``exposed-rows.csv`` marks the row routed, its claim stays experimental
-  (rule regimes for a rule row, ``mechanism_correct``'s double robustness for the other two), and
-  the row and its route go to an owner row in the roadmap's Red-cell owners table.  Any other red
-  of an exposed row, on coverage or the SE ratio, fails the record as usual.  With a fit lost in
-  the row's cell, the failure-accounting gate still reads it strictly.
+  The record registers, ``exposed-rows.csv`` marks the row routed, and its claim stays
+  experimental (rule regimes for a rule row, ``mechanism_correct``'s double robustness for the
+  other two).  Any other red of an exposed row, on coverage or the SE ratio, fails the record as
+  usual.  With a fit lost in the row's cell, the failure-accounting gate still reads it strictly.
+* How the red-cell ledger accepts a routed row (``readings.ledger_entries`` writes the entries;
+  the change that registers the record enters them).  A routed ``day_cf`` rule row stays red in
+  ``performance-tests.csv``, which ``tests/studies/evidence/red_cells.py`` reads, and a ``gated``
+  study may publish a red truth row only by a named exception.  It therefore registers through
+  an ``ACCEPTED_BY_EXCEPTION`` entry with an owner: the exception quotes Eric's decision of
+  2026-11-25, its ``replicates_sha256`` is the declared run's ``replicates.parquet``, its date
+  joins ``EXCEPTION_DECISIONS`` in ``tests/unit/test_red_cell_ledger.py``, and the row's
+  ``CLAIMS`` entry is ``X6-E2-rule-bias`` (``study.RULE_OWNER``), a new row of the roadmap's
+  Red-cell owners table whose acceptance is a diagnosis of the rule levels' cause-1 bias.  An
+  exception with an owner lifts only the ``reporting`` requirement, so the row stays in the
+  ledger under that owner and its table still prints it failed.  A routed ``mechanism_correct``
+  row lives in the ``scientific_failures`` hook, which the ledger does not read, so it takes no
+  ledger entry: its owner is ``X6-E2-day30-bias`` (``study.ROBUST_OWNER``), a roadmap entry that
+  cites ``exposed-rows.csv``.  At registration the slug also joins the ledger's
+  ``EXCLUDED_HOOKS`` (``study.EXCLUDED_HOOK``), and ``readings.gates`` already leaves a routed
+  row out, so the committed hook reports nothing.
 * One exception is declared (plan rev 7, review S6).  With :math:`G` right and the continuation
   approximated, the influence-curve variance is expected to be conservative (plan 3.5.7), so an
   SE ratio above 1 is the expected direction.  A calibration row red only because its SE-ratio

@@ -629,6 +629,41 @@ def test_an_exposed_row_red_on_bias_alone_takes_its_route(
     assert list(readings.gates(broad)[readings.MECHANISM_GATE]["estimand"]) == [exposed]
 
 
+def test_the_red_cell_ledger_accepts_a_routed_row_only_through_its_declared_entry(
+    synthetic: dict[str, pd.DataFrame],
+) -> None:
+    """Review R1: a routed rule row passes the fast-tier ledger check once its declared
+    exception and owner exist, and fails without them; a routed mechanism row takes a roadmap
+    entry that cites exposed-rows.csv."""
+    from tests.studies.evidence.red_cells import RedKey, RedRow, findings
+
+    rule = laws.level_name("rule", 1, 10.0)
+    difference = laws.difference_name("always", 1, 30.0)
+    rows = _shifted(synthetic["rows"], "day_cf", rule, _BIAS_ONLY)
+    rows = _shifted(rows, "mechanism_correct", difference, _BIAS_ONLY)
+    table = readings.exposed(rows, readings.mechanism(readings.secondary_table(rows)))
+    routed = table.set_index("estimand")["route"]
+    assert routed[rule] == "routed" and routed[difference] == "routed"
+    entries = readings.ledger_entries(table, "0" * 64)
+    key = RedKey(study.STUDY.slug, "truth", f"{study.SUBJECT}/day_cf/{rule}")
+    assert set(entries["accepted"]) == {key} and entries["claims"] == {key: study.RULE_OWNER}
+    reason = entries["accepted"][key].reason
+    assert "Eric" in reason and "2026-11-25" in reason and study.RULE_OWNER in reason
+    assert entries["accepted"][key].replicates_sha256 == "0" * 64
+    [roadmap] = entries["roadmap"]
+    assert roadmap.startswith(study.ROBUST_OWNER) and "exposed-rows.csv" in roadmap
+
+    red = [RedRow(key=key, role=study.SUBJECT, fails_by="its bias leg", measured="")]
+    policies = {study.STUDY.slug: "gated"}
+    owners = [study.RULE_OWNER, study.ROBUST_OWNER]
+    assert findings(red, entries["claims"], policies, owners, entries["accepted"]) == []
+    without = findings(red, {}, policies, owners)
+    assert f"{key} is red and has no owner" in without
+    assert any("registered as 'gated'" in problem for problem in without)
+    # The owner must be a row of the roadmap's Red-cell owners table.
+    assert findings(red, entries["claims"], policies, [], entries["accepted"]) != []
+
+
 def test_the_driver_drops_only_a_routed_bias_red(synthetic: dict[str, pd.DataFrame]) -> None:
     """The shared driver's hook: an exposed day_cf row red on bias alone leaves the gate."""
     from types import SimpleNamespace

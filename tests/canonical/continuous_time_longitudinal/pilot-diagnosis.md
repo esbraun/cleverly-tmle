@@ -552,7 +552,7 @@ list is `study.EXPOSED_ROWS`; `pilot.exposed_rows` computes it from the committe
 
 | row | own pass | foreseen failure mode | claim kept experimental by a routed red |
 | --- | ---: | --- | --- |
-| `mechanism_correct` always minus never, cause 1, day 30 | 0.744 | +0.134 SD against the full difference and +0.094 against the capped one: about 0.04 SD is the visit cap's gap on the never arm, and the remaining +0.09 SD has no identified cause; it lies within about 2 pilot SEs of zero and may be pilot noise | `mechanism_correct`'s double robustness |
+| `mechanism_correct` always minus never, cause 1, day 30 | 0.744 | +0.134 SD against the full difference and +0.094 against the capped one: about 0.04 SD is the visit cap's gap on the never arm, and the capped +0.09 SD is the always arm's +0.07 SD less the never arm's -0.08 SD against its capped truth, each within about 1.5 pilot SEs of zero | `mechanism_correct`'s double robustness |
 | `day_cf` rule, cause 1, day 10 | 0.899 | the rule levels' positive cause-1 bias at n = 1,000 | rule regimes |
 | `day_cf` rule, cause 1, day 20 | 0.899 | the same | rule regimes |
 | `day_cf` rule, cause 1, day 30 | 0.955 | the same | rule regimes |
@@ -563,16 +563,30 @@ the first. It is already in the initial estimate and targeting does not remove i
 diagnosis excluded the visit cap, the residual score and the treatment misfit; CT-day's tie or
 day-grid approximations are suspected, not shown (see [The rule regime](#the-rule-regime)).
 
+The difference's route and the never row's route are correlated, since the difference's
+residual is the sum of the two arms' residuals: one cause can turn both red.
+
 **The route.** An exposed row red in the declared run on its bias clause alone, with its coverage
 floor and SE-ratio band passing (and, in `mechanism_correct`, its failure bound held), does not
 fail the record. Code reads it: `readings.routed` decides it, `exposed-rows.csv` records each
 exposed row's verdict, route and claim status, `readings.gates` leaves a routed row out of the
 `mechanism_correct` gate, and the shared driver leaves it out of its independent-performance gate
 through `study.routed_performance`. That hook can only drop rows that are red on the bias clause
-alone, or the run stops. The record registers, the row's claim stays experimental, and the row and
-its route go to an owner row in the roadmap's Red-cell owners table. Any other red, including a
+alone, or the run stops. The record registers and the row's claim stays experimental. Any other red, including a
 coverage or SE-ratio red on an exposed row, fails the record as usual. When a fit is lost in an
 exposed row's cell, the failure-accounting gate still reads the row strictly.
+
+**The ledger.** A routed rule row stays red in `performance-tests.csv`, which the red-cell
+ledger (`tests/studies/evidence/red_cells.py`) reads, and a `gated` study may publish a red truth
+row only by a named exception. It registers through an `ACCEPTED_BY_EXCEPTION` entry with an
+owner: the exception quotes Eric's decision of 2026-11-25 and the declared run's
+`replicates.parquet` hash, its date joins `EXCEPTION_DECISIONS`, and the row is claimed by
+`X6-E2-rule-bias`, a new row of the roadmap's Red-cell owners table whose acceptance is a
+diagnosis of the rule levels' cause-1 bias. A routed `mechanism_correct` row lives in the
+`scientific_failures` hook, which the ledger does not read, so it takes no ledger entry; its owner
+is `X6-E2-day30-bias`, a roadmap entry that cites `exposed-rows.csv`. `readings.ledger_entries`
+writes these entries from `exposed-rows.csv`, and the change that registers the record enters
+them, with the slug's `EXCLUDED_HOOKS` line.
 
 **The check.** `pilot_refusals()` refuses unless the per-row bias family pass over the 55 gated
 rows outside the exposed list reaches 0.95 at the declared counts

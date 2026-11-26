@@ -173,12 +173,18 @@ The five rows the sizing names stay gated, each with a foreseen failure mode, by
 2026-11-25. The three rule rows carry the rule levels' positive cause-1 bias at n = 1,000, about
 0.12 to 0.13 SD in both pilots, which targeting does not remove and whose cause is not shown.
 `mechanism_correct`'s day-30 risk of never carries the visit cap's gap (-0.112 SD against the full
-risk, -0.076 against the capped truth). Its day-30 difference reads +0.134 SD, +0.094 against
-the capped truth, and the rest has no identified cause. If one of these rows is red on bias alone,
-with its coverage and SE ratio passing, the record still registers, the row's claim stays
-experimental (rule regimes, or double robustness under a correct treatment model) and the row
-gets an owner. Any other red, including a coverage or SE-ratio red on one of them, fails the
-record. `exposed-rows.csv` records each row's verdict and route.
+risk, -0.076 against the capped truth). Its day-30 difference reads +0.134 SD, or +0.094 against
+the capped truth, which is the always arm's +0.07 SD less the never arm's -0.08 SD. The two
+mechanism rows can therefore turn red together.
+
+If one of these rows is red on bias alone, with its coverage and SE ratio passing, the record
+still registers and the row's claim stays experimental: rule regimes, or double robustness under
+a correct treatment model. Any other red, including a coverage or SE-ratio red on one of them,
+fails the record. `exposed-rows.csv` records each row's verdict and route. A routed rule row stays
+red in the published table, so the [red-cell ledger](red-cells.md) admits it by a named exception
+owned by `X6-E2-rule-bias`, keyed to the run's replicates. A routed `mechanism_correct` row is
+read by the study's own audit, which the ledger does not read, and its owner is the roadmap entry
+`X6-E2-day30-bias`, which cites `exposed-rows.csv`.
 
 The support constants of the labels (the largest `variance_rel_sd` rung, the event-share window,
 the fewest followers and the largest share past the cap) are read after the run from the

@@ -132,7 +132,9 @@ them into the record.
 **Registration** (plan 7.3) lands with the declared run's artifacts, in the change that ships
 E1 and E2 together, and touches what a pending study cannot: the registry import and the
 scenario, estimand, arm and cell descriptions (``descriptions.py``); the ``EXEMPT_STUDIES`` entry
-(:data:`EXEMPT_REASON`); the clause bindings (``tests/canonical/clause-bindings.csv``); the
+(:data:`EXEMPT_REASON`); the ``EXCLUDED_HOOKS`` entry of the red-cell ledger
+(:data:`EXCLUDED_HOOK`) and its line in the evidence page's ledger section; for each routed
+exposed row, its ledger entries (``readings.ledger_entries``); the clause bindings (``tests/canonical/clause-bindings.csv``); the
 interval-audit screen row (``interval-audit-screen.csv``), the asymmetric screen row
 (``asymmetric-audit-screen.csv``) and the asymmetric refit capture
 (``asymmetric-refit/continuous-time-longitudinal/capture.json``); and the evidence page's tables,
@@ -256,11 +258,33 @@ EXPOSED_ROWS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("mechanism_correct", laws.difference_name("always", 1, 30.0)): (
         ROBUST_CLAIM,
-        "partly the visit cap on its never arm: the pilot bias is +0.134 SD against the full "
-        "difference and +0.094 against the capped one; the remaining +0.09 SD has no identified "
-        "cause and lies within about 2 pilot SEs of zero, so it may be pilot noise",
+        "the two arms' residuals: the pilot bias is +0.134 SD against the full difference and "
+        "+0.094 against the capped one, about 0.04 SD being the visit cap's gap on the never arm; "
+        "the capped +0.09 SD is the always arm's +0.07 SD (cause 1, day 30) less the never arm's "
+        "-0.08 SD against its capped truth, each within about 1.5 pilot SEs of zero, so this "
+        "row's route and the never row's are correlated and one cause can turn both red",
     ),
 }
+#: The roadmap's Red-cell owners ids a routed red receives, entered with the run's artifacts in
+#: the change that registers the record (Eric's choice, 2026-11-25; ``readings.ledger_entries``).
+#: A routed rule row stays red in ``performance-tests.csv``, which the red-cell ledger reads, so
+#: it registers through an ``ACCEPTED_BY_EXCEPTION`` entry that keeps this owner.
+RULE_OWNER = "X6-E2-rule-bias"
+#: A routed ``mechanism_correct`` row lives in the ``scientific_failures`` hook, which the ledger
+#: does not read, so its owner is a roadmap entry outside the ledger's map, citing
+#: ``exposed-rows.csv``.
+ROBUST_OWNER = "X6-E2-day30-bias"
+#: The written decision an exception entry quotes.
+ROUTE_DECISION = (
+    "Eric, 2026-11-25: keep the five exposed rows of continuous-time-longitudinal gated, each "
+    "with a pre-declared route for a red on its bias clause alone (regenerate.py, red-cell "
+    "readings)"
+)
+#: The ``EXCLUDED_HOOKS`` entry of the slug at registration (``tests/studies/evidence/red_cells.py``).
+EXCLUDED_HOOK = (
+    "the mechanism_correct primary rule, the plug-in control, the calibration rule and the "
+    "shrunk-SE control; a routed exposed row leaves its gate and is recorded in exposed-rows.csv"
+)
 
 #: The X70 panel's node ends, in days: three nodes per 10 days, of 3, 3 and 4 days.
 NODE_ENDS: tuple[int, ...] = (3, 6, 10, 13, 16, 20, 23, 26, 30)
