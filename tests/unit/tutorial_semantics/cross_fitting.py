@@ -40,8 +40,6 @@ NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/cross-fitting-final"
 _REFUTATION = "reviews/notebook-review/probes/cross-fitting-refutation"
-_STUDY = "tests/canonical/tmle3_cvtmle/properties.csv"
-_CLUSTERED = "tests/canonical/lmtp_clustered_tmle/properties.csv"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -56,10 +54,6 @@ UNPRINTED_DECIMALS = {
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8287 by Monte Carlo: {_PROBE}/truth.log",
     "4.50": f"mean doubly robust nu^2 over 200 draws, 4.504: {_PROBE}/summary.log",
     "0.409": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
-    "0.23": "weight-side strength that erases the estimate at cf_y=1; check asserts the sign change",
-    "94.5": f"0.945 as a percent: stacked_cvtmle coverage, {_STUDY}, and the plasmode print",
-    "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
-    "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
     "0.06185": f"upper end of that bias interval: {_REFUTATION}/main_generated.log",
     "-0.03615": f"main bounded generated-outcome bias reading: {_REFUTATION}/main_generated.log",
     "-0.1341": f"lower end of that bias interval: {_REFUTATION}/main_generated.log",
@@ -70,6 +64,7 @@ UNPRINTED_DECIMALS = {
 #: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
 DERIVED_DECIMALS = {
     "assessment-reading: 0.6": ("assessment", "0.0063", "percent"),
+    "plasmode-reading: 94.5": ("team-plasmode", "0.9450", "percent"),
 }
 
 
@@ -122,17 +117,6 @@ def _assert_unprinted_sources() -> None:
     assert re.search(r"navigation nu2 +4\.828", truth)
     assert re.search(r"navigation share g < 0\.10 +0\.0188", truth)
     assert "P(u < -0.1000): 0.4602" in truth
-    # The registered cells and their coverage.
-    for path, cell, coverage, n, replicates in (
-        (_STUDY, "in_sample_control", 0.5225, 500, 400),
-        (_STUDY, "stacked_cvtmle", 0.945, 500, 400),
-        (_CLUSTERED, "cluster_robust", 0.9475, 2000, 2400),
-        (_CLUSTERED, "iid_control", 0.84125, 2000, 2400),
-    ):
-        table = pd.read_csv(ROOT / path, float_precision="round_trip")
-        row = table.loc[table["cell"] == cell].iloc[0]
-        assert np.isclose(row["coverage"], coverage, rtol=0.0, atol=1e-12)
-        assert (row["n"], row["replicates"]) == (n, replicates)
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -153,6 +137,12 @@ def check(namespace: dict[str, Any]) -> None:
         "medication_burden",
         "age",
     ]
+
+    # Why a simple comparison misleads: the unadjusted difference overstates the truth because
+    # the offered arm has the higher mean discharge risk.
+    assert round(float(namespace["unadjusted"]), 3) == 0.185 > round(truth, 3)
+    by_arm = namespace["by_arm"]
+    assert by_arm.loc[1.0, "discharge_risk"] > 0 > by_arm.loc[0.0, "discharge_risk"]
 
     # The protocol is the program's, unchanged, so this page and the point-treatment page print
     # one fingerprint.
@@ -233,6 +223,14 @@ def check(namespace: dict[str, Any]) -> None:
     in_sample_ratios = [row["ratio"] for row in in_sample_support.effective_sample_size.values()]
     assert min(in_sample_ratios) > ess["treated"]["ratio"]
 
+    # "In the figure ... no patient reaches the dotted limits": the out-of-fold overlap figure,
+    # and no unit beyond either limit.
+    assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
+    assert support.truncated["count"] == 0
+
+    # "The first line counts the model fits before they run: 30, ten per split."
+    assert namespace["planned"].total_fits == 30
+
     # Fold split: reconstruct the median and its within-plus-between variance from the three
     # retained draws. This seed gives nonzero displacement even though the median happens to equal
     # the within-only median, so the controlled mutation below makes that term result-determining.
@@ -291,6 +289,67 @@ def check(namespace: dict[str, Any]) -> None:
 
     _check_refutation(namespace)
     _check_robustness(namespace)
+    _check_team_uncertainty(namespace)
+
+
+def _check_team_uncertainty(namespace: dict[str, Any]) -> None:
+    """The team influence curve, the team bootstrap and the team robustness value."""
+    clustered = namespace["clustered"]
+    team = clustered["ate"]
+    # Influence: the printed shares are the figure's curve.  The top 2 of 200 teams carry 0.041
+    # and the top 20 carry 0.296; the Kish count is 111 of 200.  The figure's subtitle names the
+    # same top-1% share, so the printed companion and the figure read one curve.
+    squares = namespace["squares"]
+    assert len(squares) == clustered.data.n_clusters == 200
+    top2 = float(squares.iloc[:2].sum() / squares.sum())
+    top20 = float(squares.iloc[:20].sum() / squares.sum())
+    assert round(top2, 3) == 0.041 and round(top20, 3) == 0.296
+    assert top20 > 0.1  # uneven: above an even spread
+    subtitle = " ".join(text.get_text() for text in namespace["influence_fig"].texts)
+    assert "the top 1% of clusters (2 of 200) carry 4.1%" in " ".join(subtitle.split())
+    kish = float(namespace["influence_row"]["kish"])
+    assert 105 < kish < 115
+    assert figure_title(namespace["influence_fig"]) == "Concentration of the uncertainty"
+
+    # Bootstrap: the same fit with 200 team resamples.  Its point and its influence-curve
+    # interval equal the team fit's; the bootstrap SE sits close to the team SE; cleverly marks
+    # the bootstrap interval experimental.
+    boot = namespace["team_bootstrap"]["ate"]
+    assert boot.psi == team.psi
+    assert boot.std_error == team.std_error and boot.ci == team.ci
+    frame = namespace["team_bootstrap"].to_frame().iloc[0]
+    assert frame["bootstrap_support"] == "experimental"
+    # "because no simulation study covers it for this kind of fit"
+    assert "No validation study covers the bootstrap interval" in str(
+        namespace["team_bootstrap"].summary()
+    )
+    assert 0.8 < frame["bootstrap_std_err"] / team.std_error < 1.0
+    assert team.ci[0] < frame["bootstrap_ci_lower"] < frame["bootstrap_ci_upper"] < team.ci[1]
+    assert figure_title(namespace["bootstrap_fig"]) == "Bootstrap replicates"
+
+    # Team sensitivity: no attention row; the robustness value 0.115 is below the first fit's,
+    # and its limit value is below it.
+    # "the interval that treats patients as independent missed the truth too often, and the one
+    # with teams declared did not": the registered cells' direction.
+    study = pd.read_csv(
+        ROOT / "tests/canonical/lmtp_clustered_tmle/properties.csv", float_precision="round_trip"
+    )
+    coverage = study.set_index("cell")["coverage"]
+    assert coverage["iid_control"] < 0.9 < coverage["cluster_robust"]
+    assert namespace["team_attention"] == ()
+    robustness = namespace["team_robustness"]
+    assert 0.10 < robustness["rv"] < 0.13
+    assert 0 < robustness["rva"] < robustness["rv"] < namespace["robustness"]["rv"]
+    # "smaller because this effect is smaller next to the outcome's leftover variation": nu^2
+    # agrees within 10% across the two fits, while psi^2 / sigma^2 falls more than tenfold.
+    team_elements = clustered.sensitivity.elements(estimand="ate")
+    first_elements = namespace["elements"]
+    assert abs(team_elements.nu2 / first_elements.nu2 - 1) < 0.1
+    first_psi = namespace["cross_fitted"]["ate"].psi
+    team_ratio = team.psi**2 / team_elements.sigma2
+    assert team_ratio < 0.1 * first_psi**2 / first_elements.sigma2
+    ess = namespace["team_support"].effective_sample_size
+    assert 0.8 < ess["treated"]["ratio"] < 0.9 and 0.8 < ess["control"]["ratio"] < 0.9
 
 
 def _check_robustness(namespace: dict[str, Any]) -> None:
@@ -327,6 +386,10 @@ def _check_robustness(namespace: dict[str, Any]) -> None:
     ]
     assert at_full[0].lower > 0 > at_full[1].lower
     assert robustness["rv"] > 0.24
+    # The printed root lies in that bracket and is a zero of the same lower end.
+    break_even = namespace["break_even"]
+    assert 0.22 < break_even < 0.24 and round(break_even, 2) == 0.23
+    assert abs(namespace["lower_end"](break_even)) < 1e-6
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -335,7 +398,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     original = cross_fitted["ate"].psi
     se = cross_fitted["ate"].std_error
     tests = {test.name: test for test in namespace["fold_check"].tests}
-    assert list(tests) == ["random_common_cause", "subset"]
+    assert list(tests) == ["placebo", "random_common_cause", "subset"]
     # "no simulation study backs ... subset for boosted models and 5 refits": the nearest
     # calibration row differs on the learner and the replicate count.
     assert (
@@ -348,21 +411,33 @@ def check_refits(namespace: dict[str, Any]) -> None:
         # "descriptive": neither check has a calibration row that covers this fit.
         assert test.passed is None and test.rung == "L0" and len(test.values) == 5
         assert test.original == pytest.approx(original)
-    # Random common cause: a nonzero paired shift of -0.165 SE, inside the 0.2008 SE that new
-    # fold seeds give with no noise column.
+    # Placebo: the five shuffled-offer refits average -0.0038, near zero next to the 0.1573
+    # estimate and under one standard error from zero; their small spread makes t = -3.1606.
+    placebo = np.asarray(tests["placebo"].values)
+    assert round(float(placebo.mean()), 4) == -0.0038
+    assert abs(placebo.mean()) < se
+    assert round(tests["placebo"].statistic, 4) == -3.1606
+    # Random common cause: a paired shift of -0.158 SE, smaller in size than the 0.2008 SE
+    # that new fold seeds give with no noise column.
     shift = (np.asarray(tests["random_common_cause"].values) - original) / se
-    assert round(float(shift.mean()), 3) == -0.165
-    assert round(float(np.std(shift, ddof=1)), 5) == 0.09499
+    assert round(float(shift.mean()), 3) == -0.158
+    assert round(float(np.std(shift, ddof=1)), 4) == 0.2748
     assert abs(shift.mean()) < 0.2008
-    # The shift is systematic: the mean of the five paired shifts is about four standard errors
-    # from zero, and below the 0.2008 SE that one new fold draw gives.
-    assert 3.5 < abs(shift.mean()) / (np.std(shift, ddof=1) / np.sqrt(len(shift))) < 4.5
-    # Subset: "0.0035138 against 0.0035642 ... ratio 0.98586".  The reference is the sampling SD
-    # of a 2100-of-3000 subsample, so it scales the reported SE by sqrt((n/m - 1) n/(n - 1)).
+    # "spread by 0.2748, somewhat more than the 0.2008 a new split alone gives ... about a third
+    # of a standard error": the refits keep the folds, and a typical refit moves 0.25 to 0.4 SE.
+    assert np.std(shift, ddof=1) > 0.2008
+    assert 0.25 < float(np.sqrt(np.mean(shift**2))) < 0.4
+    # "the studies of the other two use other outcomes and models with 20 refits"
+    assert (
+        "This fit differs on replicate count 5 and learner HistGradientBoostingRegressor"
+        in tests["placebo"].scope_sentence
+    )
+    # Subset: "rho is 0.9358, near 1".  The reference is the sampling SD of a 2100-of-3000
+    # subsample, so it scales the reported SE by sqrt((n/m - 1) n/(n - 1)).
     scatter = float(np.std(tests["subset"].values, ddof=1))
     reference = float(se * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
-    assert round(scatter, 7) == 0.0035138 and round(reference, 7) == 0.0035642
-    assert round(scatter / reference, 5) == 0.98586
+    assert round(reference, 7) == 0.0035642
+    assert round(scatter / reference, 4) == 0.9358 == round(tests["subset"].statistic, 4)
 
     # The team plasmode runs at the 400 draws of the equivalence bands, so it prints a verdict.
     # The page's 0.1161 truth is the declared law's, and the estimate is the team fit's.
