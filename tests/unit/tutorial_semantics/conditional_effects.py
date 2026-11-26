@@ -26,7 +26,7 @@ _PROBE = "reviews/notebook-review/probes/conditional-effects"
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("refute", "simulated-confounding", "stability")
+REFIT_CELLS = ("refute", "stability")
 
 #: Decimals the prose writes that no output prints, each with how it follows from one.
 UNPRINTED_DECIMALS = {
@@ -100,7 +100,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert abs(calibration.intercept) < 0.02
     bins = calibration.to_frame()
     gap = bins["pseudo_outcome_contrast"] - bins["mean_prediction"]
-    assert np.max(np.abs(gap)) < 0.035, "the groups sit within 3 points of their stand-ins"
+    assert np.max(np.abs(gap)) < 0.032, "the groups sit within about 3 points of their stand-ins"
     assert figure_title(namespace["calibration_fig"])
     risks = namespace["risks"]
     assert risks["t_learner"] < risks["curve"] < risks["constant"] < 0
@@ -123,7 +123,7 @@ def _check_targeting(namespace: dict[str, Any]) -> None:
         np.mean(gain),
     )
     assert rule > 0.95 * best
-    assert rule > 1.7 * everyone, "nearly twice a coupon for everyone"
+    assert rule - everyone > 0.02, "much more than a coupon for everyone"
     frame = namespace["frame"]
     assert 56 < frame.loc[target, "age"].max() < 58, "up to about 57"
     true_uplift, cost = namespace["true_uplift"], namespace["COST"]
@@ -175,10 +175,8 @@ def _check_projection(namespace: dict[str, Any]) -> None:
     summary = _summary()
     assert "pointwise interval at age 20 covers: 0.945" in summary
     assert "band covers all seven ages: 0.955" in summary
-    assert 0 < namespace["slope_robustness"]["rv"] < 1
-    bounds = namespace["slope_bounds"]
-    slope = table.set_index("estimand").loc["cate_projection[cos1(age)]", "psi"]
-    assert bounds.lower < slope < bounds.upper
+    assert 0.085 < namespace["slope_robustness"]["rv"] < 0.095, "about 9% on both sides"
+    assert namespace["slope_bounds"].lower > 0, "the first wave survives a cause of 0.03"
 
 
 def _check_spend(namespace: dict[str, Any]) -> None:
@@ -226,6 +224,7 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     """The net gain falls at a weaker cause than the rise; the bound reads the cost."""
     to_zero, to_cost = namespace["to_zero"], namespace["to_cost"]
     assert 0 < to_cost["rv"] < to_zero["rv"] < 1
+    assert 0.075 < to_cost["rv"] < 0.085, "the conclusion's 'about 8% on both sides'"
     assert to_cost["rva"] < to_zero["rva"]
     # Witness: the cost-null value is the one the bound gives at the cost, not at zero.
     sensitivity, cost = namespace["sensitivity"], namespace["coupon_cost"]
@@ -243,6 +242,8 @@ def _check_trial(namespace: dict[str, Any]) -> None:
     assert ratio[0] > 0.9 and 0.4 < ratio[-1] < 0.6
     assert namespace["ratio_curve"].sieve.mode == "fixed"
     assert namespace["ratio_curve"].status == "experimental", "a fixed size stays experimental"
+    reason = namespace["ratio_curve"].status_reason
+    assert "fixed size" in reason and "pools the arms" not in reason, "the only reason"
     slope = namespace["slope"]
     assert covers((slope["ci_lower"], slope["ci_upper"]), -0.8)
     assert slope["ci_upper"] < 0
@@ -268,7 +269,7 @@ def check(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The refutation, the stress test and the split-sensitivity readings."""
+    """The refutation and split-sensitivity readings."""
     tests = namespace["refutation"].to_frame().set_index("test")
     rise = namespace["rise"]["psi"]
     assert abs(tests.loc["placebo", "refuted_mean"]) < 0.01, "the placebo rise is near zero"
@@ -276,8 +277,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert abs(tests.loc["random_common_cause", "refuted_mean"] - rise) < 0.005
     assert (tests["verdict"] == "descriptive").all()
     assert 0.09 < namespace["rule_support"].min_support_propensity < 0.11
-    cells = namespace["surface"].cells
-    assert max(abs(cell.induced_treatment_association) for cell in cells) < 0.06
     stability = namespace["stability"]
     assert stability.relative_sd < 0.01
     assert not stability.warning
