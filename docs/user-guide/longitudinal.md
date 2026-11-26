@@ -101,14 +101,14 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `weights=` | a unit-level probability weight | `weights=` |
 | `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row. Beside `weights=`, also pass `mechanism_law=` ([data design](data-design.md#known-chances-beside-weights)) | `"column@t"` |
 
-Five more arguments take a value instead of a column name.
+These arguments take a value instead of a column name.
 
 | argument | what it declares |
 | --- | --- |
-| `continuous_treatment=` | `True` when the treatment column holds a dose at every time point, as in [Shift a continuous dose over time](#shift-a-continuous-dose-over-time) |
+| `continuous_treatment=` | `True` when the treatment column holds a dose at every time point. The band goes in `treatment_support=`, where the wide example in [Shift a continuous dose over time](#shift-a-continuous-dose-over-time) maps each dose column to its band |
 | `treatment_support=` | the band each dose lies in, as a `Support` |
 | `dose_atoms=` | doses that many rows share exactly, such as a price of 0 |
-| `outcome_family=` | the outcome's type: `"auto"` (the default), `"gaussian"` or `"binomial"` |
+| `outcome_family=` | the outcome's type: `"gaussian"` for a measured outcome or `"binomial"` for a yes-or-no one. The default `"auto"` reads it from the data |
 | `eliminate=` | the competing events to prevent, with the mapping form of `event=`, as in [Ask what the risk would be had the other event been prevented](survival.md#ask-what-the-risk-would-be-had-the-other-event-been-prevented) |
 
 Declare exactly one of `outcome=` and `event=`. One customer trajectory is one observation for the
@@ -397,8 +397,9 @@ accepts a false `"known"` declaration.
 ## Shift a continuous dose over time
 
 A plan can change each person's dose, an amount such as a price, at each time point instead of
-fixing it, such as raising every month's price by 10%. Name each dose column in `continuous_treatment=`, and write each time
-point's change as a policy from `cleverly.interventions` inside a `DynamicRegimen`.
+fixing it, such as raising every month's price by 10%. Name each dose column in
+`continuous_treatment=`, mapped to the band its doses lie in, and write each time point's change
+as a policy from `cleverly.interventions` inside a `DynamicRegimen`.
 [Modified treatment policies](estimands.md#modified-treatment-policies) describes each kind of
 change, the cap, and a cap taken from the data.
 
@@ -442,38 +443,42 @@ price_fit = CausalStudy(prices, design=price_design).estimate(
     random_state=0,
 )
 rise_effect = price_fit["ate_regimen[rise 10% vs current]"]
-print(round(rise_effect.psi, 3), rise_effect.ci, rise_effect.support.label)
+low, high = rise_effect.ci
+print(round(rise_effect.psi, 3), round(low, 3), round(high, 3), rise_effect.support.label)
 ```
 
 Raising each month's price by 10%, except where the raised price would pass 8, lowers renewal by
 about 4 percentage points, with an interval from about 2 to 6 points. `Shift(0.0, cap=None)`
-changes no price, so the `"current"` plan is the prices customers actually got. The generator's
-`truth` has no value for this plan. `cleverly.datasets` ships the band as `PRICE_BANDS`, and
-`pricing_truth(factors=...)` gives the exact effect of the rises that `price_rise(factor)` builds.
-Those rises keep a customer's price where the raised price would pass the top of their band, not
-where it would pass 8.
+changes no price, so the `"current"` plan is the prices customers actually got. The fit reads
+`supported` because a simulation study checked three-month price plans fitted this way.
+`cross_fit=False` fits and checks the models on the same rows. The study covers that fit and the
+out-of-fold one at three time points, and the interval in
+[When few customers carry the interval](#when-few-customers-carry-the-interval) needs it.
+[What the studies cover](#what-the-studies-cover) says what the label checks.
 
 ### Keep the new doses inside the band
 
-Each customer's price lies in a band that depends on that month's engagement `e`, from `4 + 2e` to
-`8 + 2e`. `Support(lower, upper)` declares the band, and each bound is a function of the history,
-so it can read the month's engagement. A raised price above the cap keeps the customer's own
-price. The cap of 8 never passes the top of a band, so this plan never leaves the band. Without
-the cap the fit refuses the plan, and the message names the time point and how many customers the
-raise would send outside the band.
+The fit can only learn what customers would do at prices that customers like them actually paid,
+so a raised price must stay inside the band of prices they could get. Here the band depends on
+that month's engagement `e` (0 or 1), from `4 + 2e` to `8 + 2e`. `Support(lower, upper)` declares
+it, and each bound is a function of the history, so it can read the month's engagement. A raised
+price above the cap keeps the customer's own price, and the cap of 8 never passes the top of a
+band (8 or 10). Without the cap the fit refuses the plan, and the message names the time point
+and how many customers the raise would send outside the band.
 [Modified treatment policies at a node](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 states the rule.
 
 ### How the fit weighs each customer
 
-The correction step needs, for each customer and time point, how much more or less common the
-plan's price is than the price the customer got. By default the fit learns this ratio with a
+The fit's correction step, which uses the treatment model to remove the bias the outcome model
+leaves, needs, for each customer and time point, how much more or less common the plan's price is
+than the price the customer got. By default the fit learns this ratio with a
 classifier: the treatment learner learns to tell the plan's prices from the observed ones, given
 the history. The summary names this route on its `Policy ratio` line. With a plain logistic
 regression as the treatment learner, the same fit warns with `SparseInfluenceWarning` that its
 interval rests on few customers. The example therefore gives the classifier the squares and
-products of the history and the price. `ratio="density"`, or any `density_bins=`, learns the ratio from a
-binned density of the price instead, and the
+products of the history and the price. `ratio="density"`, or any `density_bins=`, learns the
+ratio from a binned density of the price instead, and the
 [density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) lists
 which fits take which route.
 
@@ -496,17 +501,24 @@ shows that declaration. A cap can come from the data, as in
 `Shift(0.5, cap=DoseQuantile(0.9), target="population")`, and it needs `target=`
 ([modified treatment policies](estimands.md#modified-treatment-policies)). The
 [sequential pricing tutorial](../examples/sequential-pricing.ipynb) fits a 12% rise and a 15% cut
-under the same band, and reads which larger rises the data support.
+under the same band, and reads which larger rises the data support. To check a fit against a
+known answer, `price_rise(factor)` from `cleverly.datasets` builds a rise that stops at the top of
+each band, `pricing_truth(factors=...)` gives its exact effect, and `PRICE_BANDS` holds the band.
 
 ### What the studies cover
 
-The support label of a dose plan checks the number of time points, whether the fit uses
-out-of-fold predictions, the outcome type, how the ratio is learned and whether the cap comes from
-the data. It does not check your classifier or your band. The price study learned the ratio with a
-logistic classifier on squares and products, like the example's. With the default route, the
-[price study](../technical-reference/method-evidence/mtp-pricing.md) covers two, three and five
-time points, out-of-fold predictions at three, and revenue at three. Dropout at the dose time
-points is covered only at three time points with out-of-fold predictions
+The label (`supported` or `experimental`) of a dose plan checks the method, the number of time
+points, whether the fit uses out-of-fold predictions, whether customers drop out, the outcome
+type, how the ratio is learned and whether the cap comes from the data. It does not check your
+plan, your classifier or your band. The price study learned the ratio with a logistic classifier
+on squares and products, like the example's.
+
+With the default route, the [price study](../technical-reference/method-evidence/mtp-pricing.md)
+covers two and three time points, out-of-fold predictions at three, and revenue at three. At five
+time points its default interval ran short on a price cut, covering about 92% of the time, so a
+five-period fit reads `experimental` unless it takes the interval in
+[When few customers carry the interval](#when-few-customers-carry-the-interval). Dropout at the
+dose time points is covered only at three time points with out-of-fold predictions
 ([censored price study](../technical-reference/method-evidence/mtp-pricing-censored.md)).
 
 Four more studies test other parts. The
@@ -526,9 +538,9 @@ lists what they do not cover.
 A dose plan can rest on a few customers with large ratios, and `SparseInfluenceWarning` then fires
 as it does for a sparse regimen. Unlike there, the bootstrap of
 [Bootstrap for sparse regimens](#bootstrap-for-sparse-regimens) does not help. On the five-period
-price cut of the pricing study, the BCa interval covers about 91% to 92% of the time, no better
-than the Wald interval
-([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
+price cut of the pricing study, the bias-corrected bootstrap interval (BCa) covers about 91% to
+92% of the time, no better than the default interval
+([the interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
 
 Pass `variance="policy_weighted"` instead, with `n_folds=1` (`cross_fit=False` on a study) and
 `simultaneous=False`. The fit weights each row by its density ratio: how much more likely the
@@ -536,11 +548,11 @@ policy makes that row's dose than the observed treatment pattern does. The optio
 the standard error from every row at the dose the policy would set, and reports the larger of that
 and the usual one. The interval is never narrower than the default, and it no longer runs too
 narrow when a sample happens to miss the rare rows with extreme weights, but it can be wider than
-it needs to be. Its coverage is never below the default's, and it is close to nominal in large
+it needs to be. Its coverage is never below the default's, and it is close to 95% in large
 samples when the density ratio is known exactly or, when the ratio is learned, when the outcome
 model is right.
 
-The label licenses the option on the price plans at two and five time points. At three time
+The option reads `supported` on the price plans at two and five time points. At three time
 points, as in the example above, it reads `experimental`.
 [The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
 states which fits it refuses and what it was validated against.
@@ -1040,14 +1052,15 @@ truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, T
 
 A fit with a node of three or more levels carries the label of the registered study
 [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
-when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` fits Kennedy's odds tilt.
-The `ipsi` function of R's `lmtp` package fits a different plan, `RiskRatioTilt(delta)`. With
-`delta` below 1, each treated person keeps their treatment with chance `delta` at each time point,
-and with `delta` above 1, each untreated person stays untreated with chance `1 / delta`. Declare
-it as a node, as in `DynamicRegimen("rr 0.5", (RiskRatioTilt(0.5),) * 2)`, and fit it with the
-default method.
-[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
-the contract.
+when it matches that study's rows. Any other such fit is labelled `experimental`.
+
+`IPSI` fits Kennedy's odds tilt. The `ipsi` function of R's `lmtp` package fits a different plan,
+`RiskRatioTilt(delta)` from `cleverly.interventions`. With `delta` below 1, each treated person
+keeps their treatment with chance `delta` at each time point, and with `delta` above 1, each
+untreated person stays untreated with chance `1 / delta`. Declare it as a node, as in
+`DynamicRegimen("rr 0.5", (RiskRatioTilt(0.5),) * 2)`, and fit it with the default method.
+[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time)
+states the contract.
 
 ## Longitudinal MSM projections
 
