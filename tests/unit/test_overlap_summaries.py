@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from cleverly._summary import SummaryTable, _render, vocabulary
+from cleverly.data.weighting import weighted_load_ratio
 from cleverly.sensitivity import positivity
 from cleverly.sensitivity._positivity_summary import mechanism_label, mechanism_words
 
@@ -181,6 +182,33 @@ def test_the_concentration_share_counts_only_weighted_rows() -> None:
     assert row[table.columns.index("rows")].value == 155.0
     assert round(row[table.columns.index("eff. share")].value, 2) == 0.70
     assert "most for att:" in summary.note("equation_concentration").text
+
+
+def test_the_group_row_selects_the_column_most_concentrated_over_weighted_rows() -> None:
+    """Three arms of different sizes: the selected equation is not just the smallest arm's."""
+    report = _report("overlap_three_arms")
+    row = report.group_score_load["mean"]
+    # h0 keeps 0.815 of its 138 weighted rows; h1, the smallest arm, keeps 0.937 of its rows
+    # and was selected while the score-mask ratio ranked the columns.
+    assert row["equation"] == "h0"
+    assert round(weighted_load_ratio(row), 3) == 0.815
+    assert (row["n_targeted"], row["zero_load"]) == (400.0, 262.0)
+
+
+def test_an_equation_where_no_row_carries_weight_is_named() -> None:
+    """An all-zero column ranks first and the note says so instead of dropping the group."""
+    report = _report("overlap_recording")
+    empty = {**report.group_score_load["mean"], "effective": 0.0, "targeted_ratio": 0.0}
+    empty["zero_load"] = empty["n_targeted"]
+    hollow = dataclasses.replace(
+        report, group_score_load={**report.group_score_load, "mean": empty}
+    )
+    text = hollow.summary().note("equation_concentration").text
+    assert text == (
+        "In the estimating equation no row carries weight for mean: every row's term in "
+        f"equation {empty['equation']} is zero."
+    )
+    assert weighted_load_ratio(empty) == 0.0
 
 
 def test_the_excluded_estimands_say_what_they_divide_by() -> None:

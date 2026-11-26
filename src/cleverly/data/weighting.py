@@ -314,6 +314,7 @@ __all__ = [
     "validate_score_loads",
     "warn_if_concentrated",
     "warn_if_counts",
+    "weighted_load_ratio",
 ]
 
 #: Design effect at which the weighting is called out rather than merely reported.
@@ -863,6 +864,29 @@ def score_load_row(load: FloatArray, equation: str, n_total: int) -> ScoreLoadRo
         "max_load": float(np.max(column)),
         "zero_load": float(np.count_nonzero(column == 0.0)),
     }
+
+
+def weighted_load_ratio(row: ScoreLoadRow | Mapping[str, Any]) -> float:
+    """Kish's effective count of a score column over its rows with a nonzero load.
+
+    ``targeted_ratio`` divides by every row of the score mask, which includes rows whose load
+    is zero by construction, such as the other arm's rows in an arm-indexed equation, so it
+    ranks a column by its arm's size as much as by how unevenly its rows are weighted.  This
+    ratio divides by ``n_targeted - zero_load`` instead.
+
+    Parameters
+    ----------
+    row : ScoreLoadRow or mapping
+        A row from :func:`score_load_row`, or a report row that carries its keys.
+
+    Returns
+    -------
+    float
+        ``effective / (n_targeted - zero_load)``, or ``0.0`` when no row carries a load, so
+        that an all-zero equation ranks as the most concentrated.
+    """
+    weighted = float(row["n_targeted"]) - float(row["zero_load"])
+    return float(row["effective"]) / weighted if weighted > 0 else 0.0
 
 
 def format_score_load(
