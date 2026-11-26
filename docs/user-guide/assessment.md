@@ -338,11 +338,14 @@ measures the spread of the predictions, so a finding says nothing about bias in 
 A fit without cross-fitting gets no finding. The report tests out-of-fold predictions only, and such
 a fit's model report records `nuisance.evaluation` as `in_sample` (`nuisance` is the outcome and
 treatment model report from `result.diagnostics.nuisance_models()`). A slope read on the rows a
-model was fitted to cannot show how the model does on new rows. For an unpenalized logistic model
-with an intercept it is exactly 1: the summary note names such models, and their reports have
-`slope_one_in_sample` set to `True`. When a slope is missing, `nuisance["propensity"].calibration_omission` names the cause
-for that model, for example predictions that are constant within every fold. `nuisance.summary()`
-prints each cause under the table, and `nuisance.to_frame()` has no column for it. The
+model was fitted to cannot show how the model does on new rows. For an unpenalized two-class
+`LogisticRegression` with an intercept, fitted by an ordinary TMLE, the slope is 1 by construction,
+up to the solver's tolerance. The summary note names such models, and their reports have
+`slope_one_in_sample` set to `True`.
+
+When a slope is missing, `nuisance["propensity"].calibration_omission` names the cause for that
+model, for example predictions that are constant within every fold. `nuisance.summary()` prints
+each cause under the table, and `nuisance.to_frame()` has no column for it. The
 [calibration-slope study](../technical-reference/method-evidence/calibration-slope-warning.md)
 measures the rule's false-warning rate and its detection rate for a yes/no treatment.
 

@@ -210,8 +210,9 @@ class NuisanceModelReport:
         Whether this in-sample probability report comes from an unpenalized two-class logistic
         regression with an intercept, fitted on the rows the report reads, whose calibration
         slope is then exactly 1 by its score equations (Riley et al., 2021, Section 2.1.2).
-        ``False`` for any other learner, a penalized fit, a one-vs-rest arm of a multi-class
-        mechanism, and out-of-fold predictions.
+        ``False`` for any other learner, a penalized or class-weighted fit, a one-vs-rest arm of
+        a multi-class mechanism, a declared or collaborative treatment mechanism, and
+        out-of-fold predictions.
     """
 
     name: str
@@ -525,8 +526,8 @@ class NuisanceDiagnostics:
         One report per fitted nuisance model.
     evaluation : {"out_of_fold", "in_sample"}
         Whether the predictions the reports read were made out of fold. The calibration-slope
-        rule tests out-of-fold predictions only, because an unpenalized logistic model with an
-        intercept has an in-sample slope of exactly 1.
+        rule tests out-of-fold predictions only, because a slope read on the rows a model was
+        fitted to says nothing about new data.
     n_repeats : int
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
@@ -1168,28 +1169,39 @@ def _unpenalized_logistic(learner: Any) -> bool:
 
     scikit-learn drops the penalty with ``C=np.inf`` and, in releases that still accept it,
     with ``penalty=None``. A large finite ``C`` is a penalty, however weak, so it does not
-    count: the slope is then near 1 but not 1 by construction.
+    count: the slope is then near 1 but not 1 by construction. Class weights change the score
+    equations, so a learner with ``class_weight`` set does not count either. The slope is 1 up
+    to the solver's convergence tolerance.
     """
     from sklearn.linear_model import LogisticRegression
 
     if type(learner) is not LogisticRegression or not learner.fit_intercept:
         return False
+    if learner.class_weight is not None:
+        return False
     penalty = getattr(learner, "penalty", "l2")
     return bool(np.isinf(learner.C) or penalty is None or penalty == "none")
 
 
-def _slope_one_reports(
-    result: TMLEResult, models: Sequence[NuisanceModelReport]
-) -> frozenset[str]:
-    """The in-sample two-class reports whose learner makes the calibration slope exactly 1."""
+def _slope_one_reports(result: TMLEResult, models: Sequence[NuisanceModelReport]) -> frozenset[str]:
+    """The in-sample two-class reports whose learner makes the calibration slope exactly 1.
+
+    Only an ordinary :class:`~cleverly.estimators.TMLE` fit reports the plain fit of its
+    configured learners. A collaborative fit reports a selected or penalized working model,
+    and a declared treatment mechanism is not fitted at all, so neither is flagged.
+    """
+    from ..estimators.tmle import TMLE
+
     estimator = getattr(result, "estimator", None)
-    if estimator is None:
+    if type(estimator) is not TMLE:
         return frozenset()
+    declared = result.nuisance.treatment_mechanism == "known"
     return frozenset(
         model.name
         for model in models
         if model.kind == "probability"
         and model.name in _TWO_CLASS_LEARNERS
+        and not (model.name == "propensity" and declared)
         and _unpenalized_logistic(getattr(estimator, _TWO_CLASS_LEARNERS[model.name], None))
     )
 

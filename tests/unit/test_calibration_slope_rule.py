@@ -688,11 +688,11 @@ class TestTheRule:
     def test_w10b_only_an_unpenalized_two_class_fit_is_called_slope_one(self) -> None:
         """The note says "1 by construction" only where the score equations make it true.
 
-        Witness: the unpenalized two-class fit has slope 1 to 1e-8 and is named. Controls: the
-        default (penalized) logistic regression on the same rows has a slope that is not 1,
-        and a penalized multinomial treatment model over three arms reports one-vs-rest
-        slopes that are not 1; neither is named, and the note keeps only its general
-        sentence.
+        Witness: the unpenalized two-class fit has slope 1 to 1e-8 and both models are named.
+        Controls, each with a slope that is not 1 and no flag: a penalized logistic regression
+        on the same rows, a class-weighted one, the same unpenalized learner beside a declared
+        treatment mechanism, and an unpenalized multinomial treatment model over three arms,
+        whose one-vs-rest logits are not linear in the covariates.
         """
         frame = _law(2000, 2, (1.0, -0.5), seed=2)
         exact = _fit(frame, _logistic(), seed=2, cross_fit=False).diagnostics.nuisance_models()
@@ -700,24 +700,52 @@ class TestTheRule:
         assert exact["propensity"].metrics["calibration_slope"] == pytest.approx(1.0, abs=1e-8)
         note = exact.summary().note("calibration").text
         assert "carry no test" in note
-        assert "treatment model and outcome model are an unpenalized" in note
-        assert "1 by construction" in note
+        assert "treatment model and outcome model are unpenalized logistic regressions" in note
+        assert "slopes are 1 by construction" in note
 
-        penalized = _fit(
-            frame, LogisticRegression(C=0.01, max_iter=1000), seed=2, cross_fit=False
-        ).diagnostics.nuisance_models()
-        assert not penalized["propensity"].slope_one_in_sample
-        assert abs(penalized["propensity"].metrics["calibration_slope"] - 1.0) > 1e-3
-        note = penalized.summary().note("calibration").text
-        assert "carry no test" in note
-        assert "outcome model is an unpenalized" in note
-        assert "treatment model" not in note
+        for learner in (
+            LogisticRegression(C=0.01, max_iter=1000),
+            LogisticRegression(
+                C=np.inf, class_weight={0.0: 1.0, 1.0: 3.0}, solver="newton-cholesky", tol=1e-12
+            ),
+        ):
+            report = _fit(frame, learner, seed=2, cross_fit=False).diagnostics.nuisance_models()
+            assert not report["propensity"].slope_one_in_sample
+            assert abs(report["propensity"].metrics["calibration_slope"] - 1.0) > 1e-4
+            note = report.summary().note("calibration").text
+            assert "outcome model is an unpenalized" in note
+            assert "treatment model" not in note
+
+        declared = _law(2000, 2, (1.0, -0.5), seed=2)
+        g = expit(0.8 * declared["W1"] - 0.5 * declared["W2"]).to_numpy()
+        known = (
+            TMLE(
+                outcome_learner=_logistic(),
+                treatment_learner=_logistic(),
+                simultaneous=False,
+                estimands=("ate",),
+                random_state=2,
+                cross_fit=False,
+            )
+            .fit(
+                declared,
+                outcome="Y",
+                treatment="A",
+                treatment_probabilities=np.column_stack([1.0 - g, g]),
+            )
+            .single()
+            .diagnostics.nuisance_models()
+        )
+        assert known.treatment_role == "declared_treatment_law"
+        assert not known["propensity"].slope_one_in_sample
+        assert abs(known["propensity"].metrics["calibration_slope"] - 1.0) > 1e-4
+        assert "treatment model" not in known.summary().note("calibration").text
 
         arms, _ = make_multi_arm(n=600, seed=0)
         multi = (
             TMLE(
                 outcome_learner=LinearRegression(),
-                treatment_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=_logistic(),
                 simultaneous=False,
                 estimands=("ate",),
                 random_state=0,
@@ -735,9 +763,7 @@ class TestTheRule:
         assert len(slopes) == 3
         assert max(abs(slope - 1.0) for slope in slopes) > 1e-3
         assert not any(model.slope_one_in_sample for model in multi.models)
-        note = multi.summary().note("calibration").text
-        assert "carry no test" in note
-        assert "by construction" not in note
+        assert "by construction" not in multi.summary().note("calibration").text
 
 
 # ------------------------------------------------------------ W11 to W13: the surfaces

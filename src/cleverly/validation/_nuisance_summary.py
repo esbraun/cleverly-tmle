@@ -175,8 +175,8 @@ def _calibration_note(check: NuisanceDiagnostics) -> Note | None:
         exact = [model_words(model.name) for model in probability if model.slope_one_in_sample]
         if exact:
             sentences.append(
-                vocabulary.CALIBRATION_SLOPE_ONE.format(
-                    models=" and ".join(exact), verb="is" if len(exact) == 1 else "are", one=1
+                vocabulary.CALIBRATION_SLOPE_ONE[len(exact) > 1].format(
+                    models=" and ".join(exact), one=1
                 )
             )
     else:
