@@ -1,6 +1,6 @@
 """Seed sweep of the modified-treatment-policy fit of docs/examples/interventions.ipynb.
 
-Each seed ``s`` draws ``make_shift_dose(n=3000, seed=s, shifts=...)`` with the page's four
+Each seed ``s`` draws ``make_shift_dose(n=3000, seed=s, policies=...)`` with the page's four
 policies, and runs the Step 9 fit and the Step 10 cap gap for each configuration below, every
 ``random_state`` set to ``s``.  All fits are in sample (``CrossFitting(enabled=False)``), as on
 the page.
@@ -53,9 +53,9 @@ SHIFTS = (
     (0.5, None, "+0.5 uncapped"),
     (1.0, None, "+1.0 uncapped"),
 )
-CAPPED = "ate_shift[+0.5 capped at 5 vs current practice]"
-UNCAPPED = "ate_shift[+0.5 uncapped vs current practice]"
-ONE = "ate_shift[+1.0 uncapped vs current practice]"
+CAPPED = "ate_policy[+0.5 capped at 5 vs current practice]"
+UNCAPPED = "ate_policy[+0.5 uncapped vs current practice]"
+ONE = "ate_policy[+1.0 uncapped vs current practice]"
 
 
 def learners(configuration: str, seed: int, dose):
@@ -111,7 +111,7 @@ def one_seed(seed: int, configurations: tuple[str, ...]) -> list[dict]:
     from cleverly.datasets import make_shift_dose
     from cleverly.interventions import Shift
 
-    frame, truth = make_shift_dose(n=3_000, seed=seed, shifts=SHIFTS)
+    frame, truth = make_shift_dose(n=3_000, seed=seed, policies=SHIFTS)
     effect = CausalStudy(
         frame,
         design=PointTreatment(
