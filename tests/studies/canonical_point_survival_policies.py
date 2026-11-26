@@ -54,7 +54,7 @@ defect, an inconsistent estimator, or a test or design bug that makes the cell m
 wrong thing) is fixed and re-run under a fresh declaration commit that records the change.
 Nothing changes to make a cell easier to pass: no margin, budget, law or cell moves.
 A red paired ``lmtp`` row with no defect stays published red under an owner row named
-for its diagnosed reading, as ``RM18-comparator-density`` is.  Any other red cell with no
+for its diagnosed reading, as ``RM18-comparator-density`` was.  Any other red cell with no
 defect stays published red under ``X13-finite-sample``.  A replication that raises is never
 redrawn: a failed replication fails the run.
 """
@@ -146,7 +146,7 @@ STUDY = StudyRecord(
     slug="point-treatment-survival-policies",
     artifacts=ROOT / "tests" / "canonical" / "point_survival_policies",
     document="docs/technical-reference/method-evidence/point-treatment-survival-policies.md",
-    anchor="point-treatment-survival-policies",
+    anchor="policies-at-a-held-baseline-treatment",
     scenarios=ESTIMANDS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

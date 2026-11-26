@@ -121,13 +121,15 @@ Ertefaie, Hejazi & van der Laan (2023), Section 3, Theorem 1, cover IPW with an 
 propensity at one time point only. For an interval with data-adaptive learners, fit `LTMLE` or
 `SDR`.
 
-The full-refit bootstrap runs and reports `bootstrap sd` with no percentile inference, as for
-`SDR`. No registered study measures it for the baselines.
+The full-refit bootstrap runs and reports the percentile interval under the `experimental` label.
+`bootstrap_interval="bca"` is refused
+([engine settings on a method object](scope-and-refusals.md#engine-settings-on-a-method-object)).
+No registered study measures the bootstrap for the baselines.
 
 ### Clusters
 
-A cluster is the unit of the curve, as for `LTMLE`. The few-cluster floor of `LTMLE` applies
-unchanged. No study measures that floor for the baselines.
+A cluster is the unit of the curve, as for `LTMLE`, and the default longitudinal floor of 20 positive-mass clusters applies; only `LTMLE` without repeated splits has lower measured floors ([few clusters](inference.md#few-clusters)). No study measures that floor
+for the baselines.
 
 ## Settings
 
@@ -140,9 +142,26 @@ unchanged. No study measures that floor for the baselines.
 | `treatment_learner=`, `censoring_learner=` | fit the diagnostic mechanism only | fit the estimate |
 | `outcome_learner=`, `pseudo_learner=` | fit the estimate | `CapabilityError`. IPW fits no outcome regression |
 | `normalization=` | none | `"hajek"` (default) or `"horvitz_thompson"` |
+| `reference=`, `horizons=` | the reference regimen of the contrasts and the reported horizons, as for [`LTMLE`](longitudinal-tmle.md#variations) | the same |
+| `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=`, `band_scale=`, `band_reference=` | the interval level and the simultaneous band, which is on by default, as for `LTMLE` | the same |
+| `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap above | the same |
+| `learner_folds=`, `n_jobs=`, `random_state=`, `run_id=` | the inner Super Learner split, the worker count, the seed and the run label, as for `LTMLE` | the same |
+| `node_bounds=` | `MethodConfigurationError` with code `invalid_declaration` | the same |
+| `variance="policy_weighted"` | `CapabilityError` with code `invalid_declaration` | the same |
+| `bootstrap_interval="bca"`, `msm=`, `ratio_trim=`, `hazard_pooling="pooled"`, `repeats` above 1 | `CapabilityError` with code `api_redirection` | the same |
 
-The default `GLM()` follows the `SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
+The baselines take no `survival_model=`, `targeting=`, `isotonic=`, `cluster_variance=` or
+`max_memory_bytes=`, so passing one raises `TypeError`. The default `GLM()` follows the
+`SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
 adds products of distinct columns.
+
+## Assessment and run size
+
+`refute()` runs on these fits, and the simulated common-cause surface replays them, as
+[which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-checks)
+state. `CausalStudy.planned_fits` counts the learner fits before a run. The memory guard does not
+cover these estimators, so `max_memory_bytes=` raises `TypeError`.
 
 ## Diagnostics
 
@@ -165,7 +184,7 @@ treatment.
 | `hazard_pooling="pooled"` | both | `CapabilityError`. Each baseline fits its own node models. `LTMLE` and `SDR` fit a pooled hazard |
 | an odds tilt with an estimated mechanism | both | `CapabilityError`. Fit `IPSI` |
 | a modified treatment policy | IPW | `CapabilityError`. IPW of a shifted law needs a density ratio |
-| `ratio=`, `density_bins=` | IPW | `CapabilityError` |
+| `ratio="classifier"`, `density_bins=` | IPW | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | g-computation | `CapabilityError`. The scale moves with the sample extremes. Declare `q_bounds=`, or pass `GLM(family="gaussian")` |
 | `longitudinal_truncation_curve` | g-computation | `CapabilityError`. `g_bounds` does not move the estimate |
 | a prediction through a `GLM` column that the followers alias | g-computation | `DataError`. The column has no coefficient, so the prediction assumes that the column has no effect |
@@ -180,6 +199,12 @@ treatment level occurs among the rows at risk. Where no unit follows the regimen
 
 A diagnostic mechanism that cannot fit, for example under separation, does not stop a
 g-computation fit. The fit warns with `PositivityWarning`, and the diagnostics report `nan`.
+On the classifier density-ratio route, a modified policy can leave some recorded doses
+unassigned, as one held inside a declared band does. The exact ratio there is zero, so the
+policy's step columns separate the stacked observed and policy rows. The default unpenalized `GLM` treatment
+learner cannot fit that design. The warning then names the remedy: pass a penalized classifier,
+such as scikit-learn's `LogisticRegression`, as `treatment_learner=`
+(`tests/unit/test_gcomp_mechanism_warning.py`).
 
 ## Validation
 

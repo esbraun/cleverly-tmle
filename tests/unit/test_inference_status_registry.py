@@ -31,6 +31,7 @@ from cleverly._inference_status import (
 from cleverly._summary.vocabulary import SPREAD_LABELS
 from cleverly.inference import influence
 from cleverly.inference.influence import spread_name
+from cleverly.inference.policy import VarianceSource
 
 ROOT = Path(__file__).resolve().parents[2]
 INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
@@ -43,6 +44,7 @@ PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_mechanism_plugin",
+    "reduced_regression_plugin",
     "estimated_weight_plugin",
     "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
@@ -361,3 +363,12 @@ class TestTheFewClusterThreshold:
         code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
         written = [line for line in code if re.search(rf"\b{literal}\b", line)]
         assert written == [constant]
+
+
+class TestVarianceSourcesAreDocumented:
+    def test_every_variance_source_is_named_where_the_page_routes_them(self) -> None:
+        """``inference.md`` names each ``VarianceSource`` value where it routes the variance rules."""
+        text = INFERENCE_PAGE.read_text(encoding="utf-8")
+        section = text.split("## What is not on this page", 1)[1].split("\n## ", 1)[0]
+        named = set(re.findall(r'`"([a-z_]+)"`', section))
+        assert set(get_args(VarianceSource)) <= named

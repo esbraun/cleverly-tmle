@@ -620,7 +620,7 @@ counts, so each arm must appear in two distinct clusters. See
 | `target_weights=` | whether the fluctuation carries the covariate as a weight or as a regressor | no. The weighted and clever-covariate forms solve the same equation |
 | `g_bounds=` | the treatment-mechanism truncation. `"auto"` is target-aware | it changes the finite-sample procedure. Report it with the support diagnostics |
 | `q_bounds=`, `submodel_alpha=` | the outcome scaling, and the logistic submodel bound | no. A cross-fitted fit of a continuous outcome refuses `q_bounds=None` |
-| `screen_treatment=`, `screen_threshold=`, `min_retain=` | covariate screening for the treatment mechanism | no |
+| `screen_treatment=`, `min_retain=` | keeps the treatment-mechanism covariates that predict the outcome with the treatment held fixed. See [covariate screening](#covariate-screening) | no. It changes the treatment-mechanism estimator |
 | `stopping=` | the rule that decides the score equation is solved. `"relative"` is the shipped test | it changes when the targeting stops and how the result judges the residual. See [stopping rules](#stopping-rules-step-bound-and-best-iterate) |
 | `step_bound=`, `step_search=` | the longest step of one iteration, and whether a line search sets its length | it changes the path of the iteration. The score equation is the same |
 | `iterate=` | which iterate of the walk the fit reports | it changes the reported fit only when the walk oscillates |
@@ -628,8 +628,12 @@ counts, so each arm must appear in two distinct clusters. See
 | `conditional_form=` | the ATT and ATC plug-in: the mean over the conditioning arm (`"arm_mean"`), or the declared-score weighted mean (`"known_score"`) | **yes.** The second is the TMLE of the model with a known mechanism and needs one. See [known treatment mechanism](#known-treatment-mechanism) |
 | `treatment_adjustment=` | the adjustment columns the treatment mechanism reads | **yes.** It restricts the statistical model. See [treatment-mechanism covariates](#treatment-mechanism-covariates) |
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
+| `cluster_variance=` | `"jackknife"` would replace the cluster influence-curve variance with the delete-one-cluster jackknife. `TMLE` refuses it on every fit today, before any learner ([cluster jackknife](inference.md#cluster-jackknife)) | no. It changes the variance estimator only |
 
 `submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level.
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
 
 ### Stopping rules, step bound and best iterate
 
@@ -728,11 +732,13 @@ $$
 \hat\psi \pm \bigl(z\,\widehat{\mathrm{se}} + \lvert r_n\rvert\bigr),
 $$
 
-on the scale the interval is built on: the logit or log scale for a transformed estimate, the
-log scale for a ratio. On an unclustered mean of a binary outcome, whose interval is built on the
-logit scale ([small-sample scale](inference.md#small-sample-scale)), the residual enters as
+on the scale the interval is built on ([small-sample scale](inference.md#small-sample-scale)):
+the logit or log scale for a transformed estimate, the log scale for a ratio. On an unclustered
+mean of a binary outcome, whose interval is built on the logit scale, the residual enters as
 $\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
-error. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+error. On an unclustered difference of two such means with recorded components (correlated
+MOVER) and on an unclustered estimate of a continuous outcome (the skew-widened $t$),
+$\lvert r_n\rvert$ is added to each side's half-width. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
 curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
@@ -793,10 +799,14 @@ in sample at n = 2,000 on the `canonical-tmle` binary and continuous laws, under
 the Newton and the one-step walk. The widened interval covers 0.949 to 0.957 of the ATE. On the
 one-step walk a `scaled_var` residual reaches 0.01 SE on 0.854 (binary) and 0.999 (continuous) of
 draws. With every threshold eight times larger, so that the rule binds hard, the plain interval
-of the mean under treatment covers 0.837 and the widened one 0.977. The
-support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
-`experimental`. The binary-outcome interval rows will be recomputed with the composed half-width
-when the planned small-sample interval for bounded estimates ships.
+of the mean under treatment covers 0.837 and the widened one 0.977.
+
+The support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
+`experimental`. The committed rows record the identity interval. Read under the logit interval
+of a binary mean, they move no verdict (`tests/canonical/interval-audit-screen.csv`). A refit of
+the committed draws under MOVER and the skew-widened $t$ moves none either
+(`tests/canonical/asymmetric-audit-screen.csv`, with the refits in
+`tests/canonical/asymmetric-refit/option-stopping-point/`).
 
 #### What the result reports
 
@@ -1089,9 +1099,8 @@ the full set.
 
 The declaration restricts the observed-data model, and it does not change the estimand. The
 design carries a pinned text in `Identification.model_restrictions`. Every estimator on the design
-prints it as the first item under Assumptions in `summary(detail="full")`, and a low-level fit
-prints the same text from the data. The text
-reads, with $W_g$ written as `{name, name}`:
+prints it under Assumptions in `summary(detail="full")`, and a low-level fit prints the same text
+from the data. The text reads, with $W_g$ written as `{name, name}`:
 
 > statistical-model restriction, treatment-mechanism covariates {Wg}: the treatment mechanism
 > depends on the adjustment covariates only through {Wg}. It restricts the observed-data model and
@@ -1223,6 +1232,58 @@ A refusal covers each composition that has no meaning.
 The R fixture `ctmle_wg.json` checks the candidate pool of the restriction. See
 [treatment-mechanism covariates and the candidate pool](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool).
 
+### Covariate screening
+
+`screen_treatment=True` fits the treatment mechanism on a subset of $W_g$ chosen by the outcome.
+Inside each training set, $Y$ and every column of $[W_g,\ W_g \cdot T]$ are regressed on a basis
+$B(A)$ of the treatment, and a lasso of the outcome residual on the covariate residuals, weighted
+and standardized, chooses its penalty by cross-validation at the minimum (`lambda.min`). A
+covariate is kept when its main term or any of its products with $T$ is nonzero.
+`min_retain=` is the fewest kept; `None` is R's `min(ceil(n_eff / 20), p)`, with
+`n_eff = min(5 * smallest arm count, n)` on a discrete treatment and `n_eff = n` otherwise, so the
+default keeps every covariate unless $p$ is large next to the effective sample size. Below the
+floor, covariates are added in the order they enter the lasso path, then by their residual
+correlation with the outcome.
+
+| treatment | $B(A)$, held fixed | $T$, the interaction terms |
+| --- | --- | --- |
+| binary or categorical | intercept and drop-first arm indicators | the arm indicators |
+| continuous dose | intercept and a cubic spline with four interior quantile knots | the centred dose |
+| vector | each component's basis above | each component's terms above |
+
+The rule holds the treatment fixed because an exposure-only covariate (an instrument) predicts
+the outcome marginally through $A$, so a marginal outcome screen keeps it. Shortreed and
+Ertefaie (2017, Section 3) weight their propensity penalty by an outcome regression on $X$ and
+$A$ for this reason, adding treatment-covariate interactions under effect heterogeneity
+(Section 5). Brookhart et al. (2006, pages 1152 and 1155 to 1156) define the covariate roles by
+an outcome model that includes the exposure. Both report that exposure-only covariates inflate
+the variance without reducing bias, and that outcome-only covariates reduce it.
+
+A confounder dropped from the treatment mechanism leaves the estimate consistent when the
+outcome regression is consistent. The remainder is then first order in the outcome-regression
+error, so the influence-curve interval also needs that error to be $o_P(n^{-1/2})$, which a
+data-adaptive regression does not give ([DR-TMLE](dr-tmle/index.md) addresses this case). The
+estimate is biased when the outcome regression is not consistent. Brookhart et al. (2006, page 1156) advise
+against excluding an exposure-related covariate in a moderate-sized study unless it is known to
+be unrelated to the outcome. `lambda.min` errs towards keeping covariates, which reduces the
+risk of that bias and lets some exposure-only or noise covariates through. The
+selection is data-adaptive, so the plug-in robustness value refuses it (`screened` and
+`treatment_design` in [validation methods](validation-methods.md)).
+
+| | R `tmle` 2.1.1 `.prescreenW.g` | this package |
+| --- | --- | --- |
+| outcome model | lasso of $Y^\*$ on $W$ alone, family of $Q$ | lasso of the residuals after $B(A)$, squared loss, with $W \cdot T$ |
+| floor default | `min(ceil(n_eff / 20), p)` | the same; `n_eff = n` for a dose or vector, where R's binary rule gives 5 |
+| fill below the floor | `order(abs(cor(A, W)))`, ascending | lasso path entry, then residual correlation |
+| outcome-missingness model | screened with the same set | not screened |
+| where | the whole sample | each training set; the reported set is the whole-sample support |
+
+Partialling on $B(A)$ is done once per training set, and the penalty search then runs on the
+residuals. Inner folds keep each cluster whole and otherwise assign a unit by a fixed hash of
+its index, so the screen reads neither treatment nor outcome to split. The witnesses with their
+mutation controls are in `tests/unit/test_outcome_screen.py`: each law was checked on 200 seeds,
+the witness holding on every seed and each control failing on every seed.
+
 ### Known treatment mechanism
 
 A randomized trial fixes its treatment mechanism $g_0(a\mid W)$ by design. Declare it with
@@ -1350,8 +1411,8 @@ $g^d/g$, and the plug-in reads the observed treatment. A declared $g_0$ is the d
 $g_n=g_0$. The remainder is a product of the ratio error and the outcome error, so it is zero.
 The shipped curve at $(\bar Q_\infty,g_0)$ is therefore exact. The fit evaluates the discrete formula at the
 declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the fit
-whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
-is refused beside a declaration.
+whose learner returns $g_0$, at two and three arms. An explicit `ratio="classifier"` learns the ratio, so it
+is refused beside a declaration, and the default `ratio=None` resolves to the density route.
 
 **Weights.** A weighted fit estimates the parameter of the tilted law $dP_w = w\,dP/E[w]$
 (see the module docstring of `cleverly.data.weighting`) and divides by that law's mechanism. By Bayes' rule
@@ -1459,7 +1520,7 @@ sweep.
 | --- | --- | --- |
 | `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects or fits the mechanism, and the declaration leaves nothing to select or fit |
 | a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
-| `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
+| `policies=` with an explicit `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
 | `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |
 | `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
 | `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
@@ -1804,12 +1865,15 @@ The key carries `rule_learner_ep`. The registered, gated
 [EP rule-learner study](method-evidence/learned-rule-ep.md) measures the default sieve with
 least squares, on unweighted rows with pooled targeting, `repeats=1` and no `id=`, at both RM30
 laws. Rows `T51` (the learned-rule value) and `T51.optimal` (the value of the optimal rule with
-the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported. A
-declared sieve, fixed size, schedule or final learner reads experimental through its own
-condition, because the key holds neither choice; the declared `learned-rule-ep-declared` study
-(`tests/studies/learned_rule_ep_declared.py`, not yet run; its declared run
-`python -m tests.canonical.learned_rule_ep_declared.regenerate` holds the red-cell readings) measures a fixed-size B-spline sieve and
-a shallow gradient-boosting final learner, and the condition goes when it is registered. An EP
+the treatment mechanism supplied, `treatment_probabilities=`) label those fits supported.
+
+The registered, gated [declared-curve study](method-evidence/learned-rule-ep-declared.md) measures a
+fixed-size B-spline sieve and a shallow gradient-boosting final learner at both laws, and both
+rows cite it. The key holds neither choice, so any declared sieve, fixed size, schedule or final
+learner reads supported, and the interval then needs the fold rules to converge to a fixed rule
+(C3), which the package cannot check for the user's learner. The value of the optimal rule with
+a declared final learner reads experimental through its own condition: no limit is claimed for a
+final learner, and the study's cell for it states no verdict. An EP
 rule fit reports `rule_disagreement` for each split, as every learned rule does. Weights, clusters, fold targeting, `repeats`
 above 1, known regimes, a continuous outcome and, for the optimal value, an estimated $g$ read
 experimental too.
@@ -1829,6 +1893,12 @@ about 13% (SD 9%) of the error variance at n = 2,000 and 6.5% (SD 3%) at 4,000. 
 declared run each calibration draw also fits the fit whose rule is fixed at the EP limit rule,
 on the same draws. Its error variance is within about 1% of the learned fit's at both laws and
 about 2% for the optimal value, and its own SE ratios are 1.004, 1.011 and 0.996.
+
+With the declared sieve and the declared learner the interval is calibrated at n = 16,000 too:
+SE ratios 0.9965 and 0.9919 for the sieve and 0.9980 and 0.9956 for the learner at the two laws,
+and 0.9967 for the optimal value with the sieve, with coverage 0.9469 to 0.9501 (12,000 draws
+each). At n = 2,000 the SE ratios are 0.9289 and 0.9522 for the sieve and 1.0096 and 0.9544 for
+the learner, so a declared curve at that size can give an interval up to about 7% narrow.
 
 At the RM30 `exceptional` law the effect is zero everywhere, so C3 fails, and the interval
 under-covers: coverage 0.901 (99% interval 0.885 to 0.916) and SE ratio 0.833 at n = 2,000. No
@@ -2098,7 +2168,9 @@ and a fit with an estimated $g$ moves the point by more than 0.01. A cross-fitte
 #### Contrasts with known regimes
 
 `TMLE(learned_rule=LearnedRule(), interventions=[Static(1)])` fits the learned rule beside known
-regimes. Each known regime $K$ of `interventions=` is one more column of the fit's regime set,
+regimes. The typed spelling is `LearnedRuleContrast(against=(Static(1),))`, and
+`OptimalRuleContrast(against=...)` is the same fit for the value of the optimal rule. Each
+estimates the engine fit bit for bit, and reports the same names. Each known regime $K$ of `interventions=` is one more column of the fit's regime set,
 after the learned rule, on the same folds, and one fluctuation targets every column. The fit
 reports three kinds of parameter. `ey_learned_rule[...]` is the learned-rule value of the
 fit's report, `ey_known_regime[K]` targets $\Psi_K(P_0)$, and `ate_learned_rule[... vs K]`
@@ -2141,8 +2213,10 @@ the record describes it.
 
 | composition | result |
 | --- | --- |
-| either report on rows, with pooled targeting, the plug-in rule and `repeats=1` | supported (rows `T44.fold_evaluated` and `T44.stacked`), measured by the [contrast study](method-evidence/learned-rule-contrast.md) beside `Static(1)` and `Static(0)` at n = 2,000 with ten folds. Each row labels the learned value, every known value and every contrast |
-| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that neither `T44` row declares |
+| either report on rows, with pooled targeting, the plug-in rule and `repeats=1`, beside `Static` regimes and known `Rule`s | supported (rows `T44.fold_evaluated` and `T44.stacked`), measured by the [contrast study](method-evidence/learned-rule-contrast.md) beside `Static(1)` and `Static(0)` at n = 2,000 with ten folds. Each row labels the learned value, every known value and every contrast |
+| any other known regime beside the rule, such as a `Stochastic` regime, on rows under either report with the same settings | supported (rows `T58.stochastic.<report>`, and `T58.combined.<report>` beside a natural course too), measured by the [comparators study](method-evidence/learned-rule-contrast-comparators.md). The key adds the qualifier `known_stochastic_regimes` (see "Stochastic regimes and the natural course beside a learned rule" under [Learned rules](#learned-rules)) |
+| `NaturalCourse()` beside the rule, on rows under either report with the same settings | supported (rows `T58.natural_course.<report>`), measured by the same study. The key adds the qualifier `natural_course` (see "Stochastic regimes and the natural course beside a learned rule" under [Learned rules](#learned-rules)) |
+| the in-sample fit, fold targeting, known weights, `id=`, `strata=`, a rule learner, `repeats` above 1, supplied treatment probabilities | admitted, experimental. The key carries the qualifier `known_regimes` beside an axis or qualifier that no `T44` or `T58` row declares |
 | `simultaneous=True`, the default | no band over a known value or a contrast, [X11](../roadmap.md#x11-learned-policy-follow-ups) (c2). The fit skips the band and `summary()` says why, as for a Student $t$ reference, and `simultaneous_bands()` called on those estimates raises `CapabilityError` (`inference_gap`). The stratified band of the learned-rule value alone still runs when only `ey_learned_rule` is requested |
 | `policies=`, `incremental=` or `msm=` | refused, X11 (c2), row 2 of the table below |
 | `repeats` above 1 with `id=`, and `strata=` with `id=` | refused, rows 8 and 7 |
@@ -2175,6 +2249,69 @@ conservative-variance route. The contrast's SE keeps the covariance: at correlat
 contrasts cover 0.04 to 0.09, and as if independent their SE ratios are 1.34 to 1.48. Other fold
 counts, `reference=` naming the rule, dynamic known rules and more than two known regimes share
 the rows' key and rest on the witnesses above.
+
+#### Stochastic regimes and the natural course beside a learned rule
+
+A known `Stochastic` regime is one more column of the regime set, with density $g^\star$, so its
+curve is the shipped regime curve
+$D_K = g^\star(A \mid W)/g_n(A \mid W)\,(Y - \bar Q^*_K(A, W)) + \sum_a g^\star(a \mid W)\bar
+Q^*_K(a, W) - \psi_K$. Every check that admits a known regime admits it, and the contrast is the
+difference of curves as above. A known `Rule` reduces bit for bit to a one-hot column, which T44
+measures. A density that is not one-hot changes the clever covariate, the variance and the
+covariance with the learned column, so the support key marks it with the qualifier
+`known_stochastic_regimes` unless every regime is exactly a `Static` or a known `Rule`.
+
+`NaturalCourse()` declares the mean of the observed outcome, $\mu_0 = E_0 Y$, as a comparator.
+`LearnedRuleContrast(against=(NaturalCourse(),))` reports `ey_learned_rule[...]`,
+`ey_natural_course[natural course]` and `ate_learned_rule[... vs natural course]`, which targets
+$\tilde\psi_{0n} - \mu_0$. Under consistency that is $E[Y^{d}] - E[Y^{g_0}]$, the gain over
+current practice. The engine spelling passes it in `interventions=` beside a `learned_rule=`.
+
+The natural course stays outside the regime set, the joint fluctuation and the density array.
+Its point is the fold mean $\sum_v (1/V)\bar Y_v$ under fold evaluation and $\bar Y$ under the
+stacked report or in sample, with the curve $D_N = Y - \bar Y_{v(i)}$ or $Y - \bar Y$. The
+contrast's curve is $D_L - D_N$ under the report's variance rule. Because the natural course
+never enters the fluctuation, a fit beside `[Static(0), coin, NaturalCourse()]` reports the
+learned and regime columns of the fit beside `[Static(0), coin]` bit for bit.
+
+The variance results differ from the shared-$g$ case above. Write $P = \Pi(D_L \mid T_g)$.
+
+| case | reported variance of the natural-course contrast |
+| --- | --- |
+| $\bar Q$ consistent | consistent, since $P = 0$ |
+| $g$ known (`treatment_probabilities=`) | consistent, since no projection arises |
+| $\bar Q$ misspecified, $g$ by maximum likelihood in a correct model | no conservativeness result. $\bar Y$ reads no $g$, so the true curve is $(D_L - P) - D_N$, and the reported $\mathrm{Var}(D_L - D_N)$ exceeds the true variance by $\mathrm{Var}(P) - 2\,\mathrm{Cov}(D_N, P)$, which can take either sign. On RM30's `misspecified_limit` law the predicted reported over true SE is about 0.998 (`tests/unit/test_learned_rule_contrast_comparators_design.py`) |
+| flexible or misspecified $g$ | neither result, as for T44 |
+
+The contrasts against `Static`, `Rule` and `Stochastic` regimes keep the shared-$g$ argument
+above.
+
+| composition | result |
+| --- | --- |
+| `NaturalCourse()` as the only regime of a fit without `learned_rule=` | refused (`api_redirection`) to `NaturalCourseMean()`, which estimates $E[Y]$ |
+| `NaturalCourse()` beside known regimes without a learned rule, in `RegimeMean`, `RegimeContrast` or a longitudinal regimen | refused (`implementation_gap`): a regime fit has no natural-course column. A known regime against the natural course is [X11](../roadmap.md#x11-learned-policy-follow-ups) part (c4), and `PopulationAttributableRisk(reference=a)` gives $E[Y] - E[Y^a]$ for a static arm |
+| two natural courses (`DataError`), or two comparators with one name | refused as declaration errors |
+| `intermediate=` beside a natural course | refused (`different_estimand`). The learned value holds the intermediate at a level and the natural course does not hold it |
+| `ey_natural_course` without a declared natural course | refused as a declaration error |
+| fold-evaluated `strata=` | refused with the stratified fold-evaluated refusal, [X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| the omitted-variable bound | `ey_natural_course` refuses, since it has no confounding to bound. Its contrast refuses with the contrast reason, X11 (n2) |
+| `simulated_confounding` | refused, X11 |
+
+`tests/unit/test_learned_rule_natural_course.py` and `tests/unit/test_learned_rule_contrast_study.py`
+hold the witnesses. The natural course's point is the fold-weighted mean outcome exactly, under
+both reports. The natural-course-only fit equals a stub-rule fit's value minus
+$\sum_v (1/V)\bar Y_v$, built longhand.
+
+The combined fit's learned and regime columns equal the fit
+without the natural course bit for bit, and dropping $D_N$ from the curve fails the Gateaux
+check in `tests/unit/test_influence_gateaux_learned_rule_contrast.py`. A one-hot `Stochastic`
+equals the known `Rule` of the same plan bit for bit, and the offer
+$0.5\,\mathbb 1\{W_1 > 0\}$ differs from its one-hot rounding. The
+[comparators study](method-evidence/learned-rule-contrast-comparators.md) (`T58`) passed every
+verdict at n = 2,000 beside `Static(0)`, two known stochastic regimes and the natural course, so
+its rows `T58.combined`, `T58.stochastic` and `T58.natural_course` are registered for each report.
+The contrast against the stochastic `offer` regime reads an SE about 2% small (SE ratio 0.977, 99%
+interval 0.959 to 0.996), inside the calibration band, and the rows' limits say so.
 
 #### More than two arms
 
@@ -2286,7 +2423,7 @@ estimator, which is valid there, is a different estimator, and
 | `weights=`, fixed, with known $g$ supplied as the weighted population's $g_w$ | supported, row `T57.weighted` of the [optimal-compositions study](method-evidence/learned-rule-optimal-compositions.md). The target is the optimal value of the weighted population, $\Psi^w_{d_0^w}(P_w)$ below. The key cannot tell $g_w$ from the design $g_0$, the Fix-16 case below |
 | `weights=`, estimated, or with an estimated $g$ | admitted, experimental |
 | `strata=` | with known $g$ under the fold-evaluated report, supported, row `T57.strata`; otherwise experimental. Each stratum targets its own optimal value, and the marginal estimate $\Psi_{d_0}$ |
-| known regimes beside it (`interventions=`, `reference=`) | with known $g$ under the fold-evaluated report, supported, row `T57.known_regimes`; otherwise experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$ |
+| known regimes beside it (`interventions=`, `reference=`, or `OptimalRuleContrast(against=...)`) | with known $g$ under the fold-evaluated report, `Static` regimes and known `Rule`s, supported, row `T57.known_regimes`; otherwise experimental. The fit reports `ey_known_regime[...]` and the contrasts `ate_optimal_rule[...]`, $\Psi_{d_0} - \Psi_{d_k}$. A `Stochastic` regime or `NaturalCourse()` beside it adds a qualifier that no row declares, so it reads experimental |
 | `cross_fit=False` | with known $g$ and a parametric outcome learner, supported, row `T57.in_sample`; otherwise experimental. The in-sample TMLE of the full-sample rule's value, under C5a |
 | `intermediate=` with the plug-in rule, and `OptimalRuleValue(intermediate=z)` | with known $g$ under the fold-evaluated report, supported, row `T57.intermediate`; otherwise experimental. Each level targets $\Psi^z_{d_0^z}$ |
 | `ey_learned_rule` or `ate_learned_rule` beside it, or `ate_optimal_rule` without it | refused as a declaration, row 2: the names would read one estimate as two targets |
@@ -2649,10 +2786,47 @@ treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_til
 levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
 mixtures of the branch means and curves, with the known probabilities as weights.
 
-`ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
-Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
-and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
+The mixture needs a randomizer with finitely many values of known probability, the
+`Randomizer` of Díaz, Williams, Hoffman and Schenck (2023), Section 2. A `randomizer=` that is
+not a `Randomizer`, such as a continuous draw, raises `CapabilityError` (`implementation_gap`)
+when the `ModifiedPolicy` is built, before any data are read. A uniform draw compared with
+`delta` is the two-point randomizer `Randomizer((True, False), (delta, 1 - delta))`, which the
+fit accepts. [X64](../roadmap.md#x64-intervention-and-policy-declarations) tracks a continuous
+randomizer (`tests/unit/test_policy_randomizer_refusal.py`).
+
+On a continuous or vector dose the default `ratio=None` resolves to `ratio="classifier"`, which
+replaces the density with the stacked classification of Section 5.4 of Díaz et al. (2023). The
+treatment learner classifies an observed row against its policy copy, and the ratio is the odds
+$u / (1 - u)$. `ratio="density"`, a set `density_bins=`, a learner that declares `bin_design`,
+and the estimators that read the density only resolve to the binned density instead.
+[The density-ratio route](scope-and-refusals.md#density-ratio-route) gives every rule, the record
+the result keeps, and the warning of an isolated dose cluster on the classifier route. This route fits no density, so the support report gives
 `min_density` and `unsupported` as `None` and says that they are not measured.
+
+On a dose of one column the stacked design is $[a$, the declared atoms' indicators, the step
+columns, $h]$. By Equation (3) the true ratio jumps in $a$ only where an indicator jumps: per
+smooth piece $k$ of a branch's lowered map, $s_k(a) = 1\{b_k(a)$ finite, $b_k(a) \in I_k,
+L \le b_k(a) \le U\}$, and per identity piece $j$, $t_j(a) = 1\{a \in J_j\}$. A smooth
+classifier cannot place those jumps from $a$ alone, so they are appended as columns (a learner
+with `policy_steps = "omit"` gets none).
+
+$[L, U]$ is the declared support. Without one, each fold
+reads a side of its fitted training rows' observed range, off the declared atoms and at risk at a
+longitudinal node, only when some training row's image $b_k(a)$ passes it, and reads the other
+side as infinite. The heuristic keeps the step one shift inside a bounded dose's edge, which the
+sample's extreme approaches, and leaves a held-out row beyond a side no training row reaches
+without a spurious zero; the columns are features, so the estimand does not change. A column
+constant on a fold's training rows, or equal there to an atom indicator, is dropped. A vector
+dose takes no step columns. Witnesses W11a to W11e are in `tests/unit/test_classifier_policy_steps.py`.
+
+The study that will gate this default, `mtp-density-tails`, is declared and has not run yet. It
+gates the classifier route's interval calibration on two laws: G, a Gaussian dose with an
+unbounded ratio, and T, the same dose truncated with a capped shift. S is a dose with Student-t
+tails of 5 degrees of freedom, whose influence curve has an infinite fourth moment. Its SE ratio
+then spreads more widely than the calibration rule's sizing allows at any feasible replicate
+count.
+The study therefore reports calibration on S as a reading with no verdict, and makes no gated
+claim for it ([`tests/studies/canonical_mtp_density_tails.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/studies/canonical_mtp_density_tails.py)).
 
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
 class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
@@ -2660,19 +2834,23 @@ inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gat
 checks the tilt on `tests/discrete_law.py`. The registered study is
 [`policy-point-mtp`](method-evidence/point-modified-treatment-policies.md).
 
-The bin count limits the density route at a point treatment as it does at a longitudinal node. The
-default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
-growing count is necessary for a consistent density, and the hazard learner must also be
-consistent.
+The density route at a point treatment uses the grid and the reading of a longitudinal node
+([the grid and reading paragraphs](longitudinal-tmle.md#modified-treatment-policies-at-a-node)):
+an equal-mass core of `density_bins` bins, refined in the outer bins, read as a corrected log
+frequency polygon whose segments break at empty bins, at bins of probability at most $10^{-10}$
+and at a declared support. The default `density_bins=None` grows the core count with the sample,
+`max(20, ceil(2 n^(1/3)))`, and the hazard learner must also be consistent. An explicit
+`density_bins=` is used as given, and the memory paragraph there applies here too.
 
-An explicit `density_bins=` is used as given. The memory paragraph of the
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
-too. A coarse count
-inflates the influence curve where the tail bins are wide, so the intervals are conservative.
-When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
-`density_bins=` higher. The
-[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
-measurements.
+`treatment_support=Support(lower, upper)` declares the support of the dose given the covariates.
+Besides the refusals of a dose or a policy outside it, it drives the reading: each row's bins are
+cut at its own bounds and the density is zero outside them, so a support edge that moves with the
+covariates is not read as a thin tail (`tests/unit/test_density_reconstruction.py`, W9). Where few
+bins cover a region in which the density changes fast, the reading's discretisation error enters
+the ratio. Set `density_bins=` higher there, or use the classifier route with a flexible
+classifier. The ratio enters the clever covariate unnormalised: the fit does not
+divide by its sample mean, so it is not the self-normalised weighting of Haneuse and Rotnitzky
+(2013), which is a different estimator.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
@@ -2762,16 +2940,18 @@ node of `LTMLE` and `SDR`.
 | declaration | what `CausalData` stores | what the fit reports |
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
-| `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
-| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
+| `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, or of `ModifiedTreatmentPolicy` and `ModifiedTreatmentPolicyEffect` with `JointPolicy` declarations on a `CausalStudy`, and nothing else |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`). The density of the dose is read over each row's support |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.
 The treatment name joins the columns with `+`.
 
-A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`, and the
-message names `TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical
-treatment, so it has arms and every arm-indexed estimand runs. A level is a tuple, and
+A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`. On a
+`CausalStudy` the message names `ModifiedTreatmentPolicy` and `ModifiedTreatmentPolicyEffect`
+with `JointPolicy` declarations, and on `CausalData` it names
+`TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical treatment, so it
+has arms and every arm-indexed estimand runs. A level is a tuple, and
 `ey[(1, 2.0)]` is the mean when the intervention sets every component. The fit of every default
 estimand equals the fit of the same data with the tuples pre-combined into one column
 (`tests/unit/test_point_vector_treatment.py`, W12).
@@ -2849,8 +3029,9 @@ the same data read as a scalar dose, where that reading exists
 | assessment and sensitivity rows | the capability table of a vector fit equals that of a scalar dose fit. A truncation row equals the refit at its bound. The simulated common-cause surface takes one strength axis for each component. The placebo permutes whole component rows | `tests/unit/test_point_vector_assessment.py`, `tests/unit/test_vector_simulated_confounding.py` |
 | `CausalStudy` | `PointTreatment(treatment=[...], continuous_treatment=[...])` with `ModifiedTreatmentPolicy`. `ModelSpec(ratio=...)` selects the route, and `density_bins` reaches the density route | `tests/unit/test_vector_study_spine.py` |
 
-`ModelSpec(ratio="classifier")` and the shortcut `ratio="classifier"` on a method reach both the
-point and the longitudinal engine. A study refuses `ratio="classifier"` where it estimates no
+`ModelSpec(ratio=...)` and the shortcut `ratio=` on a method reach both the
+point and the longitudinal engine, and the default `None` resolves per fit as an estimator does. A
+study refuses an explicit `ratio="classifier"` where it estimates no
 policy ratio, such as an `ATE`, a declared mechanism, `DRTMLEMethod`, `CollaborativeTMLEMethod`
 and `IPSIMethod`. Each refusal runs before any learner.
 
@@ -2868,7 +3049,7 @@ The mutation controls are in `tests/unit/test_point_vector_mutations.py` and
 `tests/unit/test_vector_density_mutations.py`. Each control moves a witness by more than
 $10^{-4}$. The registered study is
 [`vector-mtp`](method-evidence/vector-modified-treatment-policies.md). The
-[schedules and service doses example](../examples/schedules-and-intensity.ipynb) raises two capped
+[more contacts and more service time example](../examples/schedules-and-intensity.ipynb) raises two capped
 doses, alone and together, on the classifier route.
 
 ### Incremental propensity-score interventions
@@ -2953,7 +3134,7 @@ surface rule in [the architecture invariants](../architecture-invariants.md).
 the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
 [categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment with a continuous outcome, complete data, no weights and independent units, in sample or cross-fitted, and cross-fitted with a declared mechanism or with `strata=` (`_categorical_point_rows` in `src/cleverly/_support_rows.py`). The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
 those rows has the support label `experimental`. No external comparator exists for the categorical
-tilt. The [schedules and service doses example](../examples/schedules-and-intensity.ipynb)
+tilt. The [more contacts and more service time example](../examples/schedules-and-intensity.ipynb)
 fits two tilts of a three-level schedule with parametric learners, in sample.
 
 `tests/unit/test_categorical_incremental_compositions.py` checks four compositions against

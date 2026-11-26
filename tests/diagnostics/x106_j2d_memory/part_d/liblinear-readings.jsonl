@@ -1,0 +1,12 @@
+{"in_range": true, "est": "mtp", "B": 60, "solver": "lbfgs", "family": "ltmle_continuous", "peak_mib": 37.3, "predicted_mib": 64.0, "ratio": 1.72}
+{"in_range": true, "est": "mtp", "B": 60, "solver": "liblinear", "family": "ltmle_continuous", "peak_mib": 37.3, "predicted_mib": 64.0, "ratio": 1.72}
+{"in_range": true, "est": "mtp", "B": 200, "solver": "lbfgs", "family": "ltmle_continuous", "peak_mib": 257.1, "predicted_mib": 511.8, "ratio": 1.99}
+{"in_range": true, "est": "mtp", "B": 200, "solver": "liblinear", "family": "ltmle_continuous", "peak_mib": 118.9, "predicted_mib": 511.8, "ratio": 4.3}
+{"in_range": true, "est": "mtp", "B": 320, "solver": "lbfgs", "family": "ltmle_continuous", "peak_mib": 607.2, "predicted_mib": 1254.8, "ratio": 2.07}
+{"in_range": true, "est": "mtp", "B": 320, "solver": "liblinear", "family": "ltmle_continuous", "peak_mib": 161.7, "predicted_mib": 1254.8, "ratio": 7.76}
+{"in_range": true, "est": "sdr_mtp", "B": 60, "solver": "lbfgs", "family": "sdr_continuous", "peak_mib": 73.9, "predicted_mib": 110.6, "ratio": 1.5}
+{"in_range": true, "est": "sdr_mtp", "B": 60, "solver": "liblinear", "family": "sdr_continuous", "peak_mib": 73.9, "predicted_mib": 110.6, "ratio": 1.5}
+{"in_range": true, "est": "sdr_mtp", "B": 200, "solver": "lbfgs", "family": "sdr_continuous", "peak_mib": 368.8, "predicted_mib": 625.3, "ratio": 1.7}
+{"in_range": true, "est": "sdr_mtp", "B": 200, "solver": "liblinear", "family": "sdr_continuous", "peak_mib": 234.9, "predicted_mib": 625.3, "ratio": 2.66}
+{"in_range": true, "est": "sdr_mtp", "B": 320, "solver": "lbfgs", "family": "sdr_continuous", "peak_mib": 780.7, "predicted_mib": 1393.2, "ratio": 1.78}
+{"in_range": true, "est": "sdr_mtp", "B": 320, "solver": "liblinear", "family": "sdr_continuous", "peak_mib": 345.8, "predicted_mib": 1393.2, "ratio": 4.03}

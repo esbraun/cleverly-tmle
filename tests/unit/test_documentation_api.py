@@ -58,9 +58,12 @@ EXAMPLE_TARGETS = (
     "cleverly.RegimeContrast",
     "cleverly.LearnedRuleValue",
     "cleverly.OptimalRuleValue",
+    "cleverly.LearnedRuleContrast",
+    "cleverly.OptimalRuleContrast",
     "cleverly.ModifiedTreatmentPolicy",
     "cleverly.IncrementalEffect",
     "cleverly.ControlledDirectEffect",
+    "cleverly.DoseResponseCurve",
     "cleverly.ConditionalContrast",
     "cleverly.bases.Modifiers",
     # Methods and configuration.

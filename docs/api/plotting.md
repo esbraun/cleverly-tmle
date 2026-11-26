@@ -60,7 +60,10 @@ The [plot results](../examples/plots.ipynb) tutorial shows the main figures on s
 The results that have one natural figure also draw it with `plot()`:
 `TMLEResult.plot()` and `TMLEResultSet.plot()` call `forest`, and `TruncationCurve.plot()`,
 `MarginalSensitivityBounds.plot()` and `MissingnessTilt.plot()` call `sensitivity`, and
-`SensitivityContour.plot()` and `SimulatedConfoundingResult.plot()` call `confounding`. On a
+`SensitivityContour.plot()`, `SimulatedConfoundingResult.plot()` and `EValue.plot()` call
+`confounding`. For an E-value it draws the pairs of confounder strengths, on the risk-ratio scale,
+that could explain the estimate away. A second curve holds the pairs that could move the interval
+limit nearest the null to the null, and each E-value sits where the two strengths are equal. On a
 time-to-event surface its outcome axis reads the strength as a log-odds shift of each time point's
 event chance on a survival panel, and as a log-hazard shift of each event type on a fit with exact
 times, with one benchmark mark for each event type.
@@ -135,6 +138,11 @@ time point, or whose rows come from a trial and an external source.
   drawn between those times, because the fit estimates no risk there.
   `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
   `restricted_horizons=`. `result.plot()` calls `curve`.
+- On a time-to-event fit with a grid of check times, `curve(result, measure="rmst")` or
+  `"rmtl"` draws the restricted mean at each grid time whose lower risks the fit holds, and the
+  restricted means declared in `restricted_horizons=` otherwise. A `RegimeContrast` fit draws the
+  differences in one panel. `forest` puts a plan's restricted mean, in time units, in the same
+  level panel as its risks, since it groups rows by scale only; read the axis with that in mind.
 
 - `balance` draws a longitudinal, time-to-event or continuous-time survival fit's covariate
   balance over time, which `covariate_balance` computes. At each treatment time it compares the

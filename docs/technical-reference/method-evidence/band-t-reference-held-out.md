@@ -1,4 +1,4 @@
-# Held-out t reference band
+# Held-out cell of the per-estimate t reference band
 
 This study holds out one cell of the [per-estimate t reference band](band-t-reference.md) study.
 It reads the band built with `band_reference="t"` on the strata law of that study at

@@ -16,9 +16,8 @@ each bound as an estimate of a known population value.
 robust $\nu^2$ only. Neither one reports limits for the plug-in estimate. The zero-row
 equivalence artifact records the absence of a comparator.
 
-**Status: run.** The declared run finished at commit `7a275bae`. The X26 plan fixed the laws, the
-replicate counts, the seeds, the margins and the red-cell route before the run. The
-[result](#result) section states the verdicts. Two cells read red, and the
+The study fixed the laws, the replicate counts, the seeds, the margins and the red-cell route
+before the run. The [result](#result) section states the verdicts. Two cells read red, and the
 [red cells](#red-cells) section gives their diagnosis. The [pilot](#pilot) section states what the
 two pilots measured before the run and what they changed.
 
@@ -505,7 +504,7 @@ evidence.
 
 **The first pilot is superseded.** An earlier design of the study kept a second-order correction
 of the variance of $\hat\nu^2$. The first pilot, on the seed stream `x26_pilot_sample`, measured
-that design. It led the owner to drop the correction on 2026-10-16. At $n = 1000$ the correction
+that design. The study dropped the correction before the run. At $n = 1000$ the correction
 took about 60 percent of the cross-fitted variance, so its expansion was not trusted. It also
 made the package refuse 1.7 to 4.2 percent of the cross-fitted three-arm draws with the key
 `corrected_nonpositive`.
@@ -518,10 +517,9 @@ committed, and no claim of this page rests on it.
 
 **The second pilot read the design on fresh draws.** It used the seed stream `x26_pilot2_sample`
 with 1,000 draws per scenario. The declared run does not use that stream, and the design test
-checks that no declared seed does. The pilot is a planning record, not evidence. Its data are in
-the repository `esbraun/cleverly-beta-plans`, under `_x26/pilot/no_vc_fresh`. The design that it
-read is the one at commit `f352be8e`. The planning record does not store the commit that the
-pilot ran at.
+checks that no declared seed does. The pilot is a planning record, not evidence, and its data are
+not in this repository. The design that it read is the one at commit `f352be8e`. The planning
+record does not store the commit that the pilot ran at.
 
 | quantity | pilot reading |
 | --- | --- |
@@ -602,5 +600,6 @@ from the committed results and checked at the precision printed.
 
 ## Reproduction
 
+The declared run finished at commit `7a275bae`, which the manifest records as `cleverly_commit`.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/omitted_variable_bound_plugin/README.md)
 gives the regeneration command.

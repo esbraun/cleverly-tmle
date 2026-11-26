@@ -171,7 +171,14 @@ def _calibration_note(check: NuisanceDiagnostics) -> Note | None:
     if not probability:
         return None
     if check.evaluation == "in_sample":
-        sentences = [vocabulary.CALIBRATION_IN_SAMPLE.format(one=1)]
+        sentences = [vocabulary.CALIBRATION_IN_SAMPLE]
+        exact = [model_words(model.name) for model in probability if model.slope_one_in_sample]
+        if exact:
+            sentences.append(
+                vocabulary.CALIBRATION_SLOPE_ONE[len(exact) > 1].format(
+                    models=" and ".join(exact), one=1
+                )
+            )
     else:
         sentences = [vocabulary.CALIBRATION_OUT_OF_FOLD.format(one=1)]
         tested = len(check._calibration_tested)
@@ -237,6 +244,8 @@ def _notes(check: NuisanceDiagnostics) -> list[Note]:
         notes.append(note("collaborative_model", texts["collaborative_model"]))
     if check.treatment_role == "declared_treatment_law":
         notes.append(note("declared_treatment", texts["declared_treatment"]))
+    if check.treatment_omission is not None:
+        notes.append(note("classifier_ratio", texts["classifier_ratio"]))
     if is_labelled(check.inference):
         sentences = status_record(check.inference).plain_reason
         if not supplies_inference(check.inference):
@@ -268,6 +277,10 @@ def _details(check: NuisanceDiagnostics) -> list[SummarySection]:
         )
     if check.outcome_omission is not None:
         lines.append(omissions["outcome"].format(reason=without_roadmap(check.outcome_omission)))
+    if check.treatment_omission is not None:
+        lines.append(
+            omissions["treatment"].format(reason=without_roadmap(check.treatment_omission))
+        )
     lines.extend(
         omissions["folds"].format(
             model=model_words(model.name),

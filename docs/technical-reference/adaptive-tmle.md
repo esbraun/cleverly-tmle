@@ -269,8 +269,15 @@ as $\tilde Q = \sum_s \Pi(s \mid W, A)\,Q(s, W, A)$.
 ## Influence functions
 
 These are the nonparametric-model gradients of the projection parameters. The model that knows the
-trial randomization has a smaller tangent space and $D_w$ is not orthogonal to its scores, so $D_w$
-is a gradient there and not that model's efficient influence function. Write
+trial randomization has a smaller tangent space. When the external rows' bias is nonzero, $D_w$ is
+in general not orthogonal to that model's scores, so $D_w$ is a gradient there and not its
+efficient influence function. A known trial probability $P(A = 1 \mid W, S = 1)$ restricts the model but fixes none of
+$g$, $\Pi$ and $\pi$, so it removes no product from the remainder below. The deliberate mutation
+`test_a_trial_treatment_mechanism_in_the_clever_covariate_leaves_a_first_order_remainder` in
+`tests/unit/test_atmle_exact.py` puts the trial's mechanism in place of the pooled $g$ and leaves a
+first-order remainder.
+
+Write
 $r_A = Y - \theta - (A - g)\beta_A^\top\phi$, $r_S = Y - \tilde Q - (S - \Pi)\beta_S^\top\psi$,
 $U_A = I_A^{-1}(A - g)\phi\,r_A$, $U_S = I_S^{-1}(S - \Pi)\psi\,r_S$, with
 $I_A = E[g(1 - g)\phi\phi^\top]$ and $I_S = E[\Pi(1 - \Pi)\psi\psi^\top]$, and
@@ -311,6 +318,11 @@ and $\tau_S$ lie in that span or when the representers of the previous section d
 owns a testable oracle condition. The fit reports `result.working_models` for every fold so that a
 reader can see which columns carried the bias.
 
+An unclustered estimate of a continuous outcome takes the skew-widened $t$ of [small-sample
+scale](inference.md#small-sample-scale). An effect on a binary outcome records no bounds and no arm
+components, so it keeps the identity normal interval; the `interval_scale` column of `to_frame()`
+names the one each estimate used.
+
 ## Exact reductions
 
 Two exact reductions serve as comparators on the same rows.
@@ -337,7 +349,8 @@ lists the codes.
 | `CrossFitting(repeats > 1)` | `inference_gap` | no source combines adaptive working-model fits across splits |
 | `form="cv"` with fewer than three folds, or with cross-fitting off | `invalid_declaration` | the form selects and targets on other folds |
 | a setting the method does not read (bootstrap, simultaneous band, outcome fluctuation, `n_jobs`) | `invalid_declaration` | each is refused by name with its reason |
-| `weights=`, `cluster=`, `strata=`, `intermediate=`, `treatment_missingness=` | not accepted by the design | no source derives them |
+| `weights=`, `cluster=`, `strata=`, `intermediate=`, `treatment_missingness=` on `TrialWithExternalData` | `implementation_gap`, F40 | no weighted, clustered, stratum, held-intermediate or missing-treatment form is derived |
+| `treatment_probabilities=` on `TrialWithExternalData` | `implementation_gap`, F40 | the fit estimates the pooled $g$ and $\Pi$, which a known trial probability does not fix, and no estimator attains the smaller influence function of the model that knows it |
 | the sensitivity analyses, refutation and truncation curves | `inference_gap` or `api_redirection` | their bounds assume a point-treatment fit; each fit refuses with its reason |
 
 An arm with all outcomes missing, a trial membership column with a null, and a pooled frame with
@@ -410,6 +423,37 @@ that a single learner predicts in sample. Otherwise it measures `atmle`'s shrink
 in-sample nuisances and not the method. The comparison is declared and not run, and it never
 blocks the method.
 
+## Validation issues special to this method
+
+**Coverage of $\Psi$ rests on a condition no data check confirms.** Every fit carries the
+`working_model_projection` status under the experimental label. The interval covers $\Psi_w$, and
+covers $\Psi$ only under the oracle-approximation condition ([Inference status](#inference-status)).
+A study can measure coverage of $\Psi$ only on its own laws, so no result moves the label.
+
+**The fit checks are the four diagnostics.** No refutation or truncation curve is derived, because a
+refit selects its own working model, and no sensitivity bound, because the bounds assume a
+point-treatment fit and not a projection onto a selected working model ([Refusals](#refusals)). `support()`, `score_equations()`, `nuisance_models()` and
+`corrections()` read the stored fit, and `result.assess()` collects them.
+
+**The efficiency gain depends on the external difference.** The gain over the trial alone needs the
+lasso to drop every arm-shift column of the bias model. The efficiency contrast of the trial study
+gates a gain on the law with no external difference and reports none on its laws whose difference
+varies with $W$ ([Studies](#studies)). With `force_arm=True` the bound is the trial-only one by
+construction ([why the defaults differ](#differences-from-the-published-algorithm-and-the-atmle-package)).
+
+**The studies ran at their own learners and sizes.** The trial study uses explicit spline learners at
+4,000 rows, and the selective-enrollment study a Super Learner at 3,200 rows. Main-terms nuisances
+under selective enrollment are a reporting row, not a gate, and no study runs a custom
+`working_basis=`.
+
+**A binary outcome is a reported stress row.** The scenario `b1y` has a bias outside the span of the
+dictionary, and no verdict reads it.
+
+**No grid row.** Neither study declares a property cell, so the
+[implementation validation grid](method-evidence/validation-grid.md) has no row for the method
+([the implementation matrix](index.md#implementation-matrix) gives the same reason). Separately, the R `atmle` pairing for
+the pooled form is declared and has not run, and the cross-validated form has no comparator.
+
 ## Evidence
 
 Two registered studies and exact-law unit tests check the method. Study A, `adaptive-tmle-trial`,
@@ -417,8 +461,8 @@ has a committed result, recorded in the [method-evidence page](method-evidence/a
 Study S6, `adaptive-tmle-selective`, has a committed result, recorded in the
 [study page](method-evidence/adaptive-tmle-selective.md). `s6_pooled` is inside every margin. `s6_cv`
 covers in 0.937 of replications, and its bias is 0.0290 (0.20 error SDs), from a finite-sample term
-of its targeting step with no defect. The repo owner accepted the study with that reading by a named
-exception on 2026-11-10, and the study was not rerun. The label of every fit stays
+of its targeting step with no defect. The study is accepted with that reading by a named exception,
+`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`, and was not rerun. The label of every fit stays
 experimental. No support row covers the method, and a row would not change the label: the
 `working_model_projection` status keeps an estimate experimental inside any row until F40 closes
 (see Inference status).
@@ -506,10 +550,10 @@ All 16 gated tests passed, with coverage of the gated target from 0.931 to 0.953
 | efficiency contrast | RMSE ratio 0.677 on `a0` (99% interval 0.651 to 0.703), gated. 1.022 on `a1a` and 1.056 on `a1b`, reported |
 | K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.948 on `e1`; coverage 0.931 with the $\Pi$ step and 0.529 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0221 |
 | K4 ladder on `e1` | bias over SE of $\Psi$ 1.80, 2.78 and 4.07 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.935, 0.948 and 0.948 |
-| study S6 | pending the declared run |
+| study S6 | `s6_pooled` inside every margin; `s6_cv` coverage 0.937 and bias 0.0290, whose 99% upper end, 0.0364, is above the 0.0355 margin, so the study was accepted by a named exception ([study page](method-evidence/adaptive-tmle-selective.md)) |
 | R `atmle` pairing | pending; declared, not blocking |
 
-The [study page](method-evidence/adaptive-tmle-trial.md) lists every row. The study declares no
+The [study A page](method-evidence/adaptive-tmle-trial.md) lists every row of study A. The study declares no
 property cell and no registered comparator, so the
 [implementation validation grid](method-evidence/validation-grid.md) does not list it, and the
 method has no grid row. Study S6 is declared the same way, under `reporting`. A property cell declared before a run,

@@ -46,6 +46,22 @@ def _close_figures() -> Iterator[None]:
         pyplot.close("all")
 
 
+@pytest.fixture(autouse=True)
+def _reset_fit_counters() -> None:
+    """Start every test with the class-level fit counters of the refusal tests at zero.
+
+    ``NeverFit.calls`` and ``Counting.calls`` count fits across every clone, so they live on the
+    class and outlive a test. A test that resets them in a helper called inside the refused call,
+    such as ``effect(...).estimate(**never())``, never reaches the reset when the refusal fires
+    earlier, at ``identify``. It then read the count a previous test on the same xdist worker
+    left, and failed only when that test had fitted one.
+    """
+    support = sys.modules.get("tests.unit._natural_course_support")
+    if support is not None:
+        support.NeverFit.calls = 0
+        support.Counting.calls = 0
+
+
 def _check_source_matches_checkout() -> None:
     """Refuse to run these tests against a *different* checkout's ``src/cleverly``.
 
@@ -499,6 +515,10 @@ class OracleTreatment(BaseEstimator):
     Used to isolate the estimator from nuisance-estimation error: with the truth
     plugged in, any remaining discrepancy is the estimator's own.
     """
+
+    #: A known mechanism fits nothing, so :func:`cleverly._support.learner_family` reads it as
+    #: parametric and a few-cluster fit with it carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
 
     def __init__(self, dgp: Any) -> None:
         self.dgp = dgp

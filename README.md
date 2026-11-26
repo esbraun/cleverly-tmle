@@ -24,7 +24,8 @@ strong a missing confounder would have to be to change the result. Read the **[d
   flexible curve (the EP learner) without them.
 - Policies: treating by a rule, following a learned rule, raising the chance of treatment, or
   shifting a dose.
-- Treatments over time, including time until an event with competing events such as death.
+- Treatments over time, including time until an event with competing events such as death, and
+  the separate effects of a treatment's two parts on those events.
 - Out-of-fold model fitting for flexible machine-learning models, with sampling weights and
   clustered data.
 - Checks after the fit: overlap, attempts to break the result, and sensitivity to a missing
@@ -34,7 +35,8 @@ strong a missing confounder would have to be to change the result. Read the **[d
 - Other estimators for comparison or special cases, such as collaborative TMLE and the parametric
   g-formula.
 - pandas, polars, and `pyarrow.Table` inputs, through
-  [narwhals](https://narwhals-dev.github.io/narwhals/).
+  [narwhals](https://narwhals-dev.github.io/narwhals/). Arrow input needs `pyarrow`, which you
+  install yourself.
 
 The [technical reference](https://esbraun.github.io/cleverly-tmle/technical-reference/) lists every
 method with its source papers and evidence.
@@ -111,12 +113,12 @@ ate      1.513        0.046   [1.422, 1.603]    <0.0001
 ```
 
 The question summary lists the conditions the answer rests on: a well-defined treatment, no
-interference between people, no missing confounder, and overlap (every kind of person had some
+interference between people, no hidden confounding, and overlap (every kind of person had some
 chance of each treatment). The data cannot confirm the first three.
 
 The two models here match how the data were simulated, so `cross_fit=False` is safe. On your own
 data, use flexible models and keep the default out-of-fold fitting; a continuous outcome then needs
-`Targeting(q_bounds=(lower, upper))`. The
+its known range passed to `estimate()` as `q_bounds=(lower, upper)`. The
 [full quickstart](https://esbraun.github.io/cleverly-tmle/getting-started/quickstart.html)
 explains the settings. The assessment's E-value of 3.52 means a missing confounder would need a
 risk ratio of 3.52 with both treatment and outcome to explain the effect away.

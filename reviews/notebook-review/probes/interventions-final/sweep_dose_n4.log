@@ -1,3 +1,5 @@
-120 seeds, 9000 to 9119; cleverly C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
-quad_oracle320: median seconds per fit 7.2
-quad_rboost40: median seconds per fit 5.5
+/home/user/cleverly-tmle/reviews/notebook-review/probes/interventions-final/sweep_dose.py:191: Pandas4Warning: The 'float_precision' argument is deprecated. Use the default float precision instead.
+  kept = pd.read_csv(target, float_precision="round_trip")
+120 seeds, 9000 to 9119; cleverly /home/user/cleverly-tmle/src/cleverly/__init__.py
+quad_oracle320: median seconds per fit 4.8
+quad_rboost40: median seconds per fit 5.2

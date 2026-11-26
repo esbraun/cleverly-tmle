@@ -57,6 +57,7 @@ from ..data.weighting import (
     score_load_row,
     top_weight_share,
     validate_score_loads,
+    weighted_load_ratio,
 )
 from ..estimators._nuisance import KnownPropensity
 from ..estimators.composite import composite_state
@@ -267,10 +268,10 @@ class PositivityReport:
         :attr:`PositivityReport.n_repeats` records once for the whole fit.  The fitted
         fluctuation retains ``abs(w_i * h_ij)`` on the
         exact rows and with the exact weights used to evaluate each score equation.  This
-        report computes one Kish
-        concentration ratio per column, then retains the most concentrated column and
-        names it under ``equation``.  Every metric in a group row comes from that one
-        column.  It never sums columns with different units.
+        report computes one Kish concentration ratio per column over its rows with a nonzero
+        load (:func:`~cleverly.data.weighting.weighted_load_ratio`), then retains the most
+        concentrated column and names it under ``equation``.  Every metric in a group row
+        comes from that one column.  It never sums columns with different units.
 
         ``effective`` is the Kish-equivalent row count of that absolute load.  It is a
         descriptive concentration index.  It is not the estimator's information, actual
@@ -1132,9 +1133,11 @@ def _group_score_load(
             score_load_row(loads[:, index], name, result.data.n)
             for index, name in enumerate(fluctuation.names)
         ]
-        # Stable first-column selection in an exact tie.  A zero-load equation has ratio
-        # zero and is correctly the one the report must expose rather than average away.
-        selected = int(np.argmin([column["targeted_ratio"] for column in columns]))
+        # The most concentrated column over the rows that carry a load, so an arm-indexed
+        # equation is not ranked by its arm's size.  Stable first-column selection in an exact
+        # tie.  A zero-load equation has ratio zero and is correctly the one the report must
+        # expose rather than average away.
+        selected = int(np.argmin([weighted_load_ratio(column) for column in columns]))
 
         clipping = group_clipping(result, group)
         lower, upper = clipping.bounds
@@ -1330,6 +1333,35 @@ def _refuse_learned_rule_splits(result: TMLEResult, axis: bool) -> Refusal | Non
     )
 
 
+def _refuse_policy_ratio(result: TMLEResult, axis: bool) -> Refusal | None:
+    """Refuse the propensity axis of a policy fit whose ratios read no bounded probability.
+
+    ``g_bounds`` reaches a policy's clever covariate only through a categorical factor
+    that the policy changes (:attr:`~cleverly.interventions.PolicySet.reads_bounded_probability`).
+    On a continuous or vector dose a point fit fits no propensity ``g(W)``, and the density
+    ratio is its only treatment weight; a classifier ratio reads no probability either; and
+    a factor that cancels moves nothing. Each leaves every point of the curve equal to the
+    fit. The density route at a vector whose categorical component a policy moves is the
+    case that sweeps.
+    """
+    policies = result.nuisance.policies
+    if axis or policies is None or policies.reads_bounded_probability:
+        return None
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "this fit's policies divide by a density ratio that no g(W) bound reaches: a point "
+        "fit fits no propensity g(W) on a continuous or vector dose, a classifier ratio "
+        "reads no treatment probability, and a categorical factor reaches the ratio only "
+        "where a policy changes the value, so every point of the curve would equal the fit.",
+        alternative=(
+            "Read the policy weights with diagnostics.support(). To trim the ratio, declare "
+            "the treatment as a one-node LongitudinalTreatment and sweep its ratio_trim= with "
+            "longitudinal_truncation_curve(), or pass mechanism=True where the fit has "
+            "missing outcomes."
+        ),
+    )
+
+
 #: Every refusal of a point-treatment truncation curve that the requested axis decides, in
 #: the one order the module call and the capability row both use.  Each rule reads the
 #: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
@@ -1339,6 +1371,7 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
     ("learned_rule_splits", _refuse_learned_rule_splits),
+    ("policy_ratio", _refuse_policy_ratio),
 )
 
 
@@ -1459,6 +1492,11 @@ def truncation_curve(
     (:func:`cleverly.survival.diagnostics.continuous_truncation_curve`, which documents its
     grid and columns).  It refuses ``mechanism=True``.
 
+    A **modified treatment policy** fit moves under the treatment bound only through a
+    categorical component's fitted probability, on the density route, that some policy
+    maps to another value.  A dose's density ratio and a classifier ratio read no bound, so
+    the curve refuses a fit whose policies all read one: each point would equal the fit.
+
     A curve that is flat over the plausible range of bounds says the estimate does not
     hinge on the truncation choice.  A curve that drifts monotonically says the estimate
     is sensitive to this finite-sample regularisation.  It does not change the requested
@@ -1509,7 +1547,9 @@ def truncation_curve(
     ------
     CapabilityError
         When the requested axis is refused, as :func:`truncation_refusal` states, or when an
-        explicit ``g(W)`` bound moves a value of a declared known mechanism.
+        explicit ``g(W)`` bound moves a value of a declared known mechanism.  A modified
+        treatment policy fit whose ratios read no bounded probability refuses the ``g(W)``
+        axis, as the paragraph on those fits above says.
     """
     refuse_augmented_trial(result, "truncation_curve", "truncation")
     if is_continuous_survival(result):

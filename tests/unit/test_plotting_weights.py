@@ -19,7 +19,12 @@ import matplotlib.pyplot as plt
 
 from cleverly import ATC, ATE, ATT, CausalStudy, PointTreatment, plotting
 from cleverly.data.weighting import effective_sample_size
-from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.datasets import (
+    make_linear_ate,
+    make_longitudinal,
+    make_multi_arm,
+    make_randomized_pilot,
+)
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.longitudinal import LTMLE, NodeWeights, gcomp, node_weights
 from cleverly.plotting import _core, _weights
@@ -883,6 +888,65 @@ class TestTheBalanceNotes:
         assert not any("in-sample" in note.text for note in balance.summary().notes)
         assert any("out-of-fold" in note.text for note in balance.summary().notes)
         _close(fig)
+
+    @pytest.mark.parametrize(("cross_fit", "estimand"), [(False, ATE), (True, ATE), (False, ATT)])
+    def test_declared_probabilities_are_named_as_declared(
+        self, cross_fit: bool, estimand: Any
+    ) -> None:
+        # Recorded chances are not predictions of a fitted model, in sample or out of fold, so
+        # no note or reading may describe them as one. Cross-fitting is checked too, because the
+        # out-of-fold wording would otherwise win.
+        frame, _ = make_randomized_pilot(n=3_000, seed=21)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="transition_success",
+                treatment="transition_navigation",
+                adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
+                treatment_probabilities={0: "chance_no_offer", 1: "chance_offer"},
+            ),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = study.identify(estimand(reference=0)).estimate(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                cross_fit=cross_fit,
+                random_state=21,
+            )
+        balance = covariate_balance(result)
+        assert balance.declared and balance.cross_fitted is cross_fit
+        summary = balance.summary()
+        notes = " ".join(note.text for note in summary.notes)
+        fig = plotting.balance(balance)
+        for text in (notes, _core.note_text(fig)):
+            assert "the ones the data declare; no treatment model was fitted" in text
+            weight = (
+                "the inverse of the declared" if estimand is ATE else "the declared probability"
+            )
+            assert weight in text
+            # A declared probability is never moved, so no limit is named.
+            assert "kept within" not in text
+            for fitted in ("in-sample", "out-of-fold", "the fit gave", "fit's", "fitted weights"):
+                assert fitted not in text, fitted
+        _close(fig)
+        # On this draw one covariate stays past 0.1 after weighting, so the reading names the
+        # declared probabilities, not a treatment model.
+        assert max(abs(row.smd_weighted) for row in balance.rows) > balance.threshold
+        reading = str(summary)
+        assert "weighting by the declared" in reading and "treatment model has not" not in reading
+
+    def test_a_mechanism_read_in_the_sample_is_named_as_fitted(self) -> None:
+        # With weights that read the treatment, mechanism_law="sample" fits a treatment model
+        # from the declaration and a weighted classifier, so the fitted wording stays.
+        from tests.unit._capability_sweep_support import fit_tmle_known_sample_weights
+
+        result = fit_tmle_known_sample_weights()
+        assert result.config.treatment_mechanism == "estimated"
+        balance = covariate_balance(result)
+        assert not balance.declared
+        notes = " ".join(note.text for note in balance.summary().notes)
+        assert "the probability the fit gave its own arm" in notes
+        assert "in-sample predictions" in notes and "declare" not in notes
 
     def test_weighted_data_say_data_weight_over_probability(self, point: Any) -> None:
         frame, _ = make_linear_ate(n=300, seed=1)

@@ -29,7 +29,9 @@ from cleverly import (
     ConditionalContrast,
     CounterfactualMean,
     CrossFitting,
+    DRTMLEMethod,
     EPMethod,
+    IncrementalEffect,
     IncrementalMean,
     LongitudinalTreatment,
     ModelSpec,
@@ -42,9 +44,11 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly._refusal import RefusalReason
+from cleverly._summary import vocabulary
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.datasets import (
+    make_contact_schedules,
     make_linear_ate,
     make_longitudinal,
     make_longitudinal_competing,
@@ -380,6 +384,31 @@ def ipsi() -> Any:
 
 
 @cache
+def categorical_odds(families: tuple[tuple[str, tuple[tuple[str, float], ...]], ...]) -> Any:
+    """Effects of factor mappings on a three-level treatment, against the first mapping."""
+    frame, _ = make_contact_schedules(n=600, seed=3)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="transition_score",
+            treatment="cadence",
+            adjustment=("discharge_risk", "age", "baseline_support_need"),
+        ),
+    )
+    tilts = tuple(Incremental(dict(factors), name=name) for name, factors in families)
+    return _quiet(study.identify(IncrementalEffect(tilts)).estimate, **_ESTIMATE)
+
+
+#: Natural course written on the low level, then three factors on the high level's odds.
+_ONE_LEVEL = (
+    ("current", (("low", 1.0),)),
+    ("high x0.5", (("high", 0.5),)),
+    ("high x2", (("high", 2.0),)),
+    ("high x4", (("high", 4.0),)),
+)
+
+
+@cache
 def _modifier_frame() -> pd.DataFrame:
     rng = np.random.default_rng(0)
     n = 500
@@ -464,6 +493,21 @@ def ep_curve() -> Any:
         random_state=0,
     )
     return _quiet(study.identify(ConditionalContrast(one)).estimate, method)
+
+
+@cache
+def drtmle_curve() -> Any:
+    """A DR-TMLE projection with an estimated treatment model, which reports no interval."""
+    study = CausalStudy(
+        _modifier_frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    )
+    method = DRTMLEMethod(
+        reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
+        reduced_treatment_learner=LogisticRegression(),
+    ).with_overrides(**_CURVE_FIT)
+    contrast = ConditionalContrast(Modifiers(["W"], domains={"W": (-1, 1)}), model=Linear(["W"]))
+    return _quiet(study.identify(contrast).estimate, method).effect_curve()
 
 
 # ---------------------------------------------------------------------------- readers
@@ -1596,6 +1640,40 @@ class TestPolicies:
         assert "odds of treatment" not in ax.get_xlabel()
         assert "odds of A" in curve(ipsi()).axes[0].get_xlabel()
 
+    def test_factors_on_one_level_of_a_categorical_treatment_order_the_family(self) -> None:
+        result = categorical_odds(_ONE_LEVEL)
+        ax = curve(result, treatment_label="schedule").axes[0]
+        assert ax.get_xscale() == "log"
+        assert ax.get_xlabel() == "Multiplier on the odds of schedule = high (log scale)"
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["0.5", "1", "2", "4"]
+        points = sorted(tuple(ln.get_xydata()[0]) for ln in lines(ax, _core.GID_POINT))
+        assert [x for x, _ in points] == [0.5, 2.0, 4.0]
+        for (_x, y), name in zip(points, ("high x0.5", "high x2", "high x4"), strict=True):
+            assert y == pytest.approx(result.estimates[f"ate_ipsi[{name} vs current]"].psi)
+        # The reference {"low": 1} changes nothing, so it sits at multiplier 1 on the null line.
+        (anchor,) = lines(ax, "cleverly-reference-policy")
+        assert tuple(anchor.get_xydata()[0]) == (1.0, 0.0)
+
+    @pytest.mark.parametrize(
+        "families",
+        [
+            # two levels move in one policy
+            (("current", (("low", 1.0),)), ("both x2", (("medium", 2.0), ("high", 2.0)))),
+            # every policy is the natural course, so nothing orders them
+            (("current", (("low", 1.0),)), ("also current", (("high", 1.0),))),
+            # different levels move in different policies
+            (
+                ("current", (("low", 1.0),)),
+                ("high x2", (("high", 2.0),)),
+                ("medium x2", (("medium", 2.0),)),
+            ),
+        ],
+    )
+    def test_factors_on_several_levels_fall_back_to_the_forest(self, families: Any) -> None:
+        fig = curve(categorical_odds(families))
+        assert fig.axes[0].get_title(loc="left") == forest_module.TITLE
+        assert "No single parameter orders these policies" in _subtitle(fig)
+
     def test_the_pointwise_bar_and_the_band_caps_sit_on_either_side_of_the_estimate(self) -> None:
         ax = curve(shifts()).axes[0]
         (bar_set,) = collections(ax, _core.GID_INTERVAL)
@@ -1757,11 +1835,42 @@ class TestEffectCurve:
         assert not ribbons(ax, _core.GID_BAND)
         assert "95% simultaneous band" in key_texts(ax)
         note = _core.note_text(ax.figure)
-        assert "No registered study measures its joint coverage" in note
         assert "Brackets mark it at those points only" in note
         # Mutation control: the same curve without a band marks nothing.
         bare = replace(result, band=None)
         assert not band_marks(curve(bare, modifier="W", at={"Z": 0.0}).axes[0]).size
+
+    def test_the_band_note_reads_an_unmeasured_band_s_label(self) -> None:
+        """Control: a band whose support reads experimental says no study measured it."""
+        result = cate()
+        assert result.band.support is not None
+        assert result.band.support.label == "experimental"
+        note = _core.note_text(curve(result, modifier="W", at={"Z": 0.0}))
+        unmeasured = vocabulary.CURVE_BAND_UNMEASURED_FIGURE.format(
+            kind="rademacher", draws="1,000"
+        )
+        assert unmeasured in note
+        assert "A registered study measures" not in note
+        assert "Brackets mark it at those points only" in note
+
+    def test_the_band_note_reads_a_measured_band_s_label(self) -> None:
+        """Witness: a band the projection study registered reads measured, as the summary does.
+
+        Mutation control: the same curve with its band's support removed reads unmeasured.
+        """
+        from tests.unit.test_projection_band_support import GRID, _fit
+
+        result = _fit().effect_curve(grid=GRID, random_state=0)
+        assert result.band.support is not None
+        assert result.band.support.label == "supported"
+        note = _core.note_text(curve(result, modifier="W1", at={"W3": 0.0}))
+        measured = vocabulary.CURVE_BAND_MEASURED.format(kind="rademacher", draws="1,000")
+        assert measured in note
+        assert "No registered study measures" not in note
+        assert "Brackets mark it at those points only" in note
+        bare = replace(result, band=replace(result.band, support=None))
+        bare_note = _core.note_text(curve(bare, modifier="W1", at={"W3": 0.0}))
+        assert "No registered study measures its joint coverage" in bare_note
 
     def test_a_band_at_other_held_values_is_not_drawn_and_the_note_says_so(self) -> None:
         result = cate()
@@ -1829,6 +1938,31 @@ class TestEffectCurve:
         assert "carries no interval" in _core.note_text(fig)
         # Mutation control: the projection curve draws its ribbon.
         assert ribbons(curve(cate(), modifier="W", at={"Z": 0.0}).axes[0], _core.GID_INTERVAL)
+
+    def test_a_drtmle_curve_with_an_estimated_mechanism_draws_no_interval(self) -> None:
+        """Rule 1, on a projection whose fit withholds inference.
+
+        The coefficients are reported and the curve is defined, but the fit reports no
+        standard error, so the plot draws the estimate alone and says why.  The witness:
+        the interval route the plot used to take raises on this curve.
+        """
+        result = drtmle_curve()
+        assert result.fitted_method == "drtmle"
+        with pytest.raises(CapabilityError, match="the curve's standard error is not defined"):
+            result.predict({"W": np.array([0.0])}, interval=True)
+        fig = result.plot()
+        ax = fig.axes[0]
+        assert not ribbons(ax, _core.GID_INTERVAL)
+        assert not band_marks(ax).size
+        (line,) = lines(ax, "cleverly-curve")
+        x, y = line.get_xydata().T
+        np.testing.assert_allclose(y, result.predict({"W": x}))
+        noted = _core.note_text(fig)
+        assert "No interval is drawn" in noted
+        assert "carries no interval" not in noted
+        assert "The point estimate stands" in noted
+        # Mutation control: the TMLE projection on the same model draws its ribbon.
+        assert ribbons(curve(intercept_curve()).axes[0], _core.GID_INTERVAL)
 
     def test_an_experimental_curve_says_so(self) -> None:
         """Rule 3."""

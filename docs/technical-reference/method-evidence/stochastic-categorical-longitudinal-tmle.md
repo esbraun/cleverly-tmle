@@ -1,4 +1,4 @@
-# Stochastic categorical longitudinal TMLE
+# Ordinary known stochastic categorical longitudinal TMLE
 
 This study validates ordinary longitudinal TMLE under known stochastic categorical policies. The
 law has two nodes and three treatment levels. A policy node draws each unit's arm from a density

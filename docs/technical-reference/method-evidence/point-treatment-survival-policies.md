@@ -1,4 +1,4 @@
-# Point-treatment survival policies
+# Policies at a held baseline treatment
 
 This study validates longitudinal TMLE on the held survival design under a policy at the one
 treatment decision. A known stochastic policy or a modified treatment policy sets the treatment

@@ -445,6 +445,7 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | fold evaluation | `cv_evaluation=True`, with one pooled fluctuation or one per validation fold; every other report refuses before any learner |
 | the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
 | no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
+| the natural course is not a regime | `NaturalCourse()` sits on the learned-rule state (`TMLE.natural_course`), outside the regime set, the joint fluctuation and the density array. Every reader of `nuisance.regimes` and of the fluctuation sees the fit without it, and a regime fit, a regime target or a longitudinal regimen refuses it before any learner |
 
 [Learned rules](technical-reference/point-treatment-tmle.md#learned-rules) states the contract, and
 [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) records its delivery. *Reconsider when* the
@@ -1017,6 +1018,20 @@ is measured. A Vale rule that failed the build on an em dash produced a sweep th
 mechanically, leaving six sentences without a predicate, two enumerations broken mid-list, five
 altered technical claims and four deleted evidence clauses. The rule was correct and the
 enforcement mode did the damage.
+
+**Docs impact is routed and waivable, and it reads no prose.** `.github/workflows/docs-impact.yml`
+runs `tests/docs_impact.py` on every pull request, which fails when the change touches code that
+`tests/docs_map.py` routes to a page and the pull request neither edits the page nor waives it
+with a stated reason, when a page still quotes a public name the change removed or an old default,
+and when a new public name of a published module appears on no page. It is the one documentation
+check that reads the pull request's diff and body, so it cannot run in the fast tier; the map's
+coverage, which needs neither, is checked in the fast tier by `tests/unit/test_docs_map.py`. It
+is not the dispatch ruled out above: it reads paths, names and waiver reasons, never sentences, so
+it cannot push a writer into the mechanical sweep that the prose gate produced; a waiver is a
+passing outcome, as `accepted: <reason>` is in the prose ledger, and the review reads it. It exists
+because the review of 2026-11-25 found 579 places where pages had drifted from code that no
+fact-specific test reads. *Reconsider when* waivers read as boilerplate in review, or when the map
+routes most changes to pages that need nothing.
 
 Development-tool versions have one declaration: exact Ruff and mypy pins in the `dev` extra,
 resolved by `uv.lock`. Nox and CI install that extra; they do not restate versions in session or

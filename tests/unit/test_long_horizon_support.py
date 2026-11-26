@@ -63,7 +63,7 @@ def setting(row: SupportRow) -> Setting:
         m=int(key.treatment[0]),
         folds=5 if key.splitting == ("cross_fitted",) else 1,
         msm="msm" in key.family,
-        learned="A1" not in key.qualifiers,
+        learned="known_treatment@1" not in key.qualifiers,
     )
 
 

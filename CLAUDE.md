@@ -85,6 +85,12 @@ objects, or `CausalStudy` objects, and not for the public API.
 | `docs/technical-reference/` | a statistician who wants the exact estimand, conditions, and evidence. Terms of art and formulas stay; the table stays the main device where rows are compared |
 | `docs/development/` and other pages under `docs/` (`docs/README.md`, `architecture-invariants.md`, `roadmap.md`, `references.md`) | contributors |
 
+Before you open a pull request, bring the docs it affects up to date: run
+`python -m tests.docs_impact --worktree --body-file <draft body>`, fix every page it lists, and
+waive in the body, with a true reason, only what needs no change.
+[Bring the docs up to date](docs/development/pull-requests.md#bring-the-docs-up-to-date) is the
+procedure. A new module must join an area of `tests/docs_map.py`.
+
 The points agents miss most:
 
 - On the data-scientist pages, lead with the answer. Put the main path first and theory after it,

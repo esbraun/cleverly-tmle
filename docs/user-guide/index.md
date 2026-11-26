@@ -24,9 +24,16 @@ reading-output
 data-design
 estimands
 conditional-effects
+variable-importance
 methods-learners
+settings
+run-time-and-memory
 trial-with-external-data
 results-assessment
+plots
+assessment
+sensitivity
+refutation
 longitudinal
 survival
 capabilities

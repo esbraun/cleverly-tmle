@@ -1,0 +1,28 @@
+=== learned-rule-ep-declared declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/learned_rule_ep_declared/regenerate.py --output /tmp/lred-run-2 --jobs 4
+commit: 9bd7aa906d88ee64e899f9f4f156bff3304ee070; upstream 9bd7aa906d88ee64e899f9f4f156bff3304ee070
+clean tree: True
+cleverly 0.2.6 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.5; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 938739c315260c08ef1d23fa07ef902ed199ea180a2595ff206d225a8b9da6fc
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-22T10:56:54+00:00
+note: warning: python is 3.13.14, not the declared 3.13.7
+note: warning: numpy is 2.5.5, not the declared 2.4.6
+note: warning: scipy is 1.18.1, not the declared 1.18.0
+note: warning: pandas is 3.1.1, not the declared 3.0.5
+note: warning: scikit_learn is 1.9.1, not the declared 1.9.0
+note: warning: joblib is 1.6.0, not the declared 1.5.3
+note: resumed from /root/.cache/cleverly/runs/learned-rule-ep-declared/14993e479691, reused the Python phase
+finished: 2026-11-22T10:57:15+00:00
+wall seconds: 21.8
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 8009aa29325d09fd26887eeae9798287d8c190e749b6f883273a5e0760782a24
+sha256 performance-tests.csv: 3d1cd7205a708935e790b13f30d774ed3e8c04b58dd25a4ff26e7aba55426ee4
+sha256 properties.csv: e8b264d00fec717a05861d34c08ac7439a3307116ca501b891f4ac305684f4c0
+sha256 property-replicates.parquet: f36507c304a7865ae1900c6a1a258d921ac08b5bbc62bfd584b4614d6ab05d6d
+sha256 replicates.parquet: b1b6f464b9653368fccbffc05b206b9802395b0b8163cfad5a6f2028a9b199a9
+sha256 summary.csv: 1e6756f3bd003f31f2539a95422ca2f41f144eb1d84939dd1c5a173513ee9500
+

@@ -37,8 +37,10 @@ result = study.estimate(
 ```
 
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
-keys. A regimen cannot look ahead or change interpretation between stages. An empirically learned
-policy needs inference for the policy-learning step and is outside this estimator's contract.
+keys. A regimen cannot look ahead or change interpretation between stages. A rule estimated from
+the same sample is not a fixed rule, because its inference must account for the learning step; fit
+it as a learned plan, `LearnedRegimen`, which [Declare a dynamic rule](#declare-a-dynamic-rule)
+describes.
 
 With `n_folds > 1`, each outer training fold runs an untargeted backward regression sequence. One
 pooled fluctuation per node then targets the out-of-fold predictions over every follower. The fit
@@ -95,9 +97,20 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `outcome=` | an end-of-study outcome, one value per customer, on any of its rows | the original name |
 | `event=` | a survival event indicator on each row. A mapping of cause to column declares competing risks | `"event@t"` |
 | `times=` | every decision time, in time order. Omit it when the times are numbers, dates or durations, and the reader sorts them | the node order |
-| `cluster=` | an account or store identifier, constant within a customer | `id=` of the cluster contract |
+| `cluster=` | an account or store identifier, constant within a customer ([Clustered units and survey weights](#clustered-units-and-survey-weights)) | `id=` of the cluster contract |
 | `weights=` | a unit-level probability weight | `weights=` |
-| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row. Beside `weights=`, also pass `mechanism_law=` ([data design](data-design.md#known-chances-beside-weights)) | `"column@t"` |
+| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row ([Known treatment and dropout chances](#known-treatment-and-dropout-chances)). Beside `weights=`, also pass `mechanism_law=` | `"column@t"` |
+
+These arguments take a value instead of a column name.
+
+| argument | what it declares |
+| --- | --- |
+| `continuous_treatment=` | `True` when the treatment column holds a dose at every time point. The band goes in `treatment_support=`, where the wide example in [Shift a continuous dose over time](#shift-a-continuous-dose-over-time) maps each dose column to its band |
+| `treatment_support=` | the band each dose lies in, as a `Support` |
+| `dose_atoms=` | doses that many rows share exactly, such as a price of 0 |
+| `weights_estimated=` | `True` when a model fitted to these same data produced the `weights=` column. It changes no number and marks the fit experimental |
+| `outcome_family=` | the outcome's type: `"gaussian"` for a measured outcome or `"binomial"` for a yes-or-no one. The default `"auto"` reads it from the data |
+| `eliminate=` | the competing events to prevent, with the mapping form of `event=`, as in [Ask what the risk would be had the other event been prevented](survival.md#ask-what-the-risk-would-be-had-the-other-event-been-prevented) |
 
 Declare exactly one of `outcome=` and `event=`. One customer trajectory is one observation for the
 inference model. Repeated rows of one customer add no independent observations. Declare
@@ -263,8 +276,8 @@ coarser decision times before you read it.
 
 Long panels, many regimens and parallel workers also need memory. Before it fits any model,
 `LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
-if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
-yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
+if that is more than the memory the machine has free. Pass `max_memory_bytes=` to the estimator,
+or to `estimate()` on a study, to set the limit yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
 is checked unless you pass it. The estimate counts the arrays the package holds with simple
 regression learners, so a fit that passes the check can still run out of memory with heavier
 learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
@@ -305,6 +318,37 @@ each row is scored under the rules its own fold learned. The result
 `ey_regimen[learned regimen]` estimates the average outcome had every unit followed those learned
 rules, which is not the value of the best possible rules.
 
+```python
+from cleverly.longitudinal import LTMLE, LearnedRegimen
+
+learned = LTMLE(
+    regimens=LearnedRegimen(),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    n_folds=10,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+learned_value = learned["ey_regimen[learned regimen]"]
+print(learned_value.ci, learned_value.support.label)
+print(learned.learned_regimen.describe())
+```
+
+Had everyone followed the learned rules, the average outcome would be between 0.735 and 0.811, and
+the fit reads `supported`. The description says how the rules behave. By fold, they treat 97% to
+100% of the people still following them at the first time point and 94% to 100% at the second.
+Across folds, the rules disagree on 3% of rows at the first time point and 14% at the second. Rules
+that treat almost everyone should be worth about as much as treating always, and `truth` gives 0.780
+for that plan.
+
 A [learned-regimen study](../technical-reference/method-evidence/learned-regimen-ltmle.md) measured
 it with 2,000 rows, ten folds, dropout at each node and correct logistic models for the treatment
 and the dropout. Its 95% interval covered the target 0.954 of the time over 1,200 samples, and
@@ -312,8 +356,15 @@ that coverage rests on those two models being right. A fit with two yes-or-no tr
 and one yes-or-no outcome at the end, every option at its default, is marked supported, and other
 fits are marked experimental. Where the best rule is close to indifferent for many units, the
 interval can cover less often, and no study measures that case.
-[Learned regimens](../technical-reference/longitudinal-tmle.md#learned-regimens) lists what the
-fit refuses.
+
+The fit learns only two time points with a yes-or-no treatment at each. It refuses the default
+library, or any learner that picks among models by an internal cross-validation, for the model of
+the first time point (`pseudo_learner`, or `outcome_learner` when `pseudo_learner` is not passed),
+because that cross-validation would score rules learned from its own rows. Pass a single learner
+there, as here. It also refuses `n_folds=1`, `n_bootstrap=` and `repeats=` above 1, and a study
+cannot declare a learned plan, so call `LTMLE` directly.
+[Learned regimens](../technical-reference/longitudinal-tmle.md#learned-regimens) lists every
+refusal.
 
 ## Declare a stochastic policy
 
@@ -382,6 +433,184 @@ on the plan received at that node raises `LongitudinalError` before any learner.
 gives the estimator, its conditions, and its evidence. Code cannot inspect a closure, so the fit
 accepts a false `"known"` declaration.
 
+## Shift a continuous dose over time
+
+A plan can change each person's dose at each time point instead of fixing it. A dose is an amount
+such as a price, and the plan might raise every month's price by 10%. Name each dose column in
+`continuous_treatment=`, mapped to the band of values its doses can take. Write each time point's
+change as a policy from `cleverly.interventions`, and put one policy per time point in a
+`DynamicRegimen`, the plan object of [Declare a dynamic rule](#declare-a-dynamic-rule).
+[Modified treatment policies](estimands.md#modified-treatment-policies) describes each kind of
+change, including a cap that holds a dose where it is.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly.datasets import make_sequential_pricing
+from cleverly.interventions import Scale, Shift, Support
+from cleverly.longitudinal import DynamicRegimen
+
+prices, _ = make_sequential_pricing(n=2_000, seed=1)
+
+
+def band(month):
+    engaged = f"engaged_{month}"
+    return Support(lambda h: 4 + 2 * h[engaged], lambda h: 8 + 2 * h[engaged])
+
+
+price_design = LongitudinalTreatment(
+    outcome="renewed",
+    treatment=("price_1", "price_2", "price_3"),
+    baseline=("usage",),
+    time_varying=(("engaged_1",), ("engaged_2",), ("engaged_3",)),
+    continuous_treatment={f"price_{month}": band(month) for month in (1, 2, 3)},
+)
+current_prices = DynamicRegimen("current", (Shift(0.0, cap=None),) * 3)
+rise_plan = DynamicRegimen("rise 10%", (Scale(1.1, cap=8.0),) * 3)
+price_fit = CausalStudy(prices, design=price_design).estimate(
+    RegimeContrast({"current": current_prices, "rise 10%": rise_plan}, reference="current"),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=make_pipeline(
+        PolynomialFeatures(2, include_bias=False),
+        StandardScaler(),
+        LogisticRegression(max_iter=5000),
+    ),
+    cross_fit=False,
+    random_state=0,
+)
+rise_effect = price_fit["ate_regimen[rise 10% vs current]"]
+low, high = rise_effect.ci
+print(round(rise_effect.psi, 3), round(low, 3), round(high, 3), rise_effect.support.label)
+```
+
+The rise plan multiplies each month's price by 1.1, but a customer whose raised price would pass 8
+keeps their own price that month. Against current prices it lowers renewal by about 4 percentage
+points, with a 95% confidence interval from about 2 to 6 points. `price_fit[...]` picks that
+comparison by the name the fit gives it, and `.psi` is the estimate and `.ci` the interval.
+`Shift(0.0, cap=None)` adds nothing to any price, so the `"current"` plan is the prices customers
+actually got.
+
+The label `supported` means a simulation study checked fits like this one: three monthly prices, a
+yes-or-no outcome, and the default way of learning the weights described below. The example fits
+and checks its models on the same rows (`cross_fit=False`). The study covers that fit, and also
+the fit with out-of-fold predictions, where models fitted on other rows predict each row. The
+policy-weighted interval of [When few customers carry the interval](#when-few-customers-carry-the-interval)
+needs `cross_fit=False`.
+
+### Keep the new doses inside the band
+
+The fit can only learn what customers would do at prices that customers like them actually paid,
+so each new price must stay inside the band of prices they could get. Here the band depends on
+that month's engagement, which is 0 or 1: prices run from 4 to 8 for a customer who is not engaged
+and from 6 to 10 for one who is. The example declares the band with `Support(lower, upper)`. Each
+bound is a function of `h`, the history the fit hands it, so the band can read that month's
+`engaged_` column. The cap of 8 is the top of the lower band, so a raised price either stays at or below 8 or
+goes back to the customer's own price, and the plan never leaves either band.
+
+A plan that never moves a price outside the band needs no cap, as with `Shift(0.0, cap=None)`.
+`Scale(1.1, cap=None)` would raise some prices past the top of their band, and the fit refuses it.
+The message names the time point and how many customers the raise would send outside the band. Add
+a cap that keeps every raised price inside, as the example does with 8.
+[Modified treatment policies at a node](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
+states the rule.
+
+### How the fit weighs each customer
+
+The fit corrects its outcome model's predictions with a second model, the treatment model. That
+step needs, for each customer and time point, how much more or less common the plan's price is
+than the price the customer got, given their history. This number is the density ratio, which the
+summary calls the policy ratio. By default the fit learns it with a classifier: the treatment
+learner learns to tell the plan's prices from the observed ones, and the summary's `Policy ratio`
+line names this route.
+
+The classifier must follow how the plan changes prices. A 10% rise held at 8 moves high and low
+prices by different amounts, so the example gives the classifier squares and products of the
+history and the price. With a plain logistic regression the same fit warns with
+`SparseInfluenceWarning` that its interval rests on few customers. When your fit gives that
+warning, try a richer classifier before you read the interval. If the fit warns with a
+`DataWarning` about a few prices far from the rest, pass `ratio="density"`, which learns the ratio
+from a binned density of the price instead
+([density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route)).
+
+### Revenue and other continuous outcomes
+
+For an outcome measured on a scale, such as revenue, pass the lowest and highest values it can
+take as `q_bounds=`. Revenue here is renewal (0 or 1) times the last price, which is at most 10, so
+the fit takes `q_bounds=(0.0, 10.0)`. Use the values the outcome can take, not the smallest and
+largest in your sample. The plan moves customers toward prices where few outcomes were recorded,
+and the bounds keep the fit's predictions there inside a possible range. Under a dose plan the fit
+refuses a continuous outcome without `q_bounds`, and it stops with an error, rather than trimming
+the value, when an outcome falls outside them
+([limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)).
+
+### Other dose plans
+
+If each time point records both whether a customer got a discount and how large it was, declare
+both columns as one time point
+([vector nodes with a continuous component](../technical-reference/longitudinal-tmle.md#vector-nodes-with-a-continuous-component)).
+To set the cap from the data, such as the 90th percentile of observed prices, write
+`Shift(0.5, cap=DoseQuantile(0.9), target="population")`, and read
+[modified treatment policies](estimands.md#modified-treatment-policies) for what `target=` means.
+To see which larger rises the data can support before you pick one, the
+[sequential pricing tutorial](../examples/sequential-pricing.ipynb) compares a 12% rise and a 15%
+cut under the same band. To check a fit against a known answer, `price_rise(factor)` from
+`cleverly.datasets` builds a rise that stops at the top of each band, `pricing_truth(factors=...)`
+gives its exact effect, and `PRICE_BANDS` holds the band.
+
+### What the studies cover
+
+The label (`supported` or `experimental`) checks the method, the number of time points, whether
+the fit uses out-of-fold predictions, whether customers drop out, the outcome type, how the ratio
+is learned and whether the cap comes from the data. It does not check your plan, your classifier
+or your band. The price study learned the ratio with a logistic classifier on squares and
+products, like the example's.
+
+With the default way of learning the ratio, the
+[price study](../technical-reference/method-evidence/mtp-pricing.md) covers two and three time
+points, out-of-fold predictions at three, and revenue at three. At five time points, on a price
+cut, its default interval covered the truth about 92% of the time instead of 95%. So a five-period
+fit reads `experimental` unless it takes the policy-weighted interval below. Customers who drop
+out between prices are covered only at three time points with out-of-fold predictions
+([censored price study](../technical-reference/method-evidence/mtp-pricing-censored.md)).
+
+When your plan differs from the price study's, the nearest evidence is in another study. The
+[boundary study](../technical-reference/method-evidence/mtp-boundaries.md) covers plans that run
+into a band that depends on the history, the
+[tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) a cap set from the data at
+two time points, and the
+[vector study](../technical-reference/method-evidence/vector-modified-treatment-policies.md) a
+dose recorded beside a yes-or-no treatment. The
+[longitudinal policy study](../technical-reference/method-evidence/longitudinal-modified-treatment-policies.md)
+checks that the fits match R's `lmtp` package.
+
+### When few customers carry the interval
+
+A dose plan can rest on a few customers with large density ratios, and `SparseInfluenceWarning`
+then fires as it does for a sparse regimen. The refit bootstrap of
+[Bootstrap for sparse regimens](#bootstrap-for-sparse-regimens) does not help here. On the
+five-period price cut of the pricing study, the bias-corrected bootstrap interval (BCa) covered
+about 91% to 92% of the time, no better than the default interval
+([the interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
+
+Pass `variance="policy_weighted"` instead. It needs `n_folds=1` (`cross_fit=False` on a study) and
+`simultaneous=False`, which turns off the joint band across several estimates. The option also
+works out the standard error from every row at the price the plan would set, and reports the
+larger of that and the usual one. The interval is never narrower than the default, and it no
+longer runs too narrow when a sample happens to miss the rare rows with extreme weights, but it
+can be wider than it needs to be.
+
+In large samples its coverage is close to 95% when either the density ratio is known exactly or
+the outcome model is right. The option reads `supported` on the price plans at two and five time
+points and `experimental` at three. At three time points, as in the example, the study covers the
+default interval, so report that one. When the warning fires there, add the policy-weighted
+interval beside it to show how much the rare heavy rows could widen it.
+[The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
+states which fits it refuses and what it was validated against.
+
 ## Time-to-event outcomes
 
 Risks of an event by each time, competing events, a risk had another event been prevented, and
@@ -396,14 +625,12 @@ states what each replicate resamples and refits. The percentile interval carries
 label of the fit, so a fit no registered study covers says under its summary that the bootstrap
 interval is experimental.
 
-An estimate with fewer clusters than its interval floor prints a `bootstrap SD (diagnostic)`
-column and a percentile range, both diagnostics. The floor is 20 clusters for most longitudinal
-estimates. The always-treat versus never-treat difference of an `LTMLE` fit has a lower floor,
-6 in sample or 4 cross-fitted, but only on the panel design its study used
-([clusters](../technical-reference/inference.md#clusters)). That lower floor was measured for the
-influence-curve interval, not for the bootstrap. Between it and 20 the bootstrap prints a
-percentile interval under the experimental label because it follows the interval's floor, and no
-study has checked its coverage there.
+On a clustered fit, an estimate with fewer clusters than its interval floor prints a
+`bootstrap SD (diagnostic)` column and a percentile range, both diagnostics.
+[Clustered units and survey weights](#clustered-units-and-survey-weights) gives the floors for a fit
+like the one there and links the full table. At or above the floor the bootstrap prints a percentile
+interval under the experimental label, because no simulation study has checked a clustered
+bootstrap's coverage ([clusters](../technical-reference/inference.md#clusters)).
 
 
 Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
@@ -418,21 +645,15 @@ A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a p
 bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
 The bootstrap is opt in. A fit never turns it on.
 
-A policy that shifts a continuous dose, such as a price cut, is different: the bootstrap does not
-help there. On the five-period price plan of the pricing study, the BCa interval covers about 91%
-to 92% of the time, no better than the Wald interval
-([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
+A study fit computes each plan's estimate and each difference between plans, then reports only the
+ones you asked for, and it checks all of them for this warning. So a fit of the differences
+(`RegimeContrast`) can warn about one plan's estimate, which its table does not show. The warning
+then says so, and names each reported difference whose interval is built from that estimate's
+interval. It does not name a restricted mean that adds up the flagged estimate.
 
-Pass `variance="policy_weighted"` instead, with `n_folds=1` and `simultaneous=False`. The fit
-weights each row by its density ratio: how much more likely the policy makes that row's dose than
-the observed treatment pattern does. The option also works out the standard error from every row
-at the dose the policy would set, and reports the larger of that and the usual one. The interval is
-never narrower than the default, and it no longer runs too narrow when a sample happens to miss the
-rare rows with extreme weights, but it can be wider than it needs to be. Its coverage is never
-below the default's, and it is close to nominal in large samples when the density ratio is known
-exactly or, when the ratio is learned, when the outcome model is right.
-[The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
-states which fits it refuses and what it was validated against.
+A policy that shifts a continuous dose needs another interval, because the bootstrap does not
+help there. [When few customers carry the interval](#when-few-customers-carry-the-interval)
+gives it.
 
 | option | what it does | label today |
 | --- | --- | --- |
@@ -448,8 +669,9 @@ The long-horizon studies gate the BCa interval at $n$ from 4,000 to 128,000, and
 each row lists its sizes. At three and four decisions, BCa is `supported` for static and dynamic
 plans only. A known stochastic policy at those decisions reads `experimental`.
 
-Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
-`bootstrap_interval`.
+`LTMLE` and `SDR` take each of these options, and `IPSI` takes all of them except `variance`.
+`CausalStudy.estimate()` takes the same keywords and passes them to its estimator, with
+`cross_fit=False` in place of `n_folds=1`.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -483,6 +705,19 @@ print(result.bootstrap_band.critical_value)
 The example uses 20 resamples to run fast. Use at least 199 in an analysis. With `B` resamples a
 BCa limit is an order statistic of the draws, so a small `B` gives a coarse limit.
 
+To see whether the resampled estimates look normal, plot them:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.bootstrap(result, name="ate_regimen[never vs always]")
+```
+
+The histogram shows the 20 resampled differences, the curve is a normal density with their mean
+and spread for comparison, and the vertical lines mark the reported estimate and the BCa limits.
+When the draws sit off-centre around the estimate or trail off to one side, the BCa limits move
+away from the percentile limits, as "Percentile or BCa" explains.
+
 **Percentile or BCa.** The percentile interval takes the 2.5% and 97.5% quantiles of the draws. It
 assumes the draws are symmetric about the estimate. The BCa interval shifts both limits by a bias
 correction, from the share of draws below the estimate, and by an acceleration, from the skew of
@@ -495,7 +730,12 @@ across the estimates in each replicate. Its critical value is a high order stati
 maxima.
 
 The band is $\hat\psi_j \pm c^* \widehat{SE}_j$ for each estimate. The multiplier band in
-`result.simultaneous` does not change. The summary lists both.
+`result.simultaneous` does not change. The summary lists both. A `CausalStudy` fit computes each
+plan's estimate and each difference, and its band covers only the estimates its table reports: a
+fit of the differences (`RegimeContrast`) bands the differences, and a fit of the plans' estimates
+(`RegimeMean`) bands those estimates. When the fit computed more than its table reports, the band
+reads `experimental`, because no simulation study measures a band over part of what the fit
+computed.
 
 **The influence report.** `result.diagnostics.influence()` returns one row for each estimate.
 
@@ -516,6 +756,17 @@ A cross-fitted fit, a hazard-model fit and an isotonic fit warn too, but the mes
 advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and the roadmap owner
 `X20-bootstrap` in the roadmap holds that result.
 
+To see how few rows carry the standard error, plot the influence values:
+
+```python
+fig = cleverly.plotting.influence(result, name="ate_regimen[never vs always]")
+```
+
+The plot ranks the rows by how much each one moves the estimate and draws the share of the
+variance that the top rows carry. A curve on the diagonal means every row counts equally, and a
+steep rise means a few rows carry the interval. `cleverly.plotting.notes(fig)` gives the Kish
+count, the effective number of rows.
+
 **Cost.** Each resample refits every nuisance. A fit of 64,000 rows and five decisions takes about
 0.2 seconds for each resample on the fast path, a development measurement that no committed
 artifact records yet. The long-horizon studies declare `B = 199`, so one such fit costs about 40 seconds of
@@ -534,7 +785,8 @@ The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experi
 ## Repeated outcomes
 
 A repeated outcome is measured at every node and can return to zero. Declare it with
-`Repeated([...])` as the `outcome`. The fit reports the mean of the outcome at every horizon.
+`Repeated([...])` as the `outcome`. A `RegimeMean` fit reports each plan's mean outcome at every
+horizon, and a `RegimeContrast` fit, as here, reports the difference between plans.
 
 ```python
 from cleverly import RegimeContrast, Repeated
@@ -560,9 +812,22 @@ means = study.estimate(
 print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
+To draw the same rows over time, pass the fit to `cleverly.plotting.curve`:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.curve(means)
+```
+
+The figure shows the difference at each horizon with its interval and simultaneous band. This fit
+estimates no plan's own mean, so no plan's curve is drawn; a `RegimeMean` fit draws one curve for
+each plan. `cleverly.plotting.notes(fig)` says which parts of a figure are `experimental`; here the
+curve and its band are.
+
 | item | value |
 | --- | --- |
-| result keys | `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]` at every horizon `h` |
+| result keys | `ate_regimen[d vs ref @ t=h]` at every horizon `h` from `RegimeContrast`, as here, and `ey_regimen[d @ t=h]` from `RegimeMean` |
 | `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
 | survival view | not available. A repeated outcome has no absorbing event |
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
@@ -581,6 +846,11 @@ within six millionths.
 
 The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
 does the same for `IPSI`. It has no comparator.
+
+The [weekly orders tutorial](../examples/weekly-outcomes.ipynb) works a repeated outcome from start
+to finish. It estimates the weekly share of customers ordering under three plans for a
+free-shipping code and refits that curve with the sequentially doubly robust estimator. It also
+compares doubled odds of a code with the current way of choosing who gets one.
 
 ## Fit the sequentially doubly robust estimator
 
@@ -622,7 +892,9 @@ Give `pseudo_learner` a learner of a real-valued target. A transform can leave $
 level can leave the outcome range too. The fit then warns with `ParameterSpaceWarning`, and
 `ratio()` refuses a scale that is undefined at that level.
 [The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
-states the contract and what differs from the default method.
+states the contract and what differs from the default method. The
+[weekly orders tutorial](../examples/weekly-outcomes.ipynb) fits it beside `LTMLE` on a repeated
+outcome.
 
 ## Report the sequential baselines
 
@@ -766,7 +1038,9 @@ non-rejection does not confirm the model.
 The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
 static level, a contrast and `check_model` when a feature reads a time-varying covariate.
 [Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
-each refusal and its alternative.
+each refusal and its alternative. The
+[three offers after discharge tutorial](../examples/model-based-over-time.ipynb) fits blip models
+to ask how much each single offer adds.
 
 ## Simulate the parametric g-formula
 
@@ -823,7 +1097,9 @@ is a fixed dose, and a `DynamicRegimen` rule with `rule_kind="known"` there sets
 simulated history. The result then states its model reliance and reports a support diagnostic. No
 published analytic variance exists for the simulation form, so the interval is a natural
 extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
-estimator, the argument, the settings, the refusals and the validation.
+estimator, the argument, the settings, the refusals and the validation. The
+[three offers after discharge tutorial](../examples/model-based-over-time.ipynb) uses it for its
+main answer and compares it with structural blips and longitudinal TMLE.
 
 ## Estimate an incremental intervention over time
 
@@ -871,7 +1147,8 @@ The `ipsi` method fits the one-step estimator of Kennedy (2019), with the dropou
 Kennedy and Naimi (2021). It needs no treatment positivity at a tilt node. It is not doubly
 robust, so give `treatment_learner` a learner that can fit the mechanism at every node.
 `available_methods()` lists `tmle` and `sdr` as unavailable for an estimated tilt, with the
-reason.
+reason. The [weekly orders tutorial](../examples/weekly-outcomes.ipynb) fits the odds tilt,
+doubling each customer's odds of a free-shipping code over three weeks.
 
 | task | how |
 | --- | --- |
@@ -888,19 +1165,91 @@ truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, T
 
 A fit with a node of three or more levels carries the label of the registered study
 [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
-when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
-[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
-the contract.
+when it matches that study's rows. Any other such fit is labelled `experimental`.
 
-## Longitudinal MSM projections
+`IPSI` fits Kennedy's odds tilt. The `ipsi` function of R's `lmtp` package fits a different plan,
+`RiskRatioTilt(delta)` from `cleverly.interventions`. With `delta` below 1, each treated person
+keeps their treatment with chance `delta` at each time point, and with `delta` above 1, each
+untreated person stays untreated with chance `1 / delta`. Declare it as a node, as in
+`DynamicRegimen("rr 0.5", (RiskRatioTilt(0.5),) * 2)`, and fit it with the default method.
+[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time)
+states the contract.
 
-`MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
-regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
+## Summarize several plans with a trend line
 
-A longitudinal MSM projection cross-fits by default (`n_folds=10`). Each fold
-runs an untargeted recursion for every regimen, and one stacked fluctuation per node pools the
-update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
-states the construction and its evidence.
+Instead of one mean per plan, you can fit a straight line through the plans' means, such as the
+mean outcome against how many time points a plan treats. You choose the line's form, called a
+working model (`MSM`), and ask for its coefficients with `MSMProjection`. The coefficients estimate the best line through the true plan
+means, with each plan weighted equally, whether or not those means fall on a line. Only when they
+do is the slope the effect of one more treated time point.
+
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongitudinalTreatment, MSMProjection
+from cleverly.datasets import make_longitudinal
+from cleverly.msm import MSM
+
+trend_frame, trend_truth = make_longitudinal(n=2_000, seed=11)
+trend_study = CausalStudy(
+    trend_frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+treated_points = {"never": 0, "early": 1, "always": 2}
+
+
+def duration(plan, horizon, covariates):
+    n = len(covariates)
+    return np.column_stack([np.ones(n), np.full(n, treated_points[plan])])
+
+
+line = MSM(design=duration, terms=("intercept", "time points treated"), design_kind="known")
+trend = trend_study.estimate(
+    MSMProjection(line, regimens={"never": 0, "early": (1, 0), "always": 1}),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    random_state=0,
+)
+print(trend.coefficients()[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+The three plans treat at neither time point, at the first only, and at both. The slope row,
+`msm_regimen[time points treated]`, reads 0.171 (0.139 to 0.203): on this line, each extra time
+point treated raises the chance of the outcome by about 17
+percentage points. Only simulated data come with the
+truth. Here the true plan means in `trend_truth` are 0.419, 0.644 and 0.780, and the
+least-squares line through them has intercept 0.434 and slope 0.181, inside both intervals.
+
+The design function receives each plan's name, the time point the mean is taken at, and the
+covariates, and returns one column per term. `design_kind="known"` declares that you wrote it
+without looking at the data. The fit refuses a design function without that declaration, because
+a design computed from the sample could leave the standard error wrong. `MSM.linear()` is refused
+over plans, because a plan's name is not a dose, so code each plan as a number yourself, as
+`treated_points` does. A design whose columns repeat each other across the plans, such as two
+constant columns, is refused too.
+[MSM projections](../technical-reference/msm-projections.md#variations) lists the other options.
+
+The fit cross-fits by default (`n_folds=10`), so each row's predictions come from models trained
+without that row.
+[The longitudinal projection](../technical-reference/msm-projections.md#the-longitudinal-projection)
+states the construction, and two simulation studies check it,
+[in sample](../technical-reference/method-evidence/ordinary-longitudinal-msm-projection.md) and
+[cross-fitted](../technical-reference/method-evidence/cross-fitted-longitudinal-msm-projection.md),
+so both coefficients here carry the `supported` label.
+[Marginal structural models](estimands.md#marginal-structural-models) shows the same summary for
+one treatment, and [a trend across three contact schedules](../examples/msm-projections.ipynb)
+works a full example.
+[Summarize the risk curves with a trend line](survival.md#summarize-the-risk-curves-with-a-trend-line)
+fits such a line over risk curves.
 
 ## Repeat the fold draws
 
@@ -937,6 +1286,15 @@ repeated = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="n
 assert repeated.n_repeats == 3
 assert len({draw.seed for draw in repeated.repeats}) == 3
 print(repeated.repeat_spread())
+```
+
+To see how much the split moves the answer, plot one point for each draw against the reported
+estimate and its interval:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.repeats(repeated)
 ```
 
 | task | how |
@@ -1006,6 +1364,180 @@ both settings, and [Ratio trimming](../technical-reference/longitudinal-tmle.md#
 [Node bounds](../technical-reference/longitudinal-tmle.md#node-bounds) state each rule and its
 refusals.
 
+## Clustered units and survey weights
+
+Patients of one clinic, or customers of one account, often share a clinician, a policy or local
+conditions that the covariates do not record, so their outcomes move together. Name the group
+column in `cluster=`. The standard error then counts clinics rather than patients, and the fit
+keeps each clinic whole in one fold when it splits the rows. In the data below, `id` is the
+clinic label: 600 patients in 12 clinics of 50.
+
+```python
+from cleverly.datasets import make_longitudinal
+
+clinics, _ = make_longitudinal(n=600, seed=3, cluster_size=50)
+clinic_study = CausalStudy(
+    clinics,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+        cluster="id",
+    ),
+)
+clinic_learners = dict(
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    n_folds=2,
+    random_state=0,
+)
+plans = RegimeContrast({"always": 1, "never": 0}, reference="never")
+for variance in ("influence_curve", "jackknife"):
+    clinic_fit = clinic_study.estimate(plans, cluster_variance=variance, **clinic_learners)
+    difference = clinic_fit["ate_regimen[always vs never]"]
+    print(variance, difference.ci, difference.reference_df, difference.support.label)
+```
+
+The default standard error gives an interval from 0.165 to 0.504 for the difference between
+treating at both time points and at neither, and it reads `supported`. The third column is 10, the
+degrees of freedom of the interval. Below 40 clusters the interval comes from a t distribution
+with the cluster count minus 2 degrees of freedom, which widens it. Below 3 clusters the fit
+reports no interval.
+
+How few clusters an interval can rest on depends on the estimate. A simulation study measured this
+difference, on a cross-fitted fit with two time points, dropout and parametric models such as these,
+at every count from 4 clusters, so it reads `supported` here. With the default learner library, or
+for any other estimate such as each plan's own mean from `RegimeMean`, the fit reads
+`experimental` below 20 clusters.
+[Few clusters](../technical-reference/inference.md#few-clusters) gives the floor for each kind of
+fit, and the
+[few-cluster floor study](../technical-reference/method-evidence/few-cluster-floor-cross-fitted-ltmle.md)
+holds the measurements.
+
+The second line uses `cluster_variance="jackknife"`, which refits the whole analysis once for each
+clinic left out, here 12 times, and reads the standard error from the spread of those refits. Its
+interval runs from 0.141 to 0.528. The few-cluster studies compared it with the default interval on
+the same samples. Its intervals covered the true value no less often than the default's, within 3
+percentage points, at every count they tried: from 10 clusters on a cross-fitted fit with five folds
+and from 6 on a fit in sample. It still reads `experimental`, because the package has not yet marked
+any jackknife setup as supported. Its justification holds only for models with a fixed set of
+coefficients, so it accepts only parametric ones such as the logistic and linear models here, and
+every fold must hold at least two clinics;
+[Cluster jackknife](../technical-reference/inference.md#cluster-jackknife) lists every setting it
+refuses.
+
+`weights=` names a survey or sampling weight, one per person. Every model and the standard error use
+it, as for a treatment given once ([data design](data-design.md#point-treatment)). Simulation
+studies cover a weighted end-of-study fit
+[in sample](../technical-reference/method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md)
+and
+[cross-fitted](../technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md).
+When a model fitted to the same data produced the weights, such as a nonresponse model, also pass
+`weights_estimated=True`. `cleverly` never sees the weight model and treats the weights as fixed
+numbers, so the flag changes no number and the standard error still leaves out that model's error.
+The fit then reads `experimental`.
+
+The [discharge to readmission tutorial](../examples/discharge-to-readmission.ipynb) fits a
+clustered program of two decisions at 100 care teams and compares its interval with a fit that
+leaves `cluster=` out.
+
+## Known treatment and dropout chances
+
+In a sequentially randomized trial, the design sets each person's chance of each treatment at each
+time point. A study may also know each person's chance of staying in follow-up. Pass these chances
+in `treatment_probabilities=` and `censoring_probabilities=`, and the fit uses them in place of a
+treatment model and a dropout model. The trial below gives the first treatment with chance 0.5
+and the second with chance 0.6 to those who responded and 0.3 to the rest. Severe patients stay
+in follow-up with chance 0.8 and the others with chance 0.9.
+
+```python
+smart_rng = np.random.default_rng(2)
+severe = smart_rng.binomial(1, 0.5, 2_000)
+first = smart_rng.binomial(1, 0.5, 2_000)
+stay_chance = np.where(severe == 1, 0.8, 0.9)
+stayed = smart_rng.binomial(1, stay_chance)
+responded = smart_rng.binomial(1, 0.3 + 0.3 * first - 0.1 * severe)
+second_chance = np.where(responded == 1, 0.6, 0.3)
+second = smart_rng.binomial(1, second_chance)
+chance = 0.2 + 0.2 * first + 0.15 * second + 0.2 * responded - 0.1 * severe
+trial = pd.DataFrame(
+    {
+        "severe": severe,
+        "first": first,
+        "stayed": stayed,
+        "responded": responded,
+        "second": second,
+        "stayed_2": 1,
+        "recovered": smart_rng.binomial(1, chance),
+        "first_0": 0.5,
+        "first_1": 0.5,
+        "second_0": 1 - second_chance,
+        "second_1": second_chance,
+        "stay_chance": stay_chance,
+        "stay_2": 1.0,
+    }
+).astype(float)
+trial.loc[stayed == 0, ["responded", "second", "stayed_2", "recovered"]] = np.nan
+```
+
+On your own trial you would already hold these columns, and the declaration is what changes.
+
+```python
+smart = LongitudinalTreatment(
+    outcome="recovered",
+    treatment=("first", "second"),
+    baseline=("severe",),
+    time_varying=((), ("responded",)),
+    censoring=("stayed", "stayed_2"),
+    treatment_probabilities={
+        "first": {0: "first_0", 1: "first_1"},
+        "second": {0: "second_0", 1: "second_1"},
+    },
+    censoring_probabilities={"stayed": "stay_chance", "stayed_2": "stay_2"},
+)
+smart_fit = CausalStudy(trial, design=smart).estimate(
+    RegimeContrast({"always": 1, "never": 0}, reference="never"),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    cross_fit=False,
+    random_state=0,
+)
+smart_effect = smart_fit["ate_regimen[always vs never]"]
+print(smart_effect.psi, smart_effect.ci, smart_effect.support.label)
+```
+
+Treating at both time points raises the recovery rate by 0.438 over treating at neither, with an
+interval from 0.375 to 0.495, and the fit reads `supported`. The call passes only outcome models,
+and `smart_fit.summary()` reads "known (declared)" on its treatment model and censoring model lines.
+
+Each treatment maps its levels to columns that hold, on each row, the chance of that level given
+the person's past. Each dropout column maps to a column with the chance of staying. A time point
+you leave out of either mapping gets a model as usual. No one in this trial leaves after the
+second treatment. The design still takes one dropout column per time point, so `stayed_2` is 1
+for everyone still in the study, with a declared chance of 1.
+
+The fit checks the chances against the data. It refuses a declared chance of zero for the treatment
+a person took, and a plan that needs a treatment whose declared chance is zero for people it covers.
+It also stops when the product of a person's declared chances over time points falls outside
+`g_bounds`, the limits it puts on each person's chance of following the plan; the lower end is 0.01
+by default. With many time points the product falls fast, so pass a lower end below the smallest
+product, such as `g_bounds=(1e-8, 1.0)`. Beside weights that differ between people, also pass
+`mechanism_law=`, as [Known chances beside weights](data-design.md#known-chances-beside-weights)
+explains, and
+[Known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) lists
+every rule.
+
+The [known-mechanism study](../technical-reference/method-evidence/known-node-mechanisms-ltmle.md)
+fitted a trial built like this one in 1,000 samples of 2,000 rows, with every chance declared and
+the fit in sample. Its interval for the difference covered the truth in 0.948 of the samples, and it
+gave the same estimates as R `ltmle` given the same chances. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) declares a three-level offer at
+three time points beside an estimated consent model.
+
 ## Diagnostics
 
 Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
@@ -1059,8 +1591,24 @@ The "Longitudinal refutation" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
 every test.
 
+Each default test refits the whole analysis 20 times, so on a long panel a refutation takes
+time. Pass the key of the estimate you test as `estimand=`, such as
+`estimand="ate_regimen[never vs always]"`, because the default `"ate"` is not a longitudinal key.
+`planned_refits(estimand=...)` then counts the refits before you run them, and `sample_limit=` runs
+the tests on a random sample of people. On the tests that run hundreds of draws, such as
+`dummy_outcome`, `plasmode` and `bootstrap_stability`, `checkpoint=RefutationCheckpoint(folder)`
+from `cleverly.validation` saves each draw as it finishes, so a stopped run resumes.
+[Count the refits before a long test](refutation.md#count-the-refits-before-a-long-test),
+[Refute a sample of a large fit](refutation.md#refute-a-sample-of-a-large-fit) and
+[Save the draws as they finish](refutation.md#save-the-draws-as-they-finish) show each one.
+
+To check that the weights balanced the covariates at each time point, among people with the same
+earlier treatments, call `covariate_balance(result)` from `cleverly.sensitivity`.
+[Balance when treatment repeats over time](assessment.md#balance-when-treatment-repeats-over-time)
+shows it on a fit to data from the same simulator as the first example here.
+
 `result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
-the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+the first node, as [Sensitivity analysis](sensitivity.md) shows. An
 end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as
 [Check sensitivity to a missing confounder](survival.md#check-sensitivity-to-a-missing-confounder) describes.
 
@@ -1089,7 +1637,7 @@ with the same minor version, for example 3.13 for an artifact that 3.13 wrote.
 saves a lambda rule, a closure density, and an `each_node` rule from `__main__`. It loads them in
 a new interpreter and compares the assignments and the density.
 
-[Persistence and replayability](results-assessment.md#persistence-and-replayability) states the
+[What a loaded result can redo](results-assessment.md#what-a-loaded-result-can-redo) states the
 shared contract for every result, including the assessment cache and the capability rows that a
 restored artifact refuses. `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip

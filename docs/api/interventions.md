@@ -44,6 +44,7 @@ for each split of the folds.
    cleverly.interventions.Static
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
+   cleverly.interventions.NaturalCourse
    cleverly.longitudinal.DynamicRegimen
    cleverly.longitudinal.each_node
    cleverly.longitudinal.NodeRule

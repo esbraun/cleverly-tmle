@@ -28,6 +28,7 @@ import sklearn.linear_model
 
 from cleverly import AssessmentStatus, SuperLearner
 from cleverly._summary import vocabulary
+from cleverly.data.weighting import weighted_load_ratio
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -620,7 +621,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
         for row, (group, load) in zip(table.rows, report.group_score_load.items(), strict=True):
             assert row[0].value == group
-            assert row[1].value == load["n_targeted"]
+            assert row[1].value == load["n_targeted"] - load["zero_load"]
             assert row[table.columns.index("largest")].value == load["max_load"]
             assert any(
                 line.startswith(f"{group}: equation {load['equation']},") for line in details
@@ -642,12 +643,13 @@ class TestThePerGroupCovariateLeverageIsReported:
 
         The two are different weightings and the narrower is not always the arm's, so the
         verdict carries both. Neither is graded: this fit clips nothing and reads
-        ``adequate`` with a group retaining under half of the rows it weights.
+        ``adequate`` with a group retaining under half of its score-mask rows.
         """
         report = loaded_fit.diagnostics.support()
         summary = report.summary()
+        # Narrowest over the rows with a nonzero load, the denominator the note prints.
         group, narrow = min(
-            report.group_score_load.items(), key=lambda item: item[1]["targeted_ratio"]
+            report.group_score_load.items(), key=lambda item: weighted_load_ratio(item[1])
         )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 
@@ -795,35 +797,26 @@ class TestTruncationCurve:
         assert "selected no parameter" in str(refusal.value)
         assert "['ate']" in str(refusal.value)
 
-    def test_a_continuous_treatment_withholds_the_truncated_fraction(self) -> None:
-        """No arms, no share of units the bound moved. The column says so.
+    def test_a_continuous_dose_policy_refuses_the_propensity_curve(self) -> None:
+        """No propensity, so no ``g(W)`` bound to sweep. The curve says so before replaying.
 
-        A shift fit's propensity is ``(n, 0)``: the mechanism it truncates is a density
-        ratio, and no column of it is a treatment probability the ``g_bounds`` pair clips.
-        ``np.any`` over that empty axis is ``False``, so counting units returned a
-        well-formed ``0.0`` beside a real resolved ``fitted_lower_bound`` -- a positive
-        claim that the bound moved no unit, about a mechanism with no unit to move. The
-        previous code averaged the empty matrix and produced ``nan`` with a
-        ``RuntimeWarning``; the answer withheld is the same, and the warning is not.
+        A shift fit's propensity is ``(n, 0)``: its only treatment weight is the density
+        ratio, and a point fit has no bound on that ratio. A curve over ``g(W)`` bounds would
+        report one unchanged estimate per bound, which reads as a mechanism the bounds never
+        bind. The refusal names the longitudinal ``ratio_trim=`` sweep instead.
         """
         frame, _ = make_shift_dose(n=300, seed=0)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", RuntimeWarning)
-            result = (
-                fast_tmle(cross_fit=False, policies=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
-                .fit(frame, outcome="Y", treatment="A")
-                .single()
-            )
-            curve = nw.from_native(
-                result.diagnostics.truncation_curve(bounds=[0.01, 0.05]).to_frame(), eager_only=True
-            )
+        result = (
+            fast_tmle(cross_fit=False, policies=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
 
         assert result.nuisance.propensity.values.shape == (300, 0)
-        assert np.all(np.isnan(np.array(curve["truncated_fraction"].to_list())))
-        # The rest of the row is answered, so the withheld column is a judgement about
-        # this mechanism and not a curve that failed to run.
-        assert np.all(np.isfinite(np.array(curve["psi"].to_list())))
-        assert set(curve["fitted_lower_bound"].to_list()) == {result.config.g_bounds[0]}
+        assert not result.diagnostics.capability("truncation_curve").available
+        with pytest.raises(CapabilityError, match="fits no propensity g\\(W\\)") as refusal:
+            result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
+        assert "ratio_trim=" in str(refusal.value)
 
 
 class TestOmittedVariableBias:

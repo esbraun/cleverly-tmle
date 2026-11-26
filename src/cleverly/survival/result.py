@@ -46,6 +46,13 @@ MEASURED_EVENT_SHARE: Final[tuple[float, float]] = (0.4, 0.85)
 #: :data:`FUNCTIONALS_N`.
 MEASURED_N: Final[int] = 500
 
+#: The smallest sample size at which a risk or risk difference of an in-sample fit
+#: (``cross_fit=False``) reads supported: the n of :data:`VARIANCE_STUDY`'s gated in-sample cell
+#: (``v4_in_sample``), whose every primary row passed (Eric, 2026-11-25).  That cell fits two
+#: causes and no restricted horizon, so an in-sample fit with one or three causes or a restricted
+#: horizon reads experimental.  The design test checks it against that study's record.
+IN_SAMPLE_N: Final[int] = 1_000
+
 #: The smallest sample size at which an estimate of a fit with ``restricted_horizons=`` reads
 #: supported: the n of :data:`FUNCTIONALS_STUDY`'s one cell.  The variance study's 500-unit cell
 #: fits no restricted horizon, and the horizons move every risk of the fit, so its floor does not
@@ -249,6 +256,40 @@ def jump_bound_reason(pairs: int) -> str:
     )
 
 
+def _in_sample_reasons(n: int, causes: int, functionals: bool) -> list[str]:
+    """Why an in-sample estimate falls outside :data:`VARIANCE_STUDY`'s in-sample cell.
+
+    Parameters
+    ----------
+    n : int
+        The number of units.
+    causes : int
+        The number of event types.
+    functionals : bool
+        Whether the fit targets a restricted horizon.
+
+    Returns
+    -------
+    list of str
+        One reason when the fit differs from the cell, none when it matches it.
+    """
+    differs = []
+    if n < IN_SAMPLE_N:
+        differs.append(f"has {n:,} units")
+    if causes != 2:
+        differs.append(f"has {causes} {'cause' if causes == 1 else 'causes'}")
+    if functionals:
+        differs.append("targets a restricted horizon")
+    if not differs:
+        return []
+    return [
+        f"The fit is in-sample and {' and '.join(differs)}. The registered {VARIANCE_STUDY} "
+        f"study's in-sample cell measures in-sample fits with two causes, no restricted horizon "
+        f"and n = {IN_SAMPLE_N:,} only, where every primary row passed at coverage 0.937 to "
+        "0.951; the other registered studies gate cross-fitted fits."
+    ]
+
+
 def continuous_survival_support(
     *,
     scale: str,
@@ -283,6 +324,10 @@ def continuous_survival_support(
     ratios, and its restricted means and their differences at a restriction time by which
     between 67% and 85% of the observed events have happened (:data:`RESTRICTED_EVENT_SHARE`).
     Its risks and differences keep the relative-SD floor and name the variance study too.
+    An in-sample fit (``cross_fitted=False``) is measured by the registered
+    ``continuous-survival-variance`` study's in-sample cell only: its risks and risk differences
+    read ``supported`` under the conditions above with two causes, no restricted horizon and at
+    least :data:`IN_SAMPLE_N` units, and name that study alone.
     A fit whose initial hazards the engine bounded (``jump_bound_pairs``) reads experimental:
     no registered study gates a fit in which the bound acted.  Otherwise the estimate reads
     ``experimental`` with every reason that applies.
@@ -298,7 +343,8 @@ def continuous_survival_support(
     causes : int
         The number of event types.  More than :data:`CAUSES_CAP` always reads experimental.
     cross_fitted : bool
-        Whether the nuisances are fitted out of fold.
+        Whether the nuisances are fitted out of fold.  An in-sample fit needs two causes, no
+        restricted horizon and :data:`IN_SAMPLE_N` units.
     default_nuisances : bool
         Whether the hazard and censoring libraries and the treatment learner are the defaults.
     settings : mapping of str to Any
@@ -349,6 +395,11 @@ def continuous_survival_support(
     ...     restricted_horizons=1,
     ... ).evidence
     ('continuous-survival-functionals',)
+    >>> continuous_survival_support(
+    ...     scale="level", event_share=0.6, n=1_000, causes=2, cross_fitted=False,
+    ...     default_nuisances=True, settings=MEASURED_DEFAULTS,
+    ... ).evidence
+    ('continuous-survival-variance',)
     """
     reasons: list[str] = []
     functionals = restricted_horizons > 0
@@ -419,12 +470,7 @@ def continuous_survival_support(
     if jump_bound_pairs:
         reasons.append(jump_bound_reason(jump_bound_pairs))
     if not cross_fitted:
-        reasons.append(
-            "The fit is in-sample. The registered study gates cross-fitted fits; its in-sample "
-            "fit at n = 1,000 covered 0.919 to 0.962 (reported, not gated), and the "
-            f"{VARIANCE_STUDY} study's in-sample cell at n = 1,000 passed at 0.937 to 0.951, "
-            "but neither sets this label."
-        )
+        reasons.extend(_in_sample_reasons(n, causes, functionals))
     if not default_nuisances:
         reasons.append(
             "The fit replaces a default library or the default treatment learner, and the "
@@ -447,6 +493,17 @@ def continuous_survival_support(
         study = CAUSES_STUDY
     else:
         study = CONTINUOUS_SURVIVAL_STUDY
+    if not cross_fitted:
+        # Only the variance study's in-sample cell measures an in-sample fit: two causes, no
+        # restricted horizon, n = IN_SAMPLE_N, so the estimate here is a risk or a difference.
+        return Support(
+            "supported",
+            f"The registered {VARIANCE_STUDY} study's in-sample cell measures this "
+            f"configuration at n = {IN_SAMPLE_N:,} and sets the floor on the sparsity of its "
+            "influence curve.",
+            (VARIANCE_STUDY,),
+            limits=limits,
+        )
     # The variance study measures risks and differences at n = 500 and sets their relative-SD
     # floor, so it is evidence for each of them; restricted means and ratios it does not measure.
     evidence = (study, VARIANCE_STUDY) if floored else (study,)
@@ -707,7 +764,7 @@ def attach_bootstrap(
 #: mean must be targeted rather than read off the targeted risks.
 OFF_GRID_SHARE: Final[float] = 0.40
 
-#: The support of a ratio of two risks: no registered study measures one.
+#: The support of a ratio the fit does not report itself: an odds ratio or a survival-view ratio.
 RATIO_SUPPORT: Final[Support] = _experimental(RATIO_REASON)
 
 #: The support of a smooth function of reported estimates: no registered study measures one.
@@ -1693,8 +1750,10 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
         type only.  Under ``variance="switched"`` the log-scale variance is
         :math:`h^\\top \\hat\\Sigma_{pv} h` with :math:`h` the gradient of the log ratio over the
         targeted levels, raised over the influence-curve variance as for a stored estimate, with
-        the switch read on the ratio's own curve.  No registered study measures a
-        continuous-time ratio, so it reads ``experimental``.
+        the switch read on the ratio's own curve.  A risk ratio on the risk view carries the
+        label of the fit's own ``rr_regimen`` estimate, which the registered
+        continuous-survival-functionals study supports only in a fit with one restricted
+        horizon; an odds ratio and a survival-view ratio read ``experimental``.
 
         Parameters
         ----------
@@ -1778,7 +1837,8 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
                 "registered study.",
                 reason=RefusalReason.API_REDIRECTION,
                 alternative=(
-                    f"Refit ContinuousSurvivalTMLE with restricted_horizons=({_t(tau)},)."
+                    f"Refit ContinuousSurvivalTMLE with restricted_horizons=({_t(tau)},), or "
+                    f"declare restricted_horizons=({_t(tau)},) on RegimeMean or RegimeContrast."
                 ),
             )
         first = self._arm(arm, what)
@@ -1844,7 +1904,9 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
         Raises
         ------
         CapabilityError
-            When ``tau`` is not one of the fit's ``restricted_horizons``.
+            When ``tau`` is not one of the fit's ``restricted_horizons``. The fit declares
+            them on the engine, or as ``restricted_horizons=`` on ``RegimeMean`` or
+            ``RegimeContrast`` in a study.
         ValueError
             When an arm or the cause is unknown, or the cause is missing on a fit with
             several causes.
@@ -1891,7 +1953,9 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
         Raises
         ------
         CapabilityError
-            When ``tau`` is not one of the fit's ``restricted_horizons``.
+            When ``tau`` is not one of the fit's ``restricted_horizons``. The fit declares
+            them on the engine, or as ``restricted_horizons=`` on ``RegimeMean`` or
+            ``RegimeContrast`` in a study.
         ValueError
             When an arm is unknown.
 

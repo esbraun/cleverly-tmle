@@ -1,4 +1,4 @@
-# Point survival curve crossfit
+# Cross-fitted point-treatment survival, hazard targeting
 
 This study validates longitudinal TMLE with `survival_model="hazard"` and five outer folds on a
 held design. The design has one baseline treatment, held over every visit, and it reads one

@@ -118,7 +118,8 @@ class FitCounts:
     width : int
         Columns of the widest history design.
     bins : int
-        Density bins at continuous nodes, 0 without them or on the classifier route.
+        Density bins at continuous nodes after the outer bins are refined
+        (:func:`refined_bins`), 0 without them or on the classifier route.
     msm : bool
         Whether the fit projects on a regimen working model.
     repeats : int
@@ -297,12 +298,14 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "p": 4.613350122839041,
     },
     "ltmle_continuous": {
-        "BB": 1.0330401608187134,
-        "FRT": 0.1769268663194445,
-        "RSJ": 21.833618893914473,
-        "TB": 2.8438090497076023,
-        "c0": 54760.44444444538,
-        "one": 16.554266885964946,
+        "BB": 0.48473000945841316,
+        "FRT": 0.14509580237472028,
+        "FT": 0.13586852661223,
+        "RSJ": 10.002207307969798,
+        "TB": 2.485800138115847,
+        "TBB": 0.018543062729164922,
+        "Tp": 1.2192738151631,
+        "one": 286.53919550876515,
     },
     "ltmle_continuous_classifier": {
         "FRT": 0.16648877314814775,
@@ -315,13 +318,12 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "one": 32.14179166666665,
     },
     "ltmle_continuous_index": {
-        "BB": 0.005982036524261605,
-        "FRT": 0.0810425925925927,
-        "FTB": 0.01875441550925926,
-        "RSJ": 9.685106378926394,
-        "TB": 3.0662097640134203,
-        "c0": 90297.66666666667,
-        "one": 169.5478579113924,
+        "BB": 0.040765055391971575,
+        "RHJ": 5.6063364883401885,
+        "RTB": 0.035873021690672295,
+        "TB": 3.2479649993497786,
+        "c0": 2249824.117125356,
+        "one": 2063.157713087547,
     },
     "sdr": {
         "FRT": 2.6710343784101345,
@@ -333,14 +335,12 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "p": 4.6976572703230035,
     },
     "sdr_continuous": {
-        "BB": 1.0252908761899118,
-        "FRT": 5.890451226417773,
-        "FT": 0.37585378386435897,
-        "FTB": 0.8802002933429112,
-        "RSJ": 21.12371663324668,
-        "TB": 2.1809721392122894,
-        "Tp": 0.01863825458807292,
-        "c0": 52098.22222222275,
+        "BB": 0.5083367385153763,
+        "FRT": 3.9001067986258446,
+        "FT": 14.363974578296204,
+        "FTB": 3.859623220705197,
+        "RSJ": 11.356025769154998,
+        "one": 218.61107917073033,
     },
     "sdr_continuous_classifier": {
         "FRT": 3.117472470238094,
@@ -352,13 +352,10 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "one": 18.26745833333332,
     },
     "sdr_continuous_index": {
-        "BB": 0.00638890353970742,
-        "FRT": 2.664582872732425,
-        "FTB": 1.1129619968820863,
-        "RSJ": 21.95116125641087,
-        "TB": 1.8867153326622568,
-        "c0": 79724.99999999689,
-        "one": 152.8956108672938,
+        "BB": 0.035047496139785424,
+        "FTB": 4.6499840575107205,
+        "RHJ": 33.17026666666667,
+        "one": 1857.1325631987238,
     },
 }
 WORKER_BYTES = 251658240
@@ -482,7 +479,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (4, 17),
-        "bins": (5, 320),
+        "bins": (12, 320),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -514,7 +511,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (5, 17),
-        "bins": (20, 320),
+        "bins": (31, 394),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -546,7 +543,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (4, 17),
-        "bins": (5, 320),
+        "bins": (12, 320),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -578,7 +575,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (5, 17),
-        "bins": (20, 320),
+        "bins": (31, 394),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -1384,10 +1381,13 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         f"({predicted:,} bytes) at its peak, {_whole_call(prediction)}; the budget is "
         f"{_size(budget)} ({budget:,} bytes), {source}. {LEARNERS} At one worker it can exceed "
         f"the true peak by up to {FACTOR:g} times, more on fits under about 20 MiB with the "
-        "simultaneous band on, and more with n_jobs > 1."
+        "simultaneous band on, and more with n_jobs > 1 or a liblinear treatment learner."
         f"{_range_clause(counts)} No learner was fitted."
     )
-    remedies = [f"Pass {name}(max_memory_bytes=...) a value above {predicted:,}"]
+    remedies = [
+        f"Pass max_memory_bytes= a value above {predicted:,} (an argument of {name}, and a "
+        "keyword of estimate() or a field of Runtime on a study)"
+    ]
     if prediction.parallel:
         remedies.append("n_jobs=1")
     if counts.bins:
@@ -1499,6 +1499,44 @@ def density_route(estimator: Any) -> str:
     return "_index" if _index_only(clone) else ""
 
 
+def refined_bins(data: Any, nominal: int) -> int:
+    """The most bins a binned density at any continuous node of ``data`` fits.
+
+    :func:`~cleverly.learners.density.bin_edges` refines the outer core bins of ``nominal``,
+    so a node can fit more bins than ``density_bins`` names.  Each node's edges are read from
+    its observed doses off its declared atoms, the rows its density fits.  The grid is a
+    function of the sample alone, so it is read before any learner.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    nominal : int
+        The core bin count: ``density_bins``, or its default at ``n``.
+
+    Returns
+    -------
+    int
+        The largest bin count over the continuous nodes, at least ``nominal``.
+    """
+    from ..learners.density import bin_edges
+
+    most = nominal
+    for time in range(1, int(data.n_times) + 1):
+        # A mixed node's vector has no one dose column; its continuous component is counted
+        # at ``nominal``.
+        if data.node_kind(time) != "continuous":
+            continue
+        dose = np.asarray(data.node_codes(time), dtype=float)
+        dose = dose[np.isfinite(dose)]
+        atoms = data.node_atoms(time)
+        if atoms:
+            dose = dose[~np.isin(dose, np.asarray(atoms, dtype=float))]
+        if dose.size > 1:
+            most = max(most, len(bin_edges(dose, nominal)) - 1)
+    return most
+
+
 def fit_counts(
     estimator: Any,
     data: Any,
@@ -1568,7 +1606,7 @@ def fit_counts(
             family += density_route(estimator)
     bins = 0
     if continuous and not family.endswith("_classifier"):
-        bins = int(estimator.density_bins or default_density_bins(n))
+        bins = refined_bins(data, int(estimator.density_bins or default_density_bins(n)))
     # The widest design any node builds: without a Markov order that is the last node, but a
     # window can drop an early node's wide covariate block.
     width = max(data.history_width(t, include_current=True) for t in range(1, n_times + 1))

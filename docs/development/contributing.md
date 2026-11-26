@@ -92,7 +92,7 @@ Read [releases](releases.md) before you change `src/cleverly/_version.py` or cre
 | your change | run |
 | --- | --- |
 | documentation, or a docstring | `ruff format --check .`, `python -m tests.prose`, `pytest -q -n auto --dist loadgroup`, `nox -s docs` |
-| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup` |
+| library code, or a test | `ruff check .`, `ruff format --check .`, `mypy`, `pytest -q -n auto --dist loadgroup`, then `python -m tests.docs_impact --worktree` and the [docs review](pull-requests.md#bring-the-docs-up-to-date) |
 | a regenerated evidence artifact | the row above. The fast suite recomputes each study's verdicts from the artifacts you commit |
 | a notebook artifact, or a tutorial callback | `python scripts/execute_notebook.py <path>`, then the documentation row above, then `pytest -q tests/unit/test_documentation_runtime.py -k <stem> -m slow` |
 
@@ -112,13 +112,24 @@ a tutorial notebook.
 | recorded | the commit, the version, and the generator's file list | asserts the file list matches this checkout |
 
 Edit a code cell and the gated half fails until you run the command again. Rename a notebook and
-the recorded command fails for the same reason. Edit library code and no notebook gate fails. The
+the recorded command fails for the same reason. Edit library code and no digest gate fails. The
 recorded half fingerprints the run's repository context. It does not reconstruct a dirty tree or
 constrain the tree you work in. `tests/notebooks.py` gives the reason for the split.
 
 A hash comparison cannot see a library change that moved a published number while every cell kept
-its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
-re-executes the notebook and reports each cell whose printed text moved. It writes nothing.
+its bytes, so the fast tier also compares what each tutorial notebook's cells print now with what
+the notebook stores (`tests/notebook_freshness.py`). The fast tier runs every cell but the refit
+cells, which the slow tier adds. The comparison allows a relative difference of 1e-4, the machine
+noise in a learner fit's sixth figure, and one last-place rounding per cell beyond it. A cell
+that the callback lists in `HARDWARE_SENSITIVE_CELLS`, such as a boosted fit, allows 1e-2 and any
+number of last-place roundings. The
+TWINS notebook downloads its data, so it is checked statically instead. A library change that moves
+a published number therefore fails that notebook's semantic test.
+
+Re-execute the notebook, read the difference, and update the prose that quotes the number; do not
+pin a library to keep an old output. The stamp's version must also equal the package version, so a
+release pull request re-executes every notebook. Run `python scripts/execute_notebook.py <path>
+--check` to see what moved without writing anything.
 
 Regenerate every registered study that evaluates a result-determining implementation change. Read
 [fast tests and validation studies](testing-strategy.md) to select the affected rows.

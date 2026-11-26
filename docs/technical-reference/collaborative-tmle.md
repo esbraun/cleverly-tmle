@@ -95,6 +95,10 @@ Under `patience` the counts are the work done: `lasso` and `learners` pass the s
 logistic preorder scores every covariate before the path starts. With `repeats`, the record
 describes the first draw. The summary's "Search work" line sums the counts.
 
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
+
 Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju et al. (2019); see
 [collaborative TMLE](../references.md#collaborative-tmle). Implementation:
 [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
@@ -144,8 +148,9 @@ iterative and the one-step sweeps are checked to solve the perturbed score. Reru
 selection. A C-TMLE0 fit has no selection. Its retarget rebuilds the derivative columns at the
 requested bounds, as the [C-TMLE0](#c-tmle0-the-derivative-covariate) section states.
 
-**Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
-`elements()` raise `CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
+**Omitted-variable outputs refuse a collaborative fit unless the call assumes a consistent
+mechanism.** The robustness value, the bounds, `elements()` and `benchmark()` raise
+`CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
 regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
 representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
@@ -153,6 +158,13 @@ within each arm and each value of $V$. Its $\nu^2$ is therefore never larger, an
 adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
 gives the full reason, and
 [RM11](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
+
+A call that declares `assume_consistent_mechanism=True` gets the robustness value and the bounds as
+point values, with no limits. A per-arm outcome-adaptive fit also needs `mechanism_learner=`,
+because its own treatment learner reads one outcome prediction. The declaration does not lift the
+refusal on a fit that selects nothing, which points to the ordinary TMLE, or on a fit with missing
+treatment, and `elements()` and `benchmark()` stay refused
+([scope and refusals](scope-and-refusals.md)).
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
@@ -428,6 +440,10 @@ Three sources supply the two mechanisms.
 | `lambdas=None` | the L1 logistic at the penalty that `learner_folds`-fold weighted deviance cross-validation chooses over the default grid, inside each training set | the nearest penalty of the grid in absolute distance. A tie goes to the larger penalty | C-LASSO Algorithm 2. Ju, Chambaz and van der Laan (2018), Section 4.2 |
 | `lambdas=(lam, lam_plus)` | the L1 logistic at `lam` | the L1 logistic at `lam_plus`, larger or smaller | `ctmleGlmnet(ctmletype = 3)` with `glmnet` at the two penalties |
 | `treatment_candidates=(g, plus)` | an unfitted learner, or a full-sample array | the same kinds | `ctmleGeneral(ctmletype = 3, g1W, g1WPrev)` |
+
+Under the first two calls `treatment_learner` fits neither mechanism, and the same holds for every
+candidate of `strategy="lasso"`. A declared `treatment_learner` then serves at most as the fallback of
+`missingness_learner`, and the fit warns so (`UserWarning`, recorded in `fit_warnings`).
 
 The partner is fitted on exactly the rows of the mechanism: every row in sample, and each outer
 fold's training rows when cross-fitted. The grid is fixed once on the analysis sample, and it reads
@@ -769,7 +785,7 @@ the [stacked curve](#parametric-per-arm-intervals) instead.
 | variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
 | conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
-| the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
+| the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. The coefficients of a conditional contrast's projection on complete, unstratified data, as points, are a further case ([per-arm C-TMLE points](conditional-effects.md#per-arm-c-tmle-points)). These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
 | withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
 | predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on an arm-coded treatment of any arm count, declared with `arm_columns` equal to the number of arms minus one, with complete and unstratified data, and with fixed observation weights or none. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
@@ -1145,7 +1161,7 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `target_weights`, `screen_treatment` | `False` | none |
 | `stopping`, `step_bound`, `iterate`, `outcome_by_arm`, `patience` | `"relative"`, `None`, `"last"`, `False`, `None`. The stacked equations assume the solved fluctuation and one outcome model | none |
 | `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
-| `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
+| `preorder`, `ordering`, `candidates`, `selection_estimand` | `None`, `None`, `None`, `"ate"` | none |
 | `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0`, `ey1`, `ey_obs`, `par` and `paf` | none |
 | `treatment` | arm-coded, one column, any arm count. `ParametricOutcome(arm_columns=K - 1)` | none |
 | `weights` | none, or fixed weights with `target_weights=False` | none |

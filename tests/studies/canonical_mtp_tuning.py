@@ -237,8 +237,12 @@ def fit(
     ratio: str = "density",
     treatment_learner: Any = None,
     random_state: int = 0,
+    max_memory_bytes: int | None = None,
 ) -> Any:
-    """``LTMLE`` or ``SDR`` of the tuned plan on law Q with the declared outcome learners."""
+    """``LTMLE`` or ``SDR`` of the tuned plan on law Q with the declared outcome learners.
+
+    ``max_memory_bytes`` replaces the memory guard's default budget (the memory available
+    when the fit starts); it moves no estimate, only whether the guard refuses."""
     settings: dict[str, Any] = {
         "q_bounds": Q_BOUNDS,
         "outcome_learner": QuasiBinomialGLM(),
@@ -251,6 +255,7 @@ def fit(
         "ratio": ratio,
         "simultaneous": False,
         "random_state": random_state,
+        "max_memory_bytes": max_memory_bytes,
     }
     if ratio == "density":
         settings["density_bins"] = oracle_bins(len(frame))
@@ -311,7 +316,7 @@ STUDY = StudyRecord(
     slug="mtp-tuning",
     artifacts=ROOT / "tests" / "canonical" / "mtp_tuning",
     document="docs/technical-reference/method-evidence/mtp-tuning.md",
-    anchor="mtp-tuning",
+    anchor="tuned-caps-and-their-population-and-fold-average-targets",
     scenarios=dict(ESTIMANDS),
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

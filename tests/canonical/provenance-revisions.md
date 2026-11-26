@@ -36,7 +36,6 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/tmle_learned_weighted/run_study.R` | `2ed957cb726ba1b9ac48f1ebd7374dfa0e3600faeb46b785031f80a7c73adb24` | `b64cab372d86a91a0182fbbadad1b7fc364f14c3f40e017167028d5b14e838f3` | result-neutral: the runner gained the empty-sample guard `if (!nrow(samples)) stop("samples contain no observations")`, which `tests/canonical/tmle_weighted/run_study.R` already carried. The guard raises only on a sample file with zero rows. The recorded run fitted 800 replications of 2,000 rows, so the branch never executes for the committed artifacts. Nothing else in the runner moved, and the edit restores parity between the two weighted runners. RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. The fitter is now built in the parent before a prescheduled `mclapply`, so `study_collect` retries and assembles the registered groups; a successful run writes the same rows in the same group order. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/tmle_mar_attributable/probe_scale_workaround.R` | `455671cbf4a26f1f99393233cc33804ab3b7b17095c8eee6df134d0886e004ff` | `7319d1d2fea7a867f01cdad3bbf6f3f8664c5c96666f6d4cb62a773e607399e8` | result-neutral: The probe now builds its per-index function in the parent before a prescheduled `mclapply`. The probe records no failure: every error in it stays fatal, so each probe call and exported column is unchanged. |
 | `tests/canonical/tmle_mar_natural_course/probe_scale_workaround.R` | `a91e13a077e164482a84bc54980eb1fcbc071fc3c0361078d9ae14daaf19f488` | `af8685fe61524d0a86e5894df714963d5a040b355996fe976333cd7f534c0b47` | result-neutral: only the header comment on check 5 changed. The former comment said the comparison would see a wrong scale, and the evidence page shows it would not. R ignores comments, so every fit call, check, and exported column is unchanged. The probe now builds its per-index function in the parent before a prescheduled `mclapply`. The probe records no failure: every error in it stays fatal, so each probe call and exported column is unchanged. |
-| `tests/canonical/policy_point_mtp_runner.R` | `e2553423aa1546d4efb7118bb611d03f3de3e1c83e61d72d05b53c4e1469fe97` | `7a362b80139b22bcf740bf4d2e0e33dbf2830a904329d35cf7763db7bb370b90` | result-neutral: line endings only. The run read a CRLF working copy, although `.gitattributes` sets `eol=lf`. The recorded hash is the sha256 of the committed LF blob with each line feed written as a carriage return and a line feed. The blob has not changed since the run commit `dc269d3e`, and R parses both files as the same source |
 | `tests/canonical/sdr_repeated/run_study.R` | `d31f588a598c093d84b74df50027c741dde1d215a9c339947b63f7284e8c414e` | `bcebf47ec6b4a7eb630ee91e7e354f337c7ed506e4f8b1a61faec45c15a4baf7` | result-neutral: the warning handler now raises `study_fatal_error` in place of a plain error, and `check_cells` runs before the handler and outside the stage. The change acts only on a warning or an unseen-cell refusal in an lmtp fit. The committed rows hold 2,400 lmtp replicates in each of the 26 cells, so neither occurred and no failure was recorded. A rerun that hits one stops the run instead of recording a failure |
 | `tests/canonical/study_harness.R` | `63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878` | `ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51` | result-neutral: RM39 runs each group in a forked child that leaves a checkpoint, retries a killed group, and resumes a rerun from the checkpoints. With no kill and no resume, `study_collect` assembles the checkpoints in group order and writes the same table with the same `write.csv` call. Each fit now runs after `set.seed` with the driver's seed. `tests/canonical/harness_fixture/determinism.csv` records for each harness runner that its fits leave `.Random.seed` untouched, or that its old and new code wrote identical bytes on 3 replicates. The fixture smoke records identical bytes from the old and the new harness (`tests/canonical/harness_fixture/smoke/results.json`, `old_new`). RM39a2 adds the failure functions to the shared block (`study_stage`, `study_fatal_error`, `study_invalid`, the failure records, the systematic stop, `study_finish`). They act only on an error that escapes a stage or on a row that breaks a rule, so a run without either writes the bytes of the `f1840adc` harness, and writes no failures file. A `std::bad_alloc` message is a memory kill, and an error that the stage expression raises itself records the call `none`. Both act only on a failed fit. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/ctmle3_oat/run_ctmle3_oat.R` | `13621c4382f45c6b3fc6585fc3650164e07a779df220befe035f91c97cd2603a` | `cca87af41512a5602e214fc24a5ea109a63fb398f1e0b9aea488f51e9797e09f` | result-neutral: the runner keeps its fit, its re-signal wrapper and its published row. It gains a byte-identical copy of the harness's RM39 functions and fits each group in a forked child that leaves a checkpoint. It assembles the table from those checkpoints in group order, which is the order its workers returned the groups before, and its refusals and its `write.csv` call are unchanged. A `std::bad_alloc` message is a memory kill, and an error that the stage expression raises itself records the call `none`. Both act only on a failed fit. Witness: `tests/canonical/harness_fixture/determinism.csv` records identical bytes from the runner at `572501b8` and from this file on 3 replicates in its image. RM39a2 grows the runner's copy of the shared block with the failure functions and wraps its comparator call in `study_stage`; the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
@@ -57,8 +56,6 @@ exposes a wrong result-neutral reason as a changed artifact.
 | `tests/canonical/lmtp_held_survival_adapter.R` | `c990f58bf514e3c8aaf2d7acbac8a997a7821f02e6544abd89ba3f61d8054e51` | `7db5edbde3f72e6071cc7dbaea915c7e7854d9ecbfe2b78af86e6b338f3f6b90` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/lmtp_point_adapter.R` | `ff07cc833a682c5a748ea67e226b672dd3cb690dd33f23b771bb2b0798aac2c5` | `45df3958124d92932dfdbf1837da47859edac203900855b33812bece38d7f666` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/lmtp_policy_adapter.R` | `3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0` | `d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Every argument is evaluated before the first stage, so an error in an argument stays fatal, and each lmtp internal is looked up before its stage rather than at the call. Neither step draws a random number. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. The X40 comparator follow-up adds the argument `refuse_bound = TRUE`. Every recorded caller omits it, so the prediction-bound check runs as before; only the `mtp-boundaries` and `mtp-pricing` runners pass `FALSE`, and their own exactness gate reads each pair. |
-| `tests/canonical/lmtp_policy_adapter.R` | `399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d` | `d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45` | result-neutral: the `vector-mtp` lmtp run (Study queue row 31, `40a39a1a`) ran the file before the X40 comparator follow-up added the argument `refuse_bound = TRUE` to `lmtp_policy_tmle`. `vector-mtp` never calls `lmtp_policy_tmle`: `lmtp_vector_adapter.R` sources the file only for `screen_policy_ratios`, which the edit leaves byte for byte unchanged. Witness: `git diff 40a39a1a -- tests/canonical/lmtp_policy_adapter.R` touches only the signature and the bound check of `lmtp_policy_tmle`. |
-| `tests/canonical/lmtp_mtp_adapter.R` | `ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788` | `65638b0db4fca5fa709720faf25da839350a6e32f11aa20723f9aadca534d583` | result-neutral: the X40 comparator follow-up adds the argument `refuse_bound = TRUE` to `lmtp_mtp_tmle` and passes it to `lmtp_policy_tmle`. A caller that omits it gets the check it had, so the `longitudinal-mtp` and `policy-point-mtp` fits read the same rows. Only the `mtp-boundaries` and `mtp-pricing` runners pass `FALSE`, and those studies regenerate with the change. The header comment also changed |
 | `tests/canonical/ltmle_regimen_adapter.R` | `d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6` | `cf332486a8349cf9f978e5a136ec0343db8e281b888e05abfb417c1c1247e765` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. A promoted warning now raises `study_fatal_error`, which stops the run as the plain `stop` did. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/multi_arm_ctmle3_oat/run_multi_arm_ctmle3_oat.R` | `32deed7cb1be55d1e685bac3a2ea04b32bb72fc41d98602fcd12941eeeb2e0ed` | `084348980713885690f901a3a9eb5ed7e72d2a1301309d1e7f245bc3396de850` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
 | `tests/canonical/multi_arm_drtmle/run_multi_arm_drtmle.R` | `6254070df7b2b40a8c221ff6a037e91b2109851302399332acdae15f40e183e4` | `5b289c565241b6284d8296021d88a62abe0fffb32a2db79a684c4ab0b702f902` | result-neutral: RM39a2: the comparator call now runs inside `study_stage`, an exiting error handler that returns the call's value unchanged. A successful fit writes the same row, and only an error that escapes the call takes a different path. A promoted warning now raises `study_fatal_error`, which stops the run as the plain `stop` did. The fitter is now built in the parent before a prescheduled `mclapply`, so `study_collect` retries and assembles the registered groups; a successful run writes the same rows in the same group order. Witness: the `a2` rows of `tests/canonical/harness_fixture/determinism.csv`, which run the file at `f1840adc` and as committed on 3 replicates under one seeds file and compare the two outputs byte for byte. |
@@ -156,6 +153,7 @@ no longer imports. Remove the row when you regenerate the study.
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/conftest.py` | result-neutral: the study imports `tests/studies/clustered_crossfit_ltmle.py`, and that module imports only the constants `IFE_VERSION` and `IFE_SHA256` from `tests/studies/canonical_clustered_tmle.py`, which imports this module for its own fits. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_clustered_tmle.py` and `tests/studies/canonical_tmle.py` import this module for their own fits, and the study reaches them only through the constants of `tests/studies/clustered_crossfit_ltmle.py` and through `fitted_rows`, which runs the study's own sampler and fit. No function of this module runs in the study, so no result reads it |
 | `few-cluster-floor-cross-fitted-ltmle` | `tests/studies/clustered_unequal_laws.py` | result-neutral: `tests/studies/few_cluster_floor.py` imports `ExactLongitudinalPropensity` from `tests/studies/clustered_few_cluster_tmle.py`, which imports this module, and that class reads `informative_propensity` from it. No fit of the study constructs `ExactLongitudinalPropensity` or its subclass `ParametricExactPropensity`; only `few-cluster-floor-tmle` does. No result of this study reads this module |
+| `projection-methods` | `tests/studies/point_study_helpers.py` | result-neutral: the study imports `tests/studies/drtmle_one_wrong.py` for law L's learners and quadrature (`OffsetLogistic`, `DeclaredOnly`, `CubicLeastSquares`, `CubicLogistic`, `newton_logistic`, `gauss_hermite`, `slow`, `g` and `G_BOUNDS`), and that module imports `primary_rows` and `initial_estimates` from this module for its own `cleverly_rows`. No fit of the study calls either function: the study writes its primary rows itself. The module list omitted it, so the manifest records no hash for it |
 
 ## Descriptive manifest text
 
@@ -174,6 +172,7 @@ header.
 | `default-simultaneous-bands` | `configuration.primary_fit`, `configuration.band_cells` | the manifest of the band-finite-sample complete rerun says `1000 rademacher draws` and `the engine's default draws (1000 point, 2000 sequential), rademacher multipliers`, the text the study module carried when the rerun ran. The band that ran is the default band: the Mammen multiplier at 10,000 draws on the logit scale, which `tests/canonical/default_bands/band_rerun/complete-rerun.json` records through the plan it hashes (`default_band` in `tests/canonical/band-rerun-plan.json`). The study module now says so | result-neutral: descriptive strings that no computation reads. The draws, the kind and the scale came from the engine defaults the rerun used, and every artifact is the rerun's. The manifest keeps the text written at generation time |
 | `multi-arm-mar-drtmle` | `configuration.n_multiplier` | the manifest of the band-finite-sample complete rerun records `n_multiplier: 1000` and names no multiplier kind. The band that ran is the Mammen multiplier at the study's pinned 1,000 draws on the logit scale, which `tests/canonical/drtmle_mar_multi_arm/band_rerun/complete-rerun.json` records through the plan it hashes (`default_band` in `tests/canonical/band-rerun-plan.json`; the pinned draw count is the study's own). The study's properties docstring now says so | result-neutral: the draw count is the one that ran, and the kind and scale are the engine defaults the rerun used, so every artifact is the rerun's. The manifest keeps the text written at generation time |
 | `composite-missing-drtmle` | `configuration.n_multiplier` | the manifest of the band-finite-sample complete rerun records `n_multiplier: 1000` and names no multiplier kind. The band that ran is the Mammen multiplier at the study's pinned 1,000 draws on the logit scale, which `tests/canonical/drtmle_composite/band_rerun/complete-rerun.json` records through the plan it hashes (`default_band` in `tests/canonical/band-rerun-plan.json`; the pinned draw count is the study's own) | result-neutral: the draw count is the one that ran, and the kind and scale are the engine defaults the rerun used, so every artifact is the rerun's. The manifest keeps the text written at generation time |
+| `drtmle-foldwise-n1500` | `study` | the manifest says "DR-TMLE fold-wise default on the RM18 binary draws". The record's `name` now says "DR-TMLE fold-wise default on the binary complete-data law at 1,500 observations", which drops an internal label | result-neutral: `tests/studies/evidence/manifest.py` writes the record's `name` as `study`, and no computation reads it. The manifest keeps the text written at generation time |
 
 ## Study module edits after a run
 
@@ -270,11 +269,11 @@ Remove the row when you regenerate the study. No test parses this table.
 | `learned-rule-optimal-value` | `src/cleverly/_support.py` | `36aa77eeee4a8fecebf0ba7d2a42ef3b6d2cd4b22dcac1ea313aeb36d30e94db` | `a4cb8582a5283a48f0b80cfede48d450a18b754ed4bf41283857a8321c2becb4` | result-neutral: X11 PR K (b) adds `"learned"` to `REGIMEN_KINDS`, and `regimen_kinds` adds it only for a plan whose regimen carries `learned = True`, which only `LearnedRegimen` does. A point-treatment fit has no longitudinal plan, so its support key and label are unchanged. Witness: `draw_and_fit(replicates=2, n=500, n_jobs=1)` of `learned-rule-arms`, `learned-rule-contrast` and `learned-rule-optimal-value`, run under `git archive e6e2c8e6` and under this file, gives one SHA-256, `8c3c925c578af29f983c211a998aa92fa83161ba38b516ecff515dd607332c5f`, over every replicate row written with 17 significant digits |
 | `learned-rule-intermediate` | `src/cleverly/interventions/base.py` | `3b9db3199ad83dc5297396648e0c41acc755dcde5a675cf291da5de59692aa2b` | `9655e2bf2519f313fc13ae1085d080888e480d32e4a799344c95f7af987c7d9d` | result-neutral: X11 PR K (b) rewrites the text of `_ESTIMATED_RULE`, as in the `learned-rule-arms` row. The refusal still raises on the same declaration, and no fit of this study declares `rule_kind='estimated'`, so no computed value reads the text. Witness: `draw_and_fit(replicates=2, n=500, n_jobs=1)` of `learned-rule-intermediate`, run under `git archive 2d42be6a` (main with K0) and under the merge of that commit into X11 PR K, gives one SHA-256, `62d6b63b4d47b01ecb1626e4ce8cce1136cafda9431d20bad95516680fd3eb06`, over every replicate row written with 17 significant digits |
 | `learned-rule-intermediate` | `src/cleverly/_support.py` | `36aa77eeee4a8fecebf0ba7d2a42ef3b6d2cd4b22dcac1ea313aeb36d30e94db` | `a4cb8582a5283a48f0b80cfede48d450a18b754ed4bf41283857a8321c2becb4` | result-neutral: X11 PR K (b) adds `"learned"` to `REGIMEN_KINDS`, and `regimen_kinds` adds it only for a plan whose regimen carries `learned = True`, which only `LearnedRegimen` does. A point-treatment fit has no longitudinal plan, so its support key and label are unchanged. Witness: `draw_and_fit(replicates=2, n=500, n_jobs=1)` of `learned-rule-intermediate`, run under `git archive 2d42be6a` (main with K0) and under the merge of that commit into X11 PR K, gives one SHA-256, `62d6b63b4d47b01ecb1626e4ce8cce1136cafda9431d20bad95516680fd3eb06`, over every replicate row written with 17 significant digits |
-| `band-t-reference` | `tests/studies/band_t_reference.py` | `fd231cc575d9bff9b44438b907201c229ad535e0b69fd32da78b63f4dd2eaccd` | `ccab951bc792b24f7c358cc11bd3d0746a543cd582646e44dbc3e74c0d0f3f20` | result-neutral: at registration the module docstring says that the declared run is committed and the study registered, and the record's `anchor` names the heading of its page, `per-estimate-t-reference-band`. The anchor locates the study's section for the page generator and the documentation tests; no draw, fit, seed, cell or verdict reads it or the docstring |
+| `band-t-reference` | `tests/studies/band_t_reference.py` | `fd231cc575d9bff9b44438b907201c229ad535e0b69fd32da78b63f4dd2eaccd` | `1eb9dea7d6888e478945df47191e8e51df9cdcbe6faf18251da1d5d17eeba079` | result-neutral: at registration the module docstring says that the declared run is committed and the study registered, and the record's `anchor` names the heading of its page, `per-estimate-t-reference-band`. The anchor locates the study's section for the page generator and the documentation tests; no draw, fit, seed, cell or verdict reads it or the docstring. The current hash also carries X117's anchor edit, recorded in "Title, anchor and docstring edits of X117" below |
 | `band-t-reference` | `tests/studies/evidence/properties.py` | `878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85` | `1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505` | result-neutral: the merge of main brought commit `a7803256`, which adds `paired_se_ratio_interval` for the few-cluster IID control and widens a docstring. No function this study calls changed; the `simultaneous_coverage` rows read neither addition. `tests/unit/test_method_evidence.py` recomputes this study's verdicts from its committed rows with the current module |
 | `band-t-reference` | `tests/studies/evidence/property_verdicts.py` | `aebf0f79fee3aabcfef4588a191e9aaa6c36f04ff6934c9c6f748c8a9b6ac135` | `aa91820d7d192593efd340f2809280824705e6ae4816f75814f23c91f7640dae` | result-neutral: the merge of main brought commit `a7803256`, which reads the `few_cluster_reference` IID control as a paired two-clause verdict and adds the `S9m` clause. The `simultaneous_coverage` rule and the reference-gain reading this study applies did not change. `tests/unit/test_method_evidence.py` recomputes this study's verdicts from its committed rows with the current module |
-| `band-t-reference-held-out` | `tests/studies/band_t_reference.py` | `fd231cc575d9bff9b44438b907201c229ad535e0b69fd32da78b63f4dd2eaccd` | `ccab951bc792b24f7c358cc11bd3d0746a543cd582646e44dbc3e74c0d0f3f20` | result-neutral: this file is the main study's record, which the held-out study imports as an engine for its draws, fits and cells. At registration its docstring says that the declared run is committed and the study registered, and the record's `anchor` names the heading of its page, `per-estimate-t-reference-band`. The anchor locates the study's section for the page generator and the documentation tests; no draw, fit, seed, cell or verdict reads it or the docstring |
-| `band-t-reference-held-out` | `tests/studies/band_t_reference_held_out.py` | `effdc1576e49caeb0e83391543f54eac805c85157109d63345f8e01f02a3cc3f` | `8fc321ad6ec9170f348d77f74b2b9a744c5007131fdd4f08de9fac116388988e` | result-neutral: at registration the module docstring says that the declared run is committed and the study registered, and the record's `document` and `anchor` name the study's own page, `band-t-reference-held-out.md`, under the heading `held-out-t-reference-band`. No draw, fit, seed, cell or verdict reads the docstring, the document path or the anchor |
+| `band-t-reference-held-out` | `tests/studies/band_t_reference.py` | `fd231cc575d9bff9b44438b907201c229ad535e0b69fd32da78b63f4dd2eaccd` | `1eb9dea7d6888e478945df47191e8e51df9cdcbe6faf18251da1d5d17eeba079` | result-neutral: this file is the main study's record, which the held-out study imports as an engine for its draws, fits and cells. At registration its docstring says that the declared run is committed and the study registered, and the record's `anchor` names the heading of its page, `per-estimate-t-reference-band`. The anchor locates the study's section for the page generator and the documentation tests; no draw, fit, seed, cell or verdict reads it or the docstring. The current hash also carries X117's anchor edit, recorded in "Title, anchor and docstring edits of X117" below |
+| `band-t-reference-held-out` | `tests/studies/band_t_reference_held_out.py` | `effdc1576e49caeb0e83391543f54eac805c85157109d63345f8e01f02a3cc3f` | `2d4301e675da9c5538cc786325f6547cf414b469c073e744e387996c7fe4cdce` | result-neutral: at registration the module docstring says that the declared run is committed and the study registered, and the record's `document` and `anchor` name the study's own page, `band-t-reference-held-out.md`, under the heading `held-out-t-reference-band`. No draw, fit, seed, cell or verdict reads the docstring, the document path or the anchor. The current hash also carries X117's anchor edit, recorded in "Title, anchor and docstring edits of X117" below |
 | `band-t-reference-held-out` | `tests/studies/evidence/properties.py` | `878ae87721b9512fa60dcba3d039858c7761c3d9a7d8a3b2f3c98ef338f99b85` | `1167356fe67ff14c53c62266c6140c880e0f14af90eaf3914571c6f85dfc1505` | result-neutral: the merge of main brought commit `a7803256`, which adds `paired_se_ratio_interval` for the few-cluster IID control and widens a docstring. No function this study calls changed; the `simultaneous_coverage` rows read neither addition. `tests/unit/test_method_evidence.py` recomputes this study's verdicts from its committed rows with the current module |
 | `band-t-reference-held-out` | `tests/studies/evidence/property_verdicts.py` | `aebf0f79fee3aabcfef4588a191e9aaa6c36f04ff6934c9c6f748c8a9b6ac135` | `aa91820d7d192593efd340f2809280824705e6ae4816f75814f23c91f7640dae` | result-neutral: the merge of main brought commit `a7803256`, which reads the `few_cluster_reference` IID control as a paired two-clause verdict and adds the `S9m` clause. The `simultaneous_coverage` rule and the reference-gain reading this study applies did not change. `tests/unit/test_method_evidence.py` recomputes this study's verdicts from its committed rows with the current module |
 | `hazard-mtp` | `tests/studies/canonical_hazard_mtp.py` | `261b796587a6fb82c977e597d417ebd5e36e156f1c878564bcadb48e22db5fe9` | `ecd6c26af4bfccd33b23608255003e3bd1f83d7aaa92d014e4682cefabc81d13` | result-neutral: registration sets the record's `anchor` to the level-one heading of its evidence page, which the document generator fills. No fit, draw, seed or summary reads `anchor`. Every fit set of this study (`hazard_mtp_properties.FIT_SETS`) and every primary draw declares a wrong treatment or censoring model on `levels` only, so no fit reached the classifier route's `DoseOnlyRatio` or the density route's `marginal=True` Gaussian. That classifier read the stacked design's last column, `W2`, not the dose. It is removed, and `learners` now refuses a wrong mechanism off `levels`. The `levels` branches and every learner a fit set builds are unchanged |
@@ -300,7 +299,7 @@ Remove the row when you regenerate the study. No test parses this table.
 | `hazard-multinode` | `tests/studies/evidence/property_verdicts.py` | `80dd5aa45bdb65f5b8526861035d1012c389d0e6e492eb46febc40fa65a2316e` | `7328e6f3799ffef9128afab0fc2be147bfc7e6907b93230cacaa4a92c8c81cfa` | result-neutral: the merge of main brings `1b495c44`, `a11bcf62` (band-t-reference) and `4c313cda` (the stopping-rule studies), which add rules for families this study does not declare. `tests/unit/test_method_evidence.py` re-summarizes the committed `property-replicates.parquet` with this module and reads the committed `passed` and `property_passed` on every row of `properties.csv`. Witness: on one machine, 154 property rows (four replicates of each of the three calibration fit labels `base`, `four` and `msm`, two of each of the four robustness configurations, of the route `mechanism_correct` fit and of the node-only hazard learner, two, two and one of the rungs of the rate ladder, two of each iterated-mean fit set, and one one-step walk; power and targeting necessity read the shared fits) and the first four primary draws of each of the three scenarios (204 rows) were refit at the run commit `5ba870d8` and at this tree. The run commit reproduces the committed rows bitwise. Every estimate, standard error, `rejected`, `converged`, final score and iteration count is bitwise equal at this tree, except the ungated `simultaneous_coverage/*__pointwise_joint_control` rows (at most 0.060 standard errors) and the primary interval ends of 108 bounded-mean risk rows, which move with the shipped logit interval of a bounded mean (#637). One primary `covered` flips at an equal estimate and standard error, and `tests/canonical/interval-audit-screen.csv` screens the study neutral |
 | `hazard-multinode` | `tests/studies/evidence/simultaneous.py` | `0407058d966ab0c455baeab27608b8090015271c512b779e966165e79a97ffc5` | `38c1817a29aef9d6e39b4a45649bc4a3bad226d9aa7182a5f91ef720b398906f` | result-neutral: the merge of main brings Fix-3 `8a94b611`, `5171b3d3` and the band-t-reference commits `1b495c44` and `f36b2ca6`, which add the small-sample and t-band readings behind options this study does not set. Its band cells are refit bitwise equal, apart from the ungated pointwise-joint controls (witness below). `tests/unit/test_method_evidence.py` re-summarizes the committed `property-replicates.parquet` with this module and reads the committed `passed` and `property_passed` on every row of `properties.csv`. Witness: on one machine, 154 property rows (four replicates of each of the three calibration fit labels `base`, `four` and `msm`, two of each of the four robustness configurations, of the route `mechanism_correct` fit and of the node-only hazard learner, two, two and one of the rungs of the rate ladder, two of each iterated-mean fit set, and one one-step walk; power and targeting necessity read the shared fits) and the first four primary draws of each of the three scenarios (204 rows) were refit at the run commit `5ba870d8` and at this tree. The run commit reproduces the committed rows bitwise. Every estimate, standard error, `rejected`, `converged`, final score and iteration count is bitwise equal at this tree, except the ungated `simultaneous_coverage/*__pointwise_joint_control` rows (at most 0.060 standard errors) and the primary interval ends of 108 bounded-mean risk rows, which move with the shipped logit interval of a bounded mean (#637). One primary `covered` flips at an equal estimate and standard error, and `tests/canonical/interval-audit-screen.csv` screens the study neutral |
 | `hazard-multinode` | `tests/studies/canonical_hazard_multinode.py` | `db75eac89b37590502c49ebb02609dd8664b08a824e22f6f46de70292d284d3b` | `c39a692104a5b1d38d8b1ffb83f22e0f6d77c10bd9b2b7ecee205e5fc623fafa` | result-neutral: after X54 part (i) an estimate that reads a held prefix cell keeps the `influence_curve` status and carries `node`, the boundary-node supplement, where the run saw `constant_node_plugin`. `refuse_held_cells` now also raises `HeldCellError` when an estimate carries `node`, so a held draw stays the lost replicate it was when the study ran, as `canonical_survival_node_bounds.refuse_constant_nodes` does. An estimate carries `node` exactly when a regimen it reads holds a cell with followers, the case that gave `constant_node_plugin` before, so the same draws are lost. Witness: `TestTheHeldCells.test_the_held_fit_is_a_recorded_lost_replicate` |
-| `hazard-time-varying` | `tests/studies/canonical_hazard_time_varying.py` | `0a7f1e345847cd10bc468be49e7e453e4e27455df42b1bcb3697392e477e8527` | `1689e891c2b5903ab31cf51af4e694d59abea7ef9c62c9bfd02a61af4646d272` | result-neutral: `refuse_held_cells` also raises `HeldCellError` when an estimate carries `node`, the boundary-node supplement of X54 part (i). The study's fits have covariates after baseline, which the supplement's reach leaves out (`hazard_later_covariates`), so a held cell gives `constant_node_plugin` as when the study ran and the new branch never fires there. It keeps a held draw a lost replicate if that reach changes. Witness: `TestTheHeldCells.test_the_held_fit_is_a_recorded_lost_replicate` |
+| `hazard-time-varying` | `tests/studies/canonical_hazard_time_varying.py` | `0a7f1e345847cd10bc468be49e7e453e4e27455df42b1bcb3697392e477e8527` | `1a38e66d989547d2fd2bd2fdaec1dac952ef1075ae443f26358cf379e4b1c165` | result-neutral: `refuse_held_cells` also raises `HeldCellError` when an estimate carries `node`, the boundary-node supplement of X54 part (i). The study's fits have covariates after baseline, which the supplement's reach leaves out (`hazard_later_covariates`), so a held cell gives `constant_node_plugin` as when the study ran and the new branch never fires there. It keeps a held draw a lost replicate if that reach changes. Witness: `TestTheHeldCells.test_the_held_fit_is_a_recorded_lost_replicate`. The current hash also carries X117's anchor edit, recorded in "Title, anchor and docstring edits of X117" below |
 | `hazard-time-varying-multinode` | `tests/studies/canonical_hazard_time_varying_multinode.py` | `76817c19b8f1c61a4e32574ff8b0cf2a0f0ee425c50d204a245aec8ec321fdf1` | `7565d2819dc6e09282804f6e8f531dec846a54d3c56a7112d2675574c4a7bba3` | result-neutral: registration sets the record's `anchor` to the level-one heading of its evidence page, which the document generator fills, adds `G63_MULTINODE_FITS`, `G63_MULTINODE_BANDED` and `support_rows()`, which reads the registered rows, adds `multinode_rule` to the cells of `G63.multinode.in_sample`, and rewrites the module docstring and the comments on the support rows. No fit, draw, seed or summary reads `anchor`, the docstring or the support rows. Every other module the manifest hashes, `src/cleverly/longitudinal/hazard.py` and `src/cleverly/longitudinal/hazard_backward.py` among them, is byte-identical to the run at `10d19ab9` on this tree. Witness: on one machine, two replicates of each of the 12 property fit sets (78 committed property rows: both calibration fit labels, every robustness configuration and the untargeted arm, each rate rung and the iterated-mean fit set; the necessity and power cells read these fits) and the first three primary draws (63 rows) were refit at this tree, and every truth, estimate, standard error, final score, `covered`, `rejected` and `converged` is bitwise equal to the committed rows, as is every primary interval end and initial estimate. The lost replicate 14,254 of the `crossfit` calibration fit set refits to the same stalled walk, final relative score 0.008868 |
 
 ## The two band-t-reference runs
@@ -316,6 +315,36 @@ no computation reads, and `tests/unit/test_band_t_reference_design.py`, which ga
 no configuration key names a record field. No module the main study's manifest lists changed
 between the two commits, and every other module the held-out manifest lists has the same bytes at
 both, so the two runs drew and fitted with the same code.
+
+## The constant-arm skip in `joint_coverage_rows` (Fix-9)
+
+Fix-9 changed `tests/studies/evidence/simultaneous.py` from
+`f5963ad424b9c2372bfa48c08927b3db012c07d7e9ffce553802fc9a43b0661b` to
+`e127a51b6de3e6b502755d649f9b1047643bd7692a8f2b858b6c014f4ce03f85`. Since Fix-3 the package builds
+no band over a family that holds a `constant_arm_cell_plugin` estimate. `joint_coverage_rows` then
+raised `AssertionError`, which is not a recordable failure, so the property phase stopped. The
+`canonical-stratified-incremental-msm` run at `58538bfa` stopped this way at the ipsi calibration
+replicate 398, whose treated arm of stratum `V=2` has one observed outcome value. The row builder
+now counts such a skipped band as not covered, with the refused-band sentinel, as
+`band-t-reference` already does. It also raises if a fit builds a band over a constant arm cell.
+The edit is result-neutral for every committed record: the new branch runs only
+where the old code raised, and a run that raised wrote no record.
+
+## The plain-form `longitudinal-mtp` regeneration (Fix-9)
+
+`longitudinal-mtp` is a planned study of the band wave, so `band_rerun.REGENERATED` holds its
+Fix-9 regeneration to a full run at the listed commit `58538bfa`. Its driver has only the plain
+form, which writes the artifacts into the study directory before `write_manifest` reads
+`git status`. Its manifest therefore records `cleverly_worktree_clean: false`, as every plain-form
+manifest does. `band_rerun.PLAIN_FORM` accepts that flag for this study alone, and only while every
+hash in its `study_module_sha256` and `reference_sha256` equals the file at `58538bfa`. All 27 do.
+Witness: on Linux, replicates 0 and 1 of each of the 20 fit sets and the band (48 rows) were
+refit at `58538bfa` and compared with the committed `property-replicates.parquet`, which Windows
+wrote. 46 rows agree within 1e-12 standard errors in estimate and standard error. The two
+`crossfit_overfitting/in_sample_control` rows, which interpolate with in-sample extra-trees, differ
+by 0.067 and 0.007 standard errors. Every `covered` is equal. A code change on a path these 48 fits run would have moved those
+rows; a change on a path they do not reach would not show here. The hash check reads git history,
+so it runs locally; CI's shallow checkout skips it, as it skips the ancestry check.
 
 ## Completed manifest provenance
 
@@ -723,6 +752,14 @@ Registration added `SHRUNKEN_SE_FACTOR` to `tests/studies/projection_composition
 a constant equal to the study's `SHRUNKEN_FACTOR` that `claims.thresholds` reads for the measured-values
 table. It is read by no verdict, seed or fit, so a regeneration would write the same rows.
 
+## Registration edit after the `mtp-density-tails` run (Fix-9)
+
+Registration set `calibration_efficiency_ratio=False` on the `StudyRecord` in
+`tests/studies/canonical_mtp_density_tails.py`. The study uses its efficiency bound only to scale
+the noise controls and the influence-curve gap, and no calibration cell publishes an efficiency
+ratio. The field is read by the documentation gate and the measured-values table, and by no
+verdict, seed or fit, so a regeneration would write the same rows.
+
 ## Registration edits after the `projection-evidence` and `score-assessment-compositions` runs (P1)
 
 The declared runs ran at `f60abdf7` (`projection-evidence`, recorded at `0635530b`) and at
@@ -779,3 +816,203 @@ Its edits are to the planned-fit counts (a `nominal` flag and the counted label)
 reads. The evidence: at seed 0 every one of the 15 groups, fitted through `fit_group` at
 `85ac45e0` and at the merge `4e73ebf5`, gives the same 375 points, standard errors, band values and
 control values, bit for bit.
+
+## Main merged into `hazard-mtp` after its gated run (Fix-9)
+
+The declared run ran at `336bac14`. Landing it merges main through `cb17f08f`, which changes four
+modules the manifest records: `src/cleverly/longitudinal/hazard.py`,
+`tests/studies/evidence/properties.py`, `tests/studies/evidence/property_verdicts.py` and
+`tests/studies/fractional_glm.py`. Each is identical at `1231ef9c`, `58538bfa` and `336bac14`, so
+main's edits since `1231ef9c` are the whole difference. The hazard edits (X106 J2c, J2e, J2g)
+free each horizon's state, share one read-only clever weight per regimen and count held cells
+by key, and the counts are the same cells. The evidence modules gather bootstrap indices from the
+same stream and add the `shown_only` few-cluster readings, which this study does not declare.
+`fractional_glm.py` changes only its docstring. The evidence: two primary replicates of each
+scenario and one replicate of every property fit set (96 primary and 57 property rows, the
+untruncated density fit included), refit at `58538bfa` and at the merged tree, are bitwise
+equal in every column. `tests/unit/test_method_evidence.py` re-summarizes the committed
+`property-replicates.parquet` with the merged modules and reads the committed `passed` and
+`property_passed` on every row of `properties.csv`.
+
+## Main merged into `vector-mtp` after its Fix-9 run
+
+The run ran at `58538bfa`. Landing it on a branch that merged main through `cb17f08f` changes
+three modules the manifest records: `tests/studies/evidence/properties.py`,
+`tests/studies/evidence/property_verdicts.py` and `tests/studies/fractional_glm.py`. Each is
+identical at `1231ef9c` and `58538bfa`, so main's edits since `1231ef9c` are the whole difference,
+the same edits the `hazard-mtp` section above describes: bootstrap indices gathered from the same
+stream, the `shown_only` few-cluster readings this study does not declare, and a docstring. The
+evidence: two primary samples of each scenario and one replicate of every property fit set (40
+primary and 36 property rows), refit at `58538bfa` and at the merged tree, are bitwise equal in
+every column. `tests/unit/test_method_evidence.py` re-summarizes the committed rows with the
+merged modules and reads the committed verdicts.
+
+## Main merged into the last six Fix-9 regenerations
+
+`mtp-boundaries`, `longitudinal-sdr`, `longitudinal-mtp`, `policy-point-mtp` and
+`dose-response-npcausal` ran at `58538bfa`, and `canonical-stratified-incremental-msm` at
+`9bb2e749`. Landing them on a branch that merged main through `cb17f08f` changes recorded
+modules of five of them: `tests/studies/evidence/properties.py` and
+`tests/studies/evidence/property_verdicts.py` for all five, and `tests/studies/fractional_glm.py`
+for all but `canonical-stratified-incremental-msm`, which does not record it.
+`dose-response-npcausal` records none of the three. Each module is identical at `1231ef9c`,
+`58538bfa` and `9bb2e749`, so main's edits since `1231ef9c` are the whole difference, the edits the
+`hazard-mtp` and `vector-mtp` sections above describe: `ratio_draws` gathers the bootstrap indices
+from the same stream column by column, `property_verdicts` adds the `shown_only` few-cluster
+readings and reads an empty property table from the declaration, and `fractional_glm.py` changes
+only its docstring. None of the six studies declares a few-cluster family, and no fit calls these
+functions: they summarize committed replicate rows. The evidence:
+`tests/unit/test_method_evidence.py`, run with `-k` on each slug, re-summarizes the committed
+replicate rows with the merged modules and reads the committed `passed` and `property_passed` on
+every row; the same edits refit bitwise equal for `hazard-mtp` and `vector-mtp`. The
+`longitudinal-sdr` and `longitudinal-mtp` manifests also record
+`tests/studies/evidence/simultaneous.py`, whose Fix-9 edit the constant-arm section above covers.
+Merging main again at `a5d13ce6` (#743 to #747: sampled refutation, the 0.2.8 release and the
+band-less bootstrap replicate of the continuous-time TMLE) changes no module that any Fix-9
+study's manifest records, and neither does merging main at `d30703e6` (#750, the
+`learned-rule-ep-declared` registration). Merging main at `f14f1a02` (#749 and #751) adds one
+class attribute, `cleverly_learner_family = "parametric"`, to `KnownLongitudinalMechanism` in
+`tests/studies/canonical_ltmle.py` and to `QuasiBinomialGLM` in `tests/studies/fractional_glm.py`.
+Only `cleverly._support.learner_family` reads it, to set support labels and keys, and no Fix-9
+study row records one, so no seed, fit or verdict moves.
+
+## The `CONFIGURATION` publish step of `learned-rule-ep-declared`
+
+The declared run of `learned-rule-ep-declared` ran at `9bd7aa90` on a clean tree, fitted every
+primary and property replication, and stopped in `write_manifest` because
+`tests/studies/learned_rule_ep_declared.py` defined no `CONFIGURATION`. The publish step was
+finished by a wrapper kept with the plans (`rows/P1/ep-declared-publish/publish.py` in the
+plans repository), which set `CONFIGURATION` on the imported module in memory, from the
+dictionary in `configuration.py` beside it, and then ran the declared entry point
+`tests.canonical.learned_rule_ep_declared.regenerate` unchanged. HEAD stayed `9bd7aa90` and the
+tree stayed clean, so the resume key was the run's own, and the log records
+`resumed from ... reused the Python phase`. No replication was refitted. The wrapper rewrites
+`sys.argv` before it runs the module, so `run.log` records the entry point's command line with
+the wrapper's arguments. `CONFIGURATION` is descriptive text that no seed, fit or verdict reads.
+Registration commits that dictionary verbatim to the study module, and
+`tests/unit/test_learned_rule_ep_declared_design.py` checks it against the manifest's
+`configuration`. The module's recorded hash is the hash of the file without it.
+
+## Registration edits after the `learned-rule-ep-declared` run (P1)
+
+The declared run ran at `9bd7aa90` (artifacts `6ee7121f`). Registration then edited modules its
+manifest records, and none of the edits reaches a seed, a fit or a verdict:
+
+- `tests/studies/learned_rule_ep_declared.py` gains `CONFIGURATION` (previous section), and its
+  docstring now names the declared `R` and the registered run.
+- `tests/studies/learned_rule_ep_declared_properties.py` gains `SHRUNKEN_SE_FACTOR`, equal to the
+  study's own factor, which `claims.thresholds` reads for the measured-values table.
+- `src/cleverly/interventions/learned.py` narrows `ep_rule_condition` to the optimal value with a
+  declared final learner, and `src/cleverly/estimators/tmle.py` rewords the comment at its call.
+  The condition sets a support label, which no recorded row holds.
+
+The seed-0 witness of the next section, rerun on the tree with these edits, gives the same
+numbers bit for bit.
+
+## Main merged into `learned-rule-ep-declared` after its run
+
+Merging main at `05487679` after the run changed six modules the manifest records:
+`src/cleverly/effect_modification.py`, `src/cleverly/estimators/ep.py`,
+`src/cleverly/estimators/tmle.py`, `src/cleverly/inference/influence.py`,
+`tests/studies/evidence/properties.py` and `tests/studies/evidence/property_verdicts.py`. Main
+adds the projection of a controlled direct effect and the declared log-ratio final learner of the
+EP curve (P1 PR 2), the per-estimand few-cluster floors (X54 part (d)), the planned-fit counts
+(X106 G2), the continuous-time survival switched standard error and the published verdict
+families (X6 part (a)). None of these is reachable from a cross-fitted difference-scale EP rule
+fit on unclustered rows. The evidence: at seed 0 (sample and fold seed 0, the verified harness
+path) one replication of every cell, the four primaries and the six calibration cells at
+n = 4,000, the shrunken-SE control and the fold-locality control at n = 2,000, fitted through the
+study's own `primary_rows` and property `_replicate` at `537d9c53`, again at the merge and
+again with the registration edits, gives the same 12 rows: 176 numbers (estimates, standard errors, truths, oracle SEs, regrets and
+the paired limit fits) equal bit for bit. The committed verdicts recomputed under main's
+`property_verdicts.py` are unchanged, which `tests/unit/test_method_evidence.py` checks.
+
+## Registration edits after the `projection-methods` run (P1)
+
+The second declared run ran at `d2e5a0e5` and was recorded at `32ac8489`. Registration then
+edited two modules its manifest records, and neither edit reaches a seed, a fit or a verdict:
+
+- `tests/studies/projection_methods.py`: the docstring now names the declared run and the
+  registration.
+- `src/cleverly/_support_rows.py` adds the `T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat`
+  rows. They set support labels, which the study's rows do not record.
+
+The seed-0 witness of the next section covers these edits too.
+
+## Main merged into `projection-methods` after its run
+
+Merging main at `95b494c8` after the run changed three modules the manifest records:
+`src/cleverly/_inference_status.py` and `src/cleverly/_support_rows.py` gain the measured
+cluster counts of `few-cluster-adaptive-learners` and its support rows, and
+`src/cleverly/estimators/tmle.py` rewords the comment at the EP rule condition. These set notes
+and support labels; no fit reads them. The evidence: at seed 0 (sample seed 0,
+`random_state=0`, n = 2,000) every one of the seven groups, fitted through `fit_group` at
+`32ac8489` and again at the merge `d1fa0fac` with the registration edits of the previous section,
+gives the same 39 numbers bit for bit: 14 points, 14 plug-in standard errors, the two Wald
+standard errors of `dr_known_4k`, three control values and six readings. The other 12 standard
+errors are withheld on both trees. Only the support labels moved, from experimental to the
+`T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat` rows, which is the registration and enters
+no recorded row.
+
+## Title, anchor and docstring edits of X117
+
+X117 retitled 47 study pages to their record names and edited the 48 Python modules below, which
+study manifests record in `study_module_sha256`, after those studies ran. Each edit is
+result-neutral, and no recorded hash is rewritten. `tests/studies/evidence/manifest.py` writes the
+record's `name` to the manifest as `study` and never writes `anchor`. `comparator_findings` reads
+neither, and no draw, fit, seed, cell or verdict reads either one, a docstring, or a deleted
+function that nothing calls, so a regeneration would write the same rows. Four rows of "Study
+module edits after a run" whose `current` hash is one of these modules now carry its post-edit
+hash, and "Descriptive manifest text" records the renamed `drtmle-foldwise-n1500` record. Remove a
+module's row when every study that records it is regenerated. No test parses this table.
+
+| module | edit |
+| --- | --- |
+| `tests/studies/band_t_reference.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/band_t_reference_held_out.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_adaptive_iptw.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_composite_drtmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_ctmle_oat_per_arm_parametric.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_ctmle_oat_per_arm_parametric_crossfit.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_ctmle_oat_per_arm_parametric_extensions.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_deterministic_regimes.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_drtmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_hazard_msm.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_hazard_mtp.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_hazard_time_varying.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_hazard_time_varying_multinode.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_incremental_interventions.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_learned_weighted_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_longitudinal_incremental.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_longitudinal_sdr.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_ltmle.py` | deletes `untargeted` and `untargeted_estimands`, which nothing calls (their docstring cited a test module that does not exist), and the `regimen_initials` docstring states the contrast-name rule in place of naming the deleted function |
+| `tests/studies/canonical_mar_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_mtp_boundaries.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_mtp_density_tails.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_mtp_policy_variance.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_mtp_pricing.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_mtp_tuning.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_multi_arm_drtmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_multi_arm_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_point_msm.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_point_survival_curve.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_point_survival_curve_crossfit.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_point_survival_hazard.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_point_survival_policies.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_policy_point_mtp.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_shift_policies.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stochastic_categorical_ltmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stochastic_regimes.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stratified_drtmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stratified_incremental_msm.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stratified_msm_identity.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_stratified_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_survival_node_bounds.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/canonical_weighted_tmle.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/default_bands.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/drtmle_foldwise_n1500.py` | the record's `name` drops the internal label "RM18" and reads "DR-TMLE fold-wise default on the binary complete-data law at 1,500 observations"; `anchor` follows the retitled page heading |
+| `tests/studies/projection_evidence.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/projection_methods.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+| `tests/studies/targeting_curves.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |

@@ -537,6 +537,10 @@ class KnownPointMechanism(BaseEstimator):
 class CellProbabilities(BaseEstimator):
     """Weighted class probabilities within each distinct design row (a saturated mechanism)."""
 
+    #: A saturated model on a discrete design is finite-dimensional and selects nothing, so
+    #: :func:`cleverly._support.learner_family` reads it as parametric.
+    cleverly_learner_family = "parametric"
+
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellProbabilities:
         matrix = np.round(np.asarray(X, dtype=float), 9)
         target = np.asarray(y, dtype=float).reshape(-1)
@@ -574,6 +578,10 @@ class CellProbabilities(BaseEstimator):
 
 class CellMeans(BaseEstimator):
     """The weighted mean of ``y`` within each distinct design row (a saturated regression)."""
+
+    #: A saturated model on a discrete design is finite-dimensional and selects nothing, so
+    #: :func:`cleverly._support.learner_family` reads it as parametric.
+    cleverly_learner_family = "parametric"
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeans:
         matrix = np.round(np.asarray(X, dtype=float), 9)

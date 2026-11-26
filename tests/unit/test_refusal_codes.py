@@ -358,6 +358,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/datasets/longitudinal.py", "can only take a step function"): "data "
     "generator argument: a rule whose jump is not at split= is a malformed argument of a "
     "generator, and no estimator capability is involved",
+    ("src/cleverly/datasets/recovery.py", "which is not in the binary history"): "truth "
+    "function argument: a rule that reads a column outside the decision's binary history is a "
+    "malformed argument of an exact-truth helper, and no estimator capability is involved",
     ("src/cleverly/datasets/synthetic.py", "rows were selected; raise n_population"): "data "
     "generator argument: too small a population for the requested sample is a malformed "
     "argument of a generator",
@@ -368,6 +371,7 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     "only fits no pseudo-outcome, so the argument is malformed for that fit and no "
     "estimator capability is missing",
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
+    ("src/cleverly/estimators/_nuisance.py", "dose-response curve has no per-arm"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
     (

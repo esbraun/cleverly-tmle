@@ -39,8 +39,8 @@ on a longitudinal fit. The zero-row equivalence artifact records the absence of 
 | primary phase | 200 replications of the S1 contrast on law E and of the L1 risk contrast on law S, as a sanity check of the fits that the rules read |
 | Monte Carlo inference | exact 99% intervals around every rate, and 99% intervals around every primary endpoint |
 
-The X82 plan fixed the laws, the cells, the thresholds, the seeds and the red-cell route before
-the run. The module docstring of `tests/studies/refuter_calibration_longitudinal.py` states both
+The study fixed the laws, the cells, the thresholds, the seeds and the red-cell route before the
+run. The module docstring of `tests/studies/refuter_calibration_longitudinal.py` states both
 laws and each defect.
 
 A size cell with 200 trials checks gross miscalibration only. A rule with true size 0.05 passes with

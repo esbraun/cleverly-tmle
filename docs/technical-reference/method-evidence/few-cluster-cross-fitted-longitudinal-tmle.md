@@ -114,7 +114,7 @@ rule, because the harness reads the paired columns from the replication rows.
 | limit | what it means for use |
 | --- | --- |
 | 20 and 30 clusters | 4 to 19 clusters are unmeasured for a cross-fitted fit, and a fit there reports no interval |
-| parametric learners | the study does not establish flexible learners at few clusters. Wang, Park, Small and Li (2024), Remark 3, caution against complex learners at about 20 clusters |
+| parametric learners | the study does not establish flexible learners at few clusters. Wang, Park, Small and Li (2024), Remark 3, caution against complex learners at about 20 clusters. [`few-cluster-adaptive-learners`](few-cluster-adaptive-learners.md) measures this fit with the default learner library at 20 clusters |
 | the scaled latent | the latent of this law is weaker than the one of the 100-cluster study, which a few-cluster fit needs to run on every draw |
 | no comparator | no pinned implementation fits this design |
 

@@ -237,6 +237,13 @@ previous reader had is not a citation; a page number is.
   outcome, their fold assignment then reads no outer-held-out outcome. The C-TMLE selection folds
   cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). Polley's oracle
   result does not establish a risk bound for the stratified inner folds.
+- van der Laan, Polley & Hubbard (2007), [*Super Learner*](https://doi.org/10.2202/1544-6115.1309),
+  *Statistical Applications in Genetics and Molecular Biology* 6(1), Article 25, DOI
+  10.2202/1544-6115.1309. The `SuperLearner` docstring and the
+  [nuisance-learner page](technical-reference/nuisance-learners.md) cite it for the oracle
+  inequality under a bounded loss, which the package applies to the log-likelihood risk of
+  predictions clipped to `[1e-9, 1 - 1e-9]`. This project has not read this source, so that
+  claim is unverified. Polley (2010) above is the read source for the squared-error case.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
@@ -704,11 +711,25 @@ previous reader had is not a citation; a page number is.
   `T46`) is licensed by van der Laan and Luedtke (2015), Section 7.2. Part (f2b) of
   [X11](roadmap.md#x11-learned-policy-follow-ups) must read the 2016 paper with this correction.
 - Scott (1979), *On optimal and data-based histograms*, *Biometrika* 66(3):605–610, DOI
-  [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). The bin width that
-  minimises the integrated squared error of a histogram shrinks as $n^{-1/3}$. The default
-  `density_bins=None` follows that rate, `max(20, ceil(2 n^(1/3)))`. A growing count is
-  necessary for a consistent binned density, and the hazard learner must also be consistent. The
-  constant 2 is the Rice rule, which the source does not give.
+  [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). Equation (5): the bin width
+  that minimises the integrated squared error of a fixed-width histogram, for a density with two
+  bounded continuous derivatives, shrinks as $n^{-1/3}$. The default `density_bins=None` follows
+  that order for the core count, `max(20, ceil(2 n^(1/3)))`. The source covers neither the
+  equal-mass core, nor the refined tail bins, nor the log-polygon reading, nor the error of a
+  density ratio, so the package cites it for the core count only. A growing count is necessary
+  for a consistent binned density, and the hazard learner must also be consistent. The constant 2
+  is the Rice rule, which the source does not give.
+- Díaz Muñoz & van der Laan (2011), *Super learner based conditional density estimation with
+  application to marginal structural models*, *The International Journal of Biostatistics* 7(1),
+  Article 38, DOI [10.2202/1557-4679.1356](https://doi.org/10.2202/1557-4679.1356). Section 2
+  builds the pooled-hazard histogram that `fit_conditional_density` fits, and relays Denby and
+  Mallows (2009): equal-mass bins oversmooth the tails. It gives no rate. The package's refined
+  grid answers that remark, and its log-polygon reading is its own.
+- Kooperberg & Stone (1991), *A study of logspline density estimation*, *Computational
+  Statistics & Data Analysis* 12(3):327–347, DOI
+  [10.1016/0167-9473(91)90115-I](https://doi.org/10.1016/0167-9473(91)90115-I). Section 2: a
+  log density that is linear beyond the extreme knots, so the density is exponential in the
+  tails. The package cites it as prior art for log-linear tails only; it states no rate.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).
@@ -836,6 +857,27 @@ the public `Intervention`, `Rule`, `DynamicRegimen`, or `MSM` callables.
 | R Journal [PSweight](https://journal.r-project.org/articles/RJ-2022-011/), Section 2.6 | a sandwich variance that includes fitted parametric propensity and outcome scores for weighted potential-outcome means | a different target and score. The article says its variance omits nuisance-estimation uncertainty when flexible models or external fits supply them |
 | [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1), Definition 1 | a longitudinal MSM projection with a user-given design transformation and projection distribution | no derivative for a design centred at the analysis sample's mean |
 | [Kennedy (2019)](https://arxiv.org/html/1704.00211v3), Section 3.3, and [de Aguas (2026)](https://arxiv.org/html/2511.11353) | influence functions for specified propensity-dependent intervention families | each family has its own derivative. Neither supplies one for an arbitrary user-written density |
+
+## Treatment-model covariate screening
+
+- Shortreed & Ertefaie (2017), *Outcome-adaptive lasso: variable selection for causal
+  inference*, Biometrics 73(4), 1111–1122. Read first-hand through the local research thread
+  (Fix-20), in the author's accepted manuscript (PMC5591052), which has no journal pages, so the
+  locators are sections and displays. Section 3, display 3: the propensity penalty weights are
+  $|\tilde\beta_j|^{-\gamma}$ from an outcome regression on the covariates and the treatment.
+  Section 5: with effect heterogeneity the outcome model adds treatment-covariate interactions.
+  Section 2.2: exposure-only covariates inflate standard errors without reducing bias and bring
+  near-positivity violations. Cited for holding the treatment fixed, and for the interaction
+  terms, in `screen_treatment=True`.
+- Brookhart, Schneeweiss, Rothman, Glynn, Avorn & Stürmer (2006), *Variable selection for
+  propensity score models*, American Journal of Epidemiology 163(12), 1149–1156. Read first-hand
+  through the local research thread (Fix-20). Pages 1152 and 1155–1156: covariate roles are defined
+  by an outcome model that includes the exposure; including outcome-only covariates reduced
+  variance, and exposure-only ones raised it. Page 1156: in moderate-sized studies a covariate
+  related to exposure should not be excluded unless it is known to be unrelated to the outcome.
+- CRAN `tmle` 2.1.1, `R/tmle.R`, `.prescreenW.g` and the `min.retain` default in `tmle()`,
+  read first-hand from the `cran/tmle` mirror (Fix-20): a `cv.glmnet` lasso of the outcome on
+  $W$ at `lambda.min`, filled to `min.retain` by `order(abs(cor(A, W)))`.
 
 ## Known treatment mechanisms
 

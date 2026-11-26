@@ -1,4 +1,4 @@
-# Working model over the hazard curve
+# Working model over the hazard curve, one-step targeting
 
 This study validates longitudinal TMLE with `msm=`, `survival_model="hazard"` and
 `targeting="one_step"` on a held design. The fit projects the risk curve of each static arm onto a

@@ -1,0 +1,113 @@
+== cold RSS rise against the traced peak and the margined draw prediction
+rss ltmle_surv 20000 1 refused no traced twin
+rss     mtp          T4 R2 F3  20000 threads=1       draw/traced 1.42  rss/traced 1.32  margined/rss 1.46
+rss     sdr          T8 R4 F3  20000 threads=1       draw/traced 1.04  rss/traced 1.09  margined/rss 1.29
+rss     sdr_mtp      T4 R2 F3  20000 threads=1       draw/traced 1.16  rss/traced 1.21  margined/rss 1.29
+rss     ipsi         T8 R4 F3  20000 threads=1       draw/traced 1.00  rss/traced 1.09  margined/rss 1.24
+rss     hz_point     T8 R2 F3  20000 threads=1       draw/traced 1.00  rss/traced 1.15  margined/rss 1.17
+rss     hz_back      T4 R2 F3  20000 threads=1       draw/traced 1.04  rss/traced 1.15  margined/rss 1.22
+rss     hz_path      T8 R2 F3  20000 threads=1       draw/traced 1.03  rss/traced 1.13  margined/rss 1.23
+rss ltmle_surv 20000 default refused no traced twin
+rss     mtp          T4 R2 F3  20000 threads=default draw/traced 1.42  rss/traced 1.32  margined/rss 1.46
+rss     sdr          T8 R4 F3  20000 threads=default draw/traced 1.04  rss/traced 1.09  margined/rss 1.29
+rss     sdr_mtp      T4 R2 F3  20000 threads=default draw/traced 1.16  rss/traced 1.22  margined/rss 1.29
+rss     ipsi         T8 R4 F3  20000 threads=default draw/traced 1.00  rss/traced 1.09  margined/rss 1.24
+rss     hz_point     T8 R2 F3  20000 threads=default draw/traced 1.00  rss/traced 1.15  margined/rss 1.17
+rss     hz_back      T4 R2 F3  20000 threads=default draw/traced 1.04  rss/traced 1.14  margined/rss 1.23
+rss     hz_path      T8 R2 F3  20000 threads=default draw/traced 1.03  rss/traced 1.15  margined/rss 1.21
+rss     ltmle_surv   T8 R4 F3 100000 threads=1       draw/traced 1.13  rss/traced 1.04  margined/rss 1.47
+rss     mtp          T4 R2 F3 100000 threads=1       draw/traced 1.42  rss/traced 1.04  margined/rss 1.85
+rss     sdr          T8 R4 F3 100000 threads=1       draw/traced 1.04  rss/traced 1.04  margined/rss 1.35
+rss     sdr_mtp      T4 R2 F3 100000 threads=1       draw/traced 1.16  rss/traced 1.03  margined/rss 1.52
+rss     ipsi         T8 R4 F3 100000 threads=1       draw/traced 1.00  rss/traced 1.06  margined/rss 1.28
+rss     hz_point     T8 R2 F3 100000 threads=1       draw/traced 1.00  rss/traced 1.04  margined/rss 1.30
+rss     hz_back      T4 R2 F3 100000 threads=1       draw/traced 1.03  rss/traced 1.08  margined/rss 1.29
+rss     hz_path      T8 R2 F3 100000 threads=1       draw/traced 1.03  rss/traced 1.08  margined/rss 1.28
+rss     ltmle_surv   T8 R4 F3 100000 threads=default draw/traced 1.13  rss/traced 1.04  margined/rss 1.46
+rss     mtp          T4 R2 F3 100000 threads=default draw/traced 1.42  rss/traced 1.04  margined/rss 1.85
+rss     sdr          T8 R4 F3 100000 threads=default draw/traced 1.04  rss/traced 1.05  margined/rss 1.34
+rss     sdr_mtp      T4 R2 F3 100000 threads=default draw/traced 1.16  rss/traced 1.03  margined/rss 1.52
+rss     ipsi         T8 R4 F3 100000 threads=default draw/traced 1.00  rss/traced 1.06  margined/rss 1.28
+rss     hz_point     T8 R2 F3 100000 threads=default draw/traced 1.00  rss/traced 1.02  margined/rss 1.32
+rss     hz_back      T4 R2 F3 100000 threads=default draw/traced 1.03  rss/traced 1.08  margined/rss 1.29
+rss     hz_path      T8 R2 F3 100000 threads=default draw/traced 1.03  rss/traced 1.09  margined/rss 1.28
+rss10   ltmle_surv   T8 R4 F3  20000 threads=1       draw/traced 1.13  rss/traced 1.08  margined/rss 1.41
+rss10   hz_separable T4 R4 F3  20000 threads=1       draw/traced 1.08  rss/traced 1.09  margined/rss 1.34
+rss10   ltmle_surv   T8 R4 F3  20000 threads=default draw/traced 1.13  rss/traced 1.08  margined/rss 1.41
+rss10   hz_separable T4 R4 F3  20000 threads=default draw/traced 1.08  rss/traced 1.08  margined/rss 1.34
+rss10   ltmle_surv   T8 R4 F3 100000 threads=1       draw/traced 1.13  rss/traced 1.04  margined/rss 1.46
+rss10   hz_separable T4 R4 F3 100000 threads=1       draw/traced 1.04  rss/traced 1.07  margined/rss 1.31
+rss10b  mtp          T8 R1 F1  20000 threads=1       draw/traced 1.00  rss/traced 1.06  margined/rss 1.27
+rss10b  sdr_mtp      T8 R2 F1  20000 threads=1       draw/traced 1.01  rss/traced 1.06  margined/rss 1.28
+rss10b  msm          T8 R4 F3  20000 threads=1       draw/traced 1.00  rss/traced 1.17  margined/rss 1.16
+rss10b  sdr_surv     T8 R4 F3  20000 threads=1       draw/traced 1.00  rss/traced 1.03  margined/rss 1.31
+rss10b  ipsi_surv    T8 R4 F3  20000 threads=1       draw/traced 1.00  rss/traced 1.06  margined/rss 1.28
+rss10b  hz_separable T8 R4 F3  20000 threads=1       draw/traced 1.01  rss/traced 1.07  margined/rss 1.27
+rss10b  mtp          T8 R1 F1  20000 threads=default draw/traced 1.00  rss/traced 1.06  margined/rss 1.27
+rss10b  sdr_mtp      T8 R2 F1  20000 threads=default draw/traced 1.01  rss/traced 1.06  margined/rss 1.28
+rss10b  msm          T8 R4 F3  20000 threads=default draw/traced 1.00  rss/traced 1.17  margined/rss 1.16
+rss10b  sdr_surv     T8 R4 F3  20000 threads=default draw/traced 1.00  rss/traced 1.03  margined/rss 1.32
+rss10b  ipsi_surv    T8 R4 F3  20000 threads=default draw/traced 1.00  rss/traced 1.06  margined/rss 1.28
+rss10b  hz_separable T8 R4 F3  20000 threads=default draw/traced 1.01  rss/traced 1.08  margined/rss 1.26
+largest rss/traced: 1.32
+
+== workers (100k): per-worker RSS peak / one-worker traced peak; parent traced j>1 / j=1
+ltmle_eos    T8 F 3 boot0 j2  worker/draw 0.28  parent j/1 1.00
+ltmle_eos    T8 F 3 boot0 j4  worker/draw 0.33  parent j/1 1.00
+ltmle_surv   T8 F 3 boot0 j2  worker/draw 0.25  parent j/1 1.00
+ltmle_surv   T8 F 3 boot0 j4  worker/draw 0.24  parent j/1 1.00
+sdr          T8 F 3 boot0 j2  worker/draw 0.67  parent j/1 1.11
+sdr          T8 F 3 boot0 j4  worker/draw 0.67  parent j/1 1.11
+ipsi         T8 F 3 boot0 j2  worker/draw 0.80  parent j/1 1.10
+ipsi         T8 F 3 boot0 j4  worker/draw 0.80  parent j/1 1.10
+ltmle_eos    T4 F 3 boot4 j2  worker/draw 0.62  parent j/1 0.53
+ltmle_eos    T4 F 3 boot4 j4  worker/draw 0.61  parent j/1 0.53
+ltmle_eos    T4 F10 boot2 j2  worker/draw 0.61  parent j/1 0.52
+ltmle_eos    T4 F10 boot2 j4  worker/draw 0.62  parent j/1 0.52
+mtp          T4 F 3 boot0 j2  worker/draw 0.78  parent j/1 0.51
+mtp          T4 F 3 boot0 j4  worker/draw 0.78  parent j/1 0.51
+hz_point     T8 F 3 boot0 j2  worker/draw 0.05  parent j/1 1.00
+hz_point     T8 F 3 boot0 j4  worker/draw 0.05  parent j/1 1.00
+hz_back      T4 F 3 boot0 j2  worker/draw 0.10  parent j/1 1.00
+hz_back      T4 F 3 boot0 j4  worker/draw 0.11  parent j/1 1.00
+hz_path      T8 F 3 boot0 j2  worker/draw 0.08  parent j/1 1.00
+hz_path      T8 F 3 boot0 j4  worker/draw 0.08  parent j/1 1.00
+sdr          T8 F 5 boot0 j2  worker/draw 0.84  parent j/1 1.44
+sdr          T8 F 5 boot0 j4  worker/draw 0.83  parent j/1 1.39
+ipsi         T8 F 5 boot0 j2  worker/draw 0.84  parent j/1 1.23
+ipsi         T8 F 5 boot0 j4  worker/draw 0.84  parent j/1 1.15
+ltmle_eos    T8 F10 boot0 j2  worker/draw 0.37  parent j/1 1.00
+ltmle_eos    T8 F10 boot0 j4  worker/draw 0.31  parent j/1 1.00
+sdr          T8 F10 boot0 j2  worker/draw 1.52  parent j/1 1.83
+sdr          T8 F10 boot0 j4  worker/draw 1.49  parent j/1 1.79
+ipsi         T8 F10 boot0 j2  worker/draw 1.38  parent j/1 1.62
+ipsi         T8 F10 boot0 j4  worker/draw 1.36  parent j/1 1.58
+mtp          T4 F10 boot0 j2  worker/draw 0.79  parent j/1 0.41
+mtp          T4 F10 boot0 j4  worker/draw 0.79  parent j/1 0.40
+hz_point     T8 F10 boot0 j2  worker/draw 0.06  parent j/1 1.00
+hz_point     T8 F10 boot0 j4  worker/draw 0.05  parent j/1 1.00
+hz_separable T4 F10 boot0 j2  worker/draw 0.02  parent j/1 1.00
+hz_separable T4 F10 boot0 j4  worker/draw 0.02  parent j/1 1.00
+sdr_mtp      T4 F10 boot0 j2  worker/draw 0.68  parent j/1 1.36
+sdr_mtp      T4 F10 boot0 j4  worker/draw 0.67  parent j/1 1.36
+worker share w by family (max over F): {'hazard_backward': 0.11, 'hazard_one_node': 0.06, 'hazard_paths': 0.08, 'hazard_separable': 0.02, 'ipsi': 1.38, 'ltmle': 0.37, 'ltmle_continuous': 0.79, 'sdr': 1.52, 'sdr_continuous': 0.68}
+parent multiple m by family (max over F, at least 1): {'hazard_backward': 1.0, 'hazard_one_node': 1.0, 'hazard_paths': 1.0, 'hazard_separable': 1.0, 'ipsi': 1.62, 'ltmle': 1.0, 'ltmle_continuous': 1.0, 'sdr': 1.83, 'sdr_continuous': 1.36}
+
+== ranges of fitted cells per family
+hazard_backward {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 2), 'F': (1, 10), 'p': (5, 135), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+hazard_one_node {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 2), 'J': (1, 2), 'F': (1, 10), 'p': (3, 129), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+hazard_paths {'n': (5000, 100000), 'T': (2, 12), 'R': (1, 4), 'J': (1, 2), 'F': (1, 10), 'p': (4, 132), 'B': (0, 0), 'U': (0, 18), 'H': (1, 12)}
+hazard_separable {'n': (5000, 100000), 'T': (2, 8), 'R': (2, 4), 'J': (2, 2), 'F': (1, 3), 'p': (3, 33), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+ipsi {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 2), 'F': (1, 10), 'p': (5, 143), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+ltmle {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 2), 'F': (1, 10), 'p': (5, 143), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+ltmle_continuous {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 1), 'F': (1, 10), 'p': (5, 17), 'B': (5, 93), 'U': (0, 0), 'H': (1, 1)}
+sdr {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 2), 'F': (1, 10), 'p': (5, 143), 'B': (0, 0), 'U': (0, 0), 'H': (1, 8)}
+sdr_continuous {'n': (5000, 100000), 'T': (2, 8), 'R': (1, 4), 'J': (1, 1), 'F': (1, 10), 'p': (5, 17), 'B': (5, 93), 'U': (0, 0), 'H': (1, 1)}
+
+== ranges of checked cells per family
+hazard_backward {'n': (5000, 20000), 'T': (4, 8), 'R': (8, 8), 'J': (1, 1), 'F': (3, 3), 'p': (9, 17), 'B': (0, 0), 'U': (0, 0), 'H': (4, 8)}
+hazard_paths {'n': (5000, 20000), 'T': (4, 12), 'R': (4, 8), 'J': (1, 2), 'F': (3, 10), 'p': (6, 14), 'B': (0, 0), 'U': (0, 0), 'H': (4, 12)}
+hazard_separable {'n': (5000, 20000), 'T': (4, 4), 'R': (4, 4), 'J': (2, 2), 'F': (3, 3), 'p': (3, 3), 'B': (0, 0), 'U': (0, 0), 'H': (4, 4)}
+ipsi {'n': (5000, 20000), 'T': (4, 12), 'R': (2, 4), 'J': (1, 3), 'F': (3, 10), 'p': (9, 25), 'B': (0, 0), 'U': (0, 0), 'H': (1, 12)}
+ltmle {'n': (5000, 20000), 'T': (2, 12), 'R': (2, 8), 'J': (1, 3), 'F': (3, 10), 'p': (5, 25), 'B': (0, 0), 'U': (0, 0), 'H': (1, 12)}
+sdr {'n': (5000, 20000), 'T': (4, 12), 'R': (2, 8), 'J': (1, 3), 'F': (3, 3), 'p': (9, 25), 'B': (0, 0), 'U': (0, 0), 'H': (1, 12)}

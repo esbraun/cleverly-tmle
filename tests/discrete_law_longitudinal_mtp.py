@@ -101,8 +101,11 @@ class Grid:
     edges: tuple[float, ...]
 
 
-UNIT_GRID = Grid((0.0, 1.0, 2.0, 3.0), (-0.5, 0.5, 1.5, 2.5, 3.5))
-SCALED_GRID = Grid((1.0, 2.0, 4.0, 8.0), (0.75, 1.5, 3.0, 6.0, 12.0))
+#: Each support point in its own bin, flanked by empty bins, so that it is a one-bin segment
+#: of the density's reading and reads ``p / w`` exactly.  The scaled grid's widths double with
+#: the dose, as ``Scale(2)`` needs.
+UNIT_GRID = Grid((0.0, 1.0, 2.0, 3.0), (-0.25, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25))
+SCALED_GRID = Grid((1.0, 2.0, 4.0, 8.0), (0.875, 1.25, 1.75, 2.5, 3.5, 5.0, 7.0, 10.0))
 
 
 def frame(

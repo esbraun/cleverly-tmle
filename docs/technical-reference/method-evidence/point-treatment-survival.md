@@ -200,6 +200,13 @@ efficiency ratio of 1.000 and a coverage of 0.957. The diagnosis finds no defect
 replications the interval reaches past the band from a point of 1.027. By the declared route the
 cell stays red under `reporting`, with the owner row `X13-finite-sample`.
 
+The `rmst_5` cell is the only cell that licenses a restricted mean on this design. Support row
+`G14.survival` lists the `restricted_mean_difference` kind on its strength, so the RMST difference
+up to visit 5 of an in-sample `LTMLE` fit on the held design reads `supported`, whether it is
+computed with `result.rmst(arm, tau, versus=reference)` or stored by
+`RegimeContrast(..., restricted_horizons=(tau,))`. No cell measures a single arm's RMST, and a
+bias common to both arms cancels in a difference, so a level reads `experimental`.
+
 ## Measured values
 
 Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
@@ -263,7 +270,7 @@ the committed results and checked at the precision printed.
 | per-horizon targeting | each horizon has its own backward pass, so the curve is not constrained to be monotone. [Hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting) covers hazard-based and whole-curve targeting |
 | discrete time | a continuous event time is binned onto a declared grid. The `continuous_t4` cell measures the binned parameter, not a continuous-time one |
 | one calibration cell is red under `reporting` | the `weighted_t5` SE-ratio interval reaches past its band. The reported standard error equals the efficiency bound. The `X13-finite-sample` owner holds it |
-| `survtmle`'s `bounds=` is not paired | the [node-bounds study](survival-node-bounds.md) declares that comparison, and its runs are pending |
+| `survtmle`'s `bounds=` | paired in the [node-bounds study](survival-node-bounds.md), whose comparison with R `survtmle` 1.1.1 passes |
 
 ## Reproduction
 

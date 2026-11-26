@@ -57,6 +57,11 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 IMPLEMENTATION = "adaptive_iptw"
+# The pairing study is registered (canonical_adaptive_iptw_pairing.py) and has run, so the
+# reason's "have not run" no longer describes the R runners. PENDING_REFERENCE and
+# PENDING_REASON stay as the committed run declared them, because the band-rerun manifest
+# freezes that declaration and the record must match it. The next result-determining
+# regeneration of this study clears pending_reference and comparison.
 PENDING_REFERENCE = "drtmle"
 PENDING_REASON = (
     "the drtmle pairing runs in the study adaptive-iptw-pairing (X21-plan.md 3.6): its R "
@@ -1024,7 +1029,7 @@ STUDY = StudyRecord(
     slug="adaptive-iptw",
     artifacts=ROOT / "tests" / "canonical" / "adaptive_iptw",
     document="docs/technical-reference/method-evidence/adaptive-iptw.md",
-    anchor="adaptive-iptw",
+    anchor="adaptive-propensity-iptw",
     scenarios={PRIMARY_SCENARIO: PRIMARY_KEYS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

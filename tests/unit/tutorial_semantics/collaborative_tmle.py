@@ -49,6 +49,11 @@ _REFUTE = "reviews/notebook-review/probes/collaborative-tmle-refuters/probe.log"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "method-evidence: 0.1": "a bound of the probe measure (share of g outside 0.1 to 0.9), not a result",
+    "method-evidence: 0.9": "a bound of the probe measure (share of g outside 0.1 to 0.9), not a result",
+    "balance-intro: 0.1": "the usual threshold for a small standardized difference, the dashed line of plotting.balance, not a result",
+    "generated-intro: 0.45": "intercept=0.45 of BernoulliAdjustmentOutcome in the generated cell, a setting of the simulated law",
+    "generated-intro: 0.3": "adjustment_scale=0.3 of BernoulliAdjustmentOutcome in the generated cell, a setting of the simulated law",
     "+0.0006": f"mean error of both fits (+0.00055), 2,000 draws: {_PROBE}",
     "0.0358": f"ordinary TMLE empirical SD (0.03583), 2,000 draws: {_PROBE}",
     "0.0297": f"OAT C-TMLE empirical SD (0.02969), 2,000 draws: {_PROBE}",
@@ -65,6 +70,13 @@ UNPRINTED_DECIMALS = {
     "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
     "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
     "1.01": f"both placebo ratios of mean reported SE over SD (1.012, 1.010), 400 refits: {_REFUTE}",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "plan": {"0.7": "protocol"},
 }
 
 
@@ -203,6 +215,78 @@ def check(namespace: dict[str, Any]) -> None:
 
     _check_refutation_stored(namespace)
     _check_bound_limit(namespace)
+    _check_balance(namespace)
+    _check_crossfit(namespace)
+    _check_other_strategies(namespace)
+
+
+def _check_balance(namespace: dict[str, Any]) -> None:
+    """The standard weights balance every characteristic; the collaborative weights do not."""
+    from cleverly.sensitivity import covariate_balance
+
+    tables = {
+        name: covariate_balance(fit).to_frame().set_index("covariate")
+        for name, fit in namespace["fits"].items()
+    }
+    standard, collaborative = tables["standard TMLE"], tables["collaborative TMLE"]
+    # "Standard TMLE's weights bring all three differences to 0.004."
+    assert (standard["smd_weighted"].abs() < 0.01).all()
+    assert (standard["smd_unweighted"].abs().max()) > 1.0
+    # "leave staffing at 1.159, as before weighting": the per-arm mechanisms do not read staffing.
+    staffing = collaborative.loc["navigator_staffing"]
+    assert staffing["smd_weighted"] > 1.0
+    assert abs(staffing["smd_weighted"] - staffing["smd_unweighted"]) < 0.01
+    # "take readiness only to 0.256": a nonzero witness that the collaborative weights move it.
+    readiness = collaborative.loc["baseline_readiness"]
+    assert 0.1 < readiness["smd_weighted"] < 0.35
+    assert readiness["smd_weighted"] < readiness["smd_unweighted"]
+    # "widen the need difference from -0.029 to -0.099".
+    need = collaborative.loc["coordination_need"]
+    assert abs(need["smd_weighted"]) > 2 * abs(need["smd_unweighted"])
+    assert figure_title(namespace["balance_fig"]) == "Covariate balance before and after weighting"
+
+
+def _check_crossfit(namespace: dict[str, Any]) -> None:
+    """The five-fold collaborative fit keeps the stacked interval and its study row."""
+    crossfitted, collaborative = namespace["crossfitted"], namespace["collaborative"]
+    point = crossfitted["ate"]
+    assert point.inference == "influence_curve"
+    assert point.support.label == "supported" and point.support.row == "C11.stacked"
+    assert namespace["crossfit_method"].cross_fitting.n_folds == 5
+    # A witness that this is a new fit, not the in-sample object read twice.
+    assert crossfitted is not collaborative and point.std_error != collaborative["ate"].std_error
+    assert abs(point.psi - collaborative["ate"].psi) < 0.01
+    assert covers(point, namespace["truth"]["ate"])
+
+
+def _check_other_strategies(namespace: dict[str, Any]) -> None:
+    """The greedy search drops staffing and withholds its interval; the derivative fit keeps one."""
+    greedy, search = namespace["greedy"], namespace["search"]
+    assert search.strategy == "greedy" and len(search.path) == 4
+    chosen = search.path[search.selected]
+    assert set(chosen) == {"coordination_need", "baseline_readiness"}
+    assert "navigator_staffing" in search.path[-1]
+    assert search.cv_risk[-1] > search.cv_risk[search.selected]
+    # "`cleverly` reports no interval for this strategy".
+    assert greedy["ate"].inference == "working_mechanism_plugin"
+    with pytest.raises(CapabilityError):
+        _ = greedy["ate"].ci
+    assert figure_title(namespace["search_fig"]) == "Treatment model selection"
+
+    derivative = namespace["derivative"]
+    point = derivative["ate"]
+    assert point.inference == "influence_curve"
+    assert point.support.label == "supported" and point.support.row == "C10.in_sample"
+    assert covers(point, namespace["truth"]["ate"])
+    # "between the standard 0.1629 and the collaborative 0.1483 on this draw".
+    low, high = sorted((namespace["tmle"]["ate"].psi, namespace["collaborative"]["ate"].psi))
+    assert low < point.psi < high
+    rv = namespace["derivative_rv"]
+    assert 0.0 < rv["rva"] < rv["rv"] < 1.0
+    # "Its treatment model is a lasso logistic regression": the fit records the lasso source and
+    # no collaborative search.
+    record = derivative.extra["ctmle"]
+    assert type(record).__name__ == "CTMLEDerivativeFit" and record.source == "lasso"
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -390,3 +474,42 @@ def _check_bound(namespace: dict[str, Any]) -> None:
     assert staffing.cf_y < tipping_cf_y < 0.01
     for cf_y, cf_d in ((readiness.cf_y, tipping_cf_d), (tipping_cf_y, share)):
         assert abs(sensitivity.omitted_confounding(cf_y=cf_y, cf_d=cf_d).ci_lower) < 1e-6
+    _check_declared_bound(namespace)
+
+
+def _check_declared_bound(namespace: dict[str, Any]) -> None:
+    """The collaborative point bound under the declared consistent mechanism."""
+    from sklearn.linear_model import LogisticRegression
+
+    collaborative, robustness = namespace["collaborative"], namespace["robustness"]
+    declared = namespace["declared"]
+    assert declared["assume_consistent_mechanism"] is True
+    collaborative_rv = namespace["collaborative_rv"]
+    # "0.111, against 0.122": a point robustness value, with no limit counterpart.
+    assert 0.0 < collaborative_rv["rv"] < robustness["rv"]
+    assert "rva" not in collaborative_rv
+    bound, standard = namespace["collaborative_bound"], namespace["standard_bound"]
+    # The range is centred on the collaborative estimate, not copied from the standard fit.
+    assert bound.psi == pytest.approx(collaborative["ate"].psi)
+    assert abs(bound.psi - standard.psi) > 0.01
+    assert bound.lower == pytest.approx(bound.psi - bound.bias)
+    assert bound.upper == pytest.approx(bound.psi + bound.bias)
+    assert bound.lower > 0.0
+    # "nearly the same outcome model, so ... shifts each estimate by 0.0918": sigma^2 reads each
+    # fit's own targeted regression, so the shifts agree closely but not exactly.
+    assert abs(bound.bias / standard.bias - 1.0) < 1e-3
+    # "the collaborative range ... sits below the standard" range.
+    assert bound.lower < standard.lower and bound.upper < standard.upper
+    # "has no sampling limits".
+    with pytest.raises(CapabilityError):
+        _ = bound.ci_lower
+    # A deliberate-mutation witness that the bound reads the declared learner: a heavily
+    # penalized model of the offer changes nu^2, and the shift moves.
+    readiness = namespace["readiness"]
+    mutated = collaborative.sensitivity.omitted_confounding(
+        cf_y=readiness.cf_y,
+        cf_d=readiness.cf_d,
+        assume_consistent_mechanism=True,
+        mechanism_learner=LogisticRegression(C=0.01, max_iter=1000),
+    )
+    assert abs(mutated.bias / bound.bias - 1.0) > 1e-3

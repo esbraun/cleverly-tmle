@@ -173,6 +173,9 @@ the case `k = 0` reproduces the complete case.
 | S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
 | S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a ratio that must stay at or above its boundary | point exact, interval enumerated | `range` |
 | S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
+| S10m, S10x median and largest gap | `ic_gap` caps at 2,000 (median) and 20,000 (every draw) in `mtp-density-tails` | lost gaps at the survivor maximum for a positive, at the survivor minimum for a control | exact | `range` |
+| S10r ratio of median gaps | the `ic_gap` fall from 2,000 to 20,000 in `mtp-density-tails` | lost 20,000 gaps at the survivor maximum and lost 2,000 gaps at the survivor minimum for a positive, the reverse for a control | exact | `range` |
+| S3c warned-draw count | the `cluster_warning` counts in `mtp-density-tails` | lost draws at the indicator that turns the verdict red: unwarned for a floor, warned for a ceiling, and the reverse for a control | exact | `support` |
 | S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
 | S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` |
 | S14 two-size absolute-bias bound | single robustness, sequential robustness | the larger size at every vertex split, the smaller size at equal fills | exact | `range` |
@@ -257,6 +260,7 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
 | `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
+| `unmoved and bound by: <clause>` | No kind of the binding search changes the estimates of the cells the clause reads, and the named clause of the same family and threshold has a witness of the subject that decides it | the pooled G and T draws of `mtp-density-tails`: none warns, so every kind leaves them at the truth, and the eager-helper control binds the ceiling |
 
 A study with thousands of cells would cost more than the job's time limit, because every
 extra-column kind of every cell summarizes every row. Its property module declares a subset
@@ -523,7 +527,7 @@ dependent row, and a later change registers it. This is the owner's rule, and it
 | register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
 | regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
 | manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
-| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0. `python -m tests.studies.evidence.document` adds the study's row to the generated pending-comparator table of the method-evidence reading guide. A comparator that no record declares goes in that page's typed table by hand |
 | add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
 
 `tests/unit/test_method_evidence.py` asserts the pending state for every registered study through
@@ -690,10 +694,12 @@ Follow the rest of this guide rather than designing new margins, fold-matching r
 artifacts, or provenance conventions for each comparison.
 
 1. **Declare it.** Add a `StudyRecord` to `tests/studies/evidence/registry.py`'s register: the
-   name the validation grid's first cell must carry, the artefact directory, the document and
+   name the validation grid's method cell must carry, the artefact directory, the document and
    section anchor, the scenarios and their estimands, the replication count and sample size, and a
    `Margins`. The `Margins` carries every acceptance margin, declared before the run rather
-   than chosen after it.
+   than chosen after it. The study page's level-one heading is the record's `name` in sentence
+   case, and `anchor` is that heading's slug; `test_each_study_page_is_titled_by_its_record_name`
+   checks the heading.
 2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle,
    a fit function, and a reference implementation pinned by digest where one exists. Seeds
    come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed
@@ -714,6 +720,31 @@ artifacts, or provenance conventions for each comparison.
 6. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
    composition the study does not reach is a separate row, not an implied one. Cross-fitting,
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
+7. **Link it from the matrix.** Add the page to its family's row of the implementation matrix in
+   `docs/technical-reference/index.md`, after the word for its publication policy.
+   `test_the_matrix_links_every_registered_study` fails while a registered page has no link.
+8. **Place it in its family.** Add the page to one captioned toctree of
+   `docs/technical-reference/method-evidence/index.md`, and give its grid row that caption as its
+   `family` cell. Keep toctree entries alphabetical by file name, and grid rows alphabetical by
+   the case-folded method name inside their family, so two branches that each add a study insert
+   at different lines. `TestTheStudyPagesArePlacedByFamily` checks the placement and the order,
+   not the choice of family. Choose it by the first rule that applies:
+   1. A study whose subject is a cross-cutting option goes to that option's family: clustered
+      data, cross-fitting and CV-TMLE, targeting and fitting options, intervals, bands and the
+      bootstrap, or sensitivity, refutation and diagnostics.
+   2. A time-to-event outcome goes to survival and competing risks, whatever the estimator.
+   3. A conditional effect, a projection of a conditional contrast, a learned rule or regimen, an
+      EP curve, or a score target goes to learned rules, conditional effects and scores, whatever
+      the estimator. A marginal structural model projects counterfactual means across treatment
+      levels or regimes onto a working model. It is not a projection of a conditional contrast, so
+      an MSM study goes by the rules below.
+   4. An estimator family goes to its own: collaborative TMLE, DR-TMLE, or adaptive IPTW and
+      adaptive TMLE with external data.
+   5. A stochastic regime, a modified treatment policy, an incremental propensity score
+      intervention or a dose-response curve goes to policies, incremental interventions and
+      dose-response, at one node or over time. A deterministic regime does not.
+   6. Treatment over time goes to longitudinal TMLE, SDR and comparison estimators.
+   7. Anything else goes to point-treatment TMLE.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
@@ -728,12 +759,15 @@ different estimator, or related target. The agreement block of the page prints t
 A study with no property cells and no reference can still register as a reporting study. It
 declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
 with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
-list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+list it. The off-grid list on the method-evidence index is a generated block that
+`python -m tests.studies.evidence.document` fills from the registry through
+`tests/studies/evidence/navigation.py`, so registering such a study adds its line with no hand
+edit. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.
 
 A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
 a property cell for each claim the study gates, before the run, so that its method earns a row.
-`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
-one entry: it gated its controls through its own hook and declared no property cell. The manifest
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is an
+entry: it gated its controls through its own hook and declared no property cell. The manifest
 records the policy of the run, so an entry leaves only at a regeneration or when a
 comparator-backed record puts the method on the grid.

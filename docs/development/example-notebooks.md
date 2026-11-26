@@ -8,9 +8,7 @@ analysis and explain the result. That guide holds the writing rules for every ma
 page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
 how to execute it.
 
-Roadmap item X88 rewrites the notebooks to this page, one notebook at a time. Until a notebook's
-rewrite merges, use it as an example of code-cell practice, not of prose or headings. The
-[TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
+The [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
 program tutorial.
 
 ## What a tutorial notebook consists of
@@ -60,11 +58,38 @@ the refit test. That test checks every notebook at once, so run it by name.
 | `test_every_notebook_has_an_internally_consistent_execution_artifact` | a code cell or an output that changed after the stamp, an error output, or non-contiguous execution counts |
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
-| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds. The test skips refit cells |
+| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, a claim in `check` that no longer holds, or a cell whose printed text no longer matches its stored output (below). The test skips refit cells |
 | `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that the callback module's `REFIT_CELLS` does not list, a listed cell that is no longer a refit cell, or a notebook callback module without `REFIT_CELLS` |
-| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, or a claim in `check` or `check_refits` that no longer holds |
+| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, a claim in `check` or `check_refits` that no longer holds, or any cell whose printed text no longer matches its stored output |
+| `test_every_notebook_was_executed_on_the_current_version` | a stamp or a `setup` version line that names another `cleverly` version. A release pull request re-executes every notebook |
 | `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
+| `test_every_narrated_decimal_reads_an_output_in_its_own_section` | a decimal that no code cell of the reading's own section prints, or a stale `NARRATION_SOURCES` entry (below). This test also reads the TWINS notebook |
+| `test_every_static_only_notebook_calls_the_current_api` | TWINS only: a `cleverly` call whose arguments the current signature refuses |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
+| `test_every_notebook_passes_the_gated_reader_measures` | a gated measure of the [reader review](writing-for-readers.md#the-reader-review) that fails, such as more main-path words than the page's budget, or a page without exactly one level-two "Go deeper" heading after its `interpret` cell |
+
+The fast tier compares what each executed cell prints, and the plain text of each value it
+displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
+left out. A relative difference of 1e-4 passes, since fitted values change in about the sixth
+figure from one machine to another, and so does one last-digit rounding change per cell beyond it.
+A count that changes, or a result that moves, fails.
+
+When it fails,
+re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
+to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
+callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces. A cell whose learner turns that
+machine noise into a larger change, such as a histogram gradient-boosting fit, whose float32 sums round
+with the CPU, goes in `HARDWARE_SENSITIVE_CELLS`, with the reason. Its decimals may then differ by 1% of
+their size or one last digit each, and counts must still match.
+
+A reading may quote only the code cells of its own section: from the nearest heading above it to
+the next heading of the same or a higher level, together with the code cells directly in the
+sections around it. Each lesson under "Go deeper" is its own section. The `title` and `interpret`
+cells summarize the page and may quote any code cell before "Go deeper"; a summary that quotes a
+lesson under "Go deeper" names that cell in `NARRATION_SOURCES` too. A reading that quotes another section names the
+cell in the callback's `NARRATION_SOURCES`, literal by literal, such as
+`{"assessment-heading": {"0.0114": "estimate"}}`. An entry fails when the literal leaves the
+reading, the named cell stops printing it, or the cell moves into the reading's section.
 
 The link test `tests/unit/test_documentation_links.py` also reads the markdown cells. Every relative
 link and every heading anchor in them must resolve.
@@ -79,15 +104,15 @@ three.
 
 | landmark | contents | cell ids |
 | --- | --- | --- |
-| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
+| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the main path | `title`, which also holds the level-one title. The title names the data situation first, then the question |
 | The question | the decision, who it applies to, and what is compared, in the program's words. The quantity to estimate, in one plain sentence. A causal graph only where it informs, as [drawing a causal graph](#drawing-a-causal-graph) describes | `plan` |
 | The data | the imports and the installed `cleverly` version, then what one row is, the columns, and the known answer of the simulated data | `setup`, `data` |
 | Why a simple comparison misleads | the naive difference beside the known answer, and why it is off | `association` |
 | Set up the analysis | the study description, the roles of the columns, and the conditions the answer needs. Mark each condition "the data can check this" or "this needs judgment" | `protocol`, `identify` |
 | Estimate the effect | each fit, with each setting explained in a short list | one id for each fit |
 | Check the fit | the overlap check and the model checks, read in plain words | `assessment` |
-| Try to break the result | the refutation checks | the refutation cell |
-| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
+| Try to break the result | the refutation checks. They may open "Go deeper" instead, as the word-budget paragraph below says | the refutation cell |
+| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit. It may move under "Go deeper" only on the condition the word-budget paragraph below gives | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
 | How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes. It may open "Go deeper" when the main path needs its words | `method-evidence` |
 | Go deeper | theory, comparisons between estimators, and the further checks that [the checks rule](#which-checks-a-page-runs) allows for this fit | the comparison cells, and `failure-mode` only when it is not the point of the page |
@@ -99,10 +124,23 @@ such as "what happens when a model is wrong". Put it after the estimate and give
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.
 
+The main path, everything before "Go deeper", has a word budget that the fast tier gates (the
+[reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes
+after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed
+instead of given a larger one. "Try to break the result" may open "Go deeper" as a lesson, as it
+does on several pages. When trimming is not enough, "What if a confounder is missing?" may move
+there too, on one condition: the conclusion (`interpret`) says in plain words what it found and
+which conditions no check on the page covers.
+
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
+
+`plots` is the one exception to the outline. It is a tour of the figures on four fits, not one
+analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
+`StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
+`method-evidence` lesson sits under "Go deeper".
 
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
@@ -212,7 +250,7 @@ where `base` is the protocol that `replace` received.
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
-| Keep the cells other than refit cells under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs those cells for every tutorial. The stored cell timestamps of `point-treatment-tmle.ipynb` span about 11 seconds |
+| Keep the cells other than refit cells under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs those cells for every tutorial. The stored cell timestamps of `point-treatment-tmle.ipynb` span about 30 seconds |
 | Keep the refit cells of a notebook under 5 minutes in total | the slow tier runs every notebook in one CI job with a 45-minute limit. On 2026-10-23 the longest notebook took 3 minutes, and on 2026-10-25 the test step of the [slow-tests job](https://github.com/esbraun/cleverly-tmle/actions/runs/40228651998) took 17 minutes for all seventeen notebooks |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
@@ -240,7 +278,7 @@ keep each reading accurate.
 | Before you call an interval that misses the true value sampling variation, run a seed sweep of the shown configuration with at least 60 draws. Use that explanation only when the sweep covers near the nominal level. Otherwise name the measured bias or under-coverage and the cause that a probe shows | a 95% interval misses on about one draw in 20 only when the configuration covers at the nominal level. A configuration with a bias can miss on most draws |
 | Name the source of each repeated-draw number that a reading quotes: a committed probe script or a registered study. List the number in the callback's `UNPRINTED_DECIMALS` with that source. In `check`, assert the number against the committed file that holds it, such as the probe log or the study summary | no stored output prints a sweep number, so the narration test needs the entry. The narration test checks only that a reason exists. The assertion keeps the number equal to its source |
 | An overlap or calibration reading names the fitted model that it comes from. It also says what that model cannot see | an overlap check of a wrong treatment model describes that model, not the population. An in-sample calibration slope near 1 does not show that a model is correct |
-| Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` accounts for their correlation |
+| Report a difference the fit can estimate directly from the quantity that targets it, such as `RegimeContrast` for two plans of a longitudinal fit, and read its interval. Combine reported estimates with `result.contrast(...)` only for a quantity that no target reports, and give the support label its row prints. Never compare a difference with the larger standard error | the estimates share rows, and both routes account for their correlation. A `result.contrast(...)` row reads `supported` only when the fit's support row covers derived contrasts. The competing-risk fit of `longitudinal-survival.ipynb` does not, so its event-free rows print `experimental`, while its `RegimeContrast` differences print `supported` |
 | Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Run the analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | an underived bound can be too narrow |
 | In a plain reading of an omitted-variable bound, name the side each strength measures (the outcome's remaining variation, or the change in the weights), and quote the strength at which the conclusion tips, computed by the cell, rather than "stronger than" a covariate. Read the robustness value as a floor: a confounder weaker than it on both sides cannot erase the effect. Do not read it as the strength a confounder needs, since one strong on a single side can erase the effect with the other side below it | a covariate that is the strongest confounder on one side can be weak on the other, and "stronger than" can understate the margin many times over |
 | Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
@@ -264,14 +302,22 @@ of the technical reference describes each one and says which of them is a bound.
 | kind of fit | the sensitivity analysis to run | how to read it |
 | --- | --- | --- |
 | point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator. The point-treatment page adds `evalue()` and `simulated_confounding()`; another page adds them only under [the checks rule](#which-checks-a-page-runs). A page that refits another tutorial's law, estimand and method, as `cross-fitting` does after `point-treatment-tmle`, runs `robustness_value()` and links that page for the benchmarked bound | a bound for the first three. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means. `evalue()` reads the risk ratio, or a standardized-difference approximation for a continuous outcome, and `simulated_confounding()` is a stress surface that is not a bound |
+| a point-treatment TMLE or CV-TMLE fit that declares clusters (`cluster=`) | `robustness_value()` on the clustered fit, beside the analyses of the row above for the page's own fit | the point value is a bound, as on an unclustered fit. The value at the confidence limit sums the influence curve within clusters, while the theorem behind the limit assumes independent rows and no proof or registered study covers the clustered version ([standard error of the bound](../technical-reference/validation-methods.md#standard-error-of-the-omitted-variable-bound)), so read it as descriptive and say so in the reading |
+| a learned-rule value (`LearnedRuleValue`) | `robustness_value()` with `null_hypothesis` set to the value minus the drop that would change the decision, and `omitted_confounding()` with explicit `cf_y` and `cf_d` | a point bound on the value of the fold rules held fixed, with no confidence limits. `benchmark()` refuses, because its refit relearns the rules, and so do `evalue()` and `marginal_bounds()`. A contrast of the rule with other options (`LearnedRuleContrast`) has no bound yet. State each limit in one sentence. `simulated_confounding()` runs as a replay with the rules held fixed, and a page adds it only under [the checks rule](#which-checks-a-page-runs) |
 | C-TMLE | `robustness_value()`, `omitted_confounding()`, and `simulated_confounding()` on the selecting fit. A collaborative fit other than `strategy="derivative"` refuses the bound unless the call declares `assume_consistent_mechanism=True` | a point bound under that declaration, with the declaration stated in the reading. A per-arm outcome-adaptive fit (`oat_design="per_arm"`) needs a declared `mechanism_learner=` with the declaration, because its own treatment learner reads one outcome prediction. State the learner and the assumption that it is consistent. Without the declaration, read the bound of the ordinary TMLE fit of the declared adjustment set. It does not cover the collaborative selection |
-| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope. `simulated_confounding()` runs on the slope; add it only under [the checks rule](#which-checks-a-page-runs) | a bound on each arm contrast. The slope bound runs on an identity-link MSM with a categorical treatment. A continuous-treatment MSM or a non-identity link refuses it, so state that limit in one sentence |
+| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope. `simulated_confounding()` runs on the slope and, with three or more arms, needs `arm_pair=` to name the two arms it swaps; add it only under [the checks rule](#which-checks-a-page-runs) | a bound on each arm contrast. The slope bound runs on an identity-link MSM with a categorical treatment. A continuous-treatment MSM or a non-identity link refuses it, so state that limit in one sentence |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()`, `evalue()` with the missing-at-random plug-in of the outcome SD, and the omitted-variable bound | the tilt of the unobserved outcomes at which the estimate reaches its null. `simulated_confounding()` runs outcome-axis cells on any such fit. A cell that moves the treatment needs `observation_reads=`, the covariates the response mechanism reads, and refuses without it, because a mechanism that reads the arm breaks missing at random under the flip. That declaration cannot be tested, so state it in the reading |
-| longitudinal TMLE, with or without a time-to-event outcome, other than the two below | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only on a fit with no time-varying covariate after the first treatment node: an uncensored end-of-study fit, or a survival or competing-risk fit, censored or not, whose treatment is one baseline decision held over every node and whose censoring mechanism is not declared. On a time-to-event fit, add `evalue(estimand=(numerator, denominator))` on two static regimens' risks at one horizon | the refits are a benchmark, not a bound. Each move is signed and specific to the dropped covariate. The E-value reads the risk ratio of the pair. It assumes censoring at random given the treatment and covariates, with the unmeasured confounder not affecting censoring, and its confidence-limit E-value is descriptive |
+| a point fit with an intermediate (`ControlledDirectEffect`) | the omitted-variable bound and `evalue()`, and `simulated_confounding()` with every treatment strength at zero | the bound's limit is backed by a coverage study only for a binary outcome with a binary intermediate, two arms and at least 250 events in the smaller arm ([`ovb-limit-coverage`](../technical-reference/method-evidence/ovb-limit-coverage.md), cell O2); elsewhere it is descriptive. `evalue()` takes a bounding factor for each arm, and its confidence-limit E-value is descriptive. `simulated_confounding()` flips the intermediate and moves the outcome, and refuses a treatment strength above zero ([F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay)). `marginal_bounds` is unavailable, because a controlled direct effect also needs a bound on confounding of the intermediate and the outcome ([X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter)). State each limit in one sentence |
+| longitudinal TMLE, with or without a time-to-event outcome, other than the two below and a modified treatment policy at a node | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only on a fit with no time-varying covariate after the first treatment node: an uncensored end-of-study fit, or a survival or competing-risk fit, censored or not, whose treatment is one baseline decision held over every node and whose censoring mechanism is not declared. On a `TimeToEvent` fit, whose one baseline treatment is held over every node, add `evalue(estimand=(numerator, denominator))` on two static regimens' risks at one horizon. Every other longitudinal fit refuses the E-value, including a survival or competing-risk fit with a decision at each node such as `longitudinal-survival`'s ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)); [the E-value section](../technical-reference/validation-methods.md#e-value) owns the cases | the refits are a benchmark, not a bound. Each move is signed and specific to the dropped covariate. The E-value of a `TimeToEvent` fit reads the risk ratio of the pair. It assumes censoring at random given the treatment and covariates, with the unmeasured confounder not affecting censoring, and its confidence-limit E-value is descriptive. Where the E-value is refused, state that limit in one sentence |
 | longitudinal TMLE that eliminates competing events (`eliminate=`) | refit without one recorded covariate at a time, as for other longitudinal fits | a benchmark, not a bound. `simulated_confounding()` refuses the fit ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)), and `evalue()` refuses it, because its identification also needs no unmeasured common cause of the prevented events and the outcome. State each limit in one sentence |
 | separable effects (`Separable`) | refit without one recorded covariate at a time. `evalue()` on two static regimens covers the total effect only | `simulated_confounding()` refuses the fit, because its latent would be a common cause of both events, and `evalue()` refuses a separable regimen. State each limit in one sentence |
+| parametric g-formula (`ParametricGFormulaMethod`) | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only under the condition of the longitudinal TMLE row: no time-varying covariate after the first treatment node | the refits are a benchmark, not a bound. Every other `cleverly.sensitivity` entry point and the truncation curve read `unavailable` in `result.assess()`; quote that row's reason in one sentence. `model-based-over-time`'s fit records a covariate after the first offer, so its replay is refused ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)) |
+| structural nested mean model (`snmm()`, the blip model) | refit without one recorded covariate at a time, as for the parametric g-formula | a benchmark, not a bound. Every `cleverly.sensitivity` entry point reads `unavailable`: the omitted-variable bound needs a representer that no source derives for a blip fit, and the E-value needs a risk-ratio scale that a blip coefficient does not have. State each reason in one sentence |
 | a regime, or a shift whose observed and shifted doses are all declared `dose_atom` values | `omitted_confounding()` on the contrast ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G2c) and `simulated_confounding()` where the intervention has a known density. On a Gaussian fit that declares `q_bounds`, outcome-axis cells move the outcome on the logit scale of the bounds by default (`bounded_outcome_law=`), so read the outcome strength through `induced_outcome_association` rather than in outcome SDs | the bound reads the contrast. The surface is not a bound. A treatment-only cell, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`, moves the estimate by misclassification of the treatment, not by confounding. Say so in the reading |
 | a continuous-dose shift | `simulated_confounding()` only | the bound refuses a continuous-dose shift. State that limit in one sentence |
+| kernel-smoothed dose-response curve (`DoseResponseCurve`) | none runs: `refute()` and every `cleverly.sensitivity` entry point refuse. Run `result.validate()` and read its overlap and outcome-model lines | the refutation and the bounds name [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part K, the simulated confounder [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (l), and the E-value does not apply to a mean at one dose. State the limit in one sentence in the conclusion |
+| longitudinal TMLE with a modified treatment policy at a node (`sequential-pricing`) | refit without one recorded covariate at a time where the fit allows it. The fit refuses an empty baseline ([X63](../roadmap.md#x63-missing-data-intermediates-and-designs) part (c)), and a covariate that a declared band reads cannot be dropped | no `cleverly.sensitivity` bound runs on the fit ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)), and `simulated_confounding()` refuses a covariate recorded after the first node ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). When no refit is possible either, state each limit in one sentence in the reading that needs it |
+| a conditional effect: the EP curve, a log-ratio projection, or a difference-scale projection coefficient | on the EP curve, none: every sensitivity entry and `refute` refuse. On a log-CRR projection coefficient, every sensitivity entry refuses and `refute()` runs. On a difference-scale `cate_projection` coefficient, `robustness_value(estimand=...)` and `omitted_confounding(estimand=...)`; `contour` and `refute()` also run, and `evalue()` and `simulated_confounding()` refuse. For a decision taken from the curve, run the regime row on that decision's contrast, as `conditional-effects` does | the projection bound reads one coefficient of the projection, not the curve. State in one sentence that the EP curve has no bound |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
 | adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
 
@@ -282,13 +328,18 @@ Run the checks below on the fit of the page as well, under the rule that follows
 | refutation | `refute()`: `placebo`, `subset`, and `random_common_cause` at the default `R`. Add `negative_control_outcome` where the data hold a pre-treatment measure | a verdict prints only where a `VERDICT_EVIDENCE` row covers the fit. Otherwise the numbers print with `passed=None`. Say in plain words whether a simulation study backs a pass or fail for this fit |
 | generated outcomes | `dummy_outcome`, `simulated_outcome`, and `plasmode` at a small `R` | a level-1 reading. The level-2 bands need `R` = 400, so run that version once as a review probe outside the notebook |
 | tilt | `missingness()` and `tipping_gamma()` | the tilt at which the estimate reaches its null |
+| weights and balance over time (longitudinal fits) | under "Go deeper", a lesson of two cells. The first prints `sensitivity.covariate_balance(result).average(over="history")`, before and after weighting, and draws `plotting.weights(result, regimens=...)` for at most three regimens, with the plotted weights printed in the same cell. The second prints `result.diagnostics.truncation_curve(bounds=...)` with each move divided by the fit's standard error, and the `kish` column of `result.diagnostics.influence()` for the final estimates | read the averaged balance, not the largest stratum, which can grow while the average falls. The feedback rows (an earlier treatment against a later covariate) need not shrink: after weighting they show the treatment's own effect on later covariates, which weighting is not meant to remove. Balance covers only the recorded covariates, so it is no evidence against a missing confounder. The cap curve shows how much an estimate leans on its largest weights, and is not a validity check. `kish` counts the equally weighted rows that an estimate's standard error rests on (`n` over the kurtosis of the influence curve), which differs from the support report's effective sample size. A continuous treatment has no balance groups, so `covariate_balance` refuses it |
 
 ### Which checks a page runs
 
 `point-treatment-tmle` runs the full set for a point-treatment fit: refutation, `simulated_outcome`
 and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `marginal_bounds()`,
-`simulated_confounding()`, and the truncation curve. `plots` draws them, and
-`twins-causal-inference`, the real-data capstone, shows the full report. Every other tutorial runs
+`simulated_confounding()`, and the truncation curve. `plots` draws the bound's contour and prints
+its benchmarks, and draws `evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
+`simulated_outcome` and `plasmode` have no figure. `twins-causal-inference`, the real-data
+capstone, runs the same set on an effect among the treated and adds the combined assessment
+report, covariate balance, the calibration and learner figures, and `dummy_outcome`. Every other
+tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
 each with a short reading, because its conclusion needs them.
 
@@ -329,25 +380,25 @@ change.
 
 | family | tutorials that show it |
 | --- | --- |
-| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle, cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`) |
-| ATT and ATC | twins-causal-inference (ATT). No tutorial fits `ATC` |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
+| ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
-| Natural-course mean, PAR, and PAF | population-impact |
+| Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules |
+| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
-| Continuous policies at declared boundaries, with learned and tuned inputs | sequential-pricing |
+| Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
 | Incremental propensity-score interventions | interventions |
 | Incremental interventions over time | weekly-outcomes |
 | Categorical incremental interventions | schedules-and-intensity |
 | Smoothed dose-response curve | dose-response |
-| Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
+| Point and longitudinal MSM projections | msm-projections (point, with an effect modifier and a logit link in Go deeper, and a longitudinal projection on `make_longitudinal`, the two-decision binary law with dropout that its supported rows need) |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
-| Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
+| Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
 | Structural nested mean model | model-based-over-time |
 | Parametric g-formula over time | model-based-over-time |
 | Longitudinal survival and competing risks | longitudinal-survival; separable-effects (separable effects of a treatment's two parts, `Separable`) |
@@ -361,6 +412,14 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`) |
+| Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
+| External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |
+| Hazard targeting beyond a held baseline treatment | No tutorial fits it |
+| Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
+| Drift-corrected survival TMLE | No tutorial fits it |
+| Continuous-time survival and competing risks | plots (risks, their difference, and the restricted mean time lost, with the overlap, weights and model figures) |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |
@@ -406,6 +465,11 @@ Do these steps in order. Run each command from the repository root.
    python scripts/execute_notebook.py docs/examples/<stem>.ipynb > execute.log 2>&1
    echo "exit status $?"
    ```
+
+   The kernel caps the native thread pools (OpenMP and BLAS) at one thread and runs on
+   matplotlib's bundled defaults, so a machine's own matplotlibrc (a different `figure.dpi` or
+   font) cannot change the published figures. Commit your edits first and execute from the clean
+   checkout: the stamp records whether the worktree was clean.
 
 5. Read every stored output. Write each reading from those outputs.
 6. Delete the Markdown source with `git rm docs/examples/<stem>.md`.

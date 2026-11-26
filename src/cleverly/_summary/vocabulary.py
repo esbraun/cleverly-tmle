@@ -36,6 +36,8 @@ MISSINGNESS_MODEL: Final = "Missingness model"
 WEIGHTED: Final = " (weighted)"
 #: The model of whether a row's treatment was recorded.
 RECORDING_MODEL: Final = "Recording model"
+#: The route a policy fit estimates its density ratio by, and the rule that chose it.
+POLICY_RATIO: Final = "Policy ratio"
 #: The model of the intermediate variable a controlled direct effect holds fixed.
 INTERMEDIATE_MODEL: Final = "Intermediate model"
 CLUSTERS: Final = "Clusters"
@@ -482,14 +484,16 @@ SUPPORT_QUALIFIERS: Final[Mapping[str, str]] = MappingProxyType(
         "tilted_mechanism": "a known treatment mechanism read in the weighted sample",
         "unequal_clusters": "clusters of unequal size",
         "known_regimes": "the fixed rules reported beside the learned rule",
+        "known_stochastic_regimes": "a random treatment plan reported beside the learned rule",
+        "natural_course": "current practice (the observed treatment) beside the learned rule",
         "rule_learner_blip": "a rule learner",
         "rule_learner_weighted_classification": "a rule learner",
         "rule_learner_ep": "a rule learner",
     }
 )
 
-#: Plain words for the qualifiers of a longitudinal fit, which name the treatment and
-#: censoring columns whose mechanism the data declares known.
+#: Plain words for the qualifiers of a longitudinal fit, which name each treatment and
+#: censoring factor the data declares known by role and node (``known_treatment@1``).
 SUPPORT_KNOWN_FACTORS: Final = "which treatment and censoring mechanisms are declared known"
 
 #: Fit-time warnings a note already states, by that note's code: when the note prints, a
@@ -1120,6 +1124,7 @@ T3_EQUATION_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "row_not_converged": "warning",
         "equations_only": "note",
         "dr_curve": "note",
+        "natural_course_no_equation": "note",
         "held_to_nothing": "note",
         "correction_rows": "note",
         "default_bar": "note",
@@ -1149,6 +1154,11 @@ T3_EQUATION_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "it holds only in the cases cleverly.estimators.drtmle lists."
         ),
         "held_to_nothing": "Rows marked described are held to no allowed error: {reasons}",
+        "natural_course_no_equation": (
+            "{name} has no equation the correction step solves: its value is the mean of the "
+            "observed outcome, which uses no treatment model, so only its estimate's equation "
+            "({estimand}) is checked."
+        ),
         "correction_rows": (
             "In the corrections table, a size row holds the mean of a DR-TMLE correction to "
             "its allowed error, and an identity row checks that the value the correction "
@@ -1549,6 +1559,7 @@ T3_MODEL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "calibration": "note",
         "collaborative_model": "note",
         "declared_treatment": "note",
+        "classifier_ratio": "note",
         "fit_status": "note",
         "selection": "note",
         "split_ratio": "note",
@@ -1594,6 +1605,10 @@ T3_MODEL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "The treatment probabilities were declared, not fitted, so the treatment rows "
             "compare the declaration with the treatment each row received."
         ),
+        "classifier_ratio": (
+            "The policy weights come from a classifier that tells each row's policy dose from "
+            "its observed dose, so the fit has no separate treatment model to check here."
+        ),
         "fit_status": "{sentences}",
         "selection": "{sentence}",
         "split_ratio": (
@@ -1607,8 +1622,20 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_MODEL_NOTE_TEXTS})
 
 #: Sentences of the ``calibration`` note.
 CALIBRATION_IN_SAMPLE: Final = (
-    "Calibration slopes are in sample and carry no test: an unpenalized logistic model with "
-    "an intercept has an in-sample slope of {one} by construction."
+    "Calibration slopes are in sample and carry no test: a slope read on the rows a model "
+    "was fitted to says nothing about how it predicts new rows."
+)
+CALIBRATION_SLOPE_ONE: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: (
+            "The {models} is an unpenalized logistic regression with an intercept, so its "
+            "in-sample slope is {one} by construction."
+        ),
+        True: (
+            "The {models} are unpenalized logistic regressions with an intercept, so their "
+            "in-sample slopes are {one} by construction."
+        ),
+    }
 )
 CALIBRATION_OUT_OF_FOLD: Final = (
     "The calibration slope refits the out-of-fold predictions by logistic regression with "
@@ -1688,6 +1715,7 @@ MODEL_OMISSIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "selection": "The collaborative selection is not available: {reason}.",
         "outcome": "No outcome model was fitted: {reason}.",
+        "treatment": "No treatment model was fitted: {reason}.",
         "spread": "No spread between splits is available: {reason}.",
         "folds": (
             "The {model} fitted no learner in fold {folds}: {reason}. Its log loss reads "
@@ -1729,9 +1757,13 @@ T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "equation_concentration": (
             "In the estimating equation the weights concentrate most for {group}: {effective} "
-            "effective rows of {rows} ({share}). This describes how unevenly rows are "
-            "weighted; it is not the estimator's sample size, its precision or a test of "
-            "overlap."
+            "effective rows of {rows} ({share}), counting the rows with a nonzero weight in "
+            "that equation. This describes how unevenly rows are weighted; it is not the "
+            "estimator's sample size, its precision or a test of overlap."
+        ),
+        "equation_concentration_empty": (
+            "In the estimating equation no row carries weight for {group}: every row's term "
+            "in equation {equation} is zero."
         ),
         "simplex": (
             "With more than two arms each arm's probability is capped on its own and not "
@@ -2130,6 +2162,16 @@ CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment mode
 
 #: The battery's label of the nuisance row of a continuous-time longitudinal fit.
 CONTINUOUS_LONGITUDINAL_NUISANCE_NAME: Final = "hazard, visit, censoring and treatment models"
+
+#: The battery's label of the nuisance row of an adaptive TMLE fit, which adds the
+#: trial-membership model (and, with missing outcomes, the missingness model) to the two models
+#: the default label names. Short enough to keep the checks table's finding column whole.
+ATMLE_NUISANCE_NAME: Final = "the three prediction models"
+ATMLE_NUISANCE_NAME_MISSING: Final = "the four prediction models"
+
+#: The battery's label of the corrections row of an adaptive TMLE fit: the effect- and
+#: bias-model steps and the trial-membership passes after selection, not DR-TMLE corrections.
+ATMLE_CORRECTIONS_NAME: Final = "targeting updates"
 
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(
@@ -2692,6 +2734,26 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
         ),
     ),
     (
+        "separable components:",
+        (
+            "treatment splits into two parts",
+            "The treatment can be split into a part that acts on the event of interest and a "
+            "part that acts on the competing event, and each part could be given on its own.",
+            "no",
+        ),
+    ),
+    (
+        "dismissible components",
+        (
+            "each part acts on one event",
+            "The part for the competing event changes the event of interest only by changing "
+            "the competing event, and the part for the event of interest changes the competing "
+            "event only by changing the event of interest. This fails, for example, when an "
+            "unrecorded cause affects both events.",
+            "no",
+        ),
+    ),
+    (
         "dropout is missing at random given the recorded history",
         (
             "follow-up loss at random",
@@ -2718,6 +2780,15 @@ CONDITION_WORDS: Final[tuple[tuple[str, tuple[str, str, Checkable]], ...]] = (
             "At each time, units with every recorded history had some chance of the dose "
             "the policy assigns wherever they had a chance of their observed dose, and of "
             "staying in follow-up.",
+            "partly",
+        ),
+    ),
+    (
+        "positivity over the dose interval:",
+        (
+            "overlap",
+            "Every group of units that share the adjusted-for values had some chance of "
+            "every dose near each declared dose inside the declared range.",
             "partly",
         ),
     ),
@@ -3319,6 +3390,16 @@ LONGITUDINAL_MEANINGS: Final[Mapping[str, str]] = MappingProxyType(
             "that probability under plan {r}"
         ),
         "msm": "coefficient of {term} in the working model of the plan means",
+        "rmst": "mean event-free time up to time {t} if every unit followed plan {d}",
+        "rmst_ate": (
+            "mean event-free time up to time {t} if every unit followed plan {d}, minus that "
+            "mean under plan {r}"
+        ),
+        "rmtl": "mean time lost to {cause} before time {t} if every unit followed plan {d}",
+        "rmtl_ate": (
+            "mean time lost to {cause} before time {t} if every unit followed plan {d}, minus "
+            "that mean under plan {r}"
+        ),
     }
 )
 
@@ -3343,6 +3424,12 @@ LONGITUDINAL_QUESTIONS: Final[Mapping[str, str]] = MappingProxyType(
         "cif": "risk of {cause} by time {t} under plan {d}",
         "cif_ate": "change in the risk of {cause} by time {t}, plan {d} instead of {r}",
         "msm": "working-model coefficient of {term}",
+        "rmst": "mean event-free time up to time {t} under plan {d}",
+        "rmst_ate": "change in the mean event-free time up to time {t}, plan {d} instead of {r}",
+        "rmtl": "mean time lost to {cause} before time {t} under plan {d}",
+        "rmtl_ate": (
+            "change in the mean time lost to {cause} before time {t}, plan {d} instead of {r}"
+        ),
     }
 )
 
@@ -3472,6 +3559,7 @@ T2_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "unsupported_rows": "warning",
         "score_load": "note",
         "score_load_rows": "note",
+        "natural_course_no_weights": "note",
     }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **T2_NOTE_CODES})
@@ -3491,6 +3579,10 @@ T2_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "their effective size read the estimated model before any limit. It counts the "
             "rows that effectively carry the estimating equation, of the rows the equation "
             "reads, so it is not the effective size of the ratios."
+        ),
+        "natural_course_no_weights": (
+            "{name} has no row because it uses no treatment weights: its value is the mean of "
+            "the observed outcome."
         ),
         "score_load_rows": (
             "Score load counts the rows that effectively carry the estimating equation, of the "
@@ -4629,12 +4721,20 @@ CURVE_BAND_MEASURED: Final = (
     "multipliers and {draws} draws."
 )
 
+#: The clause both readings of an unmeasured band open with, naming its configuration.
+_CURVE_BAND_UNMEASURED_CLAUSE: Final = (
+    "No registered study measures its joint coverage in this kind of fit with {kind} "
+    "multipliers and {draws} draws"
+)
+
 #: The ``{coverage}`` sentence when it does not, naming the band's configuration.
 CURVE_BAND_UNMEASURED: Final = (
-    "No registered study measures its joint coverage in this kind of fit with {kind} "
-    "multipliers and {draws} draws, so the status above covers the coefficients and not the "
-    "band."
+    f"{_CURVE_BAND_UNMEASURED_CLAUSE}, so the status above covers the coefficients and not "
+    "the band."
 )
+
+#: The same sentence in the band note of ``curve.plot()``, which prints no status line.
+CURVE_BAND_UNMEASURED_FIGURE: Final = f"{_CURVE_BAND_UNMEASURED_CLAUSE}, so it is experimental."
 
 # ------------------------------------------------------------ targeting curves (X92 PR-5)
 
@@ -4739,38 +4839,60 @@ BALANCE_SPREAD_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 #: How a unit counts after weighting, by estimand and by whether the data carry weights.
+#: ``{own}`` and ``{prob}`` name where the probabilities come from (BALANCE_PROBABILITY_WORDS).
 BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
     {
         ("ate", False): (
-            "After weighting, each unit counts as the inverse of the probability the fit "
-            "gave its own arm{limits}. Before weighting, every unit counts once."
+            "After weighting, each unit counts as the inverse of {own}{limits}. Before "
+            "weighting, every unit counts once."
         ),
         ("ate", True): (
-            "After weighting, each unit counts as its data weight divided by the probability "
-            "the fit gave its own arm{limits}. Before weighting, units count as the data's "
-            "weights say."
+            "After weighting, each unit counts as its data weight divided by {own}{limits}. "
+            "Before weighting, units count as the data's weights say."
         ),
         ("att", False): (
             "After weighting, units of the first group count once and units of the second "
-            "as the fit's probability of the first group's arm over that of their own"
+            "as {prob} of the first group's arm over that of their own"
             "{limits}. Before weighting, every unit counts once."
         ),
         ("att", True): (
             "After weighting, units of the first group count as their data weight and units "
-            "of the second as their data weight times the fit's probability of the first "
+            "of the second as their data weight times {prob} of the first "
             "group's arm over that of their own{limits}. Before weighting, units count as "
             "the data's weights say."
         ),
         ("atc", False): (
             "After weighting, units of the second group count once and units of the first "
-            "as the fit's probability of the second group's arm over that of their own"
+            "as {prob} of the second group's arm over that of their own"
             "{limits}. Before weighting, every unit counts once."
         ),
         ("atc", True): (
             "After weighting, units of the second group count as their data weight and units "
-            "of the first as their data weight times the fit's probability of the second "
+            "of the first as their data weight times {prob} of the second "
             "group's arm over that of their own{limits}. Before weighting, units count as "
             "the data's weights say."
+        ),
+    }
+)
+#: The words for the probabilities, by whether the fit estimated them or the data declared them.
+BALANCE_PROBABILITY_WORDS: Final[Mapping[str, Mapping[str, str]]] = MappingProxyType(
+    {
+        "fitted": MappingProxyType(
+            {
+                "own": "the probability the fit gave its own arm",
+                "prob": "the fit's probability",
+                "weights": "the fitted weights",
+                "cause": "the treatment model has not made the groups alike on it",
+            }
+        ),
+        "declared": MappingProxyType(
+            {
+                "own": "the declared probability of its own arm",
+                "prob": "the declared probability",
+                "weights": "the weights from the declared probabilities",
+                "cause": "weighting by the declared probabilities has not made the groups "
+                "alike on it",
+            }
         ),
     }
 )
@@ -4778,6 +4900,9 @@ BALANCE_WEIGHT_TEXTS: Final[Mapping[tuple[str, bool], str]] = MappingProxyType(
 BALANCE_SOURCE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "in_sample": "The probabilities are in-sample predictions; the fit was not cross-fitted.",
+        "declared": (
+            "The probabilities are the ones the data declare; no treatment model was fitted."
+        ),
         "out_of_fold": "The probabilities are out-of-fold predictions.",
         "repeats": (
             "The probabilities are the first of {repeats} cross-fitting repeats' out-of-fold "
@@ -4800,7 +4925,7 @@ NOTE_CODES = MappingProxyType({**NOTE_CODES, **BALANCE_NOTE_CODES})
 BALANCE_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "balance_descriptive": (
-            "These differences describe the data and the fitted weights and carry no "
+            "These differences describe the data and {weights} and carry no "
             "interval or test. Each is the mean in the first group minus the mean in the "
             "second, divided by {spread}."
         ),
@@ -4825,8 +4950,7 @@ BALANCE_READINGS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "residual": (
             "{before} of {total} covariate differences are larger than {threshold} before "
-            "weighting and {after} after. The largest left is {worst} ({size}), so the "
-            "treatment model has not made the groups alike on it."
+            "weighting and {after} after. The largest left is {worst} ({size}), so {cause}."
         ),
     }
 )
@@ -5114,3 +5238,31 @@ HEADER_LABELS = HEADER_LABELS | {
     PLANNED_BOUND,
     PLANNED_FOLDS,
 }
+
+# ----------------------------------------------------------------- dose-response curve (X123)
+
+DOSE_RESPONSE_TITLE: Final = "Smoothed dose-response curve"
+DOSE_RESPONSE_QUESTION: Final = "mean outcome averaged over doses near each declared dose"
+DOSE_RANGE: Final = "Dose range"
+DOSE_KERNEL: Final = "Kernel"
+DOSE_COUNT: Final = "Doses"
+DOSE_BANDWIDTHS: Final = "Bandwidths"
+DOSE_FOLDS_WORD: Final = "{k} folds"
+DOSE_SETTINGS_DECLARATION: Final = (
+    "Declared doses {doses}; bandwidths {bandwidths}; dose range [{low}, {high}]; kernel "
+    "{kernel}. Each row is the curve averaged over doses within one bandwidth of its dose."
+)
+DOSE_SETTINGS_BAND: Final = "The band over every row reads {label}."
+DOSE_SETTINGS_BAND_REASON: Final = "Why the band is experimental: {reason}"
+DOSE_SETTINGS_ROWS_REASON: Final = "Why the rows are experimental: {reason}"
+#: The conditions a direct fit rests on, which a fit through a study reads off its
+#: identification record instead.
+DOSE_RESPONSE_ASSUMPTIONS: Final[tuple[str, ...]] = (
+    "consistency: the observed outcome is the outcome under the dose the unit received",
+    "no interference: one unit's dose does not change another unit's outcome",
+    "no unmeasured confounding: given the adjusted-for columns, the dose a unit received is "
+    "unrelated to the outcomes it would have had at every dose in the declared range",
+    "positivity over the dose interval: units at every value of the adjusted-for columns "
+    "had some chance of every dose near each declared dose inside the declared range",
+)
+HEADER_LABELS = HEADER_LABELS | {DOSE_RANGE, DOSE_KERNEL, DOSE_COUNT, DOSE_BANDWIDTHS}

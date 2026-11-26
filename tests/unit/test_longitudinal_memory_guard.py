@@ -95,6 +95,29 @@ def test_the_reference_carries_the_generated_tables() -> None:
     assert generate.extensions_table() in text
 
 
+def test_the_reference_quotes_the_copied_calibration_outputs() -> None:
+    # Every range the accuracy section quotes is read from an output copied beside generate.py.
+    text = " ".join(REFERENCE.read_text().split())
+    missing = [phrase for phrase in generate.accuracy_phrases() if phrase not in text]
+    assert not missing
+    low, high = generate.accuracy_readings()["checked"]
+    assert (low["family"], low["censor"], low["n"]) == ("sdr", "True", "20000")
+    assert high["est"] == "learned"
+    # The in-range filter is by record kind; a new kind or row must be placed by hand.
+    in_range = generate.accuracy_readings()["in_range_cells"]
+    assert {c["kind"] for c in in_range} == {
+        "bins_check",
+        "dens_check",
+        "ext",
+        "extra",
+        "rev10",
+        "twin",
+        "variants",
+    }
+    assert len(in_range) == 97
+    assert "plans repository" not in text
+
+
 def test_the_predicate_reads_extbox_out_with_one_documented_correction() -> None:
     # Every fitted bound but the time-to-event families' censoring is the record's own.
     text = (Path(generate.__file__).parent / "extbox.out").read_text()
@@ -200,6 +223,28 @@ def test_the_prediction_bounds_the_traced_peak_and_a_dropped_term_breaks_it(
     mutated = _memory_guard.predicted_bytes(counts)
     assert mutated < predicted
     assert not _bound_holds(peak, mutated), mutated / peak
+
+
+def test_the_refined_grid_is_counted_and_a_nominal_count_breaks_the_mtp_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The density counts the bins of the refined grid, not ``density_bins``.
+
+    ``bin_edges`` splits the wide outer core bins, so the ``mtp`` case's 40 core bins fit 49.
+    Counted at 40, its prediction fell below the traced peak until X106 D1a built the hazard
+    design once instead of twice (2.24 and 1.55 times the peak since), so the control is the
+    size of the drop: the refined count adds at least a third to the prediction.
+    """
+    case, family, _ = TRACED["mtp"]
+    peak, counts = support.traced(case, N)
+    assert counts.family == family
+    assert counts.bins > case["B"]
+    predicted = _memory_guard.predicted_bytes(counts)
+    assert _bound_holds(peak, predicted)
+    monkeypatch.setattr(_memory_guard, "refined_bins", lambda data, nominal: nominal)
+    _, nominal = support.traced(case, N)
+    assert nominal.bins == case["B"]
+    assert _memory_guard.predicted_bytes(nominal) < 0.75 * predicted
 
 
 def test_the_two_cause_survival_bound() -> None:
@@ -540,39 +585,41 @@ def _continuous(
     )
 
 
-#: The held-out continuous cells (the rows of ``bins-check.jsonl``, checked and not fitted, in
-#: ``rows/X106/J2/evidence/2026-11-19-j2d/rev9/`` in the plans repository): each row's guard
-#: counts and its traced peak.
+#: The held-out continuous cells (the ``bins_check`` rows, checked and not fitted, of the X106 part D
+#: refit, ``rows/X106/D/evidence/2026-11-25-j2d-recal/grid-*.jsonl`` in the plans repository): each
+#: row's guard counts and its traced peak.
 HELD_OUT: dict[str, tuple[FitCounts, int]] = {
     "mtp T 8, B 320": (
         _continuous("ltmle_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
-        1_771_256_839,
+        1_000_158_283,
     ),
     "mtp F 10, B 320": (
         _continuous("ltmle_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
-        1_522_250_077,
+        794_556_292,
     ),
     "mtp n 5,000, B 20": (
-        _continuous("ltmle_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
-        18_807_706,
+        _continuous("ltmle_continuous", 5_000, 2, 4, 3, width=5, bins=35, panel_bytes=290_000),
+        46_532_843,
     ),
     "sdr_mtp T 8, B 320": (
         _continuous("sdr_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
-        1_771_244_018,
+        1_000_160_483,
     ),
     "sdr_mtp F 10, B 320": (
         _continuous("sdr_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
-        1_617_177_744,
+        1_111_518_731,
     ),
     "sdr_mtp n 5,000, B 20": (
-        _continuous("sdr_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
-        26_388_174,
+        _continuous("sdr_continuous", 5_000, 2, 4, 3, width=5, bins=35, panel_bytes=290_000),
+        75_347_076,
     ),
 }
 
 
-#: The held-out cells of the two density routes (the rows of ``dens-check.jsonl``, beside
-#: ``bins-check.jsonl``): n 5,000, T 4, R 2, F 5, with 160 bins on the index route.
+#: The held-out cells of the two density routes: n 5,000, T 4, R 2, F 5, with 160 bins on the index
+#: route.  The index rows are the part D refit's ``dens_check`` rows; the classifier rows are J2d's
+#: ``dens-check.jsonl`` (``rows/X106/J2/evidence/2026-11-19-j2d/rev9/``), whose family was not
+#: refitted.
 HELD_OUT.update(
     {
         f"{family} F 5": (
@@ -592,9 +639,9 @@ HELD_OUT.update(
             peak,
         )
         for family, peak in (
-            ("ltmle_continuous_index", 88_873_073),
+            ("ltmle_continuous_index", 195_805_546),
             ("ltmle_continuous_classifier", 9_629_809),
-            ("sdr_continuous_index", 217_045_226),
+            ("sdr_continuous_index", 599_921_986),
             ("sdr_continuous_classifier", 16_309_789),
         )
     }
@@ -642,8 +689,11 @@ def _route_counts(est: str, n: int = 300, **case: Any) -> FitCounts:
 def test_each_density_route_is_its_own_family(
     est: str, prefix: str, overrides: dict[str, Any], route: str, bins: int
 ) -> None:
-    counts = _route_counts(est, overrides=overrides)
-    assert (counts.family, counts.bins) == (f"{prefix}_continuous{route}", bins)
+    # The classifier route fits no binned density and refuses a bin count, so it runs without
+    # one; a binned route's count is the refined grid of its 12 core bins.
+    counts = _route_counts(est, overrides=overrides, B=bins)
+    assert counts.family == f"{prefix}_continuous{route}"
+    assert counts.bins >= bins if bins else counts.bins == 0
 
 
 @pytest.mark.parametrize(
@@ -688,7 +738,7 @@ def test_mutation_ignoring_the_density_route_fails_the_route_witnesses(
     monkeypatch.setattr(_memory_guard, "density_route", lambda estimator: "")
     index = {"treatment_learner": _IndexLogistic(max_iter=1000)}
     assert _route_counts("mtp", overrides=index).family == "ltmle_continuous"
-    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}).bins == 12
+    assert _route_counts("sdr_mtp", overrides={"ratio": "classifier"}, B=0).bins > 0
     counts = _route_counts("mtp", 2_000, R=4, B=320, overrides=index)
     assert _memory_guard.predicted_bytes(counts) > 2**30
 
@@ -773,12 +823,14 @@ def test_the_counts_read_the_band_setting_of_the_estimator(simultaneous: bool) -
     assert (_memory_guard.predict(counts).band > 0) is simultaneous
 
 
-#: One fitted cell of each route family: ``dens.jsonl`` (``rows/X106/J2/evidence/
-#: 2026-11-19-j2d/rev9/`` in the plans repository), n 2,000, T 4, R 4, F 3, B 320 on the index
-#: route; each row's guard counts, with the route's family and bins, and its traced peak.
+#: One fitted cell of each route family, n 2,000, T 4, R 4, F 3, B 320 on the index route: the
+#: index rows from the part D refit (``rows/X106/D/evidence/2026-11-25-j2d-recal/grid-2000.jsonl``
+#: in the plans repository), the classifier rows from J2d's ``dens.jsonl`` (``rows/X106/J2/
+#: evidence/2026-11-19-j2d/rev9/``); each row's guard counts, with the route's family and bins, and
+#: its traced peak.
 ROUTE_CELLS: dict[str, tuple[int, int]] = {
-    "ltmle_continuous_index": (320, 61_997_343),
-    "sdr_continuous_index": (320, 122_706_013),
+    "ltmle_continuous_index": (320, 169_586_005),
+    "sdr_continuous_index": (320, 362_604_524),
     "ltmle_continuous_classifier": (0, 6_934_545),
     "sdr_continuous_classifier": (0, 10_641_843),
 }
@@ -898,7 +950,8 @@ def test_horizons_causes_and_bins_reach_the_counts() -> None:
     with support.captured_counts() as seen, warnings.catch_warnings():
         warnings.simplefilter("ignore")
         support.build({"est": "mtp", "T": 2, "R": 2, "folds": 1, "H": 1, "B": 12}, 500)[1]()
-    assert (seen[0].family, seen[0].bins) == ("ltmle_continuous", 12)
+    assert seen[0].family == "ltmle_continuous"
+    assert seen[0].bins >= 12
 
 
 def test_the_draw_is_the_written_out_sum_of_its_terms() -> None:
@@ -1204,7 +1257,7 @@ def test_a_budget_one_byte_short_refuses_before_any_learner(name: str) -> None:
     assert f"{predicted:,} bytes" in text
     assert f"{predicted - 1:,} bytes" in text
     assert "which max_memory_bytes sets" in text
-    assert f"{cls}(max_memory_bytes=...)" in str(error.refusal.alternative)
+    assert f"(an argument of {cls}, and a keyword of estimate()" in str(error.refusal.alternative)
     assert "No learner was fitted" in text
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1364,40 +1417,31 @@ def _study() -> tuple[CausalStudy, Any]:
     return study, effect
 
 
-def test_the_facade_spells_the_direct_call_and_that_call_reproduces_it(
+def test_the_facade_takes_the_budget_and_names_it_in_the_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A study reaches the budget as ``max_memory_bytes=``, and its refusal says so."""
     study, effect = _study()
     settings = _learners(n_folds=2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         facade = effect.estimate("tmle", **settings)
-    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+        budgeted = effect.estimate("tmle", **settings, max_memory_bytes=2**62)
+    for name, estimate in facade.estimates.items():
+        assert estimate.psi == budgeted.estimates[name].psi
+        assert estimate.std_error == budgeted.estimates[name].std_error
     for call in (effect.estimate, effect.planned_fits):
         with pytest.raises(LongitudinalMemoryError) as caught:
-            call("tmle", **settings)
+            call("tmle", **settings, max_memory_bytes=1)
+        assert "which max_memory_bytes sets" in str(caught.value)
         alternative = str(caught.value.refusal.alternative)
-        assert "cleverly.longitudinal.LTMLE(" in alternative
-        assert "max_memory_bytes=...).fit(study.data)" in alternative
-        assert "reference='never'" in alternative
-        assert "With this seed it returns the result this study would." in alternative
-        assert caught.value.predicted is not None and caught.value.budget == 1
-    monkeypatch.undo()
-    functional = effect.functional
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        direct = LTMLE(
-            functional.interventions,
-            reference=functional.reference,
-            horizons=functional.horizons,
-            msm=functional.msm,
-            **settings,
-            max_memory_bytes=2**62,
-        ).fit(study.data)
-    assert set(facade.estimates) <= set(direct.estimates)
-    for name, estimate in facade.estimates.items():
-        assert estimate.psi == direct.estimates[name].psi
-        assert estimate.std_error == direct.estimates[name].std_error
+        assert "keyword of estimate() or a field of Runtime on a study" in alternative
+        assert caught.value.budget == 1
+    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+    with pytest.raises(LongitudinalMemoryError) as caught:
+        effect.estimate("tmle", **settings)
+    assert "the memory available now" in str(caught.value)
+    assert study.data is not None
 
 
 # ------------------------------------------------------------------ construction and scope
@@ -1436,7 +1480,8 @@ def test_the_message_omits_counts_at_one_and_names_bins() -> None:
     assert 'ratio="classifier" (no binned density)' in str(error.refusal.alternative)
     assert (
         "At one worker it can exceed the true peak by up to 3.5 times, more on fits under about "
-        "20 MiB with the simultaneous band on, and more with n_jobs > 1." in text
+        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a liblinear treatment learner."
+        in text
     )
     # The classifier route builds no binned density, so neither bins remedy appears.
     classifier = replace(counts, family="ltmle_continuous_classifier", bins=0)

@@ -47,8 +47,8 @@ print(result.check_model().summary())
 `result.check_model()` compares the structural contrasts with the contrasts of `LTMLE`.
 
 The [model-based-over-time tutorial](../examples/model-based-over-time.ipynb) fits this estimator
-on three binary nodes with a baseline feature in the first two blips, compares its regimen levels
-with the parametric g-formula, and reads `check_model()`.
+on three binary nodes with a baseline feature in the first two blips, compares its gain of `always`
+over `never` with the parametric g-formula and longitudinal TMLE, and reads `check_model()`.
 
 ## The model
 
@@ -213,7 +213,7 @@ declared blip features". The label appears in the summary, in the `model` column
 `to_frame()`, and on every level and contrast row. It survives `save()` and `load()`. The status
 says the interval is an influence-curve interval. The label says what the interval is valid for.
 
-The few-cluster floor of 20 is inherited from `LTMLE`. No study measures it for this estimator.
+With `id=`, the default longitudinal floor of 20 positive-mass clusters applies; only `LTMLE` without repeated splits has lower measured floors ([few clusters](inference.md#few-clusters)). No study measures the floor for this estimator.
 
 ### Support label
 
@@ -283,7 +283,8 @@ most `k - 1`, the check reports no test. Bell and McCaffrey (2002) and Imbens an
 apply the same correction to a robust variance with high-leverage rows.
 
 Under weak positivity a few rows carry large inverse weights and most of the covariance. The
-table gives the rejection rate at the 5% level on the law `SP` of the X44 study. The fits use
+table gives the rejection rate at the 5% level on the law `SP` of the
+[structural nested mean study](method-evidence/structural-nested-mean.md). The fits use
 five splits, and the model is correct. The `r01` regimen has the cumulative probability
 0.009 in the history `W = 1, L2 = 0`.
 
@@ -327,8 +328,7 @@ freedom the check has little power, and `reference_df` reports how few.
 
 ## Refusals
 
-The rule of RM42b for the [experimental label](scope-and-refusals.md#experimental-compositions) is
-that a composition which the code computes and no study covers runs and reads `experimental`.
+The rule for the [experimental label](scope-and-refusals.md#experimental-compositions) is that a composition which the code computes and no study covers runs and reads `experimental`.
 A refusal stays for an invalid declaration, a different estimand, a gap with no code, and a case
 that returns a misleading number. The last column classifies each refusal of this estimator.
 
@@ -368,7 +368,9 @@ fit's own positivity and learner record is `result.structural_diagnostics`, so t
 nuisance rows redirect there, to its `smallest_eigenvalue`, `extreme_share`,
 `learner_diagnostics` and `n_constant_fits`. `result.validate()` reports the three validation
 rows (support, nuisance models and score equations) with their refusals, and `result.assess()` adds every diagnostic and sensitivity row. With
-`include_refits=True` it runs `refute`, the one operation that runs on this fit.
+`include_refits=True` it runs `refute`, the one operation that runs on this fit. `planned_refits()`
+prices the refits that `refute` would run, and the longitudinal memory guard does not cover this
+estimator.
 
 `cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
 `bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control
@@ -459,7 +461,7 @@ All 61 primary tests, all 21 EconML truth tests, all 21 paired tests and all 237
 cells pass. The model check has size cells on `S2`, `H` and `SP` and power cells on `LU`. The
 `G42` support rows cover the keys that the study fits.
 
-The X44 law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
+The structural nested mean study's law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
 split. No general proof gives its rate. The claim that the rate suffices rests on a probe of this law.
 At `n = 128,000` and `n = 512,000`, with 24 draws each, the bias over the standard error of each `N`
 estimand is consistent with 0.

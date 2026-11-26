@@ -14,7 +14,12 @@ stored output prints it.  :func:`narration_mismatches` reads that mapping.  A no
 also defines ``REFIT_CELLS``, the tuple of its refit cells in notebook order, which the runtime
 module's pin test compares with :func:`refit_cells`.  The check reads
 fixed-point and scientific decimals in prose, keyed by their written form, such as ``0.26`` or
-``5.114e-04``.  It does not read a decimal inside inline code.
+``5.114e-04``.  It does not read a decimal inside inline code.  A key of the form
+``"<markdown cell>: <literal>"`` exempts the literal in that cell only, which the section-scoped
+check (:func:`scoped_narration_mismatches`) enforces.  ``DERIVED_DECIMALS`` maps such a key to a
+printed number it is computed from, as ``(code cell, printed text, kind)``: ``"percent"`` for a
+share written as a percentage, ``"magnitude"`` for a signed number written as a size.  The check
+then confirms that the code cell prints that text and that the derivation rounds to the literal.
 
 **What is not a tutorial.**  ``index`` is navigation.  The TWINS notebook downloads its data, so
 it cannot run in the offline fast tier.  :data:`NOT_TUTORIALS` names both, and the runtime module
@@ -48,20 +53,24 @@ from types import ModuleType
 from typing import Any
 
 from tests.documents import READER_FACING, ROOT
+from tests.notebook_freshness import FIGURE_REPRS
 from tests.notebooks import code_cells
 from tests.prose import markdown_cells
 
 __all__ = [
     "EXAMPLES",
+    "GO_DEEPER",
     "NOT_TUTORIALS",
     "PACKAGE",
     "REFIT_CALLS",
     "STATIC_ONLY",
     "RefitNamespace",
     "assert_protocol_recorded",
+    "assert_weights_lesson",
     "callback",
     "callback_module",
     "callback_modules",
+    "cap_moves",
     "changed_fields",
     "covers",
     "markdown_text",
@@ -512,7 +521,7 @@ class RefitNamespace(dict[str, Any]):
 
 
 #: The ``text/plain`` reprs of a matplotlib figure or axes.
-_FIGURE_REPRS = ("<Figure", "Figure(", "<Axes", "<matplotlib.")
+_FIGURE_REPRS = FIGURE_REPRS
 
 
 def _output_text(output: Mapping[str, Any]) -> str:
@@ -660,6 +669,8 @@ def narration_mismatches(
     last written place. It does not match ``0.2634`` or ``-0.2491``.
     The check is static: it reads the committed outputs, so a platform difference in a fresh run
     cannot move it.  The execution stamp ties those outputs to the code, and this ties the prose to them.
+    :func:`scoped_narration_mismatches` applies it per section, so a reading cannot borrow a
+    number that only another section prints.
 
     A scientific literal such as ``5.114e-04`` has a tolerance of half a unit in the mantissa's
     last place, times ten to its exponent.  An output matches it only if it also shows at least
@@ -671,7 +682,7 @@ def narration_mismatches(
     module's ``UNPRINTED_DECIMALS`` with its reason, keyed by its written form.  Printing the
     number is the better repair.
     """
-    allowed = dict(unprinted or {})
+    allowed = {key.rpartition(": ")[2] for key in (unprinted or {})}
     printed = []
     for token in _OUTPUT_NUMBER.findall(outputs):
         try:
@@ -696,3 +707,256 @@ def narration_mismatches(
         if not matched:
             missing.append(literal)
     return missing
+
+
+#: The markdown cells that summarize the page, so their decimals may read any stored output of the
+#: main path: the "At a glance" opening (``title``) and the conclusion (``interpret``), as the page
+#: outline in ``docs/development/example-notebooks.md`` names them.  A summary that quotes a lesson
+#: under "Go deeper" declares the quote in ``NARRATION_SOURCES``.
+SUMMARY_CELLS = frozenset({"title", "interpret"})
+
+_HEADING = re.compile(r"^(#{1,6})\s+\S")
+
+#: The "Go deeper" heading that ends a tutorial's main path (any level; the word-budget test
+#: requires exactly one, at level two).
+GO_DEEPER = re.compile(r"^#{1,6}\s.*\bgo deeper\b", re.IGNORECASE)
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+@dataclasses.dataclass(frozen=True)
+class NarrationScope:
+    """One stretch of a markdown cell and the code cells whose outputs it may quote.
+
+    Parameters
+    ----------
+    cell : str
+        The markdown cell id.
+    text : str
+        The stretch of the cell between two headings.
+    sources : tuple[str, ...]
+        The code cell ids in scope.
+    """
+
+    cell: str
+    text: str
+    sources: tuple[str, ...]
+
+
+def narration_scopes(path: Path) -> list[NarrationScope]:
+    """Split each markdown cell at its headings, and give each stretch its scope.
+
+    A stretch belongs to the innermost section open where it stands, from a heading of any level
+    to the next heading of the same or a higher level.  Its scope is the code cells that sit
+    directly in that section, before or after it, together with the code cells that sit directly
+    in each enclosing section (outside any of that section's subsections).  So each lesson under
+    "Go deeper" (level three) is its own scope, and a reading cannot quote a number that only
+    another lesson prints.  A summary cell (:data:`SUMMARY_CELLS`) reads every code cell of the
+    main path, the cells before the :data:`GO_DEEPER` heading.
+    """
+    cells = _notebook(path)["cells"]
+    # Each section: (level, parent index or None).  Section 0 is the page before any heading.
+    sections: list[tuple[int, int | None]] = [(0, None)]
+    stack = [0]
+    direct: dict[int, list[str]] = {0: []}
+    stretches: list[tuple[str, str, int]] = []
+    main_path: list[str] = []
+    deeper = False
+    for cell in cells:
+        if cell["cell_type"] == "code":
+            direct[stack[-1]].append(cell["id"])
+            if not deeper:
+                main_path.append(cell["id"])
+            continue
+        if cell["cell_type"] != "markdown":
+            continue
+        lines: list[str] = []
+        fenced = False
+        for line in _joined(cell.get("source", "")).splitlines():
+            if _FENCE.match(line):
+                fenced = not fenced
+            heading = None if fenced else _HEADING.match(line)
+            if heading and GO_DEEPER.match(line):
+                deeper = True
+            if heading:
+                if lines:
+                    stretches.append((cell["id"], "\n".join(lines), stack[-1]))
+                lines = []
+                level = len(heading.group(1))
+                while sections[stack[-1]][0] >= level:
+                    stack.pop()
+                sections.append((level, stack[-1]))
+                stack.append(len(sections) - 1)
+                direct[stack[-1]] = []
+            lines.append(line)
+        if lines:
+            stretches.append((cell["id"], "\n".join(lines), stack[-1]))
+    scopes = []
+    for cell_id, text, section in stretches:
+        if cell_id in SUMMARY_CELLS:
+            scopes.append(NarrationScope(cell_id, text, tuple(main_path)))
+            continue
+        sources: list[str] = []
+        index: int | None = section
+        while index is not None:
+            sources.extend(direct[index])
+            index = sections[index][1]
+        scopes.append(NarrationScope(cell_id, text, tuple(sources)))
+    return scopes
+
+
+#: How a ``DERIVED_DECIMALS`` entry computes its literal from the printed number.
+DERIVATIONS = {"percent": lambda value: 100.0 * value, "magnitude": abs}
+
+
+def split_unprinted(unprinted: Mapping[str, str] | None) -> tuple[set[str], dict[str, set[str]]]:
+    """The page-wide literals of ``UNPRINTED_DECIMALS``, and the literals exempt per cell."""
+    page: set[str] = set()
+    by_cell: dict[str, set[str]] = {}
+    for key in unprinted or {}:
+        cell, separator, literal = key.rpartition(": ")
+        if separator:
+            by_cell.setdefault(cell, set()).add(literal)
+        else:
+            page.add(literal)
+    return page, by_cell
+
+
+def derived_mismatches(
+    path: Path, derived: Mapping[str, tuple[str, str, str]] | None
+) -> tuple[dict[str, set[str]], list[str]]:
+    """The literals each cell derives from a printed number, and each entry that does not hold.
+
+    An entry ``"cell: literal": (source, printed, kind)`` holds when the markdown cell writes the
+    literal, the code cell ``source`` prints ``printed`` as one of its numbers, and
+    ``DERIVATIONS[kind]`` of the printed number rounds to the literal.
+    """
+    cells = {cell["id"]: cell for cell in _notebook(path)["cells"]}
+    by_cell: dict[str, set[str]] = {}
+    problems = []
+    for key, (source, printed, kind) in (derived or {}).items():
+        cell, _, literal = key.rpartition(": ")
+        markdown = cells.get(cell)
+        code = cells.get(source)
+        if markdown is None or markdown["cell_type"] != "markdown":
+            problems.append(f"{key}: {cell} is not a markdown cell of the page")
+            continue
+        if literal not in narrated_decimals(_joined(markdown.get("source", ""))):
+            problems.append(f"{key}: the cell no longer writes {literal}")
+            continue
+        output = "" if code is None else "\n".join(map(_output_text, code.get("outputs", ())))
+        if printed not in _OUTPUT_NUMBER.findall(output):
+            problems.append(f"{key}: {source} does not print {printed}")
+            continue
+        value = DERIVATIONS[kind](float(printed))
+        if narration_mismatches(literal, repr(value)):
+            problems.append(f"{key}: {kind} of {printed} is {value!r}, which does not round to it")
+            continue
+        by_cell.setdefault(cell, set()).add(literal)
+    return by_cell, problems
+
+
+def scoped_narration_mismatches(
+    path: Path,
+    unprinted: Mapping[str, str] | None = None,
+    declared: Mapping[str, Mapping[str, str]] | None = None,
+    derived: Mapping[str, tuple[str, str, str]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Decimals that no output in their own scope prints, and stale declared cross-references.
+
+    ``declared`` is a callback module's ``NARRATION_SOURCES``: for a markdown cell id, each
+    literal the cell quotes from a code cell outside its scope, mapped to that code cell's id.
+    An entry is stale when the markdown cell is gone, the literal is no longer in that cell, the
+    named code cell does not print a match, or the named code cell is already in scope.  A
+    cell-scoped ``UNPRINTED_DECIMALS`` key is stale when its cell no longer writes the literal, and
+    a ``derived`` (``DERIVED_DECIMALS``) entry when :func:`derived_mismatches` refuses it.
+
+    Returns
+    -------
+    tuple[list[str], list[str]]
+        ``"cell: literal"`` for each unmatched decimal, and a description of each stale entry.
+    """
+    cells = _notebook(path)["cells"]
+    outputs = {
+        cell["id"]: "\n".join(_output_text(output) for output in cell.get("outputs", ()))
+        for cell in cells
+        if cell["cell_type"] == "code"
+    }
+    declared = {cell: dict(entries) for cell, entries in (declared or {}).items()}
+    scopes = narration_scopes(path)
+    page, by_cell = split_unprinted(unprinted)
+    derived_by_cell, stale = derived_mismatches(path, derived)
+    missing = []
+    used: set[tuple[str, str]] = set()
+    written: dict[str, set[str]] = {}
+    for scope in scopes:
+        written.setdefault(scope.cell, set()).update(narrated_decimals(scope.text))
+        exempt = page | by_cell.get(scope.cell, set()) | derived_by_cell.get(scope.cell, set())
+        printed = "\n".join(outputs[cell] for cell in scope.sources)
+        for literal in narration_mismatches(scope.text, printed, dict.fromkeys(exempt, "")):
+            source = declared.get(scope.cell, {}).get(literal)
+            if (
+                source is not None
+                and source in outputs
+                and source not in scope.sources
+                and not narration_mismatches(literal, outputs[source])
+            ):
+                used.add((scope.cell, literal))
+                continue
+            missing.append(f"{scope.cell}: {literal}")
+    for cell, literals in by_cell.items():
+        stale.extend(
+            f"UNPRINTED_DECIMALS {cell}: {literal} (the cell no longer writes it)"
+            for literal in sorted(literals - written.get(cell, set()))
+        )
+    markdown = {scope.cell for scope in scopes}
+    for cell, entries in declared.items():
+        for literal, source in entries.items():
+            if cell not in markdown:
+                stale.append(f"{cell} is not a markdown cell of the page")
+            elif (cell, literal) not in used:
+                stale.append(
+                    f"{cell}: {literal} from {source} (the literal is gone, the cell {source} does "
+                    "not print it, or it is already in scope)"
+                )
+    return missing, stale
+
+
+def cap_moves(namespace: Mapping[str, Any], column: str = "lower_bound") -> Any:
+    """The "Weights and balance" lesson's cap curve: each estimate's move in standard errors.
+
+    One row per estimand and one column per cap, as the lesson's ``caps`` cell prints it.
+    """
+    curve = namespace["cap_curve"]
+    return curve.pivot(index="estimand", columns=column, values="move in SEs")
+
+
+def assert_weights_lesson(namespace: Mapping[str, Any], *, feedback: bool | None) -> None:
+    """Check the readings every "Weights and balance" lesson shares.
+
+    ``feedback`` says whether the fit has feedback rows (``True``), has none because it is a
+    survival fit (``False``), or has no balance table at all because its treatment is
+    continuous (``None``).  Each lesson's own callback checks its page's numbers.
+    """
+    rows = namespace["weight_rows"]
+    # "no weight hit the cap"
+    assert (rows["share_truncated"] == 0).all()
+    # "kish" counts fewer equally weighted rows than the fit holds.
+    influence = namespace["influence_rows"].loc[namespace["final_estimates"]]
+    assert (influence["kish"] < influence["n"]).all()
+    # The replay at the fit's own cap reproduces the fit.
+    curve = namespace["cap_curve"]
+    fitted = curve.loc[curve["is_fitted_bound"].astype(bool), "move in SEs"]
+    assert fitted.empty or fitted.abs().max() < 1e-9
+    if feedback is None:
+        return
+    largest = namespace["balance_by_check"].groupby("diagnostic")[["before", "after"]].max()
+    # "Weighting shrinks the largest gap" for the confounding and censoring checks.
+    for check in ("confounding", "censoring"):
+        assert largest.loc[check, "after"] < largest.loc[check, "before"]
+    assert largest.loc["confounding", "after"] < 0.1
+    if feedback:
+        # The feedback rows "need not shrink": on these pages they grow, the code's own effect.
+        assert largest.loc["feedback", "after"] > largest.loc["feedback", "before"]
+    else:
+        # "A survival fit has no feedback check".
+        assert "feedback" not in largest.index

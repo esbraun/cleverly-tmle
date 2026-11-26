@@ -205,6 +205,10 @@ class KnownLongitudinalMechanism(BaseEstimator):
     design columns moves them by between 0.08 and 0.64, against a tolerance of ``1e-12``.
     """
 
+    #: A known mechanism fits nothing, so :func:`cleverly._support.learner_family` reads it as
+    #: parametric and a few-cluster fit with it carries no ``adaptive_nuisance``.
+    cleverly_learner_family = "parametric"
+
     def __init__(self, kind: str) -> None:
         self.kind = kind
 
@@ -263,58 +267,13 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     )
 
 
-def untargeted(frame: pd.DataFrame, label: str) -> float:
-    r"""The sequential-regression plug-in for one plan on the comparison law, unfluctuated.
-
-    The same two follower-stratified quasibinomial regressions both implementations run --
-    ``Q.kplus1 ~ W1 + W2 + L2`` at the outcome node and ``Q.kplus1 ~ W1 + W2`` at the earlier
-    one -- carried back and averaged, with the update in between left out.
-
-    It exists because of what the paired comparison can and cannot see.  ``initial_estimate``
-    is the earlier node's regression of the *already targeted* later node, in R
-    (``fit$Q[[1]]`` regresses the updated ``Q.kplus1``) as much as here, so the published
-    displacement measures the final fluctuation and not the whole targeting step.  This is the
-    whole of it, which is what ``tests/e2e/test_ltmle_targeting_slow.py`` needs to state how
-    much of the agreement between the two implementations the fluctuation is responsible for.
-    """
-    plan = REGIMENS[label]
-    if isinstance(plan, DynamicRegimen):
-        plan = plan.plan
-    baseline = frame[["W1", "W2"]].to_numpy(dtype=float)
-    l2 = np.nan_to_num(frame["L2"].to_numpy(dtype=float))
-    history = np.column_stack([baseline, l2])
-    if np.ndim(plan) == 0:
-        first = second = np.full(len(frame), float(plan))
-    else:
-        first = np.full(len(frame), float(plan[0]))
-        second = np.asarray(plan[1]({"L2": l2}), dtype=float)
-    followed_one = (frame["C1"].to_numpy() == 1.0) & (frame["A1"].to_numpy() == first)
-    followed_two = (
-        followed_one & (frame["C2"].to_numpy() == 1.0) & (frame["A2"].to_numpy() == second)
-    )
-    later = QuasiBinomialGLM().fit(history[followed_two], frame["Y"].to_numpy()[followed_two])
-    carried = later.predict(history)
-    earlier = QuasiBinomialGLM().fit(baseline[followed_one], carried[followed_one])
-    return float(np.mean(earlier.predict(baseline)))
-
-
-def untargeted_estimands(frame: pd.DataFrame) -> dict[str, float]:
-    """:func:`untargeted` for every reported estimand, contrasts included."""
-    means = {f"ey_regimen[{label}]": untargeted(frame, label) for label in REGIMENS}
-    for name in CONTRAST_NAMES:
-        left, right = name[len("ate_regimen[") : -1].split(" vs ")
-        means[name] = means[f"ey_regimen[{left}]"] - means[f"ey_regimen[{right}]"]
-    return means
-
-
 def regimen_initials(
     result: Any, regimens: Iterable[str], contrasts: Sequence[str]
 ) -> dict[str, float]:
     """The untargeted plug-in behind each regimen mean, and each contrast of two.
 
-    The contrast names are parsed rather than named, on the same rule
-    :func:`untargeted_estimands` already uses, so a study that adds a contrast gets its
-    plug-in without editing this.
+    The contrast names are parsed as ``ate_regimen[left vs right]`` rather than listed, so a
+    study that adds a contrast gets its plug-in without editing this.
     """
     means = {
         f"ey_regimen[{label}]": float(np.mean(result.fits[label].steps[0].initial))

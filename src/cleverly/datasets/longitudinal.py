@@ -31,6 +31,7 @@ __all__ = [
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
+    "competing_rule_truth",
     "competing_truth",
     "longitudinal_rule_truth",
     "longitudinal_truth",
@@ -777,6 +778,119 @@ def competing_truth(a1: float, a2: float, cause: str, horizon: int, nodes: int =
     if cause == "death":
         share2 = 1.0 - share2
     return float(np.sum(mass * (hazard1 * share1 + (1.0 - hazard1) * hazard2 * share2)))
+
+
+def competing_rule_truth(
+    a1: float,
+    rule2: Callable[[Any], Any],
+    cause: str,
+    horizon: int,
+    *,
+    split: float = 0.0,
+    nodes: int = 48,
+    panel: int = 160,
+) -> float:
+    r"""Cumulative incidence of ``cause`` by ``horizon`` when the second node is a rule.
+
+    The competing-risks analogue of :func:`longitudinal_rule_truth`, on the law of
+    :func:`make_longitudinal_competing`. The first node is the constant ``a1``; the second
+    assigns :math:`d_2(L_2)`, which ``rule2`` returns for an array of :math:`L_2` values.
+    With :math:`h` the all-cause hazard and :math:`s_j` the share of events of cause
+    :math:`j`, as in :func:`competing_truth`,
+
+    .. math::
+
+        F_j(2) = E\bigl[h_1 s_{1j} + (1 - h_1)\, h_2(d_2(L_2))\, s_{2j}(d_2(L_2))\bigr].
+
+    The :math:`L_2` axis is integrated as two Gauss--Legendre panels meeting at the rule's
+    jump ``split``, so the arm is constant within each panel; :math:`W_1` and :math:`W_2`
+    stay Gauss--Hermite. ``rule2`` must be a step function with its single jump at
+    ``split``, which the routine checks on the quadrature nodes and refuses otherwise. At
+    ``horizon=1`` no rule has acted yet, so the value is :func:`competing_truth` at ``a1``.
+
+    Parameters
+    ----------
+    a1 : float
+        The first node's arm, 0 or 1.
+    rule2 : callable
+        :math:`d_2`: takes an array of :math:`L_2` values and returns one arm, 0 or 1,
+        per entry.
+    cause : {"relapse", "death"}
+        The cause whose cumulative incidence is returned.
+    horizon : {1, 2}
+        The node by which the event counts.
+    split : float, default=0.0
+        The single jump of ``rule2``.
+    nodes : int, default=48
+        Gauss--Hermite points per baseline axis.
+    panel : int, default=160
+        Gauss--Legendre points per panel of the :math:`L_2` axis.
+
+    Returns
+    -------
+    float
+        The cause-specific cumulative incidence under the plan.
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``cause`` or ``horizon``, or a ``rule2`` that is not a step function
+        with its jump at ``split``.
+
+    See Also
+    --------
+    competing_truth : The same incidence under a static plan.
+    longitudinal_rule_truth : The rule truth of the binary end-of-study law.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import competing_rule_truth, competing_truth
+    >>> def needs(l2):
+    ...     return (l2 > 0).astype(float)
+    >>> rule = competing_rule_truth(1.0, needs, "relapse", 2)
+    >>> round(rule, 4)
+    0.2523
+    >>> rule == competing_truth(1.0, 1.0, "relapse", 2)
+    False
+    >>> competing_rule_truth(1.0, needs, "relapse", 1) == competing_truth(1.0, 1.0, "relapse", 1)
+    True
+    """
+    if cause not in ("relapse", "death"):
+        raise ValueError(f"cause must be 'relapse' or 'death'; got {cause!r}")
+    if horizon not in (1, 2):
+        raise ValueError(f"horizon must be 1 or 2; got {horizon}")
+    if horizon == 1:
+        return competing_truth(a1, a1, cause, 1, nodes)
+
+    points, weights = np.polynomial.hermite_e.hermegauss(nodes)
+    weights = weights / np.sqrt(2.0 * np.pi)
+    w1 = points.reshape(-1, 1, 1)
+    w2 = points.reshape(1, -1, 1)
+    gauss = weights.reshape(-1, 1) * weights.reshape(1, -1)
+
+    hazard1 = _hazard_one(w1, w2, a1)
+    share1 = _relapse_share_one(w1, w2, a1)
+    if cause == "death":
+        share1 = 1.0 - share1
+    mean = _L2["w1"] * w1 + _L2["a1"] * a1
+    # As in ``longitudinal_rule_truth``: the normal density is negligible past this edge
+    # for every node of the ``W1`` rule.
+    edge = 20.0
+    abscissa, quadrature = np.polynomial.legendre.leggauss(panel)
+    second = np.zeros((nodes, nodes), dtype=float)
+    for lower, upper in ((-edge, split), (split, edge)):
+        half = 0.5 * (upper - lower)
+        grid = (half * abscissa + 0.5 * (upper + lower)).reshape(1, 1, -1)
+        density = np.exp(-0.5 * (grid - mean) ** 2) / np.sqrt(2.0 * np.pi)
+        arm = float(np.asarray(rule2(np.array([0.5 * (lower + upper)]))).reshape(-1)[0])
+        _check_step_rule(rule2, grid.reshape(-1), arm, (lower, upper), split)
+        share2 = _relapse_share_two(w1, grid, a1, arm)
+        if cause == "death":
+            share2 = 1.0 - share2
+        integrand = density * _hazard_two(w1, w2, grid, a1, arm) * share2
+        second += half * np.sum(integrand * quadrature.reshape(1, 1, -1), axis=2)
+    first = (hazard1 * share1)[:, :, 0]
+    return float(np.sum(gauss * (first + (1.0 - hazard1[:, :, 0]) * second)))
 
 
 def make_longitudinal_competing(

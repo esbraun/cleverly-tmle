@@ -1308,11 +1308,17 @@ BOOTSTRAP_REFUSAL = _gap(
     "X62",
     "Fit with repeats=1 and n_bootstrap=0; the interval is the influence-curve one.",
 )
+#: Why a SurvivalDRTMLE fit reports no restricted mean. The study route keeps the condition
+#: with its own alternative (``cleverly.study``).
+RESTRICTED_MEAN_CONDITION = (
+    "SurvivalDRTMLE reports no restricted mean. Its drift correction regresses residuals on "
+    "scalar indices of the initial fits (Díaz 2019, Section 5), a pattern whose remainder has "
+    "not been audited for any new target."
+)
 RMST_REFUSAL = Refusal(
     RefusalReason.INFERENCE_GAP,
-    "A SurvivalDRTMLE result has no restricted mean survival time. It needs every node up to "
-    "the horizon targeted with its own drift equations, and only the requested horizons are.",
-    alternative="Fit LTMLE(survival_model='hazard', targeting='one_step') for the RMST.",
+    RESTRICTED_MEAN_CONDITION,
+    alternative="Fit LTMLE(restricted_horizons=(tau,)) for the restricted means.",
     roadmap="X62",
 )
 TRUNCATION_REFUSAL = _gap(
@@ -1517,7 +1523,10 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     corrected influence curve of Theorem 2 of the source.  The module docstring of
     :mod:`cleverly.longitudinal.drift` states the algorithm and its departures.  The memory
     guard of :class:`LTMLE` does not check this fit: its memory is outside that guard's
-    calibration.
+    calibration.  A non-empty ``restricted_horizons=`` raises
+    :class:`~cleverly.exceptions.CapabilityError` at construction (roadmap X62): the drift
+    correction regresses residuals on scalar indices of the initial fits, and the remainder of
+    that pattern has not been audited for a restricted mean.
 
     Parameters
     ----------
@@ -1614,6 +1623,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
     #: The support-record engine, read in place of :attr:`_estimator`, which keeps ``"tmle"``
     #: for the status and the hazard machinery.
     _support_engine: ClassVar[tuple[str, ...]] = ("drtmle", "univariate")
+    _density_only_ratio: ClassVar[str | None] = "this estimator reads static arms only"
     #: A constant node keeps the constant-node status: the curve subtracts residual-regression
     #: terms at each node, which the boundary-node supplement does not bound.
     _boundary_kind: ClassVar[str | None] = "drift"
@@ -1665,7 +1675,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         pseudo_learner: Learner | None = None,
         competing_learner: Learner | None = None,
         density_bins: int | None = None,
-        ratio: str = "density",
+        ratio: str | None = None,
         reduction: str = "univariate",
         reduced_outcome_learner: Learner | None = None,
         reduced_treatment_learner: Learner | None = None,
@@ -1686,6 +1696,15 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
         self.evaluation = evaluation
         self.randomized = randomized
         self._pending: dict[tuple[str, int], DriftRecord] | None = None
+        if tuple(refused.pop("restricted_horizons", ())):
+            raise CapabilityError.from_refusal(RMST_REFUSAL)
+        if refused.pop("max_memory_bytes", None) is not None:
+            # Its memory is its own, outside the guard's calibration, and it fits static arms
+            # only, so the hazard path limit never runs: the budget would be read by nothing.
+            from ..exceptions import MethodConfigurationError
+            from ..methods import memory_budget_refusal
+
+            raise MethodConfigurationError.from_refusal(memory_budget_refusal("SurvivalDRTMLE"))
         super().__init__(
             regimens,
             reference=reference,
@@ -1751,7 +1770,7 @@ class SurvivalDRTMLE(LTMLE):  # numpydoc ignore=PR01,PR02
             return SURVIVAL_MODEL_REFUSAL
         if self.competing_learner is not None:
             return COMPETING_LEARNER_REFUSAL
-        if self.density_bins is not None or self.ratio != "density":
+        if self.density_bins is not None or self.ratio == "classifier":
             return DOSE_SETTINGS_REFUSAL
         if self.targeting != "iterative":
             return ONE_STEP_REFUSAL

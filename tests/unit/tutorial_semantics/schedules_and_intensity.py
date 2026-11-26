@@ -23,10 +23,21 @@ from tests.unit.tutorial_semantics import (
 
 NOTEBOOK = EXAMPLES / "schedules-and-intensity.ipynb"
 REFIT_CELLS = ("refutation", "sensitivity")
+
+#: Cells read under the looser freshness rule of :mod:`tests.notebook_freshness`.
+HARDWARE_SENSITIVE_CELLS = {
+    "cross-fit": (
+        "reads the boosted treatment fit: HistGradientBoostingClassifier sums its histograms in "
+        "float32, which round with the CPU's vector instructions (tests.notebook_freshness)"
+    ),
+}
 _PROBE = "reviews/notebook-review/probes/schedules-and-intensity"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "plan: 0.4": "the odds of an example patient, a 20% chance over a 50% chance",
+    "plan: 0.8": "the example patient's odds of 0.4, doubled",
+    "failure-reading: 0.97": f"mean SE over the SD, together minus added up, 400 draws: {_PROBE}/sweep.log",
     "1.03": f"mean SE over the SD, medium and high doubled, 400 draws: {_PROBE}/sweep.log",
     "0.99": f"mean SE over the SD, high doubled, 400 draws: {_PROBE}/sweep.log",
     "1.04": f"mean SE over the SD, more navigator time, 400 draws: {_PROBE}/sweep.log",
@@ -35,6 +46,19 @@ UNPRINTED_DECIMALS = {
     "7.5": "the both-raises estimate +0.0747 in percentage points",
     "6.2": "the lower limit +0.0625 of the both-raises interval in percentage points",
     "4.6": "the printed movement -4.6 standard errors, read as a size without its sign",
+    "refutation-reading: 0.03": f"pooled plasmode bias +0.028, eight seeds: {_PROBE}/plasmode.log",
+    "refutation-reading: -0.01": f"lower limit -0.006 of the pooled bias: {_PROBE}/plasmode.log",
+    "refutation-reading: 0.06": f"upper limit +0.063 of the pooled bias: {_PROBE}/plasmode.log",
+    "refutation-reading: 0.12": f"plasmode bias +0.123, seed 24: {_PROBE}/plasmode.log",
+    "refutation-reading: 1.08": f"plasmode SE ratio 1.082, seed 4: {_PROBE}/plasmode.log",
+}
+
+
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "sensitivity-reading: 0.2": ("sensitivity", "-0.2", "magnitude"),
+    "grid-reading: 0.0178": ("odds-grid", "-0.0178", "magnitude"),
 }
 
 _STRATEGY_FIELDS = {
@@ -71,6 +95,20 @@ def _assert_sweep_log() -> None:
     assert "below the lower limit of both's interval: 394 of 400" in log
 
 
+def _assert_plasmode_log() -> None:
+    """The refutation reading's eight-seed plasmode numbers match the committed probe log."""
+    log = (ROOT / _PROBE / "plasmode.log").read_text(encoding="utf-8")
+    assert log.startswith("plasmode, high doubled; n = 3000; draws = 400 per seed")
+    seeds = re.findall(r"^seed \d+: standardized bias ([+-]\d\.\d+); (.*)$", log, flags=re.M)
+    assert len(seeds) == 8
+    failed = [rest for _, rest in seeds if rest != "all readings inside their bands"]
+    assert failed == [
+        "bias 0.123 [0.025, 0.221] outside (-0.2, 0.2)",
+        "se_ratio 1.082 [1.011, 1.159] outside (0.85, 1.15)",
+    ]
+    assert "pooled over 3200 draws: +0.028 (-0.006, +0.063)" in log
+
+
 def _check_schedules(namespace: dict[str, Any]) -> None:
     frame, truth, tilts = namespace["frame"], namespace["truth"], namespace["TILTS"]
     assert frame.shape == (3000, 5)
@@ -87,11 +125,9 @@ def _check_schedules(namespace: dict[str, Any]) -> None:
         for name in list(tilts)[1:]
     ]
     assert 0.28 < ratios[0] < 0.4 and 0.13 < ratios[1] < 0.2
-    # "about an eighth of the true 0.17 gap between all-high and all-low"
+    # "its true effect is far smaller than the gap between all-high and all-low"
     gap = truth["ey[high]"] - truth["ey[low]"]
-    assert round(gap, 2) == 0.17
-    high = namespace["tilt_result"]["ate_ipsi[high doubled vs current practice]"].psi
-    assert 0.1 < high / gap < 0.15
+    assert truth["ate_ipsi[high doubled vs current practice]"] < gap / 5
 
 
 def _check_protocols(namespace: dict[str, Any]) -> None:
@@ -127,6 +163,7 @@ def _check_tilt_fit(namespace: dict[str, Any]) -> None:
         if model.name.startswith("propensity[")
     ]
     assert len(aucs) == 3 and all(0.6 < auc < 0.73 for auc in aucs)
+    assert namespace["scores"].passed  # "The correction step solved its equations"
 
 
 def _check_dose_fit(namespace: dict[str, Any]) -> None:
@@ -175,6 +212,68 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
     assert extra.ci[0] > 0.0
     assert extra.support.label == "experimental"
     _assert_sweep_log()
+    _assert_plasmode_log()
+
+
+def _check_levels(namespace: dict[str, Any]) -> None:
+    """The levels lesson: each level covers its truth and reads supported."""
+    for fit, known in (
+        (namespace["score_levels"], namespace["truth"]),
+        (namespace["success_levels"], namespace["dose_truth"]),
+    ):
+        for key, point in fit.estimates.items():
+            assert covers(point, known[key]), key
+            assert point.support.label == "supported", key
+    success = namespace["success_levels"]
+    assert round(success["ey_policy[current practice]"].psi * 100) == 44
+    assert round(success["ey_policy[both]"].psi * 100) == 52
+
+
+def _check_grid_and_arms(namespace: dict[str, Any]) -> None:
+    """The multiplier grid and the all-high contrast."""
+    grid = namespace["grid_fit"]
+    effects = {
+        float(key.removeprefix("ate_ipsi[x").split(" vs ")[0]): point
+        for key, point in grid.estimates.items()
+    }
+    assert all(point.support.label == "supported" for point in effects.values())
+    values = [effects[m].psi for m in sorted(effects)]
+    assert values == sorted(values) and values[0] < 0.0 < values[1]
+    # "each added unit of factor helps less: going from 1 to 2 adds as much as going from 2 to 4"
+    assert abs((effects[4.0].psi - effects[2.0].psi) - effects[2.0].psi) < effects[2.0].std_error
+    doubled = namespace["tilt_result"]["ate_ipsi[high doubled vs current practice]"].psi
+    assert round(effects[2.0].psi, 4) == round(doubled, 4)
+    truth, arms = namespace["truth"], namespace["arms"]
+    point = arms["ate[high vs low]"]
+    assert covers(point, truth["ey[high]"] - truth["ey[low]"])
+    assert point.support.label == "experimental"
+    assert point.psi > max(p.psi for p in effects.values())
+    chances = namespace["tilt_result"].nuisance.propensity
+    # "every patient keeps some chance of each schedule", over all rows, not one arm's
+    assert min(chances.arm(code).min() for code in chances.arms) > 0.01
+    assert "yes" in stored_output(NOTEBOOK, "assessment").split("solved its equations:")[1]
+    assert namespace["worst"] < 1e-3
+
+
+def _check_cross_fit(namespace: dict[str, Any]) -> None:
+    """The boosted, cross-fitted refit agrees with the in-sample fit."""
+    flexible, result = namespace["flexible"], namespace["tilt_result"]
+    for name in list(namespace["TILTS"])[1:]:
+        key = f"ate_ipsi[{name} vs current practice]"
+        assert abs(flexible[key].psi - result[key].psi) < result[key].std_error
+        assert (flexible[key].support.label, flexible[key].support.row) == (
+            "supported",
+            "T35.cross_fitted",
+        )
+    slopes = {
+        model.name: model.metrics["calibration_slope"]
+        for model in flexible.assess().report("nuisance_models").models
+        if model.name.startswith("propensity[")
+    }
+    # "the boosted model's slope for the medium schedule is 0.75"
+    assert slopes["propensity[medium]"] < min(slopes["propensity[high]"], slopes["propensity[low]"])
+    assert slopes["propensity[medium]"] < 0.9
+    assert namespace["dose_cross"][namespace["BOTH"]].support.label == "experimental"
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -184,6 +283,9 @@ def check(namespace: dict[str, Any]) -> None:
     _check_tilt_fit(namespace)
     _check_dose_fit(namespace)
     _check_failure_mode(namespace)
+    _check_levels(namespace)
+    _check_grid_and_arms(namespace)
+    _check_cross_fit(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -203,5 +305,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     tilt = namespace["tilt_surface"].cells[-1]
     assert tilt.displacement / namespace["tilt_result"][namespace["TILT"]].std_error < -4.0
     assert tilt.estimate > 0.0  # "The estimate stays positive"
+    # "almost uncorrelated with the high schedule (0.005)"
+    assert abs(tilt.induced_treatment_association) < 0.05
     dose = namespace["dose_surface"].cells[-1]
     assert abs(dose.displacement / namespace["dose_result"][namespace["BOTH"]].std_error) < 0.5

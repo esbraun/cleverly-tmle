@@ -6,10 +6,9 @@ them, and its interval takes $t_{J-V}$ ([few clusters](../inference.md#few-clust
 reads that interval by training clusters, the clusters outside a validation fold that fit its
 models, and measures the floor from which it is calibrated.
 
-**Status of this page.** The study is registered, and its run has completed. No other
-implementation computes this variance, so the study has no comparator. The publication policy is
-`reporting`. Three positive cells at 2 training clusters are red, below each configuration's
-training floor of 4, as the declared route reads them. They stay red in the
+No other implementation computes this variance, so the study has no comparator. The publication
+policy is `reporting`. Three positive cells at 2 training clusters are red, below each
+configuration's training floor of 4, as the declared route reads them. They stay red in the
 [red-cell ledger](red-cells.md) under the owner `X54-training-floor`, and
 `MINIMUM_FOLD_TRAINING_CLUSTERS` ships the floor.
 

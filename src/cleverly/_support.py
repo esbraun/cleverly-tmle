@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from ._inference_status import (
+    ADAPTIVE_MEASURED_CLUSTERS,
     FEW_CLUSTER_THRESHOLD,
     STATUS_RECORDS,
     cluster_interval_floor,
@@ -44,11 +45,17 @@ from .data.known_mechanism import (
 )
 
 __all__ = [
+    "ADAPTIVE_IN_SAMPLE_REASON",
+    "ADAPTIVE_MEASURED",
+    "ADAPTIVE_MEASURED_CLUSTERS",
+    "ADAPTIVE_NUISANCE",
+    "ADAPTIVE_UNMEASURED_REASON",
     "DEFAULT_BAND_OPTION",
     "KEY_AXES",
     "LEARNER_FAMILY_MARKER",
     "RECORD_ENVIRONMENT_VARIABLE",
     "REGIMEN_KINDS",
+    "SOFT_QUALIFIERS",
     "T_BAND_OPTION",
     "UNCLASSIFIED",
     "UNMEASURED_BAND_OPTION",
@@ -61,6 +68,8 @@ __all__ = [
     "SupportKey",
     "SupportLabel",
     "SupportRow",
+    "adaptive_nuisance",
+    "adaptive_nuisance_shortfall",
     "band_shape",
     "classify",
     "classify_key",
@@ -68,9 +77,11 @@ __all__ = [
     "classify_point_fit",
     "classify_structural_fit",
     "combine_support",
+    "default_library_learner",
     "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
+    "nuisance_family",
     "point_key",
     "record_fit",
     "record_refusal_site",
@@ -88,11 +99,16 @@ SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
 #: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
-#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, or a Wald
+#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, a Wald
 #: interval at the larger of the influence-curve and policy-weighted variances
-#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`).
-#: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
-#: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
+#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`), or the Wald interval
+#: of a restricted mean of a binned survival curve: of one regimen's restricted mean
+#: (``"restricted_mean"``) or of the difference of two regimens' restricted means
+#: (``"restricted_mean_difference"``). A derived estimate is a ratio, a contrast or an
+#: E-value built from estimates of one fit. A restricted mean has its own kinds because a
+#: cell that measured it licenses it without licensing every ratio and contrast, and because
+#: a common bias of two arms cancels in their difference, so a difference cell does not
+#: license a level. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
 Kind = Literal[
     "point",
@@ -104,6 +120,8 @@ Kind = Literal[
     "bootstrap_band",
     "derived",
     "wald_policy",
+    "restricted_mean",
+    "restricted_mean_difference",
 ]
 
 
@@ -185,7 +203,9 @@ def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Su
         The support of each input estimate. At least one is required.
     kind : str or None, default None
         A member of :data:`Kind`: the kind the new estimate needs from the rows of its
-        inputs. A derived estimate passes ``"derived"``. ``None`` combines the inputs only.
+        inputs. A derived estimate passes ``"derived"``, and a restricted mean of a binned
+        survival curve passes ``"restricted_mean"`` or ``"restricted_mean_difference"``.
+        ``None`` combines the inputs only.
 
     Returns
     -------
@@ -339,10 +359,18 @@ class SupportKey:
         learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
-        ``rule_learner_ep``, and one with known
-        regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
-        holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
-        weighted sample.
+        ``rule_learner_ep``, and one with a comparator beside the rule (a known regime of
+        ``interventions=`` or a :class:`~cleverly.interventions.NaturalCourse`) adds
+        ``known_regimes``. Beside it, ``known_stochastic_regimes`` unless every known regime is
+        a ``Static`` level or a known ``Rule`` (:func:`stochastic_comparators`), and
+        ``natural_course`` when a natural course is declared. A longitudinal key holds
+        ``known_treatment@t`` or ``known_censoring@t`` for each factor the data declare known,
+        by role and 1-based node ``t`` and never by column name, and ``tilted_mechanism`` when
+        a declared node is read in the weighted sample. A clustered key on the ``t`` tier adds
+        ``adaptive_nuisance`` when a nuisance learner the fit uses is data-adaptive
+        (:func:`adaptive_nuisance`), and with it ``adaptive_nuisance_measured`` inside the
+        ground ``few-cluster-adaptive-learners`` measured (:data:`ADAPTIVE_MEASURED`); a row
+        that does not declare either still covers the fit (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
@@ -393,8 +421,9 @@ class SupportKey:
     def is_covered_by(self, row_key: SupportKey) -> bool:
         """Whether ``row_key`` covers this key.
 
-        Every axis must be equal, except the family axis: the row covers the fit when the row's
-        families include every family of the fit.
+        Every axis must be equal, except the family axis, where the row covers the fit when the
+        row's families include every family of the fit, and the qualifier axis, where a soft
+        qualifier (:data:`SOFT_QUALIFIERS`) the row does not declare is ignored.
 
         Parameters
         ----------
@@ -429,6 +458,11 @@ class SupportKey:
         for name in KEY_AXES:
             if name == "family":
                 if not self.family <= other.family:
+                    differing.append(name)
+            elif name == "qualifiers":
+                # A soft qualifier the row does not declare is not a difference.
+                soft = SOFT_QUALIFIERS - other.qualifiers
+                if self.qualifiers - soft != other.qualifiers:
                     differing.append(name)
             elif mine[name] != theirs[name]:
                 differing.append(name)
@@ -550,6 +584,34 @@ def _option(value: Any) -> Any:
 #: value ``"parametric"`` declares a fixed-dimension model that selects nothing from the data.
 LEARNER_FAMILY_MARKER: Final[str] = "cleverly_learner_family"
 
+#: The class attribute a density learner sets to ``"known"`` when it returns the exact
+#: conditional density of the data's law rather than one fitted from the data.
+DENSITY_MARKER: Final[str] = "cleverly_density"
+
+
+def density_learner_family(learner: Any) -> Literal["known", "parametric", "adaptive"]:
+    """The family of the treatment learner of an in-sample density-route policy fit.
+
+    ``"known"`` when the learner's class declares :data:`DENSITY_MARKER` as ``"known"``: it
+    returns the exact conditional density, as the oracle learners of the shift studies do,
+    and a user who passes the true density may declare it the same way. Otherwise the
+    :func:`learner_family` of the learner, ``"parametric"`` or ``"adaptive"``. The default
+    learner (``None``) is ``"adaptive"``.
+
+    Parameters
+    ----------
+    learner : object or None
+        The treatment learner as passed to the estimator.
+
+    Returns
+    -------
+    str
+        ``"known"``, ``"parametric"`` or ``"adaptive"``.
+    """
+    if learner is not None and getattr(type(learner), DENSITY_MARKER, None) == "known":
+        return "known"
+    return learner_family(learner)
+
 
 def _parametric_classes() -> tuple[type, ...]:
     """The learner classes that :func:`learner_family` reads as parametric without a marker."""
@@ -585,6 +647,227 @@ def learner_family(learner: Any) -> Literal["parametric", "adaptive"]:
     if getattr(type(learner), LEARNER_FAMILY_MARKER, None) == "parametric":
         return "parametric"
     return "parametric" if type(learner) in _parametric_classes() else "adaptive"
+
+
+#: The qualifier of a clustered fit on the ``t`` tier whose nuisance learners include a
+#: data-adaptive one (X54 part (h)). :func:`adaptive_nuisance` decides it. A row that does not
+#: declare it still covers a fit that carries it (:data:`SOFT_QUALIFIERS`), so the qualifier
+#: changes a label only through :func:`adaptive_nuisance_shortfall`.
+ADAPTIVE_NUISANCE: Final[str] = "adaptive_nuisance"
+
+#: The qualifier of an ``adaptive_nuisance`` fit inside the ground that
+#: ``few-cluster-adaptive-learners`` measured: every adaptive learner is the default library
+#: (:func:`default_library_learner`), and the fit reads at least
+#: :data:`~cleverly._inference_status.ADAPTIVE_MEASURED_CLUSTERS` positive-mass clusters for
+#: its kind. The rows the study
+#: reaches (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`) keep their label only for a
+#: fit that carries it.
+ADAPTIVE_MEASURED: Final[str] = "adaptive_nuisance_measured"
+
+#: Qualifiers that a row which does not declare them still covers. Each records a property of
+#: the fit that a registered study reads as a measured limit, not as a configuration the rows
+#: must name.
+SOFT_QUALIFIERS: Final[frozenset[str]] = frozenset({ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED})
+
+#: The theory reason of an in-sample ``t``-tier fit with an adaptive nuisance learner.
+ADAPTIVE_IN_SAMPLE_REASON: Final[str] = (
+    "Row {row} is measured with parametric nuisance learners only below 40 clusters, and an "
+    "in-sample fit with an adaptive nuisance learner has no Donsker argument: each learner, "
+    "and each Super Learner candidate, predicts from its fit to the full sample, so the "
+    "residuals the interval reads shrink at any cluster count. Cross-fitting "
+    "(cross_fit=True) removes that term: few-cluster-adaptive-learners measures stacked TMLE "
+    "at 10 to 40 clusters and cross-fitted LTMLE at 20 clusters, with the default library, "
+    "and reports its in-sample cells below nominal coverage."
+)
+
+#: The reason of a cross-fitted ``t``-tier fit with an adaptive nuisance learner outside the
+#: measured ground.
+ADAPTIVE_UNMEASURED_REASON: Final[str] = (
+    "Row {row} is measured with parametric nuisance learners only below 40 clusters, and this "
+    "composition is not measured with an adaptive learner. few-cluster-adaptive-learners "
+    "measures stacked TMLE at 10 to 40 clusters and cross-fitted LTMLE at 20 clusters, with "
+    "the default library (a SuperLearner with no library named). Another adaptive learner, "
+    "fewer clusters, and the fold-evaluated, DR-TMLE and SDR estimators with an adaptive "
+    "outcome or treatment learner have no measurement."
+)
+
+
+def _fixed_basis_transforms() -> tuple[type, ...]:
+    """The pipeline transforms :func:`nuisance_family` reads as a fixed basis.
+
+    Each maps a row to a fixed number of features chosen by its settings, not by the data's
+    outcome: a fixed-degree polynomial or interaction expansion, and a column standardization.
+    """
+    from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+
+    return (PolynomialFeatures, StandardScaler)
+
+
+def nuisance_family(learner: Any) -> Literal["parametric", "adaptive"]:
+    """The family of a nuisance learner, with a Super Learner of parametric candidates parametric.
+
+    :func:`learner_family` reads every Super Learner as adaptive, because it selects. For the
+    few-cluster reading of X54 part (h) a Super Learner whose every candidate is parametric is
+    a convex combination of finite-dimensional fits, which the registered parametric evidence
+    covers. A Super Learner without a library uses the default library,
+    which is adaptive. A scikit-learn ``Pipeline`` of fixed-basis transforms
+    (:func:`_fixed_basis_transforms`) before a parametric final step is parametric too: a
+    logistic regression on fixed pairwise interactions has a fixed dimension and selects
+    nothing, so it is the fit the registered parametric evidence measures (the outcome learner
+    of ``learned-rule-compositions``, for one). A pipeline with any other step is adaptive.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator. ``None`` selects the default library.
+
+    Returns
+    -------
+    str
+        ``"parametric"`` or ``"adaptive"``.
+
+    Examples
+    --------
+    >>> from sklearn.tree import DecisionTreeRegressor
+    >>> from cleverly._support import nuisance_family
+    >>> from cleverly.learners import GLM, SuperLearner
+    >>> nuisance_family(SuperLearner(library=[GLM(), GLM(family="gaussian")]))
+    'parametric'
+    >>> nuisance_family(SuperLearner(library=[GLM(), DecisionTreeRegressor()]))
+    'adaptive'
+    >>> nuisance_family(None)
+    'adaptive'
+    """
+    from sklearn.pipeline import Pipeline
+
+    from .learners.super_learner import SuperLearner
+
+    if type(learner) is Pipeline:
+        *transforms, (_, final) = learner.steps
+        fixed = all(
+            step == "passthrough" or type(step) in _fixed_basis_transforms()
+            for _, step in transforms
+        )
+        return "parametric" if fixed and nuisance_family(final) == "parametric" else "adaptive"
+
+    if type(learner) is SuperLearner:
+        library = learner.library
+        if library is None:
+            return "adaptive"
+        candidates = [
+            item[1] if isinstance(item, tuple) and len(item) == 2 else item for item in library
+        ]
+        if candidates and all(learner_family(c) == "parametric" for c in candidates):
+            return "parametric"
+        return "adaptive"
+    return learner_family(learner)
+
+
+def adaptive_nuisance(learners: Iterable[Any]) -> bool:
+    """Whether any learner a fit uses is data-adaptive, by :func:`nuisance_family`.
+
+    Parameters
+    ----------
+    learners : iterable of object or None
+        The learners the fit uses, as passed to the estimator, with each fallback resolved.
+
+    Returns
+    -------
+    bool
+        ``True`` when one of them is adaptive.
+    """
+    return any(nuisance_family(learner) == "adaptive" for learner in learners)
+
+
+def default_library_learner(learner: Any) -> bool:
+    """Whether ``learner`` is the default learner library.
+
+    The default library is ``None``, or a SuperLearner with no library named.
+
+    Parameters
+    ----------
+    learner : object or None
+        The learner as passed to the estimator.
+
+    Returns
+    -------
+    bool
+        ``True`` for the default library.
+    """
+    from .learners.super_learner import SuperLearner
+
+    return learner is None or (type(learner) is SuperLearner and learner.library is None)
+
+
+def _adaptive_qualifiers(key: SupportKey, learners: Sequence[Any], data: Any) -> frozenset[str]:
+    """The X54 part (h) qualifiers of a ``t``-tier fit that uses ``learners``.
+
+    ``adaptive_nuisance`` when one of them is adaptive, and with it ``adaptive_nuisance_measured``
+    when every adaptive one is the default library and the fit reads at least
+    :data:`~cleverly._inference_status.ADAPTIVE_MEASURED_CLUSTERS` clusters for its kind.
+    """
+    if key.dependence != "t" or not adaptive_nuisance(learners):
+        return frozenset()
+    adaptive = [learner for learner in learners if nuisance_family(learner) == "adaptive"]
+    floor = ADAPTIVE_MEASURED_CLUSTERS["point" if key.kind == "point" else "longitudinal"]
+    clusters = _positive_mass_clusters(data)
+    if all(default_library_learner(learner) for learner in adaptive) and (
+        clusters is not None and clusters >= floor
+    ):
+        return frozenset({ADAPTIVE_NUISANCE, ADAPTIVE_MEASURED})
+    return frozenset({ADAPTIVE_NUISANCE})
+
+
+def _point_nuisance_learners(estimator: Any, data: Any) -> list[Any]:
+    """The learners a point fit uses: outcome, then treatment, missingness and intermediate.
+
+    The treatment learner is not used when the data declare the treatment probabilities. The
+    missingness learner falls back to the treatment learner, as the estimator resolves it, and
+    is used only with a missing outcome or treatment. The DR-TMLE reduced regressions are not
+    read: a DR-TMLE row is never one ``few-cluster-adaptive-learners`` reaches, so a DR-TMLE fit
+    with an adaptive outcome or treatment learner already takes the unmeasured shortfall.
+    """
+    used = [estimator.outcome_learner]
+    treatment = getattr(estimator, "treatment_learner", None)
+    if getattr(data, "known_treatment", None) is None:
+        used.append(treatment)
+    if getattr(data, "has_missing_outcome", False) or getattr(data, "has_missing_treatment", False):
+        missingness = getattr(estimator, "missingness_learner", None)
+        used.append(treatment if missingness is None else missingness)
+    if getattr(data, "has_intermediate", False):
+        used.append(getattr(estimator, "intermediate_learner", None))
+    return used
+
+
+def _longitudinal_nuisance_learners(
+    estimator: Any, data: Any, known_factors: Iterable[str]
+) -> list[Any]:
+    """The learners a longitudinal fit uses, with each fallback resolved as the estimator does.
+
+    The pseudo-outcome learner falls back to the outcome learner, and the censoring learner to
+    the treatment learner. A mechanism whose every factor the data declare known is not fitted.
+    """
+    known = set(known_factors)
+    outcome = estimator.outcome_learner
+    pseudo = getattr(estimator, "pseudo_learner", None)
+    used = [outcome, outcome if pseudo is None else pseudo]
+    treatment = getattr(estimator, "treatment_learner", None)
+    decisions = [
+        data.decision_name(time)
+        for time in range(1, data.n_times + 1)
+        if not data.is_held_node(time)
+    ]
+    if getattr(data, "treatment_held", False) or not set(decisions) <= known:
+        used.append(treatment)
+    censoring_names = list(getattr(data, "censoring_names", None) or ())
+    if censoring_names and not set(censoring_names) <= known:
+        censoring = getattr(estimator, "censoring_learner", None)
+        used.append(treatment if censoring is None else censoring)
+    if getattr(data, "eliminated", ()):
+        competing = getattr(estimator, "competing_learner", None)
+        if competing is not None:
+            used.append(competing)
+    return used
 
 
 def _adaptive_iptw_learners(estimator: Any, data: Any) -> dict[str, str]:
@@ -695,6 +978,34 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
 #: The target family of the value of the optimal rule (X11 (f)).  It shares the learned-rule
 #: axis and arithmetic, and it is another target, so no ``P11`` row covers it.
 OPTIMAL_RULE_FAMILY: Final = "P12"
+
+
+def stochastic_comparators(regimes: Sequence[Any]) -> bool:
+    """Whether a known regime beside a learned rule is not a ``Static`` level or a known ``Rule``.
+
+    A whitelist, by exact type: a subclass of either, a ``Stochastic`` and a user-written
+    known density all count, because only the two shipped one-hot kinds reduce to a column
+    the ``learned-rule-contrast`` study measured.
+
+    Parameters
+    ----------
+    regimes : sequence
+        The known regimes of ``interventions=``.
+
+    Returns
+    -------
+    bool
+        ``True`` when some regime is outside the whitelist.
+    """
+    from .interventions import Rule, Static
+
+    def one_hot(item: Any) -> bool:
+        if type(item) is Static:
+            return True
+        return type(item) is Rule and getattr(item, "rule_kind", None) == "known"
+
+    return not all(one_hot(item) for item in regimes)
+
 
 #: The target family of the log-CRR projection (P1 part (a)).  It shares the
 #: effect-modification axis with the CATE projection (``P13``), and its fluctuation
@@ -888,10 +1199,21 @@ def point_key(
         # with the outcome effect, passed the pre-declared rule (X11 (e)).
         qualifiers.add("unequal_clusters")
     known_regimes = tuple(getattr(estimator, "interventions", None) or ())
-    if getattr(estimator, "learned_rule", None) is not None and known_regimes:
-        # Known regimes beside a learned rule (X11 (c)) add regime values and contrasts that
-        # no learned-rule row measured, so a row covers such a fit only if it declares them.
+    natural_course = getattr(estimator, "natural_course", None)
+    if getattr(estimator, "learned_rule", None) is not None and (
+        known_regimes or natural_course is not None
+    ):
+        # A comparator beside a learned rule (X11 (c)) adds values and contrasts that no
+        # learned-rule row measured, so a row covers such a fit only if it declares them.
         qualifiers.add("known_regimes")
+        if stochastic_comparators(known_regimes):
+            # T44 measured static comparators, and a known Rule reduces bit for bit to a
+            # measured one-hot column. A density that is not one-hot changes the column's
+            # clever covariate and its covariance with the learned column, so only a row that
+            # declares it covers it.
+            qualifiers.add("known_stochastic_regimes")
+        if natural_course is not None:
+            qualifiers.add("natural_course")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
         # A learned-rule row of the plug-in rule never covers a fit whose rule a blip, a
@@ -934,7 +1256,18 @@ def point_key(
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
-        options["ratio"] = estimator.ratio
+        # A ratio left unset reads the route it resolves to on this data.
+        options["ratio"] = estimator.ratio_route(data).route
+        if (
+            options["ratio"] == "density"
+            and scheme == "in_sample"
+            and (treatment == ("vector",) or data.is_continuous_treatment)
+        ):
+            # The in-sample interval of the density route reads the fitted density ratio,
+            # and the shift studies give the method the exact density. A learned density
+            # adds error the influence-curve SE omits (X121), so a row of a known density
+            # never covers a learned one.
+            options["density_learner_family"] = density_learner_family(estimator.treatment_learner)
         from .estimators._tuned_policies import declares_tuned
 
         if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):
@@ -957,6 +1290,9 @@ def point_key(
         options=tuple(sorted((name, _option(value)) for name, value in options.items())),
     )
     key = _with_dependence(key, data)
+    # X54 part (h): the clustered evidence of every row fits parametric nuisances.
+    adaptive = _adaptive_qualifiers(key, _point_nuisance_learners(estimator, data), data)
+    key = replace(key, qualifiers=key.qualifiers | adaptive)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "treatment": _learner_type(estimator.treatment_learner),
@@ -976,16 +1312,20 @@ REGIMEN_KINDS: Final[tuple[str, ...]] = (
     "tilt",
     "learned",
     "separable",
+    "rule",
 )
 
 
-def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
+def regimen_kinds(plans: Iterable[Any], *, simulated_rules: bool = False) -> frozenset[str]:
     """The kinds of regimen in resolved longitudinal plans.
 
     Parameters
     ----------
     plans : iterable of RegimenPlan
         The resolved plans. Each one is read for ``has_mtp``, ``has_tilt`` and ``has_policy``.
+    simulated_rules : bool, default=False
+        Whether the fit evaluates a rule on simulated histories, as the parametric g-formula
+        does.  A plan with a rule node is then ``rule`` instead of ``static``.
 
     Returns
     -------
@@ -995,6 +1335,14 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
         a :class:`~cleverly.longitudinal.LearnedRegimen` is ``learned``.  A fit with a
         :class:`~cleverly.longitudinal.Separable` adds ``separable`` itself: its static arms go
         through the factor-wise engine, so no static-arm row covers them.
+
+        An estimator that reads a rule on observed histories (LTMLE, SDR, ICE, IPW) follows it
+        through the indicator that the observed treatment equals the rule's, the mechanism of a
+        fixed plan, so a known deterministic rule shares the ``static`` key there.  A forward
+        simulation instead evaluates the rule on simulated covariates, so each covariate model
+        reaches the estimate through the treatment it assigns, which no fixed plan exercises.
+        With ``simulated_rules`` such a plan is ``rule``, and only a row with a rule cell
+        covers it.
     """
     kinds: set[str] = set()
     for plan in plans:
@@ -1006,9 +1354,23 @@ def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
             kinds.add("mtp")
         if tilt:
             kinds.add("tilt")
+        rule = simulated_rules and bool(getattr(getattr(plan, "regimen", None), "has_rule", False))
+        if rule:
+            kinds.add("rule")
         if not (mtp or tilt):
-            kinds.add("stochastic" if plan.has_policy else "static")
+            if plan.has_policy:
+                kinds.add("stochastic")
+            elif not rule:
+                kinds.add("static")
     return frozenset(kinds)
+
+
+def _resolved_ratio(estimator: Any, data: Any) -> str:
+    """The route a fit reads its policy ratio by: ``ratio=None`` as it resolves on ``data``."""
+    route = getattr(estimator, "ratio_route", None)
+    if route is None:
+        return str(getattr(estimator, "ratio", "density"))
+    return str(route(data).route)
 
 
 def longitudinal_key(
@@ -1018,6 +1380,7 @@ def longitudinal_key(
     outcome_kind: str,
     cross_fitted: bool,
     known_factors: Iterable[str],
+    known_nodes: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
@@ -1036,7 +1399,12 @@ def longitudinal_key(
     cross_fitted : bool
         Whether the outer split holds more than one fold.
     known_factors : iterable of str
-        The treatment and censoring columns whose factor the data declares known.
+        The treatment and censoring columns whose factor the data declares known. They decide
+        which mechanism learners the fit uses; the key does not hold them.
+    known_nodes : iterable of str
+        The same factors as qualifiers, ``known_treatment@t`` or ``known_censoring@t`` by role
+        and 1-based node. The key holds these, so a fit's label does not depend on its column
+        names.
     has_msm : bool
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
@@ -1093,7 +1461,7 @@ def longitudinal_key(
         dependence="",
         qualifiers=frozenset(
             (
-                *known_factors,
+                *known_nodes,
                 *(
                     (f"separable_first_cause_{separable_first}",)
                     if separable_first is not None
@@ -1106,7 +1474,7 @@ def longitudinal_key(
         ),
         options=(
             ("normalization", _option(estimator._normalization())),
-            ("ratio", _option(getattr(estimator, "ratio", "density"))),
+            ("ratio", _option(_resolved_ratio(estimator, data))),
             ("survival_model", _option(estimator.survival_model)),
             ("targeting", _option(estimator.targeting)),
             ("isotonic", _option(estimator.isotonic)),
@@ -1134,6 +1502,12 @@ def longitudinal_key(
         ),
     )
     key = _with_dependence(key, data)
+    # X54 part (h), as for a point fit.
+    # The learners are chosen by column name; the key holds node positions.
+    adaptive = _adaptive_qualifiers(
+        key, _longitudinal_nuisance_learners(estimator, data, known_factors), data
+    )
+    key = replace(key, qualifiers=key.qualifiers | adaptive)
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
         "pseudo": _learner_type(estimator.pseudo_learner),
@@ -1418,6 +1792,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
     "wald_policy": "Wald interval, policy-weighted variance",
+    "restricted_mean": "restricted mean",
+    "restricted_mean_difference": "restricted mean difference",
 }
 
 
@@ -1537,6 +1913,10 @@ def support_for(
             reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
     else:
         reasons.extend(text for shortfall_kind, text in row.shortfalls if shortfall_kind == kind)
+        adaptive = adaptive_nuisance_shortfall(classification, kind)
+        if adaptive is not None:
+            reasons.append(adaptive)
+            evidence.append("F28")
     for condition in classification.conditions:
         reasons.append(_sentence(condition.condition))
         if condition.roadmap is not None:
@@ -1566,6 +1946,47 @@ def support_for(
         row=row.id,
         limits=row.limits,
     )
+
+
+def adaptive_nuisance_shortfall(classification: Classification, kind: Kind) -> str | None:
+    """The shortfall of a clustered fit with an adaptive nuisance learner, if any.
+
+    It applies to every kind but ``point``, on a ``t``-tier fit whose key carries
+    ``adaptive_nuisance`` and has a row. An in-sample fit takes
+    :data:`ADAPTIVE_IN_SAMPLE_REASON`, by theory: no Donsker argument covers it at any cluster
+    count. A cross-fitted fit takes none when its row is one
+    ``few-cluster-adaptive-learners`` reaches
+    (:data:`cleverly._support_rows.ADAPTIVE_LEARNER_CELLS`) and its key carries
+    ``adaptive_nuisance_measured``: stacked ``TMLE`` at 10 to 40 clusters and cross-fitted
+    ``LTMLE`` at 20 or more, with the default library. Every other one takes
+    :data:`ADAPTIVE_UNMEASURED_REASON`. The sentence makes the estimate experimental; its
+    interval stays shown.
+
+    Parameters
+    ----------
+    classification : Classification
+        The fit's classification.
+    kind : str
+        The kind the estimate needs from its row.
+
+    Returns
+    -------
+    str or None
+        The sentence, or ``None`` when no shortfall applies.
+    """
+    from ._support_rows import ADAPTIVE_LEARNER_CELLS
+
+    row = classification.row
+    key = classification.key
+    if row is None or kind == "point" or ADAPTIVE_NUISANCE not in key.qualifiers:
+        return None
+    if key.dependence != "t":
+        return None
+    if "in_sample" in key.splitting:
+        return ADAPTIVE_IN_SAMPLE_REASON.format(row=row.id)
+    if row.id in ADAPTIVE_LEARNER_CELLS and ADAPTIVE_MEASURED in key.qualifiers:
+        return None
+    return ADAPTIVE_UNMEASURED_REASON.format(row=row.id)
 
 
 def classify(
@@ -1943,6 +2364,7 @@ def classify_longitudinal_fit(
     outcome_kind: str,
     cross_fitted: bool,
     known_factors: Iterable[str],
+    known_nodes: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
@@ -1965,7 +2387,9 @@ def classify_longitudinal_fit(
     cross_fitted : bool
         Whether the outer split holds more than one fold.
     known_factors : iterable of str
-        The known treatment and censoring factors.
+        The treatment and censoring columns whose factor the data declares known.
+    known_nodes : iterable of str
+        The same factors by role and node, ``known_treatment@t`` or ``known_censoring@t``.
     has_msm : bool
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
@@ -1987,6 +2411,7 @@ def classify_longitudinal_fit(
             outcome_kind=outcome_kind,
             cross_fitted=cross_fitted,
             known_factors=known_factors,
+            known_nodes=known_nodes,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
             tuned_cap=tuned_cap,

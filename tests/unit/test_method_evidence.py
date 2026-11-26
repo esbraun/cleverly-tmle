@@ -33,6 +33,7 @@ from tests.documents import pipe_table
 from tests.studies.evidence import (
     descriptions,
     failures,
+    navigation,
     property_failures,
     property_verdicts,
     replication,
@@ -1046,8 +1047,13 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
+        diagnostic = _diagnostic_families(study.slug)
         unclassified = sorted(
-            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+            families
+            - BIAS_GATED_PROPERTIES
+            - ENDPOINT_GATED_PROPERTIES
+            - GATED_IN_STUDY.get(study.slug, frozenset())
+            - diagnostic
         )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
@@ -1060,7 +1066,7 @@ class TestPublishedVerdicts:
         # row must not publish a verdict at all.  Every cell carries the diagnostic role,
         # which is what the rendered table reads to print "reported" instead of "pass", and
         # every cell publishes the coverage interval the family exists to report.
-        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+        for family in sorted(families & diagnostic):
             reported = published.loc[published["property"] == family]
             assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
                 f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
@@ -1421,8 +1427,8 @@ class TestPublishedVerdicts:
             worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
                 if row.role == property_verdicts.DIAGNOSTIC_ROLE:
-                    # A reported row of the family (``hazard-mtp``'s untruncated density
-                    # route) carries no claim, so it must not publish a red verdict.
+                    # A reported row of the family carries no claim, so it must not publish
+                    # a red verdict.
                     assert bool(row.passed) and bool(row.property_passed), (
                         f"{row.cell} is a diagnostic row and publishes a verdict"
                     )
@@ -1455,10 +1461,17 @@ class TestPublishedVerdicts:
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
-                elif suffix in ("wrong_gamma_control", "validation_rule_control"):
+                elif suffix in (
+                    "wrong_gamma_control",
+                    "validation_rule_control",
+                    "both_wrong_control",
+                    "pre_fix_control",
+                ):
                     # X82 SH: a smaller Gamma's end read against the declared truth must miss.
                     # X11 PR C (``learned-rule-learners``): a rule learned on the validation
                     # rows that evaluate it is optimistic and must miss its own value.
+                    # ``mtp-density-tails``: the DR arms' both-wrong and pre-fix controls must
+                    # read coverage below the band.
                     expected = row.coverage_ci_upper < study.margins.calibration_coverage[0]
                 elif suffix == "noise_control":
                     expected = (
@@ -1701,6 +1714,47 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its own clause"
                 )
 
+        # ``mtp-density-tails``: restated from the declaration in ``regenerate.py``. A gated
+        # ``ic_gap`` row at 2,000 reads its median against the law's bound, and at 20,000 its
+        # largest gap against the law's bound and its median over the 2,000 median against the
+        # fall; each control fails its one named clause. The cluster rows read their warned
+        # draws against the floor on C and the ceiling on G and T.
+        gaps = published.loc[published["property"] == "ic_gap"]
+        if not gaps.empty:
+            module = study.properties()
+            for row in gaps.itertuples():
+                law_name = str(row.cell).split("__", 1)[0]
+                clauses = {
+                    "small": row.median_gap <= module.GAP_BOUND_SMALL.get(law_name, np.nan),
+                    "large": row.max_gap <= module.GAP_BOUND_LARGE.get(law_name, np.nan),
+                    "fall": row.gap_fall <= module.GAP_FALL,
+                }
+                if row.role == property_verdicts.DIAGNOSTIC_ROLE:
+                    expected = True
+                elif row.role == "control":
+                    expected = not clauses[module.GAP_CONTROLS[str(row.cell)]]
+                elif str(row.cell).endswith("n_2000"):
+                    expected = clauses["small"]
+                else:
+                    expected = clauses["large"] and clauses["fall"]
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
+        clusters = published.loc[published["property"] == "cluster_warning"]
+        if not clusters.empty:
+            module = study.properties()
+            floor, ceiling = module.CLUSTER_C_FLOOR, module.CLUSTER_GT_CEILING
+            expectations = {
+                "C__n_20000": lambda warned: warned >= floor,
+                "GT__pooled": lambda warned: warned <= ceiling,
+                "C__gap_disabled_control": lambda warned: warned < floor,
+                "GT__eager_control": lambda warned: warned > ceiling,
+            }
+            for row in clusters.itertuples():
+                expected = expectations[str(row.cell)](row.warned_draws)
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own clause"
+                )
         # ``few-cluster-floor-tmle`` part (c), restated from the declaration in ``regenerate.py``.
         # A candidate row's own verdict holds unless its cell's draws exceed the failure bound
         # (``property-failure-accounting.csv``); the paired gain against (A) is the joint
@@ -2114,6 +2168,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # and the variance-ratio lower end; a deflated control must fail that rule; the IID
         # control to its median ratio's upper end. Checked row by row below.
         "fold_variance_calibration",
+        # ``mtp-density-tails``: an ``ic_gap`` positive answers to its law's gap bounds and the
+        # fall, each control to its one named clause; a ``cluster_warning`` row to its warned
+        # draws against the C floor or the G and T ceiling. Checked row by row above.
+        "ic_gap",
+        "cluster_warning",
         # ``few-cluster-floor-tmle`` part (c): a candidate pair's rows each hold their own
         # verdict, lost only when the pair's draws exceed the failure bound; the paired gain is
         # the joint clause. A pooled row answers to its pooled gain's lower end. Checked row by
@@ -2440,7 +2499,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
-        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict
+        # there. ``few-cluster-adaptive-learners`` gates a family of the same name, so
+        # :data:`GATED_IN_STUDY` takes it out of this set for that study.
         "adaptive_learners",
         # X21's spread cell: the ratio of the plug-in SE to the empirical SD, reported with the
         # declared reading and no verdict (the interval is withheld for a fitted mechanism).
@@ -2507,6 +2568,19 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "reported_large_move",
     }
 )
+
+#: A family name that one study reports with no verdict and another gates.  The family of
+#: ``few-cluster-adaptive-learners`` shares its name with the sequential baselines' reported
+#: family, and its rows answer to the coverage floor, the bias, the variance ratio, the shown
+#: coverage, the paired non-inferiority and the IID-control SE ratios.
+GATED_IN_STUDY: dict[str, frozenset[str]] = {
+    "few-cluster-adaptive-learners": frozenset({"adaptive_learners"}),
+}
+
+
+def _diagnostic_families(slug: str) -> frozenset[str]:
+    """The families ``slug`` reports with no verdict."""
+    return DIAGNOSTIC_PROPERTIES - GATED_IN_STUDY.get(slug, frozenset())
 
 
 class TestNegativeControls:
@@ -2693,7 +2767,11 @@ class TestNegativeControls:
             published.loc[changed, "bias_equivalent"]
         ), "the mutation moved a bias endpoint, so it does not isolate the SE screen"
         untouched = summary.index.drop(changed)
-        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+        # The mutated summary is a complete-case one, so compare it with the committed rows'
+        # complete-case verdicts: the committed failure accounting can turn an untouched cell
+        # red on its worst case (canonical-stratified-incremental-msm's v0_ate_x2).
+        complete = _complete_case_summary(study.slug).set_index(["property", "cell"])
+        assert summary.loc[untouched, "passed"].equals(complete.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
         )
 
@@ -2985,8 +3063,9 @@ class TestTheStudyStillMeasuresTheCode:
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
+        diagnostic = _diagnostic_families(study.slug)
         for cell in declared_cells():
-            if cell.property in DIAGNOSTIC_PROPERTIES:
+            if cell.property in diagnostic:
                 continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
@@ -3128,7 +3207,10 @@ GRID = ROOT / "docs" / "technical-reference" / "method-evidence" / "validation-g
 #: tests, half of them measuring the R reference, and none of them is a property from the TMLE
 #: paper.  Every column name says whose implementation its cell is about, because the grid's
 #: subject is ``cleverly`` and a reader has to be able to see that without opening a study.
+#: The ``family`` column is the exception: it repeats the index caption that holds the study's
+#: page, which :class:`TestTheStudyPagesArePlacedByFamily` checks.
 GRID_COLUMNS = (
+    "family",
     "method in `cleverly`",
     "canonical implementation compared",
     "estimands validated",
@@ -3461,10 +3543,12 @@ class TestTheMethodEvidenceGrid:
         )
 
     def test_no_cell_is_left_to_the_reader(self, study: StudyRecord) -> None:
+        # The family cell is a caption such as "DR-TMLE", short by design, and
+        # TestTheStudyPagesArePlacedByFamily checks it against the index.
         blank = [
             column
             for column, cell in _grid()[study.name].items()
-            if len(cell) < 20 or cell in {"-", "--", "—", ""}
+            if column != "family" and (len(cell) < 20 or cell in {"-", "--", "—", ""})
         ]
         assert blank == [], (
             f"{study.slug}'s row says nothing in {blank}. The limitations column in particular: "
@@ -4084,6 +4168,26 @@ def _matrix_policy_findings(
     wrong: list[tuple[str, str, list[str]]] = []
     unlabelled: list[str] = []
     labelled = 0
+    for page, label in _matrix_evidence_links(matrix):
+        if page not in policies:
+            continue
+        registered_policy = policies[page]
+        if label is None:
+            unlabelled.append(page)
+            continue
+        labelled += 1
+        if registered_policy != {"gated" if label == "gated" else "reporting"}:
+            wrong.append((page, label, sorted(registered_policy)))
+    return wrong, unlabelled, labelled
+
+
+def _matrix_evidence_links(matrix: Path) -> list[tuple[str, str | None]]:
+    """Each method-evidence page the matrix's evidence column links, with its policy label.
+
+    The label is read by the rule :func:`_matrix_policy_findings` documents; ``None`` means no
+    policy word precedes the link in its clause.
+    """
+    found: list[tuple[str, str | None]] = []
     for row in pipe_table(matrix, MATRIX_COLUMNS):
         for clause in row["correctness evidence"].split(";"):
             label: str | None = None
@@ -4094,16 +4198,9 @@ def _matrix_policy_findings(
                     label = words[-1].casefold()
                 cursor = link.end()
                 page = _EVIDENCE_PAGE.match(link["target"])
-                if page is None or page["page"] not in policies:
-                    continue
-                registered_policy = policies[page["page"]]
-                if label is None:
-                    unlabelled.append(page["page"])
-                    continue
-                labelled += 1
-                if registered_policy != {"gated" if label == "gated" else "reporting"}:
-                    wrong.append((page["page"], label, sorted(registered_policy)))
-    return wrong, unlabelled, labelled
+                if page is not None:
+                    found.append((page["page"], label))
+    return found
 
 
 def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
@@ -4168,6 +4265,350 @@ def test_the_matrix_policy_check_fails_on_a_mutated_label(
     copy.write_text(text.replace(original, mutated), encoding="utf-8")
     wrong, unlabelled, _ = _matrix_policy_findings(copy, _registered_policies())
     assert wrong if finding == "wrong" else unlabelled, f"the mutation {mutated!r} went unreported"
+
+
+def _unlinked_from_the_matrix(matrix: Path) -> list[str]:
+    """The registered study pages that the matrix's evidence column does not link."""
+    linked = {page for page, _ in _matrix_evidence_links(matrix)}
+    return sorted({Path(study.document).name for study in STUDIES} - linked)
+
+
+def test_the_matrix_links_every_registered_study() -> None:
+    """Every registered study page is reachable from the matrix.
+
+    Thirty study pages, among them the ordinary point-treatment TMLE study, were linked
+    from no row, so a reader who started from the matrix never met them.
+    """
+    assert _unlinked_from_the_matrix(MATRIX) == [], (
+        "the implementation matrix links no evidence for these registered study pages; add "
+        "each to its family's row with its policy label"
+    )
+
+
+def test_the_matrix_link_check_fails_when_a_link_is_removed(tmp_path: Path) -> None:
+    """A copy of the matrix with one study link turned into plain text reports that page."""
+    text = MATRIX.read_text(encoding="utf-8")
+    # Joined from parts so the link sweep does not read the mutation target as a link here.
+    original = "".join(("[multi-arm]", "(", "method-evidence/ordinary-multi-arm-tmle.md", ")"))
+    assert text.count(original) == 1, f"the mutation target {original!r} moved"
+    copy = tmp_path / "index.md"
+    copy.write_text(text.replace(original, "multi-arm"), encoding="utf-8")
+    assert _unlinked_from_the_matrix(copy) == ["ordinary-multi-arm-tmle.md"]
+
+
+def _off_grid_findings(page: Path) -> list[str]:
+    """How the index's off-grid block disagrees with the registry, read from ``page``.
+
+    The block must be what :func:`navigation.rendered` returns, and the pages it links must be
+    exactly the registered studies that :func:`_on_the_grid` leaves off the grid.  The second
+    check reads this module's own definition, so a wrong rule in the renderer is caught too.
+    """
+    block = navigation.published("off-grid-studies", page)
+    findings = []
+    if block != navigation.rendered()["off-grid-studies"]:
+        findings.append("the block is not what navigation.rendered() returns")
+    linked = {link["target"] for line in block for link in _MARKDOWN_LINK.finditer(line)}
+    expected = {Path(study.document).name for study in STUDIES if not _on_the_grid(study)}
+    if linked != expected:
+        findings.append(
+            f"links {sorted(linked - expected)} that are on the grid and misses "
+            f"{sorted(expected - linked)}"
+        )
+    return findings
+
+
+def test_the_off_grid_list_is_fresh() -> None:
+    """The index names every off-grid study and no other.
+
+    Its hand-typed sentence named four studies when five were off the grid.  Run
+    ``python -m tests.studies.evidence.navigation`` rather than editing the block.
+    """
+    assert _off_grid_findings(navigation.PAGES["off-grid-studies"]) == []
+
+
+@pytest.mark.parametrize("mutation", ["drop-a-line", "add-an-on-grid-study"])
+def test_the_off_grid_check_fails_on_a_mutated_list(tmp_path: Path, mutation: str) -> None:
+    """A copy of the index with one off-grid line removed, or one on-grid study added, fails."""
+    page = navigation.PAGES["off-grid-studies"]
+    lines = page.read_text(encoding="utf-8").splitlines()
+    head = lines.index(_OPEN.format(name="off-grid-studies"))
+    if mutation == "drop-a-line":
+        assert lines[head + 1].startswith("- ["), "the block has no line to remove"
+        del lines[head + 1]
+    else:
+        on_grid = VALIDATION_STUDIES[0]
+        lines.insert(head + 1, f"- [{on_grid.name}]({Path(on_grid.document).name}): on the grid.")
+    copy = tmp_path / "index.md"
+    copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert len(_off_grid_findings(copy)) == 2, f"the mutation {mutation} went unreported"
+
+
+def _pending_findings(page: Path) -> list[str]:
+    """How the reading guide's pending-comparator block disagrees with the registry."""
+    block = navigation.published("pending-comparators", page)
+    findings = []
+    if block != navigation.rendered()["pending-comparators"]:
+        findings.append("the block is not what navigation.rendered() returns")
+    rows = [line for line in block[2:] if line.startswith("|")]
+    linked = {link["target"] for row in rows for link in _MARKDOWN_LINK.finditer(row.split("|")[1])}
+    expected = {Path(study.document).name for study in STUDIES if study.pending_reference}
+    if linked != expected:
+        findings.append(f"rows {sorted(linked)} differ from the pending records {sorted(expected)}")
+    return findings
+
+
+def test_the_pending_comparator_block_is_fresh() -> None:
+    """The reading guide has one row for each record with a ``pending_reference``.
+
+    No page listed the declared comparators that have not run, so a reader could not tell
+    which grid label meant a comparison was still owed.  Run
+    ``python -m tests.studies.evidence.navigation`` rather than editing the block.
+    """
+    assert _pending_findings(navigation.PAGES["pending-comparators"]) == []
+
+
+def test_the_pending_comparator_check_fails_when_a_row_is_removed(tmp_path: Path) -> None:
+    """A copy of the reading guide with one generated row removed fails both checks."""
+    page = navigation.PAGES["pending-comparators"]
+    lines = page.read_text(encoding="utf-8").splitlines()
+    head = lines.index(_OPEN.format(name="pending-comparators"))
+    assert lines[head + 3].startswith("| ["), "the block has no data row to remove"
+    del lines[head + 3]
+    copy = tmp_path / "how-to-read.md"
+    copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert len(_pending_findings(copy)) == 2
+
+
+def test_each_comparator_paired_elsewhere_ran_there() -> None:
+    """A :data:`navigation.PAIRED_ELSEWHERE` entry is pending, and its target compares the same.
+
+    The block tells the reader that the comparison ran in the target study, so the target must
+    be registered with the pending comparator as its ``reference``.
+    """
+    for slug, target in navigation.PAIRED_ELSEWHERE.items():
+        study, pairing = STUDY_BY_SLUG.get(slug), STUDY_BY_SLUG.get(target)
+        assert study is not None and pairing is not None, (slug, target)
+        assert study.pending_reference is not None, f"{slug} has no pending comparator"
+        assert pairing.reference == study.pending_reference, (
+            f"{target} does not register {study.pending_reference} as its reference"
+        )
+
+
+def _title_findings(pages: dict[str, Path]) -> list[str]:
+    """Each study whose page's first level-one heading is not its record name, case-folded."""
+    findings = []
+    for study in STUDIES:
+        lines = pages[study.slug].read_text(encoding="utf-8").splitlines()
+        title = next((line[2:].strip() for line in lines if line.startswith("# ")), "")
+        if title.casefold() != study.name.casefold():
+            findings.append(f"{study.slug}: {title!r} is not {study.name!r}")
+    return findings
+
+
+def test_each_study_page_is_titled_by_its_record_name() -> None:
+    """A study page's title is its record's name, so the grid, the ledger and the page agree.
+
+    Forty-six titles differed: some called the study's subject "Canonical", some abbreviated
+    the record ("MTP pricing", "Adaptive IPTW"), and one carried an internal label.
+    """
+    assert _title_findings({study.slug: study.document_path for study in STUDIES}) == []
+
+
+def test_the_title_check_fails_on_a_retitled_copy(tmp_path: Path) -> None:
+    """A copy of one study page with its title changed is reported, and only that page."""
+    study = STUDY_BY_SLUG["canonical-tmle"]
+    text = study.document_path.read_text(encoding="utf-8")
+    copy = tmp_path / "page.md"
+    copy.write_text(text.replace("# Ordinary point-treatment TMLE", "# Canonical TMLE", 1), "utf-8")
+    pages = {other.slug: other.document_path for other in STUDIES} | {study.slug: copy}
+    assert [finding.split(":")[0] for finding in _title_findings(pages)] == [study.slug]
+
+
+#: The method-evidence index, whose captioned toctrees are the only record of a study's family.
+EVIDENCE_INDEX = GRID.parent / "index.md"
+#: The reading pages, which the index lists first in a toctree with no caption.
+READING_PAGES = ("validation-grid", "how-to-read", "red-cells")
+
+
+def _toctrees(index: Path) -> list[tuple[str | None, list[str]]]:
+    """Each toctree of ``index`` in order, as its caption (``None`` if it has none) and entries."""
+    trees: list[tuple[str | None, list[str]]] = []
+    lines = iter(index.read_text(encoding="utf-8").splitlines())
+    for line in lines:
+        if line.strip() != "```{toctree}":
+            continue
+        caption: str | None = None
+        entries: list[str] = []
+        for body in lines:
+            body = body.strip()
+            if body.startswith("```"):
+                break
+            if body.startswith(":caption:"):
+                caption = body.removeprefix(":caption:").strip() or None
+            elif body and not body.startswith(":"):
+                entries.append(body)
+        trees.append((caption, entries))
+    return trees
+
+
+def _placement_findings(index: Path, grid: Path) -> list[str]:
+    """How the index's family toctrees and the grid's family column disagree with the register.
+
+    The family has no field on the record: the captioned toctree that holds a page is the
+    family, and the grid's ``family`` cell must repeat it.  Each finding starts with the number
+    of the rule it breaks, as listed on :class:`TestTheStudyPagesArePlacedByFamily`.
+    """
+    findings: list[str] = []
+    fenced = [
+        line for line in index.read_text(encoding="utf-8").splitlines() if "{toctree}" in line
+    ]
+    if any(line.strip() != "```{toctree}" for line in fenced):
+        findings.append("0: a toctree is not backtick-fenced, so this reader cannot see it")
+    trees = _toctrees(index)
+    if not trees or trees[0] != (None, list(READING_PAGES)):
+        findings.append(f"1: the first toctree is {trees[:1]}, not the uncaptioned reading pages")
+    families = trees[1:]
+    captions = [caption for caption, _ in families]
+    if None in captions or len(set(captions)) != len(captions):
+        findings.append(f"2: a family toctree has no caption or a repeated one: {captions}")
+    placed: dict[str, list[str]] = {}
+    for caption, entries in families:
+        for entry in entries:
+            placed.setdefault(entry, []).append(str(caption))
+        if entries != sorted(entries):
+            findings.append(f"6: the entries of {caption!r} are not alphabetical")
+    pages = {Path(study.document).stem: study for study in STUDIES}
+    for page in sorted(pages.keys() | placed.keys()):
+        if len(placed.get(page, [])) != 1 or page not in pages:
+            findings.append(f"3: {page} is placed under {placed.get(page, [])}")
+    order = [caption for caption in captions if caption is not None]
+    family_of = {page: homes[0] for page, homes in placed.items() if len(homes) == 1}
+    seen: list[str] = []
+    previous: tuple[str, str] | None = None
+    by_name = {study.name: Path(study.document).stem for study in STUDIES}
+    for row in pipe_table(grid, GRID_COLUMNS):
+        family, method = row["family"], row["method in `cleverly`"]
+        expected = family_of.get(by_name.get(method, ""))
+        if family != expected:
+            findings.append(f"4: {method!r} says {family!r}; its page is under {expected!r}")
+        if family in order and (not seen or seen[-1] != family):
+            if family in seen or (seen and order.index(family) < order.index(seen[-1])):
+                findings.append(f"5: the {family!r} rows are out of caption order or split")
+            seen.append(family)
+        if previous is not None and previous[0] != family:
+            previous = None
+        if previous is not None and method.casefold() < previous[1]:
+            findings.append(f"6: {method!r} is out of order inside {family!r}")
+        previous = (family, method.casefold())
+    return findings
+
+
+GRID_SCRIPT = ROOT / "docs" / "_static" / "custom.js"
+
+
+def _script_finds(column: str, script: str) -> bool:
+    """Whether the grid script looks a column up by its rendered header, backticks dropped."""
+    return f'headers.indexOf("{column.replace("`", "")}")' in script
+
+
+def test_the_grid_script_finds_the_method_cell_by_the_grid_s_header() -> None:
+    """``custom.js`` labels rows by the header text of the method column, so the two must agree.
+
+    The rendered header drops the backticks.  If the column were renamed, the script would find
+    no method cell and label nothing; this ties its lookup string to :data:`GRID_COLUMNS`.
+    """
+    script = GRID_SCRIPT.read_text(encoding="utf-8")
+    assert _script_finds(GRID_COLUMNS[1], script), (
+        f"custom.js does not look up the method column by its rendered header {GRID_COLUMNS[1]!r}"
+    )
+    # The control: a renamed column is a header the script does not look up.
+    assert not _script_finds("method name in `cleverly`", script)
+
+
+class TestTheStudyPagesArePlacedByFamily:
+    """The index groups the study pages by family, and the grid's first column says which.
+
+    The index held one flat toctree of 178 pages and the grid had no family column, so a reader
+    could find a study only by name.  The rules, numbered as the findings are:
+
+    0. every toctree is backtick-fenced, the one form this reader parses;
+    1. the first toctree holds exactly the reading pages, with no caption;
+    2. every other toctree has a non-empty, unique caption;
+    3. each registered study's page is in exactly one captioned toctree, and every captioned
+       entry is a registered study page;
+    4. each grid row's ``family`` cell equals the caption of the toctree holding its page;
+    5. families appear in caption order, each in one contiguous block of rows;
+    6. entries inside a toctree are alphabetical, and rows inside a family are alphabetical by
+       the case-folded method name.
+
+    The test fixes the placement, not the choice of family, which
+    ``method-benchmarking.md`` ("Adding a method row") states as a rule.
+    """
+
+    def test_every_page_is_placed_once_and_the_grid_agrees(self) -> None:
+        assert _placement_findings(EVIDENCE_INDEX, GRID) == []
+
+    @pytest.mark.parametrize(
+        ("mutation", "rule"),
+        [
+            ("page-listed-twice", "3"),
+            ("page-left-out", "3"),
+            ("toctree-without-caption", "2"),
+            ("caption-repeated", "2"),
+            ("colon-fenced-toctree", "0"),
+            ("reading-page-moved", "1"),
+            ("row-with-another-family", "4"),
+            ("family-split-in-two", "5"),
+            ("family-blocks-swapped", "5"),
+            ("entries-out-of-order", "6"),
+            ("rows-out-of-order", "6"),
+        ],
+    )
+    def test_a_mutated_copy_is_reported(self, tmp_path: Path, mutation: str, rule: str) -> None:
+        """Each mutation of a copy of the index or the grid breaks the rule it targets."""
+        index_lines = EVIDENCE_INDEX.read_text(encoding="utf-8").splitlines()
+        grid_lines = GRID.read_text(encoding="utf-8").splitlines()
+        first = index_lines.index(":caption: Point-treatment TMLE")
+        entry = first + 3  # after the caption, the depth option and the blank line
+        assert index_lines[entry] == "canonical-point-treatment-tmle", "the target moved"
+        rows = [number for number, line in enumerate(grid_lines) if line.startswith("| ")][1:]
+        point = [n for n in rows if grid_lines[n].startswith("| Point-treatment TMLE |")]
+        if mutation == "page-listed-twice":
+            twin = index_lines.index("ordinary-multi-arm-tmle")
+            index_lines.insert(twin, "ordinary-multi-arm-tmle")  # sorted still, so only rule 3
+        elif mutation == "page-left-out":
+            del index_lines[entry]
+        elif mutation == "toctree-without-caption":
+            del index_lines[first]
+        elif mutation == "caption-repeated":
+            second = index_lines.index(":caption: Cross-fitting and CV-TMLE")
+            index_lines[second] = index_lines[first]
+        elif mutation == "colon-fenced-toctree":
+            index_lines += ["", ":::{toctree}", ":caption: Extra", "", "how-to-read", ":::"]
+        elif mutation == "reading-page-moved":
+            index_lines.remove("red-cells")
+            index_lines.insert(entry + 1, "red-cells")
+        elif mutation == "row-with-another-family":
+            grid_lines[point[0]] = grid_lines[point[0]].replace(
+                "| Point-treatment TMLE |", "| DR-TMLE |", 1
+            )
+        elif mutation == "family-blocks-swapped":
+            cross = [n for n in rows if grid_lines[n].startswith("| Cross-fitting and CV-TMLE |")]
+            block = [grid_lines[n] for n in point + cross]
+            moved = block[len(point) :] + block[: len(point)]
+            for number, line in zip(point + cross, moved, strict=True):
+                grid_lines[number] = line
+        elif mutation == "family-split-in-two":
+            grid_lines.insert(rows[-1], grid_lines.pop(point[0]))  # now the last row
+        elif mutation == "entries-out-of-order":
+            index_lines[entry], index_lines[entry + 1] = index_lines[entry + 1], index_lines[entry]
+        else:
+            grid_lines[point[0]], grid_lines[point[1]] = grid_lines[point[1]], grid_lines[point[0]]
+        index, grid = tmp_path / "index.md", tmp_path / "validation-grid.md"
+        index.write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+        grid.write_text("\n".join(grid_lines) + "\n", encoding="utf-8")
+        found = {finding.split(":", 1)[0] for finding in _placement_findings(index, grid)}
+        assert rule in found, f"the mutation {mutation} broke rule {rule} unreported: {found}"
 
 
 class TestTheQuantityVocabulary:
@@ -4509,7 +4950,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ()
+UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.mtp_density_tails_properties",)
 
 
 def _property_modules() -> list[Any]:
@@ -4713,7 +5154,7 @@ class TestPropertyDifferential:
             rule.clause(clause)
             code, _, argument = why.partition(": ")
             assert code in job.REASON_CHECKS, why
-            if code == "implied by":
+            if code in {"implied by", "unmoved and bound by"}:
                 rule.clause(argument)
             if code == "same module as":
                 assert argument in job.SUBJECTS, argument

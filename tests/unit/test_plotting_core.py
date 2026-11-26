@@ -984,12 +984,14 @@ def _nearest_row_reason(qualifiers: str) -> Support:
 
 
 def test_forest_note_names_known_mechanisms_in_words_not_column_ids(binary_fit: Any) -> None:
-    """A longitudinal fit's qualifiers are column names; ids such as A1 must not leave gaps."""
-    support = _nearest_row_reason("A1 and A2 and A3 and C1 and C2 and offer@1 and offer@2")
+    """A longitudinal fit's qualifiers are node ids; ids such as known_treatment@1 leave no gaps."""
+    support = _nearest_row_reason(
+        "known_censoring@1 and known_censoring@2 and known_treatment@1 and known_treatment@2"
+    )
     note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
     assert "and and" not in note
     assert "in and" not in note
-    assert "offer@1" not in note
+    assert "@1" not in note and "known_censoring" not in note
     assert "differs in which treatment and censoring mechanisms are declared known." in note
     # Control: the qualifiers of a point-treatment fit keep their own words.
     support = _nearest_row_reason("known_mechanism and strata")
@@ -1057,6 +1059,30 @@ def test_forest_truth_draws_a_cross_on_each_row_and_names_it_in_the_key(binary_f
     assert to_hex(mark.get_color()) == _core.INK != to_hex(null.get_color())
     assert to_hex(mark.get_color()) not in PALETTE
     _style_checks(fig)
+
+
+def test_forest_truth_follows_each_row_when_panels_regroup_the_rows(binary_fit: Any) -> None:
+    """A cross sits on its own row when the rows of one panel are not contiguous in input order.
+
+    The panels group rows by scale, so a mean between two differences moves to its own panel.
+    Slicing the truths by position would put the mean's cross on a difference row and drop the
+    second difference's cross, as a structural fit (blips, then means, then a contrast) did.
+    """
+    items = {
+        "first difference": binary_fit["ate"],
+        "mean if treated": binary_fit["ey1"],
+        "second difference": binary_fit["att"],
+    }
+    truth = {"first difference": 0.11, "mean if treated": 0.62, "second difference": 0.13}
+    fig = forest(items, truth=truth)
+    drawn = {}
+    for ax in fig.axes:
+        rows = dict(zip(ax.get_yticks(), (t.get_text() for t in ax.get_yticklabels()), strict=True))
+        for x, y in _truth_marks(ax):
+            drawn[rows[y]] = x
+            low, high = ax.get_xlim()
+            assert low <= x <= high
+    assert drawn == truth
 
 
 def test_forest_key_lists_the_true_value_only_when_truth_is_given(binary_fit: Any) -> None:

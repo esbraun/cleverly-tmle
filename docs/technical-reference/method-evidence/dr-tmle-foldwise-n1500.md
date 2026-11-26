@@ -1,4 +1,4 @@
-# DR-TMLE fold-wise default on the RM18 binary draws
+# DR-TMLE fold-wise default on the binary complete-data law at 1,500 observations
 
 This study measures the cross-fitted `DRTMLE` with `reduced_crossfit="foldwise"`, the shipped
 default, at n = 1,500 on the binary paper law. Two cells of

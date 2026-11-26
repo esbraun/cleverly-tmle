@@ -525,6 +525,57 @@ def test_the_check_comparison_reads_non_image_outputs() -> None:
     assert comparable_outputs(image_changed) == collected
 
 
+def test_the_check_comparison_ignores_a_figure_repr_and_the_kernel_cell_file() -> None:
+    """Two kernel-dependent texts are left out, and nothing beside them.
+
+    A figure's ``text/plain`` repr follows ``figure.dpi``, which one platform's matplotlibrc sets
+    to 200 and another leaves at 100, and the page publishes the image beside it.  A warning
+    quotes the kernel's cell file, whose name carries the process id.  Without either rule
+    ``--check`` reports a difference on every run on some machine.  The controls: a figure repr
+    with no image beside it, and a changed number in the warning, still count as moved output.
+    """
+
+    def figure(size: str, *, image: bool = True) -> dict[str, Any]:
+        data = {"text/plain": f"<Figure size {size} with 1 Axes>"}
+        if image:
+            data["image/png"] = "iVBORw0KGgo="
+        return {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "plot",
+                    "outputs": [{"output_type": "display_data", "data": data}],
+                }
+            ]
+        }
+
+    assert comparable_outputs(figure("700x450")) == comparable_outputs(figure("1400x900"))
+    assert comparable_outputs(figure("700x450", image=False)) != comparable_outputs(
+        figure("1400x900", image=False)
+    )
+
+    warning = "/tmp/ipykernel_13736/2270749957.py:15: SparseInfluenceWarning: Kish 42\n"
+    later = _stream_notebook(("stderr", warning.replace("13736", "1073")))
+    assert comparable_outputs(_stream_notebook(("stderr", warning))) == comparable_outputs(later)
+    moved = _stream_notebook(("stderr", warning.replace("Kish 42", "Kish 41")))
+    assert comparable_outputs(_stream_notebook(("stderr", warning))) != comparable_outputs(moved)
+    mac = warning.replace("/tmp/", "/var/folders/xy/abc123/T/").replace("13736", "501")
+    assert comparable_outputs(_stream_notebook(("stderr", mac))) == comparable_outputs(later)
+
+
+def test_the_check_comparison_ignores_where_a_warning_landed_among_the_prints() -> None:
+    """A kernel sends a warning and a print on separate channels, so their order is timing.
+
+    The control: the same warning with a changed number still counts as moved output.
+    """
+    warning = "UserWarning: Kish 42\n"
+    before = _stream_notebook(("stderr", warning), ("stdout", "psi = -0.0639\n"))
+    after = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", warning))
+    assert comparable_outputs(before) == comparable_outputs(after)
+    moved = _stream_notebook(("stdout", "psi = -0.0639\n"), ("stderr", "UserWarning: Kish 41\n"))
+    assert comparable_outputs(moved) != comparable_outputs(after)
+
+
 def _stream_notebook(*outputs: tuple[str, str]) -> dict[str, Any]:
     """Return a notebook whose one code cell stores the ``(name, text)`` streams in order."""
     return {
@@ -589,7 +640,8 @@ def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch:
             received.update(kwargs)
             self.payload = payload
 
-        def execute(self) -> None:
+        def execute(self, **launch: Any) -> None:
+            received["launch"] = launch
             if received["skip_cells_with_tag"] != "skip-execution":
                 self.payload["cells"][1]["outputs"][0]["text"] = "fresh\n"
 
@@ -598,6 +650,10 @@ def test_the_executor_does_not_honor_skip_execution(tmp_path: Path, monkeypatch:
     execute_notebook(notebook, timeout=30, repository_root=tmp_path)
 
     assert notebook["cells"][1]["outputs"][0]["text"] == "fresh\n"
+    environment = received["launch"]["env"]
+    assert environment["OMP_NUM_THREADS"] == "1", "the kernel runs single-threaded"
+    assert Path(environment["MATPLOTLIBRC"]).name == "matplotlibrc"
+    assert Path(environment["MATPLOTLIBRC"]).parent.name == "mpl-data", "no machine rc file"
     assert received["skip_cells_with_tag"] == NEVER_SKIP_TAG
     assert received["force_raise_errors"] is True
 

@@ -7,12 +7,11 @@ ladder below the old floors, 10 for a point fit and 20 for `LTMLE`, and reads ea
 by the rule declared before the run. On the same draws it compares the shipped reference (A) with
 Wang et al.'s inflated variance (B) and the delete-one-cluster jackknife (C).
 
-**Status of this page.** The study is registered, and its run has completed. No other
-implementation computes these intervals at these counts, so the study has no comparator. The
-publication policy is `reporting`. Every property cell reads one contrast: the ATE for the point
-fits, and always against never for `LTMLE`. `CLUSTER_INTERVAL_FLOORS` ships each measured floor
-for that contrast alone, and every other estimate keeps 10 or 20. 74 property cells and one
-primary row are red. The [red-cell ledger](red-cells.md) holds 73 cells and the primary row under
+No other implementation computes these intervals at these counts, so the study has no comparator.
+The publication policy is `reporting`. Every property cell reads one contrast: the ATE for the point
+fits, and always against never for `LTMLE`. `CLUSTER_INTERVAL_FLOORS` ships each measured floor for
+that contrast alone, and every other estimate keeps 10 or 20. 74 property cells and one primary row
+are red. The [red-cell ledger](red-cells.md) holds 73 cells and the primary row under
 `X54-cluster-floor`, and one cell under `X54-stacked-d5-redeclaration`.
 
 | part | what it is | status |
@@ -1690,6 +1689,8 @@ from the committed results and checked at the precision printed.
   fails.
 - **Parametric learners.** Every fit uses unpenalized logistic regressions or a quasibinomial GLM.
   Wang et al. (2024), Remark 3, caution against flexible learners at about 20 clusters.
+  [`few-cluster-adaptive-learners`](few-cluster-adaptive-learners.md) measures the default learner
+  library at 10, 20 and 40 clusters.
 - **Two size laws and binary outcomes.** `equal10` and `unequal_informative` only, a binary
   treatment, no weights, strata or missing outcomes; the fold-evaluated fit on equal sizes only.
 - **One-node in-sample `LTMLE`.** The in-sample `LTMLE` cells fit one binary treatment node

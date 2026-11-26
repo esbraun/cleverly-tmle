@@ -1,4 +1,4 @@
-# Per-estimate t reference band
+# Per-estimate t reference for the simultaneous band
 
 This study measures the simultaneous band built with `band_reference="t"`. The band keeps the
 multiplier critical value $c$ of the default band and gives estimate $j$ its own critical value

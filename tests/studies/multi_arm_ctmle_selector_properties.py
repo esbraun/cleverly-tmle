@@ -106,7 +106,7 @@ def _settings(cell: PropertyCell) -> dict[str, Any]:
         "selection_inner_folds": 2,
         "penalty": False,
         "estimands": "ate",
-        "ctmle_estimand": "ate",
+        "selection_estimand": "ate",
         "reference": multi_arm_common.REFERENCE,
         "simultaneous": False,
         "g_bounds": multi_arm_common.G_BOUNDS,

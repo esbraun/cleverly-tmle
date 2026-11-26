@@ -32,7 +32,8 @@ The last condition is the one a *variant* of the estimator can weaken. That vari
 [DR-TMLE](dr-tmle/index.md).
 
 A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.ipynb). It
-measures what an in-sample interval costs under a flexible learner.
+measures what an in-sample interval costs under a flexible learner, declares shared teams with
+grouped folds and a team-level standard error, and checks that interval with a team bootstrap.
 
 ## The algorithm as implemented
 
@@ -156,6 +157,10 @@ The omitted-variable bound of a marginal target reads the fit's mixture estimate
 the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its limits print as
 descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
 the robustness value, the truncation curve and the default simultaneous band on such a fit.
+
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
 
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
@@ -598,8 +603,11 @@ fold-evaluated, the counts from which
 [`few-cluster-floor-tmle`](method-evidence/few-cluster-floor-tmle.md) passes each fit.
 
 Every other estimate keeps 10 and takes `"few_cluster_estimand_plugin"` below it, because the study
-cells read the ATE alone. The registered few-cluster evidence uses parametric nuisance learners
-only. [Clusters](inference.md#clusters) gives the rules,
+cells read the ATE alone. The floor studies use parametric nuisance learners;
+[`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures
+stacked `TMLE` with the default learner library at 10, 20 and 40 clusters. A fold-evaluated fit
+with a data-adaptive learner below 40 clusters is not measured and reads experimental.
+[Clusters](inference.md#clusters) gives the rules,
 [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the measured limits
 and keeps fits below 4, and
 [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the

@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-mtp-boundaries",
-      "cleverly_version": "0.1.4",
-      "cleverly_commit": "815b44b8a38ef7715f451e7b3a2deb2d9ad4673c",
+      "cleverly_version": "0.2.6",
+      "cleverly_commit": "58538bfa7ce7a5395afa2137aa447db1b707e81e",
       "cleverly_worktree_clean": false,
-      "python": "3.13.16",
-      "numpy": "2.4.6",
-      "scipy": "1.18.0",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.0"
+      "python": "3.13.18",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
     },
     "reference": {
       "implementation": "lmtp",
@@ -147,23 +149,23 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_mtp_boundaries.py": "9b1d24673adb627770a7c88d1d709aff5567a109502b32f86f7bd09ddfbf0d25",
-    "tests/studies/mtp_boundaries_properties.py": "fe95e86a192de3373f05131adc1a54b8d1f1c3fe2e365330b7e63c9b1becbfe2",
-    "tests/studies/mtp_boundaries_common.py": "fa521b70a2aeb03bde1d975bd8e0902fab4504c1c451f2577a63aa64b038ca18",
-    "tests/studies/mtp_study_tools.py": "4fa02e137f7bf471f39d4ad72d64fba0ad7eb0d429d586a06218384095f46bcc",
-    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/studies/canonical_mtp_boundaries.py": "aaeff91ac6089d1098c2ae08efe19ef0b36f3e11c5995cc00de8c1caf6f27214",
+    "tests/studies/mtp_boundaries_properties.py": "1412fc9c418b132d4c84a4bebbc1e750cd36439acf363b9f236b22c501468898",
+    "tests/studies/mtp_boundaries_common.py": "1cc4432fa2122dc02bd150febac388fca49f3534667ee27d4c4ff99a484cfe09",
+    "tests/studies/mtp_study_tools.py": "b7bb5aefd466fbc69bd490ca2f8043c1b7654d209f0cdb54d5a3e8953cc903b9",
+    "tests/discrete_law_longitudinal.py": "34cd27260457f1f38e2636820cf9972b0a7cb6a83b5150be15c0391634bb6c6d",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
-    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/canonical_ltmle.py": "a62ab3cbba09d59968723362a060e1d846ea51240ed8a71819ac7d7a11254d10",
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
-    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/oracle_density_bins.py": "b5a894bca20ea595d14c4e862a3832539e4becec8bde956eae76e9b85e515724",
     "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
-    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
-    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
+    "tests/studies/fractional_glm.py": "b9cec2a6b1d7f5b6792c6492b73eb0e786d92867d2dc6107a7167b684a893df0",
+    "tests/studies/evidence/comparison.py": "30a584e78e19060d23638ff27704a969acb3f7799eca5b522dc4cfa0ec06a056",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
-    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
-    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "c290ba1046338aeed9f5c44ba307ab0a495afa0592496c906c4bbbd09c148cea",
+    "tests/studies/evidence/property_verdicts.py": "e6087ad951d451ab1b12bb45c15574255930f34024e27fce71e769bcf66349b5",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_policy_adapter.R": "d98ec147eacf700a84c399aa2bcb0a16248d8b7141bc827879488c0b5c0f9d45",
@@ -181,12 +183,12 @@
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
   "sha256": {
-    "replicates.parquet": "00f81babf60fb144889af7b419ed87f709be585ce7e0490a032a36931b257744",
-    "summary.csv": "564514aa5ac534ac3351eb5ea24cd1def9fd7b989a64447277c6e4595c295b07",
-    "equivalence.csv": "31d5eae45f85f6dc3602092f9f95447da4a11e60e4745eba40450d19e31be518",
-    "performance-tests.csv": "cbefffe866d1aebdbbac1acf75d51f02bef550a2312e587811472ad2f24079ad",
-    "property-replicates.parquet": "9b3125afdf5cc4732c8aa32a4f078d2558f4266d6ec411feae02c8fc1587946e",
-    "properties.csv": "f0597de36d996e4950be1dd3676fe06995ab0d5f75bbdaf5f327a392a168a90f",
-    "exactness.csv": "e9b44a15422027ee8e737f0d28560b61244ef8f214556fb7c6b37b4f68fec0ef"
+    "replicates.parquet": "6016a2e60b7950f366574c1a13ac9ddbf762285c02d5f3701a84944af07e367b",
+    "summary.csv": "9651a13a726da39fb362b7cfc5f22b4d89cb443be080fc01b4536234c25899f1",
+    "equivalence.csv": "d69617c771903c86b5c72c8ff400f792a6a492cfb7acdb8439fa9df8b23f6899",
+    "performance-tests.csv": "8cdae89350912946b35f5b843bd248338626fc240c246a0d169925af07cfc6e0",
+    "property-replicates.parquet": "ba85bf8312b9174c9af7e46ae9f388a86f89ed7e63f10ddd970a63844edf6698",
+    "properties.csv": "8a1b8afd5cf0d6918c2d39f7fe3a31cf7403b6e6a2abbef00db534b5d7ced539",
+    "exactness.csv": "27bf19867321955afce8dcce2a986bedc58b08b8ed5a969f7782bc5c835ae616"
   }
 }

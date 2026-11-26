@@ -14,19 +14,25 @@ own samples, so the cells' errors are independent and the label correlations are
 :func:`declared_replicates` returns X32a's ``R`` of each arm
 (:func:`tests.studies.repeated_sizing.calibration_replicates`) at a family-wise pass of
 :data:`ARM_FAMILY_PASS` per arm, so the two arms together reach 0.95, which the declaration commit
-writes into :data:`tests.studies.learned_rule_ep_declared.BUDGETED_R` where it is larger.  The
+was to write into :data:`tests.studies.learned_rule_ep_declared.BUDGETED_R` where larger.  The
 pilot is written by::
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\
     python -m tests.studies.learned_rule_ep_declared_pilot --raw <scratch dir> --jobs 16
 
-which keeps the raw rows in ``<scratch dir>/pilot-rows.parquet`` and writes the CSV.
+which keeps the raw rows in ``<scratch dir>/pilot-rows.parquet`` and writes the CSV.  The
+first pilot alone gave no budget up to 50,000 replications (its two or three cells per arm
+inflate the heterogeneity bound).  A second pilot on the independent ``pilot_2`` stream is
+pooled with it, and the CSV then summarizes both::
+
+    python -m tests.studies.learned_rule_ep_declared_pilot --raw <scratch dir> --jobs 16 \\
+        --stream pilot_2 --pool tests/studies/learned_rule_ep_declared_pilot/pilot-rows.parquet
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -58,15 +64,30 @@ COLUMNS = ("cell", "arm", "replicates", "se_ratio", "se_ratio_se", "coverage", "
 
 
 def pilot_rows(
-    *, replicates: int = REPLICATES, n_jobs: int = STUDY_JOBS, cells: Sequence[str] | None = None
+    *,
+    replicates: int = REPLICATES,
+    n_jobs: int = STUDY_JOBS,
+    cells: Sequence[str] | None = None,
+    stream: str = STREAM,
 ) -> pd.DataFrame:
-    """Fit the pilot draws of each gated cell on the pilot stream."""
+    """Fit the pilot draws of each gated cell on a pilot stream."""
+    if stream not in study.PILOT_STREAMS:
+        raise ValueError(f"{stream!r} is not a pilot stream ({study.PILOT_STREAMS})")
     return properties.generate_property_rows(
         n_jobs=n_jobs,
         budget=replicates,
-        stream=STREAM,
+        stream=stream,
         cells=tuple(cells or study.POSITIVE_CELLS),
-    )
+    ).assign(stream=stream)
+
+
+def pooled(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """The pilot rows of independent pilot streams, pooled; a stream may appear once."""
+    rows = pd.concat(frames, ignore_index=True)
+    streams = [str(s) for frame in frames for s in frame["stream"].unique()]
+    if len(streams) != len(set(streams)) or not set(streams) <= set(study.PILOT_STREAMS):
+        raise ValueError(f"the pooled pilots must be distinct pilot streams: {streams}")
+    return rows
 
 
 def summarize(rows: pd.DataFrame) -> pd.DataFrame:
@@ -101,6 +122,26 @@ def independent(labels: Sequence[str]) -> np.ndarray:
     return np.eye(len(labels))
 
 
+def point_reading_pass(summary: pd.DataFrame, replicates: Mapping[str, int]) -> dict[str, float]:
+    """Each arm's family pass at ``replicates`` with every cell at its pilot ratio (no spread).
+
+    The declaration's reading where X32a's rule gives no budget
+    (:data:`tests.studies.learned_rule_ep_declared.BUDGETED_R`).
+    """
+    out = {}
+    for arm, group in summary.groupby("arm"):
+        curve = str(arm).removeprefix("__")
+        groups = repeated_sizing.calibration_groups(
+            dict(zip(group["cell"], group["se_ratio"], strict=True)),
+            int(group["replicates"].min()),
+            independent,
+        )
+        out[curve] = repeated_sizing.calibration_family_pass_probability(
+            study.STUDY.margins, replicates[curve], groups, 0.0
+        )
+    return out
+
+
 def declared_replicates(summary: pd.DataFrame) -> dict[str, int]:
     """X32a's calibration ``R`` of each arm from the pilot, at :data:`ARM_FAMILY_PASS`."""
     out = {}
@@ -121,10 +162,25 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=STUDY_JOBS)
     parser.add_argument("--replicates", type=int, default=REPLICATES)
     parser.add_argument("--cells", nargs="*", default=None)
+    parser.add_argument("--stream", default=STREAM, choices=study.PILOT_STREAMS)
+    parser.add_argument(
+        "--pool", type=Path, nargs="*", default=(), help="raw rows of earlier pilot streams"
+    )
     arguments = parser.parse_args()
     arguments.raw.mkdir(parents=True, exist_ok=True)
-    rows = pilot_rows(replicates=arguments.replicates, n_jobs=arguments.jobs, cells=arguments.cells)
-    rows.to_parquet(arguments.raw / "pilot-rows.parquet")
+    rows = pilot_rows(
+        replicates=arguments.replicates,
+        n_jobs=arguments.jobs,
+        cells=arguments.cells,
+        stream=arguments.stream,
+    )
+    name = (
+        "pilot-rows.parquet" if arguments.stream == STREAM else f"{arguments.stream}-rows.parquet"
+    )
+    rows.to_parquet(arguments.raw / name)
+    earlier = [pd.read_parquet(path) for path in arguments.pool]
+    earlier = [f if "stream" in f else f.assign(stream=STREAM) for f in earlier]
+    rows = pooled([*earlier, rows])
     summary = summarize(rows)
     summary.to_csv(PILOT_CSV, index=False, float_format="%.6g")
     print(f"wrote {PILOT_CSV}", flush=True)

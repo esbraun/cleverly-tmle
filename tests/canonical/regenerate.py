@@ -2583,6 +2583,13 @@ def _regenerate(
     # The list is complete only now: the property phase decides whether its failure files
     # exist.
     artifact_names = (*artifact_names, *property_failure_names)
+    check_rows = getattr(study, "check_rows", None)
+    if check_rows is not None and property_summary is not None:
+        # A study's own reproduction check, before the manifest: a raise publishes nothing.
+        property_rows = pd.read_parquet(paths["property-replicates.parquet"])
+        RUN_NOTES.extend(
+            check_rows(rows, property_rows, summary=summaries, property_summary=property_summary)
+        )
 
     reference_metadata = dict(getattr(study, "REFERENCE_METADATA", None) or {})
     if phase.capped:

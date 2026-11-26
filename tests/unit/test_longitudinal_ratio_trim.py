@@ -519,9 +519,15 @@ def _recorded_weights(
     original = sdr_module.partial_weights
 
     def recording(
-        numerator: Any, factors: Any, masks: Any, start: int, stop: int, bounds: Any
+        numerator: Any,
+        factors: Any,
+        masks: Any,
+        start: int,
+        stop: int,
+        bounds: Any,
+        trimmed: Any = None,
     ) -> Any:
-        out = original(numerator, factors, masks, start, stop, bounds)
+        out = original(numerator, factors, masks, start, stop, bounds, trimmed)
         calls.append((np.asarray(numerator), start, stop, bounds, out[0]))
         return out
 

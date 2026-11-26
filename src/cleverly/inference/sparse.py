@@ -51,7 +51,7 @@ from __future__ import annotations
 import math
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -404,14 +404,16 @@ def influence_report(
 
 #: The advice of a fit whose full-refit bootstrap a study can license.
 _IN_SAMPLE_ADVICE = (
-    "Refit with n_bootstrap=199, bootstrap_interval='bca' for an interval that reads the "
-    "skew, and see result.diagnostics.influence(). The BCa interval is experimental until a "
+    "Refit with n_bootstrap=199, bootstrap_interval='bca' (Inference(n_bootstrap=199, "
+    "bootstrap_interval='bca') on a method object) for an interval that reads the skew, and "
+    "see result.diagnostics.influence(). The BCa interval is experimental until a "
     "registered study measures it."
 )
 #: The advice of an in-sample fit whose percentile bootstrap already ran.
 _PERCENTILE_ADVICE = (
     "The percentile bootstrap interval keeps the skew shortfall. Refit with "
-    "bootstrap_interval='bca' for an interval that reads the skew, and see "
+    "bootstrap_interval='bca' (Inference(bootstrap_interval='bca') on a method object) for an "
+    "interval that reads the skew, and see "
     "result.diagnostics.influence(). The BCa interval is experimental until a registered "
     "study measures it."
 )
@@ -431,10 +433,11 @@ _POLICY_IN_USE_NOTE = (
 #: (``mtp-policy-variance``) and the BCa reading of the Fix-5 probes, which is no better than
 #: the Wald interval here, so the advice does not name the bootstrap.
 _POLICY_VARIANCE_ADVICE = (
-    "For a modified treatment policy, variance='policy_weighted' (with simultaneous=False) "
-    "adds a standard error that reads the density ratio at each row's policy dose and reports "
-    "the larger of the two. It is validated only on the configurations its support label "
-    "names, with an exact or known ratio or, for a learned ratio, a correct outcome model. On "
+    "For a modified treatment policy, variance='policy_weighted' (with simultaneous=False; "
+    "Inference(variance='policy_weighted') on a method object) adds a standard error that "
+    "reads the density ratio at each row's policy dose and reports the larger of the two. It "
+    "is validated only on the configurations its support label names, with an exact or known "
+    "ratio or, for a learned ratio, a correct outcome model. On "
     "the five-node price rows of its study it covers 0.980 to 0.985, where the default interval "
     "covers 0.918 to 0.937 and the BCa interval 0.908 to 0.923. See "
     "result.diagnostics.influence()."
@@ -455,6 +458,7 @@ def warn_sparse_influence(
     percentile_bootstrap: bool = False,
     policy_variance: bool = False,
     policy_available: bool = False,
+    unreported: Mapping[str, Sequence[str]] | None = None,
     stacklevel: int | None = None,
 ) -> None:
     """Warn once for the estimates whose variance estimate is above the threshold.
@@ -485,6 +489,15 @@ def warn_sparse_influence(
         Whether the fit is an in-sample, unclustered, end-of-study fit of a modified treatment
         policy with the default variance, which ``variance="policy_weighted"`` accepts. The
         advice then names the option and its measured reading in place of the bootstrap.
+    unreported : mapping of str to sequence of str, or None, default=None
+        The estimates in ``report`` that the fit builds but its result does not report, as
+        when a study keeps only the rows of the quantity it identified. Each maps to the
+        reported estimates whose interval reads that row, through the two bounded means it
+        records as :attr:`~cleverly.inference.ParameterEstimate.components`; an empty
+        sequence names none. A flagged row listed here is named as one the fit does not
+        report, with its readers, and the text says that the influence table lists the
+        reported estimates only. ``None`` reports every row. The rows that trigger the
+        warning are the same either way.
     stacklevel : int or None, default=None
         Passed to :func:`warnings.warn`. ``None`` points at the first caller outside the
         ``cleverly`` package, whichever route reached the fit.
@@ -497,17 +510,23 @@ def warn_sparse_influence(
     flagged = [row for row in report.rows if row.sparse]
     if not flagged:
         return
+    hidden = {} if unreported is None else unreported
     listed = "; ".join(
-        f"{row.name} (Kish {row.kish:.0f}, relative SD {row.variance_rel_sd:.3f}, "
-        f"Edgeworth coverage loss {row.edgeworth_loss:.3f})"
+        f"{_flagged_name(row.name, hidden)} (Kish {row.kish:.0f}, relative SD "
+        f"{row.variance_rel_sd:.3f}, Edgeworth coverage loss {row.edgeworth_loss:.3f})"
         for row in flagged[:5]
     )
     more = f"; and {len(flagged) - 5} more" if len(flagged) > 5 else ""
+    table = (
+        " The influence table lists the reported estimates only."
+        if any(row.name in hidden for row in flagged)
+        else ""
+    )
     if policy_variance:
         _warn(
             f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
             f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
-            f"{listed}{more}. {_POLICY_IN_USE_NOTE}",
+            f"{listed}{more}. {_POLICY_IN_USE_NOTE}{table}",
             SparseInfluenceWarning,
             stacklevel=_caller_outside_package() if stacklevel is None else stacklevel,
         )
@@ -526,10 +545,36 @@ def warn_sparse_influence(
     _warn(
         f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
         f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
-        f"{listed}{more}. The Wald interval may under-cover. {_INTERVAL_NOTE} {advice}",
+        f"{listed}{more}. The Wald interval may under-cover. {_INTERVAL_NOTE} {advice}{table}",
         SparseInfluenceWarning,
         stacklevel=_caller_outside_package() if stacklevel is None else stacklevel,
     )
+
+
+def _flagged_name(name: str, unreported: Mapping[str, Sequence[str]]) -> str:
+    """A flagged row's name, with what the result shows of it when the fit does not report it.
+
+    Parameters
+    ----------
+    name : str
+        The flagged row.
+    unreported : mapping of str to sequence of str
+        Each unreported row and the reported estimates whose interval reads it.
+
+    Returns
+    -------
+    str
+        ``name`` alone for a reported row; otherwise ``name`` with a clause that says the fit
+        does not report it and, where some do, which reported estimates read its interval.
+    """
+    if name not in unreported:
+        return name
+    readers = list(unreported[name])
+    if not readers:
+        return f"{name}, which the fit does not report"
+    joined = readers[0] if len(readers) == 1 else ", ".join(readers[:-1]) + f" and {readers[-1]}"
+    verb = "reads" if len(readers) == 1 else "read"
+    return f"{name}, which the fit does not report and whose interval {joined} {verb}"
 
 
 def _caller_outside_package() -> int:

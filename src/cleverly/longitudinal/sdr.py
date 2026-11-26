@@ -214,8 +214,13 @@ def partial_weights(
     start: int,
     stop: int,
     bounds: tuple[float, float],
+    trimmed: BoolArray | None = None,
 ) -> tuple[list[FloatArray], IntArray, IntArray]:
     r"""The weights :math:`W_{t,s}` for ``s = start .. stop``, and the binding counts per row.
+
+    On a path through a factor that a ratio trim raised (``trimmed``), the upper bound is
+    not applied: at a policy node the raised factor :math:`\pi_s / Q_q` is no probability,
+    and an upper bound of one would restore the untrimmed weight.  The lower bound is.
 
     Parameters
     ----------
@@ -231,6 +236,9 @@ def partial_weights(
         The last node :math:`s`, the horizon.
     bounds : tuple of float
         The bound pair applied to each partial product.
+    trimmed : BoolArray or None
+        ``(n, T)`` the factors a ratio trim raised on a plan with a policy node, or
+        ``None``.
 
     Returns
     -------
@@ -241,6 +249,7 @@ def partial_weights(
     lower, upper = bounds
     running_numerator = np.ones(numerator.shape[0])
     running_factor = np.ones(numerator.shape[0])
+    touched = np.zeros(numerator.shape[0], dtype=bool)
     weights = []
     paths = np.zeros(numerator.shape[0], dtype=np.intp)
     binding = np.zeros(numerator.shape[0], dtype=np.intp)
@@ -248,6 +257,9 @@ def partial_weights(
         running_numerator = running_numerator * numerator[:, node - 1]
         running_factor = running_factor * factors[:, node - 1]
         bounded = bound(running_factor, lower, upper)
+        if trimmed is not None:
+            touched = touched | trimmed[:, node - 1]
+            bounded = np.where(touched, np.maximum(running_factor, lower), bounded)
         following = masks.following(node)
         weights.append(np.where(following, running_numerator / bounded, 0.0))
         paths += following
@@ -283,15 +295,20 @@ def _recursion(
     numerator = plan.intervention_density(data)
     raw_factors = node_factors(data, plan, mechanism)
     factors = raw_factors
+    trimmed: BoolArray | None = None
     if trim_threshold is not None:
         factors = trimmed_factors(numerator, raw_factors, trim_threshold)
+        # A policy plan's raised factor is no probability, so the upper bound skips it.
+        trimmed = (factors != raw_factors) if plan.has_policy else None
     _, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     cumulative_numerator = plan.cumulative_numerator(data)
     carry_numerator = None if carry_plan is None else carry_plan.intervention_density(data)
     # The training transform's ratios are the fold map's own, trimmed at the same threshold.
     carry_factors = raw_factors
+    carry_trimmed: BoolArray | None = None
     if trim_threshold is not None and carry_numerator is not None:
         carry_factors = trimmed_factors(carry_numerator, raw_factors, trim_threshold)
+        carry_trimmed = (carry_factors != raw_factors) if plan.has_policy else None
     horizon = cell.horizon
     seed = seed_carried(data, scaler, horizon=horizon)
     values: dict[int, FloatArray] = {horizon + 1: seed}
@@ -330,7 +347,7 @@ def _recursion(
             residual[time] = _pseudo_outcome(data, values[time + 1], time, cell.cause)
         with phase("clever_covariate"):
             weights, paths, binding = partial_weights(
-                numerator, factors, masks, time, horizon, g_bounds
+                numerator, factors, masks, time, horizon, g_bounds, trimmed
             )
             transform = np.array(values[time], dtype=float, copy=True)
             for node, weight in zip(range(time, horizon + 1), weights, strict=True):
@@ -347,7 +364,7 @@ def _recursion(
                     data, carry_values[time + 1], time, cell.cause
                 )
                 carry_weights, _, _ = partial_weights(
-                    carry_numerator, carry_factors, masks, time, horizon, g_bounds
+                    carry_numerator, carry_factors, masks, time, horizon, g_bounds, carry_trimmed
                 )
                 training = np.array(carry_values[time], dtype=float, copy=True)
                 for node, weight in zip(range(time, horizon + 1), carry_weights, strict=True):

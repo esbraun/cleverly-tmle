@@ -324,6 +324,9 @@ class CorrectionRow:
     gr1_margin: float = float("nan")
     observation_clipped: int = 0
     observation_margin: float = float("nan")
+    #: The basis term of a projection's row, or ``None`` on an arm-mean fit: a DR-TMLE
+    #: projection solves equations (9) and (10) once per arm and term (P1 PR 3).
+    term: str | None = None
 
     @property
     def residual(self) -> float:
@@ -707,6 +710,22 @@ def correction_check(
                             )
                         )
                 continue
+            if reduction.reduced.n_terms is not None:
+                rows.extend(
+                    _term_rows(
+                        draw,
+                        data,
+                        nuisance,
+                        reduction,
+                        mechanism,
+                        parts,
+                        weights=weights,
+                        scale=scale,
+                        clipped=clipped,
+                        margin=margin,
+                    )
+                )
+                continue
             # Item 25's other two witnesses. Both are properties of this draw rather than of
             # a single arm's equation, so they ride on every row of it exactly as `clipped`
             # and `margin` do -- and both come off the arrays the covariates divide by: the
@@ -798,6 +817,69 @@ def correction_check(
         backend=result.data.backend,
         cross_fitted=any(repeat.nuisance.folds.n_folds > 1 for repeat in result.repeats),
     )
+
+
+def _term_rows(
+    draw: int,
+    data: Any,
+    nuisance: Any,
+    reduction: Any,
+    mechanism: Any,
+    parts: Any,
+    *,
+    weights: np.ndarray,
+    scale: float,
+    clipped: int,
+    margin: float,
+) -> list[CorrectionRow]:
+    """One row per arm, basis term and equation of a DR-TMLE projection (P1 PR 3).
+
+    Each solved equation is its own identity, so each pairs the stored score of its column
+    with the weighted mean of its term's correction. Equation (10) and the two-arm mechanism
+    tilt store their columns term-major (``j K + k``); the armwise tilt above two arms stores
+    each arm's ``p`` columns together (``k p + j``). Strata are refused for a projection.
+    """
+    arms = reduction.reduced.arms
+    k, p = len(arms), int(reduction.reduced.n_terms)
+    terms = tuple(nuisance.effect_modification.terms)
+    complement = complement_form(nuisance.propensity)
+    stored_g = np.zeros(0) if mechanism is None else np.asarray(mechanism.score, dtype=float)
+    stored_q = np.asarray(reduction.score, dtype=float)
+    gr1_margin = _margin(reduction.reduced.gr1, reduction.bounds)
+    initial_clipped = int(np.count_nonzero(nuisance.propensity.truncate(reduction.bounds).clipped))
+    rows: list[CorrectionRow] = []
+    for column, arm in enumerate(arms):
+        for j, term in enumerate(terms):
+            g_index = j * k + column if complement else column * p + j
+            q_index = j * k + column
+            for equation, stored, index, values, solved, extra in (
+                ("D*_g", stored_g, g_index, parts.d_g[arm][:, j], "Q" in parts.guard, True),
+                ("D*_Q", stored_q, q_index, parts.d_q[arm][:, j], "g" in parts.guard, False),
+            ):
+                rows.append(
+                    CorrectionRow(
+                        draw=draw,
+                        arm=float(arm),
+                        label=f"{data.arm_label(arm)} [{term}]",
+                        equation=equation,
+                        stored=(
+                            scale * float(stored[index]) if stored.size > index else float("nan")
+                        ),
+                        reported=scale * float(np.mean(weights * values)),
+                        clip_bias=(
+                            scale * float(np.mean(weights * parts.clip_bias[arm][:, j]))
+                            if extra
+                            else float("nan")
+                        ),
+                        clipped=clipped,
+                        margin=margin,
+                        initial_clipped=initial_clipped,
+                        gr1_margin=gr1_margin,
+                        solved=solved,
+                        term=term,
+                    )
+                )
+    return rows
 
 
 def _marginal_scores(scores: Any, data: Any, arms: int, *, arm_major: bool) -> np.ndarray:

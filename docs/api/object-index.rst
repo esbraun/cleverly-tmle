@@ -57,6 +57,8 @@ categorized API tables.
    cleverly.RegimeContrast
    cleverly.LearnedRuleValue
    cleverly.OptimalRuleValue
+   cleverly.LearnedRuleContrast
+   cleverly.OptimalRuleContrast
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.targets.Interpretation
@@ -64,6 +66,7 @@ categorized API tables.
    cleverly.IncrementalEffect
    cleverly.MSMProjection
    cleverly.msm.MSM
+   cleverly.DoseResponseCurve
    cleverly.dose_response.DoseResponse
    cleverly.estimators.DoseResponseTMLE
    cleverly.msm.working_model_means
@@ -160,7 +163,7 @@ categorized API tables.
    cleverly.exceptions.Refusal
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
-   cleverly.learners.CorrelationScreener
+   cleverly.learners.screen_by_outcome
    cleverly.learners.GLM
    cleverly.learners.ParametricOutcome
    cleverly.learners.ParametricMechanism
@@ -180,6 +183,7 @@ categorized API tables.
    cleverly.interventions.Static
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
+   cleverly.interventions.NaturalCourse
    cleverly.longitudinal.DynamicRegimen
    cleverly.longitudinal.each_node
    cleverly.longitudinal.NodeRule
@@ -309,6 +313,7 @@ categorized API tables.
    cleverly.datasets.make_longitudinal_survival
    cleverly.datasets.make_longitudinal_repeated
    cleverly.datasets.make_longitudinal_competing
+   cleverly.datasets.competing_rule_truth
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
@@ -319,6 +324,7 @@ categorized API tables.
    cleverly.datasets.longitudinal_navigation_protocol
    cleverly.datasets.make_recovery_score
    cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_offer_count
    cleverly.datasets.recovery_score_protocol
    cleverly.datasets.make_randomized_pilot
    cleverly.datasets.randomized_pilot_truth
@@ -334,6 +340,7 @@ categorized API tables.
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship

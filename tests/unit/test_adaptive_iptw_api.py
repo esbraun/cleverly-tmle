@@ -441,7 +441,7 @@ class TestKeywordInventoryApplies:
             assert 0.0 < result.estimates[name].psi < 1.0
 
     def test_screen_treatment_runs_the_screen(self, frame: pd.DataFrame) -> None:
-        result = _run(_base(screen_treatment=True, screen_threshold=0.5), frame)
+        result = _run(_base(screen_treatment=True), frame)
         assert np.isfinite(result.estimates["ey1"].psi)
 
     def test_nuisance_bound_applies_to_the_observation_factors(self) -> None:

@@ -285,16 +285,37 @@ def test_the_budget_is_recorded(module: object) -> None:
 # ---------------------------------------------------------------------------- law Q
 
 
+#: The guard budget of the law Q fits, above their predicted 4.4 GiB; one fit peaks at about
+#: 0.9 GiB resident.
+LAW_Q_BUDGET = 6 * 1024**3
+
+
 @pytest.fixture(scope="module")
 def law_q_fits() -> dict[str, list[object]]:
-    """Population-target fits at n = 10,000: two under the quantile, one under regression."""
+    """Population-target fits at n = 10,000: two under the quantile, one under regression.
+
+    The memory guard predicts about 4.4 GiB for these fits (the index density route at 936
+    bins, above its calibrated range), against about 0.9 GiB resident, so its default budget
+    (the memory free at the time) refused them on CI runners with 0.6 to 2.0 GiB free.  A
+    fixed budget keeps the test about the estimates."""
+    budget = LAW_Q_BUDGET
     return {
         "dose_quantile": [
-            tuning.fit(lawq.sample(10_000, 900 + seed), "dose_quantile", "population")
+            tuning.fit(
+                lawq.sample(10_000, 900 + seed),
+                "dose_quantile",
+                "population",
+                max_memory_bytes=budget,
+            )
             for seed in range(2)
         ],
         "quantile_regression": [
-            tuning.fit(lawq.sample(10_000, 900), "quantile_regression", "population")
+            tuning.fit(
+                lawq.sample(10_000, 900),
+                "quantile_regression",
+                "population",
+                max_memory_bytes=budget,
+            )
         ],
     }
 
@@ -371,7 +392,7 @@ def _node_one_hazard(
     a = frame["A1"].to_numpy()  # type: ignore[index]
     history = frame[["W1", "L1"]].to_numpy()  # type: ignore[index]
     edges = bin_edges(a, bins)
-    index = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, bins - 1)
+    index = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, edges.size - 2)
     rows = np.repeat(np.arange(len(a)), index + 1)
     k = np.concatenate([np.arange(i + 1) for i in index])
     design = np.column_stack([history[rows], k])

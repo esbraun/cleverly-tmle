@@ -1,4 +1,4 @@
-# Point survival hazard
+# Point-treatment survival, per-horizon hazard targeting
 
 This study validates longitudinal TMLE with `survival_model="hazard"` and `targeting="iterative"`
 on a held design. The design has one baseline treatment, held over every visit, and it reads one

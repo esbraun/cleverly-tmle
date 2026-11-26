@@ -36,6 +36,25 @@ UNPRINTED_DECIMALS = {
     "1.27": f"mean SE over the SD of the fitted-chance estimates: {_PROBE}/sweep.log",
     "4.2": "a section number of Moore and van der Laan (2009), not a measured value",
     "0.5": "the AUC of a model that ranks no better than chance, a definition",
+    "0.118": (
+        "the size of the -0.118 that draw-check prints, and the threshold of the count in "
+        f"{_PROBE}/balance.log"
+    ),
+    "0.0241": f"SD of the default and known-score ATT estimates, 200 draws: {_PROBE}/sweep.log",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "identify-reading": {"0.2": "association", "0.8": "association"},
+    "draw-check-reading": {
+        "0.193": "association",
+        "0.795": "association",
+        "0.2": "association",
+        "0.8": "association",
+    },
+    "interpret": {"0.119": "sensitivity", "2.13": "sensitivity"},
 }
 
 
@@ -54,7 +73,21 @@ def _assert_sweep_log() -> None:
     assert "covered 186 of 200" in known
     fitted = row("tmle_fitted_g_in")
     assert "mean error -0.0622" in fitted and "SE/SD 1.27" in fitted
-    assert "covered 61 of 200" in fitted
+    assert "covered 58 of 200" in fitted
+    # "contained the truth 192 times": the ATT of the page's fit, against its exact truth.
+    truth = randomized_pilot_truth()
+    att = row("att")
+    assert f"true {truth['att']:.4f}" in att and "covered 192 of 200" in att
+    # "the same spread as the default form's (a standard deviation of 0.0241)"
+    assert "SD 0.0241" in att and "SD 0.0241" in row("att_ks")
+
+
+def _assert_balance_log() -> None:
+    """The balance reading's repeated-draw count matches the committed balance log."""
+    log = (ROOT / _PROBE / "balance.log").read_text(encoding="utf-8")
+    assert "n = 3000; draws = 200" in log
+    # "The largest gap reached 0.118 on 5 of them"
+    assert "largest at or above 0.118 on 5 of 200 draws" in log
 
 
 def _check_data(namespace: dict[str, Any]) -> None:
@@ -114,9 +147,57 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert "The models show no problem these metrics can detect." in stored_output(
         NOTEBOOK, "assessment"
     )
+    # "The estimating equations passed"
+    assert namespace["score"].passed and namespace["worst"] < 1.0
     # A weight of 1 / 0.2 = 5 is the largest weight.
     for size in support.effective_sample_size.values():
         assert 0.6 < size["ratio"] < 0.7
+
+
+def _check_draw(namespace: dict[str, Any]) -> None:
+    table, balance = namespace["table"], namespace["balance"]
+    assert balance.threshold == 0.1
+    after = table["after weighting"]
+    # The weighting removes the discharge-risk gap and leaves medication burden past the line,
+    # the only covariate there, moved away from zero by the weights.
+    assert (
+        table.loc["discharge_risk", "before weighting"] > 1.0 > 0.02 > abs(after["discharge_risk"])
+    )
+    assert after.abs().idxmax() == "medication_burden" and (after.abs() > 0.1).sum() == 1
+    burden = table.loc["medication_burden"]
+    assert after["medication_burden"] < burden["before weighting"] < 0.0
+    assert abs(after["medication_burden"] - (-0.118)) < 5e-4
+    _assert_balance_log()
+
+
+def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    robustness = namespace["robustness"]
+    assert 0.0 < robustness["rva"] < robustness["rv"]
+    # "would need to add only 0.009": the bisection found a strength where the limit tips.
+    tipping = namespace["tipping_cf_d"]
+    bound = namespace["sensitivity"].omitted_confounding
+    assert (
+        bound(cf_y=1.0, cf_d=tipping * 0.9).ci_lower
+        > 0
+        > bound(cf_y=1.0, cf_d=tipping * 1.1).ci_lower
+    )
+    evalue = namespace["evalue"]
+    assert evalue.point > evalue.limit > 1.0
+    assert abs(evalue.risk_ratio - namespace["others"]["risk ratio"].psi) < 1e-6
+    # "one strong on a single side can": the tipping strength is below the robustness value.
+    assert tipping < robustness["rva"]
+
+
+def _check_other_estimands(namespace: dict[str, Any]) -> None:
+    truth, others = namespace["truth"], namespace["others"]
+    att, atc, ratio = others["ATT"], others["ATC"], others["risk ratio"]
+    # "The ATT interval misses its truth by a little on this draw."
+    assert not covers(att, truth["att"]) and att.ci[0] - truth["att"] < 0.005
+    assert covers(atc, truth["atc"])
+    assert covers(ratio, truth["ey1"] / truth["ey0"])
+    # "The true values ... differ": the larger effect is among the offered.
+    assert truth["att"] > truth["ate"] > truth["atc"]
+    assert all(point.support.label == "supported" for point in others.values())
 
 
 def _check_comparison(namespace: dict[str, Any]) -> None:
@@ -133,6 +214,8 @@ def _check_comparison(namespace: dict[str, Any]) -> None:
     assert all(point.support.label == "supported" for point in points)
     assert all(covers(point, truth) for point in points)
     assert max(point.psi for point in points) - min(point.psi for point in points) < 0.01
+    corrections = namespace["corrections"]
+    assert corrections.passed and corrections.truncations_active == ()
 
 
 def _check_step_bound(namespace: dict[str, Any]) -> None:
@@ -152,6 +235,9 @@ def check(namespace: dict[str, Any]) -> None:
     _check_estimate(namespace)
     _check_failure_mode(namespace)
     _check_assessment(namespace)
+    _check_draw(namespace)
+    _check_sensitivity(namespace)
+    _check_other_estimands(namespace)
     _check_comparison(namespace)
     _check_step_bound(namespace)
 

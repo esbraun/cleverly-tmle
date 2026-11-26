@@ -256,6 +256,9 @@ class OraclePointHazard(BaseEstimator):
         Whether to ignore the covariates, the misspecified mechanism.
     """
 
+    #: The exact density of the law, read by the support key (X121).
+    cleverly_density = "known"
+
     #: The oracle reads only the bin index, so the density layer omits the indicator block.
     bin_design = "index"
 
@@ -333,7 +336,7 @@ STUDY = StudyRecord(
     slug="policy-point-mtp",
     artifacts=ROOT / "tests" / "canonical" / "policy_point_mtp",
     document="docs/technical-reference/method-evidence/point-modified-treatment-policies.md",
-    anchor="point-modified-treatment-policies",
+    anchor="ordinary-point-modified-treatment-policies",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -432,7 +435,7 @@ def fit(
             treatment_learner=density if treatment_learner is None else treatment_learner,
             cross_fit=False,
             simultaneous=False,
-            density_bins=oracle_bins(len(frame)),
+            density_bins=oracle_bins(len(frame)) if ratio == "density" else None,
             ratio=ratio,
             max_iter=100,
             tol=1e-10,

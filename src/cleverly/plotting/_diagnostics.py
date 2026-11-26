@@ -316,10 +316,14 @@ def _probability_text(models: list[Any], context: _Context) -> tuple[str, list[s
     ]
     if basis == "in_sample":
         found.append(
-            "In sample, an unpenalized logistic model with an intercept has a calibration "
-            "slope of 1 by construction, so no slope is shown and the bins are not evidence "
-            "of calibration on new data."
+            "In sample, the bins and slope describe the rows each model was fitted to, so no "
+            "slope is shown and the bins are not evidence of calibration on new data."
         )
+        if any(getattr(model, "slope_one_in_sample", False) for model in models):
+            found.append(
+                "An unpenalized logistic regression with an intercept has an in-sample "
+                "calibration slope of 1 by construction."
+            )
     elif basis is None:
         found.append(
             "Whether the slope is out of fold is not recorded here; plot the fit, or its "
@@ -383,8 +387,9 @@ def calibration(
     against the mean predicted probability of each probability model (the treatment model,
     a binary outcome model, and the missingness and intermediate models a fit has), with
     point area showing the rows in the bin. The logistic calibration slope of out-of-fold
-    predictions is in the subtitle. An in-sample fit shows no slope, because an unpenalized
-    logistic model with an intercept has an in-sample slope of 1 by construction, and a
+    predictions is in the subtitle. An in-sample fit shows no slope, because a slope read on
+    the rows a model was fitted to says nothing about new data (for an unpenalized logistic
+    regression with an intercept it is 1 by construction, and the note says so), and a
     collaborative working treatment model or a declared treatment law shows none either,
     because neither is an estimate of the treatment law.
 

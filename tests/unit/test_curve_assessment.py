@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
 from cleverly._curve_assessment import STABILITY_WARNING, CurveDiagnostics
-from cleverly.assessment import CURVE_OPERATIONS
+from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL
 from cleverly.bases import Linear, Modifiers
 from cleverly.exceptions import CapabilityError
 
@@ -80,8 +80,51 @@ def test_the_rows_are_the_curve_family(fitted: Any) -> None:
     rows = {row.operation: row for row in fitted.diagnostics.capabilities}
     assert set(CURVE_OPERATIONS) <= set(rows)
     assert all(rows[name].available for name in (*CURVE_OPERATIONS, "support"))
-    assert not rows["refute"].available and rows["refute"].refusal.roadmap == "P1"
+    assert not rows["refute"].available
+    assert rows["refute"].refusal.alternative == (
+        "Run refute on the fit that produced the curve, naming a coefficient such as "
+        "'cate_projection[W2]'."
+    )
+    assert rows["refute"].refusal.reason is CURVE_REFUTE_REFUSAL.reason
     assert rows["calibration"].execution == "refit" and rows["calibration"].accepts_random_state
+
+
+def _refute_messages(curve: Any) -> list[str]:
+    """What the curve's ``refute`` row says, and what its refute and preview calls raise."""
+    messages = [
+        str(_raised(curve.diagnostics.refute)),
+        str(_raised(curve.diagnostics.planned_refits)),
+    ]
+    refusal = curve.diagnostics.capability("refute").refusal
+    return [*messages, f"{refusal.condition} {refusal.alternative}"]
+
+
+@pytest.mark.parametrize(
+    ("scale", "coefficient"),
+    [("difference", "cate_projection[W2]"), ("log_ratio", "log_crr_projection[W2]")],
+)
+def test_a_curve_s_refute_row_names_one_of_its_own_coefficients(
+    scale: str, coefficient: str
+) -> None:
+    """Nonzero witness: the named coefficient is this curve's, at its scale and basis.
+
+    A constant example name (the record once named 'cate_projection[W1]' for every curve)
+    fails both cases, since neither curve has that coefficient.
+    """
+    fitted = curve(frame(), scale=scale, basis=Linear(["W2"]))
+    for message in _refute_messages(fitted):
+        assert f"'{coefficient}'" in message
+        assert "[W1]" not in message
+
+
+def test_an_ep_curve_s_refute_row_redirects_to_the_same_basis_projection(
+    sieve_curve: Any,
+) -> None:
+    """An EP fit has no coefficients, so the row names the projection on its basis."""
+    for message in _refute_messages(sieve_curve):
+        assert "model=curve.model.basis" in message
+        assert "method='tmle'" in message
+        assert "projection[" not in message
 
 
 def test_a_held_out_fold_never_sees_its_own_outcomes(fitted: Any) -> None:
@@ -240,24 +283,170 @@ def test_the_curve_is_a_diagnostics_facade_with_the_shared_gates(fitted: Any) ->
     assert {rows[name].requires_replay for name in CURVE_OPERATIONS} == {"refit_nuisances"}
 
 
-def test_every_sensitivity_route_refuses_a_curve_with_p1(fitted: Any, sieve_curve: Any) -> None:
-    """Every route refuses with the curve record, by row and by call, on both methods."""
-    from cleverly.assessment import SENSITIVITY_ROUTES, curve_sensitivity_refusal
-    from cleverly.exceptions import RefusalReason
+def test_every_sensitivity_route_refuses_a_curve_by_row_and_by_call(
+    fitted: Any, sieve_curve: Any
+) -> None:
+    """Every route refuses on both curve kinds, and each call raises the row's record."""
+    from cleverly.assessment import SENSITIVITY_ROUTES
 
     for result in (fitted, sieve_curve):
         sensitivity = result.sensitivity
         assert {row.operation for row in sensitivity.capabilities} == set(SENSITIVITY_ROUTES)
         for operation in SENSITIVITY_ROUTES:
             row = sensitivity.capability(operation)
-            assert not row.available and row.refusal == curve_sensitivity_refusal(operation)
-            assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-            assert row.refusal.roadmap == "P1"
-            assert "conditional contrast curve" in row.refusal.condition
+            assert not row.available
+            assert row.refusal.roadmap != "P1"
             for arguments in ({}, {"estimand": "ate"}):
                 error = _raised(getattr(sensitivity, operation), **arguments)
                 assert row.refusal.condition in str(error)
                 assert error.refusal.alternative == row.refusal.alternative
+
+
+def _sensitivity_record(result: Any, operation: str) -> Any:
+    return result.sensitivity.capability(operation).refusal
+
+
+def test_a_projection_curve_redirects_where_its_fit_runs_and_carries_its_record_otherwise(
+    fitted: Any,
+) -> None:
+    """A redirection names a call that runs; a refused fit row is carried, code and owner."""
+    from cleverly.assessment import projection_sensitivity_refusal
+    from cleverly.exceptions import RefusalReason
+
+    assert fitted.fit.sensitivity._gated_map["omitted_confounding"].available
+    redirected = _sensitivity_record(fitted, "omitted_confounding")
+    assert redirected.reason is RefusalReason.API_REDIRECTION
+    assert redirected.roadmap is None
+    assert redirected.condition == (
+        "A curve is computed from a fit and reports no estimand of its own. Run "
+        "omitted_confounding on the fit that produced the curve."
+    )
+    assert redirected.alternative == (
+        "Call it on the producing fit, naming a coefficient such as 'cate_projection[W2]'."
+    )
+    # The call it names runs on the producing fit.
+    assert fitted.fit.sensitivity.omitted_confounding(estimand="cate_projection[W2]")
+    carried = _sensitivity_record(fitted, "missingness")
+    assert carried == fitted.fit.sensitivity._gated_map["missingness"].refusal
+    assert carried == projection_sensitivity_refusal("missingness")
+    assert (carried.reason, carried.roadmap) == (RefusalReason.IMPLEMENTATION_GAP, "X82")
+
+
+def test_a_log_ratio_projection_curve_carries_its_fit_s_bound_refusal() -> None:
+    """Nonzero witness for a bound row: the log-ratio fit refuses the bound, so no redirect."""
+    from cleverly.exceptions import RefusalReason
+
+    ratio = curve(frame(), scale="log_ratio")
+    target = ratio.fit.sensitivity._gated_map["omitted_confounding"]
+    assert not target.available
+    record = _sensitivity_record(ratio, "omitted_confounding")
+    assert record == target.refusal
+    assert (record.reason, record.roadmap) == (RefusalReason.IMPLEMENTATION_GAP, "X82")
+
+
+def test_an_ep_curve_redirects_to_the_projection_on_its_basis_or_carries_its_record(
+    sieve_curve: Any,
+) -> None:
+    """The EP versions of both outcomes: the same-basis projection decides each row."""
+    from cleverly.assessment import projection_sensitivity_refusal
+    from cleverly.exceptions import RefusalReason
+
+    redirected = _sensitivity_record(sieve_curve, "omitted_confounding")
+    assert redirected.reason is RefusalReason.API_REDIRECTION
+    assert redirected.roadmap is None
+    assert redirected.condition == (
+        "An EP curve has no influence curve, and omitted_confounding is defined for a fit that "
+        "has one. The projection on the same basis, curve.model.basis, the basis the curve "
+        "used at its size (3 terms), is the related estimand it is defined for."
+    )
+    assert redirected.alternative == (
+        "Fit ConditionalContrast(..., model=curve.model.basis) with method='tmle' and run "
+        "omitted_confounding on that fit."
+    )
+    carried = _sensitivity_record(sieve_curve, "missingness")
+    r9 = projection_sensitivity_refusal("missingness")
+    assert (carried.reason, carried.roadmap, carried.alternative) == (
+        r9.reason,
+        "X82",
+        r9.alternative,
+    )
+    assert carried.condition == (
+        "An EP curve has no influence curve. On the projection on the same basis, " + r9.condition
+    )
+    truncation = sieve_curve.diagnostics.capability("truncation_curve").refusal
+    assert truncation.reason is RefusalReason.API_REDIRECTION
+    assert truncation.condition.startswith(
+        "The truncation curve reports an estimate and its interval at each bound, and an EP "
+        "curve has no interval."
+    )
+
+
+def test_the_redirection_of_a_cv_sized_ep_curve_names_a_basis_tmle_fits() -> None:
+    """A CV-sized curve's alternative names its fixed basis, so the call it names runs.
+
+    Nonzero witness: the sieve the curve was declared with is refused by ``tmle`` (R4), and
+    the basis the record names is not.
+    """
+    from cleverly.bases import Modifiers
+
+    cv = ep_curve(None)
+    assert cv.sieve.mode == "cv"
+    record = _sensitivity_record(cv, "omitted_confounding")
+    assert "model=curve.model.basis" in record.alternative
+    assert f"({len(cv.model.terms)} terms)" in record.condition
+    study = CausalStudy(
+        frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"))
+    )
+    modifiers = Modifiers(["W1"], domains={"W1": (-1, 1)})
+    declared = study.identify(ConditionalContrast(modifiers)).available_methods()
+    assert not {m.name: m for m in declared}["tmle"].available
+    effect = study.identify(ConditionalContrast(modifiers, model=cv.model.basis))
+    assert {m.name: m for m in effect.available_methods()}["tmle"].available
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        projection = effect.estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            n_folds=2,
+            random_state=0,
+        )
+    slope = list(projection.estimates)[-1]
+    assert projection.sensitivity.omitted_confounding(estimand=slope) is not None
+    assert projection.diagnostics.capability("truncation_curve").available
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        [("ep = _is_ep_curve(curve)", "ep = not _is_ep_curve(curve)")],
+        [("if not target.available:", "if False:")],
+    ],
+    ids=["inverted_ep_predicate", "always_redirect"],
+)
+def test_each_resolver_mutation_fails_a_witness(
+    monkeypatch: pytest.MonkeyPatch, fitted: Any, sieve_curve: Any, edits: Any
+) -> None:
+    """Mutation controls: each broken resolver changes a record the witnesses pin."""
+    import cleverly.assessment as assessment
+    from tests.unit._source_mutation import mutate
+
+    expected = {
+        (id(result), operation): _sensitivity_record(result, operation)
+        for result in (fitted, sieve_curve)
+        for operation in ("omitted_confounding", "missingness")
+    }
+    mutate(monkeypatch, assessment, assessment, "curve_sensitivity_record", edits)
+    moved = [
+        key
+        for key, record in expected.items()
+        for result in (fitted, sieve_curve)
+        if key[0] == id(result)
+        and assessment.curve_sensitivity_rows(result)[
+            [row.operation for row in assessment._STRUCTURAL_SENSITIVITY].index(key[1])
+        ].refusal
+        != record
+    ]
+    assert moved
 
 
 def test_assess_composes_the_three_surfaces(fitted: Any) -> None:

@@ -21,6 +21,7 @@ from cleverly.datasets import navigation_protocol, population_impact_truth
 from cleverly.datasets import population_impact as law
 from cleverly.sensitivity import ConfounderStrengthGrid, missingness_tilt, simulated_confounding
 from cleverly.validation._readings import subset_reference_sd
+from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -29,9 +30,34 @@ from tests.unit.tutorial_semantics import (
     stored_output,
 )
 
+#: The review probe that runs the generated-outcome lesson at the 400 draws its bands need.
+_KNOWN_EFFECT_PROBE = "reviews/notebook-review/probes/population-impact-refuters"
+
+#: Decimals the readings write that no stored output prints, each with its reason.
+UNPRINTED_DECIMALS = {
+    "known-effect-reading: 1.0911": f"the noise outcome's SE ratio at 400 draws: "
+    f"{_KNOWN_EFFECT_PROBE}/generated.log (check asserts it)",
+    "known-effect-reading: 1.15": f"the upper end of the SE-ratio band: {_KNOWN_EFFECT_PROBE}/generated.log",
+    "known-effect-reading: 0.9780": f"the noise outcome's SE ratio at 400 draws, seed 62: "
+    f"{_KNOWN_EFFECT_PROBE}/generated.log (check asserts it)",
+    "assessment-heading: 0.01": "the fit's floor on the chance of answering, which no summary "
+    "prints; check asserts gain_fit.config.missingness_bound == 0.01",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "association-reading": {"0.5641": "data"},
+    "failure-reading": {"0.0872": "estimates"},
+    "assessment-heading": {"0.0095": "estimate"},
+    "caps-heading": {"0.0095": "estimate"},
+    "interpret": {"1.40": "direct-more"},
+}
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("sensitivity", "refutation")
+REFIT_CELLS = ("sensitivity", "refutation", "known-effect", "direct-surface")
 
 NOTEBOOK = EXAMPLES / "population-impact.ipynb"
 
@@ -188,6 +214,9 @@ def _check_estimates(namespace: dict[str, Any]) -> None:
     assert not covers(ate, -truth["par[reference=1]"])
     assert covers(ate, truth["ate"])
     assert f"{namespace['not_offered']:.3f}" == "0.563"
+    # "Today's interval, like the ATE's below, is built on a scale that keeps it in range."
+    assert current.interval_scale == "range_logit"
+    assert ate.interval_scale == "mover"
     # The ratios: both above 1, the odds ratio further from it, and each interval holds its truth.
     assert covers(rr, truth["rr"]) and covers(odds, truth["or"])
     assert odds.psi > rr.psi > 1.0
@@ -222,6 +251,8 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
         assert abs(namespace["models"][name]["calibration_slope"] - 1.0) < 0.1
     assert namespace["scores"].passed
     assert not namespace["nuisance"].findings
+    # The score check prints its largest ratio to the limit, rounded, never a raw residual.
+    assert namespace["largest_ratio"] < 0.001 and namespace["shown_ratio"] == "below 0.001"
 
 
 def _check_tilt(namespace: dict[str, Any]) -> None:
@@ -237,6 +268,69 @@ def _check_tilt(namespace: dict[str, Any]) -> None:
     values = near["psi"].to_numpy()
     assert values[0] < 0.0 < values[2] and abs(values[1]) < 1e-4
     assert namespace["offered_only"] is None
+    # "Its interval reaches zero sooner, at an odds factor of 3.95."  Nonzero witness: at that
+    # gamma the gain's lower limit (minus the PAR's upper limit) is zero, and at 1.912 it is not.
+    interval_tip = namespace["interval_tip"]
+    assert interval_tip < tip and f"{np.exp(interval_tip):.2f}" == "3.95"
+    at_tip = missingness_tilt(gain_fit, (interval_tip, tip), arm_gamma=direction).to_frame()
+    assert abs(float(at_tip["ci_upper"].iloc[0])) < 1e-4
+    assert float(at_tip["ci_upper"].iloc[1]) > 0.01
+
+
+def _assert_known_effect_probe() -> None:
+    """The 400-draw numbers the generated-outcome reading quotes match the committed log."""
+    text = (ROOT / _KNOWN_EFFECT_PROBE / "generated.log").read_text(encoding="utf-8")
+    assert "dummy_outcome, seed 61: 400 draws, level L2, verdict failed" in text
+    assert "se_ratio 1.0911 in (1.0156, 1.1723), band (0.85, 1.15), inside False" in text
+    assert "dummy_outcome, seed 62: 400 draws, level L2, verdict passed" in text
+    assert "se_ratio 0.9780 in" in text
+    assert "simulated_outcome, seed 61: 400 draws, level L2, verdict passed" in text
+    assert "plasmode, seed 61: 400 draws, level L2, verdict passed" in text
+
+
+def _check_lessons(namespace: dict[str, Any]) -> None:
+    """The Go deeper lessons that run in the fast tier."""
+    truth = namespace["truth"]
+    gain = namespace["gain_fit"]["par"]
+    achieved = namespace["achieved_fit"]["par"]
+    # The ATT and ATC: experimental, each product close to its own fit in this sample.
+    att = namespace["att_fit"]["att"]
+    atc = namespace["atc_fit"]["atc"]
+    for estimate in (att, atc):
+        assert estimate.support.label == "experimental"
+    offered = namespace["offered"]
+    assert abs(offered * att.psi - achieved.psi) < 5e-4
+    assert abs((1 - offered) * atc.psi + gain.psi) < 5e-4
+    assert covers(atc, truth["atc"]) and atc.psi > truth["atc"]
+    assert covers(att, truth["att"])
+
+    # The direct effect held at no.  The truths at the two levels are almost equal, so the
+    # witness that intermediate=0.0 is used is the gap between the two estimates.
+    assert namespace["held_at_no"].intermediate == 0.0
+    no_visit = namespace["no_visit_fit"]["ate"]
+    direct = namespace["direct_fit"]["ate"]
+    assert (no_visit.support.label, no_visit.support.row) == ("supported", DIRECT_ROW)
+    assert abs(truth["cde_ate[visit=0]"] - truth["cde_ate[visit=1]"]) < 0.005
+    assert abs(no_visit.psi - direct.psi) > 0.01
+    assert covers(no_visit, truth["cde_ate[visit=0]"])
+    # The direct effect's E-value reads four associations, and its robustness value.
+    direct_evalue = namespace["direct_evalue"]
+    assert f"{direct_evalue.risk_ratio:.3f}" == "1.185"
+    assert (f"{direct_evalue.point:.2f}", f"{direct_evalue.limit:.2f}") == ("1.40", "1.25")
+    assert "each of four associations" in " ".join(str(direct_evalue.summary()).split())
+    robustness = namespace["direct_robustness"]
+    assert f"{robustness['rv']:.3f}" == "0.118"
+
+    # The caps: the gain moves by about a quarter of a standard error at 0.2, the direct effect
+    # by less, and the response and visit caps move it less than the offer cap.
+    caps = namespace["pd"].DataFrame(namespace["cap_rows"])
+    at = caps[caps["cap"] == 0.2].set_index("estimate")
+    assert f"{at.loc['gain, offer cap', 'share capped']:.4f}" == "0.0660"
+    assert 0.15 < at.loc["gain, offer cap", "move in std. errors"] < 0.35
+    offer_move = at.loc["direct effect, offer cap", "move in std. errors"]
+    other_move = at.loc["direct effect, response and visit caps", "move in std. errors"]
+    assert 0.0 < other_move < offer_move < at.loc["gain, offer cap", "move in std. errors"]
+    assert (caps["move in std. errors"].abs() < 0.5).all()
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -246,7 +340,11 @@ def check(namespace: dict[str, Any]) -> None:
     _check_setup(namespace)
     _check_estimates(namespace)
     _check_assessment(namespace)
+    # assessment-heading reads this floor; the summary prints only the offer model's limits.
+    assert namespace["gain_fit"].config.missingness_bound == 0.01
     _check_tilt(namespace)
+    _check_lessons(namespace)
+    _assert_known_effect_probe()
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -273,22 +371,31 @@ def check_refits(namespace: dict[str, Any]) -> None:
     )
     assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping / 2).lower > today
     assert truth["ey1"] > truth["ey_obs"]
+    # "The robustness value, 0.121, is a floor": at both strengths equal to it the lower bound
+    # reaches today's rate, and just below it the bound stays above.
+    robustness = namespace["robustness"]
+    assert f"{robustness['rv']:.3f}" == "0.121"
+    rv = robustness["rv"]
+    assert sensitivity.omitted_confounding(cf_y=rv, cf_d=rv).lower == pytest.approx(today, abs=1e-4)
+    assert sensitivity.omitted_confounding(cf_y=0.9 * rv, cf_d=0.9 * rv).lower > today
 
-    # The refutation: descriptive, the placebo near zero, the noise column barely moving it.
-    ate = namespace["ate_fit"]["ate"]
+    # The refutation runs on the gain fit: descriptive, the placebo near zero, the noise column
+    # barely moving it.
+    gain = namespace["gain_fit"]["par"]
     refutation = namespace["refutation"]
     tests = {test.name: test for test in refutation.tests}
     assert set(tests) == {"placebo", "subset", "random_common_cause"}
     for test in tests.values():
         assert test.passed is None and len(test.values) == 20
     assert set(refutation.to_frame()["verdict"]) == {"descriptive"}
-    assert abs(float(np.mean(tests["placebo"].values))) < 0.1 * ate.psi
-    shift = np.asarray(tests["random_common_cause"].values) - ate.psi
-    assert abs(float(shift.mean())) < 0.2 * ate.std_error
+    assert all(test.estimand == "par" for test in refutation.tests)
+    assert abs(float(np.mean(tests["placebo"].values))) < 0.1 * abs(gain.psi)
+    shift = np.asarray(tests["random_common_cause"].values) - gain.psi
+    assert abs(float(shift.mean())) < 0.2 * gain.std_error
     # The 70% refits spread about as much as the standard error implies for such subsamples.
     n = len(namespace["frame"])
-    reference = subset_reference_sd(ate.std_error, n, int(0.7 * n))
-    assert f"{reference:.4f}" == "0.0126"
+    reference = subset_reference_sd(gain.std_error, n, int(0.7 * n))
+    assert f"{reference:.6f}" == "0.007244"
     assert 0.5 < float(np.std(tests["subset"].values, ddof=1)) / reference < 2.0
 
     # The replay the page skips: the response reads the offer, so a cell that moves the offer is
@@ -299,3 +406,37 @@ def check_refits(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
         simulated_confounding(namespace["ate_fit"], grid=grid)
     assert "F12" in str(excinfo.value)
+    assert (
+        "moves the treatment of a missing-outcome fit only under a declared response mechanism "
+        "that reads the covariates alone" in str(excinfo.value)
+    )
+
+    # The generated outcomes: level 1 and descriptive at 20 draws, each mean gain near its known
+    # value.  Nonzero witness: the declared gain of the simulated outcome is well away from 0.
+    known = namespace["known_table"].set_index("test")
+    assert set(known.index) == {"dummy_outcome", "simulated_outcome", "plasmode"}
+    assert set(known["rung"]) == {"L1"} and set(known["verdict"]) == {"descriptive"}
+    assert abs(known.loc["dummy_outcome", "mean gain"]) < 0.01
+    for name in ("simulated_outcome", "plasmode"):
+        assert known.loc[name, "known gain"] > 0.03
+        assert abs(known.loc[name, "mean gain"] - known.loc[name, "known gain"]) < 0.01
+
+    # The direct effect's benchmark and surface.
+    direct_record = namespace["direct_record"]
+    assert (f"{direct_record.cf_y:.3f}", f"{direct_record.cf_d:.3f}") == ("0.036", "0.013")
+    assert namespace["direct_bound"].lower > 0.0
+    cells = namespace["surface"].to_frame().set_index(["intermediate_strength", "outcome_strength"])
+    base = float(cells.loc[(0.0, 0.0), "estimate"])
+    assert base == pytest.approx(namespace["direct_fit"]["ate"].psi, abs=1e-9)
+    assert (
+        float(cells.loc[(0.0, 0.5), "estimate"]) < base < float(cells.loc[(0.2, 0.0), "estimate"])
+    )
+    both = float(cells.loc[(0.2, 0.5), "estimate"])
+    assert 0.0 < both < float(cells.loc[(0.0, 0.5), "estimate"])
+    assert set(namespace["surface"].to_frame()["treatment_strength"]) == {0.0}
+    # "It never flips the offer for a direct effect (F15)."
+    with pytest.raises(CapabilityError, match="F15"):
+        simulated_confounding(
+            namespace["direct_fit"],
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
+        )

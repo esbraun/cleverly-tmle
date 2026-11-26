@@ -1,6 +1,10 @@
 # Supported estimands
 
 
+This page covers the point-treatment `DRTMLE`. The survival variant, `SurvivalDRTMLE`, has its
+own scope in [time-to-event outcomes](theorem.md#time-to-event-outcomes) and its refusals in
+[scope and refusals](../scope-and-refusals.md#drift-corrected-survival-tmle).
+
 A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
 reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
 univariate implementation follows R `drtmle`'s armwise construction (`R/fluctuate.R`, `fluctuateG`):
@@ -30,7 +34,9 @@ and a reader comparing a two-arm
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
 
-RM19 measured the two routes on 2,000 fresh draws of the binary `treatment_correct` law at
+A localization run (`tests/diagnostics/rm19_one_sided_increment/`, pinned by
+`tests/unit/test_rm19_one_sided_increment_diagnostic.py`) measured the two routes on 2,000
+fresh draws of the binary `treatment_correct` law at
 `n = 3000`. There, the treatment mechanism is correct and the outcome regression is not. The
 transcription of the R loop took each of four named choices from R or from this package.
 Averaged over the other three choices, the two-arm tilt raised the mean `ate` by `0.000833` to
@@ -93,6 +99,7 @@ guard is a plain `TMLE`, bit for bit.
 | `g_bounds=` a fixed value | permitted, and it puts the fit outside the asymptotic half of the [bound-inactive scope](targeting.md#the-bound-inactive-scope): the argument needs a bound *sequence* going to zero, which `"auto"` supplies and a fixed bound above `ess inf g_0` does not. |
 | `q_bounds=` | **required** with `cross_fit=True` on a continuous outcome, and equal to the outcome's known support. Refused on a binary outcome, which already sits on the unit interval. |
 | `stratify_folds=` | `"none"` only, which is the default. The other two policies are refused whenever the fit draws a split. |
+| `effect_modification=` (a `ConditionalContrast` with `model=`) | the difference-scale projection on complete, unstratified data, with `reduction="univariate"` and the iterative alternation. It fits one block of reduced regressions per arm and basis term. With a declared known mechanism it keeps its interval. With an estimated mechanism and a non-empty `guard` it reports the point under `"reduced_regression_plugin"`, because the conditioning term is linear in the mechanism error and no fit can check that it vanishes. [The DR-TMLE projection](../conditional-effects.md#the-dr-tmle-projection) gives the construction, the refusals and the tests |
 
 **What the composite indicator accepts.** The composite construction takes every composition
 that both of its parents take. Each row has evidence in `tests/unit/test_composite_missing_data.py`.
@@ -105,7 +112,7 @@ that both of its parents take. Each row has evidence in `tests/unit/test_composi
 | `id=` | yes | yes |
 | `strata=` | yes, in one pooled outcome step | yes; see [baseline strata](#baseline-strata) |
 | `n_bootstrap=` | yes; a replicate resamples rows with their `Delta_A` | yes |
-| `screen_treatment=True` | yes, screened on the recorded rows | yes |
+| `screen_treatment=True` | yes, screened on the outcome over the rows whose treatment and outcome are recorded | yes |
 | `evaluation=` | not applicable | refused: the companion carries one treatment mechanism, and the composite has up to three factors |
 | `interventions=` (static and known `W`-dependent rules) | yes; the covariate is the arm covariate at the arm the rule assigns | refused, as on complete data |
 | `msm=` over the arms | yes; each coefficient projects the identified arm means | refused, as on complete data |
@@ -203,6 +210,7 @@ retained diagnostic.
 | continuous treatment | the reductions and corrections are indexed by treatment mass at a discrete arm; a continuous dose requires density-based equations. See [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `reduction="bivariate"` with `delta=` | the supported missing-outcome estimator is Díaz & van der Laan's distinct five-reduction construction, not the complete-outcome one- versus two-dimensional choice. `reduction="univariate"` selects that published missing-data cycle; a bivariate analogue of its five reductions and three correction blocks has not been derived here. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
+| `conditional_form="known_score"` | `api_redirection`: the known-score ATT and ATC are a point `TMLE` report. See [known-score ATT and ATC](../scope-and-refusals.md#known-score-att-and-atc) |
 | `interventions=`, `policies=`, `incremental=`, `msm=` | as above. [X50](../../roadmap.md#x50-further-dr-tmle-compositions) holds `interventions=` and `msm=` over discrete arms. [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) keeps `policies=` and `incremental=` |
 | an undeclared missing treatment value | the package does not infer a missing treatment from a missing value. The data container raises `DataError` before any learner and names `treatment_delta=` for a numeric column. A label column meets the null-label check of `src/cleverly/data/causal_data.py` first |
 | a missing treatment with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` or `policies=` | when the recording may depend on the treatment, `P(A = a \| W)` is not identified, and each of these reads the treatment law of every row. See [what the data do not identify](theorem.md#observational-missing-data-the-composite-indicator) |

@@ -561,39 +561,79 @@ class TestTheRecord:
         assert label.row == "T51"
 
     @pytest.mark.parametrize(
-        ("changes", "named"),
-        [
-            ({"sieve": FIXED}, "a declared sieve="),
-            ({"learner": LinearRegression()}, "a declared final learner (learner=)"),
-        ],
+        "changes",
+        [{"sieve": FIXED}, {"learner": LinearRegression()}],
         ids=["fixed_size", "final_learner"],
     )
-    def test_a_declared_curve_keeps_the_row_and_reads_experimental(
-        self, changes: dict[str, Any], named: str
-    ) -> None:
-        """The key holds neither choice, so a condition, not the row, labels the fit."""
+    def test_a_declared_curve_reads_its_registered_row(self, changes: dict[str, Any]) -> None:
+        """EP3: ``learned-rule-ep-declared`` measured both choices, so ``T51`` covers them."""
         fitted = (
             _fixed_fit() if "sieve" in changes else support.fit(learned_rule=ep_rule(**changes))
         )
         label = fitted.estimates[support.NAME].support
-        assert label.label == "experimental"
-        assert "P1" in label.evidence
+        assert label.label == "supported"
+        assert label.row == "T51"
+        assert fitted.config.support_conditions == ()
+
+    @staticmethod
+    def _optimal_fit(**changes: Any) -> Any:
+        frame = support.law_frame()
+        g1 = expit(0.3 * frame["W1"] - 0.2 * frame["W2"]).to_numpy()
+        return (
+            support.learned_tmle(learned_rule=ep_rule(**changes), estimands=[OPTIMAL_RULE_TARGET])
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=support.COVARIATES,
+                treatment_probabilities=np.column_stack([1.0 - g1, g1]),
+            )
+            .single()
+        )
+
+    def test_the_optimal_value_with_a_declared_sieve_reads_its_row(self) -> None:
+        """EP3: the ``optimal__S`` cell passed, so ``T51.optimal`` covers a declared sieve."""
+        fitted = self._optimal_fit(sieve=FIXED)
+        (estimate,) = fitted.estimates.values()
+        assert estimate.support.label == "supported"
+        assert estimate.support.row == "T51.optimal"
+        assert fitted.config.support_conditions == ()
+
+    def test_the_optimal_value_with_a_declared_learner_reads_experimental(self) -> None:
+        """Nonzero witness: ``optimal__L`` states no verdict, so the condition labels the fit."""
+        fitted = self._optimal_fit(sieve=FIXED, learner=LinearRegression())
+        (estimate,) = fitted.estimates.values()
+        assert estimate.support.label == "experimental"
+        assert "F42" in estimate.support.evidence
         (condition,) = fitted.config.support_conditions
         assert condition == ep_rule_condition(fitted.estimator)
-        assert named in condition.condition
-        assert "learned-rule-ep" in label.reason
+        assert "declared final learner (learner=)" in condition.condition
+        assert "learned-rule-ep-declared" in estimate.support.reason
 
-    def test_the_explicit_default_sieve_is_the_measured_curve(self) -> None:
-        """Mutation control: the condition reads the sieve itself, not whether one was passed."""
-        explicit = ep_rule(sieve=Sieve.default(MODIFIERS))
-        estimator = support.learned_tmle(learned_rule=explicit)
-        assert ep_rule_condition(estimator) is None
-        smaller = support.learned_tmle(
-            learned_rule=ep_rule(sieve=Sieve.default(MODIFIERS, max_size=5))
+    def test_the_condition_reads_the_learner_and_the_target_only(self) -> None:
+        """Mutation control: the condition needs the optimal target and a declared learner."""
+        learner = LinearRegression()
+        optimal = [OPTIMAL_RULE_TARGET]
+        assert (
+            ep_rule_condition(support.learned_tmle(learned_rule=ep_rule(learner=learner))) is None
         )
-        assert ep_rule_condition(smaller) is not None
+        assert (
+            ep_rule_condition(
+                support.learned_tmle(learned_rule=ep_rule(sieve=FIXED), estimands=optimal)
+            )
+            is None
+        )
+        assert (
+            ep_rule_condition(
+                support.learned_tmle(learned_rule=ep_rule(learner=learner), estimands=optimal)
+            )
+            is not None
+        )
         in_sample = support.learned_tmle(
-            learned_rule=ep_rule(sieve=FIXED), cross_fit=False, cv_evaluation=False
+            learned_rule=ep_rule(learner=learner),
+            estimands=optimal,
+            cross_fit=False,
+            cv_evaluation=False,
         )
         assert ep_rule_condition(in_sample) is None
 

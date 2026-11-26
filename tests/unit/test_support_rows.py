@@ -59,6 +59,9 @@ KINDS = {
     "derived",
     # Fix-5: ``variance="policy_weighted"``, licensed from ``mtp-policy-variance``.
     "wald_policy",
+    # X123 (g): the binned restricted means, licensed from their RMST cells.
+    "restricted_mean",
+    "restricted_mean_difference",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
 #: The options of X76 in a point key, at the values of a fit that declares none of them.
@@ -78,6 +81,9 @@ X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     # projection-evidence measured the pooled outcome regression on these keys.
     "T49.pooled": {"outcome_by_arm": False},
     "T50.pooled": {"outcome_by_arm": False},
+    # projection-methods fits DR-TMLE and the per-arm C-TMLE with one pooled outcome regression.
+    "T49.drtmle": {"outcome_by_arm": False},
+    "T49.ctmle_oat": {"outcome_by_arm": False},
     "T53": {"outcome_by_arm": True},
     "T54": {"treatment_adjustment": True},
     "T52.scaled_var": {"stopping": "scaled_var"},
@@ -237,25 +243,28 @@ class TestControls:
         assert classified(wrong).row.id != wrong.row  # type: ignore[union-attr]
 
     @pytest.mark.parametrize(
-        ("row", "attribute", "value"),
+        ("row", "changes"),
         [
-            ("T01.binary", "cross_fit", True),
-            ("T01.binary", "fluctuation", "linear"),
-            ("T02.binary", "cv_evaluation", True),
-            ("T05.binary", "repeats", 1),
-            ("T06", "target_weights", True),
-            ("D01", "guard", ("Q",)),
-            ("D08", "randomized", False),
-            ("C03", "oat_design", "per_arm"),
-            ("T22", "ratio", "classifier"),
+            ("T01.binary", {"cross_fit": True}),
+            ("T01.binary", {"fluctuation": "linear"}),
+            ("T02.binary", {"cv_evaluation": True}),
+            ("T05.binary", {"repeats": 1}),
+            ("T06", {"target_weights": True}),
+            ("D01", {"guard": ("Q",)}),
+            ("D08", {"randomized": False}),
+            ("C03", {"oat_design": "per_arm"}),
+            # The classifier route fits no binned density and refuses a bin count, so the
+            # control drops the row's density setting with the route.
+            ("T22", {"ratio": "classifier", "density_bins": None}),
         ],
     )
-    def test_one_changed_setting_leaves_the_row(self, row: str, attribute: str, value: Any) -> None:
+    def test_one_changed_setting_leaves_the_row(self, row: str, changes: dict[str, Any]) -> None:
         case = self.case(row)
         estimator, data, estimands = case.build()
         assert classify(estimator, data, estimands).row.id == row  # type: ignore[union-attr]
         changed = copy.copy(estimator)
-        setattr(changed, attribute, value)
+        for attribute, value in changes.items():
+            setattr(changed, attribute, value)
         moved = classify(changed, data, estimands)
         assert moved.row is None or moved.row.id != row
 
@@ -428,11 +437,24 @@ class TestLongitudinalControls:
             ("G01", "treatment", ("2", "2", "2")),
             ("G01", "outcome", ("gaussian", "unbounded")),
             ("G01", "missing", ("complete",)),
-            ("G01", "qualifiers", frozenset({"A1"})),
+            ("G01", "qualifiers", frozenset({"known_treatment@1"})),
             ("G01", "engine", ("sdr",)),
             ("G01", "family", frozenset({"end_of_study", "regimens", "mtp"})),
             ("G01", "family", frozenset({"survival", "regimens", "static"})),
-            ("G21", "qualifiers", frozenset({"A1", "A2"})),
+            ("G21", "qualifiers", frozenset({"known_treatment@1", "known_treatment@2"})),
+            # A partial declaration: both treatments, but retention at node 1 only.
+            (
+                "G21",
+                "qualifiers",
+                frozenset({"known_treatment@1", "known_treatment@2", "known_censoring@1"}),
+            ),
+            # The full declaration keyed without the node index, or without the role.
+            ("G21", "qualifiers", frozenset({"known_treatment", "known_censoring"})),
+            ("G21", "qualifiers", frozenset({"known@1", "known@2"})),
+            # Retention declared at node 2 instead of node 1.
+            ("G45.mean_model", "qualifiers", frozenset({"known_censoring@2"})),
+            ("G45.hazard_model", "qualifiers", frozenset({"known_censoring@2"})),
+            ("G45.mean_model", "qualifiers", frozenset({"known_treatment@1"})),
             ("G28.d2.ipw.hajek", "options", (("normalization", "hajek"),)),
             ("G10.continuous", "treatment", ("continuous", "2")),
             ("G35.density", "treatment", ("continuous", "continuous")),
@@ -613,10 +635,17 @@ class TestLongitudinalControls:
 
 class TestRegimenKinds:
     @staticmethod
-    def plan(*, mtp: bool = False, tilt: bool = False, policy: bool = False) -> Any:
+    def plan(
+        *, mtp: bool = False, tilt: bool = False, policy: bool = False, rule: bool = False
+    ) -> Any:
         from types import SimpleNamespace
 
-        return SimpleNamespace(has_mtp=mtp, has_tilt=tilt, has_policy=policy)
+        return SimpleNamespace(
+            has_mtp=mtp,
+            has_tilt=tilt,
+            has_policy=policy,
+            regimen=SimpleNamespace(has_rule=rule),
+        )
 
     def test_each_kind_has_a_plan_that_makes_it(self) -> None:
         make = self.plan
@@ -624,6 +653,16 @@ class TestRegimenKinds:
         assert regimen_kinds([make(policy=True)]) == {"stochastic"}
         assert regimen_kinds([make(mtp=True, policy=True)]) == {"mtp"}
         assert regimen_kinds([make(tilt=True, policy=True)]) == {"tilt"}
+        assert regimen_kinds([make(rule=True)], simulated_rules=True) == {"rule"}
+
+    def test_a_rule_is_static_unless_the_fit_simulates_it(self) -> None:
+        make = self.plan
+        assert regimen_kinds([make(rule=True)]) == {"static"}
+        assert regimen_kinds([make(rule=True), make()], simulated_rules=True) == {"rule", "static"}
+        assert regimen_kinds([make(rule=True, policy=True)], simulated_rules=True) == {
+            "stochastic",
+            "rule",
+        }
 
     def test_mixed_plans_hold_every_kind(self) -> None:
         make = self.plan
@@ -635,9 +674,8 @@ class TestRegimenKinds:
 
     def test_the_kinds_are_the_declared_ones(self) -> None:
         make = self.plan
-        assert regimen_kinds([make(), make(mtp=True), make(tilt=True), make(policy=True)]) <= set(
-            REGIMEN_KINDS
-        )
+        plans = [make(), make(mtp=True), make(tilt=True), make(policy=True), make(rule=True)]
+        assert regimen_kinds(plans, simulated_rules=True) <= set(REGIMEN_KINDS)
 
 
 class TestTheoryAndOptions:

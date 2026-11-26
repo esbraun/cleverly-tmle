@@ -1,4 +1,4 @@
-# Outcome-adaptive per-arm C-TMLE (parametric crossfit)
+# Cross-fitted outcome-adaptive per-arm C-TMLE with a parametric outcome
 
 This study measures the interval of
 `CTMLE(strategy="oat", oat_design="per_arm", cross_fit=True, n_folds=5)` with `ParametricOutcome`
@@ -211,11 +211,12 @@ the empirical SD and the mean reported standard error, each times $\sqrt{n}$, fo
 
 ## Deviations from the plan
 
-The plan is the X58 plan, section 13.6. The table lists each deviation and its reason.
+The plan is the declaration the study made before its run. Each row is one deviation and its
+reason.
 
 | plan | study | reason |
 | --- | --- | --- |
-| $G$ counts nine gated units, with the primary phase outside the count (rev 3.1) | $G$ is 10, with the primary phase as a unit, and the primary phase has 1,200 replications | the pre-queue design review found that the driver gates the cross-fitted primary rows. At 800 replications their joint pass probability was 0.9915, below the per-unit target 0.99432. At 1,200 it is 0.99985 against 0.99488 |
+| $G$ counts nine gated units, with the primary phase outside the count | $G$ is 10, with the primary phase as a unit, and the primary phase has 1,200 replications | a review before the run found that the driver gates the cross-fitted primary rows. At 800 replications their joint pass probability was 0.9915, below the per-unit target 0.99432. At 1,200 it is 0.99985 against 0.99488 |
 | the declared reading names `shipped_curve_control` and `shipped_curve_median_control` | the reading names the cells `crossfit_1500__ate__shipped_curve__shrunken_se_control` and `repeats__ate__shipped_curve__shrunken_se_control` | the names in the plan were not cell names. Each control declares the exact ratio 0.845 and its pilot ratio |
 | the coverage of $\psi_0$ reported | the coverage of $\psi_0$ declared at 0.5646, 0.5646 and 0.2963 before the run, and reported | the quadrature predicts the values exactly, so the declaration costs nothing |
 | the pilot steps 2 and 4 read independent seeds | both steps read the same pilot seed, so step 4 contains the 5,200 draws of step 2 | the step 2 model at the declared budgets gave a study-wise 0.913, with five groups below target. The budgets stayed at the rev 3.1 values. Step 4 reads 1.000 at those budgets, and its interval half-widths equal those of the declared run, so its figure governs. At three times the data, every positive row lies at least 3.9 sampling SDs inside the band |

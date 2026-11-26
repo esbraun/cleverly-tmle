@@ -59,7 +59,9 @@ Practical consequences:
   `Q_r` and `g_{r,2}` have signed targets, so a classifier cannot fit them. `DRTMLE` refuses a
   classifier in either regression slot before it fits a learner. A `None` slot takes
   `outcome_learner=`, which is often a classifier on a binary outcome. Pass a regressor to each
-  regression slot in that case. On the randomized missing-outcome route,
+  regression slot in that case. It refuses a `ParametricOutcome` there for the same reason of
+  form: that model reads the treatment columns and then the covariates, and a reduced regression
+  reads one fitted nuisance column. On the randomized missing-outcome route,
   `reduced_mechanism_residual_learner=` fits `r_a` and `r_m`, and `reduced_outcome_learner=`
   fits `e`.
 - **A flexible primary nuisance does not buy a flexible reduction.** The reductions are on one

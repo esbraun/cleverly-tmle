@@ -14,9 +14,15 @@ import numpy as np
 
 from tests.unit.tutorial_semantics import covers, figure_title
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "fit-reading": {"1.000": "forest"},
+}
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("simulated-confounding",)
+REFIT_CELLS = ("benchmarks", "simulated-confounding")
 
 #: Decimals the prose writes that no output prints, each with how it follows from one.
 UNPRINTED_DECIMALS: dict[str, str] = {}
@@ -54,6 +60,11 @@ def _check_overlap_and_balance(namespace: dict[str, Any]) -> None:
     assert after["discharge_risk"] < 0.1 < before["discharge_risk"], "the main difference is gone"
     assert after["discharge_risk"] < 0.1 < after["prior_utilization"] < before["prior_utilization"]
     assert before["medication_burden"] < 0.1 and after["medication_burden"] < 0.1
+    # The true chances leave about the same prior-utilization gap as the fitted ones, so the gap
+    # is noise from large weights rather than a wrong treatment model.
+    true_chances = differences["smd_true_chances"]
+    assert abs(true_chances["prior_utilization"] - after["prior_utilization"]) < 0.05
+    assert true_chances["prior_utilization"] > 0.1
     assert figure_title(namespace["balance_fig"]) == "Covariate balance before and after weighting"
 
 
@@ -86,26 +97,72 @@ def _check_policy(namespace: dict[str, Any]) -> None:
     assert figure_title(namespace["policy_fig"]) == "Effect by policy"
 
 
+def _check_bound(namespace: dict[str, Any]) -> None:
+    """The robustness value is a small floor, and the contour marks it."""
+    robustness = namespace["robustness"]
+    assert 0.15 < robustness["rv"] < 0.4
+    assert robustness["rva"] < robustness["rv"]
+    assert figure_title(namespace["contour_fig"]) == "Sensitivity to hidden confounding"
+
+
+def _check_models(namespace: dict[str, Any]) -> None:
+    """Every calibration group lies near the diagonal, and few rows carry the uncertainty."""
+    bins = namespace["calibration_bins"]
+    assert len(bins) == 10
+    assert (bins["mean_predicted"] - bins["mean_observed"]).abs().max() < 0.07
+    assert figure_title(namespace["calibration_fig"]) == "Calibration of predicted probabilities"
+    row = namespace["influence_row"]
+    assert row["n"] == 1500 and 20 < row["kish"] < 50, "a few dozen rows carry the uncertainty"
+    assert figure_title(namespace["influence_fig"]) == "Concentration of the uncertainty"
+
+
+def _check_learners_and_bootstrap(namespace: dict[str, Any]) -> None:
+    """The linear model wins the ensemble, and the bootstrap spreads a little wider."""
+    table = namespace["learner_table"]
+    assert abs(table["weight"].sum() - 1.0) < 1e-9
+    winner = table["cross-validated error"].idxmin()
+    assert winner == "LinearRegression" and table.loc[winner, "weight"] > 0.99
+    assert figure_title(namespace["learners_fig"]) == "Learner risks and weights"
+    result = namespace["bootstrap_result"]
+    assert result.bootstrap.n_failed == 0 and namespace["spread"]["n_replicates"] == 200
+    row = namespace["row"]
+    assert row["bootstrap_ci_lower"] < row["psi"] < row["bootstrap_ci_upper"]
+    assert row["std_err"] < namespace["spread"]["sd"] < 1.25 * row["std_err"]
+    assert row["bootstrap_support"] == "experimental"
+    assert figure_title(namespace["bootstrap_fig"]) == "Bootstrap replicates"
+
+
 def _check_evalue(namespace: dict[str, Any]) -> None:
-    """The drawn curve passes through the E-value on the diagonal, and a wrong curve would not."""
-    evalue, partner = namespace["evalue"], namespace["partner_strength"]
+    """The drawn curves pass through the E-values on the diagonal, and a wrong curve would not."""
+    from cleverly.plotting._evalue import GID_EVALUE_ESTIMATE, GID_EVALUE_LIMIT
+
+    evalue, fig = namespace["evalue"], namespace["evalue_fig"]
     ratio, limit_ratio = evalue.risk_ratio, evalue.risk_ratio_ci[0]
     assert 1.4 < ratio < 1.7
     assert 1.0 < limit_ratio < ratio
     # E-value = RR + sqrt(RR (RR - 1)), where the two links are equal.
     assert abs(evalue.point - (ratio + np.sqrt(ratio * (ratio - 1.0)))) < 1e-9
     assert abs(evalue.limit - (limit_ratio + np.sqrt(limit_ratio * (limit_ratio - 1.0)))) < 1e-9
-    for ratio_i, value in ((ratio, evalue.point), (limit_ratio, evalue.limit)):
-        assert abs(partner(ratio_i, np.array([value]))[0] - value) < 1e-9
+
+    def factor(x: Any, y: Any) -> Any:
+        """The bounding factor x * y / (x + y - 1) of the two links."""
+        return x * y / (x + y - 1.0)
+
+    lines = {line.get_gid(): line.get_xydata() for line in fig.axes[0].lines}
+    for gid, ratio_i, value in (
+        (GID_EVALUE_ESTIMATE, ratio, evalue.point),
+        (GID_EVALUE_LIMIT, limit_ratio, evalue.limit),
+    ):
+        curve = np.asarray(lines[gid])
+        assert np.allclose(factor(curve[:, 0], curve[:, 1]), ratio_i, rtol=1e-9)
+        assert abs(factor(value, value) - ratio_i) < 1e-9
         # A pair of links below the curve gives a bias factor under the ratio, so it does not
-        # explain the estimate away. The factor is x * y / (x + y - 1).
-        x, y = value + 0.5, partner(ratio_i, np.array([value + 0.5]))[0] - 0.2
-        assert x * y / (x + y - 1.0) < ratio_i
-        assert x * (y + 0.4) / (x + y + 0.4 - 1.0) > ratio_i
+        # explain the estimate away; one above it does.
+        x = value + 0.5
+        y = float(np.interp(x, curve[:, 0], curve[:, 1]))
+        assert factor(x, y - 0.2) < ratio_i < factor(x, y + 0.2)
     assert evalue.limit < evalue.point
-    assert namespace["evalue_fig"].axes[0].get_title(loc="left") == (
-        "How strong would a missing confounder have to be?"
-    )
+    assert figure_title(fig) == "Confounding that could explain the estimate away"
 
 
 def _check_gamma(namespace: dict[str, Any]) -> None:
@@ -164,6 +221,24 @@ def _check_visits(namespace: dict[str, Any]) -> None:
         first["effective_n"] < first["n_followed"] and second["effective_n"] < second["n_followed"]
     )
     assert len(namespace["node_fig"].axes) == 2, "one panel per visit"
+    largest = namespace["balance_by_visit"].groupby("diagnostic")[["before", "after"]].max()
+    assert largest.loc["confounding", "after"] < 0.1 < largest.loc["confounding", "before"]
+    assert largest.loc["censoring", "after"] < largest.loc["censoring", "before"]
+    # The offer changes the later covariate, so the feedback row stays large after weighting.
+    assert largest.loc["feedback", "after"] > 0.5
+    assert figure_title(namespace["visit_weights_fig"]) == "Weights over time"
+    caps = namespace["cap_curve"].set_index(["lower_bound", "estimand"])
+    # The loosest floor caps almost nothing and the tightest caps a tenth, so the curve is not
+    # flat by construction, yet no estimate moves by half a standard error.
+    assert caps.xs(0.05, level="lower_bound")["share capped"].max() < 0.01
+    assert caps.xs(0.2, level="lower_bound")["share capped"].max() > 0.05
+    assert caps["move in SEs"].abs().max() < 0.5, "no estimate leans on its largest weights"
+    kish = namespace["influence_rows"]["kish"]
+    assert (
+        kish["ey_regimen[never]"]
+        < kish["ey_regimen[always]"]
+        < kish["ate_regimen[never vs always]"]
+    )
     assert figure_title(namespace["node_fig"]) == "Treatment probability at each time point"
 
 
@@ -182,6 +257,15 @@ def _check_exact(namespace: dict[str, Any]) -> None:
     assert namespace["retention"].loc["1%", 2.0] > 0.6
     title = figure_title(namespace["exact_overlap_fig"])
     assert title == "Predicted probability of treatment, by arm"
+    drawn = namespace["drawn"]
+    largest = max(row["largest"] for row in drawn)
+    assert 5.0 < largest < 30.0 and all(row["median"] < 3.0 for row in drawn)
+    assert figure_title(namespace["exact_weights_fig"]) == "Weights over time"
+    assert figure_title(namespace["exact_learners_fig"]) == "Hazard and treatment model selection"
+    lost = namespace["lost"]
+    assert len(lost) == 6 and (lost["support"] == "experimental").all()
+    relapse = lost.set_index("estimand").loc["rmtl_regimen[offered vs not offered, relapse @ t=2]"]
+    assert relapse["ci_upper"] < 0.0, "the offer cuts the years lost to relapse"
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -190,16 +274,35 @@ def check(namespace: dict[str, Any]) -> None:
     _check_overlap_and_balance(namespace)
     _check_truncation(namespace)
     _check_policy(namespace)
-    _check_evalue(namespace)
+    _check_bound(namespace)
     _check_gamma(namespace)
     _check_survey(namespace)
+    _check_evalue(namespace)
+    _check_models(namespace)
+    _check_learners_and_bootstrap(namespace)
     _check_visits(namespace)
     _check_exact(namespace)
     _check_zipper(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """The invented confounder shrinks the estimate without reversing it."""
+    """The offer drivers pass the floor; the invented confounder never reverses the estimate."""
+    floor = namespace["robustness"]["rv"]
+    std_error = namespace["result"]["ate"].std_error
+    psi = namespace["result"]["ate"].psi
+    rows = {row["left out"]: row for row in namespace["rows"]}
+    sensitivity = namespace["sensitivity"]
+    for name in ("discharge_risk", "prior_utilization"):
+        row = rows[name]
+        assert row["score side"] > floor and row["weight side"] > floor
+        # The weight-side share prints 1.0 because the raw gain reaches 1 or more.
+        assert sensitivity.benchmark(covariates=(name,)).gain_d >= 1.0
+        assert abs(row["estimate without it"] - psi) > 5 * std_error
+    # The witness the contrast needs: a characteristic below the floor on both sides moves the
+    # estimate by less than one standard error.
+    weak = rows["medication_burden"]
+    assert weak["score side"] < floor and weak["weight side"] < floor
+    assert abs(weak["estimate without it"] - psi) < std_error
     frame = namespace["cells"].set_index(["treatment_strength", "outcome_strength"])
     estimate = frame["estimate"]
     assert abs(estimate[(0.0, 0.0)] - namespace["result"]["ate"].psi) < 1e-6

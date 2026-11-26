@@ -313,6 +313,7 @@ status. A shown status returns the plug-in interval and the estimate carries the
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, `"discrete"`, `"lasso"`, or `"learners"`. A `discrete` fit with one declared candidate, equal to the set the treatment mechanism reads, takes the TMLE status instead. That set is the full adjustment set, or the `treatment_adjustment=` subset. `patience=` leaves the status unchanged. A `learners` fit with an empty declared list does the same. A `"derivative"` fit (C-TMLE0) selects nothing and takes the TMLE status. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` that `per_arm_parametric_support` refuses, of either `oat_design=`. This includes a fit with `strata=`, `delta=` or `treatment_delta=`, a fit with a scikit-learn learner, and a fit that requests one arm mean outside the admitted set. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_mechanism_plugin"` | an `AdaptiveIPTW` fit with an estimated treatment or missingness mechanism in any reported key. A key has a known mechanism only on complete data that declares the treatment probabilities. A complete-data natural-course mean alone reads no key and keeps `"influence_curve"`. Theorem 1 of van der Laan (2012), WP302, then needs a term that is linear in the mechanism error to vanish, and no fit can check it. [When an interval is reported](adaptive-iptw.md#when-an-interval-is-reported) gives the derivation, and a user fits the known-mechanism keys on their own to get their intervals | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [X36](../roadmap.md#x36-projected-variance-for-adaptiveiptw-with-a-declared-parametric-mechanism) |
+| `"reduced_regression_plugin"` | a `DRTMLE` fit of a conditional contrast's projection with a non-empty `guard` and an estimated treatment mechanism. For each basis term the remainder keeps the conditioning term of the reduced regressions, which is linear in the mechanism error and which no fit can check. A declared mechanism (`treatment_probabilities=`) removes it, and that fit keeps `"influence_curve"`. [The conditioning terms are linear in one error](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) gives the scalar term, which holds per basis term with the weight inside | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit that `per_arm_parametric_support` admits takes it too with weights declared estimated, because its stacked curve conditions on the weights. That curve equals the fixed-weight curve, and no registered cell measures estimated weights. A `SequentialGComputation` or `SequentialIPW` fit with weights declared estimated takes it too, for the same reason. A `StructuralNestedMean` fit with weights declared estimated takes it too. An `AdaptiveIPTW` fit with a known treatment mechanism and weights declared estimated takes it too, because its curve rests on the reduced regression of the weighted law and holds the weights fixed. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | shown: return the plug-in values under the experimental label. The interval conditions on the weights | `std. error` |  [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
 | `"trimmed_ratio_plugin"` | an `LTMLE` or `SDR` fit with `ratio_trim=` whose trim moves a positive per-node density ratio of any regimen. A trim that moves no ratio keeps the fit status. [Ratio trimming](longitudinal-tmle.md#ratio-trimming) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) |
 | `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason. A `StructuralNestedMean` fit with `n_folds=1` and a learner other than `GLM` takes it too. [Structural dynamic effects](structural-dynamic-effects.md#status) gives the reason | raise `CapabilityError` with the reason of the status | `plug-in SE (diagnostic)` | none; fit `LTMLE` or `SDR` |
@@ -522,8 +523,9 @@ this package at unequal sizes.
 
 A clustered fit that reads $J$ clusters with positive weight mass, with $3 \le J < 40$, reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. A fit with
-$J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
-`"few_cluster_plugin"`.
+$J$ below its interval floor carries the experimental label and the status
+`"few_cluster_plugin"`. The floor is 10 for a point-treatment fit and 20 for a longitudinal one,
+and lower for the measured contrast of some fit families (the floor table below).
 Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays, except for a fold-evaluated estimate, which takes $J-V$ at every cluster count.
 `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the normal reference.
@@ -595,8 +597,30 @@ the same parameter. A learned-rule fit is exempt, because its target is defined 
 average. [CV-TMLE](cv-tmle.md#clusters-of-unequal-mass) gives the trigger, the measured bias and
 the reason the stacked point is the only fold aggregation without it.
 
-Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
-registered few-cluster evidence uses parametric nuisance learners only.
+Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters.
+[`few-cluster-adaptive-learners`](method-evidence/few-cluster-adaptive-learners.md) measures the
+default learner library for every nuisance at 10, 20 and 40 clusters. Stacked `TMLE` on two laws,
+one with both nuisances nonlinear, and cross-fitted `LTMLE` at 20 clusters pass every gated
+clause: the coverage floor, the bias margin, a variance-ratio lower end of 0.8649, a shown-coverage
+lower end of 0.92 and, on the first law, paired non-inferiority to a GLM fit on the same draws.
+The measured ground is stacked `TMLE` at 10 to 40 clusters and cross-fitted `LTMLE` at 20
+clusters, with the default library: there a fit keeps its row's label (`T11.stacked` below 40
+clusters, or `G07` from 20 clusters). The study covers equal clusters of 10 rows (40 units for
+`LTMLE`) and binary outcomes only, so Remark 3 remains the source's caution for other designs.
+
+On the $t$ tier every other fit with a data-adaptive outcome or treatment learner is experimental
+with its interval shown; the reduced-regression learners of `DRTMLE` are not read. A
+scikit-learn pipeline of fixed polynomial or scaling transforms before a parametric model counts
+as parametric (`cleverly._support.nuisance_family`). A cross-fitted
+fit outside the measured ground reads "not measured with an adaptive learner": another adaptive
+learner (a scikit-learn tree, or a Super Learner with a library named), cross-fitted `LTMLE`
+below 20 clusters, and the fold-evaluated, `DRTMLE` and `SDR` fits with an adaptive outcome or
+treatment learner. An in-sample fit, the default library among them, has no Donsker
+argument: each learner, and each Super Learner candidate, predicts from its fit to the full
+sample, so the residuals the interval reads shrink at any cluster count. The study's in-sample
+cells read coverage 0.906 to 0.919 and a variance ratio of 0.72 to 0.88. The support key records
+the cases as the qualifiers `adaptive_nuisance` and `adaptive_nuisance_measured`
+(`cleverly._support.adaptive_nuisance_shortfall`).
 
 The `"few_cluster_plugin"` range counts clusters with positive weight mass in the fit or in one
 reported baseline stratum. Its upper bound is one below the fit's interval floor.
@@ -686,8 +710,9 @@ rule.
 
 ### Cluster jackknife
 
-`LTMLE(cluster_variance="jackknife")` replaces the cluster influence-curve variance of every
-reported estimate with the delete-one-cluster jackknife. `TMLE` takes the same argument and, after
+`LTMLE(cluster_variance="jackknife")`, or `Inference(cluster_variance="jackknife")` on a study,
+replaces the cluster influence-curve variance of every reported estimate with the delete-one-cluster
+jackknife. `TMLE` takes the same argument and, after
 the floor studies, refuses it on every fit (the last table of this section). For each of the $J$ positive-mass clusters the fit refits every nuisance and redoes the
 targeting with that cluster removed, giving $\hat\theta^{-g}$ on each estimate's inference scale.
 The reported covariance is
@@ -718,7 +743,8 @@ learner with code `inference_gap` and roadmap
 | a plain `"tmle"` fit with one split: not fold-evaluated, not fold-targeted, `repeats=1`, no learned rule, incremental intervention, effect-modification projection, policy-weighted variance, or vector or continuous treatment | each of these centres its variance within folds, aggregates over splits, or moves its target with the refit |
 | `n_bootstrap=0` | the bootstrap and the jackknife both replace the variance (`invalid_declaration`) |
 
-`SDR` and `IPSI` take no `cluster_variance` argument.
+`SDR` and `IPSI` take no `cluster_variance` argument, and `SDRMethod` and `IPSIMethod` refuse
+`Inference(cluster_variance="jackknife")` at construction with the same reason.
 
 A refit that raises, or that withholds an estimate's interval for a reason other than an
 estimate outside its bounds, leaves that estimate's jackknife undefined. The estimate then takes
@@ -795,14 +821,22 @@ estimates a familywise critical value.
 
 | choice | what it does |
 | --- | --- |
-| `simultaneous=` | turns the familywise band on. It is on by default |
+| `simultaneous=` | turns the familywise band on. The default depends on the estimator (below) |
 | `n_multiplier=` | the number of draws: 10,000 by default on every engine |
 | `multiplier_kind=` | the multiplier distribution: `mammen` (the default), `rademacher`, or `normal` |
 | `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
 | `band_reference=` | the reference each estimate's band slice is read on: `normal` (the default) or `t`, a Student $t$ per estimate ([The t reference](#the-t-reference)) |
 
-The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
-`median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
+| estimator | the band by default |
+| --- | --- |
+| `TMLE` and the estimators built on it (`DRTMLE`, `CTMLE`, `AdaptiveIPTW`); `LTMLE`, `SDR`, `IPSI` and the sequential baselines; `StructuralNestedMean` | on (`simultaneous=True`). A fit whose status withholds the interval, such as a selector-path `CTMLE`, builds no band |
+| `DoseResponseTMLE` | always on, over every declared pair; the estimator takes no `simultaneous=` |
+| `ContinuousSurvivalTMLE`, `SurvivalDRTMLE` | off; pass `simultaneous=True` |
+| `SurvivalCTMLE` | off, and `simultaneous=True` is refused: no result supports a confidence statement after the collaborative selection |
+| the adaptive TMLE of a trial with external data | none; the method takes no band settings |
+
+The band's settings (Mammen multiplier, logit scale, 10,000 draws) are the same for
+`simultaneous_bands()`, `median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
 its range. `DoseResponseTMLE` passes none, so its band is the Mammen band at 10,000 draws on the
 identity scale, and a limit can leave [0, 1]. The module docstring of
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
@@ -1092,22 +1126,74 @@ These fit shapes publish no default band.
 | the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 | a status that withholds its interval, or a $t$ reference | no band is built. A status that shows its interval with no $t$ reference builds a band that carries `support` |
 
+## Bootstrap
+
+`n_bootstrap=B` adds a full-refit bootstrap beside the influence-curve interval. Each replicate
+draws the units with replacement and reruns the whole estimator on them: the split, every nuisance
+fit and the targeting. Holding the nuisance fits fixed would leave their estimation out of the
+spread. The module docstring of
+[`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py)
+states the construction. The rules below are shared, and each method page states where its
+bootstrap runs, what a replicate refits and which support rows license the interval:
+[longitudinal TMLE](longitudinal-tmle.md#the-full-refit-bootstrap),
+[continuous-time survival](continuous-time-survival.md#the-full-refit-bootstrap) and
+[conditional effects](conditional-effects.md#bootstrap). The
+[full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+measures the longitudinal intervals and their derived contrasts.
+
+| question | rule |
+| --- | --- |
+| the resampled unit | a row, or with `id=` a whole cluster (`bootstrap_resampling="auto"`; `"iid"` or `"cluster"` overrides it). Each drawn occurrence of a cluster gets its own code, so two draws of one source cluster are two clusters in the replicate |
+| weights | resampled with their rows and renormalized within the replicate. They are not derived again, so on weights from a fitted selection or calibration model the bootstrap interval conditions on that fit, as the influence-curve interval does |
+| a replicate that cannot run | dropped, not drawn again, and counted in `n_failed`. The interval is conditional on the replicates that ran. Under a rare arm the dropped replicates are those in which the arm is rarest, so the surviving spread can be narrower than the unconditional one |
+| the standard error | the sample standard deviation of the finite replicate estimates |
+| the percentile interval, `bootstrap_interval="percentile"` (the default) | `np.quantile` of the finite draws at $\alpha/2$ and $1 - \alpha/2$ |
+| the BCa interval, `bootstrap_interval="bca"` | the bias-corrected and accelerated limits below. `LTMLE`, `SDR`, `IPSI` and `ContinuousSurvivalTMLE` admit it. A point-treatment fit and the sequential baselines refuse it ([engine settings on a method object](scope-and-refusals.md#engine-settings-on-a-method-object)), and `SurvivalCTMLE` and `SurvivalDRTMLE` refuse any bootstrap |
+| the diagnostic names | the [inference status](#inference-status) section gives the column names a bootstrap takes when its estimate supplies no inference or the fit reads fewer clusters than its interval floor |
+
+The BCa limits are those of DiCiccio and Efron (1996), with the nonparametric acceleration of
+their display (6.6) read from the influence curve ([references](../references.md)). The bias correction is
+$z_0 = \Phi^{-1}(\#\{\psi^*_b < \hat\psi\} / B)$, with a draw equal to $\hat\psi$ counted as one
+half. The acceleration is $\hat a = \sum_i D_i^3 / \bigl(6 (\sum_i D_i^2)^{3/2}\bigr)$, with $D_i$
+the centred influence curve of the estimate, summed within each cluster under a cluster bootstrap.
+That is the skewness of the curve over $6\sqrt n$.
+
+Each limit is read at the level $\Phi\bigl(z_0 + (z_0 + z_q) / (1 - \hat a (z_0 + z_q))\bigr)$ for
+$q = \alpha/2$ and $1 - \alpha/2$. The lower limit is the
+$\lfloor \text{level}\,(B + 1) \rfloor$-th order statistic of the draws and the upper limit the
+$\lceil \text{level}\,(B + 1) \rceil$-th, so each limit is a replicate value. The limits are `nan`
+when every draw lies on one side of $\hat\psi$, or when $1 - \hat a (z_0 + z_q)$ is not positive.
+With fewer than two finite draws neither interval has limits.
+`tests/unit/test_bootstrap_intervals.py` checks the limits against a hand computation, the ranks at
+the boundary, the tie rule and the one-sided case.
+
 ## Reporting a subset of a family
 
 When the public layer reports a subset of the parameters an engine computed, the inference it
 reports is the inference for that subset. A joint band is a statement about a family. Narrowing the
 family and keeping the critical value would assert a coverage property over parameters the result
 no longer contains. `cleverly` recomputes from the retained influence curves under the same
-significance level, draw count, multiplier distribution, seed, and cluster structure.
+significance level, draw count, multiplier distribution, seed, and cluster structure. A
+longitudinal fit's studentized bootstrap band is rebuilt the same way, from the retained
+parameters' replicate estimates and replicate standard errors at the same level. Below two
+retained parameters neither band exists. A narrowed band of either kind is `experimental`, because
+no study measures a band over the subset.
 
 ## What is not on this page
 
-Two inference rules belong to one method each, and each method entry states its own.
+Some inference rules belong to one method each, and each method entry states its own.
+`ParameterEstimate.variance_source` names the variance an estimate reports, and `to_frame()`
+carries it as a column when a rule other than the influence curve applies. Its five values are `"influence_curve"`, the curve's variance on this
+page; `"jackknife"`, the [cluster jackknife](#cluster-jackknife) above; and the three method rules
+in the table.
 
 | rule | where it is stated |
 | --- | --- |
 | the cross-validated variance under fold evaluation, and why it is not a fold-averaged second moment | [CV-TMLE](cv-tmle.md#variations) |
 | the plug-in influence-curve variance for `LTMLE`, and what it does not absorb | [Longitudinal TMLE](longitudinal-tmle.md#validation-issues-special-to-this-method) |
+| `"policy_weighted"`: the larger of the curve's variance and a policy-weighted one, under `variance="policy_weighted"` on `LTMLE` and `SDR` | [the interval under heavy cumulative density ratios](longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios) |
+| `"boundary_node"`: the curve's variance plus the node-variance supplement, at a node whose regression reads a constant, inside the supplement's reach | [a node with no event](longitudinal-tmle.md#a-node-with-no-event) |
+| `"predictable_variation"`: the larger of the curve's variance and the predictable variation of its martingale part, when the curve is sparse, under the default `variance="switched"` of `ContinuousSurvivalTMLE` | [the switched variance](continuous-time-survival.md#the-switched-variance) |
 
 The corrected curve `DRTMLE` reports is the estimator's own influence function rather than the
 efficient one. [DR-TMLE](dr-tmle/index.md#what-this-solves) says what follows from that.

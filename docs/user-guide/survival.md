@@ -113,10 +113,47 @@ analysis with this design.
 
 ## Ratios and the restricted mean survival time
 
-A fitted risk curve also gives ratios and the restricted mean survival time (RMST), the average
-event-free time up to a cut-off. The fit below uses `RegimeMean`, which reports each plan's risk
-at the `horizons=` given; `RegimeContrast` above reports only differences. `ratio` and `rmst`
-refit nothing, and `.psi` is the point estimate.
+The restricted mean survival time (RMST) up to a cut-off `tau` is the average event-free time
+over the window from 0 to `tau`: a person who has the event at time 1.5 counts 1.5, and a person
+still event-free at `tau` counts `tau`. Declare each cut-off in `restricted_horizons=` on the
+plan comparison, and read the difference of the two plans with `rmst`. `.psi` is the point
+estimate.
+
+```python
+gain = CausalStudy(frame, design=design).estimate(
+    RegimeContrast(
+        {"arm1": 1, "arm0": 0}, reference="arm0", horizons=(4,), restricted_horizons=(4,)
+    ),
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+rmst = gain.rmst("arm1", 4, versus="arm0")
+print(rmst.name, rmst.ci, rmst.support.label)
+```
+
+`rmst_regimen[arm1 vs arm0 @ t=4]` is the event-free time that treating everyone adds, on
+average, over the first 4 grid time units. `RegimeMean(..., restricted_horizons=(4,))` reports
+each plan's own RMST instead, and `rmtl(arm, tau, cause)` the restricted mean time lost to one
+cause, the average time spent after that event within the window. The fit needs the risk at every
+grid time before `tau`, so it adds those times to the fit and reports only the ones in
+`horizons=`. That costs $K(K+1)/2$ regressions per plan and cause for $K$ grid times up to `tau`
+on the default model. On `survival_model="hazard"` with `targeting="one_step"`, the added times
+also join the adjustment step and move the reported risks slightly.
+
+The RMST is read off the grid: an event counts at the next check time, so this average is never
+below the one from exact event times, and exceeds it by less than the longest gap between check
+times, counting from time 0. The name keeps the cut-off's position on the grid, as for a risk,
+and the `time` column of `to_frame()` gives `tau` itself. Its interval is the plain symmetric
+interval of a sum of risks, unlike the exact-time one below, which stays inside 0 to `tau`.
+This example's interval reads `experimental`, because no simulation study checked four check
+times fitted in sample. The RMST difference reads `supported` on the five-time design that the
+[point-treatment survival](../technical-reference/method-evidence/point-treatment-survival.md)
+study checked, and [Read and save results](results-assessment.md) explains the labels.
+
+A fit with every grid time in `horizons=` also gives ratios, and computes the RMST of any cut-off
+from its risks without declaring it. Neither call refits anything.
 
 ```python
 from cleverly import RegimeMean
@@ -132,8 +169,7 @@ risk_ratio = risks.ratio("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")
 survival_ratio = risks.ratio(
     "risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]", view="survival"
 )
-rmst = risks.rmst("arm1", 4, versus="arm0")
-print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
+print(risk_ratio.ci, survival_ratio.psi, risks.rmst("arm1", 3).psi)
 ```
 
 | call | what it reports |
@@ -145,12 +181,29 @@ print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
 | `rmst(d, tau, versus=b)` | the difference of two RMSTs |
 | `rmtl(d, tau, cause)` | the restricted mean time lost to one cause |
 
+To see the risks over time, draw the fit that reports every grid time:
+
+```python
+import cleverly.plotting
+
+cleverly.plotting.curve(risks)
+```
+
+The top panel shows each plan's risk at every grid time with its 95% interval, held flat until
+the next grid time, and the rows below count, for each plan, the people who received it and are
+still followed. The paler band around each interval, drawn as brackets at the last time, is the
+simultaneous band, which covers every risk at once; no study has measured it yet, so it reads
+`experimental`. On a `RegimeContrast` fit, which keeps no single plan's risk, the figure draws
+only the differences.
+
 :::{dropdown} Details: what `rmst` needs and its units
-`rmst` needs the risk at every time from the first to the one before `tau`, since for unit-spaced times it is
-$\tau - \sum_{t<\tau} F_d(t)$ with $F_d(t)$ the risk by `t` under plan `d`. On a `TimeToEvent`
-grid with other spacing, each risk is weighted by the gap to the next grid time. On a `TimeToEvent`
-grid the times are grid times. On the wide layout they count time points, so for points spaced
-$\Delta$ apart, multiply by $\Delta$ to get calendar time.
+For unit-spaced times the RMST is $\tau - \sum_{t<\tau} F_d(t)$, with $F_d(t)$ the risk by `t`
+under plan `d`. On a `TimeToEvent` grid with other spacing, each risk is weighted by the gap to
+the next grid time. On a `TimeToEvent` grid the times are grid times. On the wide layout they
+count time points, so for points spaced $\Delta$ apart, multiply by $\Delta$ to get calendar
+time. For a `tau` not in `restricted_horizons=`, `rmst` needs the risk at every grid time before `tau` in
+the fit, and a `RegimeContrast` fit keeps no risk of a single plan, so it then refuses and names
+the field.
 :::
 
 ## Exact event times, without a grid
@@ -204,42 +257,79 @@ regressions and the treatment with logistic regression, picks among a few of eac
 cross-validation, and fits each person's predictions on the other rows. It then nudges the
 predicted rates, in small steps, until the risks satisfy the equations that make their intervals
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
-about ten seconds at 1,000 people.
+a few seconds at 1,000 people.
 
 The fit works through the people in small groups, so its memory grows with the number of people
 and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
 people and two horizons, it needs about 0.7 GB. About 0.4 GB of that is working space for the
-default standard errors (`variance="switched"` on `ContinuousSurvivalTMLE`), which does not grow
+default standard errors (`variance="switched"`), which does not grow
 with the number of people; `variance="influence_curve"` skips that step and needs about 0.3 GB.
 Before fitting anything, the fit checks that the machine has the memory it needs free and stops
 with an error when it does not; on macOS, which does not report free memory, it checks only a
 limit you set. Between passes it keeps as many groups as the free memory holds and recomputes the
-rest, so a larger limit makes a large fit faster and never changes its result. The error spells the `ContinuousSurvivalTMLE` call that runs the same fit,
-whose `max_memory_bytes=` sets the limit, as the [Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
+rest, so a larger limit makes a large fit faster and never changes its result. Pass
+`max_memory_bytes=` to `estimate()` to set the limit, as the
+[Memory](../technical-reference/continuous-time-survival.md#memory) section explains.
 
 A [simulation study](../technical-reference/method-evidence/continuous-time-survival.md) with two
 competing events at 1,000 people found the risks unbiased and their 95% intervals covering 94% to
 95% of the time, at the times by which half and three quarters of the events had happened. At the
-time by which a quarter had happened its intervals covered 93% to 96%, but in a
+time by which a quarter had happened, a
 [second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
-other data-generating setups some intervals at that early time were still too narrow. So an
-estimate reads `supported` only at a time by which 40% to 85% of the events of any cause have
-happened, not counting people who left follow-up. By time 0.5 about a fifth had,
-so the first line reads `experimental`. The other conditions of the label are in the study's
-[limits](../technical-reference/method-evidence/continuous-time-survival.md#limits).
+other data-generating setups found some intervals still too narrow, and a
+[third study](../technical-reference/method-evidence/continuous-survival-causes.md) measured fits
+with one and with three kinds of event. The
+share in the table counts every observed event of any kind together, and leaves out people who
+left follow-up.
 
-A [third study](../technical-reference/method-evidence/continuous-survival-causes.md) ran the same
-fit at 1,000 people with one kind of event and with three competing ones, and its intervals
-covered 93% to 96% of the time at the same two times. So those fits can read `supported` too, but
-only from 1,000 people. With four or more kinds of event every estimate reads `experimental`,
-because no study has checked such a fit.
+| the fit, with the default models and settings | an estimate reads `supported` when |
+| --- | --- |
+| two kinds of event, `cross_fit=True` | n is at least 500, 40% to 85% of the events have happened by its time, and its interval does not lean on a few people (its `variance_rel_sd` is at most 0.246) |
+| one or three kinds of event, `cross_fit=True` | the same, from 1,000 people, with no restricted mean |
+| two kinds of event, `cross_fit=False` | the same, from 1,000 people, with no restricted mean |
+| two kinds of event, `cross_fit=True`, one cut-off in `restricted_horizons=` | the same, from 1,000 people; `rmst` and `rmtl` also need 67% to 85% of the events by the cut-off, and the risk ratio of the two arms reads `supported` only in such a fit |
+
+Anything else you change from the defaults, such as the models, `n_folds=` or
+`variance="influence_curve"`, makes the estimate `experimental`, and so does a fit with four or
+more kinds of event. Each estimate's `support.reason` names the condition it missed, and the
+[Evidence](../technical-reference/continuous-time-survival.md#evidence) section gives every
+condition. In the example, about a fifth of the events had happened by time 0.5, so the first line
+reads `experimental`. The treated arm's risk of death by time 2, and the difference in that risk,
+read `experimental` too, because their intervals lean on a few people.
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
-the step that adjusts the risks met the stopping rule its intervals rely on. The refutation tests
-and the sensitivity analyses for an unmeasured confounder do not run on this fit yet, and the report
-lists each with its reason. The one exception is the E-value of a risk ratio, which runs when you
-name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder) shows.
+the step that adjusts the risks met the stopping rule its intervals rely on. Three checks refit the
+analysis: the refutation tests (placebo, random common cause and subset), the truncation curve
+(how the estimates move as the floor on small chances is raised), and the simulated-confounder
+stress test. They run when you call them, and the report lists them as waiting for that call;
+the refutation also needs you to name the estimate to check, and the stress test an estimate and
+a grid of confounder strengths. The E-value of a risk ratio waits too, until you name the two
+risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder)
+shows. The omitted-variable bound, the marginal bound and the missingness tilt are refused for this
+fit, each with its reason; the [Assessment](../technical-reference/continuous-time-survival.md#assessment)
+table lists every check.
+
+The placebo test shuffles the treatment among the people and refits, so the refitted difference
+should sit near zero:
+
+```python
+placebo = exact_risks.diagnostics.refute(
+    estimand="ate_regimen[treated vs control, relapse @ t=2]",
+    tests=("placebo",),
+    n_replicates=2,
+)
+print(placebo.summary())
+```
+
+Two refits keep the example fast. The default runs the three tests 20 times each, 60 refits, which
+takes minutes at 1,000 people; `exact_risks.diagnostics.planned_refits(estimand=...)` gives the
+count before you start. A [refutation study](../technical-reference/method-evidence/refuter-calibration-continuous-survival.md)
+set pass and fail rules for the placebo and subset tests on a risk difference, from a fit like the
+one it ran: two kinds of event, at least 1,000 people, the default models and settings, the
+default 20 refits, and a time by which 43% to 79% of the events have happened. Even there, the
+subset test fails about one fit in eleven with nothing wrong. Every other reading prints its
+numbers with no pass or fail, as this two-refit example does.
 
 The plots draw the risks and the same checks from what the fit kept:
 
@@ -254,8 +344,11 @@ learners(exact_risks)
 
 `curve` draws each plan's risk of each event, one column per event, and the difference below.
 Each risk is a point at a time in `horizons=` with its 95% interval, and nothing is drawn between
-those times, because the fit estimates no risk there. No simultaneous band is drawn, because this
-fit did not compute one; `simultaneous=True` adds it.
+those times, because the fit estimates no risk there. Brackets at each time mark the
+simultaneous band, which covers all the reported risks and differences at once. A study fit
+computes it by default, and a direct `ContinuousSurvivalTMLE` fit needs `simultaneous=True`. No
+study has measured this band yet, so it reads `experimental`. `curve(..., band="none")` leaves it
+out, and `band="bootstrap"` draws the bootstrap band of a fit with `n_bootstrap=`.
 
 `overlap` shows each person's predicted chance of being treated. With `censoring=True` it adds,
 for each arm, the chance of that arm times the chance of staying in follow-up just before the last
@@ -284,21 +377,20 @@ gives the method, its conditions and what it refuses.
 
 ### Restricted means and risk ratios with exact times
 
-With exact times, call `ContinuousSurvivalTMLE` directly to get the restricted mean survival time
-(RMST), the average time without either event up to a cut-off, and the restricted mean time lost
-to one event. Name each cut-off in `restricted_horizons=` before the fit.
+With exact times, declare each cut-off in `restricted_horizons=` on the plan comparison to get the
+restricted mean survival time (RMST), the average time without either event up to the cut-off,
+and the restricted mean time lost to one event.
 
 ```python
-from cleverly.survival import ContinuousSurvivalTMLE
-
-exact_fit = ContinuousSurvivalTMLE(
-    (0.5, 2.0),
-    restricted_horizons=(2.0,),
-    arms={"treated": 1, "control": 0},
-    reference="control",
-    causes={1: "relapse", 2: "death"},
+exact_fit = CausalStudy(exact, design=exact_design).estimate(
+    RegimeContrast(
+        {"treated": 1, "control": 0},
+        reference="control",
+        horizons=(0.5, 2.0),
+        restricted_horizons=(2.0,),
+    ),
     random_state=0,
-).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+)
 gained = exact_fit.rmst("treated", 2.0, versus="control")
 lost = exact_fit.rmtl("treated", 2.0, "relapse", versus="control")
 ratio = exact_fit.ratio(
@@ -324,11 +416,89 @@ give the other conditions, among them that a cut-off past the last target time r
 
 The fit adjusts its predicted event rates until each reported number satisfies the equation its
 interval rests on. A cut-off it was not told about was never part of that adjustment, so `rmst`
-and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from the first argument, the
-target times. The "What is refused" table of
+and `rmtl` refuse one, and `ratio` and `curve` refuse a time missing from `horizons=`. The "What
+is refused" table of
 [continuous-time survival](../technical-reference/continuous-time-survival.md) lists each case.
 The extra cut-offs join the adjustment, so the risks of this fit differ slightly
 from those of a fit without them.
+
+`ratio`, `rmst` and `rmtl` work as in the grid fits above, except that `rmst` and `rmtl` read
+only a cut-off declared in `restricted_horizons=`. A fit with exact times also reports the
+risk ratio of the two arms beside each difference, under `rr_regimen[...]`, and these read
+`supported` only in a fit with one cut-off. Its other calls:
+
+| call | what it gives |
+| --- | --- |
+| `curve()` | a frame of every risk with its interval, one row per arm, kind of event and time |
+| `contrast(function, names)` | any smooth function of reported estimates, with its interval; it always reads `experimental` |
+| `to_frame()`, `to_dict()` | every estimate as a table or a dictionary |
+
+With two or more kinds of event, `curve(scale="survival")` and `ratio(..., view="survival")`
+refuse, because one minus one event's risk is not the chance of being free of every event. The
+risk of any event is the sum of the risks of each kind, which `contrast` gives, and the chance of
+staying free of every event is one minus that sum:
+
+```python
+any_event = exact_fit.contrast(
+    lambda risks: risks[0] + risks[1],
+    ["cif_regimen[treated, relapse @ t=2]", "cif_regimen[treated, death @ t=2]"],
+    name="any event, treated @ t=2",
+)
+print(round(any_event.psi, 3), any_event.ci)
+```
+
+:::{dropdown} Details: the same fit without a study
+The study builds this call to `ContinuousSurvivalTMLE`, which takes the cut-offs as
+`restricted_horizons=` and returns the same estimates:
+
+```python
+from cleverly.survival import ContinuousSurvivalTMLE
+
+engine_fit = ContinuousSurvivalTMLE(
+    (0.5, 2.0),
+    restricted_horizons=(2.0,),
+    arms={"treated": 1, "control": 0},
+    reference="control",
+    causes={1: "relapse", 2: "death"},
+    random_state=0,
+).fit(exact, time="time", event="event", treatment="treated", baseline=["x"])
+print(round(engine_fit.rmst("treated", 2.0, versus="control").psi, 3))
+```
+:::
+
+### Choose the event-rate models
+
+By default the fit chooses each event's rate model, and the model of leaving follow-up, from three
+Cox regressions: one on the treatment alone, one on the treatment and the covariates, and one that
+adds every treatment-by-covariate product. It picks among them by cross-validation. Pass
+`hazard_library=` and `censoring_library=` to `estimate()` to choose others:
+
+```python
+from cleverly.survival import CoxHazard, StratifiedNelsonAalen
+
+own_models = CausalStudy(exact, design=exact_design).estimate(
+    RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=(0.5, 2.0)),
+    hazard_library=(CoxHazard("main"), CoxHazard("interaction", penalty=1.0)),
+    censoring_library=(StratifiedNelsonAalen(),),
+    random_state=0,
+)
+print(own_models["ate_regimen[treated vs control, relapse @ t=2]"].support.label)
+```
+
+`CoxHazard(terms, penalty=)` takes `"treatment"`, `"main"` or `"interaction"`, and a ridge
+`penalty=` that shrinks the coefficients. `StratifiedNelsonAalen()` estimates the rate within
+each arm with no covariates, which suits dropout that depends on the arm alone. A library with
+more than one model must hold `CoxHazard` models only, because the cross-validation compares their
+fits on the same people at risk; mixing in `StratifiedNelsonAalen` is refused. Any library other
+than the default makes every estimate `experimental`, as this one prints.
+
+A Cox fit can fail to settle when a covariate sorts the event times perfectly, or a kind of
+event is missing from one arm in a training fold. The fit may then warn with a
+`ConvergenceWarning` naming the coefficients that may be infinite; a check of this kind catches
+most such cases, not all. Its message gives the two remedies: a `penalty=` on `CoxHazard`, or
+`StratifiedNelsonAalen(by=...)` stratified on a discrete column that separates the data.
+[Initial fits](../technical-reference/continuous-time-survival.md#initial-fits) gives the
+selection rule, and [Settings](settings.md#models-and-learners-modelspec) lists both arguments.
 
 ## Treatments over time with an event outcome
 
@@ -488,9 +658,15 @@ intervals on that kind of fit.
 
 :::{dropdown} Details: where eliminate= works, and its study
 With one cause left, `ratio()` and `rmst()` work on the fit.
-`eliminate=` works on `TimeToEvent`, `LongitudinalTreatment` and the long layout `LongPanel`, and
-on every longitudinal estimator except structural nested means. A learned plan and a separable
-effect refuse it.
+`eliminate=` works on a `TimeToEvent` design with a grid, `LongitudinalTreatment` and the long
+layout `LongPanel`, and on every longitudinal estimator except structural nested means. The
+exact-time design `grid="continuous"` refuses it (roadmap
+[X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)), and so do the collaborative and doubly robust
+survival fits (the [collaborative TMLE refusals](../technical-reference/scope-and-refusals.md#collaborative-tmle-of-a-risk-curve)
+and [doubly robust TMLE on time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)).
+A [learned plan](../technical-reference/longitudinal-tmle.md#learned-regimens) and a
+[separable effect](../technical-reference/scope-and-refusals.md#separable-effects) refuse it too.
+
 The [registered study](../technical-reference/method-evidence/eliminated-competing-events.md)
 covers iterated-mean longitudinal TMLE (`LTMLE`) on two binary treatment decisions and hazard
 `LTMLE` on a three-level baseline treatment, both at n = 16,000 with saturated models. Those fits
@@ -543,7 +719,10 @@ also needs two conditions no data can check unless the two parts were given apar
 each part reaches the other event only through the event it acts on, and no unmeasured cause of
 both events exists beyond the covariates you adjust for.
 [Separable effects](../technical-reference/longitudinal-tmle.md#separable-effects) gives the exact
-estimand and what a separable fit refuses.
+estimand and what a separable fit refuses. The
+[separable effects tutorial](../examples/separable-effects.ipynb) works a full analysis: a
+simulated water pill whose fluid-clearing part keeps heart-failure patients out of hospital while
+its potassium-lowering part raises the risk of death.
 
 ## Keep the risk curve from dipping
 
@@ -652,7 +831,7 @@ reads the baseline covariates, or draw the treatment with known probabilities th
 the earlier treatments. The fit corrects the hazards of every treatment sequence the plan can
 follow. A plan that draws at many time points has many sequences, and a fit whose predicted
 memory use passes 2 GiB is refused before any model is fitted. On a machine with more memory,
-`LTMLE(..., max_memory_bytes=...)` sets a different limit, higher or lower.
+`max_memory_bytes=` on `LTMLE` or on `estimate()` sets a different limit, higher or lower.
 
 If a trial design fixes the
 treatment probabilities, you can pass them for the first time point only, as a mapping from the
@@ -706,6 +885,73 @@ samples, inside the range the study accepts for a 95% interval. The moves it mea
 most about half a standard error.
 :::
 
+## Summarize the risk curves with a trend line
+
+A trend line can summarize the risk curves too: fit a straight line in time through each plan's
+risk at every check time, and read how fast the risk climbs and how much treatment slows it. As in
+[Longitudinal treatment](longitudinal.md#summarize-several-plans-with-a-trend-line), you choose the
+line's form (a working model, `MSM`) and pass it to `MSMProjection`. Its coefficients estimate
+the best line through the true risks, with each plan and check time weighted equally, whether or
+not the risks fall on one; when they bend, as here, the slope is the average rise over the check
+times. This example uses the hazard model from
+[Keep the risk curve from dipping](#keep-the-risk-curve-from-dipping), with five check times.
+
+```python
+from cleverly import MSMProjection
+from cleverly.msm import MSM
+
+visits, visit_truth = make_point_survival(n=1_000, seed=4, n_times=5)
+visit_design = TimeToEvent(
+    time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4, 5)
+)
+
+
+def risk_line(plan, time, covariates):
+    n, treated = len(covariates), float(plan == "arm1")
+    return np.column_stack(
+        [np.ones(n), np.full(n, treated), np.full(n, time), np.full(n, treated * time)]
+    )
+
+
+risk_model = MSM(
+    design=risk_line, terms=("intercept", "arm1", "time", "arm1 x time"), design_kind="known"
+)
+risk_trend = CausalStudy(visits, design=visit_design).estimate(
+    MSMProjection(risk_model, regimens={"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4, 5)),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(risk_trend.coefficients()[["estimand", "psi", "ci_lower", "ci_upper"]].round(3))
+```
+
+The `msm_regimen[time]` row says that without treatment the risk rises by 0.117 per time unit
+(0.104 to 0.130). The `msm_regimen[arm1 x time]` row reads -0.029 (-0.047 to -0.012): treating
+everyone slows that rise by about 0.029 per unit. In the simulated data the best line through the
+true risks in `visit_truth` rises by 0.106 per unit without treatment and by 0.024 less with it, both inside their intervals.
+
+The design function receives each plan's name, the check time and the covariates, and returns one
+column per term, here a constant, the treated plan, the time, and their product. A
+[simulation study](../technical-reference/method-evidence/hazard-msm.md) measured this setup: the
+hazard model with `targeting="one_step"`, no cross-fitting, one kind of event, five check times
+and a treatment given at the start. So these coefficients carry the `supported` label, and the
+same fit on any other number of check times, or with cross-fitting, reads `experimental`. Pass `link="logit"` to `MSM` to fit the line
+on the log-odds scale, and `coefficients(scale="ratio")` then reports odds ratios. With competing
+events each cause gets its own coefficients, as the subsection "A working model over the hazard
+curve" of
+[hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+explains.
+
+The hazard model refuses a trend line under the default `targeting="iterative"`, beside a plan
+that changes each person's dose, and on a design with a covariate measured after baseline.
+`isotonic=True` refuses any trend line. The default model, `survival_model="iterated_mean"`, takes
+a trend line on every design, including those two; pass it a regression as `pseudo_learner=`.
+[The hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+give each message (H5, H14, H19 and H29).
+
 ## Let the data choose the treatment and censoring models
 
 With many covariates, a treatment model that uses all of them can give some people a tiny
@@ -748,6 +994,86 @@ Fit flexible treatment and censoring models with cross-fitting, the default: fit
 beside a wrong event model, the points were badly biased. [Time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)
 gives the estimator, the conditions and what it refuses.
 
+## Check the risk curve with other estimators
+
+Other estimators reach the same risks by leaning on different models, so fitting a few of them
+beside the default, `method="tmle"`, makes a quick check. A large gap between them says that one
+set of models is off. The example fits four estimators to a second sample from the same
+simulation; on your own data, fit them to the data of your main fit.
+
+```python
+from cleverly.learners import GLM
+
+check_frame, check_truth = make_point_survival(n=1_000, seed=1, n_times=4)
+check_study = CausalStudy(check_frame, design=design)
+check_plans = RegimeContrast({"arm1": 1, "arm0": 0}, reference="arm0", horizons=(4,))
+plain_models = dict(
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+models_by_method = {
+    "tmle": plain_models,
+    "sdr": plain_models,
+    "gcomp": dict(outcome_learner=GLM(family="binomial"), pseudo_learner=GLM()),
+    "ipw": dict(treatment_learner=GLM(family="binomial"), censoring_learner=GLM(family="binomial")),
+}
+for method, models in models_by_method.items():
+    check_fit = check_study.estimate(check_plans, method=method, cross_fit=False, **models)
+    check_estimate = check_fit["ate_regimen[arm1 vs arm0 @ t=4]"]
+    lower, upper = check_estimate.ci
+    print(
+        method,
+        round(check_estimate.psi, 3),
+        round(lower, 3),
+        round(upper, 3),
+        check_estimate.support.label,
+    )
+print("truth", round(check_truth["ate_regimen[arm1 vs arm0 @ t=4]"], 3))
+```
+
+The four estimates of the drop in risk by time 4 agree to within 0.003, while each interval is
+about 0.13 wide. Agreement is what you would expect if no set of models is badly off, but it
+cannot show that any of them is right. No comparison can detect a confounder that the data do
+not record. The `tmle` and `sdr` fits read the same models here, so the informative pair is
+`gcomp`, which reads only the event models, against `ipw`, which reads only the treatment and
+dropout models. Here the true drop, -0.127, sits inside every interval and about 0.02 from each
+estimate. The last column is the support label: `cleverly` marks a result experimental when no
+simulation study covers its setup, and of these four fits only the default reads `supported`.
+
+The sequential g-computation and weighting fits get generalized linear models such as logistic
+regression (`GLM`), because they report an interval only when every model they read is a `GLM`,
+and that interval holds only when those models have the right form.
+[Report the sequential baselines](longitudinal.md#report-the-sequential-baselines) explains both
+estimators, and [their inference](../technical-reference/sequential-baselines.md#inference) says
+what they report with other learners.
+
+| estimator | `method=` | the estimate leans on |
+| --- | --- | --- |
+| sequentially doubly robust | `"sdr"` | the event models and the treatment and dropout models. It stays on target in large samples when, at each time point, either set is right |
+| sequential g-computation | `"gcomp"` | the event models alone |
+| sequential weighting (IPW) | `"ipw"` | the treatment and dropout models alone, so a large weight moves it |
+| parametric g-formula | `"parametric_gformula"` | a model of each event's chance at each time point and of every covariate measured after baseline, from which it simulates each person forward. Each model must be right |
+
+Each of these fits one event or competing events, with the same result keys as the default fit.
+None takes `survival_model="hazard"` or `isotonic=True`, which are settings of the default fit
+([hazard and isotonic survival refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+A simulation study covers the parametric g-formula's competing-event risks on the wide layout,
+with a treatment at each time point
+([support label](../technical-reference/parametric-gformula.md#support-label)).
+[Fit the sequentially doubly robust estimator](longitudinal.md#fit-the-sequentially-doubly-robust-estimator)
+and [Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula) cover
+the other two.
+
+An incremental intervention (`method="ipsi"`) answers a different question: the risk had each
+person's odds of treatment been multiplied by a factor at every time point, not the risk under
+treating everyone against no one. It needs a treatment decided at each time point, on
+`LongitudinalTreatment`, and refuses `TimeToEvent`
+([IPSI refusals](../technical-reference/longitudinal-tmle.md#ipsi-refusals)). It is not doubly robust, so the treatment
+model must be right.
+[Estimate an incremental intervention over time](longitudinal.md#estimate-an-incremental-intervention-over-time)
+fits it.
+
 ## Bootstrap intervals
 
 Pass `n_bootstrap=` to refit the whole estimator on resamples of the data. Each estimate then
@@ -775,7 +1101,7 @@ model and the risks, so it costs about as long as the fit itself. A person drawn
 resample stays in one group when the fit splits the rows to fit predictions on the other rows, so
 a copy never predicts its twin. The bootstrap interval of each risk sits in `estimate.bootstrap`
 and in the `bootstrap_ci_lower` and `bootstrap_ci_upper` columns of `result.to_frame()`;
-`bootstrap_interval="bca"` on `ContinuousSurvivalTMLE` gives the BCa interval, which corrects the
+`bootstrap_interval="bca"` gives the BCa interval, which corrects the
 percentile interval for skew. If more than 1% of the refits fail, the fit warns, drops every
 bootstrap interval and keeps the usual ones. Below that share the bootstrap intervals use only the
 refits that worked, without a warning; the summary's bootstrap note gives the count, and

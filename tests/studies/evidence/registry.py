@@ -121,7 +121,7 @@ COMPARISON_KINDS = ("matching implementation", "different estimator", "related t
 class StudyRecord:
     """One row of the implementation validation grid, and all the machinery needs to check it."""
 
-    #: The name the documentation grid's first cell must carry, verbatim.
+    #: The name the documentation grid's method cell must carry, verbatim.
     name: str
     slug: str
     #: Directory holding the committed artefacts.
@@ -588,7 +588,7 @@ class StudyRecord:
 
 
 def registered() -> tuple[StudyRecord, ...]:
-    """Every registered study, in documentation-grid order.
+    """Every registered study, in registration order.
 
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
@@ -691,6 +691,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
     from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_density_tails import STUDY as MTP_DENSITY_TAILS
     from tests.studies.canonical_mtp_policy_variance import STUDY as MTP_POLICY_VARIANCE
     from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
     from tests.studies.canonical_mtp_pricing_censored import STUDY as MTP_PRICING_CENSORED
@@ -775,6 +776,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ep_cate import STUDY as EP_CATE
     from tests.studies.ep_crr import STUDY as EP_CRR
     from tests.studies.evalue_limit_coverage import STUDY as EVALUE_LIMIT_COVERAGE
+    from tests.studies.few_cluster_adaptive_learners import STUDY as FEW_CLUSTER_ADAPTIVE_LEARNERS
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.few_cluster_floor_ltmle import STUDY as FEW_CLUSTER_FLOOR_LTMLE
     from tests.studies.few_cluster_floor_tmle import STUDY as FEW_CLUSTER_FLOOR_TMLE
@@ -787,9 +789,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_arms import STUDY as LEARNED_RULE_ARMS
     from tests.studies.learned_rule_compositions import STUDY as LEARNED_RULE_COMPOSITIONS
     from tests.studies.learned_rule_contrast import STUDY as LEARNED_RULE_CONTRAST
+    from tests.studies.learned_rule_contrast_comparators import (
+        STUDY as LEARNED_RULE_CONTRAST_COMPARATORS,
+    )
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.learned_rule_ep import STUDY as LEARNED_RULE_EP
+    from tests.studies.learned_rule_ep_declared import STUDY as LEARNED_RULE_EP_DECLARED
     from tests.studies.learned_rule_in_sample import STUDY as LEARNED_RULE_IN_SAMPLE
     from tests.studies.learned_rule_intermediate import STUDY as LEARNED_RULE_INTERMEDIATE
     from tests.studies.learned_rule_learners import STUDY as LEARNED_RULE_LEARNERS
@@ -811,6 +817,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.projection_evidence import STUDY as PROJECTION_EVIDENCE
+    from tests.studies.projection_methods import STUDY as PROJECTION_METHODS
     from tests.studies.refuter_calibration_band import STUDY as REFUTER_CALIBRATION_BAND
     from tests.studies.refuter_calibration_continuous_survival import (
         STUDY as REFUTER_CALIBRATION_CONTINUOUS_SURVIVAL,
@@ -884,14 +891,17 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_OPTIMAL_VALUE,
         LEARNED_RULE_INTERMEDIATE,
         LEARNED_RULE_OPTIMAL_COMPOSITIONS,
+        LEARNED_RULE_CONTRAST_COMPARATORS,
         LEARNED_REGIMEN_LTMLE,
         CONDITIONAL_PROJECTION,
         PROJECTION_COMPOSITIONS,
         PROJECTION_EVIDENCE,
+        PROJECTION_METHODS,
         EP_CATE,
         EP_CRR,
         EP_ASSESSMENT,
         LEARNED_RULE_EP,
+        LEARNED_RULE_EP_DECLARED,
         ELIMINATED_COMPETING_EVENTS,
         SEPARABLE_EFFECTS,
         SURVIVAL_CTMLE,
@@ -921,6 +931,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
+        MTP_DENSITY_TAILS,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,
@@ -959,6 +970,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FEW_CLUSTER_FOLD_VARIANCE,
         FEW_CLUSTER_FLOOR_TMLE,
         FEW_CLUSTER_FLOOR_LTMLE,
+        FEW_CLUSTER_ADAPTIVE_LEARNERS,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

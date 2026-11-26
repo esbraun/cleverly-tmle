@@ -763,8 +763,10 @@ def test_curve_replays_are_refused(drift_result: Any) -> None:
     from cleverly.longitudinal.estimator import longitudinal_truncation_curve
     from cleverly.sensitivity._simulated_confounding_longitudinal import longitudinal_fit_refusal
 
-    with pytest.raises(CapabilityError, match="restricted mean survival time"):
+    with pytest.raises(CapabilityError, match="SurvivalDRTMLE reports no restricted mean"):
         drift_result.rmst("a1", 3)
+    with pytest.raises(CapabilityError, match="SurvivalDRTMLE reports no restricted mean"):
+        drift_result.rmtl("a1", 3)
     with pytest.raises(CapabilityError, match="no truncation curve"):
         longitudinal_truncation_curve(drift_result, [0.05])
     assert longitudinal_fit_refusal(drift_result) is drift.REPLAY_REFUSAL

@@ -45,7 +45,7 @@ average, so the adjustment is doing very little.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -101,6 +101,12 @@ NUISANCE_SELECTION_MISSING = "the fitted result retains no ctmle method artifact
 
 #: The fit is an AdaptiveIPTW fit, which weights the observed outcomes and fits none.
 NO_OUTCOME_REGRESSION = "AdaptiveIPTW fits no outcome regression"
+
+#: The policy fit read its ratio by classification, so it fitted no treatment model.
+NUISANCE_CLASSIFIER_RATIO = (
+    "the policy ratio comes from a classifier that tells each row's policy dose "
+    "from its observed dose, so no separate treatment model is fitted"
+)
 
 #: A training fold of a cross-fitted fit held one value, 0 or 1, of the binary outcome while
 #: the sample did not.  That fold's outcome regression is the value, so the fold fitted no
@@ -200,6 +206,13 @@ class NuisanceModelReport:
         :data:`TMLE_CONSTANT_TARGET_IN_FOLD`. ``None`` when every fold fitted one.
     omitted_folds : tuple of int, default=()
         The one-based folds ``fold_omission`` applies to. Empty when it is ``None``.
+    slope_one_in_sample : bool, default=False
+        Whether this in-sample probability report comes from an unpenalized two-class logistic
+        regression with an intercept, fitted on the rows the report reads, whose calibration
+        slope is then exactly 1 by its score equations (Riley et al., 2021, Section 2.1.2).
+        ``False`` for any other learner, a penalized or class-weighted fit, a one-vs-rest arm of
+        a multi-class mechanism, a declared or collaborative treatment mechanism, and
+        out-of-fold predictions.
     """
 
     name: str
@@ -213,6 +226,7 @@ class NuisanceModelReport:
     learner_loss: str | None = None
     fold_omission: str | None = None
     omitted_folds: tuple[int, ...] = ()
+    slope_one_in_sample: bool = False
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -512,8 +526,8 @@ class NuisanceDiagnostics:
         One report per fitted nuisance model.
     evaluation : {"out_of_fold", "in_sample"}
         Whether the predictions the reports read were made out of fold. The calibration-slope
-        rule tests out-of-fold predictions only, because an unpenalized logistic model with an
-        intercept has an in-sample slope of exactly 1.
+        rule tests out-of-fold predictions only, because a slope read on the rows a model was
+        fitted to says nothing about new data.
     n_repeats : int
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
@@ -542,6 +556,9 @@ class NuisanceDiagnostics:
     outcome_omission : str or None
         The reason the fit has no outcome-regression report, or ``None`` where it has one.
         An AdaptiveIPTW fit fits the treatment and missingness models only.
+    treatment_omission : str or None
+        The reason the fit has no treatment-model report, or ``None``. A policy fit on the
+        classifier route reads its ratio from a classifier and fits no treatment model.
     inference : str
         The inference status the fit's estimates declare. One of
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
@@ -578,6 +595,7 @@ class NuisanceDiagnostics:
     #: draw the fitted result retains method-specific extras for.
     reported_repeat: int = REPORTED_DRAW
     outcome_omission: str | None = None
+    treatment_omission: str | None = None
     #: Keyed on what the estimates declare rather than on :attr:`treatment_role`, which
     #: cannot tell a selector path from the outcome-adaptive one.
     inference: InferenceStatus = "influence_curve"
@@ -711,8 +729,9 @@ class NuisanceDiagnostics:
 
         Every probability report with a finite slope and standard error, except a C-TMLE
         working mechanism, when the predictions are out of fold. An in-sample fit tests none:
-        an unpenalized logistic model with an intercept has an in-sample slope of exactly 1
-        (Riley et al., 2021, Section 2.1.2), so the slope there says nothing about new data.
+        a slope read on the rows a model was fitted to says nothing about new data, and for an
+        unpenalized logistic model with an intercept it is exactly 1 (Riley et al., 2021,
+        Section 2.1.2).
         The rule splits :data:`CALIBRATION_FAMILY_ALPHA` over the reports this returns, in
         report order.
         """
@@ -726,34 +745,6 @@ class NuisanceDiagnostics:
             and np.isfinite(model.metrics.get("calibration_slope", float("nan")))
             and np.isfinite(model.metrics.get("calibration_slope_se", float("nan")))
         )
-
-    def _calibration_lines(self) -> list[str]:
-        """The lines under the table that state the basis of the slope and each omission."""
-        probability = [model for model in self.models if model.kind == "probability"]
-        if not probability:
-            return []
-        if self.evaluation == "in_sample":
-            lines = [
-                "Calibration slopes are in sample and carry no test. An unpenalized logistic "
-                "model with an intercept has an in-sample slope of 1 by construction."
-            ]
-        else:
-            lines = [
-                "Calibration slope: logistic recalibration of the out-of-fold predictions "
-                "with one intercept per fold."
-            ]
-            tested = len(self._calibration_tested)
-            if tested:
-                lines.append(
-                    f"A finding needs the {_level_label(tested)} interval to lie above 0 and "
-                    f"exclude 1, a Bonferroni level over {tested} tested model(s)."
-                )
-        lines.extend(
-            f"calibration slope unavailable for {model.name}: {model.calibration_omission}"
-            for model in probability
-            if model.calibration_omission is not None
-        )
-        return lines
 
     @property
     def findings(self) -> tuple[str, ...]:
@@ -1076,9 +1067,14 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             )
         )
     spread_rows, spread_omission = _spread_rows(result)
+    route = result.config.ratio_route
     evaluation: EvaluationBasis = "in_sample" if nuisance.folds.is_single else "out_of_fold"
+    exact = _slope_one_reports(result, models) if evaluation == "in_sample" else frozenset()
     return NuisanceDiagnostics(
-        models=tuple(replace(model, evaluation=evaluation) for model in models),
+        models=tuple(
+            replace(model, evaluation=evaluation, slope_one_in_sample=model.name in exact)
+            for model in models
+        ),
         evaluation=evaluation,
         n_repeats=result.n_repeats,
         backend=result.data.backend,
@@ -1099,6 +1095,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
         outcome_omission=outcome_omission,
+        treatment_omission=(
+            NUISANCE_CLASSIFIER_RATIO if route is not None and route.route == "classifier" else None
+        ),
         inference=result.inference_status,
     )
 
@@ -1152,6 +1151,59 @@ def _spread_rows(result: TMLEResult) -> tuple[tuple[RepeatSpreadRow, ...], str |
     if not_finite:
         return tuple(rows), SPREAD_NOT_FINITE + ", ".join(not_finite)
     return tuple(rows), None
+
+
+#: The two-class reports of an in-sample fit and the learner each one reads. A one-vs-rest arm
+#: of a multi-class mechanism is absent: its logit is not linear in the covariates, so its
+#: slope is not 1 even for an unpenalized multinomial fit.
+_TWO_CLASS_LEARNERS: dict[str, str] = {
+    "propensity": "treatment_learner",
+    "missingness": "missingness_learner",
+    "intermediate": "intermediate_learner",
+    "outcome": "outcome_learner",
+}
+
+
+def _unpenalized_logistic(learner: Any) -> bool:
+    """Whether ``learner`` is a scikit-learn logistic regression with no penalty and an intercept.
+
+    scikit-learn drops the penalty with ``C=np.inf`` and, in releases that still accept it,
+    with ``penalty=None``. A large finite ``C`` is a penalty, however weak, so it does not
+    count: the slope is then near 1 but not 1 by construction. Class weights change the score
+    equations, so a learner with ``class_weight`` set does not count either. The slope is 1 up
+    to the solver's convergence tolerance.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    if type(learner) is not LogisticRegression or not learner.fit_intercept:
+        return False
+    if learner.class_weight is not None:
+        return False
+    penalty = getattr(learner, "penalty", "l2")
+    return bool(np.isinf(learner.C) or penalty is None or penalty == "none")
+
+
+def _slope_one_reports(result: TMLEResult, models: Sequence[NuisanceModelReport]) -> frozenset[str]:
+    """The in-sample two-class reports whose learner makes the calibration slope exactly 1.
+
+    Only an ordinary :class:`~cleverly.estimators.TMLE` fit reports the plain fit of its
+    configured learners. A collaborative fit reports a selected or penalized working model,
+    and a declared treatment mechanism is not fitted at all, so neither is flagged.
+    """
+    from ..estimators.tmle import TMLE
+
+    estimator = getattr(result, "estimator", None)
+    if type(estimator) is not TMLE:
+        return frozenset()
+    declared = result.nuisance.treatment_mechanism == "known"
+    return frozenset(
+        model.name
+        for model in models
+        if model.kind == "probability"
+        and model.name in _TWO_CLASS_LEARNERS
+        and not (model.name == "propensity" and declared)
+        and _unpenalized_logistic(getattr(estimator, _TWO_CLASS_LEARNERS[model.name], None))
+    )
 
 
 def _per_arm_learner_diagnostics(nuisance: NuisanceEstimates) -> list[Any] | None:

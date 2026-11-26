@@ -33,6 +33,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 from cleverly._support import (
     Classification,
@@ -364,6 +365,17 @@ THREE = ("ey", "ate", "rr", "or")
 ATE = ("ey0", "ey1", "ate")
 
 _ST = "tests/studies/"
+
+
+class _KnownDensity(LogisticRegression):
+    """A stand-in for a study's oracle density: the support key reads only its marker.
+
+    T21 and T22 cover a known density (the shift studies pass the law's exact density), so a
+    case of either row declares one. A fit of the same configuration with a learned density
+    reads experimental (X121).
+    """
+
+    cleverly_density = "known"
 
 
 def _tmle(**kwargs: Any) -> Callable[[], TMLE]:
@@ -713,6 +725,7 @@ def _t_cases() -> tuple[RowCase, ...]:
                 cross_fit=False,
                 policies=(Shift(0.0, cap=None), Shift(0.25, cap=None)),
                 density_bins=5,
+                treatment_learner=_KnownDensity(max_iter=1000),
             ),
             {"y": "continuous", "dose": True},
             dose=True,
@@ -728,6 +741,7 @@ def _t_cases() -> tuple[RowCase, ...]:
                 cross_fit=False,
                 policies=(Shift(0.0, cap=None), Scale(1.25, cap=5.0, name="x1.25")),
                 density_bins=5,
+                treatment_learner=_KnownDensity(max_iter=1000),
             ),
             {"dose": True},
             dose=True,
@@ -1614,6 +1628,22 @@ def _long_cases() -> tuple[RowCase, ...]:
     seeded(
         "G07", "few-cluster-cross-fitted-ltmle", few, "few_cluster_crossfit_ltmle.py:192", few, 800
     )
+    # few-cluster-adaptive-learners: the study's own gated fits with the default learner
+    # library, stopped where the classifier reads the key. Stacked TMLE lands on T11.stacked
+    # below 40 clusters and cross-fitted LTMLE on G07. At 40 clusters the stacked fit is on the
+    # clustered tier, whose row T10.unweighted rests on its own unequal-size evidence.
+    for row, fit, law, clusters in (
+        ("T11.stacked", "tmle_stacked", "equal10", 20),
+        ("G07", "ltmle_crossfit", "equal40", 20),
+    ):
+        observed(
+            row,
+            "few-cluster-adaptive-learners",
+            f"{fit}__{law}__j{clusters}__t_reference",
+            "few_cluster_adaptive_learners.py:452",
+            lambda study, law=law, clusters=clusters: study.draw(law, clusters, 0),
+            lambda study, frame, fit=fit: study.fit_one(fit, frame),
+        )
     cat = "categorical_end_of_study"
     seeded(
         "G08.in_sample",
@@ -2218,33 +2248,6 @@ def _band_t_reference_cases() -> tuple[RowCase, ...]:
     )
 
 
-def _plugin_limit_cases() -> tuple[RowCase, ...]:
-    """The cases of ``omitted-variable-bound-plugin-se`` (X26): each scenario runs the study's fit."""
-    where = "omitted_variable_bound_plugin.py:612"
-    module = "omitted_variable_bound_plugin"
-    return tuple(
-        _observed(
-            row,
-            "omitted-variable-bound-plugin-se",
-            scenario,
-            where,
-            module,
-            lambda study, scenario=scenario: study.draw_from_seed(scenario, 400, 0)[0],
-            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
-        )
-        for row, scenario in (
-            ("T01.continuous", "binary_logistic"),
-            ("T01.continuous", "binary_logistic_ridge"),
-            ("T01.continuous", "binary_unbalanced"),
-            ("T02.continuous", "binary_logistic_crossfit"),
-            ("T02.continuous", "binary_logistic_ridge_crossfit"),
-            ("T36.three_arm", "multinomial_logistic"),
-            ("T36.three_arm_stacked", "multinomial_logistic_crossfit"),
-            ("T36.known", "binary_known"),
-        )
-    )
-
-
 def _vector_cases() -> tuple[RowCase, ...]:
     """The ``vector-mtp`` cases: a primary scenario fit, or a calibration cell's fit (X31)."""
     slug = "vector-mtp"
@@ -2468,6 +2471,43 @@ def _learned_rule_ep_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional"), case("misspecified_limit"), optimal)
 
 
+def _learned_rule_ep_declared_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-ep-declared`` (P1 PR 1): ``T51`` and ``T51.optimal``.
+
+    ``T51`` runs the study's own fit of each declared curve (``S``, the declared sieve, and
+    ``L``, the declared final learner) on a draw of each law at the primary size, and
+    ``T51.optimal`` its optimal-value fit with the declared sieve and ``g0`` supplied, each up
+    to the classifier. The optimal-value fit with the declared learner states no verdict, so it
+    has no case.
+    """
+    module, slug = "learned_rule_ep_declared", "learned-rule-ep-declared"
+
+    def case(cell: str) -> RowCase:
+        return _observed(
+            "T51",
+            slug,
+            cell,
+            "learned_rule_ep_declared.py:419",
+            module,
+            lambda study: study.draw_from_seed(cell, 2_000, 0)[0],
+            lambda study, frame: study.measured(frame, *study.scenario_of(cell), 0),
+        )
+
+    optimal = _observed(
+        "T51.optimal",
+        slug,
+        "optimal__S",
+        "learned_rule_ep_declared.py:419",
+        module,
+        lambda study: study.base.draw("non_exceptional", 2_000, 0),
+        lambda study, frame: study.measured(frame, "S", "non_exceptional", 0, optimal=True),
+    )
+    return (
+        *(case(cell) for cell in ("S_nonexc_2k", "S_misspec_2k", "L_nonexc_2k", "L_misspec_2k")),
+        optimal,
+    )
+
+
 def _fold_evaluated_strata_cases() -> tuple[RowCase, ...]:
     """The cases of ``fold-evaluated-strata`` (X11 PR E1, X28).
 
@@ -2610,6 +2650,61 @@ def _learned_rule_contrast_cases() -> tuple[RowCase, ...]:
     return (
         case("fold_evaluated", "non_exceptional"),
         case("stacked", "misspecified_limit"),
+    )
+
+
+def _learned_rule_contrast_comparators_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-contrast-comparators`` (X123 (d)): ``T58``.
+
+    Each runs the study's own fit, beside ``Static(0)``, two known stochastic regimes and the
+    natural course (``combined``) or beside the natural course alone (``natural_course``), under
+    one report on a draw of its law at the primary size, up to the classifier. The stochastic
+    case drops the natural course from the combined fit's comparators.
+    """
+    module, slug = "_learned_rule_contrast_comparators_law", "learned-rule-contrast-comparators"
+
+    def case(setting: str, report: str, scenario: str) -> RowCase:
+        def fit(study: Any, frame: Any) -> Any:
+            if setting != "stochastic":
+                return study.fit_one(
+                    frame,
+                    study.base.outcome_learner(),
+                    0,
+                    setting,
+                    cv_evaluation=study.REPORTS[report],
+                )
+            estimator = study.TMLE(
+                learned_rule=study.LearnedRule(),
+                interventions=study.regimes("combined")[:-1],
+                n_folds=study.base.N_FOLDS,
+                cv_evaluation=study.REPORTS[report],
+                targeting_scheme="pooled",
+                g_bounds="auto",
+                outcome_learner=study.base.outcome_learner(),
+                treatment_learner=study.base.treatment_learner(),
+                random_state=0,
+            )
+            return estimator.fit(
+                frame, outcome="Y", treatment="A", covariates=list(study.base.COVARIATES)
+            ).single()
+
+        return _observed(
+            f"T58.{setting}.{report}",
+            slug,
+            scenario,
+            f"{module}.py:165",
+            module,
+            lambda study: study.base.draw(scenario, 2_000, 0),
+            fit,
+        )
+
+    return (
+        case("combined", "fold_evaluated", "non_exceptional"),
+        case("combined", "stacked", "misspecified_limit"),
+        case("stochastic", "fold_evaluated", "misspecified_limit"),
+        case("stochastic", "stacked", "non_exceptional"),
+        case("natural_course", "fold_evaluated", "non_exceptional"),
+        case("natural_course", "stacked", "misspecified_limit"),
     )
 
 
@@ -3037,6 +3132,33 @@ def _projection_evidence_cases() -> tuple[RowCase, ...]:
         case("T50", "band_crr_4k", "600", "fit_projection"),
         case("T49.clustered", "band_clustered_4k", "600", "fit_projection"),
         case("T49.repeats", "band_rep3_4k", "600", "fit_projection"),
+    )
+
+
+def _projection_method_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-methods`` (P1 PR 3): the DR-TMLE and per-arm C-TMLE ``T49`` rows.
+
+    Each runs the study's own in-sample fit of one group, on a draw of law P at the group's size,
+    up to the classifier: the DR-TMLE projection with the declared mechanism, with the correct
+    logistic mechanism, and the per-arm outcome-adaptive C-TMLE projection.
+    """
+    module, slug = "projection_methods", "projection-methods"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:529",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study.fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.drtmle.known", "dr_known_4k"),
+        case("T49.drtmle", "dr_both_4k"),
+        case("T49.ctmle_oat", "ctmle_points_4k"),
     )
 
 
@@ -3611,7 +3733,6 @@ CASES: tuple[RowCase, ...] = (
     *_d_cases(),
     *_c_cases(),
     *_gap_cases(),
-    *_plugin_limit_cases(),
     *_band_t_reference_cases(),
     *_long_cases(),
     *_vector_cases(),
@@ -3620,6 +3741,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_split_mean_cases(),
     *_learned_rule_learners_cases(),
     *_learned_rule_ep_cases(),
+    *_learned_rule_ep_declared_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),
@@ -3628,6 +3750,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_rule_optimal_compositions_cases(),
+    *_learned_rule_contrast_comparators_cases(),
     *_learned_regimen_cases(),
     *_eliminated_cases(),
     *_separable_cases(),
@@ -3642,6 +3765,7 @@ CASES: tuple[RowCase, ...] = (
     *_projection_cases(),
     *_projection_composition_cases(),
     *_projection_evidence_cases(),
+    *_projection_method_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

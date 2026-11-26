@@ -364,6 +364,49 @@ class EValue:
 
         return evalue_summary(self, detail)
 
+    def plot(self, **kwargs: Any) -> Any:
+        """Plot the confounder strengths that could explain the estimate or its limit away.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to :func:`cleverly.plotting.confounding`: ``max_strength=``, ``ax=`` and
+            the formatting keywords ``title=``, ``subtitle=``, ``xlabel=``, ``ylabel=``,
+            ``legend=`` and ``figsize=``.
+
+        Returns
+        -------
+        Figure
+            One curve for the estimate and one for the confidence limit nearest the null, each
+            with its E-value on the diagonal of equal strengths.
+
+        Examples
+        --------
+        >>> import matplotlib
+        >>> matplotlib.use("Agg")
+        >>> import matplotlib.pyplot as plt
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly import ATE, CausalStudy, PointTreatment
+        >>> from cleverly.datasets import make_linear_ate
+        >>> frame, _ = make_linear_ate(n=200, seed=0)
+        >>> design = PointTreatment(
+        ...     outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+        ... )
+        >>> result = CausalStudy(frame, design=design).identify(ATE()).estimate(
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> fig = result.sensitivity.evalue().plot()
+        >>> fig.axes[0].get_title(loc="left")
+        'Confounding that could explain the estimate away'
+        >>> plt.close(fig)
+        """
+        from ..plotting import confounding
+
+        return confounding(self, **kwargs)
+
     def __repr__(self) -> str:
         from ._summaries import evalue_repr
 
