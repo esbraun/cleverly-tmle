@@ -79,6 +79,9 @@ UNPRINTED_DECIMALS = {
 #: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
 DERIVED_DECIMALS = {
     "sensitivity-other-reading: 1.1": ("sensitivity-other", "-1.1", "magnitude"),
+    "sensitivity-reading: 0.2": ("sensitivity", "-0.2", "magnitude"),
+    "sensitivity-other-reading: 7.8": ("sensitivity-other", "-7.8", "magnitude"),
+    "sensitivity-other-reading: 4.1": ("sensitivity-other", "-4.1", "magnitude"),
 }
 
 
@@ -298,7 +301,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["overlap_fig"].axes
     assert "truncation curve, screen: largest move 0.18 standard errors" in stored
     assert "truncation curve, offer to all: largest move 0.29 standard errors" in stored
-    assert "rows capped at the limit 0.2: 10.9%" in stored
+    assert "limits tried: 0.001 to 0.2; rows capped at 0.2: 10.9%" in stored
     # A nonzero witness: the curve's widest limit does move the estimate.
     curve = namespace["curve"]
     assert curve["delta_from_fitted"].abs().max() > 0.0
