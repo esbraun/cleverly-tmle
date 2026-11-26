@@ -384,6 +384,32 @@ class UnfittedPropensity(Propensity):
         raise self._unfitted()
 
 
+class NodeOutcome(InitialFit):
+    """A dose-response fit's outcome regression: the observed dose here, the nodes elsewhere.
+
+    The predictions at the quadrature doses live per fold in
+    :attr:`NuisanceEstimates.node_predictions` (:class:`NodePredictions`), so there are no
+    ``(n,)`` arms to hold, and reading :attr:`arms` raises rather than returning an empty
+    mapping a reader could mistake for a fit with no counterfactual.
+    """
+
+    def __init__(self, observed: FloatArray) -> None:  # numpydoc ignore=GL08
+        object.__setattr__(self, "_observed", observed)
+
+    @property
+    def observed(self) -> FloatArray:
+        return cast(FloatArray, self.__dict__["_observed"])
+
+    @property
+    def arms(self) -> dict[float, FloatArray]:
+        raise ValueError(
+            "a dose-response fit keeps its node predictions per fold in node_predictions"
+        )
+
+    def __repr__(self) -> str:
+        return f"NodeOutcome(observed=<{self.observed.shape[0]} rows>)"
+
+
 class UnfittedOutcome(InitialFit):
     """The ``fit_outcome=False`` value: an outcome regression that was never fitted.
 
@@ -602,6 +628,75 @@ class FoldMechanisms:
 
 
 @dataclass(frozen=True)
+class NodePredictions:
+    """The outcome regression at every quadrature dose of a dose-response fit, kept per fold.
+
+    Each cross-fitting fold's worker predicts its held-out rows at every node and returns
+    one ``(n_f, K)`` matrix; the fit keeps those matrices as they came rather than
+    scattering them into ``K`` vectors of ``n`` and stacking those again into an ``(n, K)``
+    matrix, which held the predictions twice (X106 part D2b).  Row ``tests[f][j]`` of the
+    data has its predictions in ``matrices[f][j]``; an in-sample fit has one fold holding
+    every row.
+
+    Parameters
+    ----------
+    tests : tuple of ndarray
+        Each fold's held-out rows, in fold order.
+    matrices : tuple of ndarray
+        Each fold's ``(n_f, K)`` C-ordered predictions on the ``[0, 1]`` scale, column ``k``
+        at node ``k``.
+    """
+
+    tests: tuple[IntArray, ...]
+    matrices: tuple[FloatArray, ...]
+
+    @property
+    def n_nodes(self) -> int:
+        """Return the number of nodes ``K``."""
+        return int(self.matrices[0].shape[1])
+
+    @functools.cached_property
+    def _location(self) -> tuple[IntArray, IntArray]:
+        n = sum(int(test.size) for test in self.tests)
+        fold = np.empty(n, dtype=np.int64)
+        position = np.empty(n, dtype=np.int64)
+        for f, test in enumerate(self.tests):
+            fold[test] = f
+            position[test] = np.arange(test.size)
+        return fold, position
+
+    @property
+    def nbytes(self) -> int:
+        """Return the bytes the matrices hold."""
+        return int(sum(matrix.nbytes for matrix in self.matrices))
+
+    def block(self, rows: IntArray, start: int, stop: int) -> FloatArray:
+        """``(len(rows), stop - start)`` predictions of ``rows`` at nodes ``start:stop``.
+
+        Parameters
+        ----------
+        rows : ndarray
+            Data rows, in any order.
+        start : int
+            First node.
+        stop : int
+            One past the last node.
+
+        Returns
+        -------
+        ndarray
+            A new C-ordered array, holding exactly the stored values.
+        """
+        fold, position = self._location
+        out = np.empty((rows.size, stop - start), dtype=float)
+        at = fold[rows]
+        for f in np.unique(at):
+            chosen = at == f
+            out[chosen] = self.matrices[f][position[rows[chosen]], start:stop]
+        return out
+
+
+@dataclass(frozen=True)
 class NuisanceEstimates:
     """Cross-fitted nuisance predictions and the diagnostics that came with them.
 
@@ -784,6 +879,10 @@ class NuisanceEstimates:
     #: is constant.  Empty on an in-sample fit: a per-arm in-sample regression takes the rule
     #: on an arm with one outcome value, and the constant-cell status reports it.
     outcome_constant_folds: tuple[int, ...] = ()
+    #: The outcome regression at a dose-response fit's quadrature doses, per fold
+    #: (:class:`NodePredictions`); ``None`` on every other fit.  :attr:`outcome` then holds
+    #: the observed-dose predictions and no arms.
+    node_predictions: NodePredictions | None = None
 
     def at_fold(self, fold: int) -> NuisanceEstimates:
         """The same nuisances with every mechanism replaced by entry ``fold`` of the slabs.
@@ -1124,6 +1223,8 @@ def cross_fit_predictions(
 
 #: Rows per stacked prediction call of :func:`cross_fit_companion` (``stack_predictions``).
 _STACKED_ROWS = 200_000
+#: The key a fold worker returns its node matrix under (``node_designs``).
+_NODE_MATRIX = "\x00nodes"
 
 
 def cross_fit_companion(
@@ -1149,6 +1250,8 @@ def cross_fit_companion(
     companion_reduce: CompanionReduce | None = None,
     stack_predictions: bool = False,
     mean_one_weights: bool = False,
+    node_designs: Sequence[str] = (),
+    node_out: list[tuple[IntArray, FloatArray]] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, np.ndarray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -1189,6 +1292,12 @@ def cross_fit_companion(
     not observation weights (the tilt weights of a declaration read in the sample) keep the
     regularisation the observation weights get.
 
+    ``node_designs`` names designs of ``predict_designs`` (with ``stack_predictions``) whose
+    predictions each fold keeps as the columns of one ``(n_f, len(node_designs))`` matrix of
+    its held-out rows, in that order, instead of scattering them into ``(n,)`` arrays.  The
+    prediction calls are unchanged.  ``node_out`` receives one ``(test, matrix)`` per fold, in
+    fold order, and the returned predictions leave those names out.
+
     Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
     and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
     path is the production one and is bit for bit what it was.
@@ -1204,6 +1313,9 @@ def cross_fit_companion(
         raise ValueError("constant_folds applies to a binary target with no classes only")
     if models is not None and not folds.is_single:
         raise ValueError("models= keeps the in-sample fit; pass the single fold")
+    node_column = {name: k for k, name in enumerate(node_designs)}
+    if node_column and (not stack_predictions or node_out is None):
+        raise ValueError("node_designs needs stack_predictions and node_out")
 
     def one_value(rows: IntArray) -> float | None:
         """The single target value of ``rows`` with positive weight, or ``None``.
@@ -1250,12 +1362,21 @@ def cross_fit_companion(
         size = n if rows is None else rows.size
         per_chunk = max(1, _STACKED_ROWS // max(size, 1))
         out: dict[str, FloatArray] = {}
+        matrix = np.empty((size, len(node_column)), dtype=float) if node_column else None
         for start in range(0, len(names), per_chunk):
             chunk = names[start : start + per_chunk]
             stacked = np.vstack([_design_rows(predict_designs[name], rows) for name in chunk])
             values = predict(model, stacked)
+            del stacked
             for k, name in enumerate(chunk):
-                out[name] = values[k * size : (k + 1) * size]
+                column = node_column.get(name)
+                if column is None:
+                    out[name] = values[k * size : (k + 1) * size]
+                else:
+                    assert matrix is not None
+                    matrix[:, column] = values[k * size : (k + 1) * size]
+        if matrix is not None:
+            out[_NODE_MATRIX] = matrix
         return out
 
     def companion_at(model: Learner, fold: int) -> dict[str, np.ndarray]:
@@ -1275,6 +1396,8 @@ def cross_fit_companion(
         if mechanisms is not None:
             mechanisms.append(describe_mechanism(model))
         predictions = predict_all(model, None)
+        if node_out is not None and _NODE_MATRIX in predictions:
+            node_out.append((np.arange(n), predictions.pop(_NODE_MATRIX)))
         companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
         return predictions, companion, [diagnostics] if diagnostics is not None else []
@@ -1314,6 +1437,7 @@ def cross_fit_companion(
     out = {
         name: np.empty(shape, dtype=float) if selected is None else np.full(shape, np.nan)
         for name in predict_designs
+        if name not in node_column
     }
     slabs: dict[str, list[np.ndarray]] = {}
     order: list[int] = []
@@ -1325,6 +1449,10 @@ def cross_fit_companion(
         # models, which a process pool does not hand back.
         if constant_folds is not None and one_value(trains[fold][mask[trains[fold]]]) is not None:
             constant_folds.append(fold + 1)
+        matrix = predictions.pop(_NODE_MATRIX, None)
+        if matrix is not None:
+            assert node_out is not None
+            node_out.append((test, matrix))
         for name, values in predictions.items():
             out[name][test] = values
         order.append(fold)
@@ -2779,6 +2907,7 @@ def fit_nuisances(
     companion_estimates: CompanionEstimates | None = None
     fold_rules: np.ndarray | None = None
     fold_rules_by_level: dict[float, np.ndarray] = {}
+    node_predictions: NodePredictions | None = None
     outcome_constant: list[int] | None = None
     if not fit_outcome:
         # The outcome-free path of an estimator that weights the observed outcomes
@@ -2865,6 +2994,16 @@ def fit_nuisances(
         # one outcome value is left to the learner.
         if outcome_task == "classification" and (not folds.is_single or outcome_by_arm):
             outcome_constant = []
+        # A dose-response curve's node predictions stay per fold (NodePredictions).
+        node_keys: tuple[str, ...] = ()
+        node_folds: list[tuple[IntArray, FloatArray]] | None = None
+        if dose_nodes is not None:
+            if outcome_by_arm:
+                raise ValueError("a dose-response curve has no per-arm outcome regression")
+            if len(levels) != 1:
+                raise ValueError("a dose-response curve reads its nodes at one level")
+            node_keys = tuple(_design_key(code, levels[0]) for code in counterfactual)
+            node_folds = []
         if outcome_by_arm:
             # One learner per arm; the designs above keep the treatment column and go unused.
             by_arm_queries = {"observed": ArmQuery(_arm_codes_by_row(data, data.treatment))}
@@ -2909,17 +3048,26 @@ def fit_nuisances(
                 constant_folds=outcome_constant,
                 companion_reduce=pooled_reduce,
                 stack_predictions=dose_nodes is not None,
+                node_designs=node_keys,
+                node_out=node_folds,
             )
         if outcome_diagnostics:
             diagnostics["outcome"] = outcome_diagnostics
 
         by_level = {
-            level: InitialFit(
+            level: NodeOutcome(outcome_out["observed"])
+            if node_folds is not None
+            else InitialFit(
                 outcome_out["observed"],
                 {code: outcome_out[_design_key(code, level)] for code in counterfactual},
             )
             for level in levels
         }
+        if node_folds is not None:
+            node_predictions = NodePredictions(
+                tests=tuple(test for test, _ in node_folds),
+                matrices=tuple(matrix for _, matrix in node_folds),
+            )
         primary = by_level[levels[0]]
 
         if fold_plug_in_rules:
@@ -2977,6 +3125,7 @@ def fit_nuisances(
         fold_plug_in_rules=fold_rules,
         fold_plug_in_rules_by_level=fold_rules_by_level,
         outcome_constant_folds=tuple(sorted({fold for fold in outcome_constant or () if fold})),
+        node_predictions=node_predictions,
     )
 
 

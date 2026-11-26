@@ -821,6 +821,73 @@ samples, inside the range the study accepts for a 95% interval. The moves it mea
 most about half a standard error.
 :::
 
+## Summarize the risk curves with a trend line
+
+A trend line can summarize the risk curves too: fit a straight line in time through each plan's
+risk at every check time, and read how fast the risk climbs and how much treatment slows it. As in
+[Longitudinal treatment](longitudinal.md#summarize-several-plans-with-a-trend-line), you choose the
+line's form (a working model, `MSM`) and pass it to `MSMProjection`. Its coefficients estimate
+the best line through the true risks, with each plan and check time weighted equally, whether or
+not the risks fall on one; when they bend, as here, the slope is the average rise over the check
+times. This example uses the hazard model from
+[Keep the risk curve from dipping](#keep-the-risk-curve-from-dipping), with five check times.
+
+```python
+from cleverly import MSMProjection
+from cleverly.msm import MSM
+
+visits, visit_truth = make_point_survival(n=1_000, seed=4, n_times=5)
+visit_design = TimeToEvent(
+    time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4, 5)
+)
+
+
+def risk_line(plan, time, covariates):
+    n, treated = len(covariates), float(plan == "arm1")
+    return np.column_stack(
+        [np.ones(n), np.full(n, treated), np.full(n, time), np.full(n, treated * time)]
+    )
+
+
+risk_model = MSM(
+    design=risk_line, terms=("intercept", "arm1", "time", "arm1 x time"), design_kind="known"
+)
+risk_trend = CausalStudy(visits, design=visit_design).estimate(
+    MSMProjection(risk_model, regimens={"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4, 5)),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(risk_trend.coefficients()[["estimand", "psi", "ci_lower", "ci_upper"]].round(3))
+```
+
+The `msm_regimen[time]` row says that without treatment the risk rises by 0.117 per time unit
+(0.104 to 0.130). The `msm_regimen[arm1 x time]` row reads -0.029 (-0.047 to -0.012): treating
+everyone slows that rise by about 0.029 per unit. In the simulated data the best line through the
+true risks in `visit_truth` rises by 0.106 per unit without treatment and by 0.024 less with it, both inside their intervals.
+
+The design function receives each plan's name, the check time and the covariates, and returns one
+column per term, here a constant, the treated plan, the time, and their product. A
+[simulation study](../technical-reference/method-evidence/hazard-msm.md) measured this setup: the
+hazard model with `targeting="one_step"`, no cross-fitting, one kind of event, five check times
+and a treatment given at the start. So these coefficients carry the `supported` label, and the
+same fit on any other number of check times, or with cross-fitting, reads `experimental`. Pass `link="logit"` to `MSM` to fit the line
+on the log-odds scale, and `coefficients(scale="ratio")` then reports odds ratios. With competing
+events each cause gets its own coefficients, as the subsection "A working model over the hazard
+curve" of
+[hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+explains.
+
+The hazard model refuses a trend line under the default `targeting="iterative"`, beside a plan
+that changes each person's dose, and on a design with a covariate measured after baseline.
+`isotonic=True` refuses any trend line. The default model, `survival_model="iterated_mean"`, takes
+a trend line on every design, including those two; pass it a regression as `pseudo_learner=`.
+[The hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+give each message (H5, H14, H19 and H29).
+
 ## Let the data choose the treatment and censoring models
 
 With many covariates, a treatment model that uses all of them can give some people a tiny

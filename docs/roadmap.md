@@ -86,16 +86,14 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
-| [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X124 for the separable method table |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | none |
 | [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
@@ -641,30 +639,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
 
-### X124. Messages, docstrings and records that misstate the code
-
-A review of the published documentation against the code on 2026-11-25 found messages, docstrings
-and study records that state something the code does not do. No number moves.
-
-- (a) The bootstrap docstrings of the sequential baselines, the parametric g-formula, `SDR` and
-  `IPSI` say the full-refit bootstrap gives no percentile inference; it prints percentile and BCa
-  intervals and a sup-t band under the experimental label.
-- (b) The `TMLE` docstring of `cluster_variance=` and the [cluster jackknife](technical-reference/inference.md)
-  section disagree on whether a point fit takes it; the `LearnedRuleValue` docstring and the
-  estimands guide disagree on the stacked report's label.
-- (c) The identify summary of a separable plan lists methods that refuse it, and its conditions
-  table omits the conditions that make the two treatment components separable.
-- (d) `TrialWithExternalData(weights=...)` and the other undeclared design roles raise a bare
-  `TypeError` instead of a refusal with its reason; `planned_refits()` on a projection curve or
-  a trial result raises a refusal that names `refute`.
-- (e) The truncation curve of a dose fit reads available and moves nothing; diagnose it.
-- (f) The adaptive IPTW gate study still declares a pending `drtmle` comparator although its
-  pairing study ran.
-- (g) Counts that pages hard-code and no test pins (the fit-wide stops of the simulated
-  confounder surface, the refutation operations) get a test that ties the owner page to the code.
-
-Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
 ### X112. User guide: analyses over time and survival
 
 The survival guide says refutation and sensitivity do not run on a continuous-time fit and that no
@@ -679,19 +653,6 @@ known-mechanism designs over time, or the cluster jackknife.
 - (e) Other estimators of a risk curve and what each refuses.
 - (f) Clustered, weighted and known-mechanism designs over time, and learned two-decision rules.
 - (g) Plots, diagnostics and links to the tutorials.
-
-### X113. User guide: conditional effects and trials with external data
-
-The conditional-effects guide labels settings experimental that read `supported`, cites a status
-line the summary does not print, and omits a band rule and the continuous-treatment refusal. The
-trial guide misstates the default candidate terms, omits refusals a registry analyst meets
-first, and lists options no page runs.
-
-- (a) Conditional-effects status claims.
-- (b) The conditional-effects surface: the curve figure, every basis, the EP final learner,
-  diagnostics and links.
-- (c) Trial page accuracy.
-- (d) Each trial option run once against a known truth.
 
 ### X115. Technical reference: shared inference, validation and scope pages
 
@@ -778,7 +739,8 @@ One part per notebook: `interventions`, `treatment-rules`, `conditional-effects`
 `msm-projections` and `trial-with-external-data`. Each corrects its stale claims (for example a
 comparison reported as pending after it ran, a default stated wrongly), adds the refutation and
 sensitivity checks the outline asks for, and shows the supported, interval-bearing fit where the
-page shows only a fit without one.
+page shows only a fit without one. The `trial-with-external-data` part also runs each trial option
+once against the generator's known truth, the part of X113 (d) that a Markdown guide cannot show.
 
 ### X122. New tutorials for shipped methods that no example fits
 
@@ -825,7 +787,7 @@ own registered study.
 | (a) exact hot paths | fixed-size digests for duplicate covariates. Delivered: the projection constant-cell check exits when patterns outnumber terms; Breslow event counts come from one grouped count; the weighted AUC fills tie blocks without a loop. A shared sort for top-weight shares was measured below any useful gain and dropped | equivalent |
 | (b) targeting curves | half samples generated and reduced in draw blocks, with the same draws; a memory guard | equivalent, guard |
 | (c) continuous-time survival | delivered: a memory guard, and a walk over blocks of units on the times where some hazard jumps, with the blocks it keeps sized to the budget, so memory grows with $n$ times the targets and results are bitwise equal for risks with the shipped learners. The switched variance's predictable variation runs in the final pass over buffers of units, so a default fit's memory also grows with $n$ times the targets, beside a working term of about 0.4 GB with one cause that does not grow with $n$. Threads over the blocks of a pass remain | guard, equivalent |
-| (d) density and dose response | sparse or matrix-free binned-density designs; quadrature tiled over nodes; a guard over the buffers that coexist | equivalent, guard |
+| (d) density and dose response | delivered: the binned density fills its pooled hazard design in place, once, and fits scikit-learn's liblinear `LogisticRegression` on a sparse copy where that counts fewer bytes; a dose-response fit keeps the outcome regression at the quadrature doses per fold and reads it in row tiles, and its preflight counts the tiled pass and takes `max_memory_bytes=`. Results are bitwise equal at one BLAS thread. A 100,000-row fit with 10 bins peaks at 752 MiB instead of 2.38 GiB and runs about 1.2 times as fast, and fits of 100,000 rows with growing bins and of 300,000 and 1,000,000 rows that were refused now complete at the default budget. The longitudinal memory guard's four binned and index continuous families were refitted on current peaks | equivalent, guard |
 | (e) adaptive TMLE | delivered: working-model selection slices each inner fold's held rows once, copies the penalized columns once and computes one Karush-Kuhn-Tucker residual instead of one per penalty, with bitwise-equal results and fits about 5 times faster at 100,000 to 1,000,000 subjects. A compiled lasso solver was profiled at under a tenth of the fit after that change and not pursued | equivalent |
 | (f) plots | `max_points=` on `influence`, `max_rug_points=` on the effect `curve`, `max_intervals=` on `zipper`; one prepared nuisance report shared by `calibration` and `learners` | display, equivalent |
 | (g) refutation and sensitivity | delivered: the subset test and the band-rank placebo hold one draw at a time, refitting each draw before the next or regenerating it from its recorded generator state after the checks that read every draw, so their memory no longer grows with `n_replicates` and every draw, including later tests' draws, is bitwise unchanged. Delivered from the profiles: a tilt sweep reuses each draw's read-only inputs and arm weights across every $\Gamma$ and evaluates each Newton iterate once, so `tipping_gamma()` runs about 1.6 times as fast from 100,000 to 1,000,000 rows and `missingness_tilt()` about 1.4 times, with identical results; the continuous marginal sensitivity fits its bound sides on the fit's `n_jobs`, about 3.6 times as fast on four cores at 30,000 rows, with identical results and the serial run's warnings. Its quantile regressions take about 93% of that call and are unchanged. The guarded DR-TMLE truncation curve was profiled: a memo of refits would be exact only for learners known to be pure, so it was not adopted. `planned_refits()` counts the refits and learner fits of a `refute()` call before it runs, through each estimator's refit preview, which `StructuralNestedMean` now has too. `refute(checkpoint=RefutationCheckpoint(directory))` stores each finished draw of the five long tests, so a stopped call resumes and returns the uninterrupted report bit for bit, and `progress=` reports each draw. Refits of a point fit that built a simultaneous band, and the future-treatment control fit, no longer build a band no refutation reads, with every reported number identical; a clustered point plasmode computes its cluster members once; a static regimen's plasmode truth resolves the regimen once rather than per simulated history; the negative-control and future-treatment details name the control's learner and family. Assessed and below the practical threshold, with the measured targets in the X106 G5 packet: the noise draw, the negative-control validation, the generated-outcome draws, the iid point plasmode and the measurement-error resample | equivalent |
