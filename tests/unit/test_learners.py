@@ -894,6 +894,23 @@ class TestLibrary:
         recorded = describe_mechanism(model).C
         assert recorded == pytest.approx(float(np.ravel(model.C_)[0]))
 
+    def test_the_mechanism_record_reads_the_lasso_l1_ratio(self) -> None:
+        """The default lasso records ``l1_ratio`` 1.0, so its penalty never reads as L2.
+
+        ``LogisticRegressionCV`` names the grid ``l1_ratios``; reading ``l1_ratio`` from its
+        parameters recorded None, which the mechanism stack resolves to an L2 penalty.
+        """
+        from cleverly.estimators._mechanism_fit import describe_mechanism
+        from cleverly.sensitivity._mechanism_stack import _resolved_penalty
+
+        rng = np.random.default_rng(8)
+        x = rng.normal(size=(200, 2))
+        a = (rng.uniform(size=200) < 1 / (1 + np.exp(-x[:, 0]))).astype(float)
+        lasso = dict(default_library("classification", random_state=8))["lasso"].fit(x, a)
+        record = describe_mechanism(lasso)
+        assert record.l1_ratio == 1.0
+        assert _resolved_penalty(record) == "other"
+
     def test_bare_estimators_get_names(self) -> None:
         from cleverly.learners.library import _resolve_library
 

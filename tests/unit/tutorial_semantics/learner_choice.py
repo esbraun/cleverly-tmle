@@ -37,6 +37,7 @@ _SUMMARY = "reviews/notebook-review/probes/learner-choice/summary.log"
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
     "0.0003": f"mean screened-minus-unscreened estimate, 200 draws: {_SUMMARY}",
+    "0.0025": f"mean absolute screened-minus-unscreened estimate, 200 draws: {_SUMMARY}",
     "0.0032": f"SD of the screened-minus-unscreened estimate, 200 draws: {_SUMMARY}",
     "1.02": f"median screened SE over unscreened SE, 200 draws: {_SUMMARY}",
     "0.0016": f"mean screened estimate minus the truth, 200 draws: {_SUMMARY}",
@@ -46,7 +47,7 @@ UNPRINTED_DECIMALS = {
 #: The lines of the probe summary that the readings quote, by the words the summary prints.
 _QUOTED = (
     "screened minus unscreened: mean 0.0003",
-    "SD 0.0032",
+    "SD 0.0032, mean absolute 0.0025",
     "screened SE / unscreened SE: median 1.018",
     "screened: bias -0.0016",
     "unscreened: bias -0.0018",
@@ -73,10 +74,34 @@ def _weights(table: pd.DataFrame, model: str) -> pd.Series:
     return pd.Series(rows["weight"].to_numpy(), index=rows["candidate"].to_numpy())
 
 
+#: The candidates the probe's ``sweep.py`` builds, by name and estimator class.
+_CANDIDATES = {
+    "outcome_ensemble": {
+        "linear": "LinearRegression",
+        "splines": "Pipeline",
+        "boosting": "HistGradientBoostingRegressor",
+    },
+    "treatment_ensemble": {
+        "logistic": "LogisticRegression",
+        "splines": "Pipeline",
+        "boosting": "HistGradientBoostingClassifier",
+    },
+}
+
+
 def _check_settings(namespace: dict[str, Any]) -> None:
     """The page's learners are the ones the probe repeated."""
     config = _probe_config()
     assert len(namespace["frame"]) == config["n"]
+    for key, expected in _CANDIDATES.items():
+        library = namespace[key].library
+        assert {name: type(candidate).__name__ for name, candidate in library} == expected
+        splines = dict(library)["splines"]
+        assert [type(step).__name__ for _, step in splines.steps][1] == (
+            "RidgeCV" if key == "outcome_ensemble" else "LogisticRegression"
+        )
+    assert tuple(namespace["outcome_ensemble"].clip) == (0.0, 1.0)
+    assert namespace["treatment_ensemble"].clip is None
     for ensemble in (namespace["outcome_ensemble"], namespace["treatment_ensemble"]):
         assert ensemble.n_folds == config["inner_folds"]
         for name, candidate in ensemble.library:
@@ -113,8 +138,7 @@ def check(namespace: dict[str, Any]) -> None:
     declared_plan = namespace["effect"].planned_fits(method=namespace["declared_method"])
     assert declared_plan.total_candidate_fits == 10 * 3 * (3 + 1) == 120
 
-    # The blended fit covers the truth, and its interval is narrower than the gap the naive
-    # comparison shows.
+    # The blended fit's interval covers the truth.
     estimate = namespace["estimate"]
     assert covers(estimate, truth["ate"])
 

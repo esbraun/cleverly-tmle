@@ -30,7 +30,8 @@ def main() -> None:
     diff = rows["screened_minus_unscreened"]
     lines.append(
         f"screened minus unscreened: mean {diff.mean():.4f} (MC SE "
-        f"{diff.std(ddof=1) / np.sqrt(draws):.4f}), SD {diff.std(ddof=1):.4f}"
+        f"{diff.std(ddof=1) / np.sqrt(draws):.4f}), SD {diff.std(ddof=1):.4f}, "
+        f"mean absolute {diff.abs().mean():.4f}"
     )
     lines.append(
         "screened SE / unscreened SE: median "

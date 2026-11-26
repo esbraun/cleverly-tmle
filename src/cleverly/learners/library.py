@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+import sklearn
 from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     HistGradientBoostingRegressor,
@@ -27,6 +28,15 @@ from ._fitting import Task
 __all__ = ["default_library"]
 
 LibraryEntry = tuple[str, Learner]
+
+#: ``LogisticRegressionCV(use_legacy_attributes=False)`` opts in to the 1.10 attribute layout
+#: on scikit-learn 1.8 and 1.9, which otherwise warn on every fit. From 1.10 that layout is
+#: the default and the keyword itself is deprecated, so it is passed only before 1.10.
+_LEGACY_ATTRIBUTES: dict[str, Any] = (
+    {"use_legacy_attributes": False}
+    if tuple(int(part) for part in sklearn.__version__.split(".")[:2]) < (1, 10)
+    else {}
+)
 
 
 def default_library(task: Task, *, random_state: int | None = None) -> list[LibraryEntry]:
@@ -73,8 +83,8 @@ def default_library(task: Task, *, random_state: int | None = None) -> list[Libr
                         solver="saga",
                         scoring="neg_log_loss",
                         max_iter=2000,
-                        use_legacy_attributes=False,
                         random_state=random_state,
+                        **_LEGACY_ATTRIBUTES,
                     ),
                 ),
             ]

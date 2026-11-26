@@ -3,7 +3,7 @@ declared: bias 0.0002 (MC SE 0.0007), emp SD 0.0100, mean SE 0.0095, SE/SD 0.95,
 discrete: bias -0.0002 (MC SE 0.0007), emp SD 0.0101, mean SE 0.0098, SE/SD 0.97, coverage 0.960 (MC SE 0.014), draws with any row at the cap 0.010
 unscreened: bias -0.0018 (MC SE 0.0007), emp SD 0.0105, mean SE 0.0106, SE/SD 1.01, coverage 0.965 (MC SE 0.013), draws with any row at the cap 0.010
 screened: bias -0.0016 (MC SE 0.0008), emp SD 0.0107, mean SE 0.0108, SE/SD 1.01, coverage 0.960 (MC SE 0.014), draws with any row at the cap 0.060
-screened minus unscreened: mean 0.0003 (MC SE 0.0002), SD 0.0032
+screened minus unscreened: mean 0.0003 (MC SE 0.0002), SD 0.0032, mean absolute 0.0025
 screened SE / unscreened SE: median 1.018
 screen keeps discharge_risk: 1.000
 screen keeps prior_utilization: 0.910
