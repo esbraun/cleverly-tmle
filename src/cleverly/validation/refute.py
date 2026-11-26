@@ -1015,10 +1015,12 @@ class _RefuteRequest:
         The requested test names, already validated.
     n_replicates : int or None
         Replicates per randomized test.
-    dummy_outcome : GaussianIndependentOutcome or None
-        The independent process declaration, or ``None`` for the default.
-    simulated_outcome : GaussianAdjustmentOutcome or None
-        The adjustment-dependent process declaration, or ``None`` for the default.
+    dummy_outcome : object or None
+        The independent process declaration that :func:`refute` accepts, or ``None`` for the
+        default.
+    simulated_outcome : object or None
+        The adjustment-dependent process declaration that :func:`refute` accepts, or ``None``
+        for the default.
     outcome_bands : EquivalenceBands
         The equivalence bands applied to generated-outcome refits.
     bootstrap_measurement_error : BootstrapMeasurementError or None
@@ -1970,10 +1972,20 @@ def refute_refusal(
     n_replicates: int | None = None,
     negative_control_outcome: Any = None,
     dummy_outcome: (
-        GaussianIndependentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+        GaussianIndependentOutcome
+        | BernoulliAdjustmentOutcome
+        | BoundedAdjustmentOutcome
+        | LogisticHazardOutcome
+        | MultinomialHazardOutcome
+        | None
     ) = None,
     simulated_outcome: (
-        GaussianAdjustmentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+        GaussianAdjustmentOutcome
+        | BernoulliAdjustmentOutcome
+        | BoundedAdjustmentOutcome
+        | LogisticHazardOutcome
+        | MultinomialHazardOutcome
+        | None
     ) = None,
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
@@ -2011,9 +2023,11 @@ def refute_refusal(
         Replicates per randomized test.
     negative_control_outcome : Any
         The outcome required by the negative-control test.
-    dummy_outcome : GaussianIndependentOutcome, LogisticHazardOutcome or None
+    dummy_outcome : GaussianIndependentOutcome, BernoulliAdjustmentOutcome, \
+BoundedAdjustmentOutcome, LogisticHazardOutcome, MultinomialHazardOutcome or None
         Independent process declaration.
-    simulated_outcome : GaussianAdjustmentOutcome, LogisticHazardOutcome or None
+    simulated_outcome : GaussianAdjustmentOutcome, BernoulliAdjustmentOutcome, \
+BoundedAdjustmentOutcome, LogisticHazardOutcome, MultinomialHazardOutcome or None
         Adjustment-dependent process declaration.
     outcome_bands : EquivalenceBands
         Bands applied to generated-outcome readings.
@@ -5642,10 +5656,20 @@ def refute(
     future_treatment_control: Any = None,
     future_treatment_node: int = 1,
     dummy_outcome: (
-        GaussianIndependentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+        GaussianIndependentOutcome
+        | BernoulliAdjustmentOutcome
+        | BoundedAdjustmentOutcome
+        | LogisticHazardOutcome
+        | MultinomialHazardOutcome
+        | None
     ) = None,
     simulated_outcome: (
-        GaussianAdjustmentOutcome | LogisticHazardOutcome | MultinomialHazardOutcome | None
+        GaussianAdjustmentOutcome
+        | BernoulliAdjustmentOutcome
+        | BoundedAdjustmentOutcome
+        | LogisticHazardOutcome
+        | MultinomialHazardOutcome
+        | None
     ) = None,
     outcome_bands: EquivalenceBands = EquivalenceBands(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,

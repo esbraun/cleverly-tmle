@@ -88,7 +88,6 @@ different pages and run in parallel.
 | --- | --- | --- | --- |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
-| [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
@@ -171,7 +170,7 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X94](#x94-pytorch-nuisance-learners) PyTorch nuisance learners | 5 | published support for targeting from a network's initial fit; no theorem that a network meets the rate conditions, so each interval claim needs cross-fitting and a registered study | the shipped learner library, `LTMLE` per-node targeting, and `survival_model="hazard"` |
+| [X94](#x94-pytorch-nuisance-learners) PyTorch nuisance learners | 5 | published support for targeting from a network's initial fit; no theorem that a network meets the rate conditions, so each interval claim needs cross-fitting and a registered study | the shipped [learner library](technical-reference/nuisance-learners.md), `LTMLE` per-node targeting, and `survival_model="hazard"` |
 
 ### Riesz representers
 
@@ -669,20 +668,6 @@ comparison is pending after it ran with three red cells.
   cost tools, and a home for the drift-corrected survival TMLE.
 - (d) Dose-response, projection and DR-TMLE pages: the comparison result, retired labels,
   cross-links and an assessment table.
-
-### X117. Technical reference: evidence pages, navigation and a nuisance-learner page
-
-The 171 study pages match the registry, but the index miscounts the studies off the grid, one page
-cites a test that does not exist, comparators that ran are called pending, some titles name
-datasets or internal labels rather than methods, the index is one flat list, and no page describes
-the nuisance learners.
-
-- (a) Index and implementation-matrix hygiene.
-- (b) One list of every pending comparator with its study and owner.
-- (c) Reader-facing titles and wording.
-- (d) Navigation by method family, with a test that places every page once.
-- (e) A nuisance-learner page: each learner's construction, the checks that exist and what none of
-  them establishes.
 
 ### X114. New user-guide pages: variable importance, run time and memory, plots
 

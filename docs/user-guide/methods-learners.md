@@ -81,7 +81,8 @@ A standard error, an interval and a p-value need a known treatment mechanism: th
 point estimates and report no interval, with the status `estimated_mechanism_plugin` in most
 cases.
 [When an interval is reported](../technical-reference/adaptive-iptw.md#when-an-interval-is-reported)
-states the rule and the reason.
+states the rule and the reason. The [randomized pilot](../examples/randomized-pilot.ipynb) example
+fits it with recorded chances.
 
 A cross-fitted fit refits each estimated mechanism once for each ordered pair of folds, so
 `n_folds=10` adds 90 fits per estimated factor. With the default learner library, a fit takes 30 to
@@ -194,9 +195,15 @@ derivative of the clever covariate along the lasso penalty. The strategy selects
 reports the TMLE interval. Declare two penalties in `lambdas=`: the mechanism first, then its
 partner. Omit `lambdas=` to choose the mechanism penalty by cross-validation.
 
+The strategy fits both as L1-penalized logistic regressions, so a `treatment_learner` fits no
+treatment mechanism and the fit warns. Leave it out of the `ModelSpec`.
+
 ```python
+outcome_only = ModelSpec(outcome_learner=LinearRegression())
 derivative = effect.estimate(
-    method=CollaborativeTMLEMethod(models=parametric, strategy="derivative", lambdas=(0.02, 0.01)),
+    method=CollaborativeTMLEMethod(
+        models=outcome_only, strategy="derivative", lambdas=(0.02, 0.01)
+    ),
     random_state=3,
 )
 print(derivative.extra["ctmle"].summary())
@@ -211,7 +218,8 @@ lists the other two sources of the pair and the refusals.
 `strategy="lasso"` takes its penalties from `lambdas=`. To start the grid at a cross-validated
 penalty, fit `LogisticRegressionCV` with an L1 penalty on standardized covariates. Then convert its
 `C` with `lambda = 1 / (C n)`. Use the `saga` solver. The `liblinear` solver penalizes the
-intercept, and the lasso candidates do not.
+intercept, and the lasso candidates do not. Every candidate is a lasso fit, so this example reuses
+`outcome_only` and passes no `treatment_learner`.
 
 `l1_ratios=(1.0,)` selects the L1 penalty in scikit-learn 1.8 and later. `cleverly` requires
 scikit-learn 1.8 or later. Earlier releases ignore `l1_ratios` without `penalty="elasticnet"` and
@@ -235,7 +243,7 @@ search.fit(scaled, frame["A"])
 start = 1.0 / (search.C_ * len(frame))
 lambdas = start * np.geomspace(1.0, 0.01, 6)
 lasso = effect.estimate(
-    method=CollaborativeTMLEMethod(models=parametric, strategy="lasso", lambdas=lambdas),
+    method=CollaborativeTMLEMethod(models=outcome_only, strategy="lasso", lambdas=lambdas),
     random_state=3,
 )
 ```
@@ -402,7 +410,7 @@ library, as [Two fold layers](#two-fold-layers) describes.
 
 `variable_importance` fits one model set per candidate exposure. `variable_importance_plan`,
 called with the same arguments apart from `keep_fits`, counts those fits in the same way, with each
-row labelled by its candidate.
+row labelled by its candidate ([rank candidate exposures](variable-importance.md)).
 
 ## Use GLM for the sequential baselines
 
