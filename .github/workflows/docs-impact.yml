@@ -1,0 +1,39 @@
+name: docs-impact
+
+# Did this pull request update, or waive with a reason, every page its change can make stale?
+# `tests/docs_impact.py` says what counts and `docs/development/pull-requests.md` gives the
+# procedure. This is its own workflow rather than a job of `ci.yml` because it re-runs when the
+# pull request body is edited (that is where the waivers live), and a body edit must not restart
+# the test matrix. It installs nothing: the checker and the map are standard-library Python.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-impact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-impact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The whole history, so the merge base exists, but no file contents until git needs them:
+      # the study artifacts make a full clone about 1.5 GiB.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The body is read from the event payload by the checker itself, so no text from the pull
+      # request reaches the shell. The base branch goes through the environment for the same
+      # reason.
+      - name: Check that every affected page is updated or waived
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python -m tests.docs_impact --base "origin/$BASE_REF"
