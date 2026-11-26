@@ -16,6 +16,7 @@ import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
+import cleverly
 from cleverly import (
     ATE,
     CausalStudy,
@@ -115,6 +116,7 @@ def main() -> None:
     cc = np.array([row["cc_psi"] for row in rows])
     tips = np.array([np.nan if row["tip_ci"] is None else row["tip_ci"] for row in rows])
     lines = [
+        f"cleverly {cleverly.__version__}",
         f"draws: {n}, seeds {SEEDS.start} to {SEEDS.stop - 1}",
         f"truth: ATE {ate:.6f}, complete-case target {cc_target:.6f} (quadrature)",
         f"Step 6: covers ATE {rate('covers')}; bias {psi.mean() - ate:+.5f} "

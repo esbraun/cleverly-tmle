@@ -8,6 +8,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 from __future__ import annotations
 
 import csv
+import re
 from typing import Any
 
 import numpy as np
@@ -59,20 +60,15 @@ UNPRINTED_DECIMALS = {
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "assessment-heading": {"0.0095": "estimate"},
     "generated-outcomes-reading": {"0.1478": "estimate"},
+    "interpret": {"2.80": "evalue"},
 }
 
 _REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
 
 #: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in the log.
-_REFUTE_LOG_DECIMALS = ("-0.134", "-0.232", "-0.03598", "0.004196")
+_REFUTE_LOG_DECIMALS = ("-0.134", "-0.232", "-0.036", "0.1023", "0.10287", "0.0042")
 UNPRINTED_DECIMALS.update(
     dict.fromkeys(_REFUTE_LOG_DECIMALS, f"a value of the 400-draw review probe, {_REFUTE_PROBE}")
-)
-UNPRINTED_DECIMALS.update(
-    {
-        "9.4": f"the longest wall time of a probe run, 566 s, in {_REFUTE_PROBE}",
-        "0.00056": f"the truth 0.10287 minus the simulated_outcome mean 0.10231, {_REFUTE_PROBE}",
-    }
 )
 
 
@@ -138,7 +134,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert fitted.nuisance.missingness is not None
     assert expression in summary.section("Assumptions").lines[0]
 
-    # Step 6: a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
+    # "Estimate the effect": a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
     # known range of the score as q_bounds.
     method = namespace["method"]
     fit_summary = fitted.summary()
@@ -184,7 +180,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.70 < float(frame["responded"].mean()) < 0.80
     assert int(frame["transition_score"].isna().sum()) == int((frame["responded"] == 0).sum())
 
-    # Step 3: respondents have lower discharge risk (W1 -> Delta) and more prior utilization
+    # "Who answers the survey": respondents have lower discharge risk (W1 -> Delta) and more prior utilization
     # (W3 -> Delta).
     by_response = namespace["by_response"]
     assert by_response.loc[1.0, "discharge_risk"] < 0.0 < by_response.loc[0.0, "discharge_risk"]
@@ -219,7 +215,7 @@ def check(namespace: dict[str, Any]) -> None:
         return float(law.outcome_mean(w, 1.0, None)[0] - law.outcome_mean(w, 0.0, None)[0])
 
     assert effect_at(high_risk) < effect_at(base) - 0.05
-    # Step 6: "in this synthetic law the two logistic models have the true form" (their
+    # "Estimate the effect": "in this synthetic law the two logistic models have the true form" (their
     # logits are exactly linear in A and W), and the outcome surface is not linear.
     rng = np.random.default_rng(0)
     w = rng.normal(size=(500, 3))
@@ -235,11 +231,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert linear_residual(np.column_stack([ones, w]), logit(law.propensity(w))) < 1e-9
     response_logits = np.r_[logit(law.missingness(w, 0.0)), logit(law.missingness(w, 1.0))]
     assert linear_residual(stacked, response_logits) < 1e-9
-    # "The adjustment set must contain W3", and Step 5 declares the response role.
+    # "The adjustment set must contain W3", and "Set up the analysis" declares the response role.
     assert "prior_utilization" in namespace["study"].design.adjustment
     assert namespace["study"].design.missingness == "responded"
 
-    # Step 6 and Step 7 relations on this draw.
+    # "Estimate the effect" and "What you get from respondents only": relations on this draw.
     complete_case = namespace["complete_case"]["ate"]
     full = fitted["ate"]
     respondents = namespace["respondents"]
@@ -266,15 +262,33 @@ def check(namespace: dict[str, Any]) -> None:
     assert round(support.mechanisms["P(Delta=1|A,W)"]["min"], 3) == 0.038
     assert support.mechanisms["P(A=a,Delta=1|W)"]["clipped_fraction"] == 0.0
     assert support.truncated["fraction"] == 0.0
-    # "The largest weight on a respondent is 41.2": one over the chance of the offer they got
-    # times the chance of answering under it, over respondents only.  Nonzero witness: the
-    # report's clever-covariate maximum also counts non-responders and is about twice as large.
-    weight = namespace["respondent_weight"]
-    assert len(weight) == int(frame["responded"].sum())
-    assert f"{weight.max():.1f}" == "41.2"
-    assert max(support.clever_covariate_max.values()) > 1.5 * weight.max()
-    # "only 3 of 3,051 respondents carry a weight above 20".
-    assert namespace["heavy"] == int((weight > 20).sum()) == 3
+    # "one respondent carries a weight of 41.2": one over the chance of the offer they got times
+    # the chance of answering under it.  The report's most concentrated column is the
+    # usual-support arm's equation, where the 1,531 navigation respondents carry no weight, so
+    # "its 1,520 respondents count like about 930 equally weighted ones".  The weights are
+    # recomputed here, independently of the report.
+    concentration = namespace["concentration"]
+    assert concentration["equation"] == "h0"
+    navigation_respondents = (frame["transition_navigation"] == 1) & (frame["responded"] == 1)
+    assert concentration["zero_load"] == int(navigation_respondents.sum())
+    assert (concentration["n_targeted"], concentration["zero_load"]) == (3051, 1531)
+    assert namespace["weighted"] == 1520 and round(concentration["effective"]) == 930
+    chance_of_option = fitted.nuisance.bounded_propensity(support.bounds)
+    chance_of_answering = fitted.nuisance.bounded_missingness(0.01)
+    arms = fitted.nuisance.arms
+    own = np.array([arms.index(arm) for arm in frame["transition_navigation"]])
+    rows = np.arange(len(frame))
+    weight = 1.0 / (chance_of_option[rows, own] * chance_of_answering[rows, own])
+    responded = frame["responded"].to_numpy() == 1
+    assert concentration["max_load"] == pytest.approx(weight[responded].max(), rel=1e-9)
+    assert f"{concentration['max_load']:.1f}" == "41.2"
+    # Nonzero witness: the report's clever-covariate maximum also counts non-responders and is
+    # about twice as large.
+    assert max(support.clever_covariate_max.values()) > 1.5 * weight[responded].max()
+    # Kish's count of the usual-support respondents' weights gives the printed 930.
+    control = responded & (own == arms.index(0))
+    kish = weight[control].sum() ** 2 / (weight[control] ** 2).sum()
+    assert kish == pytest.approx(concentration["effective"], rel=1e-6)
     # The fit caps the chances at the printed bounds, and nothing reached them.
     assert round(support.bounds[0], 4) == 0.0095 and support.nuisance_bound == 0.01
     nuisance_summary = namespace["nuisance"].summary()
@@ -292,7 +306,7 @@ def check(namespace: dict[str, Any]) -> None:
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
 
-    # Step 10: the estimate never reaches 0 under the navigation-arm tilt.  Each moved
+    # "What if non-responders differ": the estimate never reaches 0 under the navigation-arm tilt.  Each moved
     # estimate is re-targeted with its own interval, so the interval search runs.
     assert namespace["tipping_gamma"] is None
     arm_gamma = {0: 0.0, 1: -1.0}
@@ -334,6 +348,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(float(printed["mean drop"].iloc[-1]) - namespace["mar_mean"]) < 0.01
     assert float(printed["mean drop"].iloc[1]) < 0.5 * namespace["mar_mean"]
     assert figure_title(namespace["missingness_fig"]) == "Estimate across missingness assumptions"
+    assert figure_title(namespace["comparison_fig"]) == "Estimates and intervals"
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -344,7 +359,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 9: the three refits are descriptive, and each check the page skips refuses."""
+    """Try to break the result: the three refits are descriptive, and each check the page skips refuses."""
     fitted = namespace["full"]
     refutation = namespace["refutation"]
     original = fitted["ate"].psi
@@ -409,7 +424,7 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
 
 
 def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
-    """Step 9: the generated outcomes run at level L1 on the bounded process."""
+    """Test the method on a known effect: the generated outcomes run at level L1 on the bounded process."""
     fitted = namespace["full"]
     independent, adjusted = namespace["independent"], namespace["adjusted"]
     assert isinstance(independent, BoundedAdjustmentOutcome)
@@ -418,14 +433,19 @@ def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
     probe = (EXAMPLES.parents[1] / _REFUTE_PROBE).read_text(encoding="utf-8")
     for literal in _REFUTE_LOG_DECIMALS:
         assert literal in probe, literal
-    assert probe.count("400 draws") >= 3 and probe.count("L2") >= 3
-    # Only simulated_outcome leaves its band; its mean estimate lies 0.00056 below the truth.
-    assert (
-        probe.count("bias") >= 3
-        and probe.count("inside [-0.2, 0.2]") == 2
-        and "outside [-0.2, 0.2]" in probe
+    # Three runs of 400 refits each, in the order dummy_outcome, simulated_outcome, plasmode;
+    # only simulated_outcome leaves its band.
+    assert len(re.findall(r"Repeats per test:\s+400\n", probe)) == 3
+    assert re.findall(r"Result:\s+(passed|failed)\n", probe) == ["passed", "failed", "passed"]
+    assert re.search(
+        r"simulated outcome\s+std\. bias\s+-0\.134\s+\[-0\.232, -0\.036\]\s+"
+        r"\[-0\.2, 0\.2\]\s+no\n",
+        probe,
     )
-    assert round(0.10287 - 0.10231, 5) == 0.00056
+    assert len(re.findall(r"std\. bias .*\[-0\.2, 0\.2\]\s+yes\n", probe)) == 2
+    assert re.search(r"simulated outcome\s+0\.1023\s+0\.0042\s+about 0\.10287", probe)
+    # "about a tenth of the fit's standard error below the truth".
+    assert round((0.10287 - 0.1023) / fitted["ate"].std_error, 1) == 0.1
     tests = namespace["generated_tests"]
     # "with 10 every line prints level L1, the numbers without a pass or fail".
     assert set(tests) == {"dummy_outcome", "simulated_outcome", "plasmode"}
@@ -452,7 +472,7 @@ def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
 
 
 def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
-    """Step 10: the E-value and the omitted-variable bound, read on the fit."""
+    """The E-value and "What if a confounder is missing?": and the omitted-variable bound, read on the fit."""
     fitted = namespace["full"]
     evalue = namespace["evalue"]
     assert evalue.approximate and evalue.limit_descriptive
@@ -506,3 +526,4 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     assert strengths["prior_utilization"] < strengths["age"] < tipping < strengths["discharge_risk"]
     assert 0.4 < tipping / strengths["discharge_risk"] < 0.6
     assert 5.0 < tipping / strengths["age"] < 6.0
+    assert figure_title(namespace["confounding_fig"]) == "Sensitivity to hidden confounding"
