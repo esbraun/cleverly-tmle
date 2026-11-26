@@ -9,11 +9,20 @@
 <!-- What moved, what stayed identical, and the gate you ran. For example:
      pytest: 5081 passed, 47 skipped. Name each validation study regenerated for this change. -->
 
+## Docs
+
+<!-- Run `python -m tests.docs_impact --worktree --body-file <this body>` and fix each page it
+     lists (docs/development/pull-requests.md, "Bring the docs up to date"). For a finding that
+     needs no change, add a line outside this comment, in this form:
+     Docs-waiver: docs/user-guide/settings.md: <why the page is still right, four words or more>
+     Name the pages you updated here. -->
+
 ## Checks
 
 - [ ] `ruff check .` and `ruff format --check .` pass
 - [ ] `mypy` passes
 - [ ] `pytest -q -n auto --dist loadgroup` passes
+- [ ] `python -m tests.docs_impact` passes: every affected page is updated, or waived above with a reason
 - [ ] `python -m tests.prose` findings are fixed, or carry `accepted: <reason>` in `tests/prose-report.md`
 - [ ] `nox -s docs` passes, if a document or a docstring changed
 - [ ] `python -m build`, strict Twine validation, archive checks, and clean install checks pass

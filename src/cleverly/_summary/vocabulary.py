@@ -4692,12 +4692,20 @@ CURVE_BAND_MEASURED: Final = (
     "multipliers and {draws} draws."
 )
 
+#: The clause both readings of an unmeasured band open with, naming its configuration.
+_CURVE_BAND_UNMEASURED_CLAUSE: Final = (
+    "No registered study measures its joint coverage in this kind of fit with {kind} "
+    "multipliers and {draws} draws"
+)
+
 #: The ``{coverage}`` sentence when it does not, naming the band's configuration.
 CURVE_BAND_UNMEASURED: Final = (
-    "No registered study measures its joint coverage in this kind of fit with {kind} "
-    "multipliers and {draws} draws, so the status above covers the coefficients and not the "
-    "band."
+    f"{_CURVE_BAND_UNMEASURED_CLAUSE}, so the status above covers the coefficients and not "
+    "the band."
 )
+
+#: The same sentence in the band note of ``curve.plot()``, which prints no status line.
+CURVE_BAND_UNMEASURED_FIGURE: Final = f"{_CURVE_BAND_UNMEASURED_CLAUSE}, so it is experimental."
 
 # ------------------------------------------------------------ targeting curves (X92 PR-5)
 
