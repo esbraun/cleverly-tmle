@@ -1659,6 +1659,8 @@ class TestPolicies:
         [
             # two levels move in one policy
             (("current", (("low", 1.0),)), ("both x2", (("medium", 2.0), ("high", 2.0)))),
+            # every policy is the natural course, so nothing orders them
+            (("current", (("low", 1.0),)), ("also current", (("high", 1.0),))),
             # different levels move in different policies
             (
                 ("current", (("low", 1.0),)),

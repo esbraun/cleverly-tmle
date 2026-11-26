@@ -2085,17 +2085,12 @@ def _policy_axis(estimand: Any) -> tuple[dict[str, float], str, bool, str] | Non
 
 def _factor_pairs(delta: Any) -> list[tuple[Any, float]] | None:
     """The ``(level, factor)`` pairs of a mapping delta, which ``Incremental`` stores as a tuple of
-    pairs; ``None`` for a scalar or any other form."""
-    items = delta.items() if isinstance(delta, Mapping) else delta
-    if not isinstance(items, (tuple, list)) and not isinstance(delta, Mapping):
+    pairs; ``None`` for a scalar."""
+    if not isinstance(delta, tuple):
         return None
-    pairs = list(items)
-    if not all(isinstance(pair, tuple) and len(pair) == 2 for pair in pairs):
+    if not all(isinstance(pair, tuple) and len(pair) == 2 for pair in delta):
         return None
-    try:
-        return [(level, float(factor)) for level, factor in pairs]
-    except (TypeError, ValueError):
-        return None
+    return [(level, float(factor)) for level, factor in delta]
 
 
 def _single_level_odds_axis(policies: list[Any]) -> tuple[dict[str, float], str, bool, str] | None:
