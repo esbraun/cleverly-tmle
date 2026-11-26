@@ -436,6 +436,12 @@ def _check_go_deeper_lessons(namespace: dict[str, Any]) -> None:
         "assumption_rationale",
     }
     assert "hypothetical strategy" in namespace["binary_protocol"].intercurrent_event_handling[2]
+    binary_protocol = namespace["binary_protocol"]
+    assert "score" not in " ".join(binary_protocol.assumption_rationale)
+    assert "score" not in binary_protocol.intercurrent_event_handling[0]
+    assert_protocol_recorded(
+        NOTEBOOK, "logit", namespace["binary_protocol"], namespace["odds_result"]
+    )
 
     # Treatment plans: the true line is the least-squares line through the three plan means,
     # and both coefficients carry the supported label.
@@ -448,6 +454,10 @@ def _check_go_deeper_lessons(namespace: dict[str, Any]) -> None:
     )
     table = namespace["plans_table"]
     assert set(table["support"]) == {"supported"}
+    # "because the cross-fitted longitudinal projection study covers this fit"
+    for name in table.index:
+        support = namespace["plans_result"][name].support
+        assert support.evidence == ("cross-fitted-longitudinal-msm",)
     for name, target in zip(table.index, namespace["true_plans_line"], strict=True):
         assert covers(namespace["plans_result"][name], target)
 
