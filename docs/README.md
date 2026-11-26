@@ -15,7 +15,7 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty-four tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries the tutorials on simulated data and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
@@ -35,10 +35,10 @@ that fits its question.
 | [adaptive TMLE](technical-reference/adaptive-tmle.md) | trial-with-external-data |
 | [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 
-The tutorials share two narratives. Nineteen follow one health program: a health plan's hospital
+The tutorials share two narratives. Most follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
-tutorial is that case, because the health program has no continuous price. Four tutorials follow a
+tutorial is that case, because the health program has no continuous price. Several tutorials follow a
 second program, a subscription retailer that sends weekly offers, counts weekly orders, sets
 monthly renewal prices, and gives renewal discounts. The weekly-orders tutorial uses the retailer's
 weekly orders, an outcome recorded every week that the health program lacks, and the offers
