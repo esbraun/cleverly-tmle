@@ -171,7 +171,14 @@ def _calibration_note(check: NuisanceDiagnostics) -> Note | None:
     if not probability:
         return None
     if check.evaluation == "in_sample":
-        sentences = [vocabulary.CALIBRATION_IN_SAMPLE.format(one=1)]
+        sentences = [vocabulary.CALIBRATION_IN_SAMPLE]
+        exact = [model_words(model.name) for model in probability if model.slope_one_in_sample]
+        if exact:
+            sentences.append(
+                vocabulary.CALIBRATION_SLOPE_ONE.format(
+                    models=" and ".join(exact), verb="is" if len(exact) == 1 else "are", one=1
+                )
+            )
     else:
         sentences = [vocabulary.CALIBRATION_OUT_OF_FOLD.format(one=1)]
         tested = len(check._calibration_tested)

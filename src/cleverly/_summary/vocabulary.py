@@ -1622,8 +1622,12 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_MODEL_NOTE_TEXTS})
 
 #: Sentences of the ``calibration`` note.
 CALIBRATION_IN_SAMPLE: Final = (
-    "Calibration slopes are in sample and carry no test: an unpenalized logistic model with "
-    "an intercept has an in-sample slope of {one} by construction."
+    "Calibration slopes are in sample and carry no test: a slope read on the rows a model "
+    "was fitted to says nothing about how it predicts new rows."
+)
+CALIBRATION_SLOPE_ONE: Final = (
+    "The {models} {verb} an unpenalized logistic regression with an intercept, whose "
+    "in-sample slope is {one} by construction."
 )
 CALIBRATION_OUT_OF_FOLD: Final = (
     "The calibration slope refits the out-of-fold predictions by logistic regression with "

@@ -45,7 +45,7 @@ average, so the adjustment is doing very little.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -206,6 +206,12 @@ class NuisanceModelReport:
         :data:`TMLE_CONSTANT_TARGET_IN_FOLD`. ``None`` when every fold fitted one.
     omitted_folds : tuple of int, default=()
         The one-based folds ``fold_omission`` applies to. Empty when it is ``None``.
+    slope_one_in_sample : bool, default=False
+        Whether this in-sample probability report comes from an unpenalized two-class logistic
+        regression with an intercept, fitted on the rows the report reads, whose calibration
+        slope is then exactly 1 by its score equations (Riley et al., 2021, Section 2.1.2).
+        ``False`` for any other learner, a penalized fit, a one-vs-rest arm of a multi-class
+        mechanism, and out-of-fold predictions.
     """
 
     name: str
@@ -219,6 +225,7 @@ class NuisanceModelReport:
     learner_loss: str | None = None
     fold_omission: str | None = None
     omitted_folds: tuple[int, ...] = ()
+    slope_one_in_sample: bool = False
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -721,8 +728,9 @@ class NuisanceDiagnostics:
 
         Every probability report with a finite slope and standard error, except a C-TMLE
         working mechanism, when the predictions are out of fold. An in-sample fit tests none:
-        an unpenalized logistic model with an intercept has an in-sample slope of exactly 1
-        (Riley et al., 2021, Section 2.1.2), so the slope there says nothing about new data.
+        a slope read on the rows a model was fitted to says nothing about new data, and for an
+        unpenalized logistic model with an intercept it is exactly 1 (Riley et al., 2021,
+        Section 2.1.2).
         The rule splits :data:`CALIBRATION_FAMILY_ALPHA` over the reports this returns, in
         report order.
         """
@@ -736,34 +744,6 @@ class NuisanceDiagnostics:
             and np.isfinite(model.metrics.get("calibration_slope", float("nan")))
             and np.isfinite(model.metrics.get("calibration_slope_se", float("nan")))
         )
-
-    def _calibration_lines(self) -> list[str]:
-        """The lines under the table that state the basis of the slope and each omission."""
-        probability = [model for model in self.models if model.kind == "probability"]
-        if not probability:
-            return []
-        if self.evaluation == "in_sample":
-            lines = [
-                "Calibration slopes are in sample and carry no test. An unpenalized logistic "
-                "model with an intercept has an in-sample slope of 1 by construction."
-            ]
-        else:
-            lines = [
-                "Calibration slope: logistic recalibration of the out-of-fold predictions "
-                "with one intercept per fold."
-            ]
-            tested = len(self._calibration_tested)
-            if tested:
-                lines.append(
-                    f"A finding needs the {_level_label(tested)} interval to lie above 0 and "
-                    f"exclude 1, a Bonferroni level over {tested} tested model(s)."
-                )
-        lines.extend(
-            f"calibration slope unavailable for {model.name}: {model.calibration_omission}"
-            for model in probability
-            if model.calibration_omission is not None
-        )
-        return lines
 
     @property
     def findings(self) -> tuple[str, ...]:
@@ -1088,8 +1068,12 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     spread_rows, spread_omission = _spread_rows(result)
     route = result.config.ratio_route
     evaluation: EvaluationBasis = "in_sample" if nuisance.folds.is_single else "out_of_fold"
+    exact = _slope_one_reports(result, models) if evaluation == "in_sample" else frozenset()
     return NuisanceDiagnostics(
-        models=tuple(replace(model, evaluation=evaluation) for model in models),
+        models=tuple(
+            replace(model, evaluation=evaluation, slope_one_in_sample=model.name in exact)
+            for model in models
+        ),
         evaluation=evaluation,
         n_repeats=result.n_repeats,
         backend=result.data.backend,
@@ -1166,6 +1150,48 @@ def _spread_rows(result: TMLEResult) -> tuple[tuple[RepeatSpreadRow, ...], str |
     if not_finite:
         return tuple(rows), SPREAD_NOT_FINITE + ", ".join(not_finite)
     return tuple(rows), None
+
+
+#: The two-class reports of an in-sample fit and the learner each one reads. A one-vs-rest arm
+#: of a multi-class mechanism is absent: its logit is not linear in the covariates, so its
+#: slope is not 1 even for an unpenalized multinomial fit.
+_TWO_CLASS_LEARNERS: dict[str, str] = {
+    "propensity": "treatment_learner",
+    "missingness": "missingness_learner",
+    "intermediate": "intermediate_learner",
+    "outcome": "outcome_learner",
+}
+
+
+def _unpenalized_logistic(learner: Any) -> bool:
+    """Whether ``learner`` is a scikit-learn logistic regression with no penalty and an intercept.
+
+    scikit-learn drops the penalty with ``C=np.inf`` and, in releases that still accept it,
+    with ``penalty=None``. A large finite ``C`` is a penalty, however weak, so it does not
+    count: the slope is then near 1 but not 1 by construction.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    if type(learner) is not LogisticRegression or not learner.fit_intercept:
+        return False
+    penalty = getattr(learner, "penalty", "l2")
+    return bool(np.isinf(learner.C) or penalty is None or penalty == "none")
+
+
+def _slope_one_reports(
+    result: TMLEResult, models: Sequence[NuisanceModelReport]
+) -> frozenset[str]:
+    """The in-sample two-class reports whose learner makes the calibration slope exactly 1."""
+    estimator = getattr(result, "estimator", None)
+    if estimator is None:
+        return frozenset()
+    return frozenset(
+        model.name
+        for model in models
+        if model.kind == "probability"
+        and model.name in _TWO_CLASS_LEARNERS
+        and _unpenalized_logistic(getattr(estimator, _TWO_CLASS_LEARNERS[model.name], None))
+    )
 
 
 def _per_arm_learner_diagnostics(nuisance: NuisanceEstimates) -> list[Any] | None:
