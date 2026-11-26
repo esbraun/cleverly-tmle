@@ -2495,6 +2495,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
 | a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
+| the two arms' risks at one cause and target time of a `ContinuousSurvivalTMLE` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator)` and mark the result exact. No coverage study registers the confidence-limit E-value, so the limit prints as descriptive. Without a pair the row reports `deferred`; two names that are not the arms' risks at one cause and time, or a risk whose status withholds its interval, report `unavailable` ([continuous-time survival](continuous-time-survival.md#restricted-means-ratios-and-the-curve)) |
 | any other longitudinal fit, or a `TimeToEvent` pair with a dynamic regimen or with two horizons | report `unavailable` and name [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) or [F34](../roadmap.md#f34-e-values-beyond-the-total-population-arm-contrast) |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
@@ -2987,7 +2988,8 @@ descriptive.
 
 A point-treatment sensitivity formula is not reused on longitudinal data. A longitudinal fit runs
 a sensitivity operation only where a longitudinal derivation exists: the
-[E-value](#e-value) of two static-regimen risks of a `TimeToEvent` fit, and the
+[E-value](#e-value) of two static-regimen risks of a `TimeToEvent` fit or of the two arms' risks of
+a `ContinuousSurvivalTMLE` fit, and the
 [simulated common-cause surface](#simulated-common-cause-stress-surface) under its time-fixed
 latent. The omitted-variable bound, the marginal sensitivity model bounds and the missingness tilt
 report `unavailable` with the reason the fit's capability row declares, and the E-value of any
