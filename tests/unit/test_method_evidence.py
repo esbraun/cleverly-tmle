@@ -33,6 +33,7 @@ from tests.documents import pipe_table
 from tests.studies.evidence import (
     descriptions,
     failures,
+    navigation,
     property_failures,
     property_verdicts,
     replication,
@@ -4162,6 +4163,26 @@ def _matrix_policy_findings(
     wrong: list[tuple[str, str, list[str]]] = []
     unlabelled: list[str] = []
     labelled = 0
+    for page, label in _matrix_evidence_links(matrix):
+        if page not in policies:
+            continue
+        registered_policy = policies[page]
+        if label is None:
+            unlabelled.append(page)
+            continue
+        labelled += 1
+        if registered_policy != {"gated" if label == "gated" else "reporting"}:
+            wrong.append((page, label, sorted(registered_policy)))
+    return wrong, unlabelled, labelled
+
+
+def _matrix_evidence_links(matrix: Path) -> list[tuple[str, str | None]]:
+    """Each method-evidence page the matrix's evidence column links, with its policy label.
+
+    The label is read by the rule :func:`_matrix_policy_findings` documents; ``None`` means no
+    policy word precedes the link in its clause.
+    """
+    found: list[tuple[str, str | None]] = []
     for row in pipe_table(matrix, MATRIX_COLUMNS):
         for clause in row["correctness evidence"].split(";"):
             label: str | None = None
@@ -4172,16 +4193,9 @@ def _matrix_policy_findings(
                     label = words[-1].casefold()
                 cursor = link.end()
                 page = _EVIDENCE_PAGE.match(link["target"])
-                if page is None or page["page"] not in policies:
-                    continue
-                registered_policy = policies[page["page"]]
-                if label is None:
-                    unlabelled.append(page["page"])
-                    continue
-                labelled += 1
-                if registered_policy != {"gated" if label == "gated" else "reporting"}:
-                    wrong.append((page["page"], label, sorted(registered_policy)))
-    return wrong, unlabelled, labelled
+                if page is not None:
+                    found.append((page["page"], label))
+    return found
 
 
 def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
@@ -4246,6 +4260,81 @@ def test_the_matrix_policy_check_fails_on_a_mutated_label(
     copy.write_text(text.replace(original, mutated), encoding="utf-8")
     wrong, unlabelled, _ = _matrix_policy_findings(copy, _registered_policies())
     assert wrong if finding == "wrong" else unlabelled, f"the mutation {mutated!r} went unreported"
+
+
+def _unlinked_from_the_matrix(matrix: Path) -> list[str]:
+    """The registered study pages that the matrix's evidence column does not link."""
+    linked = {page for page, _ in _matrix_evidence_links(matrix)}
+    return sorted({Path(study.document).name for study in STUDIES} - linked)
+
+
+def test_the_matrix_links_every_registered_study() -> None:
+    """Every registered study page is reachable from its implementation family's matrix row.
+
+    Thirty study pages, among them the ordinary point-treatment TMLE study, were linked
+    from no row, so a reader who started from the matrix never met them.
+    """
+    assert _unlinked_from_the_matrix(MATRIX) == [], (
+        "the implementation matrix links no evidence for these registered study pages; add "
+        "each to its family's row with its policy label"
+    )
+
+
+def test_the_matrix_link_check_fails_when_a_link_is_removed(tmp_path: Path) -> None:
+    """A copy of the matrix with one study link turned into plain text reports that page."""
+    text = MATRIX.read_text(encoding="utf-8")
+    # Joined from parts so the link sweep does not read the mutation target as a link here.
+    original = "".join(("[multi-arm]", "(", "method-evidence/ordinary-multi-arm-tmle.md", ")"))
+    assert text.count(original) == 1, f"the mutation target {original!r} moved"
+    copy = tmp_path / "index.md"
+    copy.write_text(text.replace(original, "multi-arm"), encoding="utf-8")
+    assert _unlinked_from_the_matrix(copy) == ["ordinary-multi-arm-tmle.md"]
+
+
+def _off_grid_findings(page: Path) -> list[str]:
+    """How the index's off-grid block disagrees with the registry, read from ``page``.
+
+    The block must be what :func:`navigation.rendered` returns, and the pages it links must be
+    exactly the registered studies that :func:`_on_the_grid` leaves off the grid.  The second
+    check reads this module's own definition, so a wrong rule in the renderer is caught too.
+    """
+    block = navigation.published("off-grid-studies", page)
+    findings = []
+    if block != navigation.rendered()["off-grid-studies"]:
+        findings.append("the block is not what navigation.rendered() returns")
+    linked = {link["target"] for line in block for link in _MARKDOWN_LINK.finditer(line)}
+    expected = {Path(study.document).name for study in STUDIES if not _on_the_grid(study)}
+    if linked != expected:
+        findings.append(
+            f"links {sorted(linked - expected)} that are on the grid and misses "
+            f"{sorted(expected - linked)}"
+        )
+    return findings
+
+
+def test_the_off_grid_list_is_fresh() -> None:
+    """The index names every off-grid study and no other.
+
+    Its hand-typed sentence named four studies when five were off the grid.  Run
+    ``python -m tests.studies.evidence.navigation`` rather than editing the block.
+    """
+    assert _off_grid_findings(navigation.PAGES["off-grid-studies"]) == []
+
+
+@pytest.mark.parametrize("mutation", ["drop-a-line", "add-an-on-grid-study"])
+def test_the_off_grid_check_fails_on_a_mutated_list(tmp_path: Path, mutation: str) -> None:
+    """A copy of the index with one off-grid line removed, or one on-grid study added, fails."""
+    page = navigation.PAGES["off-grid-studies"]
+    lines = page.read_text(encoding="utf-8").splitlines()
+    head = lines.index(_OPEN.format(name="off-grid-studies"))
+    if mutation == "drop-a-line":
+        del lines[head + 1]
+    else:
+        on_grid = VALIDATION_STUDIES[0]
+        lines.insert(head + 1, f"- [{on_grid.name}]({Path(on_grid.document).name}): on the grid.")
+    copy = tmp_path / "index.md"
+    copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert len(_off_grid_findings(copy)) == 2, f"the mutation {mutation} went unreported"
 
 
 class TestTheQuantityVocabulary:

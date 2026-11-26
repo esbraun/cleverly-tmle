@@ -16,11 +16,16 @@ Read the pages in this order.
 | the study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells or names a reference. A study that names a reference
-is comparator-backed, and its agreement block names the comparison kind of each row. The
-[learned-rule boundary study](learned-rule-cvtmle-boundary.md) and the study of
-[collaborative TMLE of a risk curve](survival-ctmle.md) declare neither, so each has a page and
-no grid row. The [adaptive TMLE trial study](adaptive-tmle-trial.md) and the
-[selective-enrollment study](adaptive-tmle-selective.md) are the third and fourth such studies.
+is comparator-backed, and its agreement block names the comparison kind of each row. These
+studies declare neither, so each has a page and no grid row:
+
+<!-- generated: off-grid-studies -->
+- [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md): no property cell and no comparator in its record; published under `reporting`.
+- [collaborative TMLE of a risk curve](survival-ctmle.md): no property cell and no comparator in its record; published under `reporting`.
+- [continuous-time survival switched variance](continuous-survival-variance.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+- [Adaptive TMLE with external data](adaptive-tmle-trial.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+- [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+<!-- /generated -->
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).

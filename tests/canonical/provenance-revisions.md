@@ -952,3 +952,17 @@ standard errors of `dr_known_4k`, three control values and six readings. The oth
 errors are withheld on both trees. Only the support labels moved, from experimental to the
 `T49.drtmle.known`, `T49.drtmle` and `T49.ctmle_oat` rows, which is the registration and enters
 no recorded row.
+
+## Title, anchor and docstring edits of X117
+
+X117 edited Python modules that study manifests record in `study_module_sha256`, after those
+studies ran. Each edit is result-neutral, and no recorded hash is rewritten. The rows below name
+each module and its edit. `tests/studies/evidence/manifest.py` writes the record's `name` to the
+manifest as `study` and never writes `anchor`. `comparator_findings` reads neither, and no draw,
+fit, seed, cell or verdict reads either one or a deleted function that nothing calls, so a
+regeneration would write the same rows. Remove a module's row when every study that records it
+is regenerated.
+
+| module | edit |
+| --- | --- |
+| `tests/studies/canonical_ltmle.py` | deletes `untargeted` and `untargeted_estimands`, which nothing calls (their docstring cited a test module that does not exist), and the `regimen_initials` docstring states the contrast-name rule in place of naming the deleted function |

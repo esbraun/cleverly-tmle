@@ -718,6 +718,9 @@ artifacts, or provenance conventions for each comparison.
 6. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
    composition the study does not reach is a separate row, not an implied one. Cross-fitting,
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
+7. **Link it from the matrix.** Add the page to its family's row of the implementation matrix in
+   `docs/technical-reference/index.md`, after the word for its publication policy.
+   `test_the_matrix_links_every_registered_study` fails while a registered page has no link.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
@@ -732,12 +735,15 @@ different estimator, or related target. The agreement block of the page prints t
 A study with no property cells and no reference can still register as a reporting study. It
 declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
 with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
-list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+list it. The off-grid list on the method-evidence index is a generated block that
+`python -m tests.studies.evidence.document` fills from the registry through
+`tests/studies/evidence/navigation.py`, so registering such a study adds its line with no hand
+edit. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.
 
 A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
 a property cell for each claim the study gates, before the run, so that its method earns a row.
-`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
-one entry: it gated its controls through its own hook and declared no property cell. The manifest
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is an
+entry: it gated its controls through its own hook and declared no property cell. The manifest
 records the policy of the run, so an entry leaves only at a regeneration or when a
 comparator-backed record puts the method on the grid.

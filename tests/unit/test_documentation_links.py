@@ -445,3 +445,90 @@ def test_every_named_test_exists() -> None:
                 broken.append(f"{path.relative_to(ROOT)}: {found.group(0)}")
     assert checked > 20, f"only {checked} test references matched; check the patterns"
     assert not broken, "references to tests that do not exist: " + "; ".join(broken)
+
+
+#: A repository path cited in backticks on a reader-facing page: it starts ``tests/`` or
+#: ``src/cleverly/``, ends in one of a closed list of extensions, and is followed by the closing
+#: backtick, a ``:line`` or ``::Name`` suffix, a closing parenthesis or a space.  A dotted name
+#: such as ``tests/parallel.available_cores()`` carries no listed extension and is not read.
+CITED_PATH = re.compile(
+    r"`(?P<path>(?:tests|src/cleverly)/[^`\s:()]*?"
+    r"\.(?:py|R|csv|md|json|parquet|gz|txt|toml|yml|yaml|ipynb))(?=[`:) ])"
+)
+
+#: A candidate carrying one of these is a placeholder, not a path.
+PLACEHOLDER = re.compile(r"[<>*{}]|\.\.\.")
+
+#: ``(page, path)`` citations that name no file of this repository, each with its reason.
+CITED_PATH_EXEMPTIONS = {
+    (
+        "docs/references.md",
+        "tests/testthat/test-double-robustness.R",
+    ): "a path inside the external R package the entry cites",
+}
+
+
+def missing_cited_paths(page: Path, relative: str) -> tuple[int, list[str]]:
+    """Count the repository paths ``page`` cites in backticks, and list the missing ones.
+
+    Parameters
+    ----------
+    page : Path
+        The page to read.
+    relative : str
+        The page's path from the repository root, which the exemptions are keyed by.
+
+    Returns
+    -------
+    tuple of (int, list of str)
+        How many citations were checked, and ``line: path`` for each that names no file.
+    """
+    checked = 0
+    missing: list[str] = []
+    for number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), start=1):
+        for found in CITED_PATH.finditer(line):
+            cited = found.group("path")
+            if PLACEHOLDER.search(cited) or (relative, cited) in CITED_PATH_EXEMPTIONS:
+                continue
+            checked += 1
+            if not (ROOT / cited).exists():
+                missing.append(f"{number}: {cited}")
+    return checked, missing
+
+
+def test_every_cited_repository_path_in_the_docs_exists() -> None:
+    """A page that cites a test, study or artifact in backticks cites one that exists.
+
+    A method-evidence page cited ``tests/e2e/test_ltmle_targeting_slow.py`` as the measurement
+    behind a limitation, and no such file existed; the link sweeps read ``[text](target)`` forms
+    only, so a backticked path was invisible to them.  Docstrings are out of scope: some hashed
+    reference sources cite paths, and their bytes cannot change without a rerun.  The count is
+    the negative control.
+    """
+    checked = 0
+    missing: list[str] = []
+    for page in DOCUMENTS:
+        relative = page.relative_to(ROOT).as_posix()
+        count, found = missing_cited_paths(page, relative)
+        checked += count
+        missing += [f"{relative}:{entry}" for entry in found]
+    assert checked > 1500, f"only {checked} cited paths matched; check CITED_PATH"
+    assert missing == [], f"these cited repository paths do not exist: {missing}"
+
+
+def test_the_cited_path_check_reports_a_missing_file(tmp_path: Path) -> None:
+    """A copy of a real page with one cited path renamed to a missing file is reported."""
+    relative = "docs/technical-reference/method-evidence/ordinary-end-of-study-longitudinal-tmle.md"
+    text = (ROOT / relative).read_text(encoding="utf-8")
+    original = "`tests/unit/test_datasets_longitudinal.py`"
+    assert text.count(original) == 1, f"the mutation target {original} moved"
+    copy = tmp_path / "page.md"
+    copy.write_text(text.replace(original, "`tests/unit/test_no_such_module.py`"), "utf-8")
+    assert missing_cited_paths(ROOT / relative, relative)[1] == []
+    checked, missing = missing_cited_paths(copy, relative)
+    assert checked > 0
+    assert missing == [f"{_line_of(text, original)}: tests/unit/test_no_such_module.py"]
+
+
+def _line_of(text: str, needle: str) -> int:
+    return text[: text.index(needle)].count("\n") + 1

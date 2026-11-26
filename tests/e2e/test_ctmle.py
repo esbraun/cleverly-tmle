@@ -6,7 +6,8 @@ targeting, influence-curve, sensitivity and validation layers.  This file checks
 commitment by taking a C-TMLE result through the whole public surface.
 
 The statistical payoff -- smaller variance when an instrument is present -- needs
-replications and lives in ``test_coverage_slow.py``.
+replications, and the registered selector study ``canonical-ctmle-selector`` measures it in
+its ``selector_necessity`` cells.
 
 :class:`TestSelectionIsForcedWhenTheOutcomeModelCannotHelp` is the exception, and the one
 class here that is about the *selection* rather than about the plumbing around it.  It
