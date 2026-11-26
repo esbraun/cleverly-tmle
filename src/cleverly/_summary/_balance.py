@@ -13,11 +13,14 @@ from . import Cell, Summary, SummarySection, SummaryTable, note, vocabulary
 from ._render import count_text, number_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Mapping
+
     from ..sensitivity.balance import CovariateBalance
 
 __all__ = [
     "balance_summary",
     "descriptive_text",
+    "probability_words",
     "rest_text",
     "source_text",
     "weights_text",
@@ -29,6 +32,22 @@ _DECIMALS = 3
 
 def _size(value: float) -> bool:
     return math.isfinite(value)
+
+
+def probability_words(balance: CovariateBalance) -> Mapping[str, str]:
+    """The words for where the balance's probabilities come from.
+
+    Parameters
+    ----------
+    balance : CovariateBalance
+        The balance.
+
+    Returns
+    -------
+    Mapping of str to str
+        The phrases a balance text fills in: ``own``, ``prob``, ``weights`` and ``cause``.
+    """
+    return vocabulary.BALANCE_PROBABILITY_WORDS["declared" if balance.declared else "fitted"]
 
 
 def descriptive_text(balance: CovariateBalance) -> str:
@@ -51,7 +70,9 @@ def descriptive_text(balance: CovariateBalance) -> str:
         spread = spreads["pooled_arms"].format(arms=balance.n_arms)
     else:
         spread = spreads["pooled_two"]
-    return vocabulary.NOTE_TEXTS["balance_descriptive"].format(spread=spread)
+    return vocabulary.NOTE_TEXTS["balance_descriptive"].format(
+        spread=spread, weights=probability_words(balance)["weights"]
+    )
 
 
 def source_text(balance: CovariateBalance) -> str:
@@ -68,6 +89,8 @@ def source_text(balance: CovariateBalance) -> str:
         The sentence.
     """
     sources = vocabulary.BALANCE_SOURCE_TEXTS
+    if balance.declared:
+        return sources["declared"]
     if not balance.cross_fitted:
         return sources["in_sample"]
     if balance.n_repeats > 1:
@@ -94,7 +117,8 @@ def weights_text(balance: CovariateBalance) -> str:
         else f", kept within [{balance.limits[0]:.3g}, {balance.limits[1]:.3g}]"
     )
     text = vocabulary.BALANCE_WEIGHT_TEXTS[(balance.estimand, balance.weighted_data)]
-    return text.format(limits=limits)
+    words = probability_words(balance)
+    return text.format(limits=limits, own=words["own"], prob=words["prob"])
 
 
 def rest_text(balance: CovariateBalance, part: str) -> str | None:
@@ -187,6 +211,7 @@ def balance_summary(balance: CovariateBalance, detail: str) -> Summary:
             threshold=f"{threshold:g}",
             worst=worst.covariate,
             size=number_text(abs(worst.smd_weighted), _DECIMALS),
+            cause=probability_words(balance)["cause"],
         )
     else:
         reading = readings["balanced"].format(

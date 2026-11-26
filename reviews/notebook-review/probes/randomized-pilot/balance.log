@@ -1,0 +1,7 @@
+n = 3000; draws = 200; weighted standardized differences, absolute
+discharge_risk     SD 0.0523  above 0.1 on 13 of 200  largest 0.156
+prior_utilization  SD 0.0442  above 0.1 on 2 of 200  largest 0.111
+medication_burden  SD 0.0463  above 0.1 on 5 of 200  largest 0.145
+age                SD 0.0450  above 0.1 on 4 of 200  largest 0.117
+any covariate above 0.1 on 21 of 200 draws; median largest 0.067
+largest at or above 0.118 on 5 of 200 draws

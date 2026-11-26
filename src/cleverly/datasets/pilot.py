@@ -56,7 +56,8 @@ def randomized_pilot_truth() -> dict[str, float]:
     -------
     dict of str to float
         ``ey0`` and ``ey1``, the share of successful transitions if no one or everyone got the
-        offer, and ``ate``, their difference.
+        offer; ``ate``, their difference; ``att``, the average effect among patients who got the
+        offer; and ``atc``, the average effect among patients who did not.
 
     See Also
     --------
@@ -68,6 +69,8 @@ def randomized_pilot_truth() -> dict[str, float]:
     :math:`S = 0`, so each side is integrated with 200 Gauss-Legendre nodes on ``[0, 12]``
     against the standard normal density.  The mass beyond 12 is below ``1e-32``.
     :math:`P` enters through a standard normal integral, taken with 80 Gauss-Hermite nodes.
+    The ATT and the ATC weight the effect at each node by :math:`P(A = 1 \mid H)` and
+    :math:`P(A = 0 \mid H)`, so the offered group leans toward the high-risk patients.
 
     Examples
     --------
@@ -75,6 +78,8 @@ def randomized_pilot_truth() -> dict[str, float]:
     >>> truth = randomized_pilot_truth()
     >>> round(truth["ate"], 4)
     0.142
+    >>> round(truth["att"], 4), round(truth["atc"], 4)
+    (0.1789, 0.1051)
     """
     legendre_nodes, legendre_weights = np.polynomial.legendre.leggauss(200)
     half = 6.0 * (legendre_nodes + 1.0)
@@ -88,6 +93,14 @@ def randomized_pilot_truth() -> dict[str, float]:
         grid = _success_probability(arm, risk[:, None], hermite_nodes[None, :])
         truth[f"ey{arm}"] = float(risk_weights @ grid @ hermite_weights)
     truth["ate"] = truth["ey1"] - truth["ey0"]
+    # The effect at each risk node, averaged over P, then weighted by the chance of each arm.
+    effect = (
+        _success_probability(1, risk[:, None], hermite_nodes[None, :])
+        - _success_probability(0, risk[:, None], hermite_nodes[None, :])
+    ) @ hermite_weights
+    offer = np.where(risk > 0.0, PILOT_OFFER_CHANCES[1], PILOT_OFFER_CHANCES[0])
+    for key, chance in (("att", offer), ("atc", 1.0 - offer)):
+        truth[key] = float((risk_weights * chance) @ effect / (risk_weights @ chance))
     return truth
 
 

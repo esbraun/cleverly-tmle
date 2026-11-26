@@ -19,7 +19,12 @@ import matplotlib.pyplot as plt
 
 from cleverly import ATC, ATE, ATT, CausalStudy, PointTreatment, plotting
 from cleverly.data.weighting import effective_sample_size
-from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.datasets import (
+    make_linear_ate,
+    make_longitudinal,
+    make_multi_arm,
+    make_randomized_pilot,
+)
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.longitudinal import LTMLE, NodeWeights, gcomp, node_weights
 from cleverly.plotting import _core, _weights
@@ -883,6 +888,45 @@ class TestTheBalanceNotes:
         assert not any("in-sample" in note.text for note in balance.summary().notes)
         assert any("out-of-fold" in note.text for note in balance.summary().notes)
         _close(fig)
+
+    @pytest.mark.parametrize("cross_fit", [False, True])
+    def test_declared_probabilities_are_named_as_declared(self, cross_fit: bool) -> None:
+        # Recorded chances are not predictions of a fitted model, in sample or out of fold, so
+        # no note or reading may describe them as one. Cross-fitting is checked too, because the
+        # out-of-fold wording would otherwise win.
+        frame, _ = make_randomized_pilot(n=3_000, seed=21)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="transition_success",
+                treatment="transition_navigation",
+                adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
+                treatment_probabilities={0: "chance_no_offer", 1: "chance_offer"},
+            ),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = study.identify(ATE(reference=0)).estimate(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                cross_fit=cross_fit,
+                random_state=21,
+            )
+        balance = covariate_balance(result)
+        assert balance.declared and balance.cross_fitted is cross_fit
+        summary = balance.summary()
+        notes = " ".join(note.text for note in summary.notes)
+        fig = plotting.balance(balance)
+        for text in (notes, _core.note_text(fig)):
+            assert "the ones the data declare; no treatment model was fitted" in text
+            assert "the inverse of the declared probability of its own arm" in text
+            for fitted in ("in-sample", "out-of-fold", "the fit gave", "fitted weights"):
+                assert fitted not in text, fitted
+        _close(fig)
+        # On this draw one covariate stays past 0.1 after weighting, so the reading names the
+        # declared probabilities, not a treatment model.
+        assert max(abs(row.smd_weighted) for row in balance.rows) > balance.threshold
+        reading = str(summary)
+        assert "weighting by the declared" in reading and "treatment model has not" not in reading
 
     def test_weighted_data_say_data_weight_over_probability(self, point: Any) -> None:
         frame, _ = make_linear_ate(n=300, seed=1)

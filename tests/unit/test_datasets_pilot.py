@@ -7,7 +7,8 @@ check the outcome and offer draws. Each tolerance is four Monte Carlo standard e
 
 An exact-law check is blind to a term that vanishes at the truth, so two deliberately wrong laws
 must fail the same comparison: one that drops the high-risk part of the offer's effect, and one
-that drops the curvature in ``discharge_risk``.
+that drops the curvature in ``discharge_risk``. The ATT and the ATC weight the effect by the chance
+of each arm; the effect differs between the risk groups, so a wrong weight cannot pass.
 """
 
 from __future__ import annotations
@@ -36,6 +37,13 @@ def _oracle_means(n: int, seed: int) -> dict[str, tuple[float, float]]:
         0, risk, utilization
     )
     out["ate"] = (float(difference.mean()), float(difference.std(ddof=1) / np.sqrt(n)))
+    # The ATT and the ATC weight each drawn effect by the chance of the conditioning arm. Each is a
+    # ratio of means, so its standard error is that of the linearized ratio.
+    offer = np.where(risk > 0.0, PILOT_OFFER_CHANCES[1], PILOT_OFFER_CHANCES[0])
+    for key, chance in (("att", offer), ("atc", 1.0 - offer)):
+        ratio = float((chance * difference).mean() / chance.mean())
+        linear = chance * (difference - ratio) / chance.mean()
+        out[key] = (ratio, float(linear.std(ddof=1) / np.sqrt(n)))
     return out
 
 
@@ -57,6 +65,18 @@ def test_the_truth_matches_the_weighted_means_of_drawn_outcomes() -> None:
     for key, values in terms.items():
         error = values.std(ddof=1) / np.sqrt(MONTE_CARLO_N)
         assert abs(truth[key] - values.mean()) < 4.0 * error, key
+    # Among the offered, the drawn outcomes give the treated mean directly, and the untreated
+    # weighted by the odds of the offer give the mean they would have had without it; the ATC is
+    # the mirror image. Each is a ratio of means, linearized for its standard error.
+    chance = frame["chance_offer"].to_numpy()
+    for key, focal, term in (
+        ("att", offer, offer * success - (1.0 - offer) * success * chance / (1.0 - chance)),
+        ("atc", 1.0 - offer, offer * success * (1.0 - chance) / chance - (1.0 - offer) * success),
+    ):
+        ratio = term.mean() / focal.mean()
+        linear = (term - ratio * focal) / focal.mean()
+        error = linear.std(ddof=1) / np.sqrt(MONTE_CARLO_N)
+        assert abs(truth[key] - ratio) < 4.0 * error, key
 
 
 def _no_high_risk_gain(offer: Any, risk: Any, utilization: Any) -> Any:
@@ -132,3 +152,14 @@ def test_the_truth_is_pinned() -> None:
     truth = randomized_pilot_truth()
     assert truth["ey0"] == pytest.approx(0.4306997053, abs=1e-9)
     assert truth["ey1"] == pytest.approx(0.5726708535, abs=1e-9)
+    assert truth["att"] == pytest.approx(0.1788655657, abs=1e-9)
+    assert truth["atc"] == pytest.approx(0.1050767307, abs=1e-9)
+
+
+def test_the_conditional_effects_weight_by_the_recorded_chances() -> None:
+    # A nonzero witness: the effect is larger in the high-risk group, which the offer favors, so
+    # weighting by the wrong arm's chance, or by none, moves the ATT and the ATC far from the
+    # truth. The ATE is their mix at the arm shares, here one half each.
+    truth = randomized_pilot_truth()
+    assert truth["att"] - truth["ate"] > 0.03 and truth["ate"] - truth["atc"] > 0.03
+    assert truth["ate"] == pytest.approx(0.5 * truth["att"] + 0.5 * truth["atc"], abs=1e-12)
