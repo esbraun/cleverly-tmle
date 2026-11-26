@@ -651,11 +651,28 @@ class TestStudyBootstrapBand:
         )
         assert contrast.bootstrap_band.critical_value == rebuilt.critical_value
         assert contrast.bootstrap_band.bands == rebuilt.bands
-        assert contrast.bootstrap_band.support.label == "experimental"
+
+    def test_the_narrowed_band_names_why_it_is_experimental(self, contrast: Any) -> None:
+        # The engine band of this fit is experimental already (G13.in_sample licenses no
+        # bootstrap band), so the label alone cannot witness the narrowing's own reason.
+        from cleverly.study import _NARROWED_BAND
+
+        support = contrast.bootstrap_band.support
+        assert support.label == "experimental"
+        assert _NARROWED_BAND.reason in support.reason
 
     def test_a_level_fit_bands_its_levels_only(self, level: Any) -> None:
+        from cleverly.inference.bootstrap import bootstrap_band
+
         assert set(level.bootstrap_band.bands) == set(level.estimates)
         assert all(name.startswith("cif_regimen[") for name in level.estimates)
+        rebuilt = bootstrap_band(
+            level.bootstrap,
+            {name: e.psi for name, e in level.estimates.items()},
+            {name: e.plugin_std_error for name, e in level.estimates.items()},
+            alpha=level.bootstrap_band.alpha,
+        )
+        assert level.bootstrap_band.critical_value == rebuilt.critical_value
 
     def test_the_engine_band_still_holds_every_row(self) -> None:
         from cleverly.datasets import make_longitudinal_competing

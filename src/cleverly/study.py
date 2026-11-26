@@ -3769,7 +3769,8 @@ def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> Bootstra
     family = {name: retained[name] for name in band.bands if name in retained}
     if set(family) == set(band.bands):
         return band
-    if len(family) < 2 or constant_arm_members(retained):
+    # The engine builds no band when any row is a constant arm cell, so no retained row is one.
+    if len(family) < 2:
         return None
     narrowed = bootstrap_band(
         result.bootstrap,
