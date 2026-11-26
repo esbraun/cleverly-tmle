@@ -221,7 +221,7 @@ estimate does not lean on the bounds. The Not run table lists the checks the def
 for each check deferred because it is slow or needs an argument, the first note gives the call.
 On real data, run at least the refutation tests and the covariate benchmark (shown next) before
 you report.
-[Run the assessment battery](../user-guide/results-assessment.md#run-the-assessment-battery)
+[Run every check at once](../user-guide/assessment.md#run-every-check-at-once)
 explains the three tables.
 
 The unmeasured-confounding row reports 0.514. A missing confounder has two strengths. On the score
@@ -255,7 +255,7 @@ risk ratio: how strongly a missing confounder would have to be tied to both the 
 to explain the effect away. Here it is about 3.5, after the package converts the score's effect to
 an approximate risk ratio ([E-value](../technical-reference/validation-methods.md#e-value)). If no
 plausible unrecorded factor is that strongly tied to both, the conclusion stands.
-[Sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis) covers the other
+[Sensitivity analysis](../user-guide/sensitivity.md) covers the other
 checks, and [plot results](../examples/plots.ipynb) draws the overlap, balance and sensitivity
 figures.
 

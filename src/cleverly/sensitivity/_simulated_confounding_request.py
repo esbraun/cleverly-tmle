@@ -231,6 +231,11 @@ def _refuse_longitudinal(result: Any) -> Refusal | None:
     if family == AUGMENTED_TRIAL_FAMILY:
         return augmented_trial_refusal("simulated_confounding", "bound")
     if family is not None and family != "point":
+        from ..assessment import family_simulated_refusal
+
+        declared = family_simulated_refusal(result)
+        if declared is not None:
+            return declared
         return Refusal(
             RefusalReason.INVALID_DECLARATION,
             f"simulated_confounding has no perturbation law for assessment family {family!r}. "
