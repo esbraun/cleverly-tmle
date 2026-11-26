@@ -501,7 +501,7 @@ def _check_weighting(namespace: dict[str, Any]) -> None:
         )
     )
     with pytest.raises(CapabilityError, match="GLM"):
-        getattr(same[_key("win_back")], "std_error")
+        _ = same[_key("win_back")].std_error
     for key in keys:
         assert abs(same[key].psi - blind_ltmle[key].psi) < 1e-10
     # "It matches LTMLE with the useless outcome model on every row ... only in the last digits":
