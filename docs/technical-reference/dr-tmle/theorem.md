@@ -575,7 +575,8 @@ the interval unless the mechanism is declared.
 
 ### A data-adaptive mechanism
 
-RM40's pre-declaration probe found a large DR-TMLE bias with a gradient-boosting mechanism and a
+The pre-declaration probe of the delivered roadmap item
+[RM40](../../roadmap-delivered.md) found a large DR-TMLE bias with a gradient-boosting mechanism and a
 wrong outcome regression on law L. The probe `reviews/rm41/probe.py` finds the cause. Its log is
 `reviews/rm41/probe.log`. It is a probe and not a registered study.
 

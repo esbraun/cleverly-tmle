@@ -1,6 +1,10 @@
 # Supported estimands
 
 
+This page covers the point-treatment `DRTMLE`. The survival variant, `SurvivalDRTMLE`, has its
+own scope in [time-to-event outcomes](theorem.md#time-to-event-outcomes) and its refusals in
+[scope and refusals](../scope-and-refusals.md#drift-corrected-survival-tmle).
+
 A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
 reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
 univariate implementation follows R `drtmle`'s armwise construction (`R/fluctuate.R`, `fluctuateG`):
@@ -30,7 +34,8 @@ and a reader comparing a two-arm
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
 
-RM19 measured the two routes on 2,000 fresh draws of the binary `treatment_correct` law at
+A localization run (`tests/diagnostics/rm19_one_sided_increment/`, pinned by
+`tests/unit/test_rm19_one_sided_increment_diagnostic.py`) measured the two routes on 2,000 fresh draws of the binary `treatment_correct` law at
 `n = 3000`. There, the treatment mechanism is correct and the outcome regression is not. The
 transcription of the R loop took each of four named choices from R or from this package.
 Averaged over the other three choices, the two-arm tilt raised the mean `ate` by `0.000833` to
@@ -204,6 +209,7 @@ retained diagnostic.
 | continuous treatment | the reductions and corrections are indexed by treatment mass at a discrete arm; a continuous dose requires density-based equations. See [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `reduction="bivariate"` with `delta=` | the supported missing-outcome estimator is Díaz & van der Laan's distinct five-reduction construction, not the complete-outcome one- versus two-dimensional choice. `reduction="univariate"` selects that published missing-data cycle; a bivariate analogue of its five reductions and three correction blocks has not been derived here. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
+| `conditional_form="known_score"` | `api_redirection`: the known-score ATT and ATC are a point `TMLE` report. See [known-score ATT and ATC](../scope-and-refusals.md#known-score-att-and-atc) |
 | `interventions=`, `policies=`, `incremental=`, `msm=` | as above. [X50](../../roadmap.md#x50-further-dr-tmle-compositions) holds `interventions=` and `msm=` over discrete arms. [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) keeps `policies=` and `incremental=` |
 | an undeclared missing treatment value | the package does not infer a missing treatment from a missing value. The data container raises `DataError` before any learner and names `treatment_delta=` for a numeric column. A label column meets the null-label check of `src/cleverly/data/causal_data.py` first |
 | a missing treatment with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` or `policies=` | when the recording may depend on the treatment, `P(A = a \| W)` is not identified, and each of these reads the treatment law of every row. See [what the data do not identify](theorem.md#observational-missing-data-the-composite-indicator) |
