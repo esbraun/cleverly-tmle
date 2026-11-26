@@ -309,7 +309,7 @@ caveat. `TestOrderAndNodeOne` checks that the simulation uses the order of the f
 | `hazard_learner=` | the template of every hazard model of a survival outcome |
 | `treatment_learner=` | the natural-treatment models and the diagnostic mechanism |
 | `random_state=` | seeds the simulation. A fit repeats exactly |
-| `reference=`, `horizons=`, `alpha_sig=`, the band settings, `n_bootstrap=`, `bootstrap_resampling=`, `learner_folds=`, `n_jobs=`, `run_id=` | as for the [sequential baselines](sequential-baselines.md#settings) |
+| `reference=`, `horizons=`, `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=`, `band_scale=`, `band_reference=`, `n_bootstrap=`, `bootstrap_resampling=`, `learner_folds=`, `n_jobs=`, `run_id=` | as for the [sequential baselines](sequential-baselines.md#settings) |
 
 The default learner library is a `GLM`. A `GLM` family other than `"auto"` is refused, because the
 fit chooses the family of each model from its response.
@@ -340,11 +340,11 @@ fit chooses the family of each model from its response.
 
 ## Assessment and run size
 
-`refute()` runs on these fits, and the simulated common-cause surface replays them, as [which
-operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
-and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-
-checks) state. `CausalStudy.planned_fits` counts the learner fits before a run; the memory guard
-does not cover these estimators, so `max_memory_bytes=` raises `TypeError`.
+`refute()` runs on these fits, and the simulated common-cause surface replays them, as
+[which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-checks)
+state. `CausalStudy.planned_fits` counts the learner fits before a run. The memory guard does not
+cover these estimators, so `max_memory_bytes=` raises `TypeError`.
 
 ## How it differs from `gfoRmula` and `pygformula`
 

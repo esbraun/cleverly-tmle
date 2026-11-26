@@ -157,11 +157,11 @@ adds products of distinct columns.
 
 ## Assessment and run size
 
-`refute()` runs on these fits, and the simulated common-cause surface replays them, as [which
-operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
-and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-
-checks) state. `CausalStudy.planned_fits` counts the learner fits before a run; the memory guard
-does not cover these estimators, so `max_memory_bytes=` raises `TypeError`.
+`refute()` runs on these fits, and the simulated common-cause surface replays them, as
+[which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-checks)
+state. `CausalStudy.planned_fits` counts the learner fits before a run. The memory guard does not
+cover these estimators, so `max_memory_bytes=` raises `TypeError`.
 
 ## Diagnostics
 

@@ -2670,7 +2670,8 @@ node is included too. [`IPSI`](#incremental-interventions-over-time) uses the sa
 tilt.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
-it reduces `n_folds` to the cluster count, 3 clusters take `"few_cluster_plugin"` and fewer than 3 take `"no_cluster_variance_plugin"`, which withholds the interval, and below 20 every estimate other than the always-against-never contrast of a two-binary-node censored panel takes `"few_cluster_estimand_plugin"`: each such $t$ interval is shown under the `experimental` label. At few clusters a training fold can lack a first-node
+it reduces `n_folds` to the cluster count. 3 clusters take `"few_cluster_plugin"`, and fewer
+than 3 take `"no_cluster_variance_plugin"`, which withholds the interval. Below 20 every estimate other than the always-against-never contrast of a two-binary-node censored panel takes `"few_cluster_estimand_plugin"`: each such $t$ interval is shown under the `experimental` label. At few clusters a training fold can lack a first-node
 level. The fit then raises `LongitudinalError` after the draw, and the message names the
 in-sample fit. A training fold whose followers all hold one outcome value reads that value, as
 [a node with no event](#a-node-with-no-event) states.
@@ -3265,7 +3266,7 @@ stays exact to $10^{-12}$. The Taylor remainder along a path is second order and
 | survival horizons | one backward pass per horizon, with the survival target above | the survival exact law |
 | competing risks | one cause at a time, with the all-cause survival factor | the competing exact law |
 | observation weights | every regression and mechanism is weighted, and the estimate is the weighted mean of $\varphi$ | the weighted exact law. A second test shows that the weights move $\pi_t$ by more than 0.05 |
-| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The default longitudinal floor applies, not the lower floors of `LTMLE` ([few clusters](inference.md#few-clusters)): below 20 clusters the fit takes `"few_cluster_plugin"` and shows an `experimental` $t$ interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
+| clusters, `id=` | whole-cluster folds and a cluster-summed curve. The default longitudinal floor applies, not the lower floors of `LTMLE` ([few clusters](inference.md#few-clusters)): from 3 to 19 clusters the fit takes `"few_cluster_plugin"` and shows an `experimental` $t$ interval, and below 3 it takes `"no_cluster_variance_plugin"`, which withholds the interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
 | contrasts and bands | a fixed-dimension stack of the plan and horizon curves. The multiplier band covers the declared plans and horizons | `tests/unit/test_ipsi_e2e.py` |
 | `msm=` | each cell's $\varphi$ is projected onto the working model. The identity link is supported. A logit or log link is accepted only when its projection converges | the exact-law projection linear in $\log\delta$; the logit refusal in `tests/unit/test_ipsi_e2e.py` |
 | known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$ for every level of the node. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law; for three levels, `tests/unit/test_categorical_ipsi_declaration.py` |
@@ -3356,8 +3357,9 @@ because its call counted the replicates.
 the hazard fit with one treatment node, with a backward pass, with path fits and with separable
 arms), `SDR`, `IPSI`, and every route that builds them. It does not cover `SurvivalCTMLE` and
 `SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md),
-`ParametricGFormula` or `StructuralNestedMean`, though `planned_fits` counts the learner fits of
-each of these before it runs (`tests/unit/test_planned_fits_parity.py`). The guard predicts one call. A caller that runs guarded refits in
+`ParametricGFormula` or `StructuralNestedMean`. `CausalStudy.planned_fits` still counts the learner
+fits of the baselines and `ParametricGFormula` before they run
+(`tests/unit/test_planned_fits_longitudinal.py`). The guard predicts one call. A caller that runs guarded refits in
 parallel processes owns their sum.
 
 ### What the prediction counts
@@ -3799,6 +3801,7 @@ explicit pair reports `deferred`, and every other longitudinal fit reports `unav
 runs on `LTMLE`, `SDR`, the sequential baselines and `ParametricGFormula`, on an unclustered panel
 with no time-varying covariate after the first node. The outcome is an uncensored end-of-study
 outcome, or a survival or competing-risk outcome with the treatment held from baseline, censored or
-not, whose follow-up the surface replays; that section states the scope and its refusals. It
+not, whose follow-up the surface replays; the stress-surface section states the scope and its
+refusals. It
 reports a displacement and claims no interval. Bound estimation for an unmeasured confounder over time is
 refused, as the refusal table under [cross-fitting the recursion](#cross-fitting-the-recursion) states.

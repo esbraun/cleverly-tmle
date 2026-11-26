@@ -368,8 +368,9 @@ fit's own positivity and learner record is `result.structural_diagnostics`, so t
 nuisance rows redirect there, to its `smallest_eigenvalue`, `extreme_share`,
 `learner_diagnostics` and `n_constant_fits`. `result.validate()` reports the three validation
 rows (support, nuisance models and score equations) with their refusals, and `result.assess()` adds every diagnostic and sensitivity row. With
-`include_refits=True` it runs `refute`, the one operation that runs on this fit. `CausalStudy.planned_fits` counts
-the learner fits before a run, and the longitudinal memory guard does not cover this estimator.
+`include_refits=True` it runs `refute`, the one operation that runs on this fit. `planned_refits()`
+prices the refits that `refute` would run, and the longitudinal memory guard does not cover this
+estimator.
 
 `cleverly.validation.refute` runs the placebo, `random_common_cause`, `subset`,
 `bootstrap_stability`, and `negative_control_outcome` tests. The placebo and the negative control
