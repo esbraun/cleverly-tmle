@@ -281,7 +281,9 @@ def _check_targeted(namespace: dict[str, Any]) -> None:
     assert table["covers"].all()
     assert round(float(table.loc[("g-formula", "gain over never"), "truth"]), 2) == 6.08
     fits = namespace["targeted_fits"]
-    assert fits["g-formula"][TARGETED].support.label == "supported"
+    # "Every fit here reads `experimental`": the g-formula's rule cells are on the binary law.
+    assert fits["g-formula"][TARGETED].support.label == "experimental"
+    assert fits["g-formula"][TARGETED].support.row is None
     assert fits["LTMLE"][TARGETED].support.label == "experimental"
     # A nonzero witness: the targeted plan is neither fixed plan, so its gain is not always's.
     assert fits["g-formula"][TARGETED].psi < 0.6 * fits["g-formula"][CONTRAST].psi
