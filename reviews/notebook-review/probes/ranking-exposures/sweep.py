@@ -6,7 +6,8 @@ Each seed ``s`` draws ``make_discharge_practices(n=4000, seed=s)`` and runs the 
 notebook's estimator and ``random_state=s``.  It also records each practice's simple difference in
 the share staying home.  The page's own seed, 0, is not among the swept seeds.
 
-Usage: ``python sweep.py <first seed> <count> <workers>``.  The page cites
+Usage: ``python sweep.py <first seed> <count> <workers>``, or ``python sweep.py --summarize`` to
+rewrite ``sweep.log`` from the committed ``sweep.csv`` without refitting.  The page cites
 ``python sweep.py 1000 400 4``.  Outputs: ``sweep.csv`` (one row per seed and practice) and
 ``sweep.log`` (each rate the page reads, with a 95% Wilson interval, and the mean false discovery
 proportion with its standard error).  Every worker is single-threaded.
@@ -105,24 +106,37 @@ def summarize(table: pd.DataFrame) -> list[str]:
             rows["adjusted_truth"]
         )
         rate(f"default interval covers adjusted truth, {name}", covered)
-        chain_covered = rows["chain_ci_lower"].le(rows["total_truth"]) & rows[
-            "chain_ci_upper"
-        ].ge(rows["total_truth"])
+        chain_covered = rows["chain_ci_lower"].le(rows["total_truth"]) & rows["chain_ci_upper"].ge(
+            rows["total_truth"]
+        )
         rate(f"second-fit interval covers total truth, {name}", chain_covered)
-        wrong_side = (rows["naive"] - rows["total_truth"]).abs() > rows["std_err"]
-        rate(f"simple difference more than one SE from the truth, {name}", wrong_side)
     navigation = table[table["practice"] == NAVIGATION]
     excludes = navigation["ci_upper"].lt(navigation["total_truth"]) | navigation["ci_lower"].gt(
         navigation["total_truth"]
     )
     rate("default navigation interval excludes the total truth", excludes)
+    second_excludes = navigation["chain_ci_lower"].gt(navigation["adjusted_truth"]) | navigation[
+        "chain_ci_upper"
+    ].lt(navigation["adjusted_truth"])
+    rate("second-fit navigation interval excludes the adjusted truth", second_excludes)
+    covered = table["ci_lower"].le(table["adjusted_truth"]) & table["ci_upper"].ge(
+        table["adjusted_truth"]
+    )
+    rate("all five default intervals cover their truth", covered.groupby(table["seed"]).all())
+    rate("simple difference below 0, transition_navigation", navigation["naive"] < 0)
+    referral = table[table["practice"] == "home_health_referral"]
+    rate("simple difference below -0.1, home_health_referral", referral["naive"] < -0.1)
     booking = table[table["practice"] == "followup_booked"]
     close = (booking["psi"] - booking["chain_psi"]).abs() < booking["std_err"]
     rate("booking's two estimates differ by less than one SE", close)
     nulls = table[table["practice"].isin(NULLS)].groupby("seed")
-    rate("both no-effect practices at adjusted p above 0.05", nulls["p_value_adjusted"].min() > LEVEL)
+    rate(
+        "both no-effect practices at adjusted p above 0.05", nulls["p_value_adjusted"].min() > LEVEL
+    )
     rate("some no-effect practice at raw p below 0.05", nulls["p_value"].min() < LEVEL)
-    rate("some no-effect practice at adjusted p below 0.05", nulls["p_value_adjusted"].min() < LEVEL)
+    rate(
+        "some no-effect practice at adjusted p below 0.05", nulls["p_value_adjusted"].min() < LEVEL
+    )
     proportions = []
     for _, rows in table.groupby("seed"):
         called = rows[rows["p_value_adjusted"] < LEVEL]
@@ -138,6 +152,11 @@ def summarize(table: pd.DataFrame) -> list[str]:
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--summarize"]:
+        lines = summarize(pd.read_csv(HERE / "sweep.csv"))
+        (HERE / "sweep.log").write_text("\n".join(lines) + "\n")
+        print("\n".join(lines))
+        return
     first, count, workers = (int(value) for value in sys.argv[1:4])
     with ProcessPoolExecutor(workers) as pool:
         results = list(pool.map(one_seed, range(first, first + count)))
