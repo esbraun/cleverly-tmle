@@ -178,7 +178,8 @@ def check_refits(namespace: dict[str, Any]) -> None:
     placebo = refutation[refutation["test"] == "placebo"]
     assert ((placebo["refuted_mean"]).abs() < 2 * placebo["refuted_sd"]).all()
     subset = refutation[refutation["test"] == "subset"]
-    for test in namespace["refutation"].tests:
-        if test.name == "subset":
-            assert 0.75 < test.statistic < 1.25, test.statistic
+    for report in namespace["refutation"].values():
+        for test in report.tests:
+            if test.name == "subset":
+                assert 0.75 < test.statistic < 1.25, test.statistic
     assert len(subset) == len(PRACTICES)
