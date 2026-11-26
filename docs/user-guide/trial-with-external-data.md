@@ -47,7 +47,7 @@ design = TrialWithExternalData(
     outcome="score",
     treatment="program",
     adjustment=("risk", "age", "prior_visits"),
-    source="in_trial",  # 1 on trial rows, any other value on external rows
+    source="in_trial",  # 1 on trial rows (or the value of trial=), any other on external rows
 )
 study = CausalStudy(frame, design=design)
 ```
@@ -60,11 +60,12 @@ any covariate the trial's randomization depended on.
 
 ## Fit and read it
 
-Pick the effect first. `TrialATE(population="trial")` is the effect among the trial's patients.
-`TrialATE(population="pooled")` is the trial's effect averaged over the covariates of every row,
-trial and external. Choose `"trial"` unless you want the trial's effect carried over to the mix of patients in the
-whole table, and then read the note on the external rows below. The two answers differ when the effect varies with
-a covariate that also predicts who is in the trial.
+Pick the effect first; `population=` has no default. `TrialATE(population="trial")` is the effect
+among the trial's patients. `TrialATE(population="pooled")` is the trial's effect averaged over the
+covariates of every row, trial and external. Choose `"trial"` unless you want the trial's effect
+carried over to the mix of patients in the whole table, and then read the note on the external rows
+below. The two answers differ when the effect varies with a covariate that also predicts who is in
+the trial.
 
 ```python
 effect = study.identify(TrialATE(population="trial"))
@@ -82,21 +83,53 @@ print(result.summary())
 `effect.estimate()` with no method already picks this method for a trial design, with the default
 library of learners. That library takes minutes at a few thousand rows, so pass learners as above
 while you explore, and widen them once the workflow runs. Any scikit-learn regressor and classifier
-works.
-
-Simple learners are for trying the workflow. When trial enrollment depends on the
-covariates, an interval from misfit learners can miss the effect badly, so report a fit with
-flexible learners. The method fits three prediction models, for the outcome, for who gets the
-treatment, and for who is in the trial, and each prediction for a row comes from models trained
-without that row. The trial-membership model uses the treatment learner unless you pass
+works. The method fits three prediction models, for the outcome, for who gets the treatment, and
+for who is in the trial, and each prediction for a row comes from models trained without that
+row. The trial-membership model uses the treatment learner unless you pass
 `AdaptiveTMLEMethod(source_learner=...)`.
 
-In the printed summary, read the estimate and its interval first. Then read the note on the
-external rows, which gives the lowest estimated chance that an external row could have been a
-trial row. For the pooled effect, a low value means the trial has no patients like some external
-ones, so the effect is extrapolated there and the fit warns. For the trial effect the note is
-information only. The last note says how many terms the fit used to describe the effect and the
-bias, and `result.working_models` lists them for each of the five groups of rows that the fit holds out in turn. The terms are named by your adjustment columns, such as `age` and `A*age`.
+Simple learners are for trying the workflow, so report a fit with flexible learners, such as
+gradient boosting or the default library. Main-terms learners give each covariate one straight-line
+term, as `LinearRegression` does. In a simulation by
+[Karim (2026)](https://arxiv.org/abs/2607.02787), their 95% intervals missed the effect far too
+often when trial enrollment depended on the covariates and the external rows differed in a large,
+irregular way. Flexible learners restored coverage. In this library's
+[selective-enrollment study](../technical-reference/method-evidence/adaptive-tmle-selective.md),
+one simulated design with 3,200 rows, flexible learners covered close to 95%. Main-terms learners
+did too in the default form but fell short in the faster pooled form, and the study records them as
+a side measurement rather than a test, so one design cannot clear them in general.
+
+In the printed summary, read the estimate and its interval first. For a continuous outcome such
+as `score`, the interval uses a t distribution, with its degrees of freedom in the `df` column,
+and it can stretch further on one side for a skewed outcome. So it need not be centred on the
+estimate, and neither need the trial-alone interval below. A yes/no outcome gets the usual
+symmetric interval and no `df` column
+([small-sample scale](../technical-reference/inference.md#small-sample-scale)).
+
+Then read the note on the external rows, which gives the lowest estimated chance that an external
+row could have been a trial row. For the pooled effect, a low value means the trial has no
+patients like some external ones, so the effect is extrapolated there and the fit warns. For the
+trial effect the note is information only. The fit also warns when 20 or fewer external rows got
+the treatment, or 1% of the external rows if that is more. It then learns their difference from the
+trial from few patients ([the technical page](../technical-reference/adaptive-tmle.md#refusals)
+lists this warning with the refusals).
+
+The last note counts the terms the fit used for the effect and for the external difference (the
+bias). The fit holds out each
+of five groups of rows in turn and selects terms for each:
+
+```python
+for model in result.working_models:
+    print(model.fold, model.effect_columns, model.bias_columns)
+```
+
+The lists differ because each group selects its own terms, and the choice can swing a lot between
+groups: on data where the effect is the same for every patient, one group may still keep a dozen or
+more effect terms. Read the lists to see what the fit used, not as a test of whether the effect
+varies or of how the external rows differ. In the names, `A` stands for the
+treatment column (`program` here), so `A*age` lets the age trend of the external difference change
+with the arm. `age_hinge3` is a bent-line piece of `age`, zero below a cut point and rising in a
+straight line above it.
 
 To see the note on the external rows as a picture, plot the predicted chances:
 
@@ -150,30 +183,58 @@ gives the conditions.
 
 | situation | what to set |
 | --- | --- |
-| outcomes are missing for some rows | name the indicator column in `TrialWithExternalData(missingness=...)` and the fit weights recorded outcomes. The design assumes the trial's missing outcomes depend only on the covariates and the arm, and assumes nothing about the external ones |
+| outcomes are missing for some rows | name the indicator column in `TrialWithExternalData(missingness=...)` and the fit weights recorded outcomes. `ModelSpec(missingness_learner=...)` sets the learner that predicts who has a recorded outcome; without it the slow default library runs. The design assumes the trial's missing outcomes depend only on the covariates and the arm, and assumes nothing about the external ones |
 | the external rows are controls only | nothing. The fit notices and learns the difference on the control rows |
 | a binary outcome | `TrialWithExternalData(outcome_family="binomial")`, or leave `"auto"` |
 | a quick check | `AdaptiveTMLEMethod(form="pooled")` selects the working models on all rows at once and runs faster than the default cross-validated form |
 | the external arms may differ from the trial by a different amount each | `AdaptiveTMLEMethod(force_arm=True)` always lets the two external arms differ by a free shift. It matches the R package `atmle`, and the external rows then add no information on the effect's level, so the interval is no narrower than the trial's own |
 | your own list of candidate terms | `working_basis=` takes a scikit-learn transformer that maps covariates to the candidate terms |
 
-The default candidate terms are each covariate, five bent-line pieces of it (each is zero below
-a cut point and rises in a straight line above it), and every product of two covariates. The fit keeps only terms
-that have enough rows in both groups to be estimated.
+By default, a covariate with nine or more distinct values becomes its standardized value
+(rescaled to mean 0 and standard deviation 1) and five bent-line pieces. A covariate with fewer
+values, such as a yes/no site flag or a short count, becomes one on/off column for each value above
+the smallest. Every pair of covariates also gets its product. The fit drops a bent-line, on/off or
+product column that is nonzero on fewer than `max(10, ceil(sqrt(n)/2))` rows in either of the two
+sets it compares, treated and control or external and trial. Here `n` is the number of rows the
+terms are selected on, and the screen always keeps the standardized values.
+[The dictionary](../technical-reference/adaptive-tmle.md#the-dictionary) on the technical page
+gives the full rule.
 
 ## What the method refuses
 
 It estimates a two-valued treatment on the difference scale, and it refuses a treatment with three
 or more levels, a ratio, and a continuous dose, each with a reason. It refuses a known chance of
 treatment in the trial, `treatment_probabilities=`, because the pooled fit has no form that uses it.
-It refuses every other estimator on a trial design, because they would treat the pooled rows as one
-population.
+When you declare the design, it refuses sampling weights (`weights=`), clusters (`cluster=`),
+effects within subgroups (`strata=`), a direct effect with a middle-step variable held fixed
+(`intermediate=`) and rows with an unrecorded treatment (`treatment_missingness=`). Each refusal
+points to the trial-alone `PointTreatment` fit, which takes them. The method also refuses rerunning
+the five-group split with fresh groups and combining the fits (`CrossFitting(repeats=...)` above
+1), and it refuses every other estimator on a trial design, because they would treat the pooled rows
+as one population. [Scope and refusals](../technical-reference/scope-and-refusals.md#adaptive-tmle-refusals)
+lists each refusal with its message.
 
 It also refuses the sensitivity analyses of `cleverly.sensitivity` and the refutation and truncation
 curve of `cleverly.validation`. No bound is derived for this kind of fit, and each refit picks its
-own simple description of the difference, so the refits do not estimate the same thing. The checks
-that run are `result.diagnostics.support()`, `score_equations()`, `nuisance_models()` and
-`corrections()`. [Scope and refusals](../technical-reference/scope-and-refusals.md) lists each one.
+own simple description of the difference, so the refits do not estimate the same thing.
+
+Four checks run on the fit:
+
+- `result.diagnostics.support()`: the trial and external row counts, and the lowest chance of
+  trial membership among the external rows;
+- `score_equations()`: whether the correction step, which adjusts the fitted models to remove the
+  bias they leave in the estimate, solved its equations;
+- `nuisance_models()`: the learners, and the terms each group kept;
+- `corrections()`: how many passes adjusted the trial-membership model, and whether they met the
+  stopping rule.
+
+`result.assess()` collects the four and lists each refused check with its reason, and
+`result.diagnostics.run_all()` gives the four plus the two refused refits. Neither runs
+`result.diagnostics.influence()`. It counts the effective rows, how many equal contributions would
+give the same spread, and flags the estimate `noisy` when the standard error is itself uncertain
+enough that the interval may miss its 95% level ([checking a fit](assessment.md) explains the
+columns). On a small trial it can flag `noisy` while `run_all()` reports nothing that needs
+attention, so read a `noisy` interval with caution.
 
 :::{dropdown} Details: what the interval covers
 The fit estimates a projection of the trial effect on a model that it selects with a lasso, a

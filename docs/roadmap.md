@@ -86,7 +86,6 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
@@ -639,17 +638,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
-
-### X111. User guide: designs and estimands
-
-The design guide says fold evaluation refuses strata (it runs and reads `supported`) and omits
-several `PointTreatment` fields; the estimands guide omits policy declarations, mean-level
-estimands and examples for the controlled direct effect and the working-model projection.
-
-- (a) The design page: fold settings and every design field.
-- (b) The estimands page: the missing declarations and examples, the dose-response labels and how
-  to call it.
-- (c) Links from the analysis pages to the tutorials that run each feature.
 
 ### X112. User guide: analyses over time and survival
 

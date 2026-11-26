@@ -639,3 +639,13 @@ kind of fit uses. A fit of a treatment given once compares the error in the outc
 against `tolerance * se / sqrt(n)`. A fit of a treatment over time bounds each node's relative
 error, the same quantity its step-by-step correction loop checks, so the tolerance can only make the
 fit's own convergence check stricter.
+
+### The checks in the tutorials
+
+| tutorial | what it runs |
+| --- | --- |
+| [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) | `assess()` and the weight-cap curve |
+| [Flexible models and shared teams](../examples/cross-fitting.ipynb) | `assess()` and repeated cross-fitting |
+| [Readmission by day 30, 60 and 90](../examples/discharge-to-readmission.ipynb) | `assess()`, balance over time and the weight-cap curve on a survival fit |
+| [Weekly offer policies](../examples/sequential-offers.ipynb), [Weekly orders under repeated offers](../examples/weekly-outcomes.ipynb) | balance over time and the weight-cap curve on longitudinal fits |
+| [Plot results](../examples/plots.ipynb) | covariate balance and the weight-cap curve as figures |
