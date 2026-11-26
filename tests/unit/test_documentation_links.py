@@ -532,3 +532,56 @@ def test_the_cited_path_check_reports_a_missing_file(tmp_path: Path) -> None:
 
 def _line_of(text: str, needle: str) -> int:
     return text[: text.index(needle)].count("\n") + 1
+
+
+#: A citation of the private planning repository or of its decision trail.  The technical
+#: reference states what a study fixed and why; the plan id, its revision and section, the
+#: planning repository, a design-review label and the person who decided are not evidence a
+#: reader can open.  Case-sensitive as written.
+PRIVATE_PLAN = re.compile(
+    r"cleverly-beta-plans|plans repo|[Pp]lan X[0-9]+|\bX[0-9]+[a-z]? plan\b"
+    r"|X[0-9]+(-[A-Z0-9]+)?-plan\.md|\bP[0-9] plan\b|plan amendment|amendments? rev"
+    r"|repo owner|owner.s decision|\bthe owner (decided|chose|amended)|decision E[0-9]"
+    r"|design review|\bTRACKER\b"
+)
+
+TECHNICAL_REFERENCE = sorted((ROOT / "docs" / "technical-reference").rglob("*.md"))
+
+
+def private_plan_citations(page: Path) -> list[str]:
+    """``line: match`` for each citation of the private plans on ``page``."""
+    return [
+        f"{number}: {found.group(0)}"
+        for number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), start=1)
+        for found in PRIVATE_PLAN.finditer(line)
+    ]
+
+
+def test_no_technical_reference_page_cites_the_private_plans() -> None:
+    """No technical-reference page cites the planning repository or its decision trail.
+
+    Forty-one pages cited a plan id, an amendment revision, a design-review label or the person
+    and date of a decision, which a reader of this repository cannot open.  The roadmap and the
+    contributor pages are out of scope; they may name plans.
+    """
+    assert len(TECHNICAL_REFERENCE) > 100
+    found = [
+        f"{page.relative_to(ROOT)}:{entry}"
+        for page in TECHNICAL_REFERENCE
+        for entry in private_plan_citations(page)
+    ]
+    assert found == [], f"these pages cite the private plans: {found}"
+
+
+@pytest.mark.parametrize(
+    "phrase", ["The X11 plan fixed", "in the plans repository", "the owner chose"]
+)
+def test_the_private_plan_check_reports_a_planted_citation(tmp_path: Path, phrase: str) -> None:
+    """A citation written into a copy of a clean page is reported, and the clean copy is not."""
+    source = TECHNICAL_REFERENCE[0]
+    clean = tmp_path / "clean.md"
+    clean.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    assert private_plan_citations(clean) == []
+    planted = tmp_path / "planted.md"
+    planted.write_text(clean.read_text(encoding="utf-8") + f"\n{phrase} the cells.\n", "utf-8")
+    assert len(private_plan_citations(planted)) == 1

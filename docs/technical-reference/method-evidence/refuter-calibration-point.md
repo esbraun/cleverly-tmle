@@ -40,7 +40,7 @@ The zero-row equivalence artifact records the absence of a comparator.
 | primary phase | 200 replications of the T1 and T2 ATE, as a sanity check of the fits that the rules read |
 | Monte Carlo inference | exact 99% intervals around every rate, and 99% intervals around every primary endpoint |
 
-The X82 plan fixed the law, the cells, the thresholds, the seeds and the red-cell route before the
+The study fixed the law, the cells, the thresholds, the seeds and the red-cell route before the
 run. The module docstring of `tests/studies/refuter_calibration_point.py` states the law and each
 defect. `tests/unit/test_refuter_calibration_point_design.py` sizes each defect from the law.
 

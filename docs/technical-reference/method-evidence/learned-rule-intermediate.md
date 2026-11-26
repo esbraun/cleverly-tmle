@@ -41,7 +41,7 @@ intermediate held fixed. A zero-row equivalence artifact records the absence of 
 | policy | `gated` |
 
 The law, the learners, the budgets, the seeds and the support-row conditions were fixed before any
-run, in the X11 plan, its implementation review and the study design record with its review.
+run.
 `tests/unit/test_learned_rule_intermediate_design.py` pins the law's values by quadrature, the
 sizing and the seeds. `tests/unit/test_learned_rule_intermediate_harness.py` checks the fits, the
 keys, the truth, the rule refit, the exactness gate and the property path.

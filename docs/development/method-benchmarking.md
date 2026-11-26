@@ -697,7 +697,9 @@ artifacts, or provenance conventions for each comparison.
    name the validation grid's first cell must carry, the artefact directory, the document and
    section anchor, the scenarios and their estimands, the replication count and sample size, and a
    `Margins`. The `Margins` carries every acceptance margin, declared before the run rather
-   than chosen after it.
+   than chosen after it. The study page's level-one heading is the record's `name` in sentence
+   case, and `anchor` is that heading's slug; `test_each_study_page_is_titled_by_its_record_name`
+   checks the heading.
 2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle,
    a fit function, and a reference implementation pinned by digest where one exists. Seeds
    come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed

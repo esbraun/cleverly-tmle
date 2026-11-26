@@ -37,13 +37,14 @@ $(k, W_1, W_2, A_k, A_{k-1})$, with $A_0 = 0$.
 | `base` | 3 | 0.21 to 0.68 at node 1, and 0.20 to 0.83 later, where the previous arm adds 1.3 on the logit scale | 0.04 to 0.37, lowered by $A_k$ and by $A_{k-1}$ | 0.020 |
 | `four` | 4 | close to balanced: 0.47 to 0.55 | 0.04 to 0.09 at node 1, rising to 0.24 to 0.48 at node 4, with smaller arm effects | 0.042 |
 
-`base` is the law of plan X70 section 4.3. `four` has the same form with its own coefficients.
+`base` is the law the study declared before its run. `four` has the same form with its own
+coefficients.
 The shipped fit holds the cell of the units at risk with one treatment prefix at zero when none
 of them has the event, or at one when all of them do. A regimen that reads a held cell adds
 the cell's boundary-node variance to its interval
 ([a node with no event](../longitudinal-tmle.md#a-node-with-no-event)). When the study ran it
 reported no interval there. The policy reads all 16 prefixes at node 4, and the expected count of held cells
-in a `four` draw of 2,000 rows is about $2 \times 10^{-9}$. The plan asked for five nodes, but at
+in a `four` draw of 2,000 rows is about $2 \times 10^{-9}$. The declaration first asked for five nodes, but at
 five nodes the policy reads 32 prefixes, and a held cell was expected in about one fit in 500.
 
 A held fit is never read as coverage. The study turns every fit with an estimate whose interval is not
@@ -295,8 +296,8 @@ family-wise pass probabilities 0.995 and 0.961. At 5,200 replicates the shrunken
 (standard errors scaled by 0.7) leaves the SE-ratio band, and the noise control leaves the
 efficiency band, with probability above 0.999999.
 
-Each `mechanism_correct` fit set and the node-only fit set take the rule of plan X70 rev 2.7
-from the wrong-learner pilot of 800 draws per fit label: the larger of 1,200 and the smallest
+Each `mechanism_correct` fit set and the node-only fit set take the declared rule from the
+wrong-learner pilot of 800 draws per fit label: the larger of 1,200 and the smallest
 multiple of 400 that passes with probability 0.99 at the pilot's standardized bias plus one of
 its standard errors, with no cap. On `base` the pilot pools the 200 `fits_differ_mechanism_correct`
 draws, whose hazard fit is the same. The pilot's standardized biases are at most 0.049 under
@@ -339,8 +340,7 @@ on, a saturated regression, so with the correct mechanism both fits are correctl
 asymptotically efficient, and they differ by $o_P(n^{-1/2})$. At n = 2,000 the `four` policy's
 regression reads up to 128 cells, so the paired difference also carries the noise of sparse
 cells. The study reports the ratios and the decreasing share with its interval, with no floor:
-X70 reports the agreement of the two fits instead of requiring a gap (the owner's decision of
-2026-11-13).
+the study declares a report of the agreement of the two fits instead of a required gap.
 
 In the committed pilot of 200 draws per fit label, the standard deviation of the paired
 difference, over the efficiency-bound standard error, is 0.160 for the `base` contrast, 0.070

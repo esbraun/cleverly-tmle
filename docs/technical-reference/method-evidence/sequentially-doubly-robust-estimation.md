@@ -1,4 +1,4 @@
-# Sequentially doubly robust estimation
+# Sequentially doubly robust longitudinal estimation
 
 This study validates `SDR`, the sequentially doubly robust estimator of Díaz, Williams, Hoffman
 and Schenck (2023), Equation (4) and Section 5.3. The

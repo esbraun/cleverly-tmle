@@ -1,4 +1,4 @@
-# Canonical point-treatment TMLE
+# Ordinary point-treatment TMLE
 
 This study validates ordinary, non-cross-fitted point-treatment TMLE in `cleverly`. The canonical
 comparison uses R [`tmle3`](https://github.com/tlverse/tmle3) 0.2.0 at pinned commit

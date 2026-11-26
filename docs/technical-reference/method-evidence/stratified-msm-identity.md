@@ -1,4 +1,4 @@
-# Stratified identity-link MSM
+# Identity-link MSM with baseline strata
 
 This study validates the identity-link marginal structural model (MSM) of ordinary
 point-treatment TMLE with baseline strata, `strata=["V"]`. The fit solves one score block

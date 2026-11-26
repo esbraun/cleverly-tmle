@@ -1,4 +1,4 @@
-# Modified treatment policy: density tails
+# Modified treatment policy on a point dose, corrected density and classifier ratios
 
 This study validates the point TMLE of a modified treatment policy on a continuous dose through
 both of its policy-ratio routes. The density route fits a binned conditional density and reads

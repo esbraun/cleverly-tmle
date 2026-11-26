@@ -1,4 +1,4 @@
-# Deterministic point-treatment regimes
+# Ordinary deterministic point-treatment regimes
 
 This study validates ordinary static and covariate-dependent deterministic regimes. It compares
 `cleverly` with pinned R `lmtp` 1.5.4 on identical binary-outcome samples and exact treatment

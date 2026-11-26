@@ -54,8 +54,7 @@ fully with the arm, so the population score equations decouple by arm, and the l
 and 1 are exact. The 7.05% disagreement is where the wrong arm-2 curve moves the argmax. The
 `drop_w1` limit assigns arm 1 everywhere, so the gate refuses it on its shares, and it serves as
 the necessity control. The law, the learners, the budgets, the seeds, the truth rule, the margin
-condition and the support-row condition were fixed before any run, in the X11 plan, its review,
-the implementation review and the study design record.
+condition and the support-row condition were fixed before any run.
 
 `tests/unit/test_learned_rule_arms_design.py` pins each limit, the efficiency bound, the predicted
 SE ratio, the sizing and the seeds, and `tests/unit/test_learned_rule_arms_harness.py` checks the

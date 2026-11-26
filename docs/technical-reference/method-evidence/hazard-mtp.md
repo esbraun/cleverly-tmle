@@ -1,4 +1,4 @@
-# Modified treatment policy on the hazard path
+# Modified treatment policy on the hazard path, one-step targeting
 
 This study validates longitudinal TMLE with `survival_model="hazard"` and
 `targeting="one_step"` when a regimen is a modified treatment policy at the baseline decision,
@@ -42,7 +42,7 @@ over several visits cannot be declared in the data container, so `vector` has on
 `truncated` a unit whose shifted dose would pass the cap keeps its own dose, so its ratio is
 $g(a - 1 \mid W)/g(a \mid W)\,1\{a \le 5.5\} + 1\{a > 4.5\}$.
 
-Plan X70 named the shared `dose` scenario of
+The study declared the shared `dose` scenario of
 [point-treatment survival](point-treatment-survival.md) for `levels`. Its dropout is linear on
 the probability scale, so no logistic learner is correct for it, and its hazard leaves the wrong
 hazard learner's plug-in contrast about one efficiency standard error from the truth. The study's
@@ -361,7 +361,7 @@ from the committed results and checked at the precision printed.
 
 | limit | what it means for use |
 | --- | --- |
-| one baseline decision | a policy at several visits is part (a) of plan X70 |
+| one baseline decision | the study measures no modified treatment policy at several visits |
 | a vector treatment at one visit | the data container does not hold a vector over several visits |
 | finite covariates and low-dimensional learners | the evidence covers correct or misspecified logistic and Gaussian learners. A flexible learner is outside it |
 | the density route on a Gaussian dose | the density cells cover a truncated dose with a capped shift and an untruncated dose with an uncapped shift. On the untruncated dose the quantile tail bins are wider than the shift; the route splits them, and its influence-curve gap halves from n = 2,000 to n = 20,000 (0.12, then 0.03). Other dose laws and policy ratios are outside this evidence |

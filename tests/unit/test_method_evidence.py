@@ -4387,6 +4387,36 @@ def test_each_comparator_paired_elsewhere_ran_there() -> None:
         )
 
 
+def _title_findings(pages: dict[str, Path]) -> list[str]:
+    """Each study whose page's first level-one heading is not its record name, case-folded."""
+    findings = []
+    for study in STUDIES:
+        lines = pages[study.slug].read_text(encoding="utf-8").splitlines()
+        title = next((line[2:].strip() for line in lines if line.startswith("# ")), "")
+        if title.casefold() != study.name.casefold():
+            findings.append(f"{study.slug}: {title!r} is not {study.name!r}")
+    return findings
+
+
+def test_each_study_page_is_titled_by_its_record_name() -> None:
+    """A study page's title is its record's name, so the grid, the ledger and the page agree.
+
+    Forty-six titles differed: some called the study's subject "Canonical", some abbreviated
+    the record ("MTP pricing", "Adaptive IPTW"), and one carried an internal label.
+    """
+    assert _title_findings({study.slug: study.document_path for study in STUDIES}) == []
+
+
+def test_the_title_check_fails_on_a_retitled_copy(tmp_path: Path) -> None:
+    """A copy of one study page with its title changed is reported, and only that page."""
+    study = STUDY_BY_SLUG["canonical-tmle"]
+    text = study.document_path.read_text(encoding="utf-8")
+    copy = tmp_path / "page.md"
+    copy.write_text(text.replace("# Ordinary point-treatment TMLE", "# Canonical TMLE", 1), "utf-8")
+    pages = {other.slug: other.document_path for other in STUDIES} | {study.slug: copy}
+    assert [finding.split(":")[0] for finding in _title_findings(pages)] == [study.slug]
+
+
 class TestTheQuantityVocabulary:
     """The name-to-artefact map, which one gate reads and nothing else checks."""
 

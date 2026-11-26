@@ -1,4 +1,4 @@
-# Adaptive IPTW
+# Adaptive-propensity IPTW
 
 This study validates `AdaptiveIPTW`, the Horvitz-Thompson mean whose propensity is targeted along
 $H = Q_r / g$. The reduced regression $Q_r$ is the regression of the outcome on the propensity.

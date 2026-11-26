@@ -644,7 +644,7 @@ STUDY = StudyRecord(
         "docs/technical-reference/method-evidence/"
         "outcome-adaptive-per-arm-c-tmle-parametric-extensions.md"
     ),
-    anchor="outcome-adaptive-per-arm-c-tmle-parametric-extensions",
+    anchor="k-arm-weighted-and-population-target-outcome-adaptive-per-arm-c-tmle-with-a-parametric-outcome",
     scenarios=dict(SCENARIOS),
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

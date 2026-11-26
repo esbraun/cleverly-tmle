@@ -32,8 +32,8 @@ zero-row equivalence artifact records the absence of a comparator.
 | size | 1,600 replications at $n = 2000$ per cell, and 4,000 property draws per cell |
 | Monte Carlo inference | 99% intervals around every declared endpoint |
 
-`X82-SG-plan.md` rev 2 in the plans repository fixed the cells, the budget, the seeds, the controls
-and the red-cell route before any run. A pilot on seeds outside the declared streams sized the run.
+The study fixed the cells, the budget, the seeds, the controls and the red-cell route before any
+run. A pilot on seeds outside the declared streams sized the run.
 
 ## Accuracy against known truth
 
