@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
