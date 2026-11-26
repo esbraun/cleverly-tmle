@@ -26,6 +26,10 @@ from tests.studies import survival_dr_tmle as survival
 
 SMART_CONTRAST = "ate_regimen[always vs never]"
 SURVIVAL_CONTRAST = f"ate_regimen[a1 vs a0 @ t={survival.law.HORIZON}]"
+#: The declared factors of ``G51.declared``: the baseline treatment and retention at nodes 2 to 5.
+SURVIVAL_DECLARED = frozenset(
+    {"known_treatment@1", *(f"known_censoring@{node}" for node in range(2, 6))}
+)
 
 #: Every column of the SMART frame, the time-varying ones and the declared ones included.
 SMART_RENAMES = {
@@ -199,20 +203,27 @@ class TestSmart:
         assert panel[SMART_CONTRAST].psi == pytest.approx(original[SMART_CONTRAST].psi, abs=1e-9)
 
 
-def _survival_fit(frame: pd.DataFrame, renamed: bool) -> Any:
-    """The ``survival-dr-tmle`` study's ``known_1k`` fit, on the frame as named."""
+def _survival_fit(frame: pd.DataFrame, renamed: bool, scale: float = 1.0) -> Any:
+    """The ``survival-dr-tmle`` study's ``known_1k`` fit, on the frame as named.
+
+    ``scale`` multiplies the times, the grid, the declaration's grid keys and the horizon, so
+    grid value and node index differ while the fit is otherwise the same.
+    """
     names = SURVIVAL_RENAMES if renamed else {name: name for name in SURVIVAL_RENAMES}
+    frame = frame.assign(time=frame["time"] * scale)
     data = LongitudinalData.from_time_to_event(
         frame.rename(columns=names),
         time=names["time"],
         event=names["event"],
         treatment=names["A"],
         baseline=[names["W1"], names["W2"]],
-        grid=list(survival.law.GRID),
+        grid=[scale * g for g in survival.law.GRID],
         treatment_probabilities={1: names["p1"], 0: names["p0"]},
-        censoring_probabilities={float(g): names[f"r{g}"] for g in range(1, survival.law.K)},
+        censoring_probabilities={
+            scale * float(g): names[f"r{g}"] for g in range(1, survival.law.K)
+        },
     )
-    settings = survival.settings("known")
+    settings = {**survival.settings("known"), "horizons": [scale * survival.law.HORIZON]}
     return _quiet(lambda: SurvivalDRTMLE(survival.law.ARMS, **settings).fit(data))
 
 
@@ -232,13 +243,31 @@ class TestTimeToEvent:
         assert renamed[SURVIVAL_CONTRAST].psi == pytest.approx(
             original[SURVIVAL_CONTRAST].psi, abs=1e-12
         )
-        # Grid time g declares node g + 1's retention: the key reads the node, not the grid.
-        assert renamed.config.support_key.qualifiers >= {
-            "known_treatment@1",
-            "known_censoring@2",
-            "known_censoring@5",
-        }
+        assert renamed.config.support_key.qualifiers >= SURVIVAL_DECLARED
         assert renamed.config.known_factors[0] == "arm"
+
+    def test_a_grid_that_is_not_the_node_index_keys_the_node(self) -> None:
+        """On grid 2, 4, ..., 10 the node index and the grid value differ.
+
+        Grid time ``g_j`` declares node ``j + 1``'s retention, so the declared nodes are 2 to 5
+        while the generated names read ``followup>=4`` to ``followup>=10``. A key parsed from
+        those names would hold ``known_censoring@4`` to ``@10`` and leave the row.
+        """
+        scaled = _survival_fit(self.frame(), True, scale=2.0)
+        assert scaled.config.known_factors == (
+            "arm",
+            "followup>=4",
+            "followup>=6",
+            "followup>=8",
+            "followup>=10",
+        )
+        declared = {
+            name for name in scaled.config.support_key.qualifiers if name.startswith("known_")
+        }
+        assert declared == SURVIVAL_DECLARED
+        # The horizon 10 is grid time 10, node 5, and the estimate is labelled by the node.
+        assert scaled[SURVIVAL_CONTRAST].support.row == "G51.declared"
+        assert scaled[SURVIVAL_CONTRAST].support.label == "supported"
 
     def test_a_key_by_column_name_fails_the_rename(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _keyed_by_name(monkeypatch)
@@ -251,7 +280,7 @@ class TestNuisanceLearners:
     """The learners a declared fit uses are chosen by column name, apart from the key."""
 
     @staticmethod
-    def key(known: bool) -> _support.SupportKey:
+    def case(known: bool) -> tuple[LTMLE, LongitudinalData]:
         frame = smart.law.smart_sample(400, 0)
         # Twelve clusters put the fit on the ``t`` tier.
         frame["clinic"] = np.arange(len(frame)) % 12
@@ -269,9 +298,18 @@ class TestNuisanceLearners:
             outcome_learner=LogisticRegression(max_iter=1000),
             pseudo_learner=LinearRegression(),
             # Adaptive, and unused when every factor is declared.
-            treatment_learner=RandomForestClassifier(n_estimators=5),
+            treatment_learner=RandomForestClassifier(n_estimators=5, random_state=0),
+            censoring_learner=LogisticRegression(max_iter=1000),
             n_folds=1,
+            g_bounds=smart.G_BOUNDS,
+            simultaneous=False,
+            random_state=0,
         )
+        return estimator, data
+
+    @classmethod
+    def key(cls, known: bool) -> _support.SupportKey:
+        estimator, data = cls.case(known)
         return _support.longitudinal_key(
             estimator,
             data,
@@ -289,3 +327,11 @@ class TestNuisanceLearners:
         assert _support.ADAPTIVE_NUISANCE not in declared.qualifiers
         # The nonzero witness: the same learner, estimated, is adaptive on this tier.
         assert _support.ADAPTIVE_NUISANCE in self.key(known=False).qualifiers
+
+    def test_a_declared_fit_keys_no_adaptive_learner_it_never_fits(self) -> None:
+        """The same check through ``fit``: a swap of the two arguments at the call site fails it."""
+        estimator, data = self.case(known=True)
+        key = _quiet(lambda: estimator.fit(data)).config.support_key
+        assert key is not None and key.dependence == "t"
+        assert _support.ADAPTIVE_NUISANCE not in key.qualifiers
+        assert key.qualifiers >= {"known_treatment@1", "known_censoring@2"}
