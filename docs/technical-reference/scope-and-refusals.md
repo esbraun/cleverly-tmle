@@ -813,9 +813,12 @@ it. All but the last row raise before any learner.
 ### Drift-corrected survival TMLE
 
 [Time-to-event outcomes](dr-tmle/theorem.md#time-to-event-outcomes) states the estimator. Each row is
-one refusal record of `src/cleverly/longitudinal/drift.py`, with the first sentence of its text;
-the raise site adds the rest. `tests/unit/test_scope_survival_drtmle.py` rebuilds the table from
-the module.
+one refusal record of `src/cleverly/longitudinal/drift.py`, with the first sentence of its
+condition; the error prints the full text. `tests/unit/test_scope_survival_drtmle.py` rebuilds the
+table from the module. Four stops are not module records: a node at which every eligible row is
+censored (the shared `all_censored_refusal`, `invalid_declaration`), `max_memory_bytes=` (the
+shared `memory_budget_refusal`, also `invalid_declaration`), a `max_iter` that is not an integer of at least 1 (`ValueError`),
+and a drift correction whose logistic submodel has no finite maximum (`LongitudinalError`).
 
 | record | code | roadmap | what is refused | what to do |
 | --- | --- | --- | --- | --- |
@@ -939,8 +942,10 @@ and `known_score_reader_refusal` in `src/cleverly/data/known_mechanism.py` hold 
 
 ### Refutation runs
 
-The options that shape a refutation run refuse these declarations before any refit. Each owner
-section states the rule.
+The options that shape a refutation run refuse these declarations. The sampling, `split_plan=`
+and `planned_refits()` rows refuse before any refit. Of the `checkpoint=` checks, the request key
+and the root seed are read when the run opens; the per-test key and each draw's seed are read as
+each test starts, after earlier tests have refit. Each owner section states the rule.
 
 | request | code | where it is stated |
 | --- | --- | --- |
@@ -1041,8 +1046,8 @@ Four method entries carry their own detailed refusal tables:
 [marginal structural models](msm-projections.md#variations),
 [longitudinal TMLE](longitudinal-tmle.md#variations),
 [the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface),
-and [continuous-time survival](continuous-time-survival.md#what-is-refused), whose table states the
-exception type of each row in the paragraph under it. The first three carry a `code` column, which
+and [continuous-time survival](continuous-time-survival.md#what-is-refused), whose table states what
+each row raises or returns in the paragraph under it. The first three carry a `code` column, which
 holds the reason code of the raise site, as the `code` column of the tables above does.
 
 `_FIT_WIDE_RULES`, in `src/cleverly/sensitivity/_simulated_confounding_request.py`, holds the

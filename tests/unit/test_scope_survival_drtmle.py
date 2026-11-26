@@ -3,7 +3,8 @@
 Every :class:`~cleverly._refusal.Refusal` held at module level in
 :mod:`cleverly.longitudinal.drift` has one row under ``### Drift-corrected survival TMLE``:
 its name, its reason code, its roadmap item, the first sentence of its condition and its
-alternative. The table is rebuilt here and compared row by row with the page.
+alternative. The table is rebuilt here and compared row by row with the page, in module order,
+so reordering the records in the source reorders the page.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def expected_rows() -> list[list[str]]:
     """``[name, code, roadmap, condition, alternative]`` per record, in module order."""
     rows = []
     for name, value in vars(drift).items():
-        if isinstance(value, Refusal):
+        if name.endswith("_REFUSAL") and isinstance(value, Refusal):
             rows.append(
                 [
                     f"`{name}`",
