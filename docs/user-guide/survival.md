@@ -874,8 +874,9 @@ hazard model with `targeting="one_step"`, no cross-fitting, one kind of event, f
 and a treatment given at the start. So these coefficients carry the `supported` label, and the
 same fit on four check times reads `experimental`. Pass `link="logit"` to `MSM` to fit the line
 on the log-odds scale, and `coefficients(scale="ratio")` then reports odds ratios. With competing
-events each cause gets its own coefficients, as
-[A working model over the hazard curve](../technical-reference/longitudinal-tmle.md#a-working-model-over-the-hazard-curve)
+events each cause gets its own coefficients, as the subsection "A working model over the hazard
+curve" of
+[hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
 explains.
 
 The hazard model refuses a trend line under the default `targeting="iterative"`, and beside a plan
