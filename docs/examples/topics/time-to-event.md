@@ -1,8 +1,8 @@
 # Time until an event (churn, readmission)
 
 These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
-another event, such as death, can come first. They follow hospital readmission, and a customer's
-churn works the same way.
+another event, such as death, can come first. They follow hospital readmission; the same analysis
+applies to the time until a customer churns.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |

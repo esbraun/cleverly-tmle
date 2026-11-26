@@ -125,7 +125,7 @@ three.
 | Where to go next | the next tutorial and the related reference entries | `where-next` |
 
 A lesson stays on the main path, before the conclusion, when it is the point of the page. An
-example is the failure mode that the [examples index](../examples/index.md) names for the page,
+example is the failure mode that the page's row in its topic page under `docs/examples/topics/` names,
 such as "what happens when a model is wrong". Put it after the estimate and give it its own
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.

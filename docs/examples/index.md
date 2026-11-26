@@ -18,13 +18,12 @@ treatment was unlikely.
 
 ## Find the example for your problem
 
-The tutorials are grouped by topic, in the order of the sidebar. Each topic heading opens a page
-that pairs each tutorial with the situation it fits and the mistake it shows.
+Each topic page pairs its tutorials with the situation each fits and the mistake it shows.
 
 ### [Start here](topics/start-here.md)
 
-Begin here. The first page runs a whole analysis on simulated data and explains each step that the
-other tutorials reuse. The second runs one on real records, where no true answer is known.
+The first page runs a whole analysis on simulated data and explains each step that the other
+tutorials reuse. The second runs one on real records, where no true answer is known.
 
 - [One treatment, one outcome: TMLE](point-treatment-tmle.ipynb)
 - [Smoking and twins' birth weight: TMLE for the effect on the treated](twins-causal-inference.ipynb)
@@ -71,8 +70,8 @@ monthly price, where earlier treatments change later behavior and later decision
 ### [Time until an event (churn, readmission)](topics/time-to-event.md)
 
 These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
-another event, such as death, can come first. They follow hospital readmission, and a customer's
-churn works the same way.
+another event, such as death, can come first. They follow hospital readmission; the same analysis
+applies to the time until a customer churns.
 
 - [Readmission when death can come first: longitudinal TMLE](longitudinal-survival.ipynb)
 - [Readmission by day 30, 60 and 90: longitudinal TMLE](discharge-to-readmission.ipynb)
@@ -257,7 +256,7 @@ figures of fits that the pages below explain.
 | [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [weekly offer policies](sequential-offers.ipynb) | TMLE for treatments over time, compared with week-by-week g-computation and a simple comparison | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) and [sequential g-computation and IPW](../technical-reference/sequential-baselines.md) |
 | [weekly orders under repeated offers](weekly-outcomes.ipynb) | TMLE for a weekly outcome curve under repeated treatments, with the sequentially doubly robust estimator and an odds-doubling policy over weeks | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
-| [two decisions after discharge](two-decision-rules.ipynb) | longitudinal TMLE for the value of a pair of treatment rules, one for each decision, learned inside each fold | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [two decisions after discharge](two-decision-rules.ipynb) | longitudinal TMLE for the value of a pair of treatment rules, one for each decision, learned inside each fold | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md#learned-regimens) |
 | [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds, checked against longitudinal TMLE | [parametric g-formula](../technical-reference/parametric-gformula.md), [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) and [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [readmission when death can come first](longitudinal-survival.ipynb) | TMLE for treatments over time, when death can come first | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |

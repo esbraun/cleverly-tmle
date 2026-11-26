@@ -1,7 +1,7 @@
 # Start here
 
-Begin here. The first page runs a whole analysis on simulated data and explains each step that the
-other tutorials reuse. The second runs one on real records, where no true answer is known.
+The first page runs a whole analysis on simulated data and explains each step that the other
+tutorials reuse. The second runs one on real records, where no true answer is known.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |

@@ -123,8 +123,12 @@ def test_each_topic_table_has_one_row_per_tutorial_in_toctree_order() -> None:
         text = (TOPICS / f"{slug}.md").read_text(encoding="utf-8")
         table = text.split("| your situation | example | the mistake it shows |", 1)[1]
         table = table.split("\n\n", 1)[0]
-        rows = [line for line in table.splitlines() if line.startswith("| [") or "](../" in line]
-        linked = [NOTEBOOK_LINK.search(row.split(" | ")[1]).group("stem") for row in rows]
+        rows = [line for line in table.splitlines() if line.startswith("| ") and "](../" in line]
+        linked = []
+        for row in rows:
+            match = NOTEBOOK_LINK.search(row.split(" | ")[1])
+            assert match, f"{slug}: a table row links no notebook in its example column: {row}"
+            linked.append(match.group("stem"))
         assert linked == topic_stems(slug), slug
 
 
@@ -150,3 +154,14 @@ def test_each_sidebar_label_is_the_subject_half_of_the_title() -> None:
             question = re.match(r"^(.*?\?) ", title)
             subject = question.group(1) if question else title.split(": ", 1)[0]
             assert label == subject, (stem, label, subject)
+
+
+def test_every_full_title_link_matches_its_notebook() -> None:
+    """Index bullets and See also lines quote each notebook's title exactly."""
+    full = re.compile(r"^- \[(?P<text>[^\]]+)\]\((?:\.\./)?(?P<stem>[a-z0-9-]+)\.ipynb\)", re.M)
+    for page in [INDEX, *TOPICS.glob("*.md")]:
+        for match in full.finditer(page.read_text(encoding="utf-8")):
+            assert match.group("text") == notebook_title(match.group("stem")), (
+                page.name,
+                match.group(0),
+            )
