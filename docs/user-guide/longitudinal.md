@@ -396,12 +396,13 @@ accepts a false `"known"` declaration.
 
 ## Shift a continuous dose over time
 
-A plan can change each person's dose, an amount such as a price, at each time point instead of
-fixing it, such as raising every month's price by 10%. Name each dose column in
-`continuous_treatment=`, mapped to the band its doses lie in, and write each time point's change
-as a policy from `cleverly.interventions` inside a `DynamicRegimen`.
+A plan can change each person's dose at each time point instead of fixing it. A dose is an amount
+such as a price, and the plan might raise every month's price by 10%. Name each dose column in
+`continuous_treatment=`, mapped to the band of values its doses can take. Write each time point's
+change as a policy from `cleverly.interventions`, and put one policy per time point in a
+`DynamicRegimen`, the plan object of [Declare a dynamic rule](#declare-a-dynamic-rule).
 [Modified treatment policies](estimands.md#modified-treatment-policies) describes each kind of
-change, the cap, and a cap taken from the data.
+change, including a cap that holds a dose where it is.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -447,113 +448,127 @@ low, high = rise_effect.ci
 print(round(rise_effect.psi, 3), round(low, 3), round(high, 3), rise_effect.support.label)
 ```
 
-Raising each month's price by 10%, except where the raised price would pass 8, lowers renewal by
-about 4 percentage points, with an interval from about 2 to 6 points. `Shift(0.0, cap=None)`
-changes no price, so the `"current"` plan is the prices customers actually got. The fit reads
-`supported` because a simulation study checked three-month price plans fitted this way.
-`cross_fit=False` fits and checks the models on the same rows. The study covers that fit and the
-out-of-fold one at three time points, and the interval in
-[When few customers carry the interval](#when-few-customers-carry-the-interval) needs it.
-[What the studies cover](#what-the-studies-cover) says what the label checks.
+The rise plan multiplies each month's price by 1.1, but a customer whose raised price would pass 8
+keeps their own price that month. Against current prices it lowers renewal by about 4 percentage
+points, with a 95% confidence interval from about 2 to 6 points. `price_fit[...]` picks that
+comparison by the name the fit gives it, and `.psi` is the estimate and `.ci` the interval.
+`Shift(0.0, cap=None)` adds nothing to any price, so the `"current"` plan is the prices customers
+actually got.
+
+The label `supported` means a simulation study checked fits like this one: three monthly prices, a
+yes-or-no outcome, and the default way of learning the weights described below. The example fits
+and checks its models on the same rows (`cross_fit=False`). The study covers that fit, and also
+the fit with out-of-fold predictions, where models fitted on other rows predict each row. The
+policy-weighted interval of [When few customers carry the interval](#when-few-customers-carry-the-interval)
+needs `cross_fit=False`.
 
 ### Keep the new doses inside the band
 
 The fit can only learn what customers would do at prices that customers like them actually paid,
-so a raised price must stay inside the band of prices they could get. Here the band depends on
-that month's engagement `e` (0 or 1), from `4 + 2e` to `8 + 2e`. `Support(lower, upper)` declares
-it, and each bound is a function of the history, so it can read the month's engagement. A raised
-price above the cap keeps the customer's own price, and the cap of 8 never passes the top of a
-band (8 or 10). Without the cap the fit refuses the plan, and the message names the time point
-and how many customers the raise would send outside the band.
+so each new price must stay inside the band of prices they could get. Here the band depends on
+that month's engagement, which is 0 or 1: prices run from 4 to 8 for a customer who is not engaged
+and from 6 to 10 for one who is. The example declares the band with `Support(lower, upper)`. Each
+bound is a function of `h`, the history the fit hands it, so the band can read that month's
+`engaged_` column. The cap of 8 is the top of the lower band, so a raised price either stays at or below 8 or
+goes back to the customer's own price, and the plan never leaves either band.
+
+A plan that never moves a price outside the band needs no cap, as with `Shift(0.0, cap=None)`.
+`Scale(1.1, cap=None)` would raise some prices past the top of their band, and the fit refuses it.
+The message names the time point and how many customers the raise would send outside the band. Add
+a cap that keeps every raised price inside, as the example does with 8.
 [Modified treatment policies at a node](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 states the rule.
 
 ### How the fit weighs each customer
 
-The fit's correction step, which uses the treatment model to remove the bias the outcome model
-leaves, needs, for each customer and time point, how much more or less common the plan's price is
-than the price the customer got. By default the fit learns this ratio with a
-classifier: the treatment learner learns to tell the plan's prices from the observed ones, given
-the history. The summary names this route on its `Policy ratio` line. With a plain logistic
-regression as the treatment learner, the same fit warns with `SparseInfluenceWarning` that its
-interval rests on few customers. The example therefore gives the classifier the squares and
-products of the history and the price. `ratio="density"`, or any `density_bins=`, learns the
-ratio from a binned density of the price instead, and the
-[density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route) lists
-which fits take which route.
+The fit corrects its outcome model's predictions with a second model, the treatment model. That
+step needs, for each customer and time point, how much more or less common the plan's price is
+than the price the customer got, given their history. This number is the density ratio, which the
+summary calls the policy ratio. By default the fit learns it with a classifier: the treatment
+learner learns to tell the plan's prices from the observed ones, and the summary's `Policy ratio`
+line names this route.
+
+The classifier must follow how the plan changes prices. A 10% rise held at 8 moves high and low
+prices by different amounts, so the example gives the classifier squares and products of the
+history and the price. With a plain logistic regression the same fit warns with
+`SparseInfluenceWarning` that its interval rests on few customers. When your fit gives that
+warning, try a richer classifier before you read the interval. If the fit warns with a
+`DataWarning` about a few prices far from the rest, pass `ratio="density"`, which learns the ratio
+from a binned density of the price instead
+([density-ratio route](../technical-reference/scope-and-refusals.md#density-ratio-route)).
 
 ### Revenue and other continuous outcomes
 
-For an outcome measured on a scale, such as revenue, pass the range it can take as `q_bounds=`.
-Revenue here is the last price times renewal, so it lies between 0 and 10, and the fit takes
-`q_bounds=(0.0, 10.0)`. Under a dose plan the fit refuses a continuous outcome without
-`q_bounds`. It raises on an outcome outside the bounds and never clips one. Declare the range the
-outcome can take, not the range the sample shows, because the plan moves customers toward prices
-where few outcomes were recorded.
-[Limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
-lists this limit with the others the studies publish.
+For an outcome measured on a scale, such as revenue, pass the lowest and highest values it can
+take as `q_bounds=`. Revenue here is renewal (0 or 1) times the last price, which is at most 10, so
+the fit takes `q_bounds=(0.0, 10.0)`. Use the values the outcome can take, not the smallest and
+largest in your sample. The plan moves customers toward prices where few outcomes were recorded,
+and the bounds keep the fit's predictions there inside a possible range. Under a dose plan the fit
+refuses a continuous outcome without `q_bounds`, and it stops with an error, rather than trimming
+the value, when an outcome falls outside them
+([limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)).
 
 ### Other dose plans
 
-A time point can hold a dose beside a yes-or-no column, such as a discount and its amount, and
-[vector nodes with a continuous component](../technical-reference/longitudinal-tmle.md#vector-nodes-with-a-continuous-component)
-shows that declaration. A cap can come from the data, as in
-`Shift(0.5, cap=DoseQuantile(0.9), target="population")`, and it needs `target=`
-([modified treatment policies](estimands.md#modified-treatment-policies)). The
-[sequential pricing tutorial](../examples/sequential-pricing.ipynb) fits a 12% rise and a 15% cut
-under the same band, and reads which larger rises the data support. To check a fit against a
-known answer, `price_rise(factor)` from `cleverly.datasets` builds a rise that stops at the top of
-each band, `pricing_truth(factors=...)` gives its exact effect, and `PRICE_BANDS` holds the band.
+If each time point records both whether a customer got a discount and how large it was, declare
+both columns as one time point
+([vector nodes with a continuous component](../technical-reference/longitudinal-tmle.md#vector-nodes-with-a-continuous-component)).
+To set the cap from the data, such as the 90th percentile of observed prices, write
+`Shift(0.5, cap=DoseQuantile(0.9), target="population")`, and read
+[modified treatment policies](estimands.md#modified-treatment-policies) for what `target=` means.
+To see which larger rises the data can support before you pick one, the
+[sequential pricing tutorial](../examples/sequential-pricing.ipynb) compares a 12% rise and a 15%
+cut under the same band. To check a fit against a known answer, `price_rise(factor)` from
+`cleverly.datasets` builds a rise that stops at the top of each band, `pricing_truth(factors=...)`
+gives its exact effect, and `PRICE_BANDS` holds the band.
 
 ### What the studies cover
 
-The label (`supported` or `experimental`) of a dose plan checks the method, the number of time
-points, whether the fit uses out-of-fold predictions, whether customers drop out, the outcome
-type, how the ratio is learned and whether the cap comes from the data. It does not check your
-plan, your classifier or your band. The price study learned the ratio with a logistic classifier
-on squares and products, like the example's.
+The label (`supported` or `experimental`) checks the method, the number of time points, whether
+the fit uses out-of-fold predictions, whether customers drop out, the outcome type, how the ratio
+is learned and whether the cap comes from the data. It does not check your plan, your classifier
+or your band. The price study learned the ratio with a logistic classifier on squares and
+products, like the example's.
 
-With the default route, the [price study](../technical-reference/method-evidence/mtp-pricing.md)
-covers two and three time points, out-of-fold predictions at three, and revenue at three. At five
-time points its default interval ran short on a price cut, covering about 92% of the time, so a
-five-period fit reads `experimental` unless it takes the interval in
-[When few customers carry the interval](#when-few-customers-carry-the-interval). Dropout at the
-dose time points is covered only at three time points with out-of-fold predictions
+With the default way of learning the ratio, the
+[price study](../technical-reference/method-evidence/mtp-pricing.md) covers two and three time
+points, out-of-fold predictions at three, and revenue at three. At five time points, on a price
+cut, its default interval covered the truth about 92% of the time instead of 95%. So a five-period
+fit reads `experimental` unless it takes the policy-weighted interval below. Customers who drop
+out between prices are covered only at three time points with out-of-fold predictions
 ([censored price study](../technical-reference/method-evidence/mtp-pricing-censored.md)).
 
-Four more studies test other parts. The
-[boundary study](../technical-reference/method-evidence/mtp-boundaries.md) tests plans that run
-into a band that depends on the history. The
+When your plan differs from the price study's, the nearest evidence is in another study. The
+[boundary study](../technical-reference/method-evidence/mtp-boundaries.md) covers plans that run
+into a band that depends on the history, the
+[tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) a cap set from the data at
+two time points, and the
+[vector study](../technical-reference/method-evidence/vector-modified-treatment-policies.md) a
+dose recorded beside a yes-or-no treatment. The
 [longitudinal policy study](../technical-reference/method-evidence/longitudinal-modified-treatment-policies.md)
-compares the fits with R's `lmtp` package. The
-[tuned-cap study](../technical-reference/method-evidence/mtp-tuning.md) tests a cap taken from the
-data at two time points, and the
-[vector study](../technical-reference/method-evidence/vector-modified-treatment-policies.md) tests
-a dose recorded beside a yes-or-no treatment.
-[Limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
-lists what they do not cover.
+checks that the fits match R's `lmtp` package.
 
 ### When few customers carry the interval
 
-A dose plan can rest on a few customers with large ratios, and `SparseInfluenceWarning` then fires
-as it does for a sparse regimen. Unlike there, the bootstrap of
-[Bootstrap for sparse regimens](#bootstrap-for-sparse-regimens) does not help. On the five-period
-price cut of the pricing study, the bias-corrected bootstrap interval (BCa) covers about 91% to
-92% of the time, no better than the default interval
+A dose plan can rest on a few customers with large density ratios, and `SparseInfluenceWarning`
+then fires as it does for a sparse regimen. The refit bootstrap of
+[Bootstrap for sparse regimens](#bootstrap-for-sparse-regimens) does not help here. On the
+five-period price cut of the pricing study, the bias-corrected bootstrap interval (BCa) covered
+about 91% to 92% of the time, no better than the default interval
 ([the interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
 
-Pass `variance="policy_weighted"` instead, with `n_folds=1` (`cross_fit=False` on a study) and
-`simultaneous=False`. The fit weights each row by its density ratio: how much more likely the
-policy makes that row's dose than the observed treatment pattern does. The option also works out
-the standard error from every row at the dose the policy would set, and reports the larger of that
-and the usual one. The interval is never narrower than the default, and it no longer runs too
-narrow when a sample happens to miss the rare rows with extreme weights, but it can be wider than
-it needs to be. Its coverage is never below the default's, and it is close to 95% in large
-samples when the density ratio is known exactly or, when the ratio is learned, when the outcome
-model is right.
+Pass `variance="policy_weighted"` instead. It needs `n_folds=1` (`cross_fit=False` on a study) and
+`simultaneous=False`, which turns off the joint band across several estimates. The option also
+works out the standard error from every row at the price the plan would set, and reports the
+larger of that and the usual one. The interval is never narrower than the default, and it no
+longer runs too narrow when a sample happens to miss the rare rows with extreme weights, but it
+can be wider than it needs to be.
 
-The option reads `supported` on the price plans at two and five time points. At three time
-points, as in the example above, it reads `experimental`.
+In large samples its coverage is close to 95% when either the density ratio is known exactly or
+the outcome model is right. The option reads `supported` on the price plans at two and five time
+points and `experimental` at three. At three time points, as in the example, the study covers the
+default interval, so report that one. When the warning fires there, add the policy-weighted
+interval beside it to show how much the rare heavy rows could widen it.
 [The interval under heavy cumulative density ratios](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
 states which fits it refuses and what it was validated against.
 
