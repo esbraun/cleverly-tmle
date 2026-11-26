@@ -26,7 +26,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("sensitivity", "simulated-confounding", "refute")
+REFIT_CELLS = ("sensitivity", "refute", "simulated-confounding")
 
 NOTEBOOK = EXAMPLES / "treatment-rules.ipynb"
 
@@ -65,7 +65,14 @@ UNPRINTED_DECIMALS = {
 #: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
 #: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
-    "deploy-reading": {"0.7175": "failure-mode", "0.345": "rule", "0.545": "rule"},
+    "deploy-reading": {
+        "0.7175": "failure-mode",
+        "0.345": "rule",
+        "0.545": "rule",
+        "-0.1": "rule",
+        "0.2": "rule",
+    },
+    "optimal-reading": {"-0.1": "rule", "0.2": "rule"},
     "interpret": {"2.4": "simulated-confounding"},
     "gains-reading": {"0.0241": "association"},
 }
