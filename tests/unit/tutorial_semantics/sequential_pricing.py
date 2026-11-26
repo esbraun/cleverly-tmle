@@ -76,7 +76,6 @@ UNPRINTED_DECIMALS = {
     "-0.74": f"t statistic of the price_up placebo, 400 draws: {_PROBE}/placebo.log",
     "0.46": f"two-sided p-value of that t statistic, 400 draws: {_PROBE}/placebo.log",
     "1.01": f"mean reported SE over the SD of the placebo estimates, 400 draws: {_PROBE}/placebo.log",
-    "94.75": f"share of the placebo 95% intervals that contain 0, 400 draws: {_PROBE}/placebo.log",
     "-0.0003": f"bias of the LTMLE renewal contrast of price_up, 200 draws: {_PROBE}/summary.log",
     "0.0003": f"bias of the LTMLE renewal contrast of price_down, 200 draws: {_PROBE}/summary.log",
     "0.0005": f"Monte Carlo standard error of both renewal biases, 200 draws: {_PROBE}/summary.log",
@@ -116,6 +115,9 @@ UNPRINTED_DECIMALS = {
     "5.92": f"SD of that maximum weight: {_PROBE}/summary.log",
     "0.297": f"mean effective n over n of price_up at month 3, 200 draws: {_PROBE}/summary.log",
     "0.141": f"mean effective n over n of price_down at month 3, 200 draws: {_PROBE}/summary.log",
+    "other-estimators: 0.923": "coverage of the SDR interval of the price_down contrast at five "
+    "nodes, cleverly side: docs/technical-reference/method-evidence/mtp-pricing.md (checked in "
+    "_check_other_estimators)",
 }
 
 FINGERPRINT = "c04c00be0a4211eb"
@@ -147,6 +149,9 @@ def check(namespace: dict[str, Any]) -> None:
     _check_support(namespace)
     _check_assessment(namespace)
     _check_weights_lesson(namespace)
+    _check_other_estimators(namespace)
+    _check_no_protocol(namespace)
+    _check_probe_row_matches_page(namespace)
     _check_refusals(namespace)
     _check_refit_limits(namespace)
     _check_probe_logs()
@@ -1450,7 +1455,7 @@ _MARKDOWN_IDS = (
     "balance-reading",
     "caps-reading",
     "other-estimators",
-    "skipped-checks",
+    "gcomp-reading",
     "where-next",
 )
 
@@ -1498,9 +1503,24 @@ def _check_phrase_rules() -> None:
     assert "that price lies outside the declared band" in markdown["plan"]
     assert "no subscriber is observed at that price" not in markdown["plan"]
     # The covariate-drop benchmark gives the refusal of an empty baseline as its reason.
-    assert "refuses an empty baseline" in markdown["skipped-checks"]
-    assert "(../roadmap.md), item X63, part (c)" in markdown["skipped-checks"]
-    assert "Dropping either one changes the question" not in markdown["skipped-checks"]
+    assert "refuses an empty baseline" in markdown["sensitivity"]
+    assert (
+        "(../roadmap.md#x63-missing-data-intermediates-and-designs), part (c)"
+        in (markdown["sensitivity"])
+    )
+    # Each refused check is stated in the reading that needs it, and the sensitivity reading
+    # links the two roadmap items that its refusals name.
+    assert "../roadmap.md#f16-longitudinal-sensitivity-bound-estimation" in markdown["sensitivity"]
+    assert "../roadmap.md#f13-longitudinal-simulated-confounding-replay" in markdown["sensitivity"]
+    assert "Go deeper lists" not in markdown["sensitivity"]
+    for test in ("future_treatment", "dummy_outcome", "simulated_outcome", "plasmode"):
+        assert f"`{test}`" in markdown["refute-reading"], test
+    assert (
+        "A negative-control outcome needs a measure taken before month 1"
+        in (markdown["refute-reading"])
+    )
+    # The placebo probe prints a symmetric-interval share, which the page no longer quotes.
+    assert "of the 95% intervals contain 0" not in markdown["refute-reading"]
     # The association heading and reading claim an association only.
     assert "These tables show associations only" in markdown["association-reading"]
     assert "Engagement is therefore" not in markdown["association-reading"]
@@ -1536,3 +1556,66 @@ def _check_weights_lesson(namespace: dict[str, Any]) -> None:
     kish = namespace["influence_rows"]["kish"]
     down = "ate_regimen[price_down vs natural_prices]"
     assert kish[down] < kish["ate_regimen[price_up vs natural_prices]"]
+
+
+def _check_other_estimators(namespace: dict[str, Any]) -> None:
+    """The "Other estimators" section: the methods that fit, and the uncorrected revenue foil."""
+    from cleverly import GComputationMethod
+
+    text = _prose("other-estimators")
+    # "The identify output listed three other methods that fit this question".
+    printed = stored_output(NOTEBOOK, "identify")
+    for name in ("sdr ", "gcomp ", "parametric_gformula "):
+        assert name in printed, name
+    assert "Inverse probability weighting does not fit" in text
+    # The SDR row quotes the pricing study at five nodes, cleverly side.
+    evidence = (EXAMPLES.parent / "technical-reference/method-evidence/mtp-pricing.md").read_text(
+        encoding="utf-8"
+    )
+    sdr_cut = [
+        line
+        for line in evidence.splitlines()
+        if line.startswith("| 5-node pricing law")
+        and ", SDR |" in line
+        and "`ate_regimen[price_down vs natural_prices]`" in line
+    ]
+    assert sdr_cut and "| 0.9230 |" in sdr_cut[0] and "**fail**" in sdr_cut[0]
+    assert "exact density ratio" in text
+    # The foil is g-computation with the revenue fit's linear outcome models and no weights.
+    method = namespace["gcomp_method"]
+    assert isinstance(method, GComputationMethod)
+    assert isinstance(method.models.outcome_learner, LinearRegression)
+    foil, revenue = namespace["gcomp_result"], namespace["revenue_result"]
+    truth = namespace["truth"]
+    for plan in PLANS:
+        key = _key(plan)
+        exact = truth[f"{REVENUE}[{plan} vs natural_prices]"]
+        # "LTMLE's -0.3536 and 0.0998 sit much closer" to the truth than g-computation.
+        assert abs(revenue[key].psi - exact) < 0.5 * abs(foil[key].psi - exact), plan
+        # "With scikit-learn learners, g-computation reports no interval".
+        with pytest.raises(CapabilityError):
+            _ = foil[key].ci
+
+
+def _check_no_protocol(namespace: dict[str, Any]) -> None:
+    """The protocol reading quotes what a fit without a protocol prints in its full summary."""
+    import dataclasses
+
+    assert f'prints "{vocabulary.NO_PROTOCOL}"' in _prose("protocol-reading")
+    bare = CausalStudy(namespace["frame"], design=namespace["pricing_design"]("renewed")).identify(
+        RegimeContrast(PRICE_PLANS, reference="natural_prices")
+    )
+    full = dataclasses.replace(namespace["result"], identified_effect=bare).summary(detail="full")
+    assert full.section(vocabulary.SECTION_STUDY).lines == (vocabulary.NO_PROTOCOL,)
+
+
+def _check_probe_row_matches_page(namespace: dict[str, Any]) -> None:
+    """Row 0 of the sweep holds the intervals that the page prints, so the probe cannot drift."""
+    folder = Path(__file__).resolve().parents[3] / _PROBE
+    row = pd.read_csv(folder / "sweep.csv", float_precision="round_trip").iloc[0]
+    assert row["seed"] == 1000
+    for prefix, fit in (("y", namespace["result"]), ("r", namespace["revenue_result"])):
+        for plan in PLANS:
+            low, high = fit[_key(plan)].ci
+            assert row[f"{prefix}_{plan}_lo"] == pytest.approx(low, abs=1e-4), (prefix, plan)
+            assert row[f"{prefix}_{plan}_hi"] == pytest.approx(high, abs=1e-4), (prefix, plan)
