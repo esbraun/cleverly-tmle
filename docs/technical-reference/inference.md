@@ -523,8 +523,9 @@ this package at unequal sizes.
 
 A clustered fit that reads $J$ clusters with positive weight mass, with $3 \le J < 40$, reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. A fit with
-$J$ below 10 ($20$ for `LTMLE`) carries the experimental label and the status
-`"few_cluster_plugin"`.
+$J$ below its interval floor carries the experimental label and the status
+`"few_cluster_plugin"`. The floor is 10 for a point-treatment fit and 20 for a longitudinal one,
+and lower for the measured contrast of some fit families (the floor table below).
 Nugent et al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays, except for a fold-evaluated estimate, which takes $J-V$ at every cluster count.
 `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the normal reference.
@@ -820,14 +821,22 @@ estimates a familywise critical value.
 
 | choice | what it does |
 | --- | --- |
-| `simultaneous=` | turns the familywise band on. It is on by default |
+| `simultaneous=` | turns the familywise band on. The default depends on the estimator (below) |
 | `n_multiplier=` | the number of draws: 10,000 by default on every engine |
 | `multiplier_kind=` | the multiplier distribution: `mammen` (the default), `rademacher`, or `normal` |
 | `band_scale=` | the scale of the band of a probability or of a difference of two probabilities: `logit` (the default) or `identity` |
 | `band_reference=` | the reference each estimate's band slice is read on: `normal` (the default) or `t`, a Student $t$ per estimate ([The t reference](#the-t-reference)) |
 
-The default band (Mammen multiplier, logit scale, 10,000 draws) is the same for `simultaneous_bands()`,
-`median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
+| estimator | the band by default |
+| --- | --- |
+| `TMLE` and the estimators built on it (`DRTMLE`, `CTMLE`, `AdaptiveIPTW`); `LTMLE`, `SDR`, `IPSI` and the sequential baselines; `StructuralNestedMean` | on (`simultaneous=True`). A fit whose status withholds the interval, such as a selector-path `CTMLE`, builds no band |
+| `DoseResponseTMLE` | always on, over every declared pair; the estimator takes no `simultaneous=` |
+| `ContinuousSurvivalTMLE`, `SurvivalDRTMLE` | off; pass `simultaneous=True` |
+| `SurvivalCTMLE` | off, and `simultaneous=True` is refused: no result supports a confidence statement after the collaborative selection |
+| the adaptive TMLE of a trial with external data | none; the method takes no band settings |
+
+The band's settings (Mammen multiplier, logit scale, 10,000 draws) are the same for
+`simultaneous_bands()`, `median_bands()`, every estimator and `Inference`. The logit scale maps only an estimate that carries
 its range. `DoseResponseTMLE` passes none, so its band is the Mammen band at 10,000 draws on the
 identity scale, and a limit can leave [0, 1]. The module docstring of
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
