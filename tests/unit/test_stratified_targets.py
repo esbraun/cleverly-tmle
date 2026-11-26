@@ -227,6 +227,18 @@ def test_strata_must_remain_in_the_adjustment_set() -> None:
         )
 
 
+def test_strata_refusal_names_the_design_field() -> None:
+    with pytest.raises(DataError, match="also be adjustment covariates") as caught:
+        CausalStudy(
+            _frame(),
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), strata=("V",)),
+        )
+    message = str(caught.value)
+    assert "['V']" in message
+    assert "adjustment= on PointTreatment" in message
+    assert "leave covariates=None" not in message
+
+
 def test_array_strata_must_define_a_nontrivial_partition() -> None:
     with pytest.raises(DataError, match="only one baseline stratum"):
         CausalData.from_arrays(

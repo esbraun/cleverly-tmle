@@ -1475,21 +1475,38 @@ def interactions(basis: Additive, order: int) -> Additive | Interactions:
 class UserBasis:
     """A basis written as a function of the modifier rows, with its declaration.
 
-    ``function(frame)`` returns the ``(n, p)`` design.  A callable can close over any
-    estimate and no code can inspect a closure, so whether it is a known function is a
+    ``function(values)`` receives a mapping from each name in ``columns`` to its array of
+    values, checked against the declared ``Modifiers`` (and clipped to a domain when they
+    say ``outside="clip"``), and returns the ``(n, p)`` design.  A callable can close over
+    any estimate and no code can inspect a closure, so whether it is a known function is a
     declaration: ``basis_kind="known"`` states that the function was fixed without reading
     this study's rows.  ``None`` and ``"estimated"`` are refused when a model is declared.
 
     Parameters
     ----------
     function : callable
-        ``frame -> (n, p)`` array.
+        Mapping of column name to array of values -> ``(n, p)`` array.
     terms : tuple of str
         One name per column.
     columns : tuple of str
         The modifier columns the function reads.
     basis_kind : {"known", "estimated"} or None
         The declaration.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.bases import UserBasis
+    >>> def age_by_w2(values):
+    ...     return np.column_stack([np.ones(len(values["age"])), values["age"] * values["W2"]])
+    >>> basis = UserBasis(
+    ...     age_by_w2,
+    ...     terms=("(intercept)", "age:W2"),
+    ...     columns=("age", "W2"),
+    ...     basis_kind="known",
+    ... )
+    >>> basis.evaluate({"age": [40.0, 60.0], "W2": [1.0, 0.0]}).tolist()
+    [[1.0, 40.0], [1.0, 0.0]]
     """
 
     function: Callable[[Any], Any]
@@ -1499,7 +1516,9 @@ class UserBasis:
 
     def __post_init__(self) -> None:
         if not callable(self.function):
-            raise DataError("UserBasis(function=...) takes a callable frame -> (n, p) array")
+            raise DataError(
+                "UserBasis(function=...) takes a callable mapping of column arrays -> (n, p) array"
+            )
         terms = tuple(str(t) for t in self.terms)
         if not terms or len(set(terms)) != len(terms):
             raise DataError(f"UserBasis terms must be distinct and non-empty; got {terms}")

@@ -24,7 +24,10 @@ two would make each answer wrong for the other.
 
 This deliberately carries no section metadata, no dependency graph and no change selector.
 The only thing wanted here is the text of each block and where it starts; which documents are
-executable, and what each needs defined first, is that module's own registry.
+executable, and what each needs defined first, is that module's own registry.  The change
+selector lives in :mod:`tests.docs_map`, which routes a code change to the pages it can make
+stale; it answers "which pages must a pull request review", a question none of the checks here
+asks, so it stays a separate map rather than metadata on this set.
 """
 
 from __future__ import annotations

@@ -37,7 +37,7 @@ from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, ControlledDirectEffect, PointTreatment
-from cleverly.assessment import CURVE_REFUTE_REFUSAL
+from cleverly.assessment import CURVE_REFUTE_REFUSAL, _projection_coefficient
 from cleverly.bases import Linear, Modifiers
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.validation import BernoulliAdjustmentOutcome, GaussianAdjustmentOutcome
@@ -389,7 +389,12 @@ class TestTruncationCurve:
         curve = fit("plain", "difference").effect_curve()
         row = curve.diagnostics.capability("refute")
         assert not row.available
-        assert row.refusal == CURVE_REFUTE_REFUSAL
+        assert row.refusal is not None
+        assert row.refusal.condition == CURVE_REFUTE_REFUSAL.condition
+        assert row.refusal.alternative == (
+            "Run refute on the fit that produced the curve, naming a coefficient such as "
+            f"'{_projection_coefficient(curve)}'."
+        )
         assert row.refusal.reason is RefusalReason.API_REDIRECTION
         assert row.refusal.roadmap is None
 

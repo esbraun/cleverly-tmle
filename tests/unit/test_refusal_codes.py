@@ -364,6 +364,7 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     "only fits no pseudo-outcome, so the argument is malformed for that fit and no "
     "estimator capability is missing",
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
+    ("src/cleverly/estimators/_nuisance.py", "dose-response curve has no per-arm"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
     (

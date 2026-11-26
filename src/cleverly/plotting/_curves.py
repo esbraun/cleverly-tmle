@@ -2275,6 +2275,7 @@ def _effect_curve(
 ) -> Figure:
     from .._inference_status import supplies_inference
     from .._summary import vocabulary
+    from .._summary._effect_curve import band_coverage
     from .._summary._estimates import reason_kind
 
     mods = result.modifiers
@@ -2459,9 +2460,9 @@ def _effect_curve(
             notes.append(
                 f"The band holds jointly at {_core.level_text(1.0 - float(band.alpha))} over the "
                 f"{int(np.asarray(band.estimate).size)} declared grid points, with critical value "
-                f"{band.critical_value:.3f}. No registered study measures its joint coverage, so "
-                "it is experimental. Brackets mark it at those points only; nothing is drawn "
-                "between them."
+                f"{band.critical_value:.3f}. "
+                + band_coverage(band, unmeasured=vocabulary.CURVE_BAND_UNMEASURED_FIGURE)
+                + " Brackets mark it at those points only; nothing is drawn between them."
             )
     if not projection:
         notes.append(
