@@ -26,6 +26,7 @@ estimands
 conditional-effects
 methods-learners
 settings
+run-time-and-memory
 trial-with-external-data
 results-assessment
 assessment
