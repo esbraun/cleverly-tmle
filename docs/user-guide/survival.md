@@ -821,6 +821,73 @@ samples, inside the range the study accepts for a 95% interval. The moves it mea
 most about half a standard error.
 :::
 
+## Summarize the risk curves with a trend line
+
+A trend line can summarize the risk curves too: fit a straight line in time through each plan's
+risk at every check time, and read how fast the risk climbs and how much treatment slows it. As in
+[Longitudinal treatment](longitudinal.md#summarize-several-plans-with-a-trend-line), you choose the
+line's form (a working model, `MSM`) and pass it to `MSMProjection`. Its coefficients estimate
+the best line through the true risks, with each plan and check time weighted equally, whether or
+not the risks fall on one; when they bend, as here, the slope is the average rise over the check
+times. This example uses the hazard model from
+[Keep the risk curve from dipping](#keep-the-risk-curve-from-dipping), with five check times.
+
+```python
+from cleverly import MSMProjection
+from cleverly.msm import MSM
+
+visits, visit_truth = make_point_survival(n=1_000, seed=4, n_times=5)
+visit_design = TimeToEvent(
+    time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4, 5)
+)
+
+
+def risk_line(plan, time, covariates):
+    n, treated = len(covariates), float(plan == "arm1")
+    return np.column_stack(
+        [np.ones(n), np.full(n, treated), np.full(n, time), np.full(n, treated * time)]
+    )
+
+
+risk_model = MSM(
+    design=risk_line, terms=("intercept", "arm1", "time", "arm1 x time"), design_kind="known"
+)
+risk_trend = CausalStudy(visits, design=visit_design).estimate(
+    MSMProjection(risk_model, regimens={"arm1": 1, "arm0": 0}, horizons=(1, 2, 3, 4, 5)),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(risk_trend.coefficients()[["estimand", "psi", "ci_lower", "ci_upper"]].round(3))
+```
+
+The `msm_regimen[time]` row says that without treatment the risk rises by 0.117 per time unit
+(0.104 to 0.130). The `msm_regimen[arm1 x time]` row reads -0.029 (-0.047 to -0.012): treating
+everyone slows that rise by about 0.029 per unit. In the simulated data the best line through the
+true risks in `visit_truth` rises by 0.106 per unit without treatment and by 0.024 less with it, both inside their intervals.
+
+The design function receives each plan's name, the check time and the covariates, and returns one
+column per term, here a constant, the treated plan, the time, and their product. A
+[simulation study](../technical-reference/method-evidence/hazard-msm.md) measured this setup: the
+hazard model with `targeting="one_step"`, no cross-fitting, one kind of event, five check times
+and a treatment given at the start. So these coefficients carry the `supported` label, and the
+same fit on any other number of check times, or with cross-fitting, reads `experimental`. Pass `link="logit"` to `MSM` to fit the line
+on the log-odds scale, and `coefficients(scale="ratio")` then reports odds ratios. With competing
+events each cause gets its own coefficients, as the subsection "A working model over the hazard
+curve" of
+[hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+explains.
+
+The hazard model refuses a trend line under the default `targeting="iterative"`, beside a plan
+that changes each person's dose, and on a design with a covariate measured after baseline.
+`isotonic=True` refuses any trend line. The default model, `survival_model="iterated_mean"`, takes
+a trend line on every design, including those two; pass it a regression as `pseudo_learner=`.
+[The hazard refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+give each message (H5, H14, H19 and H29).
+
 ## Let the data choose the treatment and censoring models
 
 With many covariates, a treatment model that uses all of them can give some people a tiny
@@ -862,6 +929,86 @@ it stopped at its iteration cap with a warning, and those fits are part of the m
 Fit flexible treatment and censoring models with cross-fitting, the default: fitted on all rows
 beside a wrong event model, the points were badly biased. [Time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)
 gives the estimator, the conditions and what it refuses.
+
+## Check the risk curve with other estimators
+
+Other estimators reach the same risks by leaning on different models, so fitting a few of them
+beside the default, `method="tmle"`, makes a quick check. A large gap between them says that one
+set of models is off. The example fits four estimators to a second sample from the same
+simulation; on your own data, fit them to the data of your main fit.
+
+```python
+from cleverly.learners import GLM
+
+check_frame, check_truth = make_point_survival(n=1_000, seed=1, n_times=4)
+check_study = CausalStudy(check_frame, design=design)
+check_plans = RegimeContrast({"arm1": 1, "arm0": 0}, reference="arm0", horizons=(4,))
+plain_models = dict(
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+models_by_method = {
+    "tmle": plain_models,
+    "sdr": plain_models,
+    "gcomp": dict(outcome_learner=GLM(family="binomial"), pseudo_learner=GLM()),
+    "ipw": dict(treatment_learner=GLM(family="binomial"), censoring_learner=GLM(family="binomial")),
+}
+for method, models in models_by_method.items():
+    check_fit = check_study.estimate(check_plans, method=method, cross_fit=False, **models)
+    check_estimate = check_fit["ate_regimen[arm1 vs arm0 @ t=4]"]
+    lower, upper = check_estimate.ci
+    print(
+        method,
+        round(check_estimate.psi, 3),
+        round(lower, 3),
+        round(upper, 3),
+        check_estimate.support.label,
+    )
+print("truth", round(check_truth["ate_regimen[arm1 vs arm0 @ t=4]"], 3))
+```
+
+The four estimates of the drop in risk by time 4 agree to within 0.003, while each interval is
+about 0.13 wide. Agreement is what you would expect if no set of models is badly off, but it
+cannot show that any of them is right. No comparison can detect a confounder that the data do
+not record. The `tmle` and `sdr` fits read the same models here, so the informative pair is
+`gcomp`, which reads only the event models, against `ipw`, which reads only the treatment and
+dropout models. Here the true drop, -0.127, sits inside every interval and about 0.02 from each
+estimate. The last column is the support label: `cleverly` marks a result experimental when no
+simulation study covers its setup, and of these four fits only the default reads `supported`.
+
+The sequential g-computation and weighting fits get generalized linear models such as logistic
+regression (`GLM`), because they report an interval only when every model they read is a `GLM`,
+and that interval holds only when those models have the right form.
+[Report the sequential baselines](longitudinal.md#report-the-sequential-baselines) explains both
+estimators, and [their inference](../technical-reference/sequential-baselines.md#inference) says
+what they report with other learners.
+
+| estimator | `method=` | the estimate leans on |
+| --- | --- | --- |
+| sequentially doubly robust | `"sdr"` | the event models and the treatment and dropout models. It stays on target in large samples when, at each time point, either set is right |
+| sequential g-computation | `"gcomp"` | the event models alone |
+| sequential weighting (IPW) | `"ipw"` | the treatment and dropout models alone, so a large weight moves it |
+| parametric g-formula | `"parametric_gformula"` | a model of each event's chance at each time point and of every covariate measured after baseline, from which it simulates each person forward. Each model must be right |
+
+Each of these fits one event or competing events, with the same result keys as the default fit.
+None takes `survival_model="hazard"` or `isotonic=True`, which are settings of the default fit
+([hazard and isotonic survival refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+A simulation study covers the parametric g-formula's competing-event risks on the wide layout,
+with a treatment at each time point
+([support label](../technical-reference/parametric-gformula.md#support-label)).
+[Fit the sequentially doubly robust estimator](longitudinal.md#fit-the-sequentially-doubly-robust-estimator)
+and [Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula) cover
+the other two.
+
+An incremental intervention (`method="ipsi"`) answers a different question: the risk had each
+person's odds of treatment been multiplied by a factor at every time point, not the risk under
+treating everyone against no one. It needs a treatment decided at each time point, on
+`LongitudinalTreatment`, and refuses `TimeToEvent`
+([IPSI refusals](../technical-reference/longitudinal-tmle.md#ipsi-refusals)). It is not doubly robust, so the treatment
+model must be right.
+[Estimate an incremental intervention over time](longitudinal.md#estimate-an-incremental-intervention-over-time)
+fits it.
 
 ## Bootstrap intervals
 

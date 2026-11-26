@@ -391,7 +391,8 @@ An item is complete only when all applicable conditions hold:
   or deliberate-mutation control in addition to exact-law checks;
 - cross-module changes satisfy [the architecture invariants](architecture-invariants.md);
 - reader-facing behavior, methodology, references, and evidence are updated without
-  presenting a proposal as a release claim; and
+  presenting a proposal as a release claim, and the
+  [docs check](development/pull-requests.md#bring-the-docs-up-to-date) passes; and
 - every relevant check has run locally and GitHub Actions is green. CI is the final merge signal,
   not a substitute for the local validation record.
 

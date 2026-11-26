@@ -1126,6 +1126,47 @@ These fit shapes publish no default band.
 | the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 | a status that withholds its interval, or a $t$ reference | no band is built. A status that shows its interval with no $t$ reference builds a band that carries `support` |
 
+## Bootstrap
+
+`n_bootstrap=B` adds a full-refit bootstrap beside the influence-curve interval. Each replicate
+draws the units with replacement and reruns the whole estimator on them: the split, every nuisance
+fit and the targeting. Holding the nuisance fits fixed would leave their estimation out of the
+spread. The module docstring of
+[`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py)
+states the construction. The rules below are shared, and each method page states where its
+bootstrap runs, what a replicate refits and which support rows license the interval:
+[longitudinal TMLE](longitudinal-tmle.md#the-full-refit-bootstrap),
+[continuous-time survival](continuous-time-survival.md#the-full-refit-bootstrap) and
+[conditional effects](conditional-effects.md#bootstrap). The
+[full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+measures the longitudinal intervals and their derived contrasts.
+
+| question | rule |
+| --- | --- |
+| the resampled unit | a row, or with `id=` a whole cluster (`bootstrap_resampling="auto"`; `"iid"` or `"cluster"` overrides it). Each drawn occurrence of a cluster gets its own code, so two draws of one source cluster are two clusters in the replicate |
+| weights | resampled with their rows and renormalized within the replicate. They are not derived again, so on weights from a fitted selection or calibration model the bootstrap interval conditions on that fit, as the influence-curve interval does |
+| a replicate that cannot run | dropped, not drawn again, and counted in `n_failed`. The interval is conditional on the replicates that ran. Under a rare arm the dropped replicates are those in which the arm is rarest, so the surviving spread can be narrower than the unconditional one |
+| the standard error | the sample standard deviation of the finite replicate estimates |
+| the percentile interval, `bootstrap_interval="percentile"` (the default) | `np.quantile` of the finite draws at $\alpha/2$ and $1 - \alpha/2$ |
+| the BCa interval, `bootstrap_interval="bca"` | the bias-corrected and accelerated limits below. `LTMLE`, `SDR`, `IPSI` and `ContinuousSurvivalTMLE` admit it. A point-treatment fit and the sequential baselines refuse it ([engine settings on a method object](scope-and-refusals.md#engine-settings-on-a-method-object)), and `SurvivalCTMLE` and `SurvivalDRTMLE` refuse any bootstrap |
+| the diagnostic names | the [inference status](#inference-status) section gives the column names a bootstrap takes when its estimate supplies no inference or the fit reads fewer clusters than its interval floor |
+
+The BCa limits are those of DiCiccio and Efron (1996), with the nonparametric acceleration of
+their display (6.6) read from the influence curve ([references](../references.md)). The bias correction is
+$z_0 = \Phi^{-1}(\#\{\psi^*_b < \hat\psi\} / B)$, with a draw equal to $\hat\psi$ counted as one
+half. The acceleration is $\hat a = \sum_i D_i^3 / \bigl(6 (\sum_i D_i^2)^{3/2}\bigr)$, with $D_i$
+the centred influence curve of the estimate, summed within each cluster under a cluster bootstrap.
+That is the skewness of the curve over $6\sqrt n$.
+
+Each limit is read at the level $\Phi\bigl(z_0 + (z_0 + z_q) / (1 - \hat a (z_0 + z_q))\bigr)$ for
+$q = \alpha/2$ and $1 - \alpha/2$. The lower limit is the
+$\lfloor \text{level}\,(B + 1) \rfloor$-th order statistic of the draws and the upper limit the
+$\lceil \text{level}\,(B + 1) \rceil$-th, so each limit is a replicate value. The limits are `nan`
+when every draw lies on one side of $\hat\psi$, or when $1 - \hat a (z_0 + z_q)$ is not positive.
+With fewer than two finite draws neither interval has limits.
+`tests/unit/test_bootstrap_intervals.py` checks the limits against a hand computation, the ranks at
+the boundary, the tie rule and the one-sided case.
+
 ## Reporting a subset of a family
 
 When the public layer reports a subset of the parameters an engine computed, the inference it
@@ -1136,12 +1177,19 @@ significance level, draw count, multiplier distribution, seed, and cluster struc
 
 ## What is not on this page
 
-Two inference rules belong to one method each, and each method entry states its own.
+Some inference rules belong to one method each, and each method entry states its own.
+`ParameterEstimate.variance_source` names the variance an estimate reports, and `to_frame()`
+carries it as a column when a rule other than the influence curve applies. Its five values are `"influence_curve"`, the curve's variance on this
+page; `"jackknife"`, the [cluster jackknife](#cluster-jackknife) above; and the three method rules
+in the table.
 
 | rule | where it is stated |
 | --- | --- |
 | the cross-validated variance under fold evaluation, and why it is not a fold-averaged second moment | [CV-TMLE](cv-tmle.md#variations) |
 | the plug-in influence-curve variance for `LTMLE`, and what it does not absorb | [Longitudinal TMLE](longitudinal-tmle.md#validation-issues-special-to-this-method) |
+| `"policy_weighted"`: the larger of the curve's variance and a policy-weighted one, under `variance="policy_weighted"` on `LTMLE` and `SDR` | [the interval under heavy cumulative density ratios](longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios) |
+| `"boundary_node"`: the curve's variance plus the node-variance supplement, at a node whose regression reads a constant, inside the supplement's reach | [a node with no event](longitudinal-tmle.md#a-node-with-no-event) |
+| `"predictable_variation"`: the larger of the curve's variance and the predictable variation of its martingale part, when the curve is sparse, under the default `variance="switched"` of `ContinuousSurvivalTMLE` | [the switched variance](continuous-time-survival.md#the-switched-variance) |
 
 The corrected curve `DRTMLE` reports is the estimator's own influence function rather than the
 efficient one. [DR-TMLE](dr-tmle/index.md#what-this-solves) says what follows from that.

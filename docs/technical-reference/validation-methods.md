@@ -1,6 +1,9 @@
 # Sensitivity and validation methods
 
-This page accounts for every instrument `cleverly` gives you to review a method. Each entry answers
+This page describes the instruments `cleverly` gives you to review a method, with point-treatment
+and longitudinal fits as the main case.
+[Which operations each result family runs](#which-operations-each-result-family-runs) gives the
+diagnostic operations each result family declares. Each entry answers
 three questions in the same order. Why do you use it? What does it tell you? How does it tell you
 that?
 
@@ -678,6 +681,54 @@ cost.
 **How.** `WeightReport` in
 [`data/weighting.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/data/weighting.py)
 reports the weighted effective sample size and warns when the weights concentrate.
+
+### Which operations each result family runs
+
+Each result class declares one capability row per diagnostic operation in
+`ASSESSMENT_CAPABILITIES` (`src/cleverly/assessment.py`), and `result.assess()` and each facade
+call read that row after the fit-wide rules below. The table gives the declarations before those
+rules. "runs" means the row declares the operation available, and any other word is the status the
+call reports instead. "runs for" names the `method=` values the row declares; a fit by another
+method reports `not_applicable`. A declared operation can still report `deferred`, `unavailable`
+or `not_applicable` for one request at run time, such as a refused parameter. "not declared" means
+the family has no row: its facade has no such call, so the call raises rather than reporting a
+status.
+
+| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `effect_modification` | `dose_response` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
+| `support` | runs | runs | unavailable | runs | runs | runs | runs |
+| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs |
+| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs |
+| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable |
+| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | not applicable |
+| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable |
+| `calibration` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+
+The methods row lists the `method=` values of each family; in the `longitudinal` column `tmle` is
+`LTMLE`. A curve (`effect_modification`) rewrites three of its rows by the method that produced it
+before any call. `truncation_curve` runs on every projection curve, reading the producing fit's
+truncation curve, and stays unavailable on an `ep` curve. `corrections` runs on a `drtmle` curve
+whose fit solved the correction equations. The five held-out curve operations, `calibration`
+through `targeting_curve`, are unavailable on a `drtmle` or `collaborative_tmle` curve, because
+their held-out rows rebuild a TMLE pseudo-outcome that those estimates do not solve
+(`_curve_fit_wide_rules` in `assessment.py`).
+
+The sensitivity operations route separately (`SENSITIVITY_ROUTES`), and `variable_importance()`
+declares no rows of its own ([below](#the-status-contract)), so neither is in the table.
+`tests/unit/test_assessment_coverage_table.py` rebuilds the table from the declarations. The
+families' pages state their operations: `point` on
+[point-treatment TMLE](point-treatment-tmle.md), `longitudinal` on
+[longitudinal TMLE](longitudinal-tmle.md), `structural` under
+[assessment and refutation](structural-dynamic-effects.md#assessment-and-refutation),
+`augmented_trial` on [adaptive TMLE](adaptive-tmle.md), `continuous_survival` under
+[assessment](continuous-time-survival.md#assessment), `effect_modification` under
+[assessing a curve](conditional-effects.md#assessing-a-curve), and `dose_response` under
+[assessing the curve](dose-response.md#assessing-the-curve).
 
 ### The status contract
 
@@ -2495,6 +2546,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | take the path of the same request without the intermediate variable, then invert the per-arm product below. A result that names only the column or only the level reports `unavailable` |
 | a `TimeToEvent` fit without an explicit pair | report `deferred` and name the reported risks |
+| the two arms' risks at one cause and target time of a `ContinuousSurvivalTMLE` fit, `estimand=(numerator, denominator)` | read their risk ratio from `result.ratio(numerator, denominator)` and mark the result exact. No coverage study registers the confidence-limit E-value, so the limit prints as descriptive. Without a pair the row reports `deferred`; two names that are not the arms' risks at one cause and time, or a risk whose status withholds its interval, report `unavailable` ([continuous-time survival](continuous-time-survival.md#restricted-means-ratios-and-the-curve)) |
 | any other longitudinal fit, or a `TimeToEvent` pair with a dynamic regimen or with two horizons | report `unavailable` and name [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) or [F34](../roadmap.md#f34-e-values-beyond-the-total-population-arm-contrast) |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
@@ -2987,7 +3039,8 @@ descriptive.
 
 A point-treatment sensitivity formula is not reused on longitudinal data. A longitudinal fit runs
 a sensitivity operation only where a longitudinal derivation exists: the
-[E-value](#e-value) of two static-regimen risks of a `TimeToEvent` fit, and the
+[E-value](#e-value) of two static-regimen risks of a `TimeToEvent` fit or of the two arms' risks of
+a `ContinuousSurvivalTMLE` fit, and the
 [simulated common-cause surface](#simulated-common-cause-stress-surface) under its time-fixed
 latent. The omitted-variable bound, the marginal sensitivity model bounds and the missingness tilt
 report `unavailable` with the reason the fit's capability row declares, and the E-value of any

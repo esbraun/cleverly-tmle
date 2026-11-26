@@ -510,6 +510,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.treated_fraction"): "point CausalData",
     ("data/causal_data.py", "CausalData.subset"): "point CausalData",
     ("data/causal_data.py", "RowDesign.rows"): "a counterfactual block, not a node slot",
+    ("data/causal_data.py", "RowDesign.__reduce__"): "a counterfactual block, not a node slot",
     ("data/known_mechanism.py", "KnownNodeMechanisms.treatment_at"): "declared matrices",
     ("estimators/ctmle.py", "CTMLE._derivative_nuisances"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._intercept_propensity.proportions"): "point CausalData",
