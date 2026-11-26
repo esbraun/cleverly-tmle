@@ -102,6 +102,15 @@ GATED_OFF_GRID: dict[str, str] = {
         "(ship-rule.csv, floors.csv), not from a property family. It declares no property cell "
         "and no comparator, so the switched variance has no grid row of its own"
     ),
+    "continuous-time-longitudinal": (
+        "its 48 primary rows, its mechanism_correct rows, the plug-in control and its "
+        "calibration rows with their shrunk-SE controls gated the declared run of 8cead461 "
+        "(through its own scientific_failures hook for all but the primary rows), and its "
+        "support floors are computed from the primary rows (floors.csv), not from a property "
+        "family. Its two red accounting rows, from one lost fit, are accepted by the named "
+        "exception in red_cells.ACCEPTED_BY_EXCEPTION. It declares no property cell and no "
+        "comparator, so ContinuousLongitudinalTMLE has no grid row"
+    ),
     "adaptive-tmle-selective": (
         "its primary coverage tests gated the declared run of c6f9e51c (artifacts at 8f2a91a5), "
         "and its one red row, the s6_cv bias leg, is accepted by the named exception in "

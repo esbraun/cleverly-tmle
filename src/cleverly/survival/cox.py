@@ -51,6 +51,13 @@ _SCORE_TOL: Final = 1e-10
 _MAX_NEWTON: Final = 100
 #: A Newton step below this share of the coefficients' size is below rounding: converged.
 _STEP_TOL: Final = 1e-12
+#: With delayed entry, the relative rounding level of the log partial likelihood: each risk-set
+#: sum is a difference of two running sums, and the likelihood carries noise near
+#: ``1e-14 |l|``.  A Newton step whose predicted gain is below ``_ENTRY_ROUNDING * max(1, |l|)``
+#: cannot be checked by the likelihood, so it is taken whole.
+_ENTRY_ROUNDING: Final = 1e-13
+#: The largest Newton step, as a share of ``1 + max |beta|``, taken whole under that rule.
+_ENTRY_STEP: Final = 1e-6
 #: The widest spread (largest minus smallest) the standardized linear predictor may reach on
 #: the fitting rows.  Within it every shifted risk in a risk set is at least
 #: ``exp(-_SPREAD_MAX)``, a normal double, so the Breslow sums keep full relative precision.  The
@@ -103,9 +110,13 @@ class _RiskSets:
     deaths: FloatArray  # number of events at each event time
     order: IntArray  # rows sorted by time ascending
     event_sum_rows: IntArray  # rows with an event
+    #: With delayed entry, the rows sorted by entry time, and per event time the first of them
+    #: whose entry is at or after it: those rows are not yet at risk.  ``None`` without entry.
+    entry_order: IntArray | None = None
+    entry_start: IntArray | None = None
 
 
-def _risk_sets(time: FloatArray, event: FloatArray) -> _RiskSets:
+def _risk_sets(time: FloatArray, event: FloatArray, entry: FloatArray | None = None) -> _RiskSets:
     order = np.argsort(time, kind="stable")
     sorted_time = time[order]
     events = event > 0
@@ -114,13 +125,32 @@ def _risk_sets(time: FloatArray, event: FloatArray) -> _RiskSets:
     # Breslow tie counts, one grouped count instead of a scan of every row per event time.
     # A NaN time counts no deaths, as an equality test would find none.
     deaths = np.where(np.isnan(times), 0, counts).astype(float)
-    return _RiskSets(times, start, deaths, order, np.flatnonzero(events))
+    if entry is None:
+        return _RiskSets(times, start, deaths, order, np.flatnonzero(events))
+    # The risk set at t is {i : entry_i < t <= time_i}: the rows whose time reaches t, less
+    # those whose entry is at or after t.
+    entry_order = np.argsort(entry, kind="stable")
+    entry_start = np.searchsorted(entry[entry_order], times, side="left")
+    return _RiskSets(times, start, deaths, order, np.flatnonzero(events), entry_order, entry_start)
 
 
 def _tail(values: FloatArray, start: IntArray) -> FloatArray:
     """Sums of ``values[start:]`` along axis 0, for each start index."""
     cum = np.concatenate([np.cumsum(values[::-1], axis=0)[::-1], np.zeros((1, *values.shape[1:]))])
     return cum[start]
+
+
+def _at_risk(values: FloatArray, sorted_values: FloatArray, sets: _RiskSets) -> FloatArray:
+    """Sums of ``values`` (in row order) over each event time's risk set.
+
+    ``sorted_values`` is ``values[sets.order]``.  Without delayed entry this is ``_tail`` of
+    the sorted values, unchanged; with it, the sum over the rows not yet entered is taken off.
+    """
+    total = _tail(sorted_values, sets.start)
+    if sets.entry_order is None:
+        return total
+    assert sets.entry_start is not None
+    return total - _tail(values[sets.entry_order], sets.entry_start)
 
 
 #: Bytes one block of the risk second moments may take: the ``(n, b, q)`` products, their
@@ -137,7 +167,7 @@ def _loglik_terms(
     shift = float(np.max(eta)) if eta.size else 0.0
     risk = np.exp(eta - shift)
     rs = risk[sets.order]
-    s0 = _tail(rs, sets.start)
+    s0 = _at_risk(risk, rs, sets)
     loglik = float(np.sum(eta[sets.event_sum_rows]) - np.sum(sets.deaths * (np.log(s0) + shift)))
     return loglik, rs, s0
 
@@ -158,7 +188,15 @@ def _loglik_parts(
     """
     loglik, rs, s0 = _loglik_terms(beta, Z, sets)
     zs = Z[sets.order]
-    s1 = _tail(rs[:, None] * zs, sets.start)
+    risk = None
+    if sets.entry_order is not None:
+        eta = Z @ beta
+        risk = np.exp(eta - (float(np.max(eta)) if eta.size else 0.0))
+    s1 = (
+        _tail(rs[:, None] * zs, sets.start)
+        if risk is None
+        else _at_risk(risk[:, None] * Z, rs[:, None] * zs, sets)
+    )
     zbar = s1 / s0[:, None]
     grad = Z[sets.event_sum_rows].sum(axis=0) - (sets.deaths[:, None] * zbar).sum(axis=0)
     q = zs.shape[1]
@@ -166,7 +204,15 @@ def _loglik_parts(
     block = max(1, _BLOCK_BYTES // (8 * max(1, zs.shape[0] * q)))
     for first in range(0, q, block):
         rows = slice(first, min(q, first + block))
-        s2 = _tail(rs[:, None, None] * zs[:, rows, None] * zs[:, None, :], sets.start)
+        s2 = (
+            _tail(rs[:, None, None] * zs[:, rows, None] * zs[:, None, :], sets.start)
+            if risk is None
+            else _at_risk(
+                risk[:, None, None] * Z[:, rows, None] * Z[:, None, :],
+                rs[:, None, None] * zs[:, rows, None] * zs[:, None, :],
+                sets,
+            )
+        )
         info[rows] = (
             sets.deaths[:, None, None]
             * (s2 / s0[:, None, None] - zbar[:, rows, None] * zbar[:, None, :])
@@ -231,7 +277,7 @@ class CoxHazard:
     def _standardize(self, Z: FloatArray) -> FloatArray:
         return (Z - self.center_) / self.scale_
 
-    def fit(self, X: Any, time: Any, event: Any) -> CoxHazard:
+    def fit(self, X: Any, time: Any, event: Any, entry: Any = None) -> CoxHazard:
         """Fit the coefficients and the Breslow baseline.
 
         Parameters
@@ -242,6 +288,9 @@ class CoxHazard:
             ``(n,)`` follow-up times.
         event : array-like
             ``(n,)`` 0/1 indicators of the modelled cause.
+        entry : array-like or None
+            ``(n,)`` delayed-entry times: a row is at risk at :math:`t` when
+            :math:`\\text{entry} < t \\le \\text{time}`.  ``None`` enters every row at zero.
 
         Returns
         -------
@@ -255,7 +304,7 @@ class CoxHazard:
         scale = Z.std(axis=0)
         self.scale_ = np.where(scale > 0, scale, 1.0)
         Zs = self._standardize(Z)
-        sets = _risk_sets(time, event)
+        sets = _risk_sets(time, event, None if entry is None else np.asarray(entry, dtype=float))
         beta = np.zeros(Zs.shape[1])
         converged = sets.times.size == 0
         # The last full Newton step left the resolved range (or read a non-finite value).
@@ -287,6 +336,25 @@ class CoxHazard:
             # as +inf.  A regular fit's Newton step can leave the range too (one heavy-tailed
             # covariate), so leaving it is halved like a fall, never taken as a boundary.
             target = loglik - 0.5 * self.penalty * beta @ beta
+            if sets.entry_order is not None:
+                # Near the maximum a Newton step gains less than the likelihood's rounding,
+                # so the halving test below reads noise and would stall the fit short of its
+                # score tolerance.  Such a step is taken whole when it is small against the
+                # coefficients (a separating direction's step stays large) and its likelihood
+                # is resolved; the score and step tolerances then end the fit.  Without entry
+                # nothing changes.
+                gain = 0.5 * float(grad @ step)
+                small = float(np.max(np.abs(step))) <= _ENTRY_STEP * (
+                    1.0 + float(np.max(np.abs(beta)))
+                )
+                if small and gain <= _ENTRY_ROUNDING * max(1.0, abs(float(target))):
+                    trial = beta + step
+                    if bool(np.ptp(Zs @ trial) <= _SPREAD_MAX):
+                        with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+                            resolved_value = _loglik(trial, Zs, sets)
+                        if np.isfinite(resolved_value):
+                            beta = trial
+                            continue
             accepted = False
             for halving in range(30):
                 trial = beta + step
@@ -350,7 +418,7 @@ class CoxHazard:
         self.intercept_shift_ = float(self.center_ / self.scale_ @ beta)
         risk = np.exp(Zs @ beta)
         order = sets.order
-        s0 = _tail(risk[order], sets.start)
+        s0 = _at_risk(risk, risk[order], sets)
         self.baseline_times_ = sets.times
         self.baseline_jumps_ = sets.deaths / s0
         self._zs_beta = beta
@@ -417,7 +485,9 @@ class CoxHazard:
         return np.exp(self.linear_predictor(X)), base
 
 
-def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> float:
+def partial_log_likelihood(
+    model: CoxHazard, X: Any, time: Any, event: Any, entry: Any = None
+) -> float:
     """The Breslow log partial likelihood of fitted coefficients on a data set.
 
     Parameters
@@ -430,6 +500,8 @@ def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> f
         ``(n,)`` follow-up times.
     event : array-like
         ``(n,)`` 0/1 indicators.
+    entry : array-like or None
+        ``(n,)`` delayed-entry times, as :meth:`CoxHazard.fit` takes them.
 
     Returns
     -------
@@ -437,7 +509,11 @@ def partial_log_likelihood(model: CoxHazard, X: Any, time: Any, event: Any) -> f
         The log partial likelihood at the model's coefficients.
     """
     Zs = model._standardize(_design(X, model.terms))
-    sets = _risk_sets(np.asarray(time, dtype=float), np.asarray(event, dtype=float))
+    sets = _risk_sets(
+        np.asarray(time, dtype=float),
+        np.asarray(event, dtype=float),
+        None if entry is None else np.asarray(entry, dtype=float),
+    )
     if sets.times.size == 0:
         return 0.0
     return _loglik(model._zs_beta, Zs, sets)
@@ -473,7 +549,7 @@ class StratifiedNelsonAalen:
         X = np.asarray(X, dtype=float)
         return [tuple(row) for row in X[:, list(self.by)]]
 
-    def fit(self, X: Any, time: Any, event: Any) -> StratifiedNelsonAalen:
+    def fit(self, X: Any, time: Any, event: Any, entry: Any = None) -> StratifiedNelsonAalen:
         """Fit the cell hazards.
 
         Parameters
@@ -484,6 +560,9 @@ class StratifiedNelsonAalen:
             ``(n,)`` follow-up times.
         event : array-like
             ``(n,)`` 0/1 indicators.
+        entry : array-like or None
+            ``(n,)`` delayed-entry times: a row is at risk at :math:`t` when
+            :math:`\\text{entry} < t \\le \\text{time}`.  ``None`` enters every row at zero.
 
         Returns
         -------
@@ -492,14 +571,31 @@ class StratifiedNelsonAalen:
         """
         time = np.asarray(time, dtype=float)
         event = np.asarray(event, dtype=float)
-        keys = self._keys(X)
+        start = None if entry is None else np.asarray(entry, dtype=float)
+        columns = np.asarray(X, dtype=float)[:, list(self.by)]
+        cells, inverse = np.unique(columns, axis=0, return_inverse=True)
+        inverse = np.asarray(inverse).reshape(-1)
         self.cells_: dict[tuple[float, ...], tuple[FloatArray, FloatArray]] = {}
-        for key in sorted(set(keys)):
-            rows = np.array([k == key for k in keys])
+        for index, cell in enumerate(cells):
+            rows = inverse == index
             t, e = time[rows], event[rows]
             jump_times = np.unique(t[e > 0])
-            at_risk = np.array([np.count_nonzero(t >= u) for u in jump_times], dtype=float)
-            deaths = np.array([np.count_nonzero((t == u) & (e > 0)) for u in jump_times], float)
+            # Counts of integers, so the jumps do not depend on how the rows are grouped.
+            sorted_t = np.sort(t)
+            at_risk = (sorted_t.size - np.searchsorted(sorted_t, jump_times, side="left")).astype(
+                float
+            )
+            if start is not None:
+                sorted_entry = np.sort(start[rows])
+                at_risk -= sorted_entry.size - np.searchsorted(
+                    sorted_entry, jump_times, side="left"
+                )
+            event_times = np.sort(t[e > 0])
+            deaths = (
+                np.searchsorted(event_times, jump_times, side="right")
+                - np.searchsorted(event_times, jump_times, side="left")
+            ).astype(float)
+            key = tuple(float(v) for v in cell)
             self.cells_[key] = (jump_times, deaths / at_risk if jump_times.size else deaths)
         return self
 
@@ -543,22 +639,27 @@ class StratifiedNelsonAalen:
             first appearance.
         """
         times = np.asarray(times, dtype=float)
-        keys = self._keys(X)
-        index = np.empty(len(keys), dtype=int)
-        position: dict[tuple[float, ...], int] = {}
+        columns = np.asarray(X, dtype=float)[:, list(self.by)]
+        if columns.shape[0] == 0:
+            return np.empty(0, dtype=int), np.empty((0, times.size))
+        cells, first, inverse = np.unique(columns, axis=0, return_index=True, return_inverse=True)
+        inverse = np.asarray(inverse).reshape(-1)
+        # Cells in order of first appearance, as a scan of the rows would number them.
+        appearance = np.argsort(first, kind="stable")
+        position = np.empty(appearance.size, dtype=int)
+        position[appearance] = np.arange(appearance.size)
+        index = position[inverse]
         rows: list[FloatArray] = []
-        for i, key in enumerate(keys):
-            if key not in position:
-                if key not in self.cells_:
-                    raise _gap(
-                        f"{self!r} has no fitted cell {key}; a saturated hazard predicts only "
-                        "the cells it saw."
-                    )
-                jump_times, jumps = self.cells_[key]
-                cum = np.concatenate([[0.0], np.cumsum(jumps)])
-                position[key] = len(rows)
-                rows.append(cum[np.searchsorted(jump_times, times, side="right")])
-            index[i] = position[key]
+        for cell in cells[appearance]:
+            key = tuple(float(v) for v in cell)
+            if key not in self.cells_:
+                raise _gap(
+                    f"{self!r} has no fitted cell {key}; a saturated hazard predicts only "
+                    "the cells it saw."
+                )
+            jump_times, jumps = self.cells_[key]
+            cum = np.concatenate([[0.0], np.cumsum(jumps)])
+            rows.append(cum[np.searchsorted(jump_times, times, side="right")])
         curves = np.vstack(rows) if rows else np.empty((0, times.size))
         return index, curves
 
@@ -606,6 +707,7 @@ def select_hazard(
     time: Any,
     event: Any,
     folds: IntArray | None,
+    entry: Any = None,
 ) -> HazardSelection:
     """Select one hazard learner by cross-validated partial likelihood and refit it.
 
@@ -622,6 +724,10 @@ def select_hazard(
         ``(n,)`` 0/1 indicators of the modelled cause.
     folds : ndarray or None
         ``(n,)`` fold labels for the cross-validation, or ``None`` with a one-member library.
+    entry : array-like or None
+        ``(n,)`` delayed-entry times, as :meth:`CoxHazard.fit` takes them; every member then
+        reads them, so a user member's ``fit`` must accept ``entry=``.  ``None`` enters every
+        row at zero and calls each member as before.
 
     Returns
     -------
@@ -641,8 +747,21 @@ def select_hazard(
     X = np.asarray(X, dtype=float)
     time = np.asarray(time, dtype=float)
     event = np.asarray(event, dtype=float)
+    start = None if entry is None else np.asarray(entry, dtype=float)
+
+    def fitted(member: Any, rows: Any) -> Any:
+        if start is None:
+            return _clone(member).fit(X[rows], time[rows], event[rows])
+        return _clone(member).fit(X[rows], time[rows], event[rows], entry=start[rows])
+
+    def likelihood(model: Any, rows: Any) -> float:
+        return partial_log_likelihood(
+            model, X[rows], time[rows], event[rows], None if start is None else start[rows]
+        )
+
+    every = slice(None)
     if len(library) == 1:
-        return HazardSelection(names, (float("nan"),), 0, _clone(library[0]).fit(X, time, event))
+        return HazardSelection(names, (float("nan"),), 0, fitted(library[0], every))
     if not all(isinstance(member, CoxHazard) for member in library):
         raise _gap(
             "A hazard library of more than one member holds CoxHazard models only: the "
@@ -657,10 +776,8 @@ def select_hazard(
         total = 0.0
         for fold in np.unique(folds):
             train = folds != fold
-            fitted = _clone(member).fit(X[train], time[train], event[train])
-            total -= partial_log_likelihood(fitted, X, time, event) - partial_log_likelihood(
-                fitted, X[train], time[train], event[train]
-            )
+            model = fitted(member, train)
+            total -= likelihood(model, every) - likelihood(model, train)
         losses.append(total)
     # A member whose held-out likelihood is not finite (coefficients at a monotone-likelihood
     # boundary) cannot win; np.argmin would pick a nan.
@@ -672,7 +789,7 @@ def select_hazard(
             "penalized member, such as CoxHazard('main', penalty=1.0)."
         )
     chosen = int(np.argmin(ranked))
-    model = _clone(library[chosen]).fit(X, time, event)
+    model = fitted(library[chosen], every)
     return HazardSelection(names, tuple(float(v) for v in losses), chosen, model)
 
 

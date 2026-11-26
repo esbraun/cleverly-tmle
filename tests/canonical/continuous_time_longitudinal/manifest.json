@@ -1,0 +1,243 @@
+{
+  "schema_version": 2,
+  "study": "continuous-time longitudinal TMLE",
+  "slug": "continuous-time-longitudinal",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-continuous-time-longitudinal",
+      "cleverly_version": "0.2.8",
+      "cleverly_commit": "8cead46122cce9ebbdca868707feb7479ac49a28",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.18",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "97129a1a44cd0790553fb022322da2d2f02b173723c6e8fadda8a84544278c22"
+    },
+    "reference": null,
+    "shards": [
+      {
+        "shard": "1/3",
+        "commit": "8cead46122cce9ebbdca868707feb7479ac49a28",
+        "seconds": 6909.2,
+        "invocations": 1,
+        "machine": {
+          "blas": [
+            "openblas 0.3.31.dev SkylakeX",
+            "openblas 0.3.34.106.0 SkylakeX"
+          ],
+          "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz"
+        }
+      },
+      {
+        "shard": "2/3",
+        "commit": "8cead46122cce9ebbdca868707feb7479ac49a28",
+        "seconds": 5524.9,
+        "invocations": 1,
+        "machine": {
+          "blas": [
+            "openblas 0.3.31.dev SkylakeX",
+            "openblas 0.3.34.106.0 SkylakeX"
+          ],
+          "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz"
+        }
+      },
+      {
+        "shard": "3/3",
+        "commit": "8cead46122cce9ebbdca868707feb7479ac49a28",
+        "seconds": 2134.2,
+        "invocations": 1,
+        "machine": {
+          "blas": [
+            "openblas 0.3.31.dev SkylakeX",
+            "openblas 0.3.34.106.0 SkylakeX"
+          ],
+          "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz"
+        }
+      }
+    ]
+  },
+  "configuration": {
+    "replicates": 3200,
+    "n": 1000,
+    "seed": 2026112571,
+    "resampling_seed": 2026112572,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-continuous-time-longitudinal": 0.01
+    },
+    "scenarios": {
+      "day_cf": [
+        "cif_regimen[never, cause1 @ t=10]",
+        "cif_regimen[never, cause1 @ t=20]",
+        "cif_regimen[never, cause1 @ t=30]",
+        "cif_regimen[never, cause2 @ t=10]",
+        "cif_regimen[never, cause2 @ t=20]",
+        "cif_regimen[never, cause2 @ t=30]",
+        "cif_regimen[always, cause1 @ t=10]",
+        "cif_regimen[always, cause1 @ t=20]",
+        "cif_regimen[always, cause1 @ t=30]",
+        "cif_regimen[always, cause2 @ t=10]",
+        "cif_regimen[always, cause2 @ t=20]",
+        "cif_regimen[always, cause2 @ t=30]",
+        "cif_regimen[rule, cause1 @ t=10]",
+        "cif_regimen[rule, cause1 @ t=20]",
+        "cif_regimen[rule, cause1 @ t=30]",
+        "cif_regimen[rule, cause2 @ t=10]",
+        "cif_regimen[rule, cause2 @ t=20]",
+        "cif_regimen[rule, cause2 @ t=30]",
+        "ate_regimen[always vs never, cause1 @ t=10]",
+        "ate_regimen[always vs never, cause1 @ t=20]",
+        "ate_regimen[always vs never, cause1 @ t=30]",
+        "ate_regimen[always vs never, cause2 @ t=10]",
+        "ate_regimen[always vs never, cause2 @ t=20]",
+        "ate_regimen[always vs never, cause2 @ t=30]",
+        "ate_regimen[rule vs never, cause1 @ t=10]",
+        "ate_regimen[rule vs never, cause1 @ t=20]",
+        "ate_regimen[rule vs never, cause1 @ t=30]",
+        "ate_regimen[rule vs never, cause2 @ t=10]",
+        "ate_regimen[rule vs never, cause2 @ t=20]",
+        "ate_regimen[rule vs never, cause2 @ t=30]"
+      ],
+      "cont_cf": [
+        "cif_regimen[never, cause1 @ t=10]",
+        "cif_regimen[never, cause1 @ t=20]",
+        "cif_regimen[never, cause1 @ t=30]",
+        "cif_regimen[never, cause2 @ t=10]",
+        "cif_regimen[never, cause2 @ t=20]",
+        "cif_regimen[never, cause2 @ t=30]",
+        "cif_regimen[always, cause1 @ t=10]",
+        "cif_regimen[always, cause1 @ t=20]",
+        "cif_regimen[always, cause1 @ t=30]",
+        "cif_regimen[always, cause2 @ t=10]",
+        "cif_regimen[always, cause2 @ t=20]",
+        "cif_regimen[always, cause2 @ t=30]",
+        "ate_regimen[always vs never, cause1 @ t=10]",
+        "ate_regimen[always vs never, cause1 @ t=20]",
+        "ate_regimen[always vs never, cause1 @ t=30]",
+        "ate_regimen[always vs never, cause2 @ t=10]",
+        "ate_regimen[always vs never, cause2 @ t=20]",
+        "ate_regimen[always vs never, cause2 @ t=30]"
+      ]
+    },
+    "construction": "Rytgaard, Gerds and van der Laan (2022) TMLE, one backward pass per regime, influence-curve variance",
+    "laws": {
+      "day_cf": "ct_day",
+      "cont_cf": "ct"
+    },
+    "regimes": {
+      "day_cf": [
+        "never",
+        "always",
+        "rule"
+      ],
+      "cont_cf": [
+        "never",
+        "always"
+      ]
+    },
+    "times": [
+      10.0,
+      20.0,
+      30.0
+    ],
+    "causes": {
+      "1": "cause1",
+      "2": "cause2"
+    },
+    "coefficients": "Coefficients(l0=(-0.5, 0.6), a0=(-0.3, 0.8, 0.3), visit=(0.07, 0.4, -0.3), l_visit=(-0.4, 1.2, -0.8, 0.4), a_visit=(-1.5, 1.0, 2.0, 0.2), cause1=(0.01, -0.6, 0.8, 0.3), cause2=(0.006, 0.2, 0.5, -0.3, 0.1), censoring=(0.008, 0.6, -0.4))",
+    "n_folds": 10,
+    "learner_folds": 5,
+    "secondary": {
+      "mechanism_correct": [
+        "mechanism_correct",
+        2400
+      ],
+      "outcome_correct": [
+        "outcome_correct",
+        800
+      ],
+      "both_wrong": [
+        "both_wrong",
+        800
+      ],
+      "ltmle_daily": [
+        "x70",
+        400
+      ]
+    },
+    "x70_nodes": [
+      3,
+      6,
+      10,
+      13,
+      16,
+      20,
+      23,
+      26,
+      30
+    ],
+    "variance_method": "influence curve",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.2,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/continuous_time_longitudinal.py": "6b82e049eb9551475b21756c6b839c64ea3dd1b46dc1a77d66ea409c21b00bc7",
+    "tests/studies/continuous_time_longitudinal_law.py": "cb1b06671d800aa7b6728653d88d69bc70cf64a06869e3fc91706394b816f2d3",
+    "tests/studies/continuous_time_longitudinal_readings.py": "3766265bf2a9e9cabceb8f389f2d6ab4b92ba8f3c07dc301367b16b449cf6581",
+    "tests/studies/continuous_time_longitudinal_properties.py": "229ee403c8fbbab5bd350703c15dd3331dcf9deb13ca6c253cea34884d07271c",
+    "tests/studies/evidence/properties.py": "0983217d38df582900a498db61afd9f6c63a2758ed190abf415c0c91d95fc3ab",
+    "tests/studies/evidence/property_verdicts.py": "91f9f50df353faf0e9024efbbe868bd0fcd277b4cb1bb1ded03a9fae7103d1f2",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "c2a5a81bc05c70e6c7d56ad87463a7f69e24f6ae19b7f8f91cf8a93152ebfcbf",
+    "summary.csv": "26b9bbbd37ce7c9df0cea56928674eaad8265ed709a16474c372cee214a5bdca",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "d9bd68d91f58a7aef667d4bc053a244ad440fb8a7d94461704062e419ae241cd",
+    "property-replicates.parquet": "dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "longitudinal-rows.csv.gz": "2c9efbde7abd374b7699c318b3a042e16a3da4ccd9868deda8475060186be762",
+    "secondary-rows.csv.gz": "6e251bd9dfee14d36c8ce69054d3ecc5408d9f52238d58e9604d0ffb5cb4fe27",
+    "calibration.csv": "9b57dc497be014a43c0edc04c3816db3896ddd7fa6566a8f38c024fd16537a28",
+    "mechanism-correct.csv": "6d494f2723225295140a5e4344007214bd95949c6dae4a650ccc7b67adfa0976",
+    "misspecified.csv": "8bbfaef60262690cd1367eefd0f2d63dd41993c446bff0161bf0c285071dc670",
+    "ltmle-pairing.csv": "95d58ddae05ad1c09b355f97bb805472fb07f8be6a761d012d68821c2adb3d39",
+    "targeting-readings.csv": "53db35e00f6abfad6f03e4204935e81bc61b461974fd6a6d7f64354506a97820",
+    "visit-cap.csv": "78a7da2ce37b1dc6473fb7cec9427dbd93276fdd79363293861f05bec404818d",
+    "floors.csv": "8d70a5bd3e09fab904acd482cc11c45ed2eef12e9b0105e8f5eb9cd11e436200",
+    "exposed-rows.csv": "3fe1c999687883d868e859720c9d52d061ba8729aacd0b85f2a4bd29cee35fb4",
+    "failures.csv": "5dfa74dde50e8ce450cb8b2af6233a15d1c02cfd139af0d7539dd7fe19a75d30",
+    "failure-accounting.csv": "cecc96fecd81fcc997bc1c0a37ef0908a63d85e68c85a51e1df4517994edaf21"
+  }
+}

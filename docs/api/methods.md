@@ -84,3 +84,23 @@ hazard learner of its default libraries.
    cleverly.survival.ContinuousSurvivalRecord
    cleverly.survival.CoxHazard
 ```
+
+## Continuous-time longitudinal
+
+`ContinuousLongitudinalTMLE` estimates each cause's risk at declared times under a
+treatment regime when the treatment and the covariates change at visits that fall at irregular
+times. It reads one row per interval between visits, through `fit()` or a
+`ContinuousLongitudinalData` container, and returns a `ContinuousLongitudinalResult`, whose
+`record` is a `ContinuousLongitudinalRecord`. The
+[technical reference](../technical-reference/continuous-time-longitudinal.md) states the estimand,
+the restrictions and what is refused.
+
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
+
+   cleverly.survival.ContinuousLongitudinalTMLE
+   cleverly.survival.ContinuousLongitudinalData
+   cleverly.survival.ContinuousLongitudinalResult
+   cleverly.survival.ContinuousLongitudinalRecord
+```

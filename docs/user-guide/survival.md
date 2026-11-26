@@ -533,6 +533,72 @@ print(panel_risks.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
 Other plans of [Longitudinal treatment](longitudinal.md), such as rules that read a covariate,
 work the same way.
 
+### Treatments that change at irregular visits
+
+When the treatment and the covariates change at visits that fall at any time, rather than at
+shared time points, `ContinuousLongitudinalTMLE` estimates each regime's risk with no time grid.
+A simulation study with known answers checked its intervals for the default models, with at
+least 1,000 people and two competing kinds of event. An estimate reads `supported` only inside
+the setting that study checked, and `experimental` otherwise, with the reason. The example below
+fits 300 people with models of its own, so its estimates read `experimental`.
+
+Give it one row per stretch of time between visits. A person's first row starts at 0 and each
+later row starts at a visit, where the covariate `l` is measured and the treatment `a` decided;
+the last row ends at the person's event or last follow-up, with the event code (0 when follow-up
+ends without an event).
+
+```python
+import numpy as np
+import pandas as pd
+
+from cleverly.survival import ContinuousLongitudinalTMLE, CoxHazard
+
+rng = np.random.default_rng(0)
+rows = []
+for person in range(300):
+    w, l, a = rng.integers(2), rng.integers(2), rng.integers(2)
+    start, visit = 0.0, rng.exponential(3.0)
+    end = rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+    if visit < min(end, 8.0):  # a visit before the event: l is measured again, a decided
+        rows.append((person, 0.0, visit, 0, w, l, a))
+        l = rng.integers(2)
+        a = int(rng.random() < 0.3 + 0.4 * l)
+        start = visit
+        end = visit + rng.exponential(1 / (0.1 * np.exp(0.5 * l - 0.5 * a)))
+    rows.append((person, start, min(end, 8.0), int(end < 8.0), w, l, a))
+visits = pd.DataFrame(rows, columns=["id", "start", "stop", "event", "w", "l", "a"])
+
+cox = [CoxHazard("main")]
+visit_risks = ContinuousLongitudinalTMLE(
+    [2.0, 6.0],  # the times at which to report each risk
+    regimes={"always": 1, "never": 0},  # the treatment held at every visit
+    reference="never",
+    hazard_library=cox,
+    visit_library=cox,
+    censoring_library=cox,
+    random_state=0,
+).fit(
+    visits,
+    id="id",
+    start="start",
+    stop="stop",
+    event="event",
+    treatment="a",
+    baseline=["w"],
+    time_varying=["l"],
+)
+print(visit_risks.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+A regime can also be a rule: a function that takes a frame of the visits, with each covariate
+by name, and returns the treatment at each. Wrap it as
+`Rule(function, "treat when l is high", rule_kind="known")` from `cleverly.interventions`, which
+declares that the rule was fixed before you saw the data; a bare function is refused. The estimate assumes that the models read a
+person's history only through the last visit's covariates and treatment, the one before it, and
+the visit's time and count. The [technical reference](../technical-reference/continuous-time-longitudinal.md)
+states this assumption, the cap on the number of visits modelled, what the fit refuses, and every
+condition of the `supported` label.
+
 ## When another event can come first
 
 A patient who dies can no longer be readmitted. Death is then a competing event. Declare the causes with a mapping from

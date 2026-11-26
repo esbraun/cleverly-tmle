@@ -1016,3 +1016,14 @@ module's row when every study that records it is regenerated. No test parses thi
 | `tests/studies/projection_evidence.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
 | `tests/studies/projection_methods.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
 | `tests/studies/targeting_curves.py` | the record's `anchor` follows the page heading, retitled to the record's `name` |
+
+## The recounted hook accounting of `continuous-time-longitudinal`
+
+The declared run at `9a45ef35` wrote `failure-accounting.csv` with sha256 `236b3864…5dc7f1`
+(recorded in `run.log`). Its two hook rows, the calibration rule and the shrunk-SE control,
+counted the one lost fit (`cont_cf` replicate 936) once per estimand of that scenario, 18 times.
+`account_failures` in `tests/studies/continuous_time_longitudinal.py` now counts lost fits, and
+the committed file is the accounting recomputed from the committed rows and `failures.csv` by
+`failures.hook_accounting`: sha256 `cecc96fe…edaf21`, which the manifest now records. Each of
+the two rows reads one failing fit in place of 18 and stays red ("worst case fails"); every
+other row is unchanged. No fit was rerun, and no replicate, verdict or seed changed.
