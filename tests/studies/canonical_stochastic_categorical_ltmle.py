@@ -133,7 +133,7 @@ STUDY = StudyRecord(
     document=(
         "docs/technical-reference/method-evidence/stochastic-categorical-longitudinal-tmle.md"
     ),
-    anchor="stochastic-categorical-longitudinal-tmle",
+    anchor="ordinary-known-stochastic-categorical-longitudinal-tmle",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

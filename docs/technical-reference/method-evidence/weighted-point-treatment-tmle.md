@@ -1,4 +1,4 @@
-# Weighted point-treatment TMLE
+# Ordinary weighted point-treatment TMLE
 
 This study validates ordinary point-treatment TMLE with fixed probability weights. It draws
 exactly 2,000 observations from a biased selected population and asks whether inverse-selection

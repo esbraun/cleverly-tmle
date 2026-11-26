@@ -570,15 +570,15 @@ AREAS: tuple[Area, ...] = (
     _area(
         "variable importance",
         (S + "variable_importance.py", S + "_importance_assessment.py"),
-        (TR + "validation-methods.md",),
+        (TR + "validation-methods.md", UG + "variable-importance.md"),
         see=(UG + "methods-learners.md", API + "results-assessment.md"),
     ),
     _area(
         "plots",
         (S + "plotting/*",),
-        (API + "plotting.md",),
+        (API + "plotting.md", UG + "plots.md"),
         see=(EX + "plots.ipynb",),
-        guards=("tests/unit/test_plotting_result_matrix.py",),
+        guards=("tests/unit/test_plotting_result_matrix.py", "tests/unit/test_plots_guide.py"),
     ),
     # ---- example data -----------------------------------------------------------------------
     _area("datasets", (S + "datasets/*",), (API + "datasets.md",)),

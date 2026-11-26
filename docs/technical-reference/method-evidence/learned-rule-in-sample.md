@@ -42,11 +42,10 @@ learned-rule TMLE. A zero-row equivalence artifact records the absence of a comp
 
 The primary count is set by the bias leg, not by the SE rule. The in-sample point leans
 optimistic, and the pre-run readings put that lean at +0.12 error SDs (`non_exceptional`, 4,000
-pilot draws) and +0.21 (`misspecified_limit`, 8,000 pilot and design-review probe draws pooled).
+pilot draws) and +0.21 (`misspecified_limit`, 8,000 pilot and probe draws pooled).
 14,400 is the smallest multiple of 400 at which both 99% bias intervals fall inside 0.25 SD with
-predictive probability 0.95. The X11 plan, its review and the study design record fixed the laws,
-the learners, the budgets, the seeds, the truth rule, the variance rule and the support-row
-condition before any run. `tests/unit/test_learned_rule_in_sample_design.py` pins the bounds, the
+predictive probability 0.95. The laws, the learners, the budgets, the seeds, the truth rule, the
+variance rule and the support-row condition were fixed before any run. `tests/unit/test_learned_rule_in_sample_design.py` pins the bounds, the
 limit rules, the sizing and the seeds, and `tests/unit/test_learned_rule_in_sample_harness.py`
 checks the learners, the key, the stored variance, the truth and the property path.
 `tests/unit/test_learned_rule_in_sample.py` holds the unit witnesses of the construction.

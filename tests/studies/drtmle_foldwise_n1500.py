@@ -208,11 +208,11 @@ DISPLACEMENT_FILE = "pooled-displacement.csv"
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {FAMILY: SCENARIOS}
 
 STUDY = StudyRecord(
-    name="DR-TMLE fold-wise default on the RM18 binary draws",
+    name="DR-TMLE fold-wise default on the binary complete-data law at 1,500 observations",
     slug="drtmle-foldwise-n1500",
     artifacts=ROOT / "tests" / "canonical" / "drtmle_foldwise_n1500",
     document="docs/technical-reference/method-evidence/dr-tmle-foldwise-n1500.md",
-    anchor="dr-tmle-fold-wise-default-on-the-rm18-binary-draws",
+    anchor="dr-tmle-fold-wise-default-on-the-binary-complete-data-law-at-1500-observations",
     scenarios=dict.fromkeys(PRIMARY_SCENARIOS, ESTIMANDS),
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

@@ -1,4 +1,4 @@
-# Ordinary multi-arm TMLE
+# Ordinary multi-arm point-treatment TMLE
 
 This study validates ordinary, non-cross-fitted TMLE for a labelled three-arm treatment.
 The canonical comparison uses R [`tmle3`](https://github.com/tlverse/tmle3) at pinned commit

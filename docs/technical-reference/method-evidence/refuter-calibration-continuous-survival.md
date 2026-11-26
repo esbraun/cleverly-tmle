@@ -31,16 +31,17 @@ comparator.
 | primary phase | 200 replications of the four differences against their exact truths, as a sanity check of the fit that the rules read |
 | Monte Carlo inference | exact 99% intervals around every rate, and 99% intervals around every primary endpoint |
 
-The X101 plan (rev 2, section 5) fixed the laws, the cells, the seeds and the red-cell route before
-the run. The plan declared 200 size trials and the X82 rule of at most 17 rejections, and required
-a predictive family pass of 0.90 before the declaration. The 200-trial pilot read 0.39 at that
-size. The owner amended the size cells on 2026-11-19 to 600 trials at no more than 68 rejections,
-the largest count whose 99% Clopper-Pearson upper endpoint (0.1506) stays under the ceiling of
-the X82 rule's 17 of 200 (0.1517, midway between the endpoints at 17 and 18 of 200). The
+The study fixed the laws, the cells, the seeds and the red-cell route before the run. Its first
+declaration had 200 size trials with at most 17 rejections, the rule of the
+[point refuter study](refuter-calibration-point.md), and required a predictive family pass of
+0.90 before the declaration. The 200-trial pilot read 0.39 at that size. Before the run, the size
+cells were redeclared at 600 trials with no more than 68 rejections, the largest count whose 99%
+Clopper-Pearson upper endpoint (0.1506) stays under the ceiling of 17 of 200 (0.1517, midway
+between the endpoints at 17 and 18 of 200). The
 module docstring of `tests/studies/refuter_calibration_continuous_survival.py` states each law and
 defect, and `tests/unit/test_refuter_calibration_continuous_survival_design.py` reads the pilot.
 
-The amended size cell is looser than the X82 rule. A rule with true size 0.05 passes with
+The redeclared size cell is looser than the 17-of-200 rule. A rule with true size 0.05 passes with
 probability 1.000, 0.08 with 0.998, 0.10 with 0.875, and 0.15 with 0.006. Under 17 of 200 a rule
 at 0.10 passes with probability 0.285. A power cell with 50 trials passes with probability 1.000 at
 true power 0.95 and 0.814 at true power 0.80.
@@ -169,7 +170,7 @@ from the committed results and checked at the precision printed.
 | --- | --- |
 | The row publishes under the reporting policy, not gated | The fast tier recomputes each verdict and does not fail on a red one |
 | There is no cross-implementation evidence | No maintained implementation computes these rules on this fit |
-| A looser size tolerance than the X82 rule | A rule with true size 0.10 passes a size cell with probability 0.875. A pass does not certify the size to two decimals, and the subset rule measured 0.080 to 0.095 |
+| A looser size tolerance than the 17-of-200 rule | A rule with true size 0.10 passes a size cell with probability 0.875. A pass does not certify the size to two decimals, and the subset rule measured 0.080 to 0.095 |
 | The subset rule over-rejects | About one fit in eleven fails the subset check with nothing wrong. Read a subset failure with that rate in mind |
 | One law and one size | Each row covers $n \ge 1000$ at 0.004 covariates per row, two causes and the measured event shares. A smaller fit, a single-cause fit or a target time outside the shares prints no verdict |
 | The default fit only | The rows name the default Cox libraries, each as a whole library, the default treatment learner, ten folds and the switched variance. Any other library, including a subset of a default one, and any other learner, fold count or variance prints no verdict |

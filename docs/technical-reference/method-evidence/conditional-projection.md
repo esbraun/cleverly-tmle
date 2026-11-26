@@ -27,8 +27,8 @@ CATE on a declared basis. A zero-row equivalence artifact records the absence of
 | seeds | `seed=20261105` and `resampling_seed=20261106`; every property group draws from its own labelled stream |
 | policy | `gated` |
 
-The laws, groups, learners, budgets, controls and seeds were fixed before any run, in the P1 plan,
-its design review and re-review, and `tests/studies/conditional_projection.py`. The pass
+The laws, groups, learners, budgets, controls and seeds were fixed before any run, in
+`tests/studies/conditional_projection.py`. The pass
 probabilities were computed before the run at SE ratios from a pilot on a disjoint stream
 (`tests/studies/conditional_projection_pilot.csv`). `tests/unit/test_conditional_projection_design.py`
 checks the truths, the declared cells and those design numbers.

@@ -1,4 +1,4 @@
-# Continuous modified treatment policies
+# Ordinary continuous modified treatment policies
 
 This study validates the natural course, an uncapped dose shift, and an actively capped dose
 shift. It compares `cleverly` with pinned R `lmtp` 1.5.4 on identical continuous-outcome samples

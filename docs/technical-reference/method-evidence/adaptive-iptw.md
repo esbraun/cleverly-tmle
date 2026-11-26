@@ -1,4 +1,4 @@
-# Adaptive IPTW
+# Adaptive-propensity IPTW
 
 This study validates `AdaptiveIPTW`, the Horvitz-Thompson mean whose propensity is targeted along
 $H = Q_r / g$. The reduced regression $Q_r$ is the regression of the outcome on the propensity.
@@ -12,19 +12,21 @@ the SE-ratio and coverage bands. A **bias** cell reads an estimated-mechanism fi
 standardized-bias margin. A bias row records the plug-in standard error and interval in the
 `std_error` and `covered` columns. No verdict outside the `spread` cell reads those columns.
 
-The declared comparator is R [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2, function
-`adaptive_iptw`. This study runs no R process, so this page holds Python property evidence, with
-comparator runs pending. The separate [pairing study](adaptive-iptw-pairing.md) runs the
-comparison on its own scenarios and seeds.
+This study's record declares R [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2, function
+`adaptive_iptw`, as its pending comparator, and the study runs no R process. The comparison ran
+in the separate [pairing study](adaptive-iptw-pairing.md), on its own scenarios and seeds, and
+every key with an agreement verdict there passes.
 
 ## What was compared
 
-The R column states the declared design of the pending comparator runs.
+The R column states the design this record declares. The
+[pairing study](adaptive-iptw-pairing.md#what-was-compared) ran its own samples and deals the
+folds in Python; its page states that design.
 
 | setting | `cleverly` | R `drtmle` |
 | --- | --- | --- |
-| datasets | 2,000 samples for each known-mechanism cell, and 400 to 3,000 samples for each bias cell, from the laws below. Every scene draws its own stream | the identical rows, in the pairing study |
-| folds | `cross_fit=True` with 10 folds (5 on law M), drawn by the package's random partition from the replication seed. The in-sample cells use no folds | `cvFolds = 10` with the folds that R draws and the pairing study passes to Python |
+| datasets | 2,000 samples for each known-mechanism cell, and 400 to 3,000 samples for each bias cell, from the laws below. Every scene draws its own stream | the same rows, as declared; the pairing study drew its own samples |
+| folds | `cross_fit=True` with 10 folds (5 on law M), drawn by the package's random partition from the replication seed. The in-sample cells use no folds | `cvFolds = 10`, as declared |
 | reduced regression | an unpenalized polynomial of $\operatorname{logit} g$ with a degree for each law, a logistic fit for an indicator key and least squares for a stochastic-regime key. Each fold fits it on leave-two-folds-out designs | `glm_Qr` with the same formula |
 | targeting | the relative score tolerance $10^{-8}$ and at most 100 rounds. $g$ is clipped to $[0.01, 0.99]$ | `tolIC = 1e-8` and `maxIter = 100` |
 | intervals | pointwise 95% Wald from the influence curve, for a known mechanism only | the same, for a known `gn` |
@@ -58,8 +60,10 @@ No replication raised an error, so no cell lost a replicate.
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. This study publishes no paired verdict, and
-its `equivalence.csv` has no rows. The [pairing study](adaptive-iptw-pairing.md) pins the `drtmle`
+Python property evidence, with comparator runs pending. The label reads this study's record, which
+keeps `drtmle` as its declared comparator; the comparison ran in the
+[pairing study](adaptive-iptw-pairing.md), where every key with an agreement verdict passes. This
+study publishes no paired verdict, and its `equivalence.csv` has no rows. The [pairing study](adaptive-iptw-pairing.md) pins the `drtmle`
 image and publishes the paired verdicts, the per-replicate agreement and the nuisance gate.
 
 ## Theory properties
@@ -336,7 +340,8 @@ and `fixed_basis`. These are the families that the cells fitted.
 
 An estimated mechanism reports no interval, so an estimated-mechanism row licenses the point
 estimate only. The plug-in standard error and interval of such a fit are a diagnostic. Each row
-names the pending `drtmle` comparator and the learner families that its cells fitted. Each
+names the `drtmle` comparator that this study's record declares, which ran in the
+[pairing study](adaptive-iptw-pairing.md), and the learner families that its cells fitted. Each
 cross-fitted row also names the open $\epsilon$-path condition of S5 in
 [AdaptiveIPTW](../adaptive-iptw.md#contract). These configurations stay `experimental`:
 
@@ -360,7 +365,7 @@ The three flexible-learner cells are outside the configuration of every row.
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending in this study | the claim here rests on exact truths, the calibration cells and the controls. The [pairing study](adaptive-iptw-pairing.md) adds the paired check against R `drtmle` |
+| this study's record declares the comparator and runs none | the claim here rests on exact truths, the calibration cells and the controls. The [pairing study](adaptive-iptw-pairing.md) adds the paired check against R `drtmle` |
 | an estimated mechanism has no interval | the bias cells measure the point estimate only. The plug-in standard error and interval in the rows are a diagnostic, and the package does not publish them as inference |
 | the validity term vanishes by design in the calibration cells only | the intervals are valid where the whole mechanism is declared known (H2). Laws PD, WT, CL and ST are the cells. Law P with a fitted mechanism is H1, so the bias cells there do not measure the validity term. VL1 and the level-set-breaking control measure it |
 | a flexible mechanism learner is red | the `bias/flexible` cells show a bias of 0.7 to 1.2 SD with a gradient-boosting mechanism. The key reads the mechanism learner family, so a boosted or default fit is `experimental` |
@@ -380,7 +385,8 @@ covariates and the treatment.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/adaptive_iptw/README.md)
 gives the regeneration command. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/adaptive_iptw/manifest.json)
-records the pending comparator, the seeds and the artifact hashes. The
+records the declared comparator, which ran in the [pairing study](adaptive-iptw-pairing.md),
+the seeds and the artifact hashes. The
 [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/adaptive_iptw/property-replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/adaptive_iptw/properties.csv)
 carry every published row.

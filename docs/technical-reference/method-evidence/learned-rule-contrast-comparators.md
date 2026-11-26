@@ -52,8 +52,7 @@ of a comparator.
 On `non_exceptional` the comparators' values are 0.51218 for `Static(0)`, 0.52190 for `coin`,
 0.54434 for `offer` and 0.52657 for $E Y$; on `misspecified_limit`, 0.51151, 0.53340 and 0.51558
 for `coin`, `offer` and $E Y$. The laws, the learners, the budgets, the seeds, the truth rule, the
-sizing rule and the support-row condition were fixed before any run, in the X123 plan and its
-reviews. The calibration count was then set by the per-arm rule on a 4,000-draw pilot, declared
+sizing rule and the support-row condition were fixed before any run. The calibration count was then set by the per-arm rule on a 4,000-draw pilot, declared
 before the pilot: 6,400 at ideal ratios, raised to 10,000 by the pilot's ratios before any
 declared draw. `tests/unit/test_learned_rule_contrast_comparators_design.py` pins the truths, the
 efficiency bounds, the predicted SE ratios, the sizing, the seeds and the declared support rows.

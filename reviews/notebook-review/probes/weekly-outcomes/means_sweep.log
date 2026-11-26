@@ -1,0 +1,12 @@
+draws: 400 (seeds 3000 to 3399)
+mean_never_1: coverage 0.970, held on 388 of 400, mean bias +0.0000 (MC se 0.0003), SE ratio 1.034, labels ['supported']
+mean_never_2: coverage 0.940, held on 376 of 400, mean bias -0.0002 (MC se 0.0005), SE ratio 0.997, labels ['supported']
+mean_never_3: coverage 0.953, held on 381 of 400, mean bias -0.0001 (MC se 0.0008), SE ratio 0.986, labels ['supported']
+mean_always_1: coverage 0.965, held on 386 of 400, mean bias -0.0000 (MC se 0.0003), SE ratio 1.021, labels ['supported']
+mean_always_2: coverage 0.943, held on 377 of 400, mean bias -0.0002 (MC se 0.0005), SE ratio 0.983, labels ['supported']
+mean_always_3: coverage 0.953, held on 381 of 400, mean bias +0.0004 (MC se 0.0008), SE ratio 1.070, labels ['supported']
+mean_win_back_1: coverage 0.948, held on 379 of 400, mean bias +0.0001 (MC se 0.0003), SE ratio 1.015, labels ['supported']
+mean_win_back_2: coverage 0.955, held on 382 of 400, mean bias +0.0000 (MC se 0.0003), SE ratio 0.992, labels ['supported']
+mean_win_back_3: coverage 0.945, held on 378 of 400, mean bias +0.0000 (MC se 0.0004), SE ratio 0.979, labels ['supported']
+week 3: never mean misses on 19, win_back contrast misses on 13, both on 9 of 400
+wall time 480 s with 2 workers

@@ -1,4 +1,4 @@
-# Targeting curves
+# Targeting curves (TOC, cumulative gain, AUTOC, Qini)
 
 This study validates the targeting curve of a priority score, from
 `IdentifiedEffect.targeting_curve(...)` on an external score and from

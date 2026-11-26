@@ -1,4 +1,4 @@
-# Observational missing-data DR-TMLE
+# Observational missing-data DR-TMLE with a composite indicator
 
 This study tests the composite-indicator construction for an observational missing outcome
 and a missing treatment. The [contract](../dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)

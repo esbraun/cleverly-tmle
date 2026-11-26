@@ -1,4 +1,4 @@
-# Projection methods
+# Projection methods (DR-TMLE, per-arm C-TMLE)
 
 This study validates two estimators of the difference-scale projection of a
 `ConditionalContrast` on `Linear(["W1"])`, both fitted in sample: the DR-TMLE projection with

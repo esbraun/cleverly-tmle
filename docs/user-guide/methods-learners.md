@@ -402,7 +402,7 @@ library, as [Two fold layers](#two-fold-layers) describes.
 
 `variable_importance` fits one model set per candidate exposure. `variable_importance_plan`,
 called with the same arguments apart from `keep_fits`, counts those fits in the same way, with each
-row labelled by its candidate.
+row labelled by its candidate ([rank candidate exposures](variable-importance.md)).
 
 ## Use GLM for the sequential baselines
 

@@ -161,8 +161,7 @@ with cubic B-spline learners on both `Q_r` and `g_{r,2}`. That cell was red on i
 +0.239 SD, with the 99% interval 0.0036 to 0.0055 against a margin of 0.0048. Every other row of
 that run passed.
 
-A diagnosis read the cell after the run. It is recorded in the X83 plans record
-(`cleverly-beta-plans`, `reviews/x83/spline-diagnosis.md`), not in this repository. It fitted
+A diagnosis read the cell after the run. Its record is not in this repository. It fitted
 every arm on each of 59 fresh draws at n = 3,000 under `treatment_correct`. The table gives the
 paired shift of each arm, in SD of the GLM foldwise fit.
 

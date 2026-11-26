@@ -1,4 +1,4 @@
-# Incremental propensity interventions
+# Incremental propensity-score interventions
 
 This study validates three incremental treatment-odds multipliers, including the natural course
 at one. It compares `cleverly` with R `npcausal` at commit `56a5ac1` on identical samples.

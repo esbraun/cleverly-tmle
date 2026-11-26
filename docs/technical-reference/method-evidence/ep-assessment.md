@@ -23,8 +23,8 @@ an EP curve. A zero-row equivalence artifact records the absence of a comparator
 | seeds | `seed=20261125` and `resampling_seed=20261126`; every group draws from its own labelled stream |
 | policy | `gated` |
 
-The laws, readings, thresholds and seeds were fixed before the run in the P1 plan (section 5.4
-and amendments rev 2.4 and 2.5) and `tests/studies/ep_assessment.py`. Every claim's pass
+The laws, readings, thresholds and seeds were fixed before the run in
+`tests/studies/ep_assessment.py`. Every claim's pass
 probability was computed from a pilot on its own stream (`tests/studies/ep_assessment_pilot.csv`),
 and `tests/unit/test_ep_assessment_design.py` pins those design numbers.
 
@@ -49,7 +49,7 @@ The primary rows are the projection TMLE of the shared observational law, as in
 | `risk_comparison` | at the strong law, does the share of replicates whose reported risk difference has the sign of its exact value have a 99% Clopper-Pearson lower bound of at least 0.80 | none; at the weak law the true difference is of the order of its estimation SD, so the share is reported only |
 | `stability` | the mean `relative_sd` and the share of replicates above 0.5, at both laws | reported with no verdict |
 
-Stability is reported, not gated (plan amendment rev 2.4). Every refit under another split seed
+The study declared stability as reported, not gated. Every refit under another split seed
 reuses the same draw, so the reading measures sensitivity to the cross-fitting split and not
 sampling noise. A curve of noise at a constant effect then reads low, and a claim that the weak
 law warns would fail at any number of replicates.

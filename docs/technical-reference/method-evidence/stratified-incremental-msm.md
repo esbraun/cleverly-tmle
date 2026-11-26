@@ -1,4 +1,4 @@
-# Stratified incremental MSM
+# Stratified incremental and MSM targeting
 
 This study validates three stratified targets of ordinary point-treatment TMLE with baseline strata,
 `strata=["V"]`: incremental propensity-score interventions, marginal structural models (MSMs) with

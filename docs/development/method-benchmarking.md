@@ -527,7 +527,7 @@ dependent row, and a later change registers it. This is the owner's rule, and it
 | register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
 | regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
 | manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
-| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0. `python -m tests.studies.evidence.document` adds the study's row to the generated pending-comparator table of the method-evidence reading guide. A comparator that no record declares goes in that page's typed table by hand |
 | add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
 
 `tests/unit/test_method_evidence.py` asserts the pending state for every registered study through
@@ -697,7 +697,9 @@ artifacts, or provenance conventions for each comparison.
    name the validation grid's first cell must carry, the artefact directory, the document and
    section anchor, the scenarios and their estimands, the replication count and sample size, and a
    `Margins`. The `Margins` carries every acceptance margin, declared before the run rather
-   than chosen after it.
+   than chosen after it. The study page's level-one heading is the record's `name` in sentence
+   case, and `anchor` is that heading's slug; `test_each_study_page_is_titled_by_its_record_name`
+   checks the heading.
 2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle,
    a fit function, and a reference implementation pinned by digest where one exists. Seeds
    come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed
@@ -718,6 +720,9 @@ artifacts, or provenance conventions for each comparison.
 6. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
    composition the study does not reach is a separate row, not an implied one. Cross-fitting,
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
+7. **Link it from the matrix.** Add the page to its family's row of the implementation matrix in
+   `docs/technical-reference/index.md`, after the word for its publication policy.
+   `test_the_matrix_links_every_registered_study` fails while a registered page has no link.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
@@ -732,12 +737,15 @@ different estimator, or related target. The agreement block of the page prints t
 A study with no property cells and no reference can still register as a reporting study. It
 declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
 with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
-list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+list it. The off-grid list on the method-evidence index is a generated block that
+`python -m tests.studies.evidence.document` fills from the registry through
+`tests/studies/evidence/navigation.py`, so registering such a study adds its line with no hand
+edit. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.
 
 A gated study off the grid validates no method, because no grid row carries its verdicts. Declare
 a property cell for each claim the study gates, before the run, so that its method earns a row.
-`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is the
-one entry: it gated its controls through its own hook and declared no property cell. The manifest
+`GATED_OFF_GRID` in that test names each exception with its reason. `adaptive-tmle-trial` is an
+entry: it gated its controls through its own hook and declared no property cell. The manifest
 records the policy of the run, so an entry leaves only at a regeneration or when a
 comparator-backed record puts the method on the grid.

@@ -712,8 +712,8 @@ class TestObservationWeights:
         deterministically, since selection is a known function of ``W1`` -- and the two
         fits therefore report different numbers.  *How far apart* they land is a property
         of the draw and is deliberately not asserted; whether the weighted one is the
-        answer for the population the truth describes is a coverage claim, and
-        ``tests/e2e/test_coverage_slow.py`` makes it over many draws rather than one.
+        answer for the population the truth describes is a coverage claim, and the registered
+        study ``weighted-ltmle`` makes it over many draws rather than one.
         """
         frame, _ = self._biased()
         weighted = run(frame, weights="w", reference="never")

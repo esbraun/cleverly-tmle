@@ -36,10 +36,9 @@ artifact records the absence of a comparison.
 | seeds | `seed=20261121` and `resampling_seed=20261122`; every group draws from its own labelled stream |
 | policy | `gated` |
 
-The laws, groups, learners, margins, controls and seeds were fixed before the run in the P1
-plan (section 5.2 and amendments rev 2.4 and 2.5) and `tests/studies/ep_cate.py`. The replicate
-counts come from pilots on their own streams (`tests/studies/ep_cate_pilot.csv`) by the plan's
-sizing rule, and `tests/unit/test_ep_cate_design.py` pins them and the laws.
+The laws, groups, learners, margins, controls and seeds were fixed before the run in
+`tests/studies/ep_cate.py`. The replicate counts come from pilots on their own streams
+(`tests/studies/ep_cate_pilot.csv`) by the declared sizing rule, and `tests/unit/test_ep_cate_design.py` pins them and the laws.
 
 ## Accuracy against known truth
 
