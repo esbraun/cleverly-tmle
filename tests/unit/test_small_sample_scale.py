@@ -923,7 +923,7 @@ STAMPED = {
 #: functional need not be an outcome mean (the TMLE loop stamps only built-in targets after
 #: ``finish``); a sensitivity tilt is a sensitivity quantity; ``ratio_estimates`` has no caller;
 #: a continuous-time risk reads no outcome column, and its ``bounds`` alone put its interval on
-#: the logit scale.
+#: the logit scale, for the baseline engine and for the continuous-time longitudinal TMLE alike.
 LEFT_NONE = {
     ("src/cleverly/estimators/dose_response.py", "_target"),
     ("src/cleverly/targets/base.py", "finish"),
@@ -931,6 +931,7 @@ LEFT_NONE = {
     ("src/cleverly/sensitivity/_tilt_targeting.py", "finish"),
     ("src/cleverly/inference/influence.py", "ratio_estimates"),
     ("src/cleverly/survival/result.py", "build_estimates"),
+    ("src/cleverly/survival/longitudinal_result.py", "build"),
 }
 #: Builders that carry the family of their inputs.
 DERIVED = {

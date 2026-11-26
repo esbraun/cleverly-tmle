@@ -5168,7 +5168,9 @@ CONTINUOUS_LONGITUDINAL_ASSUMPTIONS: Final[tuple[str, ...]] = (
     "before, the baseline covariates, the visit count and the visit time, and nothing older",
 )
 CONTINUOUS_LONGITUDINAL_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
-    {"continuous_longitudinal_not_converged": "warning"}
+    {
+        "continuous_longitudinal_not_converged": "warning",
+    }
 )
 NOTE_CODES = MappingProxyType({**NOTE_CODES, **CONTINUOUS_LONGITUDINAL_NOTE_CODES})
 CONTINUOUS_LONGITUDINAL_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(

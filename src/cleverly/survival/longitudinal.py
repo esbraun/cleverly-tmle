@@ -699,6 +699,71 @@ class ContinuousLongitudinalTMLE:
         )
         return self.fit_data(container)
 
+    def _planned_fits(
+        self,
+        data: Any,
+        *,
+        id: str,
+        start: str,
+        stop: str,
+        event: str,
+        treatment: str,
+        baseline: Sequence[str],
+        time_varying: Sequence[str],
+        decision: str | None = None,
+    ) -> Any:
+        """The model fits :meth:`fit` would make on the same arguments, counted unfitted.
+
+        Builds :meth:`fit`'s container and runs every check before the first learner
+        (``_Fit.plan``).
+        """
+        container = ContinuousLongitudinalData.from_frame(
+            data,
+            id=id,
+            start=start,
+            stop=stop,
+            event=event,
+            treatment=treatment,
+            baseline=baseline,
+            time_varying=time_varying,
+            causes=self.causes,
+            decision=decision,
+        )
+        return _Fit(self, container).plan()
+
+    def refit(self, data: Any, *, random_state: int | None = None) -> Any:
+        """Refuse: no adapter refits the node passes of this engine.
+
+        Parameters
+        ----------
+        data : ContinuousLongitudinalData
+            The rows a refit would fit.
+        random_state : int or None
+            The seed a refit would use.
+
+        Returns
+        -------
+        ContinuousLongitudinalResult
+            Never returned.
+
+        Raises
+        ------
+        CapabilityError
+            Always, as an ``implementation_gap`` on roadmap X105, the refusal of
+            :func:`~cleverly.validation.refute` on this engine's fits.
+        """
+        from .._continuous_longitudinal_family import replay_refusal
+
+        raise CapabilityError.from_refusal(replay_refusal("refit()"))
+
+    def _planned_refit(
+        self, data: Any, *, random_state: int | None = None, nominal: bool = False
+    ) -> Any:
+        """Refuse as :meth:`refit` does; :func:`cleverly._planned_fits.refit_plan` reads it."""
+        from .._continuous_longitudinal_family import replay_refusal
+
+        raise CapabilityError.from_refusal(replay_refusal("refit()"))
+
     def fit_data(self, data: ContinuousLongitudinalData) -> Any:
         """Fit a :class:`ContinuousLongitudinalData` container.
 
@@ -1325,14 +1390,18 @@ class _Fit:
         del n
         return psi, curve, scores
 
-    def run(self) -> Any:
+    def _preflight(self) -> None:
+        """Every check before the first learner, which :meth:`run` and :meth:`plan` share.
+
+        The treatment levels, the causes, the outer folds (the fit's first draw), each
+        regime's followers, refusals C11 and C12, and the visit caps.
+        """
         est, data = self.est, self.data
         self._levels()
         self._causes()
         n = data.n
         self.unit_weights = np.ones(n) if data._weight is None else data._weight
         self.total_weight = float(self.unit_weights.sum())
-        last = est.horizons[-1]
         if est.cross_fit:
             self.folds = nuisance.unit_folds(data.event, est.n_folds, self.rng)
         else:
@@ -1340,6 +1409,137 @@ class _Fit:
         self._regime_values()
         self._checks()
         self._caps()
+
+    def plan(self) -> Any:
+        """The model fits :meth:`run` would make, counted without fitting.
+
+        Runs :meth:`_preflight`, then counts per visit cap and outer fold each cause's hazard,
+        the visit intensity (for a cap of one or more) and the censoring hazard, each chosen
+        from its library over the inner folds (``M * V`` fits and the winner's refit, one fit
+        for a library of one), and the treatment model (the user's learner, or the selection
+        over the four default logistic models, ``4 * V + 1`` fits). Per regime, training pass
+        and node before its cap it counts each cause's continuation: the user's learner, or
+        the main-terms and lasso soft logistic models over the continuation folds and the
+        winner's refit, ``2 * V + 1`` fits. A cross-fitted fit trains one pass per outer fold;
+        an in-sample fit fits the continuation in its initial and its targeted pass.
+
+        Every row is an upper bound: a selection runs on fewer inner folds when few training
+        units have events, a model whose training rows hold one outcome is not fitted, and a
+        node no unit reaches fits no continuation.
+
+        Returns
+        -------
+        PlannedFits
+            The record.
+        """
+        from .._planned_fits import Count, PlanBuilder, count_learner
+        from .._summary._learners import learner_name
+        from .engine import _logistic_candidates
+
+        self._preflight()
+        est = self.est
+        seed = self.seed
+        inner = int(est.learner_folds)
+        why = (
+            "counted at the nominal inner folds; a selection runs on fewer when few training "
+            "units have events, and a model whose training rows hold one outcome is not fitted"
+        )
+
+        def selection(library: tuple[Any, ...]) -> Count:
+            count = Count(fits=1)
+            if len(library) == 1:
+                count.candidates[type(library[0]).__name__] += 1
+                return count
+            for member in library:
+                count.candidates[type(member).__name__] += inner
+            # The refit of the winner, whose name is known only after the selection.
+            count.candidates[type(library[0]).__name__] += 1
+            return count
+
+        libraries = {
+            name: tuple(seed_unset(member, seed) for member in getattr(est, name))
+            for name in ("hazard_library", "visit_library", "censoring_library")
+        }
+        names = {
+            name: ", ".join(learner_name(member) for member in library)
+            for name, library in libraries.items()
+        }
+        builder = PlanBuilder()
+        labels = np.unique(self.folds) if est.cross_fit else np.array([0])
+        for cap in sorted(set(self.caps)):
+            for _ in labels:
+                for _ in self.codes:
+                    builder.add(
+                        "hazard_library",
+                        "cause-specific hazard selection, per cause, visit cap and fold",
+                        names["hazard_library"],
+                        selection(libraries["hazard_library"]),
+                        upper=why,
+                    )
+                if cap > 0:
+                    builder.add(
+                        "visit_library",
+                        "visit intensity selection, per visit cap and fold",
+                        names["visit_library"],
+                        selection(libraries["visit_library"]),
+                        upper=why,
+                    )
+                builder.add(
+                    "censoring_library",
+                    "censoring hazard selection, per visit cap and fold",
+                    names["censoring_library"],
+                    selection(libraries["censoring_library"]),
+                    upper=why,
+                )
+                if est.treatment_learner is not None:
+                    builder.add(
+                        "treatment_learner",
+                        "treatment model, per visit cap and fold",
+                        learner_name(est.treatment_learner),
+                        count_learner(seed_unset(est.treatment_learner, seed), None),
+                        upper=why,
+                    )
+                    continue
+                candidates = _logistic_candidates(seed)
+                count = Count(fits=1)
+                for _, candidate in candidates:
+                    count.candidates.update(count_learner(candidate, None).scaled(inner).candidates)
+                count.candidates.update(count_learner(candidates[0][1], None).candidates)
+                builder.add(
+                    "treatment_learner",
+                    "treatment model selection over the default logistic models, per visit cap "
+                    "and fold",
+                    "default logistic selection",
+                    count,
+                    upper=why,
+                )
+        passes = labels.size if est.cross_fit else 2
+        folds = max(2, inner)
+        for r in range(len(est._regimes)):
+            for _ in range(passes * self.caps[r] * len(self.codes)):
+                if est.continuation_learner is not None:
+                    count = count_learner(seed_unset(est.continuation_learner, seed), None)
+                    learner = learner_name(est.continuation_learner)
+                else:
+                    count = Count(fits=1)
+                    count.candidates["LogisticRegression"] += 2 * folds + 1
+                    learner = "main-terms and lasso soft logistic selection"
+                builder.add(
+                    "continuation_learner",
+                    "continuation of each cause, per regime, training pass and node before the cap",
+                    learner,
+                    count,
+                    upper=why + "; a node no unit reaches fits no continuation",
+                )
+        builder.multiply("regimes", len(est._regimes))
+        builder.defer("check_longitudinal_memory")
+        return builder.build("realized" if est.random_state is not None else "one draw")
+
+    def run(self) -> Any:
+        est, data = self.est, self.data
+        self._preflight()
+        n = data.n
+        last = est.horizons[-1]
         visits_kept = nuisance.kept_visits(data, last)
         times = np.concatenate(
             [

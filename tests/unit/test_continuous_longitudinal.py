@@ -892,3 +892,58 @@ def test_continuation_inner_fold_without_events_predicts_the_constant() -> None:
     assert np.all(np.isfinite(fitted.losses_))
     prediction = fitted.predict(X)
     assert np.all((prediction > 0) & (prediction < 1))
+
+
+def test_the_fit_preview_bounds_the_fits_it_counts(frame: pd.DataFrame, monkeypatch: Any) -> None:
+    """``_planned_fits`` takes ``fit``'s arguments, refuses what its checks refuse, and bounds
+    every model class's fits from above; the refit refuses, and its preview refuses alike."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly._planned_fits import refit_plan
+
+    settings: dict[str, Any] = {
+        "regimes": REGIMES,
+        "reference": "never",
+        "cross_fit": False,
+        "random_state": 0,
+        **COX,
+    }
+    estimator = ContinuousLongitudinalTMLE([10.0, 20.0], **settings)
+    plan = estimator._planned_fits(frame, **CT_COLUMNS)
+    assert all(row.bound == "upper" for row in plan.rows)
+    roles = {row.role for row in plan.rows}
+    assert {"hazard_library", "visit_library", "censoring_library"} <= roles
+    assert {"treatment_learner", "continuation_learner"} <= roles
+    planned = {name: count for name, count, _ in plan.candidates}
+
+    calls: dict[str, int] = {"CoxHazard": 0, "LogisticRegression": 0}
+    for cls in (CoxHazard, LogisticRegression):
+        original = cls.fit
+
+        def counted_kw(
+            self: Any, *args: Any, _o: Any = original, _n: str = cls.__name__, **kwargs: Any
+        ) -> Any:
+            calls[_n] += 1
+            return _o(self, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "fit", counted_kw)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = estimator.fit(frame, **CT_COLUMNS)
+    assert 0 < calls["CoxHazard"] <= planned["CoxHazard"]
+    assert 0 < calls["LogisticRegression"] <= planned["LogisticRegression"]
+
+    with pytest.raises(CapabilityError) as refit_error:
+        estimator.refit(result.data)
+    with pytest.raises(CapabilityError) as plan_error:
+        refit_plan(result)
+    assert str(plan_error.value) == str(refit_error.value)
+    assert refit_error.value.refusal.roadmap == "X105"
+
+    # A last target time past every regime's follow-up: refusal C12, before any learner.
+    beyond = ContinuousLongitudinalTMLE([10.0, 500.0], **settings)
+    with pytest.raises(DataError) as fit_error:
+        beyond.fit(frame, **CT_COLUMNS)
+    with pytest.raises(DataError) as preview_error:
+        beyond._planned_fits(frame, **CT_COLUMNS)
+    assert str(preview_error.value) == str(fit_error.value)
