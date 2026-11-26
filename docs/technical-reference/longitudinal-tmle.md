@@ -3425,8 +3425,8 @@ route](#the-density-route) describes. Fixed term in MiB, the others in units of 
 
 | count | `ltmle` | `ltmle_continuous` | `sdr` | `sdr_continuous` | `ipsi` | `hazard_one_node` | `hazard_backward` | `hazard_paths` | `hazard_separable` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| fixed, MiB | 0.329 | 0.0522 | 1.02 | 0.0497 | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
-| $R S J$ | 2.05 | 21.8 | 18 | 21.1 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
+| fixed, MiB | 0.329 |  | 1.02 |  | 0.364 | 0.161 | 0.847 | 0.206 | 14.9 |
+| $R S J$ | 2.05 | 10 | 18 | 11.4 | 17.4 | 0.00311 | 2.61 |  | 18.5 |
 | $R T$ | 3.79 |  |  |  |  |  |  | 13.6 |  |
 | $R T J$ |  |  |  |  |  | 5.8 | 9.53 | 25.3 |  |
 | $T$ |  |  |  |  |  | 28.8 |  |  | 73 |
@@ -3434,13 +3434,14 @@ route](#the-density-route) describes. Fixed term in MiB, the others in units of 
 | $R H J$ | 16 |  | 0.0886 |  | 1.98 | 1.01 |  | 1.01 | 12.8 |
 | $p$ | 4.61 |  | 4.7 |  | 7.33 | 1.98 | 3.37 | 3.89 |  |
 | $R p$ | 0.76 |  | 0.502 |  |  | 0.728 | 0.181 | 1.06 |  |
-| $T p$ |  |  |  | 0.0186 |  | 0.613 | 1.63 | 0.168 | 0.707 |
-| $1$ |  | 16.6 |  |  | 13.4 |  | 20.3 | 18.8 |  |
-| $F R T$ | 0.506 | 0.177 | 2.67 | 5.89 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
-| $F T$ |  |  | 0.955 | 0.376 | 1.15 | 0.0043 |  |  |  |
-| $T B$ |  | 2.84 |  | 2.18 |  |  |  |  |  |
-| $F T B$ |  |  |  | 0.88 |  |  |  |  |  |
-| $B^2$ |  | 1.03 |  | 1.03 |  |  |  |  |  |
+| $T p$ |  | 1.22 |  |  |  | 0.613 | 1.63 | 0.168 | 0.707 |
+| $1$ |  | 287 |  | 219 | 13.4 |  | 20.3 | 18.8 |  |
+| $F R T$ | 0.506 | 0.145 | 2.67 | 3.9 | 3.45 | 0.00134 | 2.27 | 0.00131 | 0.00203 |
+| $F T$ |  | 0.136 | 0.955 | 14.4 | 1.15 | 0.0043 |  |  |  |
+| $T B$ |  | 2.49 |  |  |  |  |  |  |  |
+| $F T B$ |  |  |  | 3.86 |  |  |  |  |  |
+| $B^2$ |  | 0.485 |  | 0.508 |  |  |  |  |  |
+| $T B^2$ |  | 0.0185 |  |  |  |  |  |  |  |
 | $R S$ (working model) | 2.11 |  |  |  |  |  |  |  |  |
 | $T U$ |  |  |  |  |  |  |  | 8.04 |  |
 | $T U J$ |  |  |  |  |  |  |  | 16.6 |  |
@@ -3508,22 +3509,26 @@ with the same program:
 
 | count | `ltmle_continuous_index` | `sdr_continuous_index` | `ltmle_continuous_classifier` | `sdr_continuous_classifier` |
 | --- | ---: | ---: | ---: | ---: |
-| fixed, MiB | 0.0861 | 0.076 | 0.124 | 0.182 |
-| $R S J$ | 9.69 | 22 | 22.9 | 29.5 |
+| fixed, MiB | 2.15 |  | 0.124 | 0.182 |
+| $R S J$ |  |  | 22.9 | 29.5 |
 | $T$ |  |  | 0.897 | 0.314 |
-| $R H J$ |  |  | 1.64 |  |
+| $R H J$ | 5.61 | 33.2 | 1.64 |  |
 | $T p$ |  |  | 0.224 | 0.0293 |
-| $1$ | 170 | 153 | 32.1 | 18.3 |
-| $F R T$ | 0.081 | 2.66 | 0.166 | 3.12 |
+| $1$ | 2,063 | 1,857 | 32.1 | 18.3 |
+| $F R T$ |  |  | 0.166 | 3.12 |
 | $F T$ |  |  | 0.244 | 1.41 |
-| $T B$ | 3.07 | 1.89 |  |  |
-| $F T B$ | 0.0188 | 1.11 |  |  |
-| $B^2$ | 0.00598 | 0.00639 |  |  |
+| $T B$ | 3.25 |  |  |  |
+| $R T B$ | 0.0359 |  |  |  |
+| $F T B$ |  | 4.65 |  |  |
+| $B^2$ | 0.0408 | 0.035 |  |  |
 
 ### Accuracy
 
 The calibration's records are in `rows/X106/J2/evidence/2026-11-19-j2d/rev9/` in the plans
-repository. Over every fitted cell the margined draw reads 1.35 to 2.50 times the traced peak, and
+repository, and the four refitted continuous families' records in
+`rows/X106/D/evidence/2026-11-25-j2d-recal/` (the refit is described below). Over every fitted
+cell the margined draw reads 1.35 to 3.50 times the traced peak (3.50 on index-route cells at
+20,000 units, where the refit caps it), and
 over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
 (a learned regimen, whose four branch plans are counted against one fitted rule), both in
 `fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
@@ -3539,18 +3544,41 @@ above 3.5, all `hazard_separable` at two nodes with traced peaks under 20 MiB, w
 fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's range) and 3.58 at
 5,000.
 
-Because the largest reading without the band is 3.31, the refusal states: "At one worker it can
+Because the largest reading without the band is 3.50, the refusal states: "At one worker it can
 exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with the simultaneous band
-on, and more with n_jobs > 1." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
+on, and more with n_jobs > 1 or a liblinear treatment learner." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
 two and four workers, 2 to 20 folds, and parallel bootstraps) the prediction reads 1.29 to 1.94
 times the measured resident footprint of the parent and every worker. The lowest, 1.29 to 1.30, are
 `SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`coldterm.out`).
 
 The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
 learners, and other learners' own memory is not counted. With the default learner library the
-prediction read 0.94 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
+prediction read 0.74 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
 four for the one-node hazard fit, and two regimens; the `gap` rows of `fit.out`), so a fit with
 heavier learners can pass the check and still run out of memory.
+
+The four continuous families of the binned and index routes were refitted in X106 part D. The binned
+density now builds its pooled hazard design once rather than twice, and both routes' counts and
+peaks had moved since the J2d calibration: the refined grid counts more bins than were declared (5
+count 12 to 15, 20 count 31 to 48). On current fits at 2,000 units the index route's prediction
+read 0.36 to 1.22 times the traced peak, below 1 on most cells, and the binned `SDR` family's read
+down to 0.62.
+
+The refit reran every J2d cell of the four families on current code, 2,000 to 100,000 units,
+with the same program, objective and margin, and one added constraint: the margined draw is at most
+3.5 times the traced peak on every fitted cell. Without it the index families read up to 3.57 and
+3.69 at 20,000 units. Fitted cells now read 1.35 to 3.50, the held-out cells 1.35 to 1.59, and
+their band cells 1.36 to 3.30 (`fit.out`, `band_check.out`). Two 20,000-unit `SDR` index cells at
+eight nodes, ten folds and 320 bins have no current record (one ran out of memory on a 16 GB
+machine, the other was refused for memory) and were left out.
+
+A treatment learner that is scikit-learn's `LogisticRegression` with `solver="liblinear"` fits the
+binned design from a sparse copy holding each record's covariates, bin index and one bin indicator.
+It gives the same model with less memory, and the families still count the dense design, so the
+prediction reads higher. On shift fits with 2,000 units, four nodes, four regimens and three folds,
+`LTMLE` read 1.72, 4.30 and 7.76 times the traced peak at 60, 200 and 320 bins with liblinear
+(1.72, 1.99 and 2.07 with the default solver), and `SDR` read 1.50, 2.66 and 4.03
+(`liblinear-readings.jsonl`). The prediction, and so every refusal, is the dense design's.
 
 The worker constants assume workers that start cold. A second call with `n_jobs > 1` in the same
 session finds its workers already started and outside the memory available, so it is over-counted
@@ -3570,12 +3598,12 @@ bootstrap and no censoring, except the time-to-event panels of `hazard_one_node`
 | family | units | nodes | regimens | causes | folds | design columns | density bins | treatment paths | horizons |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ltmle` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
-| `ltmle_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
-| `ltmle_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 20 to 320 | 0 | 1 |
+| `ltmle_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 12 to 320 | 0 | 1 |
+| `ltmle_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 31 to 394 | 0 | 1 |
 | `ltmle_continuous_classifier` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 0 | 0 | 1 |
 | `sdr` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
-| `sdr_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 5 to 320 | 0 | 1 |
-| `sdr_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 20 to 320 | 0 | 1 |
+| `sdr_continuous` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 4 to 17 | 12 to 320 | 0 | 1 |
+| `sdr_continuous_index` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 31 to 394 | 0 | 1 |
 | `sdr_continuous_classifier` | 2,000 to 100,000 | 2 to 8 | 1 to 4 | 1 | 1 to 10 | 5 to 17 | 0 | 0 | 1 |
 | `ipsi` | 5,000 to 100,000 | 2 to 8 | 1 to 4 | 1 to 2 | 1 to 10 | 5 to 143 | 0 | 0 | 1 to 8 |
 | `hazard_one_node` | 5,000 to 100,000 | 2 to 8 | 1 to 2 | 1 to 2 | 1 to 10 | 3 to 129 | 0 | 0 | 1 to 8 |

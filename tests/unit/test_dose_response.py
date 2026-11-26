@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.special import expit
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly._support import UNCLASSIFIED
 from cleverly.dose_response import (
@@ -24,6 +24,7 @@ from cleverly.dose_response import (
     kernel,
     pair_name,
 )
+from cleverly.estimators._nuisance import NodePredictions
 from cleverly.estimators.dose_response import (
     DOSE_RESPONSE_BAND_DRAWS,
     DOSE_RESPONSE_BAND_MEASURED,
@@ -573,6 +574,10 @@ class _Density:
     def density_at(self, a: np.ndarray) -> np.ndarray:
         return _g_exact(np.asarray(a, dtype=float), self.w)
 
+    def _density_on(self, rows: np.ndarray, doses: np.ndarray) -> np.ndarray:
+        a = np.tile(np.asarray(doses, dtype=float), rows.size)
+        return _g_exact(a, np.repeat(self.w[rows], doses.size)).reshape(rows.size, doses.size)
+
 
 class _Outcome:
     def __init__(self, observed: np.ndarray, arms: dict[float, np.ndarray]) -> None:
@@ -585,11 +590,12 @@ class _Nuisance:
         w = data.covariates[:, 0]
         a = data.treatment
         self.density = _Density(w)
-        self.outcome = _Outcome(
-            _q_wrong(a, w),
-            {float(k): _q_wrong(np.full(a.size, dose), w) for k, dose in enumerate(rule.nodes)}
-            | {float(rule.n_nodes): _q_wrong(np.full(a.size, rule.nodes[-1]), w)},
-        )
+        self.outcome = _Outcome(_q_wrong(a, w), {})
+        # One fold holding every row; the extra last column lets the node-offset mutation
+        # read one node over.
+        doses = np.append(rule.nodes, rule.nodes[-1])
+        matrix = np.column_stack([_q_wrong(np.full(a.size, dose), w) for dose in doses])
+        self.node_predictions = NodePredictions((np.arange(a.size),), (matrix,))
         from cleverly.estimators.tmle import TMLE
 
         self.scaler = TMLE(cross_fit=False)._scaler(data)
@@ -621,7 +627,7 @@ def _exact_target(offset: int = 0):  # type: ignore[no-untyped-def]
         treatment_kind="continuous",
     )
     rule = EXACT_CURVE.quadrature(EXACT_EDGES)
-    return estimator._target(data, _Nuisance(data, rule), rule, offset, UNCLASSIFIED)  # type: ignore[arg-type]
+    return estimator._target(data, _Nuisance(data, rule), [(rule, offset)], UNCLASSIFIED)[0]  # type: ignore[arg-type]
 
 
 def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regression() -> None:
@@ -629,7 +635,7 @@ def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regres
 
     The remainder is a product with the density error, so it is zero; the score equation then
     makes the plug-in exact.  The untargeted plug-in misses, so the fluctuation is a nonzero
-    witness, and this runs through ``DoseResponseTMLE._target`` and ``target_pair``.
+    witness, and this runs through ``DoseResponseTMLE._target`` and its node pass.
     """
     estimates, _, scores = _exact_target()
     for h, a0 in EXACT_CURVE.pairs:
@@ -655,17 +661,17 @@ def test_the_estimators_targeting_recovers_the_truth_from_a_wrong_outcome_regres
 def _mutated(monkeypatch: pytest.MonkeyPatch, mutation: str) -> None:
     import cleverly.estimators.dose_response as module
 
-    original = module.target_pair
+    observed = module._clever_observed
+    at_nodes = module._clever_nodes
 
-    def wrapped(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if mutation == "drop_inverse_density":
-            h_obs = np.sign(h_obs) * np.minimum(np.abs(h_obs), 1.0)
-            h_nodes = np.sign(h_nodes) * np.minimum(np.abs(h_nodes), 1.0)
-        elif mutation == "untargeted_nodes":
-            h_nodes = np.zeros_like(h_nodes)
-        return original(y, q_obs, q_nodes, h_obs, h_nodes, *args, **kwargs)
+    def capped(h: np.ndarray) -> np.ndarray:
+        return np.sign(h) * np.minimum(np.abs(h), 1.0)
 
-    monkeypatch.setattr(module, "target_pair", wrapped)
+    if mutation == "drop_inverse_density":
+        monkeypatch.setattr(module, "_clever_observed", lambda *a: capped(observed(*a)))
+        monkeypatch.setattr(module, "_clever_nodes", lambda *a: capped(at_nodes(*a)))
+    elif mutation == "untargeted_nodes":
+        monkeypatch.setattr(module, "_clever_nodes", lambda *a: np.zeros_like(at_nodes(*a)))
 
 
 @pytest.mark.parametrize("mutation", ["drop_inverse_density", "untargeted_nodes", "node_offset"])
@@ -687,17 +693,17 @@ def test_an_unsolved_fluctuation_is_a_data_error_a_study_records(
     A plain ``RuntimeError`` raised in ``cleverly`` stops a repeated-sampling run, and a resumed
     run reaches the same seed and stops again.
     """
-    from dataclasses import replace
 
     import cleverly.estimators.dose_response as module
     from cleverly.validation._failures import recordable
 
-    original = module.target_pair
+    original = module.solve_fluctuation
 
     def unsolved(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return replace(original(*args, **kwargs), converged=False)
+        epsilon, score, _ = original(*args, **kwargs)
+        return epsilon, score, False
 
-    monkeypatch.setattr(module, "target_pair", unsolved)
+    monkeypatch.setattr(module, "solve_fluctuation", unsolved)
     with pytest.raises(DataError, match="did not solve its score") as raised:
         _exact_target()
     assert recordable(raised.value)
@@ -751,8 +757,216 @@ def test_the_memory_preflight_refuses_before_any_learner_fits(
     import cleverly.estimators.dose_response as module
 
     monkeypatch.setattr(module, "NODE_MEMORY_BUDGET", 1024)
-    with pytest.raises(DataError, match="GB"):
+    with pytest.raises(DataError, match=r"GiB of the default budget.*max_memory_bytes="):
         _refusing().fit(_sample(400, 4), outcome="Y", treatment="A", covariates=["W"])
+
+
+def test_an_explicit_memory_budget_reads_the_tiled_prediction() -> None:
+    with pytest.raises(DataError, match="GiB of the budget max_memory_bytes sets"):
+        _refusing(max_memory_bytes=1024).fit(
+            _sample(400, 4), outcome="Y", treatment="A", covariates=["W"]
+        )
+    for wrong in (0, -5, 1.5, True, "4GB"):
+        with pytest.raises(DataError, match="max_memory_bytes must be a positive integer"):
+            DoseResponseTMLE(FIT_CURVE, max_memory_bytes=wrong)  # type: ignore[arg-type]
+
+
+def test_the_default_memory_rule_refuses_nothing_the_old_count_accepted() -> None:
+    """X106 D3 keeps every request the 4 GiB preflight accepted (plan 2.1 R2).
+
+    The default refuses only when both counts exceed the budget.  Swept over sizes, rules,
+    covariate widths, pairs, strata and jobs, nothing with the old count inside 4 GiB is
+    refused, and where the old count passes 1 GiB the tiled count is below it.
+    """
+    from cleverly.estimators.dose_response import NODE_MEMORY_BUDGET, node_memory
+
+    for n in (500, 4_000, 30_000, 100_000, 300_000, 1_000_000):
+        for nodes in (30, 120, 480, 1_500, 3_408, 8_400):
+            for p in (1, 4, 20):
+                for cells in (1, 3, 40, 200, 256 * 3):
+                    for jobs in (1, 4):
+                        old = nodes * n * 8 * (p + 3) * (1 if jobs == 1 else 1 + jobs)
+                        new = node_memory(
+                            n=n,
+                            n_nodes=nodes,
+                            rule_nodes=2 * nodes // 3,
+                            width=p + 1,
+                            cells=cells,
+                            n_jobs=jobs,
+                            n_folds=5,
+                        )
+                        refused = min(new, old) > NODE_MEMORY_BUDGET
+                        assert not (refused and old <= NODE_MEMORY_BUDGET)
+                        if cells <= 3 and old > 2**30:
+                            assert new < old, (n, nodes, p, cells, jobs)
+
+
+def _preflight(monkeypatch: pytest.MonkeyPatch, *, new: int, old: int, budget: int | None) -> None:
+    """Run the fit's preflight with the tiled count ``new`` and today's count ``old`` set."""
+    from types import SimpleNamespace
+
+    import cleverly.estimators.dose_response as module
+
+    # Today's count is n_nodes * n * 8 * (p + 3) at one job: one row and five covariates
+    # make it 64 bytes a node.
+    assert old % 64 == 0
+    monkeypatch.setattr(module, "node_memory", lambda **_: new)
+    engine = SimpleNamespace(
+        curve=SimpleNamespace(pairs=[(1.0, 1.0)]),
+        n_jobs=1,
+        n_folds=5,
+        cross_fit=True,
+        max_memory_bytes=budget,
+    )
+    data = SimpleNamespace(strata=None, n=1, covariates=np.zeros((1, 5)))
+    DoseResponseTMLE._preflight_memory(engine, data, old // 64, 1)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("new", "old", "refused"),
+    [
+        (6_400, 6_400, False),  # both at the budget
+        (6_401, 6_464, True),  # both a byte (a node) above
+        (6_401, 6_400, False),  # only the tiled count above
+        (6_400, 6_464, False),  # only today's count above
+        (10**9, 6_400, False),
+        (6_400, 64 * 10**7, False),
+    ],
+)
+def test_the_default_rule_refuses_only_when_both_counts_exceed_the_budget(
+    monkeypatch: pytest.MonkeyPatch, new: int, old: int, refused: bool
+) -> None:
+    import cleverly.estimators.dose_response as module
+
+    monkeypatch.setattr(module, "NODE_MEMORY_BUDGET", 6_400)
+    if refused:
+        with pytest.raises(DataError, match="of the default budget"):
+            _preflight(monkeypatch, new=new, old=old, budget=None)
+    else:
+        _preflight(monkeypatch, new=new, old=old, budget=None)
+
+
+@pytest.mark.parametrize(("new", "refused"), [(5_000, False), (5_001, True)])
+def test_an_explicit_budget_reads_only_the_tiled_count(
+    monkeypatch: pytest.MonkeyPatch, new: int, refused: bool
+) -> None:
+    """Today's count is far above the budget and has no say; the tiled count alone decides."""
+    if refused:
+        with pytest.raises(DataError, match="budget max_memory_bytes sets"):
+            _preflight(monkeypatch, new=new, old=64 * 10**6, budget=5_000)
+    else:
+        _preflight(monkeypatch, new=new, old=64 * 10**6, budget=5_000)
+
+
+def test_the_node_memory_count_holds_every_node_prediction() -> None:
+    """The held term is ``K n 8``: at one job only it moves with the node count."""
+    from cleverly.estimators.dose_response import node_memory
+
+    def count(nodes: int) -> int:
+        return node_memory(
+            n=50_000, n_nodes=nodes, rule_nodes=120, width=5, cells=3, n_jobs=1, n_folds=5
+        )
+
+    assert count(300) - count(200) == 100 * 50_000 * 8
+
+
+@pytest.mark.parametrize(
+    ("n", "bins", "pairs", "strata", "whole"),
+    [
+        (2_000, 10, 3, False, False),
+        (6_000, None, 12, True, False),
+        (6_000, None, 12, True, True),
+    ],
+)
+def test_the_node_memory_prediction_covers_the_measured_peak(
+    monkeypatch: pytest.MonkeyPatch,
+    n: int,
+    bins: int | None,
+    pairs: int,
+    strata: bool,
+    whole: bool,
+) -> None:
+    """The tracemalloc peak from the outcome fit's start to the band's end, against D3's count.
+
+    Tiles are forced small (256 KiB), so the count is tight on these sizes.  The mutation
+    control (``whole``) gathers every row's node predictions as one ``(n, K)`` matrix during
+    the node pass, as the untiled pass did, and the measured peak then passes the count.
+    """
+    import tracemalloc
+
+    import cleverly.estimators._nuisance as nuisance_module
+    import cleverly.estimators.dose_response as module
+
+    monkeypatch.setattr(module, "TILE_BYTES", 256 * 1024)
+    if whole:
+        passing = module._node_pass
+
+        def gathered(curve, density, nodes, rule, offset, *args, **kwargs):  # type: ignore[no-untyped-def]
+            rows = np.concatenate(nodes.tests)
+            held = nodes.block(rows, offset, offset + rule.n_nodes)
+            out = passing(curve, density, nodes, rule, offset, *args, **kwargs)
+            del held
+            return out
+
+        monkeypatch.setattr(module, "_node_pass", gathered)
+
+    seen: dict[str, int] = {}
+    fitting = nuisance_module.cross_fit_companion
+    banding = module.simultaneous_bands
+    count = module.node_memory
+
+    def companion(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if kwargs.get("node_designs"):
+            seen["base"] = tracemalloc.get_traced_memory()[0]
+            tracemalloc.reset_peak()
+        return fitting(*args, **kwargs)
+
+    def band(*args, **kwargs):  # type: ignore[no-untyped-def]
+        out = banding(*args, **kwargs)
+        seen["peak"] = tracemalloc.get_traced_memory()[1] - seen["base"]
+        return out
+
+    def counted(**kwargs):  # type: ignore[no-untyped-def]
+        seen["predicted"] = count(**kwargs)
+        return seen["predicted"]
+
+    monkeypatch.setattr(nuisance_module, "cross_fit_companion", companion)
+    monkeypatch.setattr(module, "simultaneous_bands", band)
+    monkeypatch.setattr(module, "node_memory", counted)
+    rng = np.random.default_rng(1)
+    w = rng.normal(size=(n, 3))
+    a = np.clip(1.5 + 0.6 * w[:, 0] + rng.normal(size=n), 0.0, 3.0)
+    frame = pd.DataFrame(w, columns=["W0", "W1", "W2"])
+    frame["A"] = a
+    frame["Y"] = 0.3 + 0.2 * a + 0.2 * w[:, 1] + rng.normal(size=n)
+    frame["V"] = (w[:, 2] > 0).astype(float)
+    curve = DoseResponse(
+        doses=tuple(np.linspace(0.6, 2.4, pairs)), bandwidths=(0.5,), support=(0.3, 2.7)
+    )
+    estimator = DoseResponseTMLE(
+        curve,
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=300),
+        q_bounds=(-6.0, 7.0),
+        fluctuation="linear",
+        density_bins=bins,
+        random_state=0,
+    )
+    tracemalloc.start()
+    try:
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W0", "W1", "W2", "V"],
+            strata=["V"] if strata else None,
+        )
+    finally:
+        tracemalloc.stop()
+    if whole:
+        assert seen["peak"] > seen["predicted"]
+    else:
+        assert seen["peak"] <= seen["predicted"] <= 1.5 * seen["peak"]
 
 
 def test_the_support_report_reads_the_clever_covariate(fitted) -> None:  # type: ignore[no-untyped-def]
