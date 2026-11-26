@@ -22,6 +22,7 @@ from scipy.special import expit
 
 from cleverly.datasets import (
     RULE_LABEL,
+    competing_rule_truth,
     competing_truth,
     longitudinal_rule_truth,
     longitudinal_truth,
@@ -503,3 +504,109 @@ class TestTheCompetingProcess:
     def test_without_censoring_there_are_no_censoring_columns(self) -> None:
         frame, _ = make_longitudinal_competing(n=200, seed=8, censoring=False)
         assert "C1" not in frame.columns and "C2" not in frame.columns
+
+
+def _needs_rule(l2: Any) -> Any:
+    """``d_2 = 1{L_2 > 0}``, written longhand rather than read off the generator."""
+    return (np.asarray(l2) > 0.0).astype(float)
+
+
+def _reversed_rule(l2: Any) -> Any:
+    """The same rule with its indicator reversed: the deliberate mutation."""
+    return (np.asarray(l2) <= 0.0).astype(float)
+
+
+class TestTheCompetingRule:
+    """``competing_rule_truth``: the incidence of each cause when the second node is a rule."""
+
+    @staticmethod
+    def _monte_carlo(rule: Any, cause: str, m: int = 400_000) -> tuple[float, float]:
+        """The intervened process drawn row by row, with the rule applied to drawn ``L2``.
+
+        It shares the four hazard and share functions with the generator, and nothing of
+        the split-panel quadrature under test.
+        """
+        rng = np.random.default_rng(23)
+        w1, w2, noise = (rng.standard_normal(m) for _ in range(3))
+        event1 = rng.binomial(1, _hazard_one(w1, w2, 1.0))
+        relapse1 = event1 * (rng.random(m) < _relapse_share_one(w1, w2, 1.0))
+        l2 = 0.6 * w1 + 0.9 * 1.0 + noise
+        a2 = rule(l2)
+        event2 = rng.binomial(1, _hazard_two(w1, w2, l2, 1.0, a2))
+        relapse2 = event2 * (rng.random(m) < _relapse_share_two(w1, l2, 1.0, a2))
+        first = relapse1 if cause == "relapse" else event1 - relapse1
+        second = relapse2 if cause == "relapse" else event2 - relapse2
+        draws = first + (1 - event1) * second
+        return float(draws.mean()), float(draws.std() / np.sqrt(m))
+
+    @pytest.mark.parametrize("cause", ["relapse", "death"])
+    def test_it_agrees_with_plain_monte_carlo(self, cause: str) -> None:
+        observed, se = self._monte_carlo(_needs_rule, cause)
+        assert abs(competing_rule_truth(1.0, _needs_rule, cause, 2) - observed) < 4 * se
+
+    @pytest.mark.parametrize("cause", ["relapse", "death"])
+    def test_a_reversed_indicator_moves_it_far(self, cause: str) -> None:
+        """Mutation control: the rule with its indicator reversed is another plan, and the
+        Monte Carlo of the right rule tells the two apart by more than ten standard errors."""
+        observed, se = self._monte_carlo(_needs_rule, cause)
+        mutated = competing_rule_truth(1.0, _reversed_rule, cause, 2)
+        assert abs(mutated - observed) > 10 * se
+
+    def test_the_two_causes_sum_to_the_merged_survival_truth(self) -> None:
+        """The competing law shares its all-cause hazards with the survival law, so the two
+        incidences under the rule sum to the survival study's own rule truth, which a second
+        quadrature computes independently."""
+        from tests.studies.canonical_ltmle_survival import dynamic_survival_truth
+
+        total = sum(
+            competing_rule_truth(1.0, _needs_rule, cause, 2) for cause in ("relapse", "death")
+        )
+        assert total == pytest.approx(dynamic_survival_truth(), abs=1e-10)
+
+    def test_the_rule_acts(self) -> None:
+        """A nonzero witness that the indicator enters: readmission (relapse) at node two lies
+        strictly between the two static plans the rule mixes. This holds here numerically,
+        not by theory, since the sign of the second offer's effect on the relapse integrand
+        flips on about 3% of the mass."""
+        rule = competing_rule_truth(1.0, _needs_rule, "relapse", 2)
+        always = competing_truth(1.0, 1.0, "relapse", 2)
+        early = competing_truth(1.0, 0.0, "relapse", 2)
+        assert min(always, early) < rule < max(always, early)
+        assert abs(rule - always) > 1e-3 and abs(rule - early) > 1e-3
+
+    @pytest.mark.parametrize("cause", ["relapse", "death"])
+    def test_no_rule_acts_before_node_two(self, cause: str) -> None:
+        assert competing_rule_truth(1.0, _needs_rule, cause, 1) == competing_truth(
+            1.0, 1.0, cause, 1
+        )
+
+    @pytest.mark.parametrize("cause", ["relapse", "death"])
+    def test_it_has_converged_in_both_rules_it_is_built_from(self, cause: str) -> None:
+        base = competing_rule_truth(1.0, _needs_rule, cause, 2)
+        for nodes, panel in ((64, 160), (48, 320), (64, 320)):
+            refined = competing_rule_truth(1.0, _needs_rule, cause, 2, nodes=nodes, panel=panel)
+            assert base == pytest.approx(refined, abs=1e-10), (nodes, panel)
+
+    def test_the_helper_rule_is_the_same_rule(self) -> None:
+        for cause in ("relapse", "death"):
+            assert competing_rule_truth(1.0, rule_arm_at_node_two, cause, 2) == (
+                competing_rule_truth(1.0, _needs_rule, cause, 2)
+            )
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            lambda l2: (np.asarray(l2) > 1.0).astype(float),
+            lambda l2: (np.abs(np.asarray(l2)) < 2.0).astype(float),
+            lambda l2: np.full(np.asarray(l2).shape, 0.5),
+        ],
+        ids=["jump away from split", "two jumps", "not an arm"],
+    )
+    def test_a_rule_off_the_contract_is_refused(self, rule: Any) -> None:
+        with pytest.raises(ValueError, match=r"split|binary at every node"):
+            competing_rule_truth(1.0, rule, "relapse", 2)
+
+    @pytest.mark.parametrize(("cause", "horizon"), [("readmission", 2), ("death", 3)])
+    def test_an_unknown_cause_or_horizon_is_refused(self, cause: str, horizon: int) -> None:
+        with pytest.raises(ValueError, match=r"cause must be|horizon must be"):
+            competing_rule_truth(1.0, _needs_rule, cause, horizon)

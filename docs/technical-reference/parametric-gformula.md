@@ -233,6 +233,14 @@ for the outcome, the treatment or the censoring model leaves every row.
 | `G29.g3` | competing-risk cumulative incidence with censoring, two arms at four nodes, static regimens | point, Wald |
 | `G29.g4` | end-of-study Gaussian outcome with complete data, continuous dose at three nodes, shift, fixed-dose and rule-set-dose regimens | point, Wald |
 
+A known rule is a regimen of its own here, not a static plan. The fit evaluates the rule on
+simulated covariates, so each covariate model reaches the estimate through the treatment the rule
+assigns, and no fixed-plan cell measures that path. Only `G29.g1` and `G29.g4`, whose cells
+include a rule, cover one, so a rule on the Gaussian law of `G29.g2_g5` reads `experimental`. The
+label is per fit: every estimate of a fit that adds such a rule to fixed plans reads
+`experimental`. Estimators that follow a rule on observed histories, such as `LTMLE`, key a known
+rule with the static plans.
+
 The study fits no survival outcome, no cluster, no weight, no declared mechanism and no
 `n_draws` above `10` for these rows. The rows are in `cleverly._support_rows`, and each has a case
 in `tests/studies/support_cases.py`.

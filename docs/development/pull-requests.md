@@ -142,6 +142,12 @@ runner's memory, swap and disk before its tests, and the least headroom it had a
 runner that runs out of either dies with no log, so a shrinking margin in a job that passed is
 the warning.
 
+The `tests` and `property-differential` checks are summary jobs that report their shards or parts
+together. They run when a shard fails, but not when the run is cancelled. Otherwise a cancelled
+run stays open until its summary job finds a runner, and holds back the next push to the same pull
+request. A run cancelled on the head commit therefore shows those two checks as skipped,
+which branch protection counts as passing. Re-run it before you merge.
+
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions, which
 mirror the first five jobs. `minimal-install` has no session, because it installs one dataframe
 backend and nothing else. The package job builds both distribution formats before it creates clean smoke-test

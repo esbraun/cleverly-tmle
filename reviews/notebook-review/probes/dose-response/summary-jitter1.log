@@ -1,0 +1,53 @@
+draws: 200 (seeds 20000 to 20199)
+
+per pair:
+                 true   bias  se_ratio  cover  cover_above_floor  below_floor  kish_median  ic_kish_median  ic_kish_below_25
+bandwidth dose                                                                                                              
+2.5       5.0   0.405 -0.001     0.976  0.960              0.960        0.000      372.653         125.843             0.000
+          10.0  0.487 -0.001     0.954  0.955              0.955        0.000      543.594         222.717             0.000
+          15.0  0.532 -0.001     1.063  0.960              0.960        0.000      583.955         293.754             0.000
+          20.0  0.556  0.000     0.988  0.950              0.950        0.000      545.614         283.602             0.000
+          25.0  0.568 -0.001     1.036  0.955              0.954        0.015      379.818         115.825             0.090
+          30.0  0.575 -0.000     1.129  0.925              0.916        0.225       95.948          16.956             0.640
+5.0       5.0   0.402 -0.001     0.875  0.895              0.895        0.000      510.023         138.381             0.015
+          10.0  0.484 -0.001     0.943  0.940              0.940        0.000     1069.221         475.262             0.000
+          15.0  0.530 -0.001     0.939  0.930              0.930        0.000     1161.117         648.750             0.000
+          20.0  0.555 -0.000     0.954  0.940              0.940        0.000     1073.671         610.984             0.005
+          25.0  0.568 -0.001     1.101  0.975              0.974        0.020      644.666         148.242             0.120
+          30.0  0.575 -0.001     1.143  0.925              0.926        0.260       93.954          14.482             0.715
+
+band covers all 12 pairs: 0.930 (99% interval 0.868 to 0.964)
+band covers every pair above the floor: 0.930
+
+share of draws on which each relation holds:
+  0.590  every interval covers
+  0.930  every band covers
+  0.990  band separates 5% from 20% at bandwidth 5
+  0.885  band separates 5% from 20% at bandwidth 2.5
+  0.880  band separates 5% from 20% at both
+  0.945  band separates 5% from 15% at bandwidth 5
+  0.745  both series rise from 5% to 20%
+  0.215  rise 5% to 20% at bandwidth 5 is 0.12 to 0.14
+  0.000  narrow band at 30% runs below 0 and above 1
+  0.010  flagged pairs are exactly the page's three
+  0.205  both 30% pairs flagged
+  0.020  wide window at 25% flagged
+  0.015  narrow window at 25% flagged
+  0.000  some pair at 20% or below flagged
+  1.000  wide interval narrower at 15%
+  0.005  wide interval wider at 25%
+  0.065  wide Kish smaller at 25%
+  0.975  quadrature shift below 0.05
+  1.000  equations solved passed
+  0.290  overlap needs attention
+  0.995  models check completed
+  0.000  influence Kish below 25 at 20%, both bandwidths
+
+pointwise coverage at doses 15 to 25 by influence-curve Kish size:
+                mean  size
+ic_kish                   
+(0.0, 10.0]    1.000    16
+(10.0, 25.0]   0.963    27
+(25.0, 50.0]   0.977    44
+(50.0, 100.0]  0.921    76
+(100.0, inf]   0.952  1037

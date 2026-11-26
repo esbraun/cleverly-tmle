@@ -1,2 +1,4 @@
-200 seeds, 6000 to 6199; cleverly C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
-median seconds per seed: 15.6
+200 seeds, 6000 to 6199; 4 workers
+commit a8f91c23d0222d7ca7017fe2ae9eeb14dcfe2e2c; cleverly 0.2.8
+numpy 2.5.5; pandas 3.1.1; scikit-learn 1.9.1
+median seconds per seed: 19.4

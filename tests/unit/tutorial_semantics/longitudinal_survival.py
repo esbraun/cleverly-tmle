@@ -130,13 +130,151 @@ def _hazard_truth(process: Any, baseline: Any, doses: tuple[float, float], cause
     return float(risk.mean())
 
 
-def _check_refutation(namespace: dict[str, Any], readmission_t2: Any) -> None:
-    """Try to break the result: the typed contrast that the refutation reads agrees with the plan comparison."""
-    contrast_fit, target = namespace["contrast_fit"], namespace["target"]
-    # "The two lines match": the typed contrast and the `result.contrast` difference.
-    assert contrast_fit[target].psi == pytest.approx(readmission_t2.psi, abs=5e-5)
-    assert contrast_fit[target].std_error == pytest.approx(readmission_t2.std_error, abs=5e-5)
+def _check_contrast_route(namespace: dict[str, Any]) -> None:
+    """The headline differences come from a typed contrast fit, which the refutation also reads."""
+    from cleverly import RegimeContrast
+
+    result, contrast_fit, target = (
+        namespace["result"],
+        namespace["contrast_fit"],
+        namespace["target"],
+    )
+    differences = namespace["differences"]
+    assert isinstance(contrast_fit.identified_effect.estimand, RegimeContrast)
     assert contrast_fit.data.n == 4_000 and contrast_fit.data.n_times == 2
+    assert target == "ate_regimen[always vs never, readmission @ t=2]"
+    assert differences["readmission", 2] is contrast_fit[target]
+    # "The four differences read `supported`", from the competing-risk study's in-sample row.
+    assert len(contrast_fit.estimates) == 4
+    for estimate in contrast_fit.estimates.values():
+        assert estimate.support.label == "supported" and estimate.support.row == "G13.in_sample"
+        # A bounded difference reads its two levels' intervals (correlated MOVER).
+        assert estimate.interval_scale == "mover" and estimate.components is not None
+    # Nonzero witness that the route sets the label: the same pair through `result.contrast`.
+    names = ["cif_regimen[always, readmission @ t=2]", "cif_regimen[never, readmission @ t=2]"]
+    derived = result.contrast(lambda psi: psi[0] - psi[1], names, name="derived")
+    assert derived.support.label == "experimental"
+    assert derived.psi == pytest.approx(contrast_fit[target].psi, abs=1e-12)
+    # "the event-free rows, combined by hand, read `experimental`".
+    for horizon in (1, 2):
+        assert differences["event-free", horizon].support.label == "experimental"
+    for estimate in namespace["event_free"].values():
+        assert estimate.support.label == "experimental"
+    # The silenced warning of this fit names the day-30 death difference as the reader of the
+    # flagged share, which the fit does not report (X120 N1).
+    (warning,) = [w for w in contrast_fit.fit_warnings if w.category == "SparseInfluenceWarning"]
+    assert (
+        "cif_regimen[always, death @ t=1], which the fit does not report and whose interval "
+        "ate_regimen[always vs never, death @ t=1] reads" in warning.message
+    )
+
+
+def _check_bootstrap_lesson(namespace: dict[str, Any]) -> None:
+    """ "Check the flagged interval with the bootstrap" under "Go deeper"."""
+    bootstrap_fit, differences = namespace["bootstrap_fit"], namespace["differences"]
+    assert bootstrap_fit.bootstrap.n_requested == 199 and bootstrap_fit.bootstrap.n_failed == 0
+    assert not [w for w in bootstrap_fit.fit_warnings if w.category == "SparseInfluenceWarning"]
+    death = bootstrap_fit["ate_regimen[always vs never, death @ t=1]"]
+    readmission = bootstrap_fit["ate_regimen[always vs never, readmission @ t=2]"]
+    for estimate, cause, horizon in ((death, "death", 1), (readmission, "readmission", 2)):
+        assert estimate.bootstrap.interval == "bca"
+        assert estimate.bootstrap.support.label == "experimental"
+        # The bootstrap refits the same model, so the point estimate and usual interval match.
+        assert estimate.psi == pytest.approx(differences[cause, horizon].psi, abs=1e-12)
+        assert estimate.ci == pytest.approx(differences[cause, horizon].ci, abs=1e-12)
+    # "keeps its interval well below zero"; "still includes zero".
+    assert death.bootstrap.ci[1] < -0.05
+    assert covers(readmission.bootstrap.ci, 0.0)
+    # The BCa limits differ from the usual ones, so the cell reads a separate interval.
+    assert death.bootstrap.ci != pytest.approx(death.ci, abs=1e-4)
+
+
+def _check_crossfit_lesson(namespace: dict[str, Any]) -> None:
+    """ "Flexible outcome models with cross-fitting" under "Go deeper"."""
+    crossfit_fit, differences, known = (
+        namespace["crossfit_fit"],
+        namespace["differences"],
+        namespace["known"],
+    )
+    assert crossfit_fit.data.n == 4_000
+    assert crossfit_fit.config.n_folds == 10
+    for estimate in crossfit_fit.estimates.values():
+        assert estimate.support.label == "supported"
+        assert estimate.support.row == "G13.cross_fitted"
+    # "goes from 0.0223 to 0.0225, and both intervals contain the true 0.0024".
+    flexible = crossfit_fit["ate_regimen[always vs never, readmission @ t=2]"]
+    assert round(differences["readmission", 2].psi, 4) == 0.0223
+    assert round(flexible.psi, 4) == 0.0225
+    assert covers(flexible, known["readmission", 2])
+    assert covers(differences["readmission", 2], known["readmission", 2])
+    # The printed mechanism checks are out of fold, so they are not 1 by construction.
+    mechanisms = namespace["mechanisms"]
+    assert len(mechanisms) == 4
+    assert set(mechanisms["evaluation"]) == {"out_of_fold"}
+    slopes = mechanisms.set_index(["model", "time"])
+    assert round(slopes.loc[("offer", 1), "calibration_slope"], 2) == 0.99
+    assert round(slopes.loc[("offer", 2), "calibration_slope"], 2) == 0.99
+    for time in (1, 2):
+        row = slopes.loc[("enrollment", time)]
+        # "within about one standard error of 1".
+        assert abs(row["calibration_slope"] - 1.0) < 1.1 * row["calibration_slope_se"]
+    # Nonzero witness: in sample, the main fit's logistic offer and enrollment models give slopes
+    # within 0.015 of 1, which their score equations force (up to the default penalty); out of
+    # fold, the day-31 enrollment slope moves away from 1.
+    in_sample = namespace["assessment"].report("nuisance_models").to_frame()
+    in_sample = in_sample[in_sample["role"].isin(["treatment", "censoring"])]
+    assert set(in_sample["evaluation"]) == {"in_sample"}
+    assert (in_sample["calibration_slope"] - 1.0).abs().max() < 0.015
+    assert slopes.loc[("enrollment", 2), "calibration_slope"] < 0.9
+
+
+def _check_rule_lesson(namespace: dict[str, Any]) -> None:
+    """ "Offer on day 31 only to patients with identified needs" under "Go deeper"."""
+    from cleverly.datasets import competing_rule_truth, competing_truth, rule_arm_at_node_two
+
+    rule_fit, contrast_fit = namespace["rule_fit"], namespace["contrast_fit"]
+    protocol, rule_protocol = namespace["protocol"], namespace["rule_protocol"]
+    assert changed_fields(rule_protocol, protocol) == {"treatment_strategies", "treatment_versions"}
+    assert_protocol_recorded(NOTEBOOK, "rule-protocol", rule_protocol, rule_fit)
+    assert namespace["needs_rule"].rule_kind == "known"
+    # The truths, pinned as literals and recomputed with the dataset's own helper.
+    expected = {
+        ("readmission", 1): -0.0265092091,
+        ("readmission", 2): 0.0079943104,
+        ("death", 1): -0.0816978242,
+        ("death", 2): -0.1345304816,
+    }
+    simulated = {"readmission": "relapse", "death": "death"}
+    for (cause, horizon), value in expected.items():
+        truth = competing_rule_truth(
+            1.0, rule_arm_at_node_two, simulated[cause], horizon
+        ) - competing_truth(0.0, 0.0, simulated[cause], horizon)
+        assert namespace["rule_known"][cause, horizon] == pytest.approx(truth, abs=1e-12)
+        assert truth == pytest.approx(value, abs=1e-9)
+    always_name = "ate_regimen[always vs never, {} @ t={}]"
+    rule_name = "ate_regimen[needs_rule vs never, {} @ t={}]"
+    for cause in ("readmission", "death"):
+        # "The day-30 rows equal always's".
+        rule_t1, always_t1 = (
+            rule_fit[rule_name.format(cause, 1)],
+            contrast_fit[always_name.format(cause, 1)],
+        )
+        assert rule_t1.psi == pytest.approx(always_t1.psi, abs=1e-12)
+        assert rule_t1.std_error == pytest.approx(always_t1.std_error, abs=1e-12)
+        # By day 60 the rule differs from always, but stays "close to always on both".
+        rule_t2, always_t2 = (
+            rule_fit[rule_name.format(cause, 2)],
+            contrast_fit[always_name.format(cause, 2)],
+        )
+        assert 1e-3 < abs(rule_t2.psi - always_t2.psi) < 0.01
+        for horizon in (1, 2):
+            estimate = rule_fit[rule_name.format(cause, horizon)]
+            assert covers(estimate, expected[cause, horizon])
+            assert estimate.support.label == "supported"
+            assert estimate.support.row == "G13.in_sample"
+    # "78% have needs above zero, so the rule would skip the day-31 call for about a fifth".
+    assert round(100 * namespace["share"]) == 78
+    assert 0.17 < 1.0 - namespace["share"] < 0.25
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -378,6 +516,21 @@ def check(namespace: dict[str, Any]) -> None:
 
     eliminated_t2 = namespace["eliminated_t2"]
     readmission_t2 = differences["readmission", 2]
+    # The difference comes from the typed contrast fit and reads `supported` from the
+    # eliminated-events study, as do the risks; `eliminated.contrast` gives the same numbers and
+    # reads experimental, the witness that the route sets the label.
+    derived = eliminated.contrast(
+        lambda psi: psi[0] - psi[1],
+        ["risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]"],
+        name="derived",
+    )
+    assert derived.support.label == "experimental"
+    assert eliminated_t2.psi == pytest.approx(derived.psi, abs=1e-12)
+    assert eliminated_t2.std_error == pytest.approx(derived.std_error, rel=1e-8)
+    assert eliminated_t2.support.label == "supported"
+    assert eliminated_t2.support.row == "G48.in_sample"
+    for estimate in eliminated.estimates.values():
+        assert estimate.support.label == "supported"
     # "turns the small positive estimate (0.0223) into a negative one (-0.0157)".
     assert eliminated_t2.psi < 0.0 < readmission_t2.psi
     # "The interval (-0.0596, 0.0267) contains both 0.0024 and -0.0403".
@@ -426,8 +579,8 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert largest["epsilon"] == pytest.approx(-0.0679, abs=5e-5)
 
-    # Try to break the result. The refutation reads a fit of the typed contrast that agrees with the plan comparison.
-    _check_refutation(namespace, readmission_t2)
+    # Compare the two schedules: the typed contrast route, which the refutation also reads.
+    _check_contrast_route(namespace)
 
     # How much each recorded variable moves the answer. Each refit drops one recorded covariate from the full design; every move is
     # positive, and the last refit has no time-varying history left.
@@ -445,6 +598,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["reduced"].time_varying == ((), ())
     assert namespace["full_design"].time_varying == ((), ("identified_needs",))
     _check_weights_lesson(namespace)
+    _check_bootstrap_lesson(namespace)
+    _check_crossfit_lesson(namespace)
+    _check_rule_lesson(namespace)
 
 
 def _check_weights_lesson(namespace: dict[str, Any]) -> None:
