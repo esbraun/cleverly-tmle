@@ -351,5 +351,8 @@ The [registered study](method-evidence/dose-response.md) passes every gate: 27 p
 joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator.
 A [separate study](method-evidence/dose-response-npcausal.md) pairs `DoseResponseTMLE` with
 npcausal `ctseff` on a law where the curve is a line, so both smoothed curves equal it. Its
-4,800 replications at n = 4,000 read three of six paired rows equivalent or superior and three
-red under `reporting`, each with a named owner.
+[validation grid row](method-evidence/validation-grid.md) and
+[results](method-evidence/dose-response-npcausal.md#results-of-the-declared-run) give the paired
+verdicts. One pair is red under `reporting`: at bandwidth 2 and dose 3.5 it is equivalent on its
+complete cases and unaccounted under the worst case of the failure accounting, owned by
+`X93-failure-worst-case` ([red cells](method-evidence/red-cells.md)).

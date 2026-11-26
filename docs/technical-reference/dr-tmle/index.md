@@ -182,6 +182,7 @@ The source-to-equation map is in [the contract](theorem.md#the-objects).
 | `delta=` without `randomized=`, or `treatment_delta=` | the composite indicator $C_a = \Delta_A \Delta 1\{A = a\}$ with the mechanism $g_{c,a} = \pi_A(W)\,g(a \mid \Delta_A = 1, W)\,\pi(a, W)$, and the complete-data reductions on it. Each arm's column is tilted alone at every arm count | **yes**. It requires `cross_fit=False` and accepts every guard and reduction. See [the composite contract](theorem.md#observational-missing-data-the-composite-indicator) |
 | `evaluation=` | an independent-draw evaluation set carried through targeting | no. A remainder diagnostic |
 | multiple treatment levels | each reduction and correction is indexed by a free level, and equation (9) is solved by independent one-versus-rest fluctuations | this follows the published R workflow. The cited theorem is binary, so this is an implementation-backed armwise extension |
+| a `TimeToEvent` design | `SurvivalDRTMLE`: the risk at declared horizons for one binary baseline treatment, baseline covariates, one event type and right censoring on a discrete grid, with drift-corrected hazard targeting. [Time-to-event outcomes](theorem.md#time-to-event-outcomes) states it, and [scope and refusals](../scope-and-refusals.md#drift-corrected-survival-tmle) lists its refusals | **yes**. Díaz (2019), Section 5 |
 
 The targeted margins deliberately do not renormalise, because a simplex projection would reopen the
 armwise equations. They are not inert either. Equation (8) divides by them, so the estimate does

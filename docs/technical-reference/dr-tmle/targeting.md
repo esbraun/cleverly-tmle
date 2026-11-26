@@ -131,7 +131,8 @@ law rather than about the code. The
 [canonical DR-TMLE study](../method-evidence/canonical-dr-tmle.md) carries the
 measurement.
 
-RM19 measured the prime against R on 2,000 fresh draws of the binary `treatment_correct` law at
+The localization run in `tests/diagnostics/rm19_one_sided_increment/` measured the prime
+against R on 2,000 fresh draws of the binary `treatment_correct` law at
 `n = 3000`. A transcription of the R loop took the prime and three other named choices each from R or
 from this package. Averaged over the settings of the other three factors, the prime moved the mean `ate` by
 `-0.000534`. Its interval at the level 0.998 runs from `-0.001298` to `0.000231`. The whole
@@ -224,7 +225,7 @@ channels. The first channel is the initial designs and targets: the models of fo
 fold `k`. The second channel is the tilts. A pooled fit moves the row of fold `m` along that row's
 covariate, which fold `m`'s reduced regressions built after they trained on fold `k`.
 
-Probe P1 (X83) measured the leak on the `canonical-drtmle` law, with its draws, folds and
+A pre-registration probe measured the leak on the `canonical-drtmle` law, with its draws, folds and
 learners. The table gives the ATE bias in units of the Monte Carlo SD.
 
 | scenario, n, R | pooled | foldwise | in sample | pooled − foldwise, paired |
