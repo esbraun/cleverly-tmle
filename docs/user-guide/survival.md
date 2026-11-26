@@ -865,9 +865,10 @@ gives the estimator, the conditions and what it refuses.
 
 ## Check the risk curve with other estimators
 
-Other estimators reach the same risks through different models, so a few of them fitted beside
-the default, `method="tmle"`, make a quick check. A large gap between them says that one set of models is off. The
-example draws a fresh sample from the same simulation and fits four estimators to it.
+Other estimators reach the same risks by leaning on different models, so fitting a few of them
+beside the default, `method="tmle"`, makes a quick check. A large gap between them says that one
+set of models is off. The example fits four estimators to a second sample from the same
+simulation; on your own data, fit them to the data of your main fit.
 
 ```python
 from cleverly.learners import GLM
@@ -901,16 +902,20 @@ print("truth", round(check_truth["ate_regimen[arm1 vs arm0 @ t=4]"], 3))
 ```
 
 The four estimates of the drop in risk by time 4 agree to within 0.003, while each interval is
-about 0.13 wide. Agreement says only that no set of models is badly off; it cannot show that any
-of them is right. Here the true drop, -0.127, sits inside every interval and about 0.02 from each
+about 0.13 wide. Agreement is what you would expect if no set of models is badly off, but it
+cannot show that any of them is right. No comparison can detect a confounder that the data do
+not record. The `tmle` and `sdr` fits read the same models here, so the informative pair is
+`gcomp`, which reads only the event models, against `ipw`, which reads only the treatment and
+dropout models. Here the true drop, -0.127, sits inside every interval and about 0.02 from each
 estimate. The last column is the support label: `cleverly` marks a result experimental when no
-simulation study covers its setup, and on this design only the default fit reads `supported`.
+simulation study covers its setup, and of these four fits only the default reads `supported`.
 
-The sequential g-computation and weighting fits get generalized linear models (`GLM`), because
-they report an interval only when every model they read is a `GLM`, and that interval holds only
-when those models are correctly specified.
+The sequential g-computation and weighting fits get generalized linear models such as logistic
+regression (`GLM`), because they report an interval only when every model they read is a `GLM`,
+and that interval holds only when those models have the right form.
 [Report the sequential baselines](longitudinal.md#report-the-sequential-baselines) explains both
-estimators and what they report with other learners.
+estimators, and [their inference](../technical-reference/sequential-baselines.md#inference) says
+what they report with other learners.
 
 | estimator | `method=` | the estimate leans on |
 | --- | --- | --- |
@@ -932,7 +937,8 @@ the other two.
 An incremental intervention (`method="ipsi"`) answers a different question: the risk had each
 person's odds of treatment been multiplied by a factor at every time point, not the risk under
 treating everyone against no one. It needs a treatment decided at each time point, on
-`LongitudinalTreatment`, and refuses `TimeToEvent`. It is not doubly robust, so the treatment
+`LongitudinalTreatment`, and refuses `TimeToEvent`
+([IPSI refusals](../technical-reference/longitudinal-tmle.md#ipsi-refusals)). It is not doubly robust, so the treatment
 model must be right.
 [Estimate an incremental intervention over time](longitudinal.md#estimate-an-incremental-intervention-over-time)
 fits it.
