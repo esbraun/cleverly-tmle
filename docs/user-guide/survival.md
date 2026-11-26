@@ -496,12 +496,16 @@ intervals on that kind of fit.
 
 :::{dropdown} Details: where eliminate= works, and its study
 With one cause left, `ratio()` and `rmst()` work on the fit.
-`eliminate=` works on `TimeToEvent`, `LongitudinalTreatment` and the long layout `LongPanel`, and
-on every longitudinal estimator except structural nested means and the collaborative and doubly
-robust survival fits (`CollaborativeTMLEMethod`, `DRTMLEMethod`). A learned plan and a separable
-effect refuse it too, and
+`eliminate=` works on a `TimeToEvent` design with a grid, `LongitudinalTreatment` and the long
+layout `LongPanel`, and on every longitudinal estimator except structural nested means. The
+exact-time design `grid="continuous"` refuses it (roadmap
+[X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)), and so do the collaborative and doubly robust
+survival fits (the [collaborative TMLE refusals](../technical-reference/scope-and-refusals.md#collaborative-tmle-of-a-risk-curve)
+and [doubly robust TMLE on time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)).
+A learned plan and a separable effect refuse it too, and
 [the refusals for eliminated events](../technical-reference/scope-and-refusals.md#eliminated-competing-events)
-give each reason.
+give those reasons.
+
 The [registered study](../technical-reference/method-evidence/eliminated-competing-events.md)
 covers iterated-mean longitudinal TMLE (`LTMLE`) on two binary treatment decisions and hazard
 `LTMLE` on a three-level baseline treatment, both at n = 16,000 with saturated models. Those fits
