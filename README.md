@@ -28,7 +28,7 @@ strong a missing confounder would have to be to change the result. Read the **[d
   the separate effects of a treatment's two parts on those events.
 - Out-of-fold model fitting for flexible machine-learning models, with sampling weights and
   clustered data.
-- Checks after the fit: overlap, attempts to break the result, and sensitivity to a missing
+- Checks after the fit: overlap, refutation tests, and sensitivity to a missing
   confounder.
 - Refusals instead of approximations: a request the library cannot answer correctly fails before
   any model is fit, and the error says why.

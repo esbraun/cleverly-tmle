@@ -118,7 +118,7 @@ three.
 | Set up the analysis | the study description, the roles of the columns, and the conditions the answer needs. Mark each condition "the data can check this" or "this needs judgment" | `protocol`, `identify` |
 | Estimate the effect | each fit, with each setting explained in a short list | one id for each fit |
 | Check the fit | the overlap check and the model checks, read in plain words | `assessment` |
-| Try to break the result | the refutation checks. They may open "Go deeper" instead, as the word-budget paragraph below says | the refutation cell |
+| Refutation | the refutation checks, each introduced by what it changes and what answer it should give. They may open "Go deeper" instead, as the word-budget paragraph below says | the refutation cell |
 | What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit. It may move under "Go deeper" only on the condition the word-budget paragraph below gives | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
 | How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes. It may open "Go deeper" when the main path needs its words | `method-evidence` |
@@ -134,7 +134,7 @@ extreme weights. Give each one a heading, a code cell, and its reading.
 The main path, everything before "Go deeper", has a word budget that the fast tier gates (the
 [reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes
 after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed
-instead of given a larger one. "Try to break the result" may open "Go deeper" as a lesson, as it
+instead of given a larger one. "Refutation" may open "Go deeper" as a lesson, as it
 does on several pages. When trimming is not enough, "What if a confounder is missing?" may move
 there too, on one condition: the conclusion (`interpret`) says in plain words what it found and
 which conditions no check on the page covers.
