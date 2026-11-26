@@ -175,6 +175,26 @@ class AcceptedRow:
     replicates_sha256: str
 
 
+#: The one lost fit of ``continuous-time-longitudinal``, which its hook accounting counts against
+#: two audits; one decision admits both rows.
+_LONGITUDINAL_LOST_FIT = AcceptedRow(
+    reason=(
+        'Eric, 2026-11-26, chose "Accept by exception" on the question "Accept the '
+        "continuous-time study's one lost fit by exception, or rerun it?"
+        '". One fit of 3,200 was lost: cont_cf replicate 936 raised on a single-class '
+        "logistic fit in the inner "
+        "cross-validation of the default continuation learner, which is fixed so the fit now "
+        "succeeds and every completed fit is unchanged. Decision Q1 counts the lost fit as a "
+        "failing row of the calibration rule and of the shrunk-SE control, and worst-case "
+        "imputation keeps both readings: calibration coverage 0.9531 to 0.9534, SE ratio "
+        "1.0255 to 1.0276, its 99% interval at most [0.9937, 1.0618] inside the band 0.93 to "
+        "1.07, and the shrunk control's SE-ratio upper end at most 0.9025, below 0.93. Every "
+        "gated row passes, and the study was run once under the declaration at 8cead461."
+    ),
+    replicates_sha256="c2a5a81bc05c70e6c7d56ad87463a7f69e24f6ae19b7f8f91cf8a93152ebfcbf",
+)
+
+
 #: The red verdicts of ``gated`` studies admitted by a named exception.  Each row stays red in
 #: the committed tables, and the ledger does not require the ``reporting`` policy for it.  A row
 #: :data:`OWNERS` does not list was accepted as valid; a row it lists stays owned until its ask
@@ -213,6 +233,12 @@ ACCEPTED_BY_EXCEPTION: Mapping[RedKey, AcceptedRow] = {
             "and the study was run once under the declaration at 9ace1a3c."
         ),
         replicates_sha256="acf25e2e53c84b10cb8ac438beb9baf3d6666623b101d4194b144d53f3fd30a7",
+    ),
+    RedKey(
+        "continuous-time-longitudinal", "accounting", "hook/calibration rule"
+    ): _LONGITUDINAL_LOST_FIT,
+    RedKey("continuous-time-longitudinal", "accounting", "hook/shrunk-SE control"): (
+        _LONGITUDINAL_LOST_FIT
     ),
 }
 
@@ -1003,6 +1029,10 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "adaptive-tmle-selective": "the K6 control verdicts of controls.csv, which pass",
     "survival-ctmle": "the RMSE ratio gate against hazard LTMLE with the full treatment model",
     "mtp-policy-variance": "the coverage-floor controls of the tail-size twins in coverage-controls.csv",
+    "continuous-time-longitudinal": (
+        "the mechanism_correct primary rule, the plug-in control, the calibration rule and the "
+        "shrunk-SE control; a routed exposed row leaves its gate and is recorded in exposed-rows.csv"
+    ),
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
