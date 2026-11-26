@@ -89,8 +89,8 @@ outcome model's estimate with the treatment model. Its interval is valid when bo
 predict well, and its estimate stays unbiased in large samples if either model is right. Start
 with `tmle`. The others answer special situations, such as a treatment model that a strong
 predictor makes extreme (`collaborative_tmle`); the
-[examples index](../examples/index.md#find-the-example-for-your-problem) matches each situation to
-its method.
+[examples index](../examples/index.md#find-the-example-for-your-problem) groups the examples by
+situation, and its topic pages match each situation to its example.
 
 ## The estimate
 
