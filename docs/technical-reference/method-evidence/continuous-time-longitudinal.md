@@ -44,10 +44,10 @@ and constant intensities between visits given the history. Its coefficients are 
 
 The module gives the laws of $L(0)$ and $A(0)$ too. Law CT-day is the same law on whole days,
 with each day's events in the order death, visit, censoring, so every day carries ties and the
-engine's tie rule acts. The plan's visit rate was 0.10 and its visit-treatment intercept $-1.0$; a
+engine's tie rule acts. The first design's visit rate was 0.10 and its visit-treatment intercept $-1.0$; a
 truth-only check before the declaration lowered them because the 99th percentile of never's true
 inverse weight was 41.5, above the bound of 20. The law now gives about 0.065 visits per day of
-follow-up, about two over 30 days in place of the plan's three. Each truth is a Monte Carlo risk
+follow-up, about two over 30 days in place of the first design's three. Each truth is a Monte Carlo risk
 on 10,000,000 units per law and regime.
 
 ## The visit cap
@@ -107,9 +107,9 @@ difference against its expected value (the panel's risk minus $\psi_r$), and the
 paired difference that departs from its expected value by more than 0.5 of the continuous
 engine's SE starts a diagnosis of both engines on the same draws.
 
-This is a deviation from the plan, declared before any run. The plan paired 1,000 draws on a
-30-node daily panel, but a 30-node fit did not finish in 3,000 s, which by itself projects past the
-plan's hold of 200 CPU-hours. The rule rows are not paired. When the discrete fit reads a constant
+The first design paired 1,000 draws on a 30-node daily panel. It changed before any run, because a
+30-node fit did not finish in 3,000 s, which by itself projects past the study's hold of 200
+CPU-hours. The rule rows are not paired. When the discrete fit reads a constant
 node, it withholds that row's interval (`constant_node_plugin`). The point estimate still pairs,
 the discrete fit's SE and coverage read only the draws with an interval, and the share without
 one is reported.
@@ -121,8 +121,8 @@ Pending. The declared run fills this section.
 ## Sizing
 
 The counts are declared: 3,200 draws for `day_cf` and `cont_cf` and 2,400 for
-`mechanism_correct`, fixed by Eric's choice on 2026-11-25 against plan 5.7's design values of
-2,400 and 1,600. All 60 primary rows are gated, the 12 rule rows among them, and no row moves to
+`mechanism_correct`, raised from the design values of 2,400 and 1,600 so that the rule rows
+could stay gated. All 60 primary rows are gated, the 12 rule rows among them, and no row moves to
 reported for a low pilot coverage.
 
 The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
@@ -134,12 +134,12 @@ group mean of signed biases would let opposite biases cancel.
 
 Read this way, five rows pass below 0.96 at the declared counts: the rule regime's cause-1 risks
 at days 10, 20 and 30, and in `mechanism_correct` the cause-1 day-30 risk of never and difference
-of always minus never. Eric chose on 2026-11-25 to keep them gated with a declared route, given
+of always minus never. They stay gated with a declared route, given
 under [Red-cell route](#red-cell-route). A declared run is refused unless the product of the other
 55 rows' pass probabilities reaches 0.95. On the second pilot it is 0.988; over all 60 rows it is
 0.544, and with pooled biases 0.997.
 
-At the pilot's seconds per fit the declared run costs 159.5 CPU-hours, below the plan's hold of
+At the pilot's seconds per fit the declared run costs 159.5 CPU-hours, below the declared hold of
 200, and runs as three shards of 53.2 CPU-hours.
 `tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements and
 every count's pass as a report.
@@ -153,7 +153,7 @@ The first pilot's primary draws were dropped, and a second pilot ran on the fixe
 
 The plug-in control was checked before any replicate. On one draw of 200,000 units, the plug-in
 limit of `mechanism_correct`'s outcome side misses the day-30 risk of cause 1 by 0.58 true-weight
-IPW SDs under never and by 0.53 under always, above the 0.5 the plan requires, so the control can
+IPW SDs under never and by 0.53 under always, above the required 0.5, so the control can
 fire.
 
 ## Red-cell route
@@ -169,8 +169,7 @@ share condition of the support labels, not an engine defect suspect. A red rule 
 rules experimental. A plug-in control that does not fire, or a shrunk-SE control that fails its
 reading, voids the run.
 
-The five rows the sizing names stay gated, each with a foreseen failure mode, by Eric's choice on
-2026-11-25. The three rule rows carry the rule levels' positive cause-1 bias at n = 1,000, about
+The five rows the sizing names stay gated, each with a foreseen failure mode. The three rule rows carry the rule levels' positive cause-1 bias at n = 1,000, about
 0.12 to 0.13 SD in both pilots, which targeting does not remove and whose cause is not shown.
 `mechanism_correct`'s day-30 risk of never carries the visit cap's gap (-0.112 SD against the full
 risk, -0.076 against the capped truth). Its day-30 difference reads +0.134 SD, or +0.094 against

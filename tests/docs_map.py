@@ -506,6 +506,17 @@ AREAS: tuple[Area, ...] = (
         (TR + "continuous-time-survival.md",),
         see=(UG + "survival.md",),
     ),
+    _area(
+        "continuous-time treatment plans",
+        (
+            S + "survival/longitudinal*.py",
+            S + "survival/_longitudinal_*.py",
+            S + "_continuous_longitudinal_family.py",
+            S + "_summary/_continuous_longitudinal.py",
+        ),
+        (TR + "continuous-time-longitudinal.md",),
+        see=(UG + "survival.md",),
+    ),
     # ---- checking a result ------------------------------------------------------------------
     _area(
         "post-fit assessment",
