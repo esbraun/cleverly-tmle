@@ -148,8 +148,12 @@ iterative and the one-step sweeps are checked to solve the perturbed score. Reru
 selection. A C-TMLE0 fit has no selection. Its retarget rebuilds the derivative columns at the
 requested bounds, as the [C-TMLE0](#c-tmle0-the-derivative-covariate) section states.
 
-**Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
-`elements()` raise `CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
+**Omitted-variable outputs refuse a collaborative fit unless the call assumes a consistent
+mechanism.** The robustness value, the bounds, `elements()` and `benchmark()` raise
+`CapabilityError` on every strategy except `"derivative"`. A call that declares
+`assume_consistent_mechanism=True` gets the robustness value and the bounds as point values, with no
+limits; a per-arm outcome-adaptive fit also needs `mechanism_learner=`, because its own treatment
+learner reads one outcome prediction. `elements()` and `benchmark()` stay refused. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
 regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
 representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
