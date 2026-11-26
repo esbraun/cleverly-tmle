@@ -1,0 +1,108 @@
+hazard_backward    (F, w, m): [(10, 0.12, 1.2)]
+hazard_one_node    (F, w, m): [(10, 0.06, 1.07)]
+hazard_paths       (F, w, m): [(10, 0.09, 1.2)]
+hazard_separable   (F, w, m): [(10, 0.02, 1.09)]
+ipsi               (F, w, m): [(3, 0.81, 1.92), (5, 0.85, 1.47), (10, 1.39, 1.96), (20, 0.94, 2.46)]
+ltmle              (F, w, m): [(10, 0.39, 1.54)]
+ltmle_continuous   (F, w, m): [(10, 0.8, 1.0)]
+ltmle_continuous_classifier (F, w, m): [(10, 0.01, 1.15)]
+ltmle_continuous_index (F, w, m): [(10, 0.49, 1.0)]
+sdr                (F, w, m): [(3, 0.68, 2.1), (5, 0.85, 1.71), (10, 1.52, 2.22), (20, 1.81, 2.67)]
+sdr_continuous     (F, w, m): [(10, 0.68, 1.61)]
+sdr_continuous_classifier (F, w, m): [(10, 0.75, 3.11)]
+sdr_continuous_index (F, w, m): [(10, 0.16, 1.15)]
+
+MARGIN (m draw + min(j, F) (w draw + WORKER) + HELPER) / adjusted cold footprint
+sdr                           F 3 boot0 n 20000 j2  1.52
+sdr                           F 3 boot0 n 20000 j4  1.54
+sdr                           F 5 boot0 n 20000 j2  1.39
+sdr                           F 5 boot0 n 20000 j4  1.48
+sdr                           F10 boot0 n 20000 j2  1.43
+sdr                           F10 boot0 n 20000 j4  1.50
+sdr                           F20 boot0 n 20000 j2  1.35
+sdr                           F20 boot0 n 20000 j4  1.69
+ipsi                          F 3 boot0 n 20000 j2  1.47
+ipsi                          F 3 boot0 n 20000 j4  1.46
+ipsi                          F 5 boot0 n 20000 j2  1.41
+ipsi                          F 5 boot0 n 20000 j4  1.51
+ipsi                          F10 boot0 n 20000 j2  1.43
+ipsi                          F10 boot0 n 20000 j4  1.55
+ipsi                          F20 boot0 n 20000 j2  1.35
+ipsi                          F20 boot0 n 20000 j4  1.37
+sdr                           F 3 boot0 n100000 j2  1.78
+sdr                           F 3 boot0 n100000 j4  1.77
+sdr                           F10 boot0 n100000 j2  1.69
+sdr                           F10 boot0 n100000 j4  1.87
+ipsi                          F 3 boot0 n100000 j2  1.73
+ipsi                          F 3 boot0 n100000 j4  1.68
+ipsi                          F10 boot0 n100000 j2  1.64
+ipsi                          F10 boot0 n100000 j4  1.78
+ltmle_eos                     F10 boot0 n 20000 j2  1.52
+ltmle_eos                     F10 boot0 n 20000 j4  1.53
+mtp          binned B20       F10 boot0 n 20000 j2  1.59
+mtp          binned B20       F10 boot0 n 20000 j4  1.51
+sdr_mtp      binned B20       F10 boot0 n 20000 j2  1.59
+sdr_mtp      binned B20       F10 boot0 n 20000 j4  1.77
+hz_point                      F10 boot0 n 20000 j2  1.50
+hz_point                      F10 boot0 n 20000 j4  1.50
+hz_back                       F10 boot0 n 20000 j2  1.53
+hz_back                       F10 boot0 n 20000 j4  1.54
+hz_path                       F10 boot0 n 20000 j2  1.46
+hz_path                       F10 boot0 n 20000 j4  1.50
+hz_separable                  F10 boot0 n 20000 j2  1.45
+hz_separable                  F10 boot0 n 20000 j4  1.49
+mtp          binned B20       F10 boot0 n100000 j2  1.75
+mtp          binned B20       F10 boot0 n100000 j4  1.70
+hz_path                       F10 boot0 n100000 j2  1.57
+hz_path                       F10 boot0 n100000 j4  1.65
+ltmle_eos                     F 3 boot4 n 20000 j2  1.58
+ltmle_eos                     F 3 boot4 n 20000 j4  1.58
+sdr                           F10 boot4 n 20000 j2  1.54
+sdr                           F10 boot4 n 20000 j4  1.57
+mtp          index B80        F10 boot0 n 20000 j2  1.53
+mtp          index B80        F10 boot0 n 20000 j4  1.47
+mtp          classifier B80   F10 boot0 n 20000 j2  1.40
+mtp          classifier B80   F10 boot0 n 20000 j4  1.39
+sdr_mtp      index B80        F10 boot0 n 20000 j2  1.36
+sdr_mtp      index B80        F10 boot0 n 20000 j4  1.36
+sdr_mtp      classifier B80   F10 boot0 n 20000 j2  1.39
+sdr_mtp      classifier B80   F10 boot0 n 20000 j4  1.49
+ltmle_eos                     F 2 boot0 n  5000 j2  1.50
+ltmle_eos                     F 2 boot0 n  5000 j4  1.50
+hz_path                       F 2 boot0 n  5000 j2  1.49
+hz_path                       F 2 boot0 n  5000 j4  1.50
+hz_point                      F 2 boot0 n  5000 j2  1.50
+hz_point                      F 2 boot0 n  5000 j4  1.50
+ltmle_eos                     F 3 boot2 n  5000 j2  1.53
+ltmle_eos                     F 3 boot2 n  5000 j4  1.51
+sdr                           F 7 boot0 n  5000 j2  1.30
+sdr                           F 7 boot0 n  5000 j4  1.35
+sdr                           F 3 boot0 n  5000 j2  1.44
+sdr                           F 3 boot0 n  5000 j4  1.46
+sdr                           F10 boot0 n  5000 j2  1.38
+sdr                           F10 boot0 n  5000 j4  1.29
+ipsi                          F 3 boot0 n  5000 j2  1.45
+ipsi                          F 3 boot0 n  5000 j4  1.45
+ipsi                          F10 boot0 n  5000 j2  1.30
+ipsi                          F10 boot0 n  5000 j4  1.35
+hz_path                       F 3 boot0 n 20000 j2  1.46
+hz_path                       F 3 boot0 n 20000 j4  1.48
+ltmle_surv                    F 3 boot0 n 20000 j2  1.51
+ltmle_surv                    F 3 boot0 n 20000 j4  1.52
+mtp          binned B160      F 5 boot0 n  2000 j2  1.61
+mtp          binned B160      F 5 boot0 n  2000 j4  1.64
+mtp          binned B320      F 5 boot0 n  2000 j2  1.72
+mtp          binned B320      F 5 boot0 n  2000 j4  1.48
+sdr_mtp      binned B160      F 5 boot0 n  2000 j2  1.77
+sdr_mtp      binned B160      F 5 boot0 n  2000 j4  1.55
+sdr_mtp      binned B320      F 5 boot0 n  2000 j2  1.94
+sdr_mtp      binned B320      F 5 boot0 n  2000 j4  1.56
+mtp          index B80        F 3 boot0 n  5000 j2  1.54
+mtp          index B80        F 3 boot0 n  5000 j4  1.51
+mtp          classifier B80   F 3 boot0 n  5000 j2  1.46
+mtp          classifier B80   F 3 boot0 n  5000 j4  1.46
+sdr_mtp      index B80        F 3 boot0 n  5000 j2  1.39
+sdr_mtp      index B80        F 3 boot0 n  5000 j4  1.39
+sdr_mtp      classifier B80   F 3 boot0 n  5000 j2  1.47
+sdr_mtp      classifier B80   F 3 boot0 n  5000 j4  1.50
+lowest: 1.29

@@ -95,6 +95,17 @@ def test_the_reference_carries_the_generated_tables() -> None:
     assert generate.extensions_table() in text
 
 
+def test_the_reference_quotes_the_copied_calibration_outputs() -> None:
+    # Every range the accuracy section quotes is read from an output copied beside generate.py.
+    text = " ".join(REFERENCE.read_text().split())
+    missing = [phrase for phrase in generate.accuracy_phrases() if phrase not in text]
+    assert not missing
+    low, high = generate.accuracy_readings()["checked"]
+    assert (low["family"], low["censor"], low["n"]) == ("sdr", "True", "20000")
+    assert high["est"] == "learned"
+    assert "plans repository" not in text
+
+
 def test_the_predicate_reads_extbox_out_with_one_documented_correction() -> None:
     # Every fitted bound but the time-to-event families' censoring is the record's own.
     text = (Path(generate.__file__).parent / "extbox.out").read_text()
