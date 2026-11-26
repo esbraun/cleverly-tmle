@@ -417,6 +417,24 @@ def test_the_gates_pass_a_calibrated_synthetic_run(synthetic: dict[str, pd.DataF
     assert values["fewest_followers"] == 100.0 and not values["jump_bound_acted"]
 
 
+def test_a_lost_fit_counts_once_against_each_audit(synthetic: dict[str, pd.DataFrame]) -> None:
+    """One lost ``cont_cf`` fit costs the calibration audits one fit, not one per estimand."""
+    lost = pd.DataFrame(
+        [
+            {
+                "implementation": study.SUBJECT,
+                "group_id": "primary/cont_cf/r000000936",
+                "scenarios": "cont_cf",
+                "replicates": "936",
+            }
+        ]
+    )
+    accounting = study.account_failures(lost, synthetic).set_index("leg")
+    assert accounting.loc[readings.CALIBRATION_GATE, "failed"] == 1
+    assert accounting.loc[readings.SHRUNK_GATE, "failed"] == 1
+    assert accounting.loc[readings.MECHANISM_GATE, "failed"] == 0
+
+
 def test_a_conservative_calibration_row_does_not_void_through_its_control(
     synthetic: dict[str, pd.DataFrame],
 ) -> None:

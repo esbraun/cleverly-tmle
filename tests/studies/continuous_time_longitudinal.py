@@ -861,7 +861,8 @@ def account_failures(
     """
     from tests.studies import continuous_time_longitudinal_readings as readings_module
 
-    lost = evidence_failures.expand(failures, STUDY)
+    # ``expand`` gives one row per estimand of a lost replicate; each audit loses one fit.
+    lost = evidence_failures.expand(failures, STUDY)[["scenario", "replicate"]].drop_duplicates()
     day = lost.loc[lost["scenario"] == "day_cf", "replicate"].astype(int)
     cont = lost.loc[lost["scenario"] == "cont_cf", "replicate"].astype(int)
     missing = {
