@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .discharge_practices import PRACTICES, discharge_practices_truth, make_discharge_practices
 from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
 from .longitudinal import (
     REPEATED_RULE_LABEL,
@@ -130,6 +131,7 @@ __all__ = [
     "ORDER_TILTS",
     "ORDER_WEEKS",
     "PILOT_OFFER_CHANCES",
+    "PRACTICES",
     "PRICE_BANDS",
     "PRICE_NODES",
     "PRICE_PLANS",
@@ -149,6 +151,7 @@ __all__ = [
     "competing_rule_truth",
     "competing_truth",
     "contact_schedules_truth",
+    "discharge_practices_truth",
     "heart_failure_protocol",
     "heart_failure_truth",
     "heterogeneous_dgp",
@@ -163,6 +166,7 @@ __all__ = [
     "make_cde",
     "make_clustered",
     "make_contact_schedules",
+    "make_discharge_practices",
     "make_heart_failure",
     "make_heterogeneous",
     "make_instrument",
