@@ -551,7 +551,9 @@ def test_visit_cap_under_cross_fitting(monkeypatch: Any) -> None:
 
     A 200-unit draw (the plan's 400 halved for the fast tier; one unit still holds the most
     visits). The share's hand computation is on PL2, in the exact file. Mutation: the cap at
-    the full-sample maximum; a training fold holds no follower that far and the fit fails.
+    the full-sample maximum. A training fold then holds no follower that far, and the
+    continuation learner predicts the one label its rows carry, so the fit runs, and the cap
+    it records is not the hand count.
     """
     frame = simulate_ct(200, 4)
     counts = frame.groupby("id").size() - 1
@@ -579,11 +581,11 @@ def test_visit_cap_under_cross_fitting(monkeypatch: Any) -> None:
     assert max(hand) < counts.max()
 
     monkeypatch.setattr(nuisance, "visit_cap", lambda *args, **kwargs: (int(counts.max()), -1, 0))
-    # The continuation of the first node no training fold's follower reaches has labels of
-    # one class only, which its logistic learners refuse.
-    with warnings.catch_warnings(), pytest.raises(ValueError, match="2 classes"):
+    with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        estimator.fit(frame, **CT_COLUMNS)
+        mutated = estimator.fit(frame, **CT_COLUMNS)
+    assert mutated.record.caps == (int(counts.max()),) * len(REGIMES)
+    assert mutated.record.caps != hand
 
 
 # ---------------------------------------------------------------------- T-e22
