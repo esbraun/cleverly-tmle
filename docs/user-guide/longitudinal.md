@@ -343,10 +343,11 @@ print(learned.learned_regimen.describe())
 ```
 
 Had everyone followed the learned rules, the average outcome would be between 0.735 and 0.811, and
-the fit reads `supported`. The description says how the rules behave. By fold, they treat 0.97 to 1
-of the people they apply to at the first time point and 0.94 to 1 at the second. Across folds, the
-rules disagree on 3% of rows at the first time point and 14% at the second. Rules that treat almost
-everyone should be worth about as much as treating always, and `truth` gives 0.780 for that plan.
+the fit reads `supported`. The description says how the rules behave. By fold, they treat 97% to
+100% of the people still following them at the first time point and 94% to 100% at the second.
+Across folds, the rules disagree on 3% of rows at the first time point and 14% at the second. Rules
+that treat almost everyone should be worth about as much as treating always, and `truth` gives 0.780
+for that plan.
 
 A [learned-regimen study](../technical-reference/method-evidence/learned-regimen-ltmle.md) measured
 it with 2,000 rows, ten folds, dropout at each node and correct logistic models for the treatment
@@ -356,11 +357,12 @@ and one yes-or-no outcome at the end, every option at its default, is marked sup
 fits are marked experimental. Where the best rule is close to indifferent for many units, the
 interval can cover less often, and no study measures that case.
 
-The fit learns only two time points with a yes-or-no treatment at each. Pass a single learner for
-the outcome models yourself: the default library picks among models by an internal cross-validation,
-which would see rules learned from its own rows, so the fit refuses it there. It also refuses
-`n_folds=1`, `n_bootstrap=` and `repeats=` above 1, and a study cannot declare a learned plan, so
-call `LTMLE` directly as here.
+The fit learns only two time points with a yes-or-no treatment at each. It refuses the default
+library, or any learner that picks among models by an internal cross-validation, for the model of
+the first time point (`pseudo_learner`, or `outcome_learner` when `pseudo_learner` is not passed),
+because that cross-validation would score rules learned from its own rows. Pass a single learner
+there, as here. It also refuses `n_folds=1`, `n_bootstrap=` and `repeats=` above 1, and a study
+cannot declare a learned plan, so call `LTMLE` directly.
 [Learned regimens](../technical-reference/longitudinal-tmle.md#learned-regimens) lists every
 refusal.
 
@@ -625,10 +627,10 @@ interval is experimental.
 
 On a clustered fit, an estimate with fewer clusters than its interval floor prints a
 `bootstrap SD (diagnostic)` column and a percentile range, both diagnostics.
-[Clustered units and survey weights](#clustered-units-and-survey-weights) gives the floors. At or
-above the floor the bootstrap prints a percentile interval under the experimental label, because
-no simulation study has checked a clustered bootstrap's coverage
-([clusters](../technical-reference/inference.md#clusters)).
+[Clustered units and survey weights](#clustered-units-and-survey-weights) gives the floors for a fit
+like the one there and links the full table. At or above the floor the bootstrap prints a percentile
+interval under the experimental label, because no simulation study has checked a clustered
+bootstrap's coverage ([clusters](../technical-reference/inference.md#clusters)).
 
 
 Three registered studies measured this feature at three to five decisions: [binary `LTMLE`](../technical-reference/method-evidence/long-horizon-longitudinal-tmle.md), [three-level `LTMLE`](../technical-reference/method-evidence/long-horizon-categorical-longitudinal-tmle.md) and [`SDR`](../technical-reference/method-evidence/long-horizon-sequentially-doubly-robust-estimation.md).
@@ -1337,9 +1339,10 @@ with the cluster count minus 2 degrees of freedom, which widens it. Below 3 clus
 reports no interval.
 
 How few clusters an interval can rest on depends on the estimate. A simulation study measured this
-difference, on a cross-fitted fit with two time points and dropout, at every count from 4
-clusters, so it reads `supported` here. Every other estimate, such as each plan's own mean from
-`RegimeMean`, reads `experimental` below 20 clusters.
+difference, on a cross-fitted fit with two time points, dropout and parametric models such as these,
+at every count from 4 clusters, so it reads `supported` here. With the default learner library, or
+for any other estimate such as each plan's own mean from `RegimeMean`, the fit reads
+`experimental` below 20 clusters.
 [Few clusters](../technical-reference/inference.md#few-clusters) gives the floor for each kind of
 fit, and the
 [few-cluster floor study](../technical-reference/method-evidence/few-cluster-floor-cross-fitted-ltmle.md)
@@ -1347,23 +1350,26 @@ holds the measurements.
 
 The second line uses `cluster_variance="jackknife"`, which refits the whole analysis once for each
 clinic left out, here 12 times, and reads the standard error from the spread of those refits. Its
-interval runs from 0.141 to 0.528. The few-cluster studies compared it with the default interval,
-and it met their criteria from 10 clusters on a cross-fitted fit like this one, and from 6 on a
-fit in sample. It still reads `experimental`, because the package has not yet marked any
-jackknife setup as supported. It refits the same models, so it accepts only parametric ones such
-as the logistic and linear models here, and every fold must hold at least two clinics;
+interval runs from 0.141 to 0.528. The few-cluster studies compared it with the default interval on
+the same samples. Its intervals covered the true value no less often than the default's, within 3
+percentage points, at every count they tried: from 10 clusters on a cross-fitted fit with five folds
+and from 6 on a fit in sample. It still reads `experimental`, because the package has not yet marked
+any jackknife setup as supported. Its justification holds only for models with a fixed set of
+coefficients, so it accepts only parametric ones such as the logistic and linear models here, and
+every fold must hold at least two clinics;
 [Cluster jackknife](../technical-reference/inference.md#cluster-jackknife) lists every setting it
 refuses.
 
-`weights=` names a survey or sampling weight, one per person. Every model and the standard error
-use it, as for a treatment given once ([data design](data-design.md#point-treatment)). Simulation
+`weights=` names a survey or sampling weight, one per person. Every model and the standard error use
+it, as for a treatment given once ([data design](data-design.md#point-treatment)). Simulation
 studies cover a weighted end-of-study fit
 [in sample](../technical-reference/method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md)
 and
 [cross-fitted](../technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md).
 When a model fitted to the same data produced the weights, such as a nonresponse model, also pass
-`weights_estimated=True`. It changes no number, so the standard error still leaves out the error
-of that model, but the fit reads `experimental`.
+`weights_estimated=True`. `cleverly` never sees the weight model and treats the weights as fixed
+numbers, so the flag changes no number and the standard error still leaves out that model's error.
+The fit then reads `experimental`.
 
 The [discharge to readmission tutorial](../examples/discharge-to-readmission.ipynb) fits a
 clustered program of two decisions at 100 care teams and compares its interval with a fit that
@@ -1406,7 +1412,11 @@ trial = pd.DataFrame(
     }
 ).astype(float)
 trial.loc[stayed == 0, ["responded", "second", "stayed_2", "recovered"]] = np.nan
+```
 
+On your own trial you would already hold these columns, and the declaration is what changes.
+
+```python
 smart = LongitudinalTreatment(
     outcome="recovered",
     treatment=("first", "second"),
@@ -1432,7 +1442,7 @@ print(smart_effect.psi, smart_effect.ci, smart_effect.support.label)
 
 Treating at both time points raises the recovery rate by 0.438 over treating at neither, with an
 interval from 0.375 to 0.495, and the fit reads `supported`. The call passes only outcome models,
-and the summary reads "known (declared)" on its treatment model and censoring model lines.
+and `smart_fit.summary()` reads "known (declared)" on its treatment model and censoring model lines.
 
 Each treatment maps its levels to columns that hold, on each row, the chance of that level given
 the person's past. Each dropout column maps to a column with the chance of staying. A time point
@@ -1440,19 +1450,21 @@ you leave out of either mapping gets a model as usual. No one in this trial leav
 second treatment. The design still takes one dropout column per time point, so `stayed_2` is 1
 for everyone still in the study, with a declared chance of 1.
 
-The fit checks the chances against the data. It refuses a declared chance of zero for the
-treatment a person took, and a plan that needs a treatment whose declared chance is zero for
-people it covers. The product of the declared chances over time points must stay inside
-`g_bounds`, whose lower end is 0.01 by default. With many time points the product falls fast, so
-pass a lower end below the smallest product, such as `g_bounds=(1e-8, 1.0)`. Beside weights that
-differ between people, also pass `mechanism_law=`, as
-[Known chances beside weights](data-design.md#known-chances-beside-weights) explains, and
+The fit checks the chances against the data. It refuses a declared chance of zero for the treatment
+a person took, and a plan that needs a treatment whose declared chance is zero for people it covers.
+It also stops when the product of a person's declared chances over time points falls outside
+`g_bounds`, the limits it puts on each person's chance of following the plan; the lower end is 0.01
+by default. With many time points the product falls fast, so pass a lower end below the smallest
+product, such as `g_bounds=(1e-8, 1.0)`. Beside weights that differ between people, also pass
+`mechanism_law=`, as [Known chances beside weights](data-design.md#known-chances-beside-weights)
+explains, and
 [Known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) lists
 every rule.
 
 The [known-mechanism study](../technical-reference/method-evidence/known-node-mechanisms-ltmle.md)
 fitted a trial built like this one in 1,000 samples of 2,000 rows, with every chance declared and
-the fit in sample, and gave the same estimates as R `ltmle` given the same chances. The
+the fit in sample. Its interval for the difference covered the truth in 0.948 of the samples, and it
+gave the same estimates as R `ltmle` given the same chances. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) declares a three-level offer at
 three time points beside an estimated consent model.
 
