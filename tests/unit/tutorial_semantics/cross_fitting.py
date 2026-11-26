@@ -319,16 +319,35 @@ def _check_team_uncertainty(namespace: dict[str, Any]) -> None:
     assert boot.std_error == team.std_error and boot.ci == team.ci
     frame = namespace["team_bootstrap"].to_frame().iloc[0]
     assert frame["bootstrap_support"] == "experimental"
+    # "because no simulation study covers it for this kind of fit"
+    assert "No validation study covers the bootstrap interval" in str(
+        namespace["team_bootstrap"].summary()
+    )
     assert 0.8 < frame["bootstrap_std_err"] / team.std_error < 1.0
     assert team.ci[0] < frame["bootstrap_ci_lower"] < frame["bootstrap_ci_upper"] < team.ci[1]
     assert figure_title(namespace["bootstrap_fig"]) == "Bootstrap replicates"
 
     # Team sensitivity: no attention row; the robustness value 0.115 is below the first fit's,
     # and its limit value is below it.
+    # "the interval that treats patients as independent missed the truth too often, and the one
+    # with teams declared did not": the registered cells' direction.
+    study = pd.read_csv(
+        ROOT / "tests/canonical/lmtp_clustered_tmle/properties.csv", float_precision="round_trip"
+    )
+    coverage = study.set_index("cell")["coverage"]
+    assert coverage["iid_control"] < 0.9 < coverage["cluster_robust"]
     assert namespace["team_attention"] == ()
     robustness = namespace["team_robustness"]
     assert 0.10 < robustness["rv"] < 0.13
     assert 0 < robustness["rva"] < robustness["rv"] < namespace["robustness"]["rv"]
+    # "smaller because this effect is smaller next to the outcome's leftover variation": nu^2
+    # agrees within 10% across the two fits, while psi^2 / sigma^2 falls more than tenfold.
+    team_elements = clustered.sensitivity.elements(estimand="ate")
+    first_elements = namespace["elements"]
+    assert abs(team_elements.nu2 / first_elements.nu2 - 1) < 0.1
+    first_psi = namespace["cross_fitted"]["ate"].psi
+    team_ratio = team.psi**2 / team_elements.sigma2
+    assert team_ratio < 0.1 * first_psi**2 / first_elements.sigma2
     ess = namespace["team_support"].effective_sample_size
     assert 0.8 < ess["treated"]["ratio"] < 0.9 and 0.8 < ess["control"]["ratio"] < 0.9
 
@@ -404,6 +423,15 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert round(float(shift.mean()), 3) == -0.158
     assert round(float(np.std(shift, ddof=1)), 4) == 0.2748
     assert abs(shift.mean()) < 0.2008
+    # "spread by 0.2748, somewhat more than the 0.2008 a new split alone gives ... about a third
+    # of a standard error": the refits keep the folds, and a typical refit moves 0.25 to 0.4 SE.
+    assert np.std(shift, ddof=1) > 0.2008
+    assert 0.25 < float(np.sqrt(np.mean(shift**2))) < 0.4
+    # "the studies of the other two use other outcomes and models with 20 refits"
+    assert (
+        "This fit differs on replicate count 5 and learner HistGradientBoostingRegressor"
+        in tests["placebo"].scope_sentence
+    )
     # Subset: "rho is 0.9358, near 1".  The reference is the sampling SD of a 2100-of-3000
     # subsample, so it scales the reported SE by sqrt((n/m - 1) n/(n - 1)).
     scatter = float(np.std(tests["subset"].values, ddof=1))
