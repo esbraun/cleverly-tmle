@@ -229,14 +229,16 @@ for the outcome, the treatment or the censoring model leaves every row.
 | row | configuration | licensed |
 | --- | --- | --- |
 | `G29.g1` | end-of-study binary outcome with censoring, two arms at three nodes, static, rule and odds-tilt regimens | point, Wald, with a stated limit: the treat-all calibration cell reads an SE ratio of 0.9259 to 1.0000 against a lower bound of 0.93 (owner `X45-finite-sample`) |
-| `G29.g2_g5` | end-of-study Gaussian outcome with complete data, two arms at three nodes, static, known stochastic and odds-tilt regimens | point, Wald |
+| `G29.g2_g5` | end-of-study Gaussian outcome with complete data, two arms at three nodes, static, rule, known stochastic and odds-tilt regimens | point, Wald |
 | `G29.g3` | competing-risk cumulative incidence with censoring, two arms at four nodes, static regimens | point, Wald |
 | `G29.g4` | end-of-study Gaussian outcome with complete data, continuous dose at three nodes, shift, fixed-dose and rule-set-dose regimens | point, Wald |
 
 A known rule is a regimen of its own here, not a static plan. The fit evaluates the rule on
 simulated covariates, so each covariate model reaches the estimate through the treatment the rule
-assigns, and no fixed-plan cell measures that path. Only `G29.g1` and `G29.g4`, whose cells
-include a rule, cover one, so a rule on the Gaussian law of `G29.g2_g5` reads `experimental`. The
+assigns, and no fixed-plan cell measures that path. A row covers a rule only when its cells
+include one: `G29.g1` (a rule on a binary covariate), `G29.g4` (a rule that sets a dose) and
+`G29.g2_g5` (a threshold of a Gaussian covariate on `G2`, and a categorical covariate on `G5`).
+`G29.g3` measures fixed plans only, so a rule on the competing-risk law reads `experimental`. The
 label is per fit: every estimate of a fit that adds such a rule to fixed plans reads
 `experimental`. Estimators that follow a rule on observed histories, such as `LTMLE`, key a known
 rule with the static plans.
