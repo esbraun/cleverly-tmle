@@ -3500,10 +3500,13 @@ four for the one-node hazard fit, and two regimens; the `gap` rows of `fit.out`)
 heavier learners can pass the check and still run out of memory.
 
 The four continuous families of the binned and index routes were refitted in X106 part D. The binned
-density now builds its pooled hazard design once rather than twice, and the index route's counts
-and peaks had moved since the J2d calibration (20 declared bins now count 35 on the refined grid),
-so on current fits at 2,000 units that route's prediction read 0.36 to 1.22 times the traced
-peak, below 1 on most cells. The refit reran every J2d cell of the four families on current code, 2,000 to 100,000 units,
+density now builds its pooled hazard design once rather than twice, and both routes' counts and
+peaks had moved since the J2d calibration: the refined grid counts more bins than were declared (5
+count 12 to 15, 20 count 31 to 48). On current fits at 2,000 units the index route's prediction
+read 0.36 to 1.22 times the traced peak, below 1 on most cells, and the binned `SDR` family's read
+down to 0.62.
+
+The refit reran every J2d cell of the four families on current code, 2,000 to 100,000 units,
 with the same program, objective and margin, and one added constraint: the margined draw is at most
 3.5 times the traced peak on every fitted cell. Without it the index families read up to 3.57 and
 3.69 at 20,000 units. Fitted cells now read 1.35 to 3.50, the held-out cells 1.35 to 1.59, and
