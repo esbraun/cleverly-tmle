@@ -662,3 +662,114 @@ def test_modifier_stability_runs_on_a_tensor_basis_and_refuses_a_user_basis() ->
         "UserBasis evaluates one function"
         in user.diagnostics.capability("modifier_stability").reason
     )
+
+
+GROUPS = ("home", "alone", "carer")
+
+
+def text_group_frame(n: int = 600, seed: int = 11) -> pd.DataFrame:
+    """A group column stored as text, whose levels carry effects 0.05, 0.35 and -0.15."""
+    rng = np.random.default_rng(seed)
+    w = rng.uniform(-1, 1, n)
+    group = rng.choice(np.array(GROUPS, dtype=object), size=n)
+    effect = pd.Series(group).map({"home": 0.05, "alone": 0.35, "carer": -0.15}).to_numpy()
+    a = rng.binomial(1, 1 / (1 + np.exp(-0.5 * w)))
+    y = rng.binomial(1, 0.4 + 0.1 * w + a * effect)
+    return pd.DataFrame({"Y": y, "A": a, "W1": w, "G": group})
+
+
+def text_group_curve(data: pd.DataFrame) -> Any:
+    from cleverly.bases import Additive, Indicators
+
+    study = CausalStudy(
+        data, design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "G"))
+    )
+    contrast = ConditionalContrast(
+        Modifiers(["G", "W1"], levels={"G": GROUPS}),
+        model=Additive(Indicators("G"), Linear(["W1"])),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = study.identify(contrast).estimate(
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            n_folds=2,
+            random_state=0,
+        )
+    return fit.effect_curve()
+
+
+@pytest.fixture(scope="module")
+def text_group() -> tuple[pd.DataFrame, Any]:
+    data = text_group_frame()
+    return data, text_group_curve(data)
+
+
+def _held_out_matches_the_raw_rows(data: pd.DataFrame, fitted: Any) -> bool:
+    """Whether each out-of-fold prediction is the fold refit's curve at the caller's own row.
+
+    The expected values read the text column the caller passed, not the indicators the
+    data layer made of it, so a frame that rebuilds the levels wrongly disagrees.
+    """
+    diagnostics = fitted.diagnostics
+    predictions, folds = diagnostics._out_of_fold(2, 0)
+    fit = fitted.fit
+    expected = np.empty(len(predictions))
+    for k in range(2):
+        test = folds == k
+        refit = fit.estimator.refit(fit.data.subset(np.flatnonzero(~test)), random_state=k)
+        expected[test] = refit.effect_curve().predict(data.loc[test, ["G", "W1"]])
+    return bool(np.allclose(predictions, expected, rtol=0.0, atol=1e-12))
+
+
+def test_the_held_out_checks_run_on_a_group_column_stored_as_text(
+    text_group: tuple[pd.DataFrame, Any],
+) -> None:
+    """Every refit reading of a text-coded ``Indicators`` curve runs (defect D1 of X122).
+
+    The covariate matrix holds the group as indicators, so a frame built from it alone
+    lacks the column the basis reads, and each call raised ``DataError``.
+    """
+    from cleverly.assessment import AssessmentStatus
+
+    _, fitted = text_group
+    diagnostics = fitted.diagnostics
+    calibration = diagnostics.calibration(n_folds=2, random_state=0)
+    risks = diagnostics.risk_comparison(n_folds=2, random_state=0).risks
+    stability = diagnostics.stability(n_seeds=2, random_state=0)
+    dropped = diagnostics.modifier_stability(n_folds=2, random_state=0).to_frame()
+    targeting = diagnostics.targeting_curve(n_half_samples=20, random_state=0)
+    assert np.isfinite([calibration.slope, calibration.intercept, *risks.values()]).all()
+    assert np.isfinite(stability.relative_sd)
+    assert list(dropped["dropped"]) == ["G", "W1"]
+    assert targeting.n_eval == 300
+    report = fitted.assess(include_refits=True, arguments=CHEAP, random_state=0)
+    rows = {item.name: item for item in report.diagnostics.items}
+    for name in CURVE_OPERATIONS:
+        assert rows[name].status is not AssessmentStatus.UNAVAILABLE, name
+
+
+def test_the_held_out_curve_reads_the_caller_s_levels(
+    text_group: tuple[pd.DataFrame, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nonzero witness: the held-out predictions differ by group and match the raw rows.
+
+    Mutation control: rebuild the group column with its levels rotated by one row, and
+    the predictions no longer match the caller's rows.
+    """
+    import cleverly.effect_modification as effect_modification
+
+    data, fitted = text_group
+    predictions, _ = fitted.diagnostics._out_of_fold(2, 0)
+    by_group = pd.Series(predictions).groupby(data["G"].to_numpy()).mean()
+    assert by_group["alone"] - by_group["carer"] > 0.2
+    assert _held_out_matches_the_raw_rows(data, fitted)
+
+    original = effect_modification.modifier_frame
+
+    def rotated(rows: Any, columns: tuple[str, ...]) -> dict[str, np.ndarray]:
+        values = original(rows, columns)
+        return {**values, "G": np.roll(values["G"], 1)}
+
+    monkeypatch.setattr(effect_modification, "modifier_frame", rotated)
+    assert not _held_out_matches_the_raw_rows(data, fitted)
