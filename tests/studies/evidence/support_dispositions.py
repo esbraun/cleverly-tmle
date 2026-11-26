@@ -1390,36 +1390,6 @@ _X40_BOUNDARIES: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, s
     ),
 )
 
-#: X26 (``omitted-variable-bound-plugin-se``). Both red cells are lower bounds on the cross-fitted
-#: three-arm fit. The owners read a finite-sample effect and no defect: ``X26-plugin-conservative``
-#: reads an interval above nominal, and ``X26-refusal-limited`` reads an interval inside the band
-#: that only the worst-case fill of 32 lost replicates puts outside it. Each decision is a stated
-#: limit with the measured number.
-_X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
-    (
-        "omitted-variable-bound-plugin-se",
-        "property",
-        "interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified",
-        "T36.three_arm_stacked",
-        ("wald",),
-        LIMIT,
-        "X26-plugin-conservative: coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, "
-        "failures 32 of 10000 (complete case fails)",
-        "",
-    ),
-    (
-        "omitted-variable-bound-plugin-se",
-        "property",
-        "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
-        "T36.three_arm_stacked",
-        ("wald",),
-        LIMIT,
-        "X26-refusal-limited: coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, "
-        "failures 32 of 10000 (worst case fails)",
-        "",
-    ),
-)
-
 #: X39 (``long-horizon-sdr``). The one red row is a reporting Wald truth row of the three-level
 #: switch regimen at n = 72,000, below the tail size of its quantity. No interval is gated there:
 #: the gated BCa row of the quantity is in ``sdr_categorical_k5_static``. The owner reads a
@@ -1584,7 +1554,6 @@ DISPOSITIONS: Mapping[RedKey, Disposition] = {
         *_TABLE,
         *_X40_PRICING,
         *_X40_BOUNDARIES,
-        *_X26,
         *_ADAPTIVE_IPTW,
         *_X39,
     )

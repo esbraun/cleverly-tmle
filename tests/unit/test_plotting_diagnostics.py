@@ -289,20 +289,24 @@ def test_v16_a_result_draws_one_panel_per_probability_model(result: Any) -> None
 
 
 def test_v16_in_sample_fit_shows_no_slope(single: Any) -> None:
-    """An in-sample slope is 1 by construction: the subtitle shows none, the note says why.
+    """An in-sample slope says nothing about new data: the subtitle shows none.
 
-    Mutation control: the same report marked out of fold shows its slope.
+    The fixture's logistic regressions are penalized (scikit-learn's default ``C=1``), so the
+    note does not call their slope 1 by construction; the same report flagged as an
+    unpenalized fit does. Mutation control: the same report marked out of fold shows its slope.
     """
     fig = calibration(single)
     report = single.diagnostics.nuisance_models().models[0]
     slope = f"{report.metrics['calibration_slope']:.2f}"
     assert "in-sample" in _core.note_text(fig).lower()
     assert "out-of-fold" not in _core.note_text(fig)
-    assert "1 by construction" in _core.note_text(fig)
+    assert "by construction" not in _core.note_text(fig)
     assert slope not in _subtitle(fig) and "no calibration slope is shown" in _subtitle(fig)
-    assert report.evaluation == "in_sample"
+    assert report.evaluation == "in_sample" and not report.slope_one_in_sample
     bare = calibration(report)
-    assert slope not in _subtitle(bare) and "1 by construction" in _core.note_text(bare)
+    assert slope not in _subtitle(bare) and "by construction" not in _core.note_text(bare)
+    exact = calibration(replace(report, slope_one_in_sample=True))
+    assert "1 by construction" in _core.note_text(exact)
     moved = calibration(replace(report, evaluation="out_of_fold"))
     assert slope in _subtitle(moved)
     assert "out-of-fold" in _core.note_text(moved)
