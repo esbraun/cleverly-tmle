@@ -400,6 +400,7 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
 | Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
 | External scores | No tutorial fits `assess_score` |
