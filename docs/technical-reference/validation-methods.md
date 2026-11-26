@@ -1,6 +1,9 @@
 # Sensitivity and validation methods
 
-This page accounts for every instrument `cleverly` gives you to review a method. Each entry answers
+This page describes the instruments `cleverly` gives you to review a method, with point-treatment
+and longitudinal fits as the main case.
+[Which operations each result family runs](#which-operations-each-result-family-runs) gives the
+coverage of every result family. Each entry answers
 three questions in the same order. Why do you use it? What does it tell you? How does it tell you
 that?
 
@@ -678,6 +681,42 @@ cost.
 **How.** `WeightReport` in
 [`data/weighting.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/data/weighting.py)
 reports the weighted effective sample size and warns when the weights concentrate.
+
+### Which operations each result family runs
+
+Each result class declares one capability row per diagnostic operation in
+`ASSESSMENT_CAPABILITIES` (`src/cleverly/assessment.py`), and `result.assess()` and each facade
+call read that row. The table gives the declarations. "runs" means the row declares the operation
+available, and any other word is the status the call reports instead. A declared operation can
+still report `deferred`, `unavailable` or `not_applicable` for one request at run time, such as a
+refused parameter, and the family's own page states those cases. "not declared" means the family
+has no row for the operation.
+
+| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `effect_modification` | `dose_response` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
+| `support` | runs | runs | unavailable | runs | runs | runs | runs |
+| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs |
+| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs |
+| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable |
+| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | not applicable |
+| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable |
+| `calibration` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+
+The sensitivity operations route separately (`SENSITIVITY_ROUTES`) and are not in the table.
+`tests/unit/test_assessment_coverage_table.py` rebuilds the table from the declarations. Each
+family's page states its operations in full: `point` on
+[point-treatment TMLE](point-treatment-tmle.md), `longitudinal` on
+[longitudinal TMLE](longitudinal-tmle.md), `structural` under
+[assessment and refutation](structural-dynamic-effects.md#assessment-and-refutation),
+`augmented_trial` on [adaptive TMLE](adaptive-tmle.md), `continuous_survival` under
+[assessment](continuous-time-survival.md#assessment), `effect_modification` under
+[assessing a curve](conditional-effects.md#assessing-a-curve), and `dose_response` under
+[assessing the curve](dose-response.md#assessing-the-curve).
 
 ### The status contract
 
