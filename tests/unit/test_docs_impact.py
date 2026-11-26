@@ -332,3 +332,104 @@ def test_ci_output_never_echoes_the_body(
     out = capsys.readouterr().out
     assert "injected" not in out and out.startswith("::stop-commands::")
     assert "injected" in (repo / "summary.md").read_text()
+
+
+# ---- review controls -------------------------------------------------------------------------
+
+
+def test_prose_between_two_code_spans_is_not_a_quote() -> None:
+    hits = docs_impact.quoted({"starts"}, {"p.md": "The `0.2.N` series starts at `0.2.0`.\n"})
+    assert hits == {}
+
+
+def test_exports_reads_every_form_of_all() -> None:
+    source = '__all__ = ["one_name"]\n__all__ += ["two_name"]\n__all__.extend(("three_name",))\n'
+    assert docs_impact.exports(source) == {"one_name", "two_name", "three_name"}
+
+
+def test_a_blanket_waiver_satisfies_routed_pages(repo: Path) -> None:
+    write(repo, "src/cleverly/tools.py", TOOLS + "\n# a comment\n")
+    commit(repo)
+    report = check(repo, "Docs-waiver: all: a comment changes no behaviour at all")
+    assert statuses(report) == {("routed", "docs/tools.md"): "waived"} and report.ok
+
+
+def test_a_blanket_waiver_with_nothing_routed_is_a_problem(repo: Path) -> None:
+    write(repo, "notes.txt", "hello\n")
+    commit(repo)
+    assert not check(repo, "Docs-waiver: all: nothing at all is routed here").ok
+
+
+def test_an_indentation_only_page_edit_does_not_count(repo: Path) -> None:
+    write(repo, "src/cleverly/tools.py", TOOLS + "\n# a comment\n")
+    page = (repo / "docs/tools.md").read_text().replace("Call", "  Call")
+    write(repo, "docs/tools.md", page)
+    commit(repo)
+    assert statuses(check(repo))[("routed", "docs/tools.md")] == "MISSING"
+
+
+def test_a_removed_parameter_still_quoted_is_found(repo: Path) -> None:
+    write(repo, "src/cleverly/tools.py", TOOLS.replace("def fit(data, grid=3,", "def fit(data,"))
+    commit(repo)
+    report = check(repo, "Docs-waiver: docs/tools.md: the waiver covers this page by name")
+    assert ("removed", "docs/tools.md") in statuses(report)
+
+
+def test_a_removed_literal_option_of_an_alias_is_found(repo: Path) -> None:
+    alias = 'from typing import Literal\nMode = Literal["fast", "careful"]\n'
+    write(
+        repo, "src/cleverly/tools.py", alias + TOOLS.replace('mode="fast"', 'mode: Mode = "fast"')
+    )
+    write(repo, "docs/other.md", '# Other\n\nUse `mode="careful"`.\n')
+    commit(repo, "add the alias")
+    run(repo, "branch", "-f", "main", "HEAD")
+    write(
+        repo,
+        "src/cleverly/tools.py",
+        (repo / "src/cleverly/tools.py").read_text().replace(', "careful"', ""),
+    )
+    commit(repo)
+    report = check(repo, "Docs-waiver: docs/tools.md: the alias change needs no edit here")
+    assert ("removed", "docs/other.md") in statuses(report)
+
+
+def test_a_removed_helper_outside_the_published_surface_is_not_reported(repo: Path) -> None:
+    write(
+        repo,
+        "src/cleverly/other.py",
+        "def other_thing(x):\n    return x\n\n\ndef private_helper(y):\n    return y\n",
+    )
+    write(
+        repo,
+        "docs/other.md",
+        "# Other\n\nRead `Settings.summary()`, `other_thing` and `private_helper`.\n",
+    )
+    commit(repo, "add helper")
+    run(repo, "branch", "-f", "main", "HEAD")
+    write(repo, "src/cleverly/other.py", "def other_thing(x):\n    return x\n")
+    commit(repo)
+    assert "removed" not in {kind for kind, _ in statuses(check(repo))}
+
+
+def test_a_rename_reports_no_removed_name(repo: Path) -> None:
+    run(repo, "mv", "src/cleverly/other.py", "src/cleverly/moved.py")
+    commit(repo)
+    assert "removed" not in {kind for kind, _ in statuses(check(repo))}
+
+
+def test_the_worktree_counts_uncommitted_and_untracked_files(repo: Path) -> None:
+    write(repo, "src/cleverly/tools.py", TOOLS + "\n# uncommitted\n")
+    write(repo, "src/cleverly/brand_new.py", "x = 1\n")
+    report = docs_impact.check("main", "", worktree=True, root=repo)
+    assert statuses(report) == {("routed", "docs/tools.md"): "MISSING"}
+    change = docs_impact.changed("main", worktree=True, root=repo)
+    assert "src/cleverly/brand_new.py" in change.paths
+
+
+def test_a_pipe_in_a_waiver_reason_is_escaped_in_the_table() -> None:
+    report = docs_impact.Report(
+        findings=[docs_impact.Finding("docs/a.md", "routed", "waived", ["x"])]
+    )
+    text = docs_impact.render(report, {"docs/a.md": "one | two | three words"}, ci=False)
+    row = next(line for line in text.splitlines() if line.startswith("| `docs/a.md`"))
+    assert "one \\| two" in row

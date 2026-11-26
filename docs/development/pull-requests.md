@@ -23,8 +23,8 @@ python -m tests.docs_impact --worktree --body-file body.md
 ```
 
 It lists four kinds of finding. A **routed** page belongs to an area of the map that your change
-touches. A page that quotes a **removed** public name (a function, class, method, field,
-parameter or `Literal` option that no module offers any more) still quotes it. A page calls an
+touches. A **removed** finding is a page that still quotes a public name the change removed (a
+function, class, method, field, parameter or `Literal` option that no module offers any more). A page calls an
 old value the **default** of a parameter whose default changed. An **added** public name of a
 published module is mentioned on no page. The report also lists pages worth a look that never
 fail, such as the tutorials of a method: their printed numbers are already gated by the

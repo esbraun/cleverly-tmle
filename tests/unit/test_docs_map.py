@@ -5,7 +5,7 @@ pull request check fails when a routed page is neither updated nor waived. A map
 lets a change through unreviewed, and a map with a dead entry routes nothing, so this module
 holds it to the tree both ways:
 
-* every file in :data:`~tests.docs_map.IN_SCOPE` matches an area or :data:`~tests.docs_map.INTERNAL`;
+* every file in :data:`~tests.docs_map.IN_SCOPE` matches an area or ``INTERNAL``;
 * every glob matches a tracked file, and every page exists as a documentation source;
 * every reader-facing page is reachable from some area, or is listed as standalone with a reason;
 * no module that defines a published name hides in ``INTERNAL``, and ``PUBLISHED`` lists every
@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.docs_impact import exports
 from tests.docs_map import AREAS, IN_SCOPE, INTERNAL, PUBLISHED, STANDALONE_PAGES, Area
 from tests.documents import READER_FACING, ROOT
 
@@ -86,15 +87,8 @@ def defined_names(source: str) -> set[str]:
 
 
 def exported(paths: Iterable[str], root: Path = ROOT) -> set[str]:
-    """The names in the literal ``__all__`` of each module in ``paths``."""
-    names: set[str] = set()
-    for path in paths:
-        for node in ast.parse((root / path).read_text(encoding="utf-8")).body:
-            if isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
-            ):
-                names |= {e.value for e in node.value.elts if isinstance(e, ast.Constant)}  # type: ignore[attr-defined]
-    return names
+    """The names the ``__all__`` of each module in ``paths`` lists, in every form."""
+    return set().union(*(exports((root / p).read_text(encoding="utf-8")) for p in paths))
 
 
 def public_internals(

@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import dataclasses
 import fnmatch
 import json
 import os
@@ -77,7 +78,7 @@ __all__ = [
 
 ROOT = Path(__file__).resolve().parents[1]
 
-WAIVER_KEY = re.compile(r"^\s*(?:[-*+]\s+)?docs-waiver\b", re.IGNORECASE)
+WAIVER_KEY = re.compile(r"^[\s>*+\-\d.\[\]x]*docs-waiver\b", re.IGNORECASE)
 WAIVER = re.compile(
     r"^\s*(?:[-*+]\s+)?docs-waiver:\s*`?(?P<target>[^\s:`]+)`?\s*:\s*(?P<reason>.*?)\s*$",
     re.IGNORECASE,
@@ -88,6 +89,11 @@ COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 #: Pages that record history: a removed name is expected to appear in them.
 HISTORY_PAGES = re.compile(r"^docs/(roadmap-delivered\.md|development/release-notes-.*\.md)$")
+#: Study pages generated from committed results: they cannot be fixed by hand, and a study
+#: regeneration rewrites them (``tests/unit/test_method_evidence.py`` gates their numbers).
+GENERATED_PAGES = re.compile(r"^docs/technical-reference/method-evidence/(?!how-to-read)")
+#: Pages that describe planned work: a mention there does not document a shipped name.
+PLANNED_PAGES = frozenset({"docs/roadmap.md"})
 EXCLUDED_PARTS = frozenset({"_build", "generated", ".ipynb_checkpoints"})
 #: A shorter name matches too much prose to be worth reporting.
 MIN_NAME_LENGTH = 3
@@ -223,8 +229,11 @@ def load_areas(source: str) -> tuple[Area, ...]:
         exec(compile(source, "tests/docs_map.py (other revision)", "exec"), module.__dict__)
     finally:
         del sys.modules[name]
-    areas = module.__dict__["AREAS"]
-    return tuple(Area(a.name, a.code, a.pages, a.guards, a.see_also) for a in areas)  # type: ignore[attr-defined]
+    fields = dataclasses.fields(Area)
+    return tuple(
+        Area(**{f.name: getattr(a, f.name, f.default) for f in fields})
+        for a in module.__dict__["AREAS"]
+    )
 
 
 def matches(path: str, pattern: str) -> bool:
@@ -296,6 +305,49 @@ def _literals(annotation: ast.expr | None) -> set[str]:
     return found
 
 
+def exports(source: str | None) -> set[str]:
+    """The names a module's ``__all__`` lists, in every form the package writes it.
+
+    That is ``__all__ = [...]`` (or a tuple), ``__all__ += [...]`` and
+    ``__all__.extend([...])``, with string elements.
+    """
+    names: set[str] = set()
+    if not source:
+        return names
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return names
+
+    def strings(node: ast.expr | None) -> set[str]:
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return {
+                e.value
+                for e in node.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            }
+        return set()
+
+    def is_all(node: ast.expr) -> bool:
+        return isinstance(node, ast.Name) and node.id == "__all__"
+
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and any(is_all(t) for t in node.targets)) or (
+            isinstance(node, (ast.AugAssign, ast.AnnAssign)) and is_all(node.target)
+        ):
+            names |= strings(node.value)
+        elif (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and is_all(node.value.func.value)
+            and node.value.func.attr == "extend"
+            and node.value.args
+        ):
+            names |= strings(node.value.args[0])
+    return names
+
+
 def surface(source: str | None, only: set[str] | None = None) -> Surface:
     """The public surface of one module's source; empty when it is missing or does not parse.
 
@@ -326,19 +378,13 @@ def surface(source: str | None, only: set[str] | None = None) -> Surface:
             if not arg.arg.startswith("_") and arg.arg not in {"self", "cls"}:
                 result.defaults[(owner, arg.arg)] = ast.unparse(default)
 
+    result.names |= {n for n in exports(source) if only is None or n in only}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
-        ):
-            if isinstance(node.value, (ast.List, ast.Tuple)):
-                result.names.update(
-                    e.value
-                    for e in node.value.elts
-                    if isinstance(e, ast.Constant)
-                    and isinstance(e.value, str)
-                    and (only is None or e.value in only)
-                )
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        # A module-level alias such as ``MSMLink = Literal["identity", "logit"]`` names the
+        # options of every signature that uses it.
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            result.names |= _literals(node.value)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if not node.name.startswith("_") and (only is None or node.name in only):
                 result.names.add(node.name)
                 function(node, node.name)
@@ -380,10 +426,10 @@ def package_surface(read: Mapping[str, str | None]) -> Surface:
 
 
 def published(sources: Mapping[str, str | None]) -> set[str]:
-    """The names the modules of :data:`tests.docs_map.PUBLISHED` export."""
+    """The names the ``__all__`` of the modules of :data:`tests.docs_map.PUBLISHED` list."""
     names: set[str] = set()
     for path in PUBLISHED:
-        names |= surface(sources.get(path)).names
+        names |= exports(sources.get(path))
     return names
 
 
@@ -395,7 +441,32 @@ def package_sources(revision: str | None, root: Path = ROOT) -> dict[str, str | 
             for p in (root / "src" / "cleverly").rglob("*.py")
         }
     listing = git("ls-tree", "-r", "--name-only", revision, "--", "src/cleverly", root=root)
-    return {p: show(revision, p, root) for p in listing.splitlines() if p.endswith(".py")}
+    return blobs(revision, [p for p in listing.splitlines() if p.endswith(".py")], root)
+
+
+def blobs(revision: str, paths: Sequence[str], root: Path = ROOT) -> dict[str, str | None]:
+    """The text of many files at ``revision`` through one ``git cat-file --batch``."""
+    if not paths:
+        return {}
+    done = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        input="".join(f"{revision}:{p}\n" for p in paths).encode(),
+        capture_output=True,
+        check=True,
+    )
+    out: dict[str, str | None] = {}
+    data, at = done.stdout, 0
+    for path in paths:
+        end = data.index(b"\n", at)
+        header = data[at:end].split()
+        at = end + 1
+        if len(header) < 3 or header[1] == b"missing":
+            out[path] = None
+            continue
+        size = int(header[2])
+        out[path] = data[at : at + size].decode("utf-8", errors="replace")
+        at += size + 1
+    return out
 
 
 # ---- the documentation ----------------------------------------------------------------------
@@ -413,40 +484,42 @@ def doc_texts(change: Change, root: Path = ROOT) -> tuple[list[str], dict[str, s
         if (p == "README.md" or (p.startswith("docs/") and p.endswith((".md", ".rst", ".ipynb"))))
         and not EXCLUDED_PARTS.intersection(p.split("/"))
         and not HISTORY_PAGES.match(p)
+        and not GENERATED_PAGES.match(p)
     )
-    return pages, {p: show(change.head, p, root) or "" for p in pages}
+    return pages, {p: text or "" for p, text in blobs(change.head, pages, root).items()}
 
 
 def doc_pages(root: Path = ROOT) -> list[str]:
-    """Every documentation source searched for names, history pages excluded."""
+    """Every hand-written documentation source, history and generated study pages excluded."""
     found = {"README.md"} if (root / "README.md").exists() else set()
     for suffix in ("md", "rst", "ipynb"):
         for path in (root / "docs").glob(f"**/*.{suffix}"):
             rel = path.relative_to(root)
             if not EXCLUDED_PARTS.intersection(rel.parts):
                 found.add(rel.as_posix())
-    return sorted(p for p in found if not HISTORY_PAGES.match(p))
+    return sorted(p for p in found if not HISTORY_PAGES.match(p) and not GENERATED_PAGES.match(p))
 
 
-def _quote_pattern(names: Iterable[str]) -> re.Pattern[str]:
-    alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    return re.compile(
-        rf"`[^`\n]*?(?<![\w-])(?P<a>{alternatives})(?![\w-])[^`\n]*?`"
-        rf"|\bcleverly(?:\.\w+)*\.(?P<b>{alternatives})\b"
-    )
+#: A code span: backticks paired left to right, so the prose between two spans is not code.
+SPAN = re.compile(r"`[^`\n]*`")
 
 
 def quoted(names: Iterable[str], texts: Mapping[str, str]) -> dict[str, list[tuple[int, str]]]:
-    """Per page, each ``(line, name)`` where a name is quoted in backticks or as ``cleverly.x``."""
+    """Per page, each ``(line, name)`` where a name sits in a code span or reads ``cleverly.x``."""
     names = list(names)
     hits: dict[str, list[tuple[int, str]]] = {}
     if not names:
         return hits
-    pattern = _quote_pattern(names)
+    alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    word = re.compile(rf"(?<![\w-])({alternatives})(?![\w-])")
+    dotted = re.compile(rf"\bcleverly(?:\.\w+)*\.({alternatives})\b")
     for page, text in texts.items():
         for number, line in enumerate(text.splitlines(), start=1):
-            for match in pattern.finditer(line):
-                hits.setdefault(page, []).append((number, match["a"] or match["b"]))
+            found = [m.group(1) for span in SPAN.findall(line) for m in word.finditer(span)]
+            outside = SPAN.sub("", line)
+            found += [m.group(1) for m in dotted.finditer(outside)]
+            for name in found:
+                hits.setdefault(page, []).append((number, name))
     return hits
 
 
@@ -457,7 +530,12 @@ def mentioned(names: Iterable[str], texts: Mapping[str, str]) -> set[str]:
         return set()
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     pattern = re.compile(rf"(?<![\w-])({alternatives})(?![\w-])")
-    return {m.group(1) for text in texts.values() for m in pattern.finditer(text)}
+    return {
+        m.group(1)
+        for page, text in texts.items()
+        if page not in PLANNED_PAGES
+        for m in pattern.finditer(text)
+    }
 
 
 # ---- the verdict ----------------------------------------------------------------------------
@@ -609,10 +687,14 @@ def map_changes(base: Sequence[Area], head: Sequence[Area]) -> list[str]:
 def render(report: Report, waivers: Mapping[str, str], *, ci: bool) -> str:
     """The report as Markdown.
 
-    In CI no text from the pull request body is echoed, so a body line cannot become a
-    workflow command; the step summary, which GitHub does not parse for commands, gets the
-    waiver reasons.
+    In CI no waiver reason is echoed, so a body line cannot become a workflow command; the
+    step summary, which GitHub does not parse for commands, gets the reasons. Table cells
+    escape ``|``.
     """
+
+    def cell(text: str) -> str:
+        return text.replace("|", "\\|")
+
     out = ["## Docs impact", ""]
     if report.map_changes:
         out.append("**This change narrows the map that judges it** (the base map still applies):")
@@ -627,8 +709,9 @@ def render(report: Report, waivers: Mapping[str, str], *, ci: bool) -> str:
             status = f.status
             if f.status == "waived" and not ci:
                 status += f": {waivers.get(f.target) or waivers.get('all')}"
+            guards = ", ".join(f.guards)
             out.append(
-                f"| `{f.target}` | {f.kind}: {why} | {status} | {', '.join(f.guards) or ''} |"
+                f"| `{f.target}` | {cell(f.kind + ': ' + why)} | {cell(status)} | {guards} |"
             )
         out.append("")
     if report.listed:
@@ -675,12 +758,16 @@ def check(base: str, body: str, *, worktree: bool, head: str = "HEAD", root: Pat
     old_defaults: dict[tuple[str, str], tuple[str, str]] = {}
     if modules:
         head_sources = package_sources(None if worktree else head, root)
+        base_sources = package_sources(change.merge_base, root)
         exported = published(head_sources)
+        base_exported = published(base_sources)
         for path in modules:
-            before_text = show(change.merge_base, path, root)
+            before_text = base_sources.get(path)
             after_text = change.head_text(path, root)
             before, after = surface(before_text), surface(after_text)
-            for name in before.names - after.names:
+            # Only what the base branch published can be quoted as API: a helper of a private
+            # module, or one left out of ``__all__``, is not.
+            for name in surface(before_text, base_exported).names - after.names:
                 lost.setdefault(name, path)
             for name in surface(after_text, exported).names - before.names:
                 new.setdefault(name, path)
@@ -689,9 +776,8 @@ def check(base: str, body: str, *, worktree: bool, head: str = "HEAD", root: Pat
                     old_defaults[key] = (value, path)
         head_all = package_surface(head_sources)
         lost = {n: p for n, p in lost.items() if n not in head_all.names}
-        if new:
-            base_all = package_surface(package_sources(change.merge_base, root))
-            new = {n: p for n, p in new.items() if n not in base_all.names}
+        base_all = package_surface(base_sources)
+        new = {n: p for n, p in new.items() if n not in base_all.names}
 
     pages, texts = doc_texts(change, root)
     stale_names: dict[str, list[str]] = {}

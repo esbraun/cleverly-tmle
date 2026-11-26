@@ -11,8 +11,9 @@ Keep an area narrow. A page gates an area when a change in that code can make a 
 the page false: the page describes the behaviour, the options, the output or the refusals of
 that code. A page that only mentions the code in passing, or whose facts another test already
 gates (a tutorial's printed numbers), goes under ``see_also``: listed for the reviewer, never a
-failure. A flag that is almost always waived teaches the reader to waive. Measured on the 40 merges
-before this map existed, a code change routed to a median of about five gating pages. The removed-name scan in
+failure. A flag that is almost always waived teaches the reader to waive. Measured on the 60 merges
+before this map existed, a merge that changed library code routed to a median of three gating
+pages. The removed-name scan in
 :mod:`tests.docs_impact` covers the passing mentions: a public name or keyword that a change
 removes is searched across every page, whatever the map says.
 
@@ -73,6 +74,7 @@ IN_SCOPE: tuple[str, ...] = (
     "tests/notebook_freshness.py",
     "tests/notebook_calls.py",
     "tests/documents.py",
+    "tests/unit/test_documentation_*.py",
     "tests/docs_map.py",
     "tests/docs_impact.py",
     "uv.lock",
@@ -164,7 +166,7 @@ STANDALONE_PAGES: dict[str, str] = {
     "docs/technical-reference/dr-tmle/validation-programme.md": "the DR-TMLE study programme",
     "docs/api/object-index.rst": "generated object index",
     "docs/_templates/autosummary/class.rst": "Sphinx template",
-    "docs/examples/twins-causal-inference.ipynb": "a worked analysis of public data; checked statically",
+    "docs/examples/twins-causal-inference.ipynb": "public data; checked statically",
     "docs/README.md": "contributor source map",
     "docs/development/index.md": "contributor table of contents",
     "docs/development/method-benchmarking.md": "study design rules, owned by the study process",
@@ -190,30 +192,33 @@ AREAS: tuple[Area, ...] = (
     _area(
         "public exports",
         (S + "__init__.py",),
-        ("README.md", "docs/getting-started/quickstart.md", API + "index.md"),
+        ("README.md", "docs/getting-started/quickstart.md"),
+        see=(API + "index.md",),
         guards=("tests/unit/test_documentation_api.py",),
     ),
     _area(
         "subpackage exports",
         (S + "*/__init__.py",),
-        (API + "index.md",),
+        see=(API + "index.md",),
         guards=("tests/unit/test_documentation_api.py",),
     ),
     _area(
         "study workflow and declarations",
         (S + "study.py", S + "protocol.py", S + "_declarations.py", S + "bases.py"),
-        (UG + "data-design.md", UG + "estimands.md", API + "study-design.md", API + "estimands.md"),
-        see=("docs/workflow.md", "docs/getting-started/quickstart.md"),
+        (UG + "data-design.md", UG + "estimands.md"),
+        see=(
+            API + "study-design.md",
+            API + "estimands.md",
+            "docs/workflow.md",
+            "docs/getting-started/quickstart.md",
+        ),
     ),
     _area(
         "typed methods and settings",
         (S + "methods.py",),
-        (
-            UG + "settings.md",
-            UG + "methods-learners.md",
-            UG + "capabilities.md",
-            API + "methods.md",
-        ),
+        (UG + "methods-learners.md",),
+        # Both are read against the code row by row by the guard tests below.
+        see=(UG + "settings.md", UG + "capabilities.md", API + "methods.md"),
         guards=(
             "tests/unit/test_documentation_settings.py",
             "tests/unit/test_documentation_capability_map.py",
@@ -247,8 +252,7 @@ AREAS: tuple[Area, ...] = (
             S + "inference/_summaries.py",
             S + "inference/_sparse_summary.py",
         ),
-        (UG + "reading-output.md",),
-        see=(UG + "results-assessment.md",),
+        see=(UG + "reading-output.md", UG + "results-assessment.md"),
     ),
     _area(
         "result objects, saving and provenance",
@@ -299,7 +303,8 @@ AREAS: tuple[Area, ...] = (
     _area(
         "targeting step",
         (S + "fluctuation/*", S + "estimators/targeting.py", S + "utils/bounds.py"),
-        see=(TR + "point-treatment-tmle.md", UG + "settings.md"),
+        (TR + "point-treatment-tmle.md",),
+        see=(UG + "settings.md", API + "results-assessment.md"),
     ),
     # ---- point-treatment estimators ---------------------------------------------------------
     _area(
@@ -657,11 +662,12 @@ AREAS: tuple[Area, ...] = (
             ".github/workflows/cancel-closed-pr-runs.yml",
             ".github/workflows/docs-impact.yml",
             ".github/pull_request_template.md",
-            "tests/docs_map.py",
             "tests/docs_impact.py",
         ),
         (DEV + "pull-requests.md",),
     ),
+    # Every pull request that adds a module edits the map, so the map gates no page of its own.
+    _area("the docs map", ("tests/docs_map.py",), see=(DEV + "pull-requests.md",)),
     _area(
         "releases and the published site",
         (
@@ -696,5 +702,12 @@ AREAS: tuple[Area, ...] = (
         ("tests/documents.py",),
         ("docs/architecture-invariants.md",),
         see=(DEV + "writing-for-readers.md",),
+    ),
+    # A new example fence adds a ``PRELUDES`` entry, so these change with most doc pull
+    # requests; the pages that describe them are listed, never gated.
+    _area(
+        "documentation tests",
+        ("tests/unit/test_documentation_*.py",),
+        see=("docs/architecture-invariants.md", DEV + "testing-strategy.md"),
     ),
 )

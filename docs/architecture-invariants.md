@@ -1024,7 +1024,7 @@ runs `tests/docs_impact.py` on every pull request, which fails when the change t
 `tests/docs_map.py` routes to a page and the pull request neither edits the page nor waives it
 with a stated reason, when a page still quotes a public name the change removed or an old default,
 and when a new public name of a published module appears on no page. It is the one documentation
-check outside the fast tier, because it needs the pull request's diff and body; the map's
+check that reads the pull request's diff and body, so it cannot run in the fast tier; the map's
 coverage, which needs neither, is checked in the fast tier by `tests/unit/test_docs_map.py`. It
 is not the dispatch ruled out above: it reads paths, names and waiver reasons, never sentences, so
 it cannot push a writer into the mechanical sweep that the prose gate produced; a waiver is a
