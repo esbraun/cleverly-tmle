@@ -3543,10 +3543,12 @@ class TestTheMethodEvidenceGrid:
         )
 
     def test_no_cell_is_left_to_the_reader(self, study: StudyRecord) -> None:
+        # The family cell is a caption such as "DR-TMLE", short by design, and
+        # TestTheStudyPagesArePlacedByFamily checks it against the index.
         blank = [
             column
             for column, cell in _grid()[study.name].items()
-            if len(cell) < 20 or cell in {"-", "--", "—", ""}
+            if column != "family" and (len(cell) < 20 or cell in {"-", "--", "—", ""})
         ]
         assert blank == [], (
             f"{study.slug}'s row says nothing in {blank}. The limitations column in particular: "
