@@ -211,3 +211,10 @@ def test_every_full_title_link_matches_its_notebook() -> None:
     for page in [INDEX, *TOPICS.glob("*.md")]:
         for match in full.finditer(page.read_text(encoding="utf-8")):
             assert match.group("text") == notebook_title(match.group("stem")), (page.name, match[0])
+
+
+def test_the_index_toctrees_are_hidden() -> None:
+    """The sidebar shows the toctrees; in the page body they would repeat the finder section."""
+    text = INDEX.read_text(encoding="utf-8")
+    bodies = [match.group("body") for match in TOCTREE.finditer(text)]
+    assert bodies and all(":hidden:" in body for body in bodies)

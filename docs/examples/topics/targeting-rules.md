@@ -1,7 +1,8 @@
-# Learn who should get it from the data
+# Learn whom to treat from the data
 
 This tutorial learns a rule that decides who gets the treatment, from recorded characteristics, and
-estimates how well the rule would do on new people.
+estimates how well the rule would do on new people. It also shows a random offer when there are
+fewer places than people who qualify.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |

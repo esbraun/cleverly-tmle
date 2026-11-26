@@ -1,7 +1,7 @@
 # Compare set policies and doses
 
 These tutorials compare policies you specify in advance, such as offering the treatment only to
-high-risk patients, giving more or less of it, or a discount anywhere from 0% to 40%.
+high-risk patients, giving more or less of it, or how renewals change with the size of a discount.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |

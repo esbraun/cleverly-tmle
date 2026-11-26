@@ -18,15 +18,18 @@ treatment was unlikely.
 
 ## Find the example for your problem
 
-Each topic page pairs its tutorials with the situation each fits and the mistake it shows.
+The Start here table, and each topic page, pair a tutorial with the situation it fits and the mistake
+it shows.
 
 ### Start here
 
 The first page runs a whole analysis on simulated data and explains each step that the other
 tutorials reuse. The second runs one on real records, where no true answer is known.
 
-- [One treatment, one outcome: TMLE](point-treatment-tmle.ipynb)
-- [Smoking and twins' birth weight: TMLE for the effect on the treated](twins-causal-inference.ipynb)
+| your situation | example | the mistake it shows |
+| --- | --- | --- |
+| a treatment given once and an outcome measured later | [one treatment, one outcome](point-treatment-tmle.ipynb) | a simple comparison of treated and untreated patients mixes the treatment's effect with who received it. The page also shows what happens to the estimate when one or both models are wrong |
+| a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
 
 ### One treatment, outcome measured once
 
@@ -50,17 +53,18 @@ people, such as those who live alone.
 - [Who gains most from a coupon: an effect that changes with age](conditional-effects.ipynb)
 - [Does navigation help patients who live alone more? Effects by group, with intervals](subgroup-effects.ipynb)
 
-#### [Learn who should get it from the data](topics/targeting-rules.md)
+#### [Learn whom to treat from the data](topics/targeting-rules.md)
 
 This tutorial learns a rule that decides who gets the treatment, from recorded characteristics, and
-estimates how well the rule would do on new people.
+estimates how well the rule would do on new people. It also shows a random offer when there are
+fewer places than people who qualify.
 
 - [Who should get the offer: learned rules and random offers with TMLE](treatment-rules.ipynb)
 
 #### [Compare set policies and doses](topics/amounts-and-policies.md)
 
 These tutorials compare policies you specify in advance, such as offering the treatment only to
-high-risk patients, giving more or less of it, or a discount anywhere from 0% to 40%.
+high-risk patients, giving more or less of it, or how renewals change with the size of a discount.
 
 - [Three offer policies: TMLE for policy effects](interventions.ipynb)
 - [More contacts and more service time: TMLE for policy effects](schedules-and-intensity.ipynb)
@@ -95,8 +99,8 @@ applies to the time until a customer churns.
 
 ### Data issues and model choices (any question)
 
-These headings apply to any question above: how to handle imperfect data, and how to choose and
-check the models inside a fit.
+These problems can arise with any question: imperfect data, and choosing and checking the models
+inside a fit. The tutorials show them with one treatment and one outcome.
 
 #### [Missing answers, samples, or a trial plus outside records](topics/missing-and-combined-data.md)
 
@@ -292,6 +296,7 @@ figures of fits that the pages below explain.
 
 ```{toctree}
 :caption: Start here
+:hidden:
 :maxdepth: 1
 
 One treatment, one outcome <point-treatment-tmle>
@@ -300,6 +305,7 @@ Smoking and twins' birth weight <twins-causal-inference>
 
 ```{toctree}
 :caption: One treatment, outcome measured once
+:hidden:
 :maxdepth: 2
 
 topics/average-effect
@@ -310,6 +316,7 @@ topics/amounts-and-policies
 
 ```{toctree}
 :caption: Repeated treatments, or time until an event
+:hidden:
 :maxdepth: 2
 
 topics/repeated-over-time
@@ -318,6 +325,7 @@ topics/time-to-event
 
 ```{toctree}
 :caption: Data issues and model choices (any question)
+:hidden:
 :maxdepth: 2
 
 topics/missing-and-combined-data
