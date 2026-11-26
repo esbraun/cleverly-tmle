@@ -100,6 +100,12 @@ readmission, prevents it.
 | --- | --- | --- |
 | Which of several candidate exposures has an effect on the outcome you can detect, with p-values adjusted for testing many? | `variable_importance`; `variable_importance_plan` counts the model fits first | [rank candidate exposures](variable-importance.md); [method](../technical-reference/validation-methods.md#variable-importance) |
 
+## Plotting a result
+
+| question you ask | what to ask for | where to read |
+| --- | --- | --- |
+| Which figure shows the size of an effect, the overlap of the groups, the weights or the sensitivity analyses? | `cleverly.plotting`: `forest`, `overlap`, `weights`, `sensitivity` and ten more | [which plot answers which question](plots.md); [plotting reference](../api/plotting.md) |
+
 ## Choosing how to fit
 
 | question you ask | what to ask for | where to read |

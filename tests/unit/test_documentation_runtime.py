@@ -318,6 +318,7 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/estimands.md": _STUDY,
     "docs/user-guide/methods-learners.md": _EFFECT,
     "docs/user-guide/results-assessment.md": _RESULT,
+    "docs/user-guide/plots.md": _RESULT,
     "docs/user-guide/assessment.md": _RESULT,
     "docs/user-guide/sensitivity.md": _RESULT,
     "docs/user-guide/trial-with-external-data.md": _TRIAL,

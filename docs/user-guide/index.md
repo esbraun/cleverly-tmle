@@ -29,6 +29,7 @@ methods-learners
 settings
 trial-with-external-data
 results-assessment
+plots
 assessment
 sensitivity
 refutation
