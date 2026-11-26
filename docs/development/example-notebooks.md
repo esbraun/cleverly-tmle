@@ -8,10 +8,8 @@ analysis and explain the result. That guide holds the writing rules for every ma
 page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
 how to execute it.
 
-Roadmap item X88 rewrites the notebooks to this page, one notebook at a time. Until a notebook's
-rewrite merges, use it as an example of code-cell practice, not of prose or headings. The
-[TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
-program tutorial.
+The [TWINS notebook](../examples/twins-causal-inference.ipynb) follows this page too, but it
+analyzes public data rather than a simulated program, so it has no known answer to compare with.
 
 ## What a tutorial notebook consists of
 
@@ -326,8 +324,10 @@ Run the checks below on the fit of the page as well, under the rule that follows
 
 `point-treatment-tmle` runs the full set for a point-treatment fit: refutation, `simulated_outcome`
 and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `marginal_bounds()`,
-`simulated_confounding()`, and the truncation curve. `plots` draws them, and
-`twins-causal-inference`, the real-data capstone, shows the full report. Every other tutorial runs
+`simulated_confounding()`, and the truncation curve. `plots` draws them. `twins-causal-inference`,
+the real-data capstone, runs the same set on an effect among the treated and adds the combined
+assessment report, covariate balance, the calibration and learner figures, and `dummy_outcome`.
+Every other tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
 each with a short reading, because its conclusion needs them.
 
