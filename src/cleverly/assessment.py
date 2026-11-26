@@ -2882,16 +2882,26 @@ class _CapabilityFacade:
         A call whose row an argument can lift or refuse passes its own arguments, so a
         request the bare row defers still runs once the caller names the argument.
         ``arguments=None`` stands for a call that supplies none, which is what an
-        operation whose row no argument changes needs.  The estimand gate is not applied:
-        a direct call resolves its own estimand default and raises its own refusal, which
-        names the estimands the fit reports.  So a call that names an estimand is never
-        refused by the deferral that :meth:`capability` reports for the bare request.
+        operation whose row no argument changes needs.
+
+        The estimand gate applies only on a facade that fills in no estimand.  There a call
+        that names none runs on the bare ``"ate"`` default, which a fit reporting only
+        other names refuses with a sentence that names none of them, so the call raises the
+        row's deferral instead: the sentence :meth:`capability` gives, naming the estimands
+        to choose from.  The sensitivity facade substitutes a sole eligible estimand, and
+        its analyses refuse an ambiguous default in sentences that name every candidate,
+        so the gate is left to them.  A call that names an estimand passes the gate
+        unchanged on either facade.
 
         ``called_as`` names the method the caller used when it previews ``operation``
         rather than running it, as :meth:`planned_refits` previews ``refute``, so the
         message names both.
         """
-        item = self._request_gated(self._gated(operation), arguments or {})
+        supplied = arguments or {}
+        gated = self._gated(operation)
+        if not self._substitutes_estimand:
+            gated = self._estimand_gated(gated, supplied)
+        item = self._request_gated(gated, supplied)
         if not item.available:
             # ``reason`` first, and ``interpretation`` only as a fallback: the record knows
             # why *this* operation is refused, and re-deriving one from the result family
