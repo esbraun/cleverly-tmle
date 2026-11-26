@@ -29,14 +29,29 @@ def _modifier_text(modifiers: Any) -> str:
     return "; ".join(parts)
 
 
-def _band_coverage(band: Any) -> str:
-    """The ``curve_band`` note's sentence on the band's joint coverage, from its own support.
+def band_coverage(band: Any, *, unmeasured: str = vocabulary.CURVE_BAND_UNMEASURED) -> str:
+    """The sentence on a curve band's joint coverage, from the band's own support.
 
-    A band built outside a fit carries no support and reads as unmeasured.
+    The summary's ``curve_band`` note and the band note of ``curve.plot()`` both read it, so
+    the two agree on the label.  A band built outside a fit carries no support and reads as
+    unmeasured.
+
+    Parameters
+    ----------
+    band : SimultaneousBand
+        The curve's band.
+    unmeasured : str
+        The template for a band no registered study measured; the figure passes its own,
+        since it prints no status line.
+
+    Returns
+    -------
+    str
+        The measured or unmeasured sentence, filled with the band's multipliers and draws.
     """
     support = band.support
     measured = support is not None and support.label == "supported"
-    template = vocabulary.CURVE_BAND_MEASURED if measured else vocabulary.CURVE_BAND_UNMEASURED
+    template = vocabulary.CURVE_BAND_MEASURED if measured else unmeasured
     return template.format(kind=band.kind, draws=count_text(int(band.n_replicates)))
 
 
@@ -129,7 +144,7 @@ def effect_curve_summary(result: Any, *, detail: str = "short") -> Summary:
                     level=share_text(1.0 - band.alpha),
                     points=count_text(int(band.estimate.size)),
                     critical=f"{band.critical_value:.3f}",
-                    coverage=_band_coverage(band),
+                    coverage=band_coverage(band),
                 ),
             )
         )

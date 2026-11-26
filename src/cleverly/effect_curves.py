@@ -931,8 +931,11 @@ class EffectCurveResult:
         Parameters
         ----------
         **kwargs
-            Passed to :func:`cleverly.plotting.curve`: ``modifier=``, ``by=``, ``at=``,
-            ``alpha=``, ``outcome_label=``, ``units=`` and ``title=``.
+            Passed to :func:`cleverly.plotting.curve`, which reads these for an effect
+            curve: ``modifier=``, ``by=``, ``at=``, ``band=``, ``alpha=``,
+            ``outcome_label=``, ``treatment_label=``, ``units=``, ``truth=``,
+            ``max_rug_points=``, ``ax=``, and the shared ``title=``, ``subtitle=``,
+            ``xlabel=``, ``ylabel=``, ``legend=`` and ``figsize=``.
 
         Returns
         -------
