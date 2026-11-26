@@ -3207,7 +3207,10 @@ GRID = ROOT / "docs" / "technical-reference" / "method-evidence" / "validation-g
 #: tests, half of them measuring the R reference, and none of them is a property from the TMLE
 #: paper.  Every column name says whose implementation its cell is about, because the grid's
 #: subject is ``cleverly`` and a reader has to be able to see that without opening a study.
+#: The ``family`` column is the exception: it repeats the index caption that holds the study's
+#: page, which :class:`TestTheStudyPagesArePlacedByFamily` checks.
 GRID_COLUMNS = (
+    "family",
     "method in `cleverly`",
     "canonical implementation compared",
     "estimands validated",
@@ -4417,6 +4420,150 @@ def test_the_title_check_fails_on_a_retitled_copy(tmp_path: Path) -> None:
     copy.write_text(text.replace("# Ordinary point-treatment TMLE", "# Canonical TMLE", 1), "utf-8")
     pages = {other.slug: other.document_path for other in STUDIES} | {study.slug: copy}
     assert [finding.split(":")[0] for finding in _title_findings(pages)] == [study.slug]
+
+
+#: The method-evidence index, whose captioned toctrees are the only record of a study's family.
+EVIDENCE_INDEX = GRID.parent / "index.md"
+#: The reading pages, which the index lists first in a toctree with no caption.
+READING_PAGES = ("validation-grid", "how-to-read", "red-cells")
+
+
+def _toctrees(index: Path) -> list[tuple[str | None, list[str]]]:
+    """Each toctree of ``index`` in order, as its caption (``None`` if it has none) and entries."""
+    trees: list[tuple[str | None, list[str]]] = []
+    lines = iter(index.read_text(encoding="utf-8").splitlines())
+    for line in lines:
+        if line.strip() != "```{toctree}":
+            continue
+        caption: str | None = None
+        entries: list[str] = []
+        for body in lines:
+            body = body.strip()
+            if body.startswith("```"):
+                break
+            if body.startswith(":caption:"):
+                caption = body.removeprefix(":caption:").strip() or None
+            elif body and not body.startswith(":"):
+                entries.append(body)
+        trees.append((caption, entries))
+    return trees
+
+
+def _placement_findings(index: Path, grid: Path) -> list[str]:
+    """How the index's family toctrees and the grid's family column disagree with the register.
+
+    The family has no field on the record: the captioned toctree that holds a page is the
+    family, and the grid's ``family`` cell must repeat it.  Each finding starts with the number
+    of the rule it breaks, as listed on :class:`TestTheStudyPagesArePlacedByFamily`.
+    """
+    findings: list[str] = []
+    trees = _toctrees(index)
+    if not trees or trees[0] != (None, list(READING_PAGES)):
+        findings.append(f"1: the first toctree is {trees[:1]}, not the uncaptioned reading pages")
+    families = trees[1:]
+    captions = [caption for caption, _ in families]
+    if None in captions or len(set(captions)) != len(captions):
+        findings.append(f"2: a family toctree has no caption or a repeated one: {captions}")
+    placed: dict[str, list[str]] = {}
+    for caption, entries in families:
+        for entry in entries:
+            placed.setdefault(entry, []).append(str(caption))
+        if entries != sorted(entries):
+            findings.append(f"6: the entries of {caption!r} are not alphabetical")
+    pages = {Path(study.document).stem: study for study in STUDIES}
+    for page in sorted(pages.keys() | placed.keys()):
+        if len(placed.get(page, [])) != 1 or page not in pages:
+            findings.append(f"3: {page} is placed under {placed.get(page, [])}")
+    order = [caption for caption in captions if caption is not None]
+    family_of = {page: homes[0] for page, homes in placed.items() if len(homes) == 1}
+    seen: list[str] = []
+    previous: tuple[str, str] | None = None
+    by_name = {study.name: Path(study.document).stem for study in STUDIES}
+    for row in pipe_table(grid, GRID_COLUMNS):
+        family, method = row["family"], row["method in `cleverly`"]
+        expected = family_of.get(by_name.get(method, ""))
+        if family != expected:
+            findings.append(f"4: {method!r} says {family!r}; its page is under {expected!r}")
+        if family in order and (not seen or seen[-1] != family):
+            if family in seen or (seen and order.index(family) < order.index(seen[-1])):
+                findings.append(f"5: the {family!r} rows are out of caption order or split")
+            seen.append(family)
+            previous = None
+        if previous is not None and method.casefold() < previous[1]:
+            findings.append(f"6: {method!r} is out of order inside {family!r}")
+        previous = (family, method.casefold())
+    return findings
+
+
+class TestTheStudyPagesArePlacedByFamily:
+    """The index groups the study pages by family, and the grid's first column says which.
+
+    The index held one flat toctree of 178 pages and the grid had no family column, so a reader
+    could find a study only by name.  The rules, numbered as the findings are:
+
+    1. the first toctree holds exactly the reading pages, with no caption;
+    2. every other toctree has a non-empty, unique caption;
+    3. each registered study's page is in exactly one captioned toctree, and every captioned
+       entry is a registered study page;
+    4. each grid row's ``family`` cell equals the caption of the toctree holding its page;
+    5. families appear in caption order, each in one contiguous block of rows;
+    6. entries inside a toctree are alphabetical, and rows inside a family are alphabetical by
+       the case-folded method name.
+
+    The test fixes the placement, not the choice of family, which
+    ``method-benchmarking.md`` ("Adding a method row") states as a rule.
+    """
+
+    def test_every_page_is_placed_once_and_the_grid_agrees(self) -> None:
+        assert _placement_findings(EVIDENCE_INDEX, GRID) == []
+
+    @pytest.mark.parametrize(
+        ("mutation", "rule"),
+        [
+            ("page-listed-twice", "3"),
+            ("page-left-out", "3"),
+            ("toctree-without-caption", "2"),
+            ("reading-page-moved", "1"),
+            ("row-with-another-family", "4"),
+            ("family-split-in-two", "5"),
+            ("entries-out-of-order", "6"),
+            ("rows-out-of-order", "6"),
+        ],
+    )
+    def test_a_mutated_copy_is_reported(self, tmp_path: Path, mutation: str, rule: str) -> None:
+        """Each mutation of a copy of the index or the grid breaks the rule it targets."""
+        index_lines = EVIDENCE_INDEX.read_text(encoding="utf-8").splitlines()
+        grid_lines = GRID.read_text(encoding="utf-8").splitlines()
+        first = index_lines.index(":caption: Point-treatment TMLE")
+        entry = first + 3  # after the caption, the depth option and the blank line
+        assert index_lines[entry] == "canonical-point-treatment-tmle", "the target moved"
+        rows = [number for number, line in enumerate(grid_lines) if line.startswith("| ")][1:]
+        point = [n for n in rows if grid_lines[n].startswith("| Point-treatment TMLE |")]
+        if mutation == "page-listed-twice":
+            twin = index_lines.index("ordinary-multi-arm-tmle")
+            index_lines.insert(twin, "ordinary-multi-arm-tmle")  # sorted still, so only rule 3
+        elif mutation == "page-left-out":
+            del index_lines[entry]
+        elif mutation == "toctree-without-caption":
+            del index_lines[first]
+        elif mutation == "reading-page-moved":
+            index_lines.remove("red-cells")
+            index_lines.insert(entry + 1, "red-cells")
+        elif mutation == "row-with-another-family":
+            grid_lines[point[0]] = grid_lines[point[0]].replace(
+                "| Point-treatment TMLE |", "| DR-TMLE |", 1
+            )
+        elif mutation == "family-split-in-two":
+            grid_lines.insert(rows[-1], grid_lines.pop(point[0]))  # now the last row
+        elif mutation == "entries-out-of-order":
+            index_lines[entry], index_lines[entry + 1] = index_lines[entry + 1], index_lines[entry]
+        else:
+            grid_lines[point[0]], grid_lines[point[1]] = grid_lines[point[1]], grid_lines[point[0]]
+        index, grid = tmp_path / "index.md", tmp_path / "validation-grid.md"
+        index.write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+        grid.write_text("\n".join(grid_lines) + "\n", encoding="utf-8")
+        found = {finding.split(":", 1)[0] for finding in _placement_findings(index, grid)}
+        assert rule in found, f"the mutation {mutation} broke rule {rule} unreported: {found}"
 
 
 class TestTheQuantityVocabulary:
