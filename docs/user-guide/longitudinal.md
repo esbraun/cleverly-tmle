@@ -900,7 +900,7 @@ the contract.
 
 Instead of one mean per plan, you can fit a straight line through the plans' means, such as the
 mean outcome against how many time points a plan treats. You choose the line's form, called a
-working model (`MSMProjection`). Its coefficients estimate the best line through the true plan
+working model (`MSM`), and ask for its coefficients with `MSMProjection`. The coefficients estimate the best line through the true plan
 means, with each plan weighted equally, whether or not those means fall on a line. Only when they
 do is the slope the effect of one more treated time point.
 
@@ -945,7 +945,8 @@ print(trend.coefficients()[["estimand", "psi", "ci_lower", "ci_upper"]])
 
 The three plans treat at neither time point, at the first only, and at both. The slope row,
 `msm_regimen[time points treated]`, reads 0.171 (0.139 to 0.203): on this line, each extra time
-point treated raises the chance of the outcome by about 0.17. Only simulated data come with the
+point treated raises the chance of the outcome by about 17
+percentage points. Only simulated data come with the
 truth. Here the true plan means in `trend_truth` are 0.419, 0.644 and 0.780, and the
 least-squares line through them has intercept 0.434 and slope 0.181, inside both intervals.
 
@@ -955,12 +956,11 @@ without looking at the data. The fit refuses a design function without that decl
 a design computed from the sample could leave the standard error wrong. `MSM.linear()` is refused
 over plans, because a plan's name is not a dose, so code each plan as a number yourself, as
 `treated_points` does. A design whose columns repeat each other across the plans, such as two
-constant columns, is refused too; [MSM projections](../technical-reference/msm-projections.md),
-section "Variations", lists every option and refusal.
+constant columns, is refused too.
+[MSM projections](../technical-reference/msm-projections.md#variations) lists the other options.
 
 The fit cross-fits by default (`n_folds=10`), so each row's predictions come from models trained
-without that row. Each fold works backward in time for every plan, and one correction step per
-time point then updates all the plans together.
+without that row.
 [The longitudinal projection](../technical-reference/msm-projections.md#the-longitudinal-projection)
 states the construction, and two simulation studies check it,
 [in sample](../technical-reference/method-evidence/ordinary-longitudinal-msm-projection.md) and
