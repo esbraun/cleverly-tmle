@@ -17,6 +17,7 @@ from sklearn.dummy import DummyRegressor
 
 from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
+from cleverly.datasets.synthetic import multi_arm_dgp
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from cleverly.validation import refute
@@ -47,6 +48,7 @@ _PROBE = "reviews/notebook-review/probes/msm-projections-final"
 UNPRINTED_DECIMALS = {
     "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
+    "0.006": f"the simulated_outcome bias at 400 refits: {_PROBE}/generated_r400.log",
 }
 
 
@@ -69,8 +71,18 @@ def _assert_unprinted_sources() -> None:
     """Each decimal in UNPRINTED_DECIMALS equals the committed file that holds it."""
     sweep = (ROOT / _PROBE / "sweep.log").read_text(encoding="utf-8")
     shortfall = (ROOT / _PROBE / "shortfall.log").read_text(encoding="utf-8")
-    assert re.search(r"slope_cover: 3762/4000 = 0\.9405 ", sweep)
-    assert _log_value(sweep, r"weighted_cover: 3762/4000 = ([0-9.]+)") == "0.9405"
+    # "covered the true slope about 95% of the time (3,782 of 4,000)", on a recorded commit.
+    assert re.search(r"^run under: cleverly \S+, commit [0-9a-f]{12} \(clean\)", sweep)
+    assert re.search(r"slope_cover: 3782/4000 = 0\.9455 ", sweep)
+    # The 400-refit run of the generated-outcome checks: 24 seconds, every test level L2 and
+    # passed, and the simulated_outcome bias 0.006.
+    r400 = (ROOT / _PROBE / "generated_r400.log").read_text(encoding="utf-8")
+    assert re.search(r"^run under: cleverly \S+, commit [0-9a-f]{12} \(clean\)", r400)
+    assert _log_value(r400, r"at 400 refits each: ([0-9]+) s") == "24"
+    for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
+        assert f"{name}: 400 draws, level L2, verdict passed" in r400
+    simulated = r400.split("simulated_outcome:")[1]
+    assert _log_value(simulated, r"bias (-?[0-9.]+) in") == "0.006"
     # "About one patient in a hundred has a true probability below 0.01."
     share = float(_log_value(shortfall, r"g\(high\) below 0\.01: ([0-9.]+)"))
     assert 0.005 < share < 0.02
@@ -333,6 +345,121 @@ def check(namespace: dict[str, Any]) -> None:
     with pytest.raises(Exception, match="arm contrast"):
         trend.sensitivity.evalue(estimand="msm[assigned contacts]")
     assert round(trend["msm[assigned contacts]"].std_error, 4) == 0.0086
+    _check_go_deeper_lessons(namespace)
+
+
+def _check_go_deeper_lessons(namespace: dict[str, Any]) -> None:
+    """The arm-contrast bounds, the model checks, and the three lessons after the trend."""
+    study, method, frame = namespace["study"], namespace["method"], namespace["frame"]
+    contacts = namespace["CONTACTS_30D"]
+
+    # Check the fit: the concentration line reads the slope's equation, whose weight is the
+    # contact count over the chance of the schedule ("these patients weigh most").
+    load = namespace["support"].group_score_load["msm"]
+    assert load["equation"] == "h_msm1"
+    assert f"{load['total_ratio']:.3f}" == "0.344"
+    models = namespace["models"]
+    aucs = {arm: models.loc[f"propensity[{arm}]", "auc"] for arm in namespace["ARMS"]}
+    assert aucs["low"] < min(aucs["medium"], aucs["high"])
+    assert 0.6 < models.loc["outcome", "r2"] < 0.7
+
+    # The contrasts' bound: in this sample the first step is the most fragile result.
+    arm_contrasts = namespace["arm_contrasts"]
+    slope_rv = namespace["trend_result"].sensitivity.robustness_value(estimand=namespace["SLOPE"])
+    values = {
+        key: arm_contrasts.sensitivity.robustness_value(estimand=key)["rv"]
+        for key in ("ate[medium vs low]", "ate[high vs low]")
+    }
+    assert values["ate[medium vs low]"] < slope_rv["rv"] < values["ate[high vs low]"]
+    assert f"{values['ate[medium vs low]']:.3f}" == "0.204"
+    # Witness: equal strengths just below the value leave the point bound above zero, and just
+    # above it cross zero.
+    rv = values["ate[medium vs low]"]
+    bound = arm_contrasts.sensitivity.omitted_confounding
+    assert bound(cf_y=rv - 0.01, cf_d=rv - 0.01, estimand="ate[medium vs low]").lower > 0
+    assert bound(cf_y=rv + 0.01, cf_d=rv + 0.01, estimand="ate[medium vs low]").lower < 0
+
+    # Effect modifier. The truth (risk 1, product 0) follows from the law: the gaussian outcome
+    # mean adds W1 with coefficient 1 and has no arm-by-covariate term, and the covariates are
+    # independent standard normals. A large draw of the law checks that independently.
+    dgp = multi_arm_dgp()
+    covariates = np.random.default_rng(20261126).normal(size=(400_000, 3))
+    rows, targets = [], []
+    for arm in namespace["ARMS"]:
+        index, count = dgp.labels.index(arm), contacts[arm]
+        rows.append(
+            np.column_stack(
+                [
+                    np.ones(len(covariates)),
+                    np.full(len(covariates), count),
+                    covariates[:, 0],
+                    count * covariates[:, 0],
+                ]
+            )
+        )
+        targets.append(dgp.outcome_mean(covariates, index))
+    law_coef = np.linalg.lstsq(np.vstack(rows), np.concatenate(targets), rcond=None)[0]
+    np.testing.assert_allclose(law_coef[2:], [1.0, 0.0], atol=0.01)
+    modifier = namespace["modifier_result"]
+    assert covers(modifier["msm[contacts x risk]"], 0.0)
+    assert covers(modifier["msm[discharge risk]"], 1.0)
+    # Fit-level witness: a score with a true product term of 0.1 is recovered and told from 0.
+    shifted = frame.copy()
+    arms = shifted["cadence"].map(contacts).to_numpy()
+    shifted["transition_score"] = (
+        shifted["transition_score"] + 0.1 * arms * shifted["discharge_risk"]
+    )
+    witness = type(study)(shifted, design=study.design, protocol=namespace["protocol"])
+    product = witness.identify(MSMProjection(namespace["modifier_trend"])).estimate(method=method)[
+        "msm[contacts x risk]"
+    ]
+    assert covers(product, 0.1) and not covers(product, 0.0)
+
+    # Yes-or-no outcome: the printed truth solves the quasi-binomial score equation of the logit
+    # projection, and differs from least squares on the probability scale.
+    design = namespace["design"]
+    chances = namespace["binary_population"]
+    line = namespace["odds_line"]
+    fitted = 1.0 / (1.0 + np.exp(-(design @ line)))
+    np.testing.assert_allclose(design.T @ (chances - fitted), 0.0, atol=1e-10)
+    from scipy.optimize import least_squares
+
+    probability_scale = least_squares(
+        lambda b: chances - 1.0 / (1.0 + np.exp(-(design @ b))), x0=line
+    ).x
+    assert np.max(np.abs(probability_scale - line)) > 1e-6
+    assert f"{np.exp(line[1]):.3f}" == "1.180"
+    assert covers(namespace["odds_result"]["msm[assigned contacts]"], line[1])
+    assert changed_fields(namespace["binary_protocol"], namespace["protocol"]) == {
+        "outcome",
+        "intercurrent_event_handling",
+        "assumption_rationale",
+    }
+    assert "hypothetical strategy" in namespace["binary_protocol"].intercurrent_event_handling[2]
+    binary_protocol = namespace["binary_protocol"]
+    assert "score" not in " ".join(binary_protocol.assumption_rationale)
+    assert "score" not in binary_protocol.intercurrent_event_handling[0]
+    assert_protocol_recorded(
+        NOTEBOOK, "logit", namespace["binary_protocol"], namespace["odds_result"]
+    )
+
+    # Treatment plans: the true line is the least-squares line through the three plan means,
+    # and both coefficients carry the supported label.
+    plan_means = namespace["plan_means"]
+    plan_design = namespace["plan_design"]
+    np.testing.assert_allclose(
+        namespace["true_plans_line"],
+        np.linalg.solve(plan_design.T @ plan_design, plan_design.T @ plan_means),
+        rtol=1e-12,
+    )
+    table = namespace["plans_table"]
+    assert set(table["support"]) == {"supported"}
+    # "because the cross-fitted longitudinal projection study covers this fit"
+    for name in table.index:
+        support = namespace["plans_result"][name].support
+        assert support.evidence == ("cross-fitted-longitudinal-msm",)
+    for name, target in zip(table.index, namespace["true_plans_line"], strict=True):
+        assert covers(namespace["plans_result"][name], target)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

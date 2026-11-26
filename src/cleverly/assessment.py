@@ -4553,7 +4553,10 @@ def _support_facts(truncated: float | None, ess: float | None) -> list[str]:
 
 
 def _group_load_fact(report: Any) -> str | None:
-    """The most concentrated score equation, separate from mechanism ESS.
+    """The score equation with the smallest Kish ratio over its mask rows, apart from ESS.
+
+    The ratio and the printed denominator are the score mask's rows, structural zeros
+    included, as :func:`~cleverly.data.weighting.format_score_load` labels them.
 
     A target-group row has no draw count of its own, so this reads the report's. Reading it
     from the row instead printed "draw 01 of 01" for every repeated fit, which contradicted

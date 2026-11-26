@@ -354,13 +354,15 @@ def forest(
     else:
         fig, axis = _core.figure_for(ax)
         axes = [axis]
-    truths = None if truth is None else _truth_values(truth, rows)
+    # Keyed by row, not by position: the panels regroup the rows by scale, so the rows of one
+    # panel need not be contiguous in the order the items gave them.
+    truths = (
+        None if truth is None else dict(zip(map(id, rows), _truth_values(truth, rows), strict=True))
+    )
     off_axis: list[str] = []
     clamps: list[tuple[Axes, str, float, float, bool]] = []
-    at = 0
     for axis, scale, group in zip(axes, scales, groups, strict=True):
-        mine = None if truths is None else truths[at : at + len(group)]
-        at += len(group)
+        mine = None if truths is None else [truths[id(row)] for row in group]
         note, keep_off = _panel(
             axis,
             scale,
@@ -422,13 +424,11 @@ def _truth_values(truth: Any, rows: Sequence[_Row]) -> list[float | None]:
 
 
 def _draw_truth(
-    values: Sequence[float | None], axes: Sequence[Axes], groups: Sequence[Sequence[_Row]]
+    values: Mapping[int, float | None], axes: Sequence[Axes], groups: Sequence[Sequence[_Row]]
 ) -> None:
-    """A cross at each row's true value, on the row's own panel."""
-    at = 0
+    """A cross at each row's true value, on the row's own panel; ``values`` is keyed by row id."""
     for axis, group in zip(axes, groups, strict=True):
-        mine = values[at : at + len(group)]
-        at += len(group)
+        mine = [values[id(row)] for row in group]
         positions = list(range(len(group)))[::-1]
         drawn = [(y, value) for y, value in zip(positions, mine, strict=True) if value is not None]
         _truth.check_log(axis, [value for _, value in drawn], axis="x")

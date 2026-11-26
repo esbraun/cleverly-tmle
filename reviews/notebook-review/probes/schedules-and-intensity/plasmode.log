@@ -1,0 +1,11 @@
+plasmode, high doubled; n = 3000; draws = 400 per seed
+seed 24: standardized bias +0.123; bias 0.123 [0.025, 0.221] outside (-0.2, 0.2)
+seed 7: standardized bias +0.068; all readings inside their bands
+seed 1: standardized bias +0.021; all readings inside their bands
+seed 2: standardized bias +0.034; all readings inside their bands
+seed 3: standardized bias -0.040; all readings inside their bands
+seed 4: standardized bias +0.042; se_ratio 1.082 [1.011, 1.159] outside (0.85, 1.15)
+seed 5: standardized bias +0.026; all readings inside their bands
+seed 6: standardized bias -0.047; all readings inside their bands
+pooled over 3200 draws: +0.028 (-0.006, +0.063)
+largest absolute: 0.123

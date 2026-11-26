@@ -80,12 +80,13 @@ Three functions serve the team readmission part of the
 | `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
 | `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
 
-Three functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
+Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
 
 | function | what it returns |
 | --- | --- |
-| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, and by the best rule |
+| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, by the best rule, and under the recorded offers |
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
+| `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
@@ -152,20 +153,22 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol
 ```
 
-Five names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
+Six names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
 where navigation is offered at discharge, on day 10, and on day 20, and a recovery score is read on
 day 30.
 
 | name | what it holds |
 | --- | --- |
 | `make_recovery_score` | a wide frame of three navigation offers with a symptom flag before each later offer and the day-30 score, with the exact plan means and the effect of each offer |
-| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers |
+| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers, each fixed or a known rule of living alone and the symptom flags |
+| `recovery_offer_count` | the exact expected number of offers per patient under such a plan |
 | `recovery_score_protocol` | the `StudyProtocol` of the three-decision recovery question |
 | `RECOVERY_PLANS`, `RECOVERY_BOUNDS` | the plans `always` and `never`, and the known range of the score, 0 to 100 |
 
@@ -175,5 +178,6 @@ day 30.
 
    cleverly.datasets.make_recovery_score
    cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_offer_count
    cleverly.datasets.recovery_score_protocol
 ```

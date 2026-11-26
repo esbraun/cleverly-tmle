@@ -24,7 +24,8 @@ strong a missing confounder would have to be to change the result. Read the **[d
   flexible curve (the EP learner) without them.
 - Policies: treating by a rule, following a learned rule, raising the chance of treatment, or
   shifting a dose.
-- Treatments over time, including time until an event with competing events such as death.
+- Treatments over time, including time until an event with competing events such as death, and
+  the separate effects of a treatment's two parts on those events.
 - Out-of-fold model fitting for flexible machine-learning models, with sampling weights and
   clustered data.
 - Checks after the fit: overlap, attempts to break the result, and sensitivity to a missing

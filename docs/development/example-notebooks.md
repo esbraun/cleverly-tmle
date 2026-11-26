@@ -139,6 +139,11 @@ cell, update the callback in the same change. Keep every scientific claim of the
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
 
+`plots` is the one exception to the outline. It is a tour of the figures on four fits, not one
+analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
+`StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
+`method-evidence` lesson sits under "Go deeper".
+
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
 | step | what to do |
@@ -300,8 +305,9 @@ of the technical reference describes each one and says which of them is a bound.
 | --- | --- | --- |
 | point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator. The point-treatment page adds `evalue()` and `simulated_confounding()`; another page adds them only under [the checks rule](#which-checks-a-page-runs). A page that refits another tutorial's law, estimand and method, as `cross-fitting` does after `point-treatment-tmle`, runs `robustness_value()` and links that page for the benchmarked bound | a bound for the first three. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means. `evalue()` reads the risk ratio, or a standardized-difference approximation for a continuous outcome, and `simulated_confounding()` is a stress surface that is not a bound |
 | a point-treatment TMLE or CV-TMLE fit that declares clusters (`cluster=`) | `robustness_value()` on the clustered fit, beside the analyses of the row above for the page's own fit | the point value is a bound, as on an unclustered fit. The value at the confidence limit sums the influence curve within clusters, while the theorem behind the limit assumes independent rows and no proof or registered study covers the clustered version ([standard error of the bound](../technical-reference/validation-methods.md#standard-error-of-the-omitted-variable-bound)), so read it as descriptive and say so in the reading |
+| a learned-rule value (`LearnedRuleValue`) | `robustness_value()` with `null_hypothesis` set to the value minus the drop that would change the decision, and `omitted_confounding()` with explicit `cf_y` and `cf_d` | a point bound on the value of the fold rules held fixed, with no confidence limits. `benchmark()` refuses, because its refit relearns the rules, and so do `evalue()` and `marginal_bounds()`. A contrast of the rule with other options (`LearnedRuleContrast`) has no bound yet. State each limit in one sentence. `simulated_confounding()` runs as a replay with the rules held fixed, and a page adds it only under [the checks rule](#which-checks-a-page-runs) |
 | C-TMLE | `robustness_value()`, `omitted_confounding()`, and `simulated_confounding()` on the selecting fit. A collaborative fit other than `strategy="derivative"` refuses the bound unless the call declares `assume_consistent_mechanism=True` | a point bound under that declaration, with the declaration stated in the reading. A per-arm outcome-adaptive fit (`oat_design="per_arm"`) needs a declared `mechanism_learner=` with the declaration, because its own treatment learner reads one outcome prediction. State the learner and the assumption that it is consistent. Without the declaration, read the bound of the ordinary TMLE fit of the declared adjustment set. It does not cover the collaborative selection |
-| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope. `simulated_confounding()` runs on the slope; add it only under [the checks rule](#which-checks-a-page-runs) | a bound on each arm contrast. The slope bound runs on an identity-link MSM with a categorical treatment. A continuous-treatment MSM or a non-identity link refuses it, so state that limit in one sentence |
+| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope. `simulated_confounding()` runs on the slope and, with three or more arms, needs `arm_pair=` to name the two arms it swaps; add it only under [the checks rule](#which-checks-a-page-runs) | a bound on each arm contrast. The slope bound runs on an identity-link MSM with a categorical treatment. A continuous-treatment MSM or a non-identity link refuses it, so state that limit in one sentence |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()`, `evalue()` with the missing-at-random plug-in of the outcome SD, and the omitted-variable bound | the tilt of the unobserved outcomes at which the estimate reaches its null. `simulated_confounding()` runs outcome-axis cells on any such fit. A cell that moves the treatment needs `observation_reads=`, the covariates the response mechanism reads, and refuses without it, because a mechanism that reads the arm breaks missing at random under the flip. That declaration cannot be tested, so state it in the reading |
 | a point fit with an intermediate (`ControlledDirectEffect`) | the omitted-variable bound and `evalue()`, and `simulated_confounding()` with every treatment strength at zero | the bound's limit is backed by a coverage study only for a binary outcome with a binary intermediate, two arms and at least 250 events in the smaller arm ([`ovb-limit-coverage`](../technical-reference/method-evidence/ovb-limit-coverage.md), cell O2); elsewhere it is descriptive. `evalue()` takes a bounding factor for each arm, and its confidence-limit E-value is descriptive. `simulated_confounding()` flips the intermediate and moves the outcome, and refuses a treatment strength above zero ([F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay)). `marginal_bounds` is unavailable, because a controlled direct effect also needs a bound on confounding of the intermediate and the outcome ([X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter)). State each limit in one sentence |
 | longitudinal TMLE, with or without a time-to-event outcome, other than the two below and a modified treatment policy at a node | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only on a fit with no time-varying covariate after the first treatment node: an uncensored end-of-study fit, or a survival or competing-risk fit, censored or not, whose treatment is one baseline decision held over every node and whose censoring mechanism is not declared. On a time-to-event fit, add `evalue(estimand=(numerator, denominator))` on two static regimens' risks at one horizon | the refits are a benchmark, not a bound. Each move is signed and specific to the dropped covariate. The E-value reads the risk ratio of the pair. It assumes censoring at random given the treatment and covariates, with the unmeasured confounder not affecting censoring, and its confidence-limit E-value is descriptive |
@@ -328,8 +334,10 @@ Run the checks below on the fit of the page as well, under the rule that follows
 
 `point-treatment-tmle` runs the full set for a point-treatment fit: refutation, `simulated_outcome`
 and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `marginal_bounds()`,
-`simulated_confounding()`, and the truncation curve. `plots` draws them, and
-`twins-causal-inference`, the real-data capstone, shows the full report. Every other tutorial runs
+`simulated_confounding()`, and the truncation curve. `plots` draws the bound's contour and prints
+its benchmarks, and draws `evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
+`simulated_outcome` and `plasmode` have no figure. `twins-causal-inference`, the real-data
+capstone, shows the full report. Every other tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
 each with a short reading, because its conclusion needs them.
 
@@ -371,13 +379,13 @@ change.
 | family | tutorials that show it |
 | --- | --- |
 | Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
-| ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`) |
+| ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
-| Natural-course mean, PAR, and PAF | population-impact |
+| Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules |
+| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
 | Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
@@ -385,7 +393,7 @@ change.
 | Incremental interventions over time | weekly-outcomes |
 | Categorical incremental interventions | schedules-and-intensity |
 | Smoothed dose-response curve | dose-response |
-| Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
+| Point and longitudinal MSM projections | msm-projections (point, with an effect modifier and a logit link in Go deeper, and a longitudinal projection on `make_longitudinal`, the two-decision binary law with dropout that its supported rows need) |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
 | Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
@@ -409,7 +417,7 @@ change.
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |
 | Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
 | Drift-corrected survival TMLE | No tutorial fits it |
-| Continuous-time survival and competing risks | plots draws one fit's risk curve and its overlap figure. No tutorial reads its estimates |
+| Continuous-time survival and competing risks | plots (risks, their difference, and the restricted mean time lost, with the overlap, weights and model figures) |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |
