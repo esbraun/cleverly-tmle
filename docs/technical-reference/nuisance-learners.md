@@ -135,8 +135,8 @@ unit's two copies share its covariates.
 | --- | --- | --- |
 | the covariate screen (`src/cleverly/learners/screeners.py`) | a lasso of the outcome on the treatment-model covariates with the treatment held fixed, which keeps the covariates the treatment mechanism then reads. R `tmle`'s `prescreenW.g` screens marginally instead | [covariate screening](point-treatment-tmle.md#covariate-screening) |
 | hazard learners (`cleverly.survival`) | Cox models and stratified Nelson-Aalen estimators, selected by cross-validated partial likelihood | [hazard learners](continuous-time-survival.md#hazard-learners) |
-| rule learners | each fold's treatment rule, fitted to a doubly robust pseudo-outcome by any learner the caller passes | [rule learners](point-treatment-tmle.md#rule-learners) |
-| the EP learner | the efficient plug-in curve of a conditional effect | [the EP learner](conditional-effects.md#the-ep-learner), and [the EP rule learner](point-treatment-tmle.md#the-ep-rule-learner) |
+| rule learners | each fold's treatment rule, fitted to a doubly robust pseudo-outcome by any learner the caller passes | [learned rules](point-treatment-tmle.md#learned-rules), "Rule learners" |
+| the EP learner | the efficient plug-in curve of a conditional effect | [the EP learner](conditional-effects.md#the-ep-learner), and [learned rules](point-treatment-tmle.md#learned-rules), "The EP rule learner" |
 
 ## The checks that exist
 
@@ -186,7 +186,7 @@ lies inside the ground that `few-cluster-adaptive-learners` measured (`adaptive_
 and `_adaptive_qualifiers` in `src/cleverly/_support.py`; [few clusters](inference.md#few-clusters)
 states the rule). Two fit families also read the learner family in their own support key at any
 cluster count: `AdaptiveIPTW` ([adaptive IPTW](adaptive-iptw.md#contract)) and the learned rule
-fitted on all rows ([one rule fitted on all rows](point-treatment-tmle.md#one-rule-fitted-on-all-rows)).
+fitted on all rows ([learned rules](point-treatment-tmle.md#learned-rules), "One rule fitted on all rows").
 Any other unclustered fit keeps its support row's label whatever learner it uses, so the rate and
 Donsker conditions are the analyst's to judge.
 
