@@ -1,8 +1,9 @@
-# Try to break the result
+# Refutation
 
 A refutation test changes the problem so that the right answer is known in advance, refits the whole
 analysis, and checks the estimate against that answer. Shuffle the treatment, for example, and the
-effect should be about zero. A test can expose a bug, or a setting that does not suit the data,
+effect should be about zero. Where [diagnostics](assessment.md) read the models the fit stored, a
+refutation test refits them on changed data. A test can expose a bug, or a setting that does not suit the data,
 which shows up as bias or poor coverage on simulated data like yours; coverage is the share of 95%
 intervals that hold the true value, which should be near 95%. It cannot detect rows that depend on
 each other when you have not declared it, such as repeated visits of one person entered as separate
@@ -534,6 +535,29 @@ which fits get a pass or fail.
 | `sample_limit`, `sampling` | refute a random sample of people or clusters |
 | `random_state` | the seed of every draw |
 | `checkpoint`, `progress` | save each draw as it finishes, and report each one |
+
+### Refutation of a fit over time
+
+The refutation tests also run on a longitudinal fit.
+`result.diagnostics.refute()` refits the stored estimator with the original folds. Its placebo
+draws a new treatment history for every unit, so every plan contrast should be about zero. A
+[simulation study](../technical-reference/method-evidence/refuter-calibration-longitudinal.md)
+backs a pass or fail for the placebo, subset and negative-control tests on the fits it covers,
+and other fits print their numbers without one.
+The "Longitudinal refutation" part of
+[refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
+every test.
+
+Each default test refits the whole analysis 20 times, so on a long panel a refutation takes
+time. Pass the key of the estimate you test as `estimand=`, such as
+`estimand="ate_regimen[never vs always]"`, because the default `"ate"` is not a longitudinal key.
+`planned_refits(estimand=...)` then counts the refits before you run them, and `sample_limit=` runs
+the tests on a random sample of people. On the tests that run hundreds of draws, such as
+`dummy_outcome`, `plasmode` and `bootstrap_stability`, `checkpoint=RefutationCheckpoint(folder)`
+from `cleverly.validation` saves each draw as it finishes, so a stopped run resumes.
+[Count the refits before a long test](#count-the-refits-before-a-long-test),
+[Refute a sample of a large fit](#refute-a-sample-of-a-large-fit) and
+[Save the draws as they finish](#save-the-draws-as-they-finish) show each one.
 
 ### The checks in the tutorials
 

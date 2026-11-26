@@ -372,95 +372,6 @@ Outcome regressions need predictions on the outcome's mean scale. Binary treatme
 mechanisms need probability predictions. Continuous treatment policies use a conditional density
 model. `cleverly` validates learner task compatibility and sample-weight support.
 
-## Count the model fits before a long run
-
-Call `planned_fits` with the same arguments you would pass to `estimate`. It reads your data,
-folds, and learners and counts the models the fit would train, without training any of them.
-
-```python
-plan = effect.planned_fits(random_state=3)
-print(plan.total_fits, plan.total_candidate_fits)
-```
-
-```text
-20 360
-```
-
-With the default learners, a binary-treatment ATE fits two models, one for the treatment and one
-for the outcome, on each of the 10 outer folds: 20 fits. Each of those fits is an ensemble of three
-candidates, and the ensemble trains every candidate once per inner fold and once more on all the
-rows it was given, so 3 × (5 + 1) = 18 candidate fits per model. That makes 360 candidate fits, of
-which 120 are random forests. `print(plan.summary())` lists the fits by model and by candidate.
-Lasso runs its own 5-fold search for a penalty inside each of its fits, and the summary shows those
-folds beside the count rather than adding them to it.
-
-`study.planned_fits(ATE(), random_state=3)` gives the same count straight from the study. Pass
-`random_state` when you can. The count then uses the exact folds the fit will use. Without it the
-count describes one random draw of the folds, and a count that depends on the folds can differ
-from the draw the fit makes.
-
-Some methods stop when a rule is met, so the count is the most they can fit. `plan.exact` is then
-`False`, `plan.min_fits` gives the fewest fits, and the printed plan says "at most". On the same
-data, `effect.planned_fits("drtmle", random_state=3)` counts at most 3170 fits and at least 230,
-because its alternating updates can stop before their limit of 50 rounds. Adaptive IPTW updates,
-bootstrap replicates, and folds where a regression target turns out constant give upper bounds for
-the same kind of reason. The `why` column of `plan.to_frame()` names the reason for each row.
-
-If the fit would refuse your data or settings before training its first model, `planned_fits`
-raises the same error. To cut the count, use fewer outer folds, fewer inner folds, or a smaller
-library, as [Two fold layers](#two-fold-layers) describes.
-
-`variable_importance` fits one model set per candidate exposure. `variable_importance_plan`,
-called with the same arguments apart from `keep_fits`, counts those fits in the same way, with each
-row labelled by its candidate ([rank candidate exposures](variable-importance.md)).
-
-## Use GLM for the sequential baselines
-
-`cleverly.learners.GLM` is an unpenalized maximum-likelihood fit with a canonical link. Its score
-and information are public, so `SequentialGComputation` and `SequentialIPW` stack them into an
-interval. See [Report the sequential baselines](longitudinal.md#report-the-sequential-baselines).
-
-| behavior | what `GLM` does |
-| --- | --- |
-| `family="binomial"` on a target with three or more labels | raises `ValueError`. Pass `family="multinomial"` or `"auto"` |
-| a design column that is constant, or a combination of other columns, on the fit rows | aliases the column. It gets no coefficient |
-| `alias_` | holds each aliased column as a combination of the active columns |
-| `outside_span(x)` | returns `True` for each row where an aliased column departs from that combination |
-
-A prediction through an aliased column assumes that the column has no effect. On a row that
-departs from the fit rows, the data cannot support that assumption. Sequential g-computation
-refuses such a fit with `DataError`, because no follower has that history.
-[Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
-this refusal for g-computation only.
-
-```python
-import numpy as np
-
-from cleverly.learners import GLM
-
-x = np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 0.0]])
-model = GLM().fit(x, np.array([0, 1, 1, 0]))
-print(model.active_)
-print(model.outside_span(np.array([[0.0, 1.0], [1.0, 1.0]])))
-```
-
-The first column is constant on the fit rows, so the fit aliases it with the intercept. The row
-`[0.0, 1.0]` departs from that relation.
-
-## Use GLM for the parametric g-formula
-
-`ParametricGFormula` fits a `GLM` for every covariate, outcome and hazard model by default. The
-fit chooses the family of each model from its response: binomial for a binary column, multinomial
-for a categorical one and Gaussian for a normal one. A `GLM` with another family is refused.
-The forward draw of a Gaussian column needs the residual variance of the fit, so a Gaussian
-covariate accepts a `GLM` only. A data-adaptive learner for any other model gives the status
-`adaptive_baseline_plugin`. See
-[Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula).
-
-Choose `ParametricGFormula` over `SequentialGComputation` when the plan fixes a continuous dose,
-or when you need the forward-simulation form. Choose `SequentialGComputation` when you doubt a
-covariate law, because it models no covariate.
-
 ## Two fold layers
 
 - `n_folds` defines the outer cross-fitting split used to keep each observation out of the nuisance
@@ -641,7 +552,7 @@ A longitudinal fit has more settings of its own, among them a cap on extreme nod
 shorter history for each model, one pooled censoring model, a declared outcome range at chosen
 nodes, a curve that cannot decrease (`isotonic=True`) and the hazard model of a survival curve
 (`survival_model="hazard"`).
-[Weight trimming, shorter histories, and node bounds](longitudinal.md#weight-trimming-shorter-histories-and-node-bounds)
+[Weight trimming, shorter histories, and node bounds](longitudinal-estimators.md#weight-trimming-shorter-histories-and-node-bounds)
 describes them.
 
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting

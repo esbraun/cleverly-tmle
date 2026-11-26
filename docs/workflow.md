@@ -185,7 +185,7 @@ result = effect.estimate(method=method)
 ```
 
 `planned_fits` counts the model fits before you run them, here 10, two models times
-five folds ([count the model fits](user-guide/methods-learners.md#count-the-model-fits-before-a-long-run)).
+five folds ([count the model fits](user-guide/run-time-and-memory.md#count-the-model-fits-before-a-long-run)).
 The same settings also work as keyword arguments to `estimate()`.
 
 Any scikit-learn model fits either slot. Left out, each slot gets a combination of three models
@@ -253,7 +253,7 @@ the offer and the check-up. A missing confounder as strong as age would have str
 0.015 and 0.007, both below 0.075, so it could not move the estimate to 0. In words for a report: a hidden factor as
 strong as age on both sides would fall far short of erasing the estimate. To run both inside `assess()`, pass `include_refits=True` and
 `arguments={"benchmark": {"covariates": ["age"]}}`; `random_state=` seeds the refits
-([check a fitted result](user-guide/assessment.md)).
+([diagnostics](user-guide/assessment.md)).
 
 An overlap plot draws each group's predicted chance of the offer. Where one group has people and the
 other has none, or chances pile up near 0 or 1, the comparison there rests on extrapolation. Here
@@ -281,7 +281,7 @@ raise both the chance of the offer and the chance of a check-up.
 The support label reads `supported` when those studies cover the fit and passed, as here, and
 `experimental` when they do not or a condition the summary's notes name applies; an experimental
 result can still be reported, with that label and its reason
-([read the support label](user-guide/results-assessment.md#read-the-support-label)). Report it
+([read the support label](user-guide/reading-output.md#read-the-support-label)). Report it
 with the question, the population, the conditions, the learners and fold settings, the estimate and
 interval, and the overlap and sensitivity checks. Report also what `result.provenance` records: the
 `cleverly`, NumPy and scikit-learn versions and fingerprints of the data and the folds. The package
@@ -340,9 +340,9 @@ design](user-guide/data-design.md) covers every column type.
 | --- | --- | --- |
 | the average effect, or the effect among the treated or the untreated | `ATE`, `ATT`, `ATC`, `RiskRatio`, `OddsRatio`, `CounterfactualMean` | [arm-indexed questions](user-guide/estimands.md#arm-indexed-questions) |
 | current practice compared with no one treated | `NaturalCourseMean`, `PopulationAttributableRisk`, `PopulationAttributableFraction` | [arm-indexed questions](user-guide/estimands.md#arm-indexed-questions) |
-| a policy that shifts a dose or raises the chance of treatment | `ModifiedTreatmentPolicy`, `IncrementalEffect` | [modified treatment policies](user-guide/estimands.md#modified-treatment-policies), [incremental interventions](user-guide/estimands.md#incremental-propensity-score-interventions) |
-| a curve over a continuous dose, or a trend across levels | the dose-curve call, `MSMProjection` | [a curve over a continuous dose](user-guide/estimands.md#a-curve-over-a-continuous-dose), [marginal structural models](user-guide/estimands.md#marginal-structural-models) |
-| the value of a treatment rule, learned or optimal | `LearnedRuleValue`, `OptimalRuleValue` | [learned treatment rules](user-guide/estimands.md#learned-treatment-rules) |
+| a policy that shifts a dose or raises the chance of treatment | `ModifiedTreatmentPolicy`, `IncrementalEffect` | [modified treatment policies](user-guide/policies.md#modified-treatment-policies), [incremental interventions](user-guide/policies.md#incremental-propensity-score-interventions) |
+| a curve over a continuous dose, or a trend across levels | the dose-curve call, `MSMProjection` | [a curve over a continuous dose](user-guide/policies.md#a-curve-over-a-continuous-dose), [marginal structural models](user-guide/estimands.md#marginal-structural-models) |
+| the value of a treatment rule, learned or optimal | `LearnedRuleValue`, `OptimalRuleValue` | [learned treatment rules](user-guide/learned-rules.md#learned-treatment-rules) |
 | an effect that changes with a characteristic such as age | `ConditionalContrast` | [conditional effects](user-guide/conditional-effects.md) |
 | the effect with a later step fixed for everyone | `ControlledDirectEffect` | [controlled direct effects](user-guide/estimands.md#controlled-direct-effects) |
 | a trial's effect, helped by outside records | `TrialATE` | [a trial with external data](user-guide/trial-with-external-data.md) |

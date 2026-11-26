@@ -16,7 +16,7 @@ models the law of each time-varying covariate and simulates each unit forward un
 Both intervals hold for the target only when every model that the estimate reads is correctly
 specified. The parametric g-formula needs more models than the backward form, and it needs each of
 them to be correct. A fit with the backward form tolerates a misspecified covariate law that this
-fit does not. [When to choose it](../user-guide/longitudinal.md#simulate-the-parametric-g-formula)
+fit does not. [When to choose it](../user-guide/longitudinal-estimators.md#simulate-the-parametric-g-formula)
 lists the reasons to pay that price.
 
 ```python

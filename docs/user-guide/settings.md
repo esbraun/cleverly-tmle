@@ -234,7 +234,7 @@ formula ([conditional effects](conditional-effects.md#fit-the-effect-without-cho
 ### Sequential IPW
 
 `IPWMethod` weights each row by its inverse treatment probabilities over time
-([report the sequential baselines](longitudinal.md#report-the-sequential-baselines)).
+([report the sequential baselines](longitudinal-estimators.md#report-the-sequential-baselines)).
 
 | setting | default | what it changes |
 | --- | --- | --- |
@@ -243,7 +243,7 @@ formula ([conditional effects](conditional-effects.md#fit-the-effect-without-cho
 ### Parametric g-formula
 
 `ParametricGFormulaMethod` simulates each row's covariate history under the plan from fitted models
-([simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula)).
+([simulate the parametric g-formula](longitudinal-estimators.md#simulate-the-parametric-g-formula)).
 
 | setting | default | what it changes |
 | --- | --- | --- |
