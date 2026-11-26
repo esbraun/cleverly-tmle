@@ -602,7 +602,7 @@ Four facts shape the rule. Each has its source or its witness.
 | --- | --- |
 | the slope measures spread, not specification. The limit $\eta^*$ of a logistic model with an intercept and main effects solves $E[(A - \operatorname{expit} \eta^*)(1, \eta^*)] = 0$, so its population slope is 1 whether the model is correct or not | the score equations of the model. [Riley et al. (2021)](../references.md#calibration-of-prediction-models), Section 2.1.2, state the in-sample case |
 | estimation noise can put the out-of-fold slope of a correct model below 1 when the signal is weak or the covariates are many | Riley et al. (2021), Section 2.1.2. The [calibration-slope study](method-evidence/calibration-slope-warning.md) measures the mean slope of a correct model on four covariates |
-| an unpenalized logistic model with an intercept has an in-sample slope of exactly 1 | Riley et al. (2021), Section 2.1.2. `test_w10_an_in_sample_fit_carries_no_test` |
+| an unpenalized logistic model with an intercept has an in-sample slope of exactly 1; a penalized fit, and a one-vs-rest arm of a multinomial fit, need not, so the in-sample note names only unpenalized two-class logistic models | Riley et al. (2021), Section 2.1.2. `test_w10_an_in_sample_fit_carries_no_test`, `test_w10b_only_an_unpenalized_two_class_fit_is_called_slope_one` |
 | the slope measures the spread of the predictions, and it is read with the calibration intercept, not alone | [Stevens and Poppe (2020)](../references.md#calibration-of-prediction-models), Sections 3 and 4, and [Van Calster et al. (2019)](../references.md#calibration-of-prediction-models), section "How to assess calibration?" |
 
 No read source gives a fixed band or a rule for cross-fitted nuisance predictions. The interval, the
