@@ -50,6 +50,33 @@ initial fits and raise a `DataError`, which a study records as a failed fit: an 
 hazard jump, and an initial survival below $10^{-250}$ before the grid's end, the last target
 time or restricted horizon, where double precision no longer holds the clever covariate.
 
+### Hazard learners
+
+`cleverly.survival` exports the hazard learners a library holds. `CoxHazard(terms, penalty)` fits
+the treatment alone (`"treatment"`), main terms (`"main"`, the default) or main terms with their
+treatment interactions (`"interaction"`), with an optional ridge `penalty` on the standardized
+coefficients; `CoxHazard("treatment")` at a zero coefficient is the Nelson-Aalen estimator.
+`StratifiedNelsonAalen(by)` is the Nelson-Aalen cumulative hazard within each cell of discrete
+columns. `select_hazard` chooses a member by the cross-validated partial likelihood of Verweij and
+van Houwelingen (1993) and refits it, returning a `HazardSelection` with the losses and the choice.
+A library of more than one member holds `CoxHazard` models only, because the partial likelihoods
+compare only over the same risk sets; a one-member library may hold a `StratifiedNelsonAalen`.
+
+On separated data, such as a cause with no events in one arm or a covariate that orders the event
+times, the partial likelihood rises toward a limit it never reaches. `CoxHazard` then stops along
+its Newton path where the Breslow sums still hold full precision. When the infinite-coefficient
+test of R's `survival::coxph` detects the case, a heuristic that a small separated sample can pass,
+the fit sets `monotone_likelihood_` and emits a `ConvergenceWarning` that names the coefficients
+that may be infinite. That fit is not a maximum-likelihood estimate: the hazards the separating
+direction sends toward zero or infinity are effectively at their limit. A positive `penalty` gives
+the likelihood a finite maximum, and a `StratifiedNelsonAalen` on a separating discrete column fits
+the limit exactly. Neither the warning nor `monotone_likelihood_` is an input of the support label,
+though the event shares, the influence curve's sparsity and the jump bound it does read come from
+the fit. A member with a non-finite cross-validated loss cannot be selected.
+`tests/unit/test_continuous_survival.py` checks the stopping point and the warning
+(`test_a_separated_fit_stops_inside_the_resolved_range_and_says_why`), the finite penalized maximum
+and a regular fit with no warning.
+
 ### The jump bound
 
 Where the cause jumps of a unit at one arm and time sum to $s \ge 1$, the cells the engine
@@ -433,7 +460,10 @@ A refute with the default tests and replicates costs 60 refits of the fit (40 on
 of the nuisances plus one walk per floor. A simulated common-cause surface costs one refit per cell
 other than the anchor, so a 3 by 3 grid costs 8 refits. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
-jumps and the weight product, about 600 MB, while it runs.
+jumps and the weight product, about 600 MB, while it runs. `planned_refits()` counts a refute's
+refits before they run, which leave out the fit's own bootstrap, and `refute(result, sample_limit=m)` refits on
+a random sample of `m` units; [refutation operations](validation-methods.md#refutation-operations)
+states both rules ("Counting the refits before they run" and "Refuting a sample of the units").
 
 The [continuous-time survival refutation study](method-evidence/refuter-calibration-continuous-survival.md)
 calibrates the placebo `t` and the subset `rho` on a risk difference, so each prints a verdict on a
@@ -594,6 +624,51 @@ its peak, and doubling $n$ with no block kept, under the default with a predicta
 buffer smaller than a block, at most multiplies the peak by 2.5. Coarsening the time grid would
 lower $M$ but changes the analysis, so the engine never does it.
 
+## Settings
+
+The table lists every argument of `ContinuousSurvivalTMLE` with its default, where a `CausalStudy`
+fit takes it from, and whether the support label reads it as part of the configuration. The label
+also reads the fit itself (the event shares, the influence curve's sparsity and the jump bound),
+which `random_state` moves through the folds. `simultaneous` and `n_bootstrap` add a band and
+bootstrap intervals with labels of their own. A study fit reads the
+target times, restricted horizons and arms from the estimand, and the rest from the method through
+`continuous_kwargs`. `causes` and `tilt` are reachable only on the class. The label reads a
+supported configuration as the registered studies measured it: the settings of
+`MEASURED_DEFAULTS` (`cleverly.survival.result`), the default libraries and treatment learner, and
+the conditions [Evidence](#evidence) states. `tests/unit/test_continuous_survival_settings_table.py`
+rebuilds the first four columns from the code.
+
+| setting | default | on a study fit, from | read by the label | what it sets |
+| --- | --- | --- | --- | --- |
+| `horizons` | required | the estimand | yes | the target times; the label reads the share of events by each one |
+| `restricted_horizons` | `()` | the estimand | yes | the restriction times of the restricted means; more than one reads experimental |
+| `arms` | `None` | the estimand | no | the label of each of the two treatment levels |
+| `reference` | `None` | the estimand | no | the comparison arm of the contrasts |
+| `causes` | `None` | none | no | the label of each event code; every observed code must be named, so the cause count the label reads stays the observed one |
+| `cross_fit` | `True` | the method | yes | out-of-fold nuisances; an in-sample fit is supported only in the variance study's in-sample cell |
+| `n_folds` | `10` | the method | yes | the cross-fitting folds |
+| `learner_folds` | `5` | the method | yes | the folds of each nuisance's model selection |
+| `hazard_library` | `None` | the method | yes | the cause hazard learners; see [hazard learners](#hazard-learners) |
+| `censoring_library` | `None` | the method | yes | the censoring hazard learners |
+| `treatment_learner` | `None` | the method | yes | the treatment model |
+| `norm` | `"covariance"` | the method | yes | the inner product of the universal submodel (`"covariance"`, `"variance"`, `"euclidean"`) |
+| `g_bounds` | `"auto"` | the method | yes | the lower bound on $\pi(a \mid L)\, S_c(u^- \mid a, L)$ |
+| `max_iter` | `500` | the method | yes | the cap on accepted steps of the walk |
+| `step_size` | `0.1` | the method | yes | the first step size |
+| `tol` | `None` | the method | yes | the stopping cutoff; `None` is $1 / (\sqrt n \log n)$ |
+| `alpha` | `0.05` | the method | yes | the significance level |
+| `random_state` | `None` | the method | no | the seed of the folds, the selections, the lasso members and the band |
+| `tilt` | `"all"` | none | yes | `"factual"` reproduces the `concrete` 1.0.5 update, for the mutation control only |
+| `simultaneous` | `False` | the method | no | a sup-t band over every risk and risk difference; the study route turns it on by default |
+| `n_multiplier` | `10000` | the method | no | the band's multiplier draws |
+| `multiplier_kind` | `"mammen"` | the method | no | the band's multiplier distribution |
+| `band_scale` | `"logit"` | the method | no | the band's scale for a bounded estimate |
+| `variance` | `"switched"` | the method | yes | `"switched"` or `"influence_curve"`; see [the switched variance](#the-switched-variance) |
+| `max_memory_bytes` | `None` | the method | no | the memory budget; see [Memory](#memory) |
+| `n_jobs` | `1` | the method | no | the walk's threads and the bootstrap's worker processes |
+| `n_bootstrap` | `0` | the method | no | full-refit bootstrap replicates; see [the full-refit bootstrap](#the-full-refit-bootstrap) |
+| `bootstrap_interval` | `"percentile"` | the method | no | `"percentile"` or `"bca"` |
+
 ## What is refused
 
 | request | why |
@@ -614,12 +689,15 @@ lower $M$ but changes the analysis, so the engine never does it.
 | an initial hazard fit with an infinite cause jump | the product-limit survival is not defined there, and the [jump bound](#the-jump-bound) has no share of each cause to keep |
 | the bootstrap intervals and band of a fit where more than 1% of the `n_bootstrap=` refits fail | the kept replicates would condition on the resamples that fit; the fit warns, keeps its Wald intervals and sets `bootstrap_status="bootstrap_unstable"`; see [The full-refit bootstrap](#the-full-refit-bootstrap) |
 | `bootstrap_interval="bca"` without `n_bootstrap=` | there are no replicates to read |
+| a hazard library of more than one member with a member that is not a `CoxHazard` | the cross-validated partial likelihood compares members over the same risk sets, which a stratified or nonparametric learner does not share ([X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)) |
+| a hazard library every member of which has a non-finite cross-validated loss | each member's coefficients run to a monotone-likelihood boundary on some training fold; add a penalized member |
 
-The rows on an arm's first event of a cause, on an arm's follow-up and on an infinite jump read the
-drawn data, not the request, so they raise `DataError`, and a repeated-sampling study records such
+The rows on an arm's first event of a cause, on an arm's follow-up, on an infinite jump and on a
+library with no finite cross-validated loss read the drawn data, not the request, so they raise
+`DataError`, and a repeated-sampling study records such
 a draw as a lost replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or
 `bootstrap_interval=` set wrongly raises `ValueError` at construction. The other rows raise
-`CapabilityError`.
+`CapabilityError`; a mixed hazard library does so at fit, when its selection runs.
 
 ## Evidence
 
