@@ -285,6 +285,7 @@ true treatment probabilities, as in a trial with `treatment_probabilities=`; tho
 valid when the outcome model is wrong, and they can be narrower than the default fit's. With
 estimated treatment probabilities it reports the estimates without intervals, because its error
 can then depend on the treatment model's error in a way no check on the data can rule out.
+Its `curve.plot()` then draws the curve with no interval, and the figure's notes say why.
 
 In a simulation with known treatment probabilities and a wrong outcome model, its 95% intervals
 contained the true coefficients about 94% to 95% of the time

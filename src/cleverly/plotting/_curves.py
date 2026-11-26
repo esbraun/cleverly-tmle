@@ -2345,7 +2345,7 @@ def _effect_curve(
         if by is not None:
             frame[by] = np.full(grid.size, level)
         found: dict[str, np.ndarray] = {}
-        if projection:
+        if drawn_interval:
             table = result.predict(frame, interval=True, alpha=level_alpha)
             found["estimate"] = np.asarray(_column(table, "estimate"), dtype=float)
             found["lower"] = np.asarray(_column(table, "ci_lower"), dtype=float)
