@@ -309,7 +309,7 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation_limits(namespace: dict[str, Any]) -> None:
-    """The two refused checks that "Try to break the result" names; each refuses before refitting."""
+    """The two refused checks that "Refutation" names; each refuses before refitting."""
     result, frame = namespace["result"], namespace["frame"]
     estimand = _key("always", 3)
     for test in ("simulated_outcome", "plasmode"):
@@ -514,7 +514,7 @@ def _check_prose_phrases() -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """ "Try to break the result": the three refits of the week-3 effect of a code every week."""
+    """Refutation: the three refits of the week-3 effect of a code every week."""
     result, refutation = namespace["result"], namespace["refutation"]
     estimand = _key("always", 3)
     assert refutation.estimand == estimand

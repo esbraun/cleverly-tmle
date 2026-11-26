@@ -421,7 +421,7 @@ def _check_prose_phrases() -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """ "Try to break the result": the three refits of the g-formula's gain of `always`."""
+    """Refutation: the three refits of the g-formula's gain of `always`."""
     result, refutation = namespace["result"], namespace["refutation"]
     assert refutation.estimand == CONTRAST
     tests = {test.name: test for test in refutation.tests}
