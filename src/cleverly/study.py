@@ -75,6 +75,7 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
+from .inference.bootstrap import bootstrap_band
 from .inference.multiplier import (
     SimultaneousBands,
     band_member,
@@ -3752,7 +3753,37 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     return replace(
         bootstrap,
         draws={name: values for name, values in bootstrap.draws.items() if name in retained},
+        std_errors={
+            name: values for name, values in bootstrap.std_errors.items() if name in retained
+        },
     )
+
+
+def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> Any:
+    """The studentized bootstrap band over the parameters this effect reports.
+
+    The engine bands every estimate it computed, so a contrast identified from a fit that
+    also computed the plan means carried a band over rows it no longer reported, and
+    ``summary()`` counted them.  As for :func:`_narrow_bands`, the band is recomputed over the
+    retained members of the engine's family from the same replicate draws, replicate standard
+    errors and ``alpha``, which makes it the band the engine would have built for that family
+    alone.  Below two members there is no joint question left, and the engine builds none.
+    """
+    band = getattr(result, "bootstrap_band", None)
+    if band is None:
+        return None
+    family = {name: estimate for name, estimate in retained.items() if name in band.bands}
+    if set(family) == set(band.bands):
+        return band
+    if len(family) < 2:
+        return None
+    narrowed = bootstrap_band(
+        result.bootstrap,
+        {name: estimate.psi for name, estimate in family.items()},
+        {name: estimate.plugin_std_error for name, estimate in family.items()},
+        alpha=band.alpha,
+    )
+    return replace(narrowed, support=combine_support([band.support, _NARROWED_BAND]))
 
 
 @dataclass(frozen=True)
@@ -8199,6 +8230,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             parameter_index=index,
             simultaneous=_narrow_bands(raw, banded, method),
             bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
+            bootstrap_band=_narrow_bootstrap_band(raw, banded),
             repeats=repeats,
             restricted_index=restricted_index,
             restricted_weights={name: raw.restricted_weights[name] for name in restricted_index},
