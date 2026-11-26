@@ -134,7 +134,8 @@ jobs:
           scripts/ci_resources.sh start
       # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
       # static documentation checks -- links resolve, every `python` fence parses. Neither
-      # executes an example, and both are cheap, so there is no documentation dispatch.
+      # executes an example, and both are cheap, so there is no documentation dispatch. Whether a
+      # pull request updated the pages its change affects is `docs-impact.yml`'s question.
       #
       # `test_method_evidence.py` runs on 3.12 alone (Eric, 2026-10-16). It recomputes every
       # published study verdict from committed CSVs with test-side code, which is about half of

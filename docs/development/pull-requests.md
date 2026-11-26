@@ -10,6 +10,54 @@ Branch from `main`, and run the checks your change needs. The
 has to meet. Its last condition governs this page: every relevant check has run locally, and GitHub
 Actions is green. CI is the final merge signal, not a substitute for the local validation record.
 
+## Bring the docs up to date
+
+Every pull request reviews the pages its change can make stale, and fixes them, before it opens.
+`tests/docs_map.py` says which pages each part of the code affects, and
+`python -m tests.docs_impact` reads your change against it. Fetch `main` first, write your draft
+pull request body to a file, and run the checker on your working tree.
+
+```text
+git fetch origin main
+python -m tests.docs_impact --worktree --body-file body.md
+```
+
+It lists four kinds of finding. A **routed** page belongs to an area of the map that your change
+touches. A page that quotes a **removed** public name (a function, class, method, field,
+parameter or `Literal` option that no module offers any more) still quotes it. A page calls an
+old value the **default** of a parameter whose default changed. An **added** public name of a
+published module is mentioned on no page. The report also lists pages worth a look that never
+fail, such as the tutorials of a method: their printed numbers are already gated by the
+notebook freshness test.
+
+For each finding, read the page against your diff and rewrite what the change made false. Follow
+[writing for readers](writing-for-readers.md), and for a fact that a test ties to the code, fix
+the owning page and link it rather than copy it
+([facts a reader page borrows](writing-for-readers.md#facts-a-reader-page-borrows)). Then run the
+[documentation procedure](contributing.md#write-documentation). A routed page is satisfied by an
+edit beyond whitespace, a quoted removed name or old default by the page no longer quoting it,
+and an addition by some page mentioning it.
+
+When a finding needs no change, put a waiver line in the pull request body that says why:
+
+```text
+Docs-waiver: docs/user-guide/settings.md: the new field is private and no fit reads it
+Docs-waiver: cluster_floor: set only by the study harness, never by a user
+Docs-waiver: all: a pure refactor; every public output and message is byte-identical
+```
+
+A reason needs at least four words, and the reviewer reads it. `all` covers routed pages only,
+never a removed name, an old default or an addition. A waiver that names nothing the change
+affects fails, so a waiver goes stale when a later commit removes its cause; delete it then. The
+check reads paths, names and reasons, never prose: an edited page passes it, and only the review
+shows the edit is right.
+
+A change to a file the map does not cover fails `tests/unit/test_docs_map.py` in the fast suite.
+Add the file to the area whose pages it can make stale, or, for a private module that changes
+nothing a reader sees, to `INTERNAL` with the reason. The check judges a change by the union of
+the base branch's map and the changed map, so narrowing the map does not excuse the change that
+narrows it.
+
 ## Write the commit message
 
 The subject is one imperative sentence in sentence case. It carries no trailing full stop, no
@@ -80,6 +128,11 @@ cannot affect a fitted result.
 | `property-differential` | 3.12, in 6 parts | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py` with `PROPERTY_DIFFERENTIAL_PART=i/N`, when the change touches a study, `tests/canonical/`, `src/cleverly`, the dependency pins, or the CI files |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
 | `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
+
+`.github/workflows/docs-impact.yml` runs one more check, `docs-impact`, the
+[docs check](#bring-the-docs-up-to-date) above. It is its own workflow because it runs again when
+you edit the pull request body, where the waivers live, and that must not restart the tests. It
+installs nothing and takes about a minute.
 
 The study evidence checks run on 3.12 only. They recompute the published verdicts from committed
 files with test code, and they took about half of the 2-hour 3.12 run before it was sharded.
