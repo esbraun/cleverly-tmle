@@ -137,10 +137,13 @@ cell, update the callback in the same change. Keep every scientific claim of the
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
 
-`plots` is the main exception to the outline. It is a tour of the figures on four fits, not one
+`plots` is one of two exceptions to the outline. It is a tour of the figures on four fits, not one
 analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
 `StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
-`method-evidence` lesson sits under "Go deeper".
+`method-evidence` lesson sits under "Go deeper". `ranking-exposures` has no `protocol` cell:
+`variable_importance` takes the columns directly and records no study description, so the page
+prints none that no result would carry. Its "Set up the analysis" shows the adjustment set of each
+fit with `variable_importance_plan`.
 
 `two-decision-rules` keeps the outline, but no result on it carries the protocol it prints. A
 learned two-node regimen is fitted with `LTMLE` directly, because `CausalStudy` cannot declare it
@@ -387,11 +390,11 @@ change.
 
 | family | tutorials that show it |
 | --- | --- |
-| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); sampling-weights (ATE with sampling weights, and strata); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
 | ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
 | Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
-| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
+| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`); sampling-weights (a missing treatment, `treatment_missingness=`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
 | Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome); two-decision-rules (a rule learned over two decisions, `LTMLE(regimens=LearnedRegimen())`, with its rule record) |

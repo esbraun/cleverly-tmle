@@ -33,6 +33,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 from cleverly._support import (
     Classification,
@@ -364,6 +365,17 @@ THREE = ("ey", "ate", "rr", "or")
 ATE = ("ey0", "ey1", "ate")
 
 _ST = "tests/studies/"
+
+
+class _KnownDensity(LogisticRegression):
+    """A stand-in for a study's oracle density: the support key reads only its marker.
+
+    T21 and T22 cover a known density (the shift studies pass the law's exact density), so a
+    case of either row declares one. A fit of the same configuration with a learned density
+    reads experimental (X121).
+    """
+
+    cleverly_density = "known"
 
 
 def _tmle(**kwargs: Any) -> Callable[[], TMLE]:
@@ -713,6 +725,7 @@ def _t_cases() -> tuple[RowCase, ...]:
                 cross_fit=False,
                 policies=(Shift(0.0, cap=None), Shift(0.25, cap=None)),
                 density_bins=5,
+                treatment_learner=_KnownDensity(max_iter=1000),
             ),
             {"y": "continuous", "dose": True},
             dose=True,
@@ -728,6 +741,7 @@ def _t_cases() -> tuple[RowCase, ...]:
                 cross_fit=False,
                 policies=(Shift(0.0, cap=None), Scale(1.25, cap=5.0, name="x1.25")),
                 density_bins=5,
+                treatment_learner=_KnownDensity(max_iter=1000),
             ),
             {"dose": True},
             dose=True,

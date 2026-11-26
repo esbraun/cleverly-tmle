@@ -587,6 +587,7 @@ how the planted confounder moves each kind of fit, and every limit.
 | [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) | the missing-confounder bound with a recorded covariate for comparison, the E-value, the worst-case bounds and the planted confounder |
 | [Smoking and twins' birth weight](../examples/twins-causal-inference.ipynb) | the bound, the E-value and the planted confounder for the effect on the treated |
 | [Missing survey answers](../examples/survey-nonresponse.ipynb), [Gain over current practice](../examples/population-impact.ipynb) | the bound and the E-value, and the analyses for missing outcomes |
+| [An interview of a sample of patients](../examples/sampling-weights.ipynb) | the bound on a fit with sampling weights, with recorded covariates for comparison |
 | [A strong predictor of treatment](../examples/collaborative-tmle.ipynb) | the bound and the planted confounder on a collaborative TMLE fit |
 | [Three offer policies](../examples/interventions.ipynb) | the planted confounder on policy effects |
 | [More contacts and more service time](../examples/schedules-and-intensity.ipynb) | the planted confounder on policy effects, moving only the recorded treatment, so it tests recording errors rather than confounding |

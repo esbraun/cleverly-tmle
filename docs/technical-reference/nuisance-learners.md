@@ -232,9 +232,17 @@ and the learned rule fitted on all rows ([learned rules](point-treatment-tmle.md
 there matches no support row, so the fit reads experimental. Some support rows also pin the
 learner class: the parametric g-formula rows require `GLM`, and the ratio-trim rows require
 `LinearRegression`, so a fit with another class matches none of them (`SupportRow.matches`;
-`src/cleverly/_support_rows.py` declares the rows). Every other fit off the $t$ tier keeps its
-row's label whatever learner it uses, so the rate and Donsker conditions are the analyst's to
-judge.
+`src/cleverly/_support_rows.py` declares the rows). Apart from the density-route policy fits
+below, every other fit off the $t$ tier keeps its row's label whatever learner it uses, so the
+rate and Donsker conditions are the analyst's to judge.
+
+An in-sample point policy fit of a continuous dose on the density route reads
+`density_learner_family`. It is `known` when the treatment learner's class declares
+`cleverly_density = "known"`, meaning the learner returns the law's exact density, as the oracle
+learners of the shift studies do; otherwise it is the learner's family. The shift rows give the
+method the exact density and declare `known`, so a fit that learns its density matches none of them
+and reads experimental, with the shift row as the nearest. A user who passes the true density may
+declare it the same way.
 
 The rate at which a density ratio read from the binned density converges is the package's own
 argument, measured by the witnesses and the density-tails study, and not a published theorem
