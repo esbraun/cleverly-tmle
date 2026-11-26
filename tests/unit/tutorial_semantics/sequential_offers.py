@@ -20,7 +20,7 @@ import pytest
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
 import cleverly.datasets.offers as offers_law
-from cleverly import CapabilityError, sensitivity
+from cleverly import CapabilityError, CausalStudy, DataError, LongPanel, sensitivity
 from cleverly._summary import vocabulary
 from cleverly.datasets import OFFER_LEVELS, offers_protocol, win_back
 from cleverly.utils.bounds import expit
@@ -771,6 +771,23 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
 
 def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]
+    # "The same refit cannot drop `tenure`, because a fit over time needs at least one covariate
+    # measured once at the start (X63)."
+    no_baseline = LongPanel(
+        unit="customer",
+        time="week",
+        treatment="offer",
+        baseline=[],
+        time_varying=["engaged"],
+        censoring="consent",
+        outcome="full_price",
+        treatment_probabilities=namespace["LOGGED"],
+    )
+    with pytest.raises(DataError, match="at least one baseline covariate") as excinfo:
+        CausalStudy(namespace["panel"], design=no_baseline).identify(
+            namespace["RegimeContrast"](namespace["static"], reference="none")
+        ).estimate(method=namespace["ltmle"])
+    assert "X63" in str(excinfo.value)
     # "A dry run on fresh simulated customers".
     pilot, pilot_outcome = namespace["pilot"], namespace["pilot_outcome"]
     assert len(pilot_outcome) == 10_000 and int((pilot["consent"] == 0).sum()) == 0
