@@ -980,7 +980,10 @@ Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
 and
 [`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py).
-Benjamini and Hochberg (1995) is the reference for the FDR-adjusted reporting; see
+`variable_importance` adjusts its rows with a step-down max-T on the correlation of their
+curves by default, after van der Laan, Dudoit and Pollard (2004), and with Benjamini and Hochberg
+(1995) under `adjustment="bh"`
+([variable importance](validation-methods.md#variable-importance)); see
 [multiple testing](../references.md#multiple-testing).
 
 ### The t reference

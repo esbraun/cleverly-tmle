@@ -8,8 +8,8 @@ experimental, and :data:`EXEMPT_REASON` waits for the registration commit, which
 ``cleverly._support_rows.EXEMPT_STUDIES``.
 
 The claim. ``variable_importance(adjustment="max_t")`` controls the family-wise error rate
-(FWER) of its adjusted p-values asymptotically (Dudoit, van der Laan and Pollard, Part II,
-Theorems 1, 3 and 6, with a consistent estimate of the null law, the correlation of the
+(FWER) of its adjusted p-values asymptotically (van der Laan, Dudoit and Pollard 2004, the
+step-down paper, Theorems 1, 3 and 6, with a consistent estimate of the null law, the correlation of the
 studentized curves; Chernozhukov, Chetverikov and Kato 2013, Theorem 5.1, reading the same
 draws as a Gaussian-multiplier bootstrap). The studentization by estimated standard errors is
 a derivation by Slutsky's lemma at fixed ``m``, and the use of each row's own p-value through

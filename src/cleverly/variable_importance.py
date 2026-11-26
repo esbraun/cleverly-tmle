@@ -958,13 +958,13 @@ def _checked_candidates(
             alternative="Pass learners to refit.",
         )
     # Every candidate's data is prepared, and its status asked, before the first fit.
-    # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
-    # candidate, so an estimator that supplies no p-value leaves it with nothing to
-    # adjust.  ``_prepare`` fits no learner, so the refusal still arrives before the first
-    # fit when the status depends on the data as well as on the configuration.  It is
-    # asked of the estimator's own hook on the prepared data, which is what
-    # ``_retarget_detailed`` stamps the estimates with, so the refusal and the estimates
-    # the adjustment would read cannot disagree.
+    # This procedure ends in a multiplicity adjustment of one p-value per row (step-down
+    # max-T or Benjamini--Hochberg), so an estimator that supplies no p-value leaves it
+    # with nothing to adjust.  ``_prepare`` fits no learner, so the refusal still arrives
+    # before the first fit when the status depends on the data as well as on the
+    # configuration.  It is asked of the estimator's own hook on the prepared data, which
+    # is what ``_retarget_detailed`` stamps the estimates with, so the refusal and the
+    # estimates the adjustment would read cannot disagree.
     frame_view = as_frame(data)
 
     def engine() -> TMLE:
@@ -1080,8 +1080,12 @@ def variable_importance(
     this is the Gaussian-multiplier bootstrap of the studentized curves computed through its
     exact conditional law. The adjusted p-values are made monotone in rank and floored at
     each row's own p-value, so the result is deterministic for a given seed. The control is
-    asymptotic in the number of independent units (Dudoit, van der Laan and Pollard, Part II,
-    Theorems 1, 3 and 6; Chernozhukov, Chetverikov and Kato 2013, Theorem 5.1).
+    asymptotic in the number of independent units, at a fixed number of rows: van der Laan,
+    Dudoit and Pollard (2004, Theorems 1, 3 and 6) give it for a step-down on a consistent
+    estimate of the statistics' null law, here the correlation of the curves. The rows are
+    studentized by estimated standard errors, each consistent for its own, so the
+    studentized statistics have the same limit by Slutsky's lemma. Chernozhukov, Chetverikov
+    and Kato (2013, Theorem 5.1) read the same draws as a Gaussian-multiplier bootstrap.
     ``adjustment="bh"`` applies Benjamini--Hochberg, whose false-discovery claim is
     experimental: no theorem covers two-sided tests that share rows, and correlated
     two-sided Gaussian tests can exceed its rate.

@@ -45,7 +45,9 @@ ranking.to_frame()  # one row per candidate here: estimate, interval, p-values
 In this simulation exercise raises the chance of recovery, diet raises it a little and smoking
 does nothing. Exercise comes first: it raises the chance of recovery by about 0.16 (95% interval
 0.09 to 0.23), with an adjusted p-value far below 0.05. Diet's small effect is not detected at this
-sample size, and smoking's estimate sits near zero.
+sample size (adjusted p-value 0.23), and smoking's estimate sits near zero. The summary marks the
+adjustment's claim experimental, for the reason [the adjusted p-values](#the-adjusted-p-values)
+gives.
 
 The [discharge practices example](../examples/ranking-exposures.ipynb) runs a full ranking, with
 its checks, on simulated data where one practice causes another.
@@ -99,22 +101,47 @@ overlap.
 
 ## The adjusted p-values
 
-The p-values are two-sided. They are adjusted together, over every row, with the method of
-Benjamini and Hochberg. That method controls the *false discovery rate*: among the rows you call
-significant, the expected share with no effect stays at or below the level you choose, such as 5%.
-The guarantee needs the tests to be independent or to move together in the same direction.
+The p-values are two-sided, and by default they are adjusted together, over every row, so that
+the chance of *any* false finding stays at or below the level you choose, such as 5%. That chance
+is the *family-wise error rate*. Keeping it at 5% also keeps the *false discovery rate*, the
+expected share of rows without an effect among those you call significant, at or below 5%.
 
-Here every fit uses the same rows, so the tests are related, and nothing guarantees that
-condition. No simulation study has yet checked the false discovery rate of these adjusted
-p-values, so treat that claim as unchecked; the roadmap item
-[X125](../roadmap.md#x125-registered-study-of-variable-importance) plans one. The intervals and the
-unadjusted p-values are each candidate's own and are not adjusted.
+The adjustment is a *step-down max-T* (`adjustment="max_t"`, the default). Every candidate's fit
+uses the same rows, so the estimates move together. The adjustment measures how strongly they move
+together from each fit's per-row contributions to its estimate, then simulates 10,000 sets of test
+statistics with that pattern and no real effects (`multiplier_draws=`, seeded by
+`multiplier_seed=0`, so a rerun gives the same p-values). A row's adjusted p-value is the share of
+those simulated sets whose largest statistic, among the rows not yet called significant, reaches
+the row's own. The guarantee is a large-sample one: it holds as the number of rows grows, when each
+row's own test is correct.
+
+`ranking.adjustment_support` labels that claim. It reads *experimental* for every run until the
+simulation study that measures the family-wise error rate has run; the study is declared and its
+settings are fixed in advance. After it runs, the label covers only runs like the study's own,
+which the [method reference](../technical-reference/validation-methods.md#variable-importance)
+lists. One of them matters for this example: a run with fewer than 4,000 rows keeps the label,
+because at 2,000 rows the per-candidate tests rejected a little too often in the study's design
+probe. The summary states the reason.
+
+`adjustment="bh"` applies the Benjamini-Hochberg adjustment instead, which aims at the false
+discovery rate. Its claim always reads experimental: its proof needs tests that are independent or
+that move together in one direction, and two-sided tests of related estimates are neither. With
+such tests the false discovery rate can exceed the level you chose, as the
+[method reference](../technical-reference/validation-methods.md#variable-importance) shows with
+its sources.
+
+The step-down max-T refuses weights estimated by an earlier model (`weights_estimated=True`) and
+clustered data with fewer than 40 clusters before any fit; `adjustment="bh"` runs in both cases.
+The [method reference](../technical-reference/validation-methods.md#variable-importance) lists
+every refusal. The intervals and the unadjusted p-values are each candidate's own and are not
+adjusted.
 
 `cleverly` marks an estimate *experimental* when no simulation study covers a fit like it, so its
 interval has no checked coverage. Each candidate's estimate takes the mark of its own fit. A
 `support` column appears in `to_frame()` only when some candidate's estimate is experimental, and
 [read the support label](results-assessment.md#read-the-support-label) explains the labels. That
-column describes each candidate's estimate, not the false discovery claim above.
+column describes each candidate's estimate, not the adjustment's claim, which
+`ranking.adjustment_support` describes.
 
 ## What the data must look like
 
@@ -137,7 +164,7 @@ which suits simple models with few covariates, such as these logistic regression
 with flexible learners.
 
 An estimator that would report no interval for some candidate is refused before the first fit,
-because the adjustment needs one p-value per row. The
+because either adjustment needs one p-value per row. The
 [method reference](../technical-reference/validation-methods.md#variable-importance) names those
 settings, and the [inference reference](../technical-reference/inference.md) says when each fit
 reports an interval.
@@ -149,8 +176,10 @@ fits the run would make, one row per candidate, without fitting anything.
 
 By default the result keeps every candidate's fit in `ranking.fits`, so memory grows with the
 number of candidates. `keep_fits=False` releases each candidate's data and fit before the next
-one starts. The estimates, the adjusted p-values and the table are the same, and so is the summary,
-except that any fit warnings are written into it. `ranking.fits`, each `diagnostics` and
+one starts. Each estimate still keeps its per-row contributions, which the adjustment reads, so
+memory grows by one column of numbers per row of the table rather than by one fit per candidate.
+The estimates, the adjusted p-values and the table are the same, and so is the summary, except
+that any fit warnings are written into it. `ranking.fits`, each `diagnostics` and
 `sensitivity` call, and the model plots then refuse, and `validate()` and `assess()` return reports
 that mark every check unavailable, as the
 [method reference](../technical-reference/validation-methods.md#variable-importance) records.
