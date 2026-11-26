@@ -7562,6 +7562,13 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
     ),
+    # A known rule evaluated on simulated covariates (the parametric g-formula only): its exact
+    # laws are the g-formula's own (W1 to W10 read rules on the simulated history).
+    "rule": _anchor(
+        "parametric g-formula (`ParametricGFormula`)",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_parametric_gformula.py",
+    ),
     "separable": _anchor(
         "separable effects on competing events",
         "tests/discrete_law_point_survival.py",
