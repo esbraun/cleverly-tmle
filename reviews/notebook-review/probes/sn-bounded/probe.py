@@ -1,4 +1,6 @@
-"""Seed sweep of the Step 6 and Step 7 fits of docs/examples/survey-nonresponse.ipynb.
+"""Seed sweep of two fits of docs/examples/survey-nonresponse.ipynb.
+
+The fits are those of "Estimate the effect" and "What you get from respondents only".
 
 Run from the repository root: ``python reviews/notebook-review/probes/sn-bounded/probe.py``.
 It writes ``sweep.csv`` and ``summary.log`` beside this file.  The fits copy the notebook's
@@ -16,6 +18,7 @@ import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
 
+import cleverly
 from cleverly import (
     ATE,
     CausalStudy,
@@ -115,6 +118,7 @@ def main() -> None:
     cc = np.array([row["cc_psi"] for row in rows])
     tips = np.array([np.nan if row["tip_ci"] is None else row["tip_ci"] for row in rows])
     lines = [
+        f"cleverly {cleverly.__version__}",
         f"draws: {n}, seeds {SEEDS.start} to {SEEDS.stop - 1}",
         f"truth: ATE {ate:.6f}, complete-case target {cc_target:.6f} (quadrature)",
         f"Step 6: covers ATE {rate('covers')}; bias {psi.mean() - ate:+.5f} "
