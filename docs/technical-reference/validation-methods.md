@@ -4077,6 +4077,13 @@ draws are few. An equivalence band asks the question that the user needs answere
 interval of the reading lie inside a stated tolerance? The 95% interval of the bias has a width
 of about 0.20 standard deviations at 400 draws, which is why 400 is the calibrated minimum.
 
+The same width makes the band strict. The bias reading passes only when its estimate lies within
+about 0.10 standard deviations of zero. An unbiased estimator therefore fails it in about 4% of runs
+at 400 draws, whenever its estimate lands more than 2.04 of its own standard errors from zero, and
+the three readings together fail by chance in roughly one run in fifteen. A failure just past the
+edge is weak evidence of bias. Rerun with another `random_state` or more draws before reading it as
+a defect.
+
 `refute()` and its `_validate_generated_eligibility` helper in
 [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
 check the conditions in the table before the operation refits a point fit. The bands row and the
