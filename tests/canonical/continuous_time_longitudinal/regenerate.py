@@ -42,20 +42,23 @@ with the declaration (:func:`pilot_refusals`):
 * the plug-in limit separates: some day-30 risk of always or never sits at least 0.5 true-weight
   IPW SDs from its truth (review S8).  If not, :math:`L`'s coefficients in the cause hazards and
   the :math:`L` transition are raised and every truth and pilot reading is read again;
-* every pilot cell holds its 400 draws, and the anchored family pass at the declared counts is
-  at least 0.95.  The counts are 3,200 primary and 2,400 ``mechanism_correct`` fits, fixed by
-  Eric's choice on 2026-11-25 (2,400 is the ``mechanism_correct`` rung paired with 3,200), and
-  all 60 primary rows are gated, the 12 rule rows among them.  The check reads each gated row at
-  its group's pooled coverage, SE ratio and standardized bias (``cont_cf`` static, ``day_cf``
-  static, ``day_cf`` rule, ``mechanism_correct``; ``pilot.anchored_family_pass``), because a
-  product of 60 row-level 400-draw point readings is pessimistic.  No earlier study pooled across
-  rows: the ``continuous-survival-bootstrap`` pilot anchored each row's SE ratio to an external
-  study row by row and read no bias.  A signed group mean lets opposite biases cancel, so the
-  pass with each row's own bias and the pooled coverage and SE ratio
-  (``pilot.per_row_family_pass``, 0.544 at the declared counts against the anchored 0.997) is
-  reported beside it.  The check chooses no rung, so a pilot extension can make it refuse but
-  cannot change the counts; every rung's anchored, per-row bias and row-level passes are a
-  report in ``pilot-diagnosis.md``.  The plan's move of rows whose pilot coverage is below 0.925 to
+* every pilot cell holds its 400 draws, and the family pass over the gated rows outside the
+  exposed rows is at least 0.95 at the declared counts.  The counts are 3,200 primary and 2,400
+  ``mechanism_correct`` fits, fixed by Eric's choice on 2026-11-25 (2,400 is the
+  ``mechanism_correct`` rung paired with 3,200), and all 60 primary rows are gated, the 12 rule
+  rows among them.  Each gated row is read at its group's pooled coverage and SE ratio
+  (``cont_cf`` static, ``day_cf`` static, ``day_cf`` rule, ``mechanism_correct``) and at its own
+  pilot standardized bias (``pilot.own_passes``): a product of 60 row-level 400-draw point
+  readings is pessimistic, and a signed group mean of biases lets opposite biases cancel.  No
+  earlier study pooled across rows: the ``continuous-survival-bootstrap`` pilot anchored each
+  row's SE ratio to an external study row by row and read no bias.  The exposed rows are those
+  whose own pass is below 0.96 (``pilot.exposed_rows``, which must equal
+  ``study.EXPOSED_ROWS``); Eric chose on 2026-11-25 to keep them gated with the route declared
+  below, and the remainder of 55 rows passes with 0.988 on the second pilot
+  (``pilot.remainder_family_pass``).  The pass over all 60 rows with each row's own bias (0.544),
+  the pooled reading (0.997), the row-level product and every rung's passes are a report in
+  ``pilot-diagnosis.md``.  The check chooses no rung, so a pilot extension can make it refuse
+  but cannot change the counts.  The plan's move of rows whose pilot coverage is below 0.925 to
   reported is not applied, by Eric's choice on the same date;
 * each calibration row's plug-in pass at the primary count is at least 0.90, or its cell holds
   the 800-draw extension; after the extension a row still below 0.90 needs a diagnosis named in a
@@ -92,8 +95,8 @@ fit and peak memory, the budget table and the ``--jobs`` rule.
 
 Red-cell readings (declared before any run).  The record is ``gated``: every primary row of
 ``day_cf`` and ``cont_cf``, every row of ``mechanism_correct``, the plug-in control, both
-calibration rows and both shrunk-SE controls are gates, and any red verdict fails the run.  No
-cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law is changed to make a
+calibration rows and both shrunk-SE controls are gates, and any red verdict fails the run, save
+the exposed rows' declared route below.  No cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law is changed to make a
 row pass.
 
 * A red calibration row is a finite-sample red only when the 99% interval of its SE ratio
@@ -101,6 +104,24 @@ row pass.
   goes to ``reporting`` with an owner in the roadmap's Red-cell owners table.  Any other red row
   is a defect suspect, and an unfixed defect never ends as an owner row (``guide/studies.md``,
   "Red cells").
+* The exposed rows (Eric's choice, 2026-11-25; ``study.EXPOSED_ROWS``) stay gated, each with a
+  foreseen failure mode and a declared route.  They are ``day_cf``'s rule, cause 1, at days 10,
+  20 and 30 (the rule levels' positive cause-1 bias at n = 1,000, +0.12 to +0.13 SD in the
+  pilot, already in the initial estimate and not removed by targeting; the first diagnosis
+  excluded the visit cap, the residual score and the treatment misfit, and CT-day's tie or
+  day-grid approximations are suspected, not shown), ``mechanism_correct``'s never, cause 1, day
+  30 (the visit cap: -0.112 SD against the full risk, -0.076 against the capped truth) and
+  ``mechanism_correct``'s always minus never, cause 1, day 30 (+0.134 SD against the full
+  difference, +0.094 against the capped one: about 0.04 SD is the cap's gap on the never arm, and
+  the rest has no identified cause and may be pilot noise).  An exposed row red on its bias
+  clause alone, with its coverage floor and SE-ratio band passing, does not fail the record
+  (``readings.routed``; the shared driver drops it from its independent-performance gate through
+  ``study.routed_performance``, and ``readings.gates`` from the ``mechanism_correct`` gate).
+  The record registers, ``exposed-rows.csv`` marks the row routed, its claim stays experimental
+  (rule regimes for a rule row, ``mechanism_correct``'s double robustness for the other two), and
+  the row and its route go to an owner row in the roadmap's Red-cell owners table.  Any other red
+  of an exposed row, on coverage or the SE ratio, fails the record as usual.  With a fit lost in
+  the row's cell, the failure-accounting gate still reads it strictly.
 * One exception is declared (plan rev 7, review S6).  With :math:`G` right and the continuation
   approximated, the influence-curve variance is expected to be conservative (plan 3.5.7), so an
   SE ratio above 1 is the expected direction.  A calibration row red only because its SE-ratio
@@ -234,12 +255,18 @@ def pilot_refusals() -> list[str]:
     # The counts are declared (Eric's choice, 2026-11-25); the pilot checks them, and no rung is
     # chosen from it.
     primary, mechanism = study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES
-    anchored = pilot.anchored_family_pass(rows, primary, mechanism)
-    if anchored < FAMILY_WISE_PASS:
+    exposed = pilot.exposed_rows(rows)
+    if set(exposed) != set(study.EXPOSED_ROWS):
         out.append(
-            f"the anchored family passes with {anchored:.3f} at the declared {primary} primary "
-            f"and {mechanism} mechanism_correct replicates, below {FAMILY_WISE_PASS}; back to "
-            "the plan"
+            f"the pilot's exposed rows {sorted(exposed)} are not the declared EXPOSED_ROWS "
+            f"{sorted(study.EXPOSED_ROWS)}; back to the plan"
+        )
+    remainder = pilot.remainder_family_pass(rows, primary, mechanism)
+    if remainder < FAMILY_WISE_PASS:
+        out.append(
+            f"the family outside the exposed rows passes with {remainder:.3f} at the declared "
+            f"{primary} primary and {mechanism} mechanism_correct replicates, below "
+            f"{FAMILY_WISE_PASS}; back to the plan"
         )
     diagnosed = pilot.DIAGNOSIS.read_text(encoding="utf-8") if pilot.DIAGNOSIS.exists() else ""
     checks = pilot.calibration_checks(rows, primary)

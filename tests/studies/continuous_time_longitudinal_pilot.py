@@ -27,16 +27,18 @@ the stream ``plugin_limit``.  The driver writes one file beside this module,
 The committed rows give these readings, which ``regenerate.pilot_refusals`` checks before a
 declared run:
 
-* **the anchored family pass** (:func:`anchored_family_pass`): the counts are declared, 3,200
-  primary and 2,400 ``mechanism_correct`` fits (Eric's choice, 2026-11-25), and the product of
-  the 60 gated rows' plug-in pass probabilities (:func:`row_pass`, rows taken as independent) at
-  those counts must reach ``FAMILY_WISE_PASS`` 0.95, each row read at its group's pooled
-  coverage, SE ratio and standardized bias (:func:`pooled_table`: ``cont_cf`` static, ``day_cf``
-  static, ``day_cf`` rule, ``mechanism_correct``).  The product with each row's own bias and the
-  pooled coverage and SE ratio (:func:`per_row_family_pass`, :func:`own_passes`), the row-level
-  product (:func:`family_pass`) and every rung's passes (:func:`anchored_passes`) are reports;
-  no rung is chosen from them, and the plan's move of rows with coverage below 0.925 to
-  reported is not applied;
+* **the remainder family pass** (:func:`remainder_family_pass`): the counts are declared, 3,200
+  primary and 2,400 ``mechanism_correct`` fits (Eric's choice, 2026-11-25).  Each gated row is
+  read at its group's pooled coverage and SE ratio (:func:`pooled_table`: ``cont_cf`` static,
+  ``day_cf`` static, ``day_cf`` rule, ``mechanism_correct``) and at its own pilot standardized
+  bias (:func:`own_passes`), since a signed group mean lets opposite biases cancel.  The rows
+  whose own pass is below 0.96 are exposed (:func:`exposed_rows`, which must equal
+  ``study.EXPOSED_ROWS``, by Eric's choice of the same date); they stay gated with a declared
+  route for a red on the bias clause alone, and the product over the other 55 rows must reach
+  ``FAMILY_WISE_PASS`` 0.95.  The pooled reading (:func:`anchored_family_pass`), the product
+  over all 60 rows (:func:`per_row_family_pass`), the row-level product (:func:`family_pass`)
+  and every rung's passes (:func:`anchored_passes`) are reports; no rung is chosen from them,
+  and the plan's move of rows with coverage below 0.925 to reported is not applied;
 * **the at-target family pass** (:func:`at_target_pass`): both calibration rows at SE ratio 1
   and coverage 0.95 at the primary count (0.995 for the pair at 3,200), and each calibration
   row's plug-in pass at the declared count (:func:`calibration_checks`): a row below 0.90
@@ -63,7 +65,7 @@ import itertools
 import resource
 import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -615,9 +617,49 @@ def own_passes(rows: pd.DataFrame, primary: int, mechanism: int) -> pd.DataFrame
     return pd.DataFrame.from_records(records)
 
 
-def per_row_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
-    """The product of the 60 gated rows' :func:`own_passes`: a report beside the anchored pass."""
-    return float(np.prod(own_passes(rows, primary, mechanism)["own_pass"].to_numpy()))
+def per_row_family_pass(
+    rows: pd.DataFrame,
+    primary: int,
+    mechanism: int,
+    exclude: Collection[tuple[str, str]] = (),
+) -> float:
+    """The product of the gated rows' :func:`own_passes`, leaving out the ``(cell, row)`` pairs
+    of ``exclude``.
+
+    Over all 60 rows it is a report; over the rows outside ``study.EXPOSED_ROWS`` it is the
+    declared check (:func:`remainder_family_pass`).
+    """
+    table = own_passes(rows, primary, mechanism)
+    left_out = {(str(cell), str(name)) for cell, name in exclude}
+    keep = [
+        (cell, name) not in left_out
+        for cell, name in zip(table["cell"], table["estimand"], strict=True)
+    ]
+    return float(np.prod(table.loc[keep, "own_pass"].to_numpy()))
+
+
+def exposed_rows(rows: pd.DataFrame) -> list[tuple[str, str]]:
+    """The gated rows whose own pass at the declared counts is below ``study.EXPOSED_PASS``.
+
+    The declaration (``study.EXPOSED_ROWS``, Eric's choice of 2026-11-25) must name exactly
+    these.
+    """
+    table = own_passes(rows, study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES)
+    chosen = table.loc[table["own_pass"] < study.EXPOSED_PASS]
+    return [
+        (str(cell), str(name))
+        for cell, name in zip(chosen["cell"], chosen["estimand"], strict=True)
+    ]
+
+
+def remainder_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
+    """The per-row bias family pass over the 55 gated rows outside ``study.EXPOSED_ROWS``.
+
+    ``regenerate.pilot_refusals`` refuses below ``FAMILY_WISE_PASS`` 0.95 at the declared
+    counts.  An exposed row stays gated, with a declared route for a red on its bias clause
+    alone (``readings.routed``), so the check covers the rows no route carries.
+    """
+    return per_row_family_pass(rows, primary, mechanism, exclude=tuple(study.EXPOSED_ROWS))
 
 
 def anchored_passes(rows: pd.DataFrame) -> pd.DataFrame:
@@ -632,6 +674,7 @@ def anchored_passes(rows: pd.DataFrame) -> pd.DataFrame:
             "mechanism": mechanism,
             "anchored": anchored_family_pass(rows, primary, mechanism),
             "per_row_bias": per_row_family_pass(rows, primary, mechanism),
+            "remainder": remainder_family_pass(rows, primary, mechanism),
             "row_level": family_pass(rows, primary, mechanism),
             "cpu_hours": cost(rows, primary, mechanism),
         }

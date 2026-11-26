@@ -126,18 +126,18 @@ The counts are declared: 3,200 draws for `day_cf` and `cont_cf` and 2,400 for
 reported for a low pilot coverage.
 
 The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
-`outcome_correct`, and chooses no count. A declared run is refused unless the family pass at the
-declared counts, the product of the 60 rows' pass probabilities, reaches 0.95. Each row is read
-at its group's pooled coverage, SE ratio and standardized bias, the groups being `cont_cf`
-static, `day_cf` static, `day_cf` rule and `mechanism_correct`. A product of 60 single-row
-readings from 400 draws each would be pessimistic, since each row's coverage carries an SE near
-0.011.
+`outcome_correct`, and chooses no count. It reads each gated row at its group's pooled coverage
+and SE ratio, the groups being `cont_cf` static, `day_cf` static, `day_cf` rule and
+`mechanism_correct`, and at the row's own standardized bias. A product of 60 single-row readings
+from 400 draws each would be pessimistic, since each row's coverage carries an SE near 0.011. A
+group mean of signed biases would let opposite biases cancel.
 
-The second pilot's pooled readings put that pass at 0.997. A group mean of signed biases lets
-opposite biases cancel, so the pilot also reads each row at its own bias with the pooled coverage
-and SE ratio. That pass is 0.544: five rows pass below 0.96 on their own bias, the rule regime's
-cause-1 risks and the cause-1 day-30 risk of never and difference of always minus never in
-`mechanism_correct`. How the declaration treats those rows is pending.
+Read this way, five rows pass below 0.96 at the declared counts: the rule regime's cause-1 risks
+at days 10, 20 and 30, and in `mechanism_correct` the cause-1 day-30 risk of never and difference
+of always minus never. Eric chose on 2026-11-25 to keep them gated with a declared route, given
+under [Red-cell route](#red-cell-route). A declared run is refused unless the product of the other
+55 rows' pass probabilities reaches 0.95. On the second pilot it is 0.988; over all 60 rows it is
+0.544, and with pooled biases 0.997.
 
 At the pilot's seconds per fit the declared run costs 159.5 CPU-hours, below the plan's hold of
 200, and runs as three shards of 53.2 CPU-hours.
@@ -168,6 +168,17 @@ against the capped truth at the fit's cap: a row green against it is a cap red, 
 share condition of the support labels, not an engine defect suspect. A red rule row keeps only
 rules experimental. A plug-in control that does not fire, or a shrunk-SE control that fails its
 reading, voids the run.
+
+The five rows the sizing names stay gated, each with a foreseen failure mode, by Eric's choice on
+2026-11-25. The three rule rows carry the rule levels' positive cause-1 bias at n = 1,000, about
+0.12 to 0.13 SD in both pilots, which targeting does not remove and whose cause is not shown.
+`mechanism_correct`'s day-30 risk of never carries the visit cap's gap (-0.112 SD against the full
+risk, -0.076 against the capped truth). Its day-30 difference reads +0.134 SD, +0.094 against
+the capped truth, and the rest has no identified cause. If one of these rows is red on bias alone,
+with its coverage and SE ratio passing, the record still registers, the row's claim stays
+experimental (rule regimes, or double robustness under a correct treatment model) and the row
+gets an owner. Any other red, including a coverage or SE-ratio red on one of them, fails the
+record. `exposed-rows.csv` records each row's verdict and route.
 
 The support constants of the labels (the largest `variance_rel_sd` rung, the event-share window,
 the fewest followers and the largest share past the cap) are read after the run from the

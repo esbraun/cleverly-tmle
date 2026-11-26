@@ -238,9 +238,14 @@ here as a chance reading, as the `continuous-survival-bootstrap` pilot recorded 
 The readings are declared in `regenerate.py`'s docstring before any run, and this section repeats
 them. Every primary row of `day_cf` and `cont_cf`, every row of `mechanism_correct`, the plug-in
 control, both calibration rows and both shrunk-SE controls are gates, and any red verdict fails
-the run. No cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law changes to
+the run, save the exposed rows' declared route. No cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law changes to
 make a row pass.
 
+- The five exposed rows stay gated with a declared route (Eric's choice, 2026-11-25; see
+  [Exposed rows and their route](#exposed-rows-and-their-route-2026-11-25)). An exposed row red on
+  its bias clause alone, with its coverage floor and SE-ratio band passing, does not fail the
+  record: its claim stays experimental and it goes to an owner row. Any other red of an exposed
+  row fails the record.
 - A red calibration row is a finite-sample red only when the 99% interval of its SE ratio
   contains 1, its coverage is consistent with 0.95 and the diagnosis finds no defect; it then goes
   to reporting with an owner. Any other red row is a defect suspect.
@@ -479,14 +484,15 @@ margin. All 60 primary rows stay gated, the 12 rule rows among them, so rules ca
 label from their own rows. By the same choice, the plan's remedy that moves rows with pilot
 coverage below 0.925 to reported is not applied.
 
-The pilot no longer chooses a rung. `pilot_refusals()` checks that the anchored family pass at
-the declared counts is at least 0.95 and refuses otherwise (`pilot.anchored_family_pass`). The
-anchored reading reads each gated row at its group's pooled coverage, SE ratio and standardized
+The pilot no longer chooses a rung. This section first recorded a check of the anchored family
+pass at the declared counts (`pilot.anchored_family_pass`), which `pilot_refusals()` no longer
+reads; the check it reads now is in [Exposed rows and their route](#exposed-rows-and-their-route-2026-11-25).
+The anchored reading reads each gated row at its group's pooled coverage, SE ratio and standardized
 bias. A 400-draw row reads its coverage with an SE near 0.011 and its SE ratio with a relative SD
 near 0.035, so a product of 60 row-level point readings is pessimistic. No earlier study pooled
 across rows: the `continuous-survival-bootstrap` pilot anchored each row's SE ratio to the
 external `v4_in_sample` study, row by row, and read no bias. Because the counts are fixed, the `cont_cf` extension cannot change
-them; it can only make the check refuse, if the pass at 3,200 and 2,400 falls below 0.95.
+them; it can only make the check refuse.
 
 The second pilot's pooled readings (`pilot.pooled_table`):
 
@@ -527,8 +533,7 @@ gated row passes above 0.99:
 | `mechanism_correct` never, cause 1, day 30 (2,400 fits) | -0.112 | 0.959 |
 
 The three rule rows share their fits, so their joint pass is likely higher than the product of their
-own passes. How the declaration treats these rows is pending Eric's choice; until then the check
-reads the anchored pass.
+own passes.
 
 The row-level pass reads each row at its own 400-draw point values. At the declared counts the
 other checks read: the calibration pair passes at target with 0.995, the plug-in control fires
@@ -537,3 +542,45 @@ a failure above its bound. `day_cf`'s calibration row passes with plug-in probab
 3,200 (SE ratio 0.987, coverage 0.938). `cont_cf`'s passes with 0.603 (SE ratio 0.965, coverage
 0.943), so its pilot extends to 800 draws before the declaration, and `pilot_refusals()` asks for
 that extension alone.
+
+## Exposed rows and their route (2026-11-25)
+
+Eric chose on 2026-11-25 to keep the five rows whose own pass at the declared counts is below 0.96
+gated, each with a declared route, rather than move them to reported or raise the counts. The
+list is `study.EXPOSED_ROWS`; `pilot.exposed_rows` computes it from the committed pilot,
+`pilot_refusals()` refuses if the two differ, and the design test pins it.
+
+| row | own pass | foreseen failure mode | claim kept experimental by a routed red |
+| --- | ---: | --- | --- |
+| `mechanism_correct` always minus never, cause 1, day 30 | 0.744 | +0.134 SD against the full difference and +0.094 against the capped one: about 0.04 SD is the visit cap's gap on the never arm, and the remaining +0.09 SD has no identified cause; it lies within about 2 pilot SEs of zero and may be pilot noise | `mechanism_correct`'s double robustness |
+| `day_cf` rule, cause 1, day 10 | 0.899 | the rule levels' positive cause-1 bias at n = 1,000 | rule regimes |
+| `day_cf` rule, cause 1, day 20 | 0.899 | the same | rule regimes |
+| `day_cf` rule, cause 1, day 30 | 0.955 | the same | rule regimes |
+| `mechanism_correct` never, cause 1, day 30 | 0.959 | the visit cap on never at day 30: -0.112 SD against the full risk and -0.076 against the capped truth, the rest within about 1.5 pilot SEs of zero | `mechanism_correct`'s double robustness |
+
+The rule levels' cause-1 bias reads +0.12 to +0.13 SD in the second pilot and +0.11 to +0.13 in
+the first. It is already in the initial estimate and targeting does not remove it. The first
+diagnosis excluded the visit cap, the residual score and the treatment misfit; CT-day's tie or
+day-grid approximations are suspected, not shown (see [The rule regime](#the-rule-regime)).
+
+**The route.** An exposed row red in the declared run on its bias clause alone, with its coverage
+floor and SE-ratio band passing (and, in `mechanism_correct`, its failure bound held), does not
+fail the record. Code reads it: `readings.routed` decides it, `exposed-rows.csv` records each
+exposed row's verdict, route and claim status, `readings.gates` leaves a routed row out of the
+`mechanism_correct` gate, and the shared driver leaves it out of its independent-performance gate
+through `study.routed_performance`. That hook can only drop rows that are red on the bias clause
+alone, or the run stops. The record registers, the row's claim stays experimental, and the row and
+its route go to an owner row in the roadmap's Red-cell owners table. Any other red, including a
+coverage or SE-ratio red on an exposed row, fails the record as usual. When a fit is lost in an
+exposed row's cell, the failure-accounting gate still reads the row strictly.
+
+**The check.** `pilot_refusals()` refuses unless the per-row bias family pass over the 55 gated
+rows outside the exposed list reaches 0.95 at the declared counts
+(`pilot.remainder_family_pass`). On the second pilot it is 0.988: the rows outside the list pass
+above 0.99 each. Every rung's remainder pass, a report only:
+
+| primary / `mechanism_correct` | remainder (55 rows) | all 60 rows, per-row bias | anchored |
+| --- | ---: | ---: | ---: |
+| 2,400 / 1,600 | 0.886 | 0.199 | 0.947 |
+| 3,200 / 2,400, declared | 0.988 | 0.544 | 0.997 |
+| 4,800 / 3,200 | 1.000 | 0.837 | 1.000 |

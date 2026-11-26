@@ -93,10 +93,14 @@ primary rows are gated, the 12 rule rows among them; ``mechanism_correct`` runs 
 ``day_cf``'s replicates, so its count never exceeds the primary count (review S2).  The pilot
 (:mod:`tests.studies.continuous_time_longitudinal_pilot`, :data:`PILOT_REPLICATES` draws of each
 of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) no
-longer chooses a rung: ``regenerate.py`` refuses a declared run unless the anchored family pass
-at the declared counts (:func:`pilot.anchored_family_pass`, the product of the 60 rows' plug-in
-pass probabilities, each read at its group's pooled coverage, SE ratio and standardized bias)
-reaches 0.95.  The plan's move of rows with pilot coverage below 0.925 to reported is not
+longer chooses a rung.  Each gated row is read at its group's pooled coverage and SE ratio and
+at its own pilot standardized bias (``pilot.own_passes``).  The five rows whose own pass is below
+0.96 (:data:`EXPOSED_ROWS`) stay gated with a declared route, by Eric's choice on 2026-11-25: a
+red on the bias clause alone, with coverage and the SE ratio passing, keeps the row's claim
+experimental and goes to an owner row, and any other red fails the record
+(``readings.routed``, :func:`routed_performance`).  ``regenerate.py`` refuses a declared run
+unless the product of the other 55 rows' pass probabilities reaches 0.95 at the declared counts
+(``pilot.remainder_family_pass``, 0.988 on the second pilot).  The plan's move of rows with pilot coverage below 0.925 to reported is not
 applied, by the same choice.  The record holds one count, so ``day_cf`` and ``cont_cf`` share
 the primary count.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study;
 replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams
@@ -221,6 +225,43 @@ SECONDARY: dict[str, tuple[str, int, tuple[str, ...]]] = {
 #: The gated secondary cell; the others are reported.
 GATED_SECONDARY = ("mechanism_correct",)
 
+#: A gated row whose own pass at the declared counts is below this is exposed (Eric's choice,
+#: 2026-11-25): read at its own pilot standardized bias with its group's pooled coverage and SE
+#: ratio (``pilot.own_passes``).
+EXPOSED_PASS = 0.96
+RULE_CLAIM = "rule regimes"
+ROBUST_CLAIM = "double robustness (mechanism_correct)"
+RULE_MODE = (
+    "the rule levels' positive cause-1 bias at n = 1,000 (+0.12 to +0.13 SD in the second pilot, "
+    "+0.11 to +0.13 in the first), already in the initial estimate and not removed by targeting; "
+    "the first diagnosis excluded the visit cap, the residual score and the treatment misfit, and "
+    "it is unexplained beyond that: CT-day's tie or day-grid approximations are suspected, not "
+    "shown"
+)
+#: ``(cell, row) -> (claim, foreseen mode)`` of every exposed row (Eric's choice, 2026-11-25).
+#: An exposed row stays gated; a red on its bias clause alone, with its coverage and SE ratio
+#: passing, keeps its claim experimental and goes to an owner row instead of failing the record
+#: (``readings.exposed``, ``routed_performance``).  The design test pins the list against the
+#: committed pilot.
+EXPOSED_ROWS: dict[tuple[str, str], tuple[str, str]] = {
+    ("day_cf", laws.level_name("rule", 1, 10.0)): (RULE_CLAIM, RULE_MODE),
+    ("day_cf", laws.level_name("rule", 1, 20.0)): (RULE_CLAIM, RULE_MODE),
+    ("day_cf", laws.level_name("rule", 1, 30.0)): (RULE_CLAIM, RULE_MODE),
+    ("mechanism_correct", laws.level_name("never", 1, 30.0)): (
+        ROBUST_CLAIM,
+        "the visit cap on never at day 30: the fit targets the capped risk and the gate reads the "
+        "full one; the pilot bias is -0.112 SD against the full risk and -0.076 against the "
+        "capped truth, so about 0.04 SD is the cap's gap and the rest lies within about 1.5 "
+        "pilot SEs of zero",
+    ),
+    ("mechanism_correct", laws.difference_name("always", 1, 30.0)): (
+        ROBUST_CLAIM,
+        "partly the visit cap on its never arm: the pilot bias is +0.134 SD against the full "
+        "difference and +0.094 against the capped one; the remaining +0.09 SD has no identified "
+        "cause and lies within about 2 pilot SEs of zero, so it may be pilot noise",
+    ),
+}
+
 #: The X70 panel's node ends, in days: three nodes per 10 days, of 3, 3 and 4 days.
 NODE_ENDS: tuple[int, ...] = (3, 6, 10, 13, 16, 20, 23, 26, 30)
 
@@ -233,6 +274,7 @@ PAIRING_FILE = "ltmle-pairing.csv"
 READINGS_FILE = "targeting-readings.csv"
 VISIT_CAP_FILE = "visit-cap.csv"
 FLOORS_FILE = "floors.csv"
+EXPOSED_FILE = "exposed-rows.csv"
 
 STUDY = StudyRecord(
     name="continuous-time longitudinal TMLE",
@@ -260,6 +302,7 @@ STUDY = StudyRecord(
         READINGS_FILE,
         VISIT_CAP_FILE,
         FLOORS_FILE,
+        EXPOSED_FILE,
     ),
     modules=(
         "tests/studies/continuous_time_longitudinal.py",
@@ -752,6 +795,28 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     from tests.studies import continuous_time_longitudinal_readings as readings_module
 
     return readings_module.artifacts(rows)
+
+
+def routed_performance(failures: pd.DataFrame) -> pd.DataFrame:
+    """The independent-performance failures a declared route carries (the driver's hook).
+
+    The rows of ``failures`` that are exposed (:data:`EXPOSED_ROWS`) and red on the bias clause
+    alone, with coverage and the SE ratio passing.  The shared driver drops them from its gate,
+    and ``exposed-rows.csv`` records each one as routed, its claim experimental.
+    """
+    from tests.studies import continuous_time_longitudinal_readings as readings_module
+
+    keep = [
+        readings_module.routed(
+            str(row["scenario"]),
+            str(row["estimand"]),
+            bias_equivalent=bool(row["bias_equivalent"]),
+            coverage_valid=bool(row["coverage_valid"]),
+            se_calibrated=bool(row["se_calibrated"]),
+        )
+        for _, row in failures.iterrows()
+    ]
+    return failures.loc[keep] if len(failures) else failures
 
 
 def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:

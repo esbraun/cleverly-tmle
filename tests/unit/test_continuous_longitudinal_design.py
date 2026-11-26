@@ -49,6 +49,7 @@ def test_the_declaration_is_the_plans() -> None:
         study.READINGS_FILE,
         study.VISIT_CAP_FILE,
         study.FLOORS_FILE,
+        study.EXPOSED_FILE,
     }
 
 
@@ -536,14 +537,126 @@ def test_opposite_biases_in_a_group_fail_the_per_row_reading(
     assert (own.loc[own["cell"] != "mechanism_correct", "own_pass"] > 0.999).all()
 
 
-def test_the_regeneration_refuses_a_failing_anchored_family(
+def test_the_exposed_rows_are_the_pilots() -> None:
+    """Eric's choice of 2026-11-25: the rows whose own pass at the declared counts is below 0.96."""
+    assert study.EXPOSED_PASS == 0.96
+    assert len(study.EXPOSED_ROWS) == 5
+    assert all(
+        (cell, name) in {(c, n) for c, names in pilot.GATED.items() for n in names}
+        for cell, name in study.EXPOSED_ROWS
+    )
+    if PILOT.empty or not all(pilot.draws(PILOT, cell) >= pilot.DRAWS for cell in pilot.CELLS):
+        pytest.skip("the list is read once every pilot cell holds its draws")
+    assert set(pilot.exposed_rows(PILOT)) == set(study.EXPOSED_ROWS)
+    declared = (study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES)
+    assert pilot.remainder_family_pass(PILOT, *declared) >= sizing.FAMILY_WISE_PASS
+    assert pilot.per_row_family_pass(PILOT, *declared) < sizing.FAMILY_WISE_PASS
+
+
+def test_the_regeneration_refuses_a_failing_remainder_or_another_exposed_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if PILOT.empty or not all(pilot.draws(PILOT, cell) >= pilot.DRAWS for cell in pilot.CELLS):
         pytest.skip("the check runs once every pilot cell holds its draws")
-    monkeypatch.setattr(pilot, "anchored_family_pass", lambda rows, primary, mechanism: 0.9)
+    monkeypatch.setattr(pilot, "remainder_family_pass", lambda rows, primary, mechanism: 0.9)
     reasons = regenerate.pilot_refusals()
-    assert any(reason.startswith("the anchored family passes with 0.900") for reason in reasons)
+    assert any(
+        reason.startswith("the family outside the exposed rows passes with 0.900")
+        for reason in reasons
+    )
+    monkeypatch.setattr(pilot, "exposed_rows", lambda rows: [])
+    reasons = regenerate.pilot_refusals()
+    assert any("are not the declared EXPOSED_ROWS" in reason for reason in reasons)
+
+
+def _shifted(
+    rows: pd.DataFrame, cell: str, name: str, shift: float, se: float = 1.0
+) -> pd.DataFrame:
+    """``rows`` with one row's estimates of ``cell`` moved by ``shift`` and its SEs scaled."""
+    rows = rows.copy()
+    chosen = rows["estimand"] == name
+    if cell == "mechanism_correct":
+        chosen &= rows["mechanism_correct_estimate"].notna()
+        rows.loc[chosen, "mechanism_correct_estimate"] += shift
+        rows.loc[chosen, "mechanism_correct_std_error"] *= se
+        error = rows.loc[chosen, "mechanism_correct_estimate"] - rows.loc[chosen, "truth"]
+        spread = rows.loc[chosen, "mechanism_correct_std_error"]
+        rows.loc[chosen, "mechanism_correct_covered"] = (error.abs() <= 1.96 * spread).astype(float)
+    else:
+        chosen &= rows["scenario"] == cell
+        for column in ("estimate", "inference_estimate"):
+            rows.loc[chosen, column] += shift
+        rows.loc[chosen, "std_error"] *= se
+        error = rows.loc[chosen, "estimate"] - rows.loc[chosen, "truth"]
+        rows.loc[chosen, "covered"] = (error.abs() <= 1.96 * rows.loc[chosen, "std_error"]).astype(
+            int
+        )
+    return rows
+
+
+#: A shift of 0.25 SD: the bias clause fails, coverage (about 0.94) and the SE ratio pass.
+_BIAS_ONLY = 0.005
+
+
+def test_an_exposed_row_red_on_bias_alone_takes_its_route(
+    synthetic: dict[str, pd.DataFrame],
+) -> None:
+    """Eric's choice of 2026-11-25, read by code: only an exposed row, only on bias alone."""
+    exposed = laws.difference_name("always", 1, 30.0)
+    other = next(
+        name for name in study.ROBUST_ROWS if ("mechanism_correct", name) not in study.EXPOSED_ROWS
+    )
+
+    routed = readings.artifacts(
+        _shifted(synthetic["rows"], "mechanism_correct", exposed, _BIAS_ONLY)
+    )
+    table = routed[study.EXPOSED_FILE].set_index("estimand")
+    assert table.loc[exposed, "route"] == "routed" and not table.loc[exposed, "passed"]
+    assert table.loc[exposed, "claim_status"] == "experimental"
+    assert table.loc[exposed, "claim"] == study.ROBUST_CLAIM
+    assert len(readings.gates(routed)[readings.MECHANISM_GATE]) == 0
+    assert set(table["route"]) - {"passed", "routed"} == set()
+
+    # The same red on a row no route names fails the gate.
+    plain = readings.artifacts(_shifted(synthetic["rows"], "mechanism_correct", other, _BIAS_ONLY))
+    assert list(readings.gates(plain)[readings.MECHANISM_GATE]["estimand"]) == [other]
+
+    # A coverage and SE-ratio red on an exposed row is not routed.
+    broad = readings.artifacts(
+        _shifted(synthetic["rows"], "mechanism_correct", exposed, _BIAS_ONLY, se=0.7)
+    )
+    assert broad[study.EXPOSED_FILE].set_index("estimand").loc[exposed, "route"] == "red"
+    assert list(readings.gates(broad)[readings.MECHANISM_GATE]["estimand"]) == [exposed]
+
+
+def test_the_driver_drops_only_a_routed_bias_red(synthetic: dict[str, pd.DataFrame]) -> None:
+    """The shared driver's hook: an exposed day_cf row red on bias alone leaves the gate."""
+    from types import SimpleNamespace
+
+    from tests.canonical import regenerate as driver
+    from tests.studies.evidence.performance import independent_performance_tests
+
+    exposed = laws.level_name("rule", 1, 10.0)
+    other = laws.level_name("never", 1, 10.0)
+    rows = _shifted(synthetic["rows"], "day_cf", exposed, _BIAS_ONLY)
+    rows = _shifted(rows, "day_cf", other, _BIAS_ONLY)
+    rows = _shifted(rows, "day_cf", laws.level_name("rule", 1, 20.0), _BIAS_ONLY, se=0.7)
+    chosen = rows.loc[
+        (rows["scenario"] == "day_cf")
+        & rows["estimand"].isin([exposed, other, laws.level_name("rule", 1, 20.0)])
+    ]
+    performance = independent_performance_tests(chosen, record=study.STUDY, n_jobs=1)
+    failures = performance.loc[~performance["passed"]]
+    assert len(failures) == 3
+    kept = driver.drop_routed(study, failures)
+    assert sorted(kept["estimand"]) == sorted([other, laws.level_name("rule", 1, 20.0)])
+    # The exposed table reads the same verdict the driver does.
+    table = readings.exposed(rows, readings.mechanism(readings.secondary_table(rows)))
+    assert table.set_index("estimand").loc[exposed, "route"] == "routed"
+    # A hook that tries to carry a coverage or SE-ratio red stops the run.
+    broad = SimpleNamespace(STUDY=study.STUDY, routed_performance=lambda frame: frame)
+    with pytest.raises(RuntimeError, match="bias clause alone"):
+        driver.drop_routed(broad, failures)
 
 
 def _pilot_rows(cell: str, draws: int, ratio: float, rng: np.random.Generator) -> pd.DataFrame:
