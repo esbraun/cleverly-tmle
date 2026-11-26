@@ -623,7 +623,9 @@ policies = (Shift(0.0, cap=None), Scale(1.25, cap=5.5, name="x1.25"), halve_belo
 A `Piece` without a map leaves its doses unchanged. The fit checks that every observed dose lies in
 exactly one piece. It also checks that each declared inverse inverts its map, and that each declared
 derivative matches the map. In a longitudinal fit, a policy is a node of
-a `DynamicRegimen` plan. The
+a `DynamicRegimen` plan, and the longitudinal guide's section
+[Shift a continuous dose over time](longitudinal.md#shift-a-continuous-dose-over-time) works an
+example. The
 [longitudinal reference](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 gives the details, and
 [limits of the continuous-policy evidence](../technical-reference/longitudinal-tmle.md#limits-of-the-continuous-policy-evidence)
