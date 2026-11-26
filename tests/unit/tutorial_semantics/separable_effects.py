@@ -200,6 +200,8 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     # "Leaving out older moves each by less than half a standard error."
     for part in ("whole medicine", "fluid part"):
         assert abs(moves["older", part]["move in SEs"]) < 0.5
+    # method-evidence: "The leave-one-out refits read supported".
+    assert {m["label"] for m in namespace["moves"]} == {"supported"}
 
 
 def _check_order(namespace: dict[str, Any]) -> None:
@@ -249,6 +251,15 @@ def _check_monthly(namespace: dict[str, Any]) -> None:
     assert table.loc[("readmission", whole)].is_monotonic_decreasing
     assert table.loc[("readmission", fluid)].is_monotonic_decreasing
     assert (table.loc[("readmission", whole)] < table.loc[("readmission", fluid)]).all()
+    # "The whole medicine's drop grows faster": a larger drop each month.
+    steps_whole = table.loc[("readmission", whole)].diff().dropna()
+    steps_fluid = table.loc[("readmission", fluid)].diff().dropna()
+    assert (steps_whole < steps_fluid).all()
+    # "the figure notes mark the simultaneous bands experimental".
+    from cleverly import plotting
+
+    notes = " ".join(plotting.notes(namespace["readmission_fig"]))
+    assert "simultaneous band is experimental" in notes
 
 
 def _check_cross_fit(namespace: dict[str, Any]) -> None:
@@ -262,6 +273,13 @@ def _check_cross_fit(namespace: dict[str, Any]) -> None:
     # "the follow-up models' calibration slopes fall to 0.82 and 0.73"; "The hazard slopes stay
     # between 0.93 and 1.02".
     assert _near(slopes["censoring[t=2]"], 0.82, 2) and _near(slopes["censoring[t=3]"], 0.73, 2)
+    # "these models barely predict who leaves (AUC 0.58 and 0.55 ...), so their slopes are noisy
+    # (standard errors 0.14 and 0.28) and the check flags nothing".
+    rows = namespace["held_out"].set_index("model")
+    for model, auc, se in (("censoring[t=2]", 0.58, 0.14), ("censoring[t=3]", 0.55, 0.28)):
+        assert _near(rows.loc[model, "auc"], auc, 2)
+        assert _near(rows.loc[model, "calibration_slope_se"], se, 2)
+    assert not cross_fit.assess().attention
     hazards = slopes[slopes.index.str.startswith("hazard")]
     assert len(hazards) == 6
     assert _near(float(hazards.min()), 0.93, 2) and _near(float(hazards.max()), 1.02, 2)
