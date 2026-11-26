@@ -1,4 +1,4 @@
-# Time until an event (churn, readmission)
+# Risk of an event by a given day (churn, readmission)
 
 These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
 another event, such as death, can come first. They follow hospital readmission; the same analysis
