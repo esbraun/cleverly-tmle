@@ -8,9 +8,7 @@ analysis and explain the result. That guide holds the writing rules for every ma
 page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
 how to execute it.
 
-Roadmap item X88 rewrites the notebooks to this page, one notebook at a time. Until a notebook's
-rewrite merges, use it as an example of code-cell practice, not of prose or headings. The
-[TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
+The [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
 program tutorial.
 
 ## What a tutorial notebook consists of
@@ -319,6 +317,7 @@ of the technical reference describes each one and says which of them is a bound.
 | a continuous-dose shift | `simulated_confounding()` only | the bound refuses a continuous-dose shift. State that limit in one sentence |
 | kernel-smoothed dose-response curve (`DoseResponseCurve`) | none runs: `refute()` and every `cleverly.sensitivity` entry point refuse. Run `result.validate()` and read its overlap and outcome-model lines | the refutation and the bounds name [X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part K, the simulated confounder [X66](../roadmap.md#x66-simulated-confounding-beyond-x82-part-f) part (l), and the E-value does not apply to a mean at one dose. State the limit in one sentence in the conclusion |
 | longitudinal TMLE with a modified treatment policy at a node (`sequential-pricing`) | refit without one recorded covariate at a time where the fit allows it. The fit refuses an empty baseline ([X63](../roadmap.md#x63-missing-data-intermediates-and-designs) part (c)), and a covariate that a declared band reads cannot be dropped | no `cleverly.sensitivity` bound runs on the fit ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)), and `simulated_confounding()` refuses a covariate recorded after the first node ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). When no refit is possible either, state each limit in one sentence in the reading that needs it |
+| a conditional effect: the EP curve, a log-ratio projection, or a difference-scale projection coefficient | on the EP curve, none: every sensitivity entry and `refute` refuse. On a log-CRR projection coefficient, every sensitivity entry refuses and `refute()` runs. On a difference-scale `cate_projection` coefficient, `robustness_value(estimand=...)` and `omitted_confounding(estimand=...)`; `contour` and `refute()` also run, and `evalue()` and `simulated_confounding()` refuse. For a decision taken from the curve, run the regime row on that decision's contrast, as `conditional-effects` does | the projection bound reads one coefficient of the projection, not the curve. State in one sentence that the EP curve has no bound |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
 | adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
 
@@ -386,7 +385,7 @@ change.
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`) |
+| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
 | Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
@@ -412,9 +411,9 @@ change.
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
-| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`) |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
-| External scores | No tutorial fits `assess_score` |
+| External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |
 | Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
 | Drift-corrected survival TMLE | No tutorial fits it |
