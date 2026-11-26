@@ -40,6 +40,7 @@ from cleverly.methods import (
     GComputationMethod,
     IPSIMethod,
     IPWMethod,
+    ParametricGFormulaMethod,
     SDRMethod,
     TMLEMethod,
 )
@@ -427,6 +428,7 @@ def test_h10_a_point_treatment_functional_refuses_the_curve_options(
         (IPSIMethod, "IPSI"),
         (GComputationMethod, "SequentialGComputation"),
         (IPWMethod, "SequentialIPW"),
+        (ParametricGFormulaMethod, "ParametricGFormula"),
     ],
 )
 @pytest.mark.parametrize(
