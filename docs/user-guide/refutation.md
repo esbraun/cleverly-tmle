@@ -395,7 +395,7 @@ The summary then lists the bias, the SE ratio and the coverage, each against its
 | a continuous dose | `simulated_outcome` on a policy estimate, with the scalar `effect`; no `plasmode` | as above |
 | a treatment over time, with an end-of-study or repeated outcome | `dummy_outcome`, and `simulated_outcome` on a fixed regimen, each with the Gaussian outcome on a fit with no `q_bounds` and one fold (`n_folds=1`); `plasmode` | the numbers, with no pass or fail. `simulated_outcome` reads the bias only on a level, and `dummy_outcome` alone runs on a policy that is not fixed |
 | a treatment over time, with survival or competing events | `dummy_outcome` and `simulated_outcome` with the hazard declarations; `plasmode` | the numbers, with no pass or fail. A hazard that reads the covariates gives the bias only |
-| a structural nested mean model; a continuous-time survival fit | refused | nothing |
+| a structural nested mean model; a continuous-time survival fit; a fit of a treatment that changes at irregular visits (`ContinuousLongitudinalTMLE`) | refused | nothing |
 
 Collaborative TMLE, `DRTMLE` and `AdaptiveIPTW` are variants of the method that build or guard the
 treatment model differently. Each case of the refusal table in [refutation
