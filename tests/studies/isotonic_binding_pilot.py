@@ -1,6 +1,7 @@
 """The pre-read and the tolerance check of ``isotonic-binding`` (Fix-8 plan sections 5.0 and 5.8).
 
-Every pilot draw comes from :data:`PILOT_SEED`, a stream no study draws from, and is fitted by
+Every pilot draw comes from :data:`PILOT_SEED`, a stream no study draws from (the sizing pilot
+of ``learned-rule-ep`` had already used the same root), and is fitted by
 :func:`tests.studies._isotonic_binding_law.fit` exactly as the property phase fits it.
 
 * ``run`` fits pilot draws of a law at the pinned tolerance (``1e-13``) and writes one row per
