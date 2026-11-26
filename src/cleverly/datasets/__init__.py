@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
+from .home_support import (
+    HOME_SUPPORT_LEVELS,
+    home_support_effect,
+    home_support_truth,
+    make_home_support,
+)
 from .longitudinal import (
     REPEATED_RULE_LABEL,
     RULE_LABEL,
@@ -123,6 +129,7 @@ __all__ = [
     "DGP",
     "DOSE_PLANS",
     "GENERATORS",
+    "HOME_SUPPORT_LEVELS",
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
@@ -152,6 +159,8 @@ __all__ = [
     "heart_failure_protocol",
     "heart_failure_truth",
     "heterogeneous_dgp",
+    "home_support_effect",
+    "home_support_truth",
     "instrument_dgp",
     "learned_rule_truth",
     "linear_dgp",
@@ -165,6 +174,7 @@ __all__ = [
     "make_contact_schedules",
     "make_heart_failure",
     "make_heterogeneous",
+    "make_home_support",
     "make_instrument",
     "make_linear_ate",
     "make_longitudinal",
