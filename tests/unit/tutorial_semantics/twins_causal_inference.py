@@ -90,11 +90,20 @@ def check_stored() -> None:
         for output in cell.get("outputs", ())
         if "image/png" in output.get("data", {})
     ]
-    assert len(figures) == 3, (
-        "the TWINS notebook has a gestational-age figure, an overlap figure, and a contour figure"
+    assert len(figures) == 9, (
+        "the TWINS notebook draws the gestational-age figure and eight library figures: overlap, "
+        "truncation curve, contour, balance, calibration, learners, odds bounds and the simulated "
+        "confounder surface"
     )
-    # The library draws the overlap and the contour. The notebook binds each figure to a name.
+    # The library draws every figure but the first. The notebook binds each one to a name, in a
+    # cell that prints the values it plots.
     assert "overlap_fig = plotting.overlap(result" in code["overlap"]
+    assert "curve_fig = plotting.sensitivity(curve)" in code["overlap"]
+    assert "balance_fig = plotting.balance(result)" in code["balance"]
+    assert "calibration_fig = plotting.calibration(result)" in code["model-figures"]
+    assert "learners_fig = plotting.learners(result)" in code["model-figures"]
+    assert "bounds_fig = plotting.sensitivity(bounds)" in code["marginal-bounds"]
+    assert "surface_fig = plotting.confounding(surface)" in code["simulated-confounding"]
     assert 'bound="upper"' in code["sensitivity"] and "confounding_fig = " in code["sensitivity"]
 
     # Every code cell is followed by a markdown reading, and the page keeps its landmarks.
@@ -280,9 +289,13 @@ def check_stored() -> None:
         text = stored_output(NOTEBOOK, cell_id)
         assert "CapabilityError" not in text and "refus" not in text.lower(), cell_id
 
-    # Generated outcome: ten draws at level L1, below the calibrated minimum.
+    # Generated outcome: three tests, ten draws each, at level L1, below the calibrated minimum.
     generated = stored_output(NOTEBOOK, "refute-generated")
-    assert "draws: 10; level L1; verdict descriptive" in generated
+    for test in ("simulated_outcome", "plasmode", "dummy_outcome"):
+        assert f"{test}: draws 10; level L1; verdict descriptive" in generated, test
+    # The plasmode reads the simulated_outcome declaration; the dummy process reads nothing.
+    assert 'tests=("simulated_outcome", "plasmode")' in code["refute-generated"]
+    assert "effect=0.0, adjustment_scale=0.0" in code["refute-generated"]
     assert (
         "BoundedAdjustmentOutcome(intercept=-1.0, effect=-0.1, adjustment_scale=0.2)"
         in code["refute-generated"]
