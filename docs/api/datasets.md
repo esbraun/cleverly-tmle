@@ -14,10 +14,11 @@ Three functions serve the navigation program that the [examples](../examples/ind
 
 `make_randomized_pilot` draws the randomized pilot of the
 [randomized-pilot example](../examples/randomized-pilot.ipynb): a binary success outcome, an offer
-drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truth
-of `randomized_pilot_truth`.
+drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truths
+of `randomized_pilot_truth`: the two arm means, the ATE, and the average effects among offered and
+other patients (`att`, `atc`).
 
-Two generators serve the [schedules and service doses example](../examples/schedules-and-intensity.ipynb).
+Two generators serve the [more contacts and more service time example](../examples/schedules-and-intensity.ipynb).
 `make_contact_schedules` draws a 0-to-1 transition score and a three-level contact schedule
 (`SCHEDULE_LEVELS`), and `contact_schedules_truth` gives the exact mean under each declared odds
 change. `make_navigation_doses` draws a binary success outcome and two doses, navigator hours and

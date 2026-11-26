@@ -1,4 +1,4 @@
-# A treatment at several nodes with covariates after baseline on the hazard path
+# Covariates after baseline beside a treatment at several nodes on the hazard path
 
 This study validates longitudinal TMLE with `survival_model="hazard"` and
 `targeting="one_step"` when a binary treatment is decided at each of three nodes and a binary

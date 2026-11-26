@@ -3682,7 +3682,7 @@ so the censoring stays at random.
 
 A level of `simulated_outcome` has a covariate part `f(W) - mean f(W)` in its influence curve. With
 `W` held, that part is fixed, so the standard-error ratio and the coverage have no held-design
-reference (X82 plan 5.5.1). A contrast cancels `f(W)`. Coverage also needs a correct censoring
+reference. A contrast cancels `f(W)`. Coverage also needs a correct censoring
 model, so the report prints the uncensored share at each node. A policy that reads `L` or the
 natural treatment has an unknown truth when `L` is held.
 
@@ -3699,7 +3699,7 @@ probability of no event sum to 1, which independent per-cause logistic hazards d
 declarations are refused on these fits. The held design refuses a nonzero `history_effect`, which
 only the plasmode reads.
 
-The draw recodes the exit before it draws the events (X82 plan 5.5.2).
+The draw recodes the exit before it draws the events.
 
 1. An original event at node `t` becomes censoring at `t`. The generated outcome is not observed
    at that node.
@@ -4222,6 +4222,16 @@ reports the target-relevant change with multiplicity-adjusted p-values
 ([`variable_importance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/variable_importance.py)).
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
+
+Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
+with more than two levels gives one contrast per non-reference level, each a row, and the
+Benjamini-Hochberg adjustment counts rows. Before any fit, `_checked_candidates` refuses data that
+is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
+as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
+Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
+`tests/unit/test_variable_importance.py`), the discrete preparation's limit of 20 levels, which
+refuses a continuous candidate, the outcome-scale refusal, so a cross-fitted fit of a continuous
+outcome needs a declared `q_bounds`, and the inference-status refusal below.
 
 An estimator whose status withholds its interval is refused with `CapabilityError` before the
 first fit. That includes a selector-path or generated-design collaborative estimator, and a

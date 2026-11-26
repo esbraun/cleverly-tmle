@@ -24,10 +24,12 @@ reading-output
 data-design
 estimands
 conditional-effects
+variable-importance
 methods-learners
 settings
 trial-with-external-data
 results-assessment
+plots
 assessment
 sensitivity
 refutation

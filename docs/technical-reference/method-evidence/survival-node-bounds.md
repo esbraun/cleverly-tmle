@@ -1,4 +1,4 @@
-# Survival node bounds
+# Node bounds on survival fits
 
 This study validates `LTMLE(node_bounds=..., hazard_pooling="pooled")` on a held point-treatment
 survival design with five visits. It fits two models on every sample. The `mean_model` is the

@@ -7,8 +7,7 @@ and 30 and 39, and reads the floor by the rule declared before the run. On the s
 compares the shipped reference (A) with Wang et al.'s inflated variance (B) and the
 delete-one-cluster jackknife (C).
 
-**Status of this page.** The study is registered, and its run has completed. No other
-implementation computes this interval at these counts, so the study has no comparator. The
+No other implementation computes this interval at these counts, so the study has no comparator. The
 publication policy is `reporting`. Every count passes, so the family's floor is 4.
 
 Every property cell reads one contrast, `ate_regimen[always vs never]`, on two binary treatment

@@ -1,4 +1,4 @@
-# Outcome-adaptive per-arm C-TMLE (parametric extensions)
+# K-arm, weighted and population-target outcome-adaptive per-arm C-TMLE with a parametric outcome
 
 This study measures the interval of
 `CTMLE(strategy="oat", oat_design="per_arm")` with `ParametricOutcome` and `ParametricMechanism`
@@ -258,7 +258,8 @@ rows per arm.
 
 ## Deviations from the plan
 
-The plan is the X58 plan, section 13.6. The table lists each deviation and its reason.
+The plan is the declaration the study made before its run. Each row is one deviation and its
+reason.
 
 | plan | study | reason |
 | --- | --- | --- |
@@ -266,9 +267,9 @@ The plan is the X58 plan, section 13.6. The table lists each deviation and its r
 | the budgets follow the pilot step 2 | the budgets follow the pilot steps 2 and 4, pooled over independent seeds | step 2 alone gave no budget up to 80,000 for `three_arm_crossfit` and `three_arm_generated_design`, and a study-wise 0.7675 at the plan budgets. The model carries the sampling error of its own pilot, so the pass probability stops rising with the size. The pooled model gives 0.9844 at the declared budgets |
 | `binary_population` has 9,600 replications and `three_arm_crossfit` 17,600 | 11,200 and 18,800 | the pooled pilot gives the smallest multiple of 400 at the target. The predicted values are 0.99738 and 0.99735 |
 | `three_arm_null` has 1,200 replications | 1,600 | at 1,200 replications, with every allowed loss counted as a rejection, the two rows pass with probability 0.95525 at a true rate of 0.055. At 1,600 the figure is 0.99490, and 0.99982 at 0.05 |
-| the design review states that 1,600 primary replications hold the target down to a true coverage of 0.94 | the primary phase holds the target down to 0.945 | the pass probability of 11 rows at 1,600 replications is 0.99990 at 0.945 and 0.99592 at 0.94, below the target. At 1,200 it is 0.93764 at 0.94. The module comment and the design test state the corrected figures |
-| the `ey_obs` interval is reported and gates nothing (plan Q7) | three `ey_obs` cells are gated | three support rows license the Wald interval of `ey_obs`. A supported claim needs a measured cell |
-| the pilot pools $\tau_{80}$ over the arms of each group (design review) | the pilot pools $\tau_{80}$ over the study, as the plan and the earlier study do | the study-wise value is 0.0106. The pilot report prints the group-only values |
+| a review before the run states that 1,600 primary replications hold the target down to a true coverage of 0.94 | the primary phase holds the target down to 0.945 | the pass probability of 11 rows at 1,600 replications is 0.99990 at 0.945 and 0.99592 at 0.94, below the target. At 1,200 it is 0.93764 at 0.94. The module comment and the design test state the corrected figures |
+| the `ey_obs` interval is reported and gates nothing | three `ey_obs` cells are gated | three support rows license the Wald interval of `ey_obs`. A supported claim needs a measured cell |
+| a review before the run asked the pilot to pool $\tau_{80}$ over the arms of each group | the pilot pools $\tau_{80}$ over the study, as the plan and the earlier study do | the study-wise value is 0.0106. The pilot report prints the group-only values |
 | the `noise_control` bound uses the exact SD of the contrast | the `three_arm_shared` bound uses a 20-node Hermite rule | the rule converges slowly on this law (0.9203 at 20 nodes, 0.9210 at 30), so the bound sits about 0.08% low. The control reads far from the band edge |
 | the clause binding of `interval_calibration, coverage in calibration band` is `bias`, copied from the parametric study, and the two `simultaneous_coverage` clauses are `se_low` | the first clause binds to `affine`, `generated_design, coverage in calibration band` binds to `shift/0.7`, and the two `simultaneous_coverage` clauses keep `se_low` | the binding search on the committed rows chose each perturbation, as [Reproduction](#reproduction) states |
 
@@ -425,6 +426,6 @@ seconds.
 
 It found the seeded `affine` map for `interval_calibration, coverage in calibration band`
 where the plan copied `bias`, and `shift/0.7` for `generated_design, coverage in calibration band`
-where the plan copied `affine`. It kept `se_low` for both `simultaneous_coverage` clauses. The
-design review expected that `se_low` could not decide `joint coverage below nominal`. The search
+where the plan copied `affine`. It kept `se_low` for both `simultaneous_coverage` clauses. A
+review before the run expected that `se_low` could not decide `joint coverage below nominal`. The search
 shows that it decides that clause alone on these rows.

@@ -1,4 +1,4 @@
-# Point survival curve
+# Point-treatment survival, one-step hazard targeting of the curve
 
 This study validates longitudinal TMLE with `survival_model="hazard"` and `targeting="one_step"`
 on a held design. The design has one baseline treatment, held over every visit, and it reads one

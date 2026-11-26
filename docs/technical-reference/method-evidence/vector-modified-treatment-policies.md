@@ -8,9 +8,9 @@ node. Both read the ratio from the joint density that a `JointPolicy` induces
 [vector nodes](../longitudinal-tmle.md#vector-nodes-with-a-continuous-component) sections state
 the estimators, their conditions and their exact-law evidence.
 
-**Status of this page.** The study is registered, and both phases have run. The 40 truth tests
-(20 for each implementation), the 20 paired comparisons with `lmtp` and the 36 property cells
-pass (`performance-tests.csv`, `equivalence.csv`, `properties.csv`).
+The study is comparator-backed against `lmtp`, and its publication policy is `reporting`. The 40
+truth tests (20 for each implementation), the 20 paired comparisons with `lmtp` and the 36 property
+cells pass (`performance-tests.csv`, `equivalence.csv`, `properties.csv`).
 
 Both phases were regenerated at commit `58538bfa` with 1,000 samples per scenario, after the binned
 density was refined. The density-route estimates moved and the classifier estimates did not. A refit

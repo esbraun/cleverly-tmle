@@ -27,8 +27,8 @@ the absence of a comparator.
 | seeds | `seed=20261401` and `resampling_seed=20261402`; the run, the pilot and the smoke each draw from their own labelled streams, with fold seeds distinct per group |
 | policy | `gated` |
 
-The laws, groups, learners, budgets, controls and seeds were fixed before any run, in the P1 plan,
-its two design reviews and `tests/studies/projection_compositions.py`.
+The laws, groups, learners, budgets, controls and seeds were fixed before any run, in
+`tests/studies/projection_compositions.py`.
 `tests/unit/test_projection_compositions_design.py` checks the truths, the declared cells, the
 pilot rule and the budget.
 

@@ -1505,7 +1505,7 @@ def render_summary(
     owned : Mapping
         The owner of each red row.
     records : Sequence of StudyRecord
-        The registered studies, in grid order.
+        The registered studies, in registration order.
     ids : Sequence of str
         The roadmap's owner names, in table order.
 
@@ -1530,7 +1530,7 @@ def render_summary(
 def render_red_cells(
     rows: Sequence[RedRow], owned: Mapping[RedKey, str], records: Sequence[StudyRecord]
 ) -> list[str]:
-    """One row per red verdict, in grid order.
+    """One row per red verdict, in registration order.
 
     Parameters
     ----------
@@ -1539,7 +1539,7 @@ def render_red_cells(
     owned : Mapping
         The owner of each red row.
     records : Sequence of StudyRecord
-        The registered studies, in grid order.
+        The registered studies, in registration order.
 
     Returns
     -------
@@ -1576,7 +1576,7 @@ def render_reporting_without_red(
     rows : Sequence of RedRow
         The red rows.
     records : Sequence of StudyRecord
-        The registered studies, in grid order.
+        The registered studies, in registration order.
     counts : Mapping
         Each study slug's verdict count, from :func:`verdict_count`.
 

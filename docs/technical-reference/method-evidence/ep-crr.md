@@ -34,8 +34,8 @@ A zero-row equivalence artifact records the absence of a comparison.
 | seeds | `seed=20261123` and `resampling_seed=20261124`; every group draws from its own labelled stream |
 | policy | `gated` |
 
-The laws, groups, learners, margins, controls and seeds were fixed before the run in the P1
-plan (section 5.3 and amendments rev 2.4 and 2.5) and `tests/studies/ep_crr.py`. The replicate
+The laws, groups, learners, margins, controls and seeds were fixed before the run in
+`tests/studies/ep_crr.py`. The replicate
 counts come from pilots on their own streams (`tests/studies/ep_crr_pilot.csv`,
 `ep_crr_growth_pilot.csv`, `ep_crr_offset_pilot.csv` and `ep_crr_hessian_pilot.csv`), and
 `tests/unit/test_ep_crr_design.py` pins them and the laws.

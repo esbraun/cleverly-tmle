@@ -1,4 +1,4 @@
-# Learned weighted point-treatment TMLE
+# Ordinary learned weighted point-treatment TMLE
 
 This study validates ordinary point-treatment TMLE when fixed observation weights reach the
 nuisance learners. The fit sends the weights to both learner classes. The repeated-sampling

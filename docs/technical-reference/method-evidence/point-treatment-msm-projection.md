@@ -1,4 +1,4 @@
-# Point-treatment MSM projection
+# Ordinary point-treatment MSM projection
 
 This study validates the ordinary identity-link MSM projection in `cleverly`. The working model
 has an intercept, treatment, and baseline term against six counterfactual cells, so it is

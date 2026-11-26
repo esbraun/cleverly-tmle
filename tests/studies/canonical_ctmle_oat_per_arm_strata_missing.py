@@ -190,7 +190,7 @@ STUDY = StudyRecord(
     document=(
         "docs/technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md"
     ),
-    anchor="outcome-adaptive-per-arm-c-tmle-with-strata-and-missing-data",
+    anchor="outcome-adaptive-per-arm-c-tmle-with-strata-and-missing-data-point-estimates",
     scenarios=dict(SCENARIO_ESTIMANDS),
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

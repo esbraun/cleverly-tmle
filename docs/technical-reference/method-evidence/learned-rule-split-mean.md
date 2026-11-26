@@ -38,9 +38,8 @@ fold-average target either. A zero-row equivalence artifact records the absence 
 The engine draws the five split seeds from the replication's fold seed. Two guards stop a
 replication whose reported point differs from the mean of the split points, or whose reported
 variance exceeds the mean of the split variances, each at relative 1e-12. The second is Jensen's
-inequality for $n^{-2} \sum_i \bar\phi_i^2$ and holds on every draw. The X11 plan and its study
-design record fixed the laws, the learners, the budgets, the seeds and the truth rule before any
-run. `tests/unit/test_learned_rule_split_mean_design.py` computes the design constants again, and
+inequality for $n^{-2} \sum_i \bar\phi_i^2$ and holds on every draw. The laws, the
+learners, the budgets, the seeds and the truth rule were fixed before any run. `tests/unit/test_learned_rule_split_mean_design.py` computes the design constants again, and
 `tests/unit/test_learned_rule_split_mean_harness.py` checks the harness and the controls.
 
 ## Accuracy against known truth

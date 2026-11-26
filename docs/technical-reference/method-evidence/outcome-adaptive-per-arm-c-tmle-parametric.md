@@ -1,4 +1,4 @@
-# Outcome-adaptive per-arm C-TMLE (parametric)
+# Outcome-adaptive per-arm C-TMLE with a parametric outcome
 
 This study measures the interval of `CTMLE(strategy="oat", oat_design="per_arm", cross_fit=False)`
 with `ParametricOutcome` and `ParametricMechanism`. The fit is a stacked Z-estimator. Its outcome
@@ -202,11 +202,12 @@ ATE SE ratio out of the band when that term is missing.
 
 ## Deviations from the plan
 
-The plan is the X58 plan, section 5. The table lists each deviation and its reason.
+The plan is the declaration the study made before its run. Each row is one deviation and its
+reason.
 
 | plan | study | reason |
 | --- | --- | --- |
-| each cell sized to a family-wise pass probability of 0.95 (section 11) | each of the 11 calibration groups sized to $0.95^{1/12}$, so the whole study passes with probability at least 0.95 | per-cell sizing gives a study-wise pass probability near 0.63, as the pre-queue design review found |
+| each cell sized to a family-wise pass probability of 0.95 | each of the 11 calibration groups sized to $0.95^{1/12}$, so the whole study passes with probability at least 0.95 | per-cell sizing gives a study-wise pass probability near 0.63, as a review before the run found |
 | the Monte Carlo covariance of the arm means gated, with a bootstrap interval | the covariance reported and not gated | at 10,000 replications the 99% interval of the ratio is wider than the SE-ratio band, and the study declared no covariance band, as [the covariance](#the-covariance) shows. The ATE row and the cross-term control carry the covariance |
 | the ladder in the `root_n_and_efficiency` family and the joint cells in a `joint` family | the ladder and the joint cells are `interval_calibration` cells named `<label>__<estimand>__corrected` | the shared calibration verdict then applies to each estimand. The `sqrt(n)` SD of the ladder stays a reported column |
 | the `generated_design` pair a reporting diagnostic, as in the parent study | the pair is a gated family. Both cells pass | the pinned cell fits no outcome model, so the shipped curve is its full curve. The estimated cell reads the stacked curve |

@@ -7,9 +7,8 @@ inner folds. Wang, Park, Small and Li (2024), Remark 3, caution against complex 
 20 clusters. The registered few-cluster studies measured parametric learners only, so this study
 reads stacked `TMLE` at 10, 20 and 40 clusters and cross-fitted `LTMLE` at 20.
 
-**Status of this page.** The study is registered, and its run has completed. No other
-implementation fits a few-cluster TMLE with a Super Learner and a $t$ reference, so the study has
-no comparator. The publication policy is `reporting`.
+No other implementation fits a few-cluster TMLE with a Super Learner and a $t$ reference, so the
+study has no comparator. The publication policy is `reporting`.
 
 Every gated row passes, so stacked `TMLE`
 at 10 to 40 clusters and cross-fitted `LTMLE` at 20 clusters, with the default library, keep

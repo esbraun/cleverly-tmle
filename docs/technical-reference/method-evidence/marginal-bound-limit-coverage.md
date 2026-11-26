@@ -25,8 +25,7 @@ the absence of a comparator.
 | size | 2,000 replications at $n = 8000$ per cell, and 6,800 property draws per cell |
 | Monte Carlo inference | 99% intervals around every declared endpoint |
 
-`X82-H-plan.md` rev 2.5, section 8, in the plans repository fixed the cells, the size, the seeds,
-the controls and the red-cell route before any run. Pilots on seeds outside the declared streams
+The study fixed the cells, the size, the seeds, the controls and the red-cell route before any run. Pilots on seeds outside the declared streams
 sized the run.
 
 ## Accuracy against known truth

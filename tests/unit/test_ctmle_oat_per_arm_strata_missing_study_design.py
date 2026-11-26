@@ -43,7 +43,9 @@ def test_the_declared_numbers() -> None:
     assert record.margins == Margins()
     assert record.implementation == "cleverly-ctmle-oat-per-arm"
     assert record.reference == "drtmle-r-oat-per-arm-strata-missing"
-    assert record.anchor == "outcome-adaptive-per-arm-c-tmle-with-strata-and-missing-data"
+    assert record.anchor == (
+        "outcome-adaptive-per-arm-c-tmle-with-strata-and-missing-data-point-estimates"
+    )
     assert record.document.endswith(
         "method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md"
     )

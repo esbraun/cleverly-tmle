@@ -1,4 +1,4 @@
-# MTP boundaries
+# Modified treatment policies at declared boundaries
 
 This study validates a longitudinal modified treatment policy on a continuous dose whose declared
 support depends on the history. The policies bind at that support, change their Jacobian with the
@@ -7,11 +7,9 @@ dose, have two inverse branches, or send an interval of doses to a declared atom
 [modified treatment policies at a node](../longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 section states the estimator and its conditions.
 
-**Status of this page.** The study is registered, and its Python phases and its `lmtp` phase have
-run. The study record sets `reference="lmtp"`, so the page publishes a paired row for each estimand.
-The publication policy is `reporting`.
-A red cell stays red on this page and in the [red-cell ledger](red-cells.md), with the owner row
-that names it.
+The study record sets `reference="lmtp"`, so the page publishes a paired row for each estimand. The
+publication policy is `reporting`. A red cell stays red on this page and in the
+[red-cell ledger](red-cells.md), with the owner row that names it.
 
 | part | what it is | status |
 | --- | --- | --- |

@@ -470,7 +470,7 @@ calibrates the placebo `t` and the subset `rho` on a risk difference, so each pr
 fit inside its scope: two causes, n of at least 1,000, the default hazard libraries and treatment
 learner, the switched variance, ten-fold cross-fitting, 20 refits, at least 17 events in every arm
 and cause by the target time, and a target time holding 43% to 79% of the observed events. The
-study's size rule tolerates more than the X82 rule does (no more than 68 rejections in 600
+study's size rule tolerates more than the 17-of-200 rule does (no more than 68 rejections in 600
 trials), and the subset rule's measured false-alarm rate is 0.080 to 0.095, against a nominal 0.05.
 Every other reading, and every reading on another fit, prints its numbers without a verdict.
 
