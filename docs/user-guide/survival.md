@@ -863,6 +863,80 @@ Fit flexible treatment and censoring models with cross-fitting, the default: fit
 beside a wrong event model, the points were badly biased. [Time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)
 gives the estimator, the conditions and what it refuses.
 
+## Check the risk curve with other estimators
+
+Other estimators reach the same risks through different models, so a few of them fitted beside
+the default, `method="tmle"`, make a quick check. A large gap between them says that one set of models is off. The
+example draws a fresh sample from the same simulation and fits four estimators to it.
+
+```python
+from cleverly.learners import GLM
+
+check_frame, check_truth = make_point_survival(n=1_000, seed=1, n_times=4)
+check_study = CausalStudy(check_frame, design=design)
+check_plans = RegimeContrast({"arm1": 1, "arm0": 0}, reference="arm0", horizons=(4,))
+plain_models = dict(
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+models_by_method = {
+    "tmle": plain_models,
+    "sdr": plain_models,
+    "gcomp": dict(outcome_learner=GLM(family="binomial"), pseudo_learner=GLM()),
+    "ipw": dict(treatment_learner=GLM(family="binomial"), censoring_learner=GLM(family="binomial")),
+}
+for method, models in models_by_method.items():
+    check_fit = check_study.estimate(check_plans, method=method, cross_fit=False, **models)
+    check_estimate = check_fit["ate_regimen[arm1 vs arm0 @ t=4]"]
+    lower, upper = check_estimate.ci
+    print(
+        method,
+        round(check_estimate.psi, 3),
+        round(lower, 3),
+        round(upper, 3),
+        check_estimate.support.label,
+    )
+print("truth", round(check_truth["ate_regimen[arm1 vs arm0 @ t=4]"], 3))
+```
+
+The four estimates of the drop in risk by time 4 agree to within 0.003, while each interval is
+about 0.13 wide. Agreement says only that no set of models is badly off; it cannot show that any
+of them is right. Here the true drop, -0.127, sits inside every interval and about 0.02 from each
+estimate. The last column is the support label: `cleverly` marks a result experimental when no
+simulation study covers its setup, and on this design only the default fit reads `supported`.
+
+The sequential g-computation and weighting fits get generalized linear models (`GLM`), because
+they report an interval only when every model they read is a `GLM`, and that interval holds only
+when those models are correctly specified.
+[Report the sequential baselines](longitudinal.md#report-the-sequential-baselines) explains both
+estimators and what they report with other learners.
+
+| estimator | `method=` | the estimate leans on |
+| --- | --- | --- |
+| sequentially doubly robust | `"sdr"` | the event models and the treatment and dropout models. It stays on target in large samples when, at each time point, either set is right |
+| sequential g-computation | `"gcomp"` | the event models alone |
+| sequential weighting (IPW) | `"ipw"` | the treatment and dropout models alone, so a large weight moves it |
+| parametric g-formula | `"parametric_gformula"` | a model of each event's chance at each time point and of every covariate measured after baseline, from which it simulates each person forward. Each model must be right |
+
+Each of these fits one event or competing events, with the same result keys as the default fit.
+None takes `survival_model="hazard"` or `isotonic=True`, which are settings of the default fit
+([hazard and isotonic survival refusals](../technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+A simulation study covers the parametric g-formula's competing-event risks on the wide layout,
+with a treatment at each time point
+([support label](../technical-reference/parametric-gformula.md#support-label)).
+[Fit the sequentially doubly robust estimator](longitudinal.md#fit-the-sequentially-doubly-robust-estimator)
+and [Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula) cover
+the other two.
+
+An incremental intervention (`method="ipsi"`) answers a different question: the risk had each
+person's odds of treatment been multiplied by a factor at every time point, not the risk under
+treating everyone against no one. It needs a treatment decided at each time point, on
+`LongitudinalTreatment`, and refuses `TimeToEvent`. It is not doubly robust, so the treatment
+model must be right.
+[Estimate an incremental intervention over time](longitudinal.md#estimate-an-incremental-intervention-over-time)
+fits it.
+
 ## Bootstrap intervals
 
 Pass `n_bootstrap=` to refit the whole estimator on resamples of the data. Each estimate then
