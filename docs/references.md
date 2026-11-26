@@ -237,6 +237,13 @@ previous reader had is not a citation; a page number is.
   outcome, their fold assignment then reads no outer-held-out outcome. The C-TMLE selection folds
   cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). Polley's oracle
   result does not establish a risk bound for the stratified inner folds.
+- van der Laan, Polley & Hubbard (2007), [*Super Learner*](https://doi.org/10.2202/1544-6115.1309),
+  *Statistical Applications in Genetics and Molecular Biology* 6(1), Article 25, DOI
+  10.2202/1544-6115.1309. The `SuperLearner` docstring and the
+  [nuisance-learner page](technical-reference/nuisance-learners.md) cite it for the oracle
+  inequality under a bounded loss, which the package applies to the log-likelihood risk of
+  predictions clipped to `[1e-9, 1 - 1e-9]`. This entry was not read first-hand when it was
+  added. Polley (2010) above is the read source for the squared-error case.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics

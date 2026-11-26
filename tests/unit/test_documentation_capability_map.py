@@ -61,6 +61,7 @@ MAP_ROWS: dict[str, str] = {
     "Adaptive TMLE for a trial with external data": "Can outside rows, such as a registry, sharpen a small trial's estimate, correcting for how they differ?",
     "Smoothed dose-response curve": "How does the average outcome change across a range of doses?",
     "Cross-fitting and CV-TMLE": "How are the models trained out of fold, and when are the folds reused?",
+    "Nuisance learners": "How do I use my own scikit-learn models?",
     "Targeting and fitting options": "How does the correction step stop, and which other fitting options exist?",
     "Inference, diagnostics, and sensitivity": "How are intervals, bands, diagnostics and sensitivity analyses computed?",
 }

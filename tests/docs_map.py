@@ -291,7 +291,7 @@ AREAS: tuple[Area, ...] = (
     _area(
         "nuisance learners",
         (S + "learners/*",),
-        (UG + "methods-learners.md",),
+        (UG + "methods-learners.md", TR + "nuisance-learners.md"),
         see=(API + "learners.md", UG + "settings.md"),
     ),
     _area(
