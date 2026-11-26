@@ -127,7 +127,7 @@ stratified-dr-tmle-foldwise
 ```
 
 ```{toctree}
-:caption: Adaptive IPTW and adaptive TMLE
+:caption: Adaptive IPTW and adaptive TMLE with external data
 :maxdepth: 1
 
 adaptive-iptw
@@ -155,6 +155,8 @@ mtp-pricing
 mtp-pricing-censored
 mtp-tuning
 point-modified-treatment-policies
+repeated-outcome-ipsi
+stochastic-categorical-longitudinal-tmle
 stochastic-point-treatment-regimes
 stratified-incremental-msm
 vector-modified-treatment-policies
@@ -194,7 +196,7 @@ targeting-curves
 ```
 
 ```{toctree}
-:caption: Longitudinal TMLE, SDR and baselines
+:caption: Longitudinal TMLE, SDR and comparison estimators
 :maxdepth: 1
 
 boundary-node-ltmle
@@ -211,12 +213,10 @@ ordinary-end-of-study-longitudinal-tmle
 ordinary-longitudinal-msm-projection
 ordinary-weighted-end-of-study-longitudinal-tmle
 parametric-gformula
-repeated-outcome-ipsi
 repeated-outcome-longitudinal-tmle
 repeated-outcome-sdr
 sequential-baselines
 sequentially-doubly-robust-estimation
-stochastic-categorical-longitudinal-tmle
 structural-nested-mean
 ```
 

@@ -4459,6 +4459,11 @@ def _placement_findings(index: Path, grid: Path) -> list[str]:
     of the rule it breaks, as listed on :class:`TestTheStudyPagesArePlacedByFamily`.
     """
     findings: list[str] = []
+    fenced = [
+        line for line in index.read_text(encoding="utf-8").splitlines() if "{toctree}" in line
+    ]
+    if any(line.strip() != "```{toctree}" for line in fenced):
+        findings.append("0: a toctree is not backtick-fenced, so this reader cannot see it")
     trees = _toctrees(index)
     if not trees or trees[0] != (None, list(READING_PAGES)):
         findings.append(f"1: the first toctree is {trees[:1]}, not the uncaptioned reading pages")
@@ -4490,11 +4495,34 @@ def _placement_findings(index: Path, grid: Path) -> list[str]:
             if family in seen or (seen and order.index(family) < order.index(seen[-1])):
                 findings.append(f"5: the {family!r} rows are out of caption order or split")
             seen.append(family)
+        if previous is not None and previous[0] != family:
             previous = None
         if previous is not None and method.casefold() < previous[1]:
             findings.append(f"6: {method!r} is out of order inside {family!r}")
         previous = (family, method.casefold())
     return findings
+
+
+GRID_SCRIPT = ROOT / "docs" / "_static" / "custom.js"
+
+
+def _script_finds(column: str, script: str) -> bool:
+    """Whether the grid script looks a column up by its rendered header, backticks dropped."""
+    return f'headers.indexOf("{column.replace("`", "")}")' in script
+
+
+def test_the_grid_script_finds_the_method_cell_by_the_grid_s_header() -> None:
+    """``custom.js`` labels rows by the header text of the method column, so the two must agree.
+
+    The rendered header drops the backticks.  If the column were renamed, the script would find
+    no method cell and label nothing; this ties its lookup string to :data:`GRID_COLUMNS`.
+    """
+    script = GRID_SCRIPT.read_text(encoding="utf-8")
+    assert _script_finds(GRID_COLUMNS[1], script), (
+        f"custom.js does not look up the method column by its rendered header {GRID_COLUMNS[1]!r}"
+    )
+    # The control: a renamed column is a header the script does not look up.
+    assert not _script_finds("method name in `cleverly`", script)
 
 
 class TestTheStudyPagesArePlacedByFamily:
@@ -4503,6 +4531,7 @@ class TestTheStudyPagesArePlacedByFamily:
     The index held one flat toctree of 178 pages and the grid had no family column, so a reader
     could find a study only by name.  The rules, numbered as the findings are:
 
+    0. every toctree is backtick-fenced, the one form this reader parses;
     1. the first toctree holds exactly the reading pages, with no caption;
     2. every other toctree has a non-empty, unique caption;
     3. each registered study's page is in exactly one captioned toctree, and every captioned
@@ -4525,9 +4554,12 @@ class TestTheStudyPagesArePlacedByFamily:
             ("page-listed-twice", "3"),
             ("page-left-out", "3"),
             ("toctree-without-caption", "2"),
+            ("caption-repeated", "2"),
+            ("colon-fenced-toctree", "0"),
             ("reading-page-moved", "1"),
             ("row-with-another-family", "4"),
             ("family-split-in-two", "5"),
+            ("family-blocks-swapped", "5"),
             ("entries-out-of-order", "6"),
             ("rows-out-of-order", "6"),
         ],
@@ -4548,6 +4580,11 @@ class TestTheStudyPagesArePlacedByFamily:
             del index_lines[entry]
         elif mutation == "toctree-without-caption":
             del index_lines[first]
+        elif mutation == "caption-repeated":
+            second = index_lines.index(":caption: Cross-fitting and CV-TMLE")
+            index_lines[second] = index_lines[first]
+        elif mutation == "colon-fenced-toctree":
+            index_lines += ["", ":::{toctree}", ":caption: Extra", "", "how-to-read", ":::"]
         elif mutation == "reading-page-moved":
             index_lines.remove("red-cells")
             index_lines.insert(entry + 1, "red-cells")
@@ -4555,6 +4592,12 @@ class TestTheStudyPagesArePlacedByFamily:
             grid_lines[point[0]] = grid_lines[point[0]].replace(
                 "| Point-treatment TMLE |", "| DR-TMLE |", 1
             )
+        elif mutation == "family-blocks-swapped":
+            cross = [n for n in rows if grid_lines[n].startswith("| Cross-fitting and CV-TMLE |")]
+            block = [grid_lines[n] for n in point + cross]
+            moved = block[len(point) :] + block[: len(point)]
+            for number, line in zip(point + cross, moved, strict=True):
+                grid_lines[number] = line
         elif mutation == "family-split-in-two":
             grid_lines.insert(rows[-1], grid_lines.pop(point[0]))  # now the last row
         elif mutation == "entries-out-of-order":

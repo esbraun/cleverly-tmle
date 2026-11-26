@@ -733,13 +733,17 @@ artifacts, or provenance conventions for each comparison.
       data, cross-fitting and CV-TMLE, targeting and fitting options, intervals, bands and the
       bootstrap, or sensitivity, refutation and diagnostics.
    2. A time-to-event outcome goes to survival and competing risks, whatever the estimator.
-   3. A conditional-effect, learned-rule, projection or score target goes to learned rules,
-      conditional effects and scores, whatever the estimator.
+   3. A conditional effect, a projection of a conditional contrast, a learned rule or regimen, an
+      EP curve, or a score target goes to learned rules, conditional effects and scores, whatever
+      the estimator. A marginal structural model projects counterfactual means across treatment
+      levels or regimes onto a working model. It is not a projection of a conditional contrast, so
+      an MSM study goes by the rules below.
    4. An estimator family goes to its own: collaborative TMLE, DR-TMLE, or adaptive IPTW and
-      adaptive TMLE.
-   5. A policy, incremental or dose-response intervention goes to policies, incremental
-      interventions and dose-response.
-   6. Treatment over time goes to longitudinal TMLE, SDR and baselines.
+      adaptive TMLE with external data.
+   5. A stochastic regime, a modified treatment policy, an incremental propensity score
+      intervention or a dose-response curve goes to policies, incremental interventions and
+      dose-response, at one node or over time. A deterministic regime does not.
+   6. Treatment over time goes to longitudinal TMLE, SDR and comparison estimators.
    7. Anything else goes to point-treatment TMLE.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its

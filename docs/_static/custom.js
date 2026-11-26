@@ -167,7 +167,11 @@
     );
     // The row label is the method cell, found by its header so that a column added before it
     // (the family) does not become every row's label.
-    const methodIndex = Math.max(headers.indexOf("method in cleverly"), 0);
+    const methodIndex = headers.indexOf("method in cleverly");
+    if (methodIndex < 0) {
+      console.warn("validation grid: no 'method in cleverly' column, so rows are not labelled");
+      return;
+    }
     rows.forEach((row) => row.cells[methodIndex]?.classList.add("cleverly-grid-method-cell"));
 
     const topScroller = document.createElement("div");
