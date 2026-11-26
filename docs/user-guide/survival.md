@@ -537,11 +537,15 @@ work the same way.
 
 When the treatment and the covariates change at visits that fall at any time, rather than at
 shared time points, `ContinuousLongitudinalTMLE` estimates each regime's risk with no time grid.
-It is experimental: no registered study has measured its intervals yet, so every estimate is
-labelled `experimental`. Give it one row per stretch of time between visits. A person's first row
-starts at 0 and each later row starts at a visit, where the covariate `l` is measured and the
-treatment `a` decided; the last row ends at the person's event or last follow-up, with the event
-code (0 when follow-up ends without an event).
+A simulation study with known answers checked its intervals for the default models, with at
+least 1,000 people and two competing kinds of event. An estimate reads `supported` only inside
+the setting that study checked, and `experimental` otherwise, with the reason. The example below
+fits 300 people with models of its own, so its estimates read `experimental`.
+
+Give it one row per stretch of time between visits. A person's first row starts at 0 and each
+later row starts at a visit, where the covariate `l` is measured and the treatment `a` decided;
+the last row ends at the person's event or last follow-up, with the event code (0 when follow-up
+ends without an event).
 
 ```python
 import numpy as np
@@ -592,7 +596,8 @@ by name, and returns the treatment at each. Wrap it as
 declares that the rule was fixed before you saw the data; a bare function is refused. The estimate assumes that the models read a
 person's history only through the last visit's covariates and treatment, the one before it, and
 the visit's time and count. The [technical reference](../technical-reference/continuous-time-longitudinal.md)
-states this assumption, the cap on the number of visits modelled, and what the fit refuses.
+states this assumption, the cap on the number of visits modelled, what the fit refuses, and every
+condition of the `supported` label.
 
 ## When another event can come first
 

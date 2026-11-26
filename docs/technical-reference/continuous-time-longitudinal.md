@@ -3,9 +3,10 @@
 `ContinuousLongitudinalTMLE` in `cleverly.survival` estimates the absolute risk of each cause of a
 competing-risks outcome at declared times under a treatment regime, when the treatment and the
 covariates change at visits that fall at irregular, random times. It is the TMLE of Rytgaard,
-Gerds and van der Laan (2022) in continuous time, with no time grid. It is experimental: no
-registered study measures it yet, and every estimate reads `experimental` (see
-[Labels](#labels)). With a treatment fixed at baseline, use
+Gerds and van der Laan (2022) in continuous time, with no time grid. The registered study
+[continuous-time longitudinal TMLE](method-evidence/continuous-time-longitudinal.md) measures its
+default cross-fitted fit, and a risk or risk difference reads `supported` inside the configuration
+that study measures (see [Labels](#labels)). With a treatment fixed at baseline, use
 [continuous-time survival](continuous-time-survival.md); on a time grid, use the
 [longitudinal TMLE](longitudinal-tmle.md#survival-and-competing-risks).
 
@@ -129,7 +130,7 @@ full-history g-formula to $10^{-10}$, the asserted bound
 | the visit intensity | the segment rows before the cap; a death row stops at its time less $\delta$ | the same three |
 | the censoring hazard | the segment rows, entering at $s_k - \delta$; a row that exits by death or visit stops at its time less $\delta$ | the same three |
 | the treatment at baseline and each decision visit | the decision visits, design $x_k$ without $A(s_k)$ | a main-terms and an L1 logistic model, selected by cross-validated log loss, each on $[x_k, b, b\,x_k]$ with $b = 1\{k = 0\}$ |
-| the continuation $F^\nu_k$ | node $k + 1$'s rows; label: node $k + 1$'s binned sub-distribution after its visit, targeted in sample; under cross-fitting, each fold's untargeted training pass fits it and the folds are stitched, as the discrete-time hazard LTMLE does | a main-terms and an L1 logistic model of each bin's event fraction, selected by cross-validated soft log loss |
+| the continuation $F^\nu_k$ | node $k + 1$'s rows; label: node $k + 1$'s binned sub-distribution after its visit, targeted in sample; under cross-fitting, each fold's untargeted training pass fits it and the folds are stitched, as the discrete-time hazard LTMLE does | a main-terms and an L1 logistic model of each bin's event fraction, selected by cross-validated soft log loss; a regressor passed as `continuation_learner` replaces the pair |
 
 $\delta$ is half the smallest gap between distinct observed times, so the tie order above holds in
 every fit. `CoxHazard`, `StratifiedNelsonAalen`, `partial_log_likelihood` and `select_hazard`
@@ -182,14 +183,31 @@ scale. `simultaneous=True` adds a sup-t band over every risk and risk difference
 
 ## Labels
 
-Every estimate reads `experimental` with the reason "No registered study measures the
-continuous-time longitudinal TMLE yet (continuous-time-longitudinal is declared and pending)"
-(`continuous_longitudinal_support`). The reason also names a library or learner other than the
-default for any nuisance, a one-member Cox library included (such a fit never reads supported,
-because a study measures the default libraries only), a bounded hazard
-jump, fewer than 30 units following the regime at every decision visit and at risk at the last
-target time, and an estimated share past the cap above 0.05. The ratio, smooth contrasts and the
-band read experimental with reasons of their own.
+`continuous_longitudinal_support` labels each estimate. A risk or a risk difference reads
+`supported`, with the evidence `continuous-time-longitudinal`, when every condition below holds.
+The constants are read from the study's committed `floors.csv`, and
+`tests/unit/test_continuous_longitudinal_design.py` checks each against it.
+
+| condition | supported when | constant |
+| --- | --- | --- |
+| nuisances | every library and learner is the default, cross-fitted, with the default settings (`norm`, `g_bounds`, `max_iter`, `step_size`, `tol`, `n_folds`, `learner_folds`, `alpha`) | `LONGITUDINAL_DEFAULTS` |
+| causes | two | `LONGITUDINAL_CAUSES` |
+| sample size | at least 1,000 units | `LONGITUDINAL_N` |
+| regimes | static levels or declared rules; every rule row passed | |
+| event share | between 9.2% and 24.4% of the units have an event of the estimate's cause by its time, the range of the gated rows' median shares | `LONGITUDINAL_EVENT_SHARE` |
+| sparsity | the relative SD of the influence-curve variance, `variance_rel_sd`, is at most 0.224, the largest median at which the gated rows pass | `LONGITUDINAL_REL_SD` |
+| followers | at least 49 units follow each regime of the estimate at every decision visit and are at risk at the last target time, the fewest any gated fit saw | `LONGITUDINAL_FOLLOWERS` |
+| visit cap | each regime's estimated share of followers past $K^*_r$ before the estimate's time is at most 0.178, the largest any gated fit saw | `LONGITUDINAL_PAST_CAP_SHARE` |
+| weight floor | the floor raised at most 0.18% of the weighted cells at risk, the largest share any gated fit saw | `LONGITUDINAL_BOUNDED_SHARE` |
+| jump bounds | the engine bounded no hazard jump and no visit jump | |
+
+Otherwise the estimate reads `experimental`, and the reason names every condition that fails. A
+fit with a library or learner other than the default for any nuisance never reads supported, a
+one-member Cox library included, because a study measures the default libraries only. The ratio,
+smooth contrasts and the band read experimental with reasons of their own: no study measures
+them. The study fits one law, so its limits travel with every label: about two visits per unit
+over 30 days, two causes and censoring that depend on the covariate and the treatment, always and
+never treat and one rule, and three target times fitted jointly.
 
 ## Summary, plots and diagnostics
 
@@ -201,8 +219,8 @@ The diagnostics read `record` and refit nothing:
 
 | call | returns | reads |
 | --- | --- | --- |
-| `diagnostics.support()` | `ContinuousLongitudinalSupport` | the weight floor and the share of followers' cells it raised, with the severity tiers of the point support report; the shares of node rows whose death or visit jump was bounded; each regime's $K^*_r$, its share past the cap and its followers at the last target time |
-| `diagnostics.score_equations()` | `ContinuousLongitudinalScores` | each target's final $\lvert P_n D^* \rvert / \hat\sigma$ against $s_n$, each node's score and its accepted steps |
+| `diagnostics.support()` | `ContinuousLongitudinalSupport` | the weight floor and the share of followers' cells it raised (`bounded_share`), with the severity tiers of the point support report; the shares of node rows whose death or visit jump was bounded (`jump_bound_share`, `visit_bound_share`); each regime's $K^*_r$ (`caps`), its share past the cap at each target time (`past_cap_share`) and its followers at the last target time (`followers_at_last`) |
+| `diagnostics.score_equations()` | `ContinuousLongitudinalScores` | each target's final $\lvert P_n D^* \rvert / \hat\sigma$ against $s_n$, each node's score (`node_scores`) and its accepted steps |
 | `diagnostics.nuisance_models()` | `ContinuousLongitudinalNuisances` | each hazard's, the visit intensity's, the censoring hazard's and the treatment model's candidates, losses and choice; a cross-fitted fit records the first fold's |
 | `diagnostics.influence()` | the influence report | the influence curves of the estimates |
 
@@ -234,13 +252,15 @@ and are at risk at the last target time, and when the estimated share past the c
 
 ## Evidence
 
-No registered study measures this engine yet. The study `continuous-time-longitudinal` is
-declared, and its pilot and declared run are pending; its
-[evidence page](method-evidence/continuous-time-longitudinal.md) states the design (roadmap
-[X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks) part (e)). The fast tier
-checks it on two exact laws passed by weight, `tests/discrete_law_continuous_longitudinal.py`:
-law PL (one random visit time) and law PL2 (two visit times, certain and uncertain visits, a
-second visit node).
+The registered study [continuous-time longitudinal TMLE](method-evidence/continuous-time-longitudinal.md)
+fits the default cross-fitted fit at n = 1,000 on one law, in continuous time and on whole days,
+with always treat, never treat and the rule "treat when $L(s) = 1$". Every one of its 48 gated
+primary rows passes, as do the 12 double-robustness rows with the outcome side wrong, the
+plug-in control and both calibration rows. One fit of 3,200 was lost to a defect since fixed, and
+the [red-cell ledger](method-evidence/red-cells.md) accepts the two accounting rows it turns red
+by a named exception. The fast tier checks the engine on two exact laws passed by weight,
+`tests/discrete_law_continuous_longitudinal.py`: law PL (one random visit time) and law PL2 (two
+visit times, certain and uncertain visits, a second visit node).
 
 | check | test |
 | --- | --- |

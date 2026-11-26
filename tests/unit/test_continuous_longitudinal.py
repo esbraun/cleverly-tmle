@@ -20,6 +20,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
     PositivityWarning,
 )
+from cleverly.inference.sparse import influence_row
 from cleverly.interventions import Incremental, Rule, Shift, Static, Stochastic
 from cleverly.sensitivity import evalue
 from cleverly.survival import (
@@ -31,8 +32,13 @@ from cleverly.survival import (
     longitudinal,
 )
 from cleverly.survival import _longitudinal_nuisance as nuisance
+from cleverly.survival import longitudinal_result as labels
 from cleverly.survival.diagnostics import continuous_truncation_curve
-from cleverly.survival.longitudinal_result import PENDING_REASON, USER_LEARNER_REASON
+from cleverly.survival.longitudinal_result import (
+    LONGITUDINAL_DEFAULTS,
+    USER_LEARNER_REASON,
+    continuous_longitudinal_support,
+)
 from cleverly.validation import refute
 from tests.unit._continuous_longitudinal_support import CT_COLUMNS, simulate_ct
 
@@ -220,11 +226,141 @@ def test_initial_estimates_follow_the_arms(frame: pd.DataFrame) -> None:
     assert always != pytest.approx(never)
 
 
-def test_every_estimate_is_experimental(result: Any) -> None:
-    """The labels of 3.5.9 before E2: every estimate names the pending study."""
-    for estimate in result.values():
+#: A configuration the registered study measures: every condition of the support rule holds.
+MEASURED: dict[str, Any] = {
+    "n": 1_000,
+    "causes": 2,
+    "cross_fitted": True,
+    "default_nuisances": True,
+    "settings": dict(LONGITUDINAL_DEFAULTS),
+    "event_share": 0.15,
+    "variance_rel_sd": 0.15,
+    "followers": {"always": 100, "never": 60},
+    "past_cap": {"always": (4, 0.05), "never": (4, 0.1)},
+    "last": 30.0,
+    "bounded_share": 0.0,
+    "jump_bounded": False,
+    "visit_bounded": False,
+}
+
+
+def _label(scale: str = "difference", **changes: Any) -> Any:
+    return continuous_longitudinal_support(scale=scale, **{**MEASURED, **changes})
+
+
+def test_a_measured_risk_and_difference_read_supported() -> None:
+    """Every condition of the rule holds: risks and differences read supported, ratios do not."""
+    for scale in ("level", "difference"):
+        support = _label(scale)
+        assert support.label == "supported", support.reason
+        assert support.evidence == (labels.CONTINUOUS_LONGITUDINAL_STUDY,)
+    ratio = _label("ratio")
+    assert ratio.label == "experimental"
+    assert ratio.reason == labels.RATIO_REASON
+
+
+_LOW, _HIGH = labels.LONGITUDINAL_EVENT_SHARE
+_FLOOR = labels.LONGITUDINAL_PAST_CAP_SHARE
+
+
+@pytest.mark.parametrize(
+    ("inside", "outside", "text"),
+    [
+        ({"n": labels.LONGITUDINAL_N}, {"n": labels.LONGITUDINAL_N - 1}, "units"),
+        ({"causes": 2}, {"causes": 1}, "1 cause,"),
+        ({"causes": 2}, {"causes": 3}, "3 causes"),
+        ({"event_share": _LOW}, {"event_share": np.nextafter(_LOW, 0.0)}, "outside the shares"),
+        ({"event_share": _HIGH}, {"event_share": np.nextafter(_HIGH, 1.0)}, "outside the shares"),
+        (
+            {"variance_rel_sd": labels.LONGITUDINAL_REL_SD},
+            {"variance_rel_sd": np.nextafter(labels.LONGITUDINAL_REL_SD, 1.0)},
+            "sparse",
+        ),
+        (
+            {"followers": {"always": 100, "never": labels.LONGITUDINAL_FOLLOWERS}},
+            {"followers": {"always": 100, "never": labels.LONGITUDINAL_FOLLOWERS - 1}},
+            "regime 'never' at every decision visit",
+        ),
+        (
+            {"past_cap": {"always": (4, _FLOOR), "never": (4, 0.1)}},
+            {"past_cap": {"always": (4, np.nextafter(_FLOOR, 1.0)), "never": (4, 0.1)}},
+            "regime 'always''s followers",
+        ),
+        (
+            {"bounded_share": labels.LONGITUDINAL_BOUNDED_SHARE},
+            {"bounded_share": np.nextafter(labels.LONGITUDINAL_BOUNDED_SHARE, 1.0)},
+            "weight floor",
+        ),
+        ({"jump_bounded": False}, {"jump_bounded": True}, labels.JUMP_BOUND_REASON),
+        ({"visit_bounded": False}, {"visit_bounded": True}, labels.VISIT_BOUND_REASON),
+        ({"cross_fitted": True}, {"cross_fitted": False}, "in sample"),
+        ({"default_nuisances": True}, {"default_nuisances": False}, USER_LEARNER_REASON),
+    ],
+)
+def test_each_condition_has_a_witness_on_each_side(
+    inside: dict[str, Any], outside: dict[str, Any], text: str
+) -> None:
+    """Plan 3.5.9: each constant read from the study's floors, a value at it and one past it."""
+    for scale in ("level", "difference"):
+        assert _label(scale, **inside).label == "supported"
+        support = _label(scale, **outside)
+        assert support.label == "experimental"
+        assert text in support.reason
+        assert support.evidence == ("X6",)
+
+
+@pytest.mark.parametrize("key", sorted(LONGITUDINAL_DEFAULTS))
+def test_each_setting_away_from_the_measured_value_reads_experimental(key: str) -> None:
+    changed = {"tol": 1e-3, "g_bounds": 0.01, "norm": "variance"}.get(key, "other")
+    support = _label(settings={**LONGITUDINAL_DEFAULTS, key: changed})
+    assert support.label == "experimental"
+    assert f"sets {key} away from the default" in support.reason
+
+
+def test_every_shortfall_is_named() -> None:
+    """The reason lists every condition that fails, not only the first."""
+    support = _label(n=500, causes=1, event_share=0.5, jump_bounded=True)
+    assert support.reason.count("registered continuous-time-longitudinal study") >= 3
+    assert labels.JUMP_BOUND_REASON in support.reason
+
+
+def test_each_estimate_reads_its_own_time_cause_and_regimes(result: Any) -> None:
+    """The result passes each estimate its own event share, curve, followers and cap share.
+
+    The fixture is in sample with one-member libraries, so every estimate reads experimental;
+    the label is recomputed from the record and the data by each name's regime, cause and time.
+    """
+    record, data = result.record, result.data
+    regimes = list(record.regimes)
+    estimator = result.estimator
+    settings = {key: getattr(estimator, key) for key in LONGITUDINAL_DEFAULTS}
+    for name, estimate in result.items():
+        head, rest = name.split("[", 1)
+        arms, tail = rest.rstrip("]").split(", ")
+        cause, time = tail.split(" @ t=")
+        index = estimator.horizons.index(float(time))
+        involved = arms.split(" vs ")
+        expected = continuous_longitudinal_support(
+            scale={"cif_regimen": "level", "ate_regimen": "difference"}.get(head, "ratio"),
+            n=result.n,
+            causes=len(result.causes),
+            cross_fitted=False,
+            default_nuisances=False,
+            settings=settings,
+            event_share=float(np.mean((data.event == int(cause)) & (data.time <= float(time)))),
+            variance_rel_sd=influence_row(name, estimate.influence_curve).variance_rel_sd,
+            followers={a: record.followers_at_last[regimes.index(a)] for a in involved},
+            past_cap={
+                a: (record.caps[regimes.index(a)], record.past_cap_share[regimes.index(a)][index])
+                for a in involved
+            },
+            last=estimator.horizons[-1],
+            bounded_share=record.bounded_share,
+            jump_bounded=record.jump_bound_share > 0,
+            visit_bounded=record.visit_bound_share > 0,
+        )
+        assert estimate.support == expected, name
         assert estimate.support.label == "experimental"
-        assert PENDING_REASON in estimate.support.reason
 
 
 def test_a_chosen_shipped_library_names_the_user_learner_reason(result: Any) -> None:

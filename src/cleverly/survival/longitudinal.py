@@ -24,9 +24,10 @@ baseline node every term of :math:`P_n D^*` is solved.
 
 Each estimate reads the influence-curve variance :math:`P_n \hat D^2` (display (27)); the
 switched variance of the baseline engine does not carry over, because the covariate term's
-predictable variation needs the law of :math:`L(s)` the method avoids.  Every estimate reads
-experimental until the registered study ``continuous-time-longitudinal`` passes (X6 part (e),
-E2).
+predictable variation needs the law of :math:`L(s)` the method avoids.  A risk or risk
+difference reads supported inside the configuration the registered study
+``continuous-time-longitudinal`` measures
+(:func:`~cleverly.survival.longitudinal_result.continuous_longitudinal_support`).
 """
 
 from __future__ import annotations
@@ -440,7 +441,9 @@ def rule_frame(data: ContinuousLongitudinalData, visits: IntArray) -> Any:
 class ContinuousLongitudinalTMLE:
     r"""TMLE of cause-specific risks under treatment regimes with a time-varying treatment.
 
-    Experimental (X6 part (e)): no registered study measures this engine yet.
+    The registered study ``continuous-time-longitudinal`` measures the default cross-fitted fit
+    at n = 1,000 with two causes, static regimes and a rule
+    (:func:`~cleverly.survival.longitudinal_result.continuous_longitudinal_support`).
 
     Parameters
     ----------

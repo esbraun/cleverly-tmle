@@ -4,8 +4,9 @@
 each regime's difference from the reference regime and their ratio. It reads its curve, smooth
 functions, ratios and frame through the code path of
 :class:`~cleverly.survival.ContinuousSurvivalResult` (``result._TargetedRisks``), with one arm
-per regime. Every estimate reads its influence-curve variance and is labelled experimental until
-the registered study ``continuous-time-longitudinal`` passes (X6 part (e), E2).
+per regime. Every estimate reads its influence-curve variance. A risk or risk difference reads
+supported inside the configuration the registered study ``continuous-time-longitudinal``
+measures (:func:`continuous_longitudinal_support`), and experimental outside it.
 """
 
 from __future__ import annotations
@@ -45,14 +46,55 @@ FEW_FOLLOWERS: Final = 30
 #: target time, the fit warns (W2).
 PAST_CAP_SHARE: Final = 0.05
 
-#: The registered study that is to measure the continuous-time longitudinal TMLE (E2).
+#: The registered study that measures the continuous-time longitudinal TMLE.
 CONTINUOUS_LONGITUDINAL_STUDY: Final[str] = "continuous-time-longitudinal"
 
-#: Why every estimate reads experimental until E2's record passes.
-PENDING_REASON: Final[str] = (
-    "No registered study measures the continuous-time longitudinal TMLE yet "
-    f"({CONTINUOUS_LONGITUDINAL_STUDY} is declared and pending)."
-)
+#: The smallest sample size at which a risk or risk difference reads supported: the study's one
+#: size.  The design test checks it against the study's record.
+LONGITUDINAL_N: Final[int] = 1_000
+
+#: The number of causes the study fits.  A fit with another number of causes reads
+#: experimental.
+LONGITUDINAL_CAUSES: Final[int] = 2
+
+#: The largest relative standard deviation of the influence-curve variance
+#: (``variance_rel_sd``) at which a risk or risk difference reads supported: the largest median
+#: rung over the fits of a gated primary row such that every gated primary row at or below it
+#: passes, read after the run from the study's committed ``floors.csv``.  Every gated row
+#: passed, static and rule alike, so the value is the largest median rung of any gated row.
+LONGITUDINAL_REL_SD: Final[float] = 0.22353336729101952
+
+#: The share of units with an event of the estimate's cause by its time, inside which a risk or
+#: risk difference reads supported: the range of the gated rows' median shares (cause 2 at day
+#: 10 to cause 1 at day 30), every one of which passed.
+LONGITUDINAL_EVENT_SHARE: Final[tuple[float, float]] = (0.092, 0.244)
+
+#: The fewest units that follow a regime at every decision visit and are at risk at the last
+#: target time, over every fit of the gated rows.  Fewer reads experimental; fewer than
+#: :data:`FEW_FOLLOWERS` also warns (W1).
+LONGITUDINAL_FOLLOWERS: Final[int] = 49
+
+#: The largest estimated share of a regime's followers past its visit cap :math:`K^*` before a
+#: target time, over every fit of the gated rows.  An estimate whose regime's share at its time
+#: is larger reads experimental; above :data:`PAST_CAP_SHARE` the fit also warns (W2).
+LONGITUDINAL_PAST_CAP_SHARE: Final[float] = 0.1776787070035202
+
+#: The largest share of weighted cells at risk whose :math:`\pi S_c` product was raised to the
+#: floor, over every fit of the gated rows (``bounded_share``).  A larger share reads
+#: experimental.
+LONGITUDINAL_BOUNDED_SHARE: Final[float] = 0.001797937787020189
+
+#: The constructor settings the study measures, each at the value it fits.
+LONGITUDINAL_DEFAULTS: Final[Mapping[str, Any]] = {
+    "norm": "covariance",
+    "g_bounds": "auto",
+    "max_iter": 500,
+    "step_size": 0.1,
+    "tol": None,
+    "n_folds": 10,
+    "learner_folds": 5,
+    "alpha": 0.05,
+}
 
 #: Why a fit with a user learner never reads supported.
 USER_LEARNER_REASON: Final[str] = (
@@ -66,6 +108,17 @@ JUMP_BOUND_REASON: Final[str] = (
     "bounded below one."
 )
 
+#: Why a fit whose engine bounded a visit jump reads experimental.
+VISIT_BOUND_REASON: Final[str] = (
+    "The initial visit intensity put a jump of one or more at some node row, which the engine "
+    "bounded below one; no fit of the registered study bounded one."
+)
+
+#: Why a risk ratio reads experimental.
+RATIO_REASON: Final[str] = (
+    "No registered study measures a risk ratio of the continuous-time longitudinal TMLE."
+)
+
 #: The limits every estimate states.
 LONGITUDINAL_LIMITS: Final[tuple[str, ...]] = (
     "The hazards, the visit intensity, the censoring hazard and the treatment model read the "
@@ -77,15 +130,16 @@ LONGITUDINAL_LIMITS: Final[tuple[str, ...]] = (
     "the cap, censoring and the hazards read the window of visit K*, so the capped risk is "
     "identified only when censoring after visit K* + 1 does not depend on the later L or A "
     "given that window. K* is chosen on the full sample.",
-    "The variance is the influence-curve variance P_n D^2, with no study of its calibration.",
+    "The variance is the influence-curve variance P_n D^2. One law measures it: a binary "
+    "covariate and treatment that change at about two visits per unit over 30 days, two "
+    "causes and censoring that depend on both, in continuous time and on whole days, n = "
+    "1,000, the default libraries cross-fitted, always and never treat and one rule (treat "
+    "when the covariate is 1), with three target times fitted jointly.",
 )
 
-#: The support of a ratio, a smooth function and a band: no study measures them.
+#: The support of a smooth function and a band: no study measures them.
 RATIO_SUPPORT: Final[Support] = Support(
-    "experimental",
-    "No registered study measures a risk ratio of the continuous-time longitudinal TMLE.",
-    ("X6",),
-    limits=LONGITUDINAL_LIMITS,
+    "experimental", RATIO_REASON, ("X6",), limits=LONGITUDINAL_LIMITS
 )
 CONTRAST_SUPPORT: Final[Support] = Support(
     "experimental",
@@ -102,7 +156,7 @@ BAND_SUPPORT: Final[Support] = Support(
 
 
 def few_followers_reason(regime: str, count: int, last: float) -> str:
-    """The support reason of warning W1.
+    """The support reason of a regime with fewer followers than the study saw.
 
     Parameters
     ----------
@@ -120,12 +174,13 @@ def few_followers_reason(regime: str, count: int, last: float) -> str:
     """
     return (
         f"Only {count} units follow regime {regime!r} at every decision visit and are at risk "
-        f"at {last:g}; their inverse weights are large."
+        f"at {last:g}; their inverse weights are large, and every fit of the registered "
+        f"{CONTINUOUS_LONGITUDINAL_STUDY} study had at least {LONGITUDINAL_FOLLOWERS}."
     )
 
 
 def past_cap_reason(regime: str, cap: int, share: float) -> str:
-    """The support reason of warning W2.
+    """The support reason of a regime with more followers past its visit cap than the study saw.
 
     Parameters
     ----------
@@ -134,7 +189,7 @@ def past_cap_reason(regime: str, cap: int, share: float) -> str:
     cap : int
         The visit cap :math:`K^*`.
     share : float
-        The largest estimated share of followers past the cap.
+        The estimated share of followers past the cap before the estimate's time.
 
     Returns
     -------
@@ -143,45 +198,159 @@ def past_cap_reason(regime: str, cap: int, share: float) -> str:
     """
     return (
         f"An estimated {share:.3f} of regime {regime!r}'s followers visit more than K* = {cap} "
-        "times before a target time, which bounds the gap to the risk under the regime at "
-        "every visit."
+        "times before the target time, which bounds the gap to the risk under the regime at "
+        f"every visit; the registered {CONTINUOUS_LONGITUDINAL_STUDY} study measured shares up "
+        f"to {LONGITUDINAL_PAST_CAP_SHARE:.3f}."
     )
 
 
 def continuous_longitudinal_support(
     *,
+    scale: str,
+    n: int,
+    causes: int,
+    cross_fitted: bool,
     default_nuisances: bool,
+    settings: Mapping[str, Any],
+    event_share: float,
+    variance_rel_sd: float,
+    followers: Mapping[str, int],
+    past_cap: Mapping[str, tuple[int, float]],
+    last: float,
+    bounded_share: float,
     jump_bounded: bool,
-    extra: Sequence[str] = (),
+    visit_bounded: bool,
 ) -> Support:
-    """The support label of one continuous-time longitudinal estimate.
+    r"""The support label of one continuous-time longitudinal estimate.
 
-    Every estimate reads experimental until the registered study
-    ``continuous-time-longitudinal`` passes. The reason names the pending study first, then
-    each condition that would keep the estimate experimental after it: a user learner (never
-    supported), a bounded hazard jump, and the conditions of warnings W1 and W2.
+    A risk or a risk difference reads ``supported`` when the registered study
+    ``continuous-time-longitudinal`` measures its configuration: a cross-fitted fit with the
+    default libraries and the settings of :data:`LONGITUDINAL_DEFAULTS`, two causes, at least
+    :data:`LONGITUDINAL_N` units, static regimes or declared rules, a share of units with an
+    event of the estimate's cause by its time inside :data:`LONGITUDINAL_EVENT_SHARE`, a
+    ``variance_rel_sd`` at most :data:`LONGITUDINAL_REL_SD`, at least
+    :data:`LONGITUDINAL_FOLLOWERS` followers of each regime at risk at the last target time,
+    each regime's share past its visit cap at most :data:`LONGITUDINAL_PAST_CAP_SHARE`, a
+    weight-floor share at most :data:`LONGITUDINAL_BOUNDED_SHARE`, and no bounded hazard or
+    visit jump.  A ratio always reads ``experimental``.  Otherwise the estimate reads
+    ``experimental`` with every reason that applies; a user learner never reads supported.
 
     Parameters
     ----------
+    scale : {"level", "difference", "ratio"}
+        The estimate's scale.
+    n : int
+        The number of units.
+    causes : int
+        The number of event types.
+    cross_fitted : bool
+        Whether the nuisances are fitted out of fold.
     default_nuisances : bool
         Whether every nuisance takes its default library (no library or learner given).
+    settings : mapping of str to Any
+        The fit's values of the keys of :data:`LONGITUDINAL_DEFAULTS`.
+    event_share : float
+        The share of units with an observed event of the estimate's cause by its time.
+    variance_rel_sd : float
+        The relative standard deviation of the estimate's influence-curve variance,
+        :math:`\sqrt{(\hat\kappa - 1)/n}`.
+    followers : mapping of str to int
+        Per regime of the estimate, the units that follow it at every decision visit and are at
+        risk at the last target time.
+    past_cap : mapping of str to tuple of (int, float)
+        Per regime of the estimate, its visit cap :math:`K^*` and the estimated share of its
+        followers past the cap before the estimate's time.
+    last : float
+        The last target time.
+    bounded_share : float
+        The fit's share of weighted cells at risk raised to the weight floor.
     jump_bounded : bool
         Whether the engine bounded some hazard jump below one.
-    extra : sequence of str
-        Further reasons, such as warning W1's or W2's for the estimate's regime.
+    visit_bounded : bool
+        Whether the engine bounded some visit jump below one.
 
     Returns
     -------
     Support
-        The experimental label.
+        The estimate's support.
+
+    Examples
+    --------
+    >>> from cleverly.survival.longitudinal_result import (
+    ...     LONGITUDINAL_DEFAULTS, continuous_longitudinal_support,
+    ... )
+    >>> measured = dict(
+    ...     n=1_000, causes=2, cross_fitted=True, default_nuisances=True,
+    ...     settings=LONGITUDINAL_DEFAULTS, event_share=0.15, variance_rel_sd=0.15,
+    ...     followers={"always": 100, "never": 60},
+    ...     past_cap={"always": (4, 0.05), "never": (4, 0.1)},
+    ...     last=30.0, bounded_share=0.0, jump_bounded=False, visit_bounded=False,
+    ... )
+    >>> continuous_longitudinal_support(scale="difference", **measured).evidence
+    ('continuous-time-longitudinal',)
+    >>> continuous_longitudinal_support(scale="ratio", **measured).label
+    'experimental'
     """
-    reasons = [PENDING_REASON]
+    reasons: list[str] = []
+    if scale == "ratio":
+        reasons.append(RATIO_REASON)
+    study = CONTINUOUS_LONGITUDINAL_STUDY
     if not default_nuisances:
         reasons.append(USER_LEARNER_REASON)
+    changed = sorted(key for key, value in LONGITUDINAL_DEFAULTS.items() if settings[key] != value)
+    if changed:
+        reasons.append(
+            f"The fit sets {', '.join(changed)} away from the default, and the registered "
+            f"{study} study measures the defaults only."
+        )
+    if not cross_fitted:
+        reasons.append(f"The fit is in sample, and the registered {study} study cross-fits.")
+    if causes != LONGITUDINAL_CAUSES:
+        reasons.append(
+            f"The fit has {causes} cause{'' if causes == 1 else 's'}, and the registered "
+            f"{study} study measures two."
+        )
+    if n < LONGITUDINAL_N:
+        reasons.append(
+            f"The fit has {n:,} units, and the registered {study} study measures n = "
+            f"{LONGITUDINAL_N:,}."
+        )
+    low, high = LONGITUDINAL_EVENT_SHARE
+    if not low <= event_share <= high:
+        reasons.append(
+            f"{event_share:.1%} of the units have an event of this cause by this time, outside "
+            f"the shares from {low:.1%} to {high:.1%} at which the registered {study} study's "
+            "gated rows sit."
+        )
+    if scale != "ratio" and not variance_rel_sd <= LONGITUDINAL_REL_SD:
+        reasons.append(
+            "The influence curve of this estimate is sparse: the relative standard deviation of "
+            f"its variance is {variance_rel_sd:.3f}, above {LONGITUDINAL_REL_SD:.3f}, the "
+            f"largest median at which the registered {study} study's gated rows pass."
+        )
+    for regime, count in followers.items():
+        if count < LONGITUDINAL_FOLLOWERS:
+            reasons.append(few_followers_reason(regime, count, last))
+    for regime, (cap, share) in past_cap.items():
+        if share > LONGITUDINAL_PAST_CAP_SHARE:
+            reasons.append(past_cap_reason(regime, cap, share))
+    if bounded_share > LONGITUDINAL_BOUNDED_SHARE:
+        reasons.append(
+            f"The weight floor raised {bounded_share:.2%} of the weighted cells at risk, above "
+            f"the {LONGITUDINAL_BOUNDED_SHARE:.2%} of any fit of the registered {study} study."
+        )
     if jump_bounded:
         reasons.append(JUMP_BOUND_REASON)
-    reasons.extend(extra)
-    return Support("experimental", " ".join(reasons), ("X6",), limits=LONGITUDINAL_LIMITS)
+    if visit_bounded:
+        reasons.append(VISIT_BOUND_REASON)
+    if reasons:
+        return Support("experimental", " ".join(reasons), ("X6",), limits=LONGITUDINAL_LIMITS)
+    return Support(
+        "supported",
+        f"The registered {study} study measures this configuration.",
+        (study,),
+        limits=LONGITUDINAL_LIMITS,
+    )
 
 
 #: Refusal C9: a restricted mean of a longitudinal fit.
@@ -196,8 +365,10 @@ class ContinuousLongitudinalResult(_TargetedRisks, Mapping[str, ParameterEstimat
     """The targeted risks of a continuous-time longitudinal fit.
 
     Behaves as a mapping from parameter name to
-    :class:`~cleverly.inference.ParameterEstimate`. Experimental (X6 part (e)): every estimate
-    reads its influence-curve variance and is labelled experimental.
+    :class:`~cleverly.inference.ParameterEstimate`. Every estimate reads its influence-curve
+    variance. A risk or risk difference reads supported inside the configuration the registered
+    study ``continuous-time-longitudinal`` measures (:func:`continuous_longitudinal_support`); a
+    ratio, a smooth function and the band read experimental.
 
     Parameters
     ----------
@@ -832,28 +1003,33 @@ def build_result(
     # one-member Cox library is the user's choice, which a study of the defaults does not
     # measure. ``_default_nuisances_only`` gates C13 alone.
     default = est._defaults
+    settings = {key: getattr(est, key) for key in LONGITUDINAL_DEFAULTS}
+    codes = list(fit.causes)
+    event_time = np.asarray(data.time, dtype=float)
+    event_code = np.asarray(data.event)
 
-    def reasons(r: int) -> list[str]:
-        out = []
-        if record.followers_at_last[r] < FEW_FOLLOWERS:
-            out.append(few_followers_reason(labels[r], record.followers_at_last[r], last))
-        shares = record.past_cap_share[r]
-        if shares and max(shares) > PAST_CAP_SHARE:
-            out.append(past_cap_reason(labels[r], record.caps[r], max(shares)))
-        return out
-
-    def support(*regimes: int) -> Support:
-        extra: list[str] = []
-        for r in regimes:
-            extra.extend(reasons(r))
+    def support(name: str, curve: FloatArray, scale: str, j: int, k: int, *regimes: int) -> Support:
+        share = float(np.mean((event_code == codes[j]) & (event_time <= est.horizons[k])))
         return continuous_longitudinal_support(
-            default_nuisances=default, jump_bounded=jump_bounded, extra=extra
+            scale=scale,
+            n=n,
+            causes=J,
+            cross_fitted=est.cross_fit,
+            default_nuisances=default,
+            settings=settings,
+            event_share=share,
+            variance_rel_sd=influence_row(name, curve).variance_rel_sd,
+            followers={labels[r]: record.followers_at_last[r] for r in regimes},
+            past_cap={labels[r]: (record.caps[r], record.past_cap_share[r][k]) for r in regimes},
+            last=last,
+            bounded_share=float(record.bounded_share),
+            jump_bounded=jump_bounded,
+            visit_bounded=record.visit_bound_share > 0,
         )
 
     def build(
         name: str, value: float, curve: FloatArray, scale: str, sup: Support, **kw: Any
     ) -> ParameterEstimate:
-        influence_row(name, curve)
         return make_estimate(
             name,
             float(value),
@@ -872,8 +1048,14 @@ def build_result(
             for k, time in enumerate(est.horizons):
                 p = j * K + k
                 name = level_name(labels[r], None if single else cause, time)
+                curve = curves[r][:, p]
                 estimates[name] = build(
-                    name, psis[r][p], curves[r][:, p], "level", support(r), bounds=(0.0, 1.0)
+                    name,
+                    psis[r][p],
+                    curve,
+                    "level",
+                    support(name, curve, "level", j, k, r),
+                    bounds=(0.0, 1.0),
                 )
     reference = order[0]
     for r in order[1:]:
@@ -884,26 +1066,24 @@ def build_result(
                 psi0, psi1 = psis[reference][p], psis[r][p]
                 ic0, ic1 = curves[reference][:, p], curves[r][:, p]
                 name = contrast_name("ate_regimen", labels[r], labels[reference], label, time)
+                curve = ic1 - ic0
                 estimates[name] = build(
                     name,
                     psi1 - psi0,
-                    ic1 - ic0,
+                    curve,
                     "difference",
-                    support(r, reference),
+                    support(name, curve, "difference", j, k, r, reference),
                     bounds=(-1.0, 1.0),
                 )
                 if psi0 > 0 and psi1 > 0:
                     name = contrast_name("rr_regimen", labels[r], labels[reference], label, time)
-                    ratio_support = support(r, reference)
-                    ratio_support = replace(
-                        ratio_support, reason=f"{RATIO_SUPPORT.reason} {ratio_support.reason}"
-                    )
+                    curve = ic1 / psi1 - ic0 / psi0
                     estimates[name] = build(
                         name,
                         psi1 / psi0,
-                        ic1 / psi1 - ic0 / psi0,
+                        curve,
                         "ratio",
-                        ratio_support,
+                        support(name, curve, "ratio", j, k, r, reference),
                         log_psi=float(np.log(psi1 / psi0)),
                     )
     bands = None

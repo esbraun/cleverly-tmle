@@ -884,7 +884,43 @@ def test_the_budget_table_is_filled() -> None:
     assert "SMOKE_" not in diagnosis and "--jobs" in diagnosis
 
 
-def test_the_support_exemption_is_ready_for_registration() -> None:
-    """The slug joins ``EXEMPT_STUDIES`` when the record registers (a pending study is not)."""
+def test_the_support_exemption_is_the_registered_one() -> None:
+    """The registered slug's ``EXEMPT_STUDIES`` entry is the record's declared reason."""
+    from cleverly._support_rows import EXEMPT_STUDIES
+    from tests.studies.evidence.registry import registered
+
     reason = study.EXEMPT_REASON
     assert reason.strip().endswith(".") and "ContinuousLongitudinalTMLE" in reason
+    assert EXEMPT_STUDIES[study.STUDY.slug] == reason
+    assert study.STUDY.slug in {record.slug for record in registered()}
+
+
+def test_the_support_constants_are_the_committed_floors() -> None:
+    """Plan 3.5.9: each support constant is read from the committed ``floors.csv``."""
+    from cleverly.survival import longitudinal_result as labels
+
+    floors = pd.read_csv(study.STUDY.artifact(study.FLOORS_FILE))
+    values = readings.floor_values(floors)
+    # Every gated row passed, so the rules are licensed and share the static rows' floor.
+    assert floors["rule_passed"].astype(bool).all() and values["rules_supported"]
+    assert labels.LONGITUDINAL_REL_SD == values["longitudinal_rel_sd"] == values["rules_rel_sd"]
+    assert (
+        values["event_share_low"],
+        values["event_share_high"],
+    ) == labels.LONGITUDINAL_EVENT_SHARE
+    assert values["fewest_followers"] == labels.LONGITUDINAL_FOLLOWERS
+    assert floors["fewest_followers"].min() == labels.LONGITUDINAL_FOLLOWERS
+    assert values["largest_past_cap_share"] == labels.LONGITUDINAL_PAST_CAP_SHARE
+    assert floors["largest_past_cap_share"].max() == labels.LONGITUDINAL_PAST_CAP_SHARE
+    assert values["largest_bounded_share"] == labels.LONGITUDINAL_BOUNDED_SHARE
+    assert floors["largest_bounded_share"].max() == labels.LONGITUDINAL_BOUNDED_SHARE
+    assert not values["jump_bound_acted"]
+    targeting = pd.read_csv(study.STUDY.artifact(study.READINGS_FILE)).set_index("scenario")
+    assert (targeting.loc[list(study.CELLS), "mean_visit_bound_share"] == 0.0).all()
+    assert study.STUDY.n == labels.LONGITUDINAL_N
+    assert len(laws.CAUSES) == labels.LONGITUDINAL_CAUSES
+    subject = study.engine(tuple(laws.STATIC))
+    assert {key: getattr(subject, key) for key in labels.LONGITUDINAL_DEFAULTS} == dict(
+        labels.LONGITUDINAL_DEFAULTS
+    )
+    assert subject.cross_fit and subject._defaults

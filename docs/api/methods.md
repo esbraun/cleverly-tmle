@@ -87,7 +87,7 @@ hazard learner of its default libraries.
 
 ## Continuous-time longitudinal
 
-`ContinuousLongitudinalTMLE` (experimental) estimates each cause's risk at declared times under a
+`ContinuousLongitudinalTMLE` estimates each cause's risk at declared times under a
 treatment regime when the treatment and the covariates change at visits that fall at irregular
 times. It reads one row per interval between visits, through `fit()` or a
 `ContinuousLongitudinalData` container, and returns a `ContinuousLongitudinalResult`, whose
