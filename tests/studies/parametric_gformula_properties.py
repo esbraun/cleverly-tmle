@@ -148,7 +148,7 @@ NOISE_SD: dict[str, float] = {
     "nice_g5_treat_none": 3.175,
     "nice_g5_odds_x2": 2.509,
     "nice_g5_contrast": 3.873,
-    "nice_g2_rule": 5.594,
+    "nice_g2_rule": 5.517,
     "nice_g5_rule": 3.623,
 }
 # ------------------------------------------------------------------------------ the truths

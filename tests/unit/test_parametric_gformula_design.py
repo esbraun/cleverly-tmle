@@ -479,6 +479,10 @@ def test_a_flipped_rule_fails_the_bias_leg_of_its_cell(law: str) -> None:
     followed the flipped rule would centre its bias at the gap below, so its interval leaves the
     margin with chance at least 0.95 at the cell's replicates.  The rule's truth also sits well
     away from every static plan and the natural course of its law.
+
+    The ``G2`` witness is weak: the flipped rule moves the truth by 0.35 SD, just past the
+    margin, and is caught with chance about 0.99 under the normal approximation.  ``G5``'s moves
+    it by 2.2 SD.
     """
     target = study.law_of(law)
     truth = study.truths(law)["ey_regimen[rule]"]
@@ -571,14 +575,17 @@ DESIGN_PILOT: dict[str, tuple[int, float, float, float]] = {
 }
 
 
-#: The pilot of the rule labels, in the columns of :data:`DESIGN_PILOT`: 1,200 replicates of
-#: ``rule_g2`` and ``rule_g5`` at n = 2,000, the samples on the ``design_pilot`` stream and the
-#: estimator's ``random_state`` on the ``design_pilot_simulation`` stream, each keyed by fit set
-#: and replicate, so no published cell reads them.  The pilot also read the bias (-0.028 and
-#: 0.034 SD) and the coverage (0.933 and 0.955).  Each rule label is shrunk toward the pool of
-#: the 21 labels above (:func:`_shrink_onto`), so adding it moves no pin of theirs.
+#: The pilot of the rule labels, in the columns of :data:`DESIGN_PILOT`: 4,800 replicates of
+#: ``rule_g2`` and 1,200 of ``rule_g5`` at n = 2,000, the samples on the ``design_pilot`` stream
+#: and the estimator's ``random_state`` on the ``design_pilot_simulation`` stream (through
+#: ``study.simulation_seed``), each keyed by fit set and replicate, so no published cell reads
+#: them.  The pilot also read the bias (-0.036 and 0.034 SD) and the coverage (0.944 and 0.955).
+#: Each rule label is shrunk toward the pool of the 21 labels above (:func:`_shrink_onto`), so
+#: adding it moves no pin of theirs.  ``G2``'s first 1,200 replicates read 0.973, so it was
+#: extended to 4,800 before the declaration.  The shrunk ratio of 0.995 sizes the cell at 2,400
+#: replicates; at the raw ratio of 0.987 the pass chance there would be about 0.92.
 RULE_PILOT: dict[str, tuple[int, float, float, float]] = {
-    "nice_g2_rule": (1200, 0.9728, 0.0135, 5.594),
+    "nice_g2_rule": (4800, 0.9868, 0.0135, 5.517),
     "nice_g5_rule": (1200, 0.9979, 0.0148, 3.623),
 }
 
@@ -725,7 +732,7 @@ PREDICTIVE_PASS: dict[str, float] = {
     "nice_g5_treat_none": 0.937,
     "nice_g5_odds_x2": 0.9419,
     "nice_g5_contrast": 0.9441,
-    "nice_g2_rule": 0.9468,
+    "nice_g2_rule": 0.9519,
     "nice_g5_rule": 0.9485,
 }
 
@@ -1086,12 +1093,14 @@ def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its
         assert mutant_catch(label, replicates, 1.0 - share) >= CATCH_FLOOR, (kind, label)
 
 
-def test_each_rule_label_catches_the_loss_of_the_covariate_its_rule_reads() -> None:
-    """The rule assigns treatment from a simulated covariate, so that model reaches the estimate.
+def test_each_rule_label_carries_the_covariate_kind_its_rule_reads() -> None:
+    """Each rule label carries a share of the covariate kind its rule reads above the floor.
 
-    ``G2``'s rule reads the Gaussian ``Z_t`` and ``G5``'s the categorical ``S_t``.  Each rule
-    label's share of that covariate kind clears the floor of its calibration rule, so a curve
-    that dropped the derivative through the rule would fail the cell with chance at least 0.95.
+    ``G2``'s rule reads the Gaussian ``Z_t`` and ``G5``'s the categorical ``S_t``.  The share is
+    that of the whole covariate kind in the label's curve, every model of the kind together, as
+    in :data:`TERM_SHARES`.  It shows that the rule cell would catch a curve without that kind,
+    as the static labels of the law already do (``nice_g2_treat_all`` carries 0.262).  It does
+    not isolate the part of the derivative that passes through the rule's assignment.
     """
     for label, kind in (("nice_g2_rule", "covariate/normal"), ("nice_g5_rule", "covariate/multi")):
         share = TERM_SHARES[label][kind]
@@ -1578,7 +1587,7 @@ SECONDS_PER_REPLICATE: dict[str, float] = {
     "shared_g1": 0.23,
     "shared_g2": 0.354,
     "extrapolation_g4q": 0.034,
-    "rule_g2": 0.030,
+    "rule_g2": 0.029,
     "rule_g5": 0.037,
 }
 PRIMARY_SECONDS_PER_REPLICATE = 1.71
