@@ -95,6 +95,8 @@ Under `patience` the counts are the work done: `lasso` and `learners` pass the s
 logistic preorder scores every covariate before the path starts. With `repeats`, the record
 describes the first draw. The summary's "Search work" line sums the counts.
 
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale) states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened $t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
+
 Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju et al. (2019); see
 [collaborative TMLE](../references.md#collaborative-tmle). Implementation:
 [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
