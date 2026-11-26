@@ -1088,7 +1088,7 @@ published analytic variance exists for the simulation form, so the interval is a
 extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
 estimator, the argument, the settings, the refusals and the validation. The
 [three offers after discharge tutorial](../examples/model-based-over-time.ipynb) uses it for its
-main answer and compares it with structural blips.
+main answer and compares it with structural blips and longitudinal TMLE.
 
 ## Estimate an incremental intervention over time
 
