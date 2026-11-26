@@ -37,8 +37,10 @@ result = study.estimate(
 ```
 
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
-keys. A regimen cannot look ahead or change interpretation between stages. An empirically learned
-policy needs inference for the policy-learning step and is outside this estimator's contract.
+keys. A regimen cannot look ahead or change interpretation between stages. A rule estimated from
+the same sample is not a fixed rule, because its inference must account for the learning step; fit
+it as a learned plan, `LearnedRegimen`, which [Declare a dynamic rule](#declare-a-dynamic-rule)
+describes.
 
 With `n_folds > 1`, each outer training fold runs an untargeted backward regression sequence. One
 pooled fluctuation per node then targets the out-of-fold predictions over every follower. The fit
