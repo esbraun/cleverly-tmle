@@ -54,6 +54,9 @@ PRIMARY_DENSITY_BINS = ORACLE_DENSITY_BINS
 class OracleShiftDensity(BaseEstimator):
     """Exact pooled-hazard probabilities for the study's conditional normal dose."""
 
+    #: The exact density of the law, read by the support key (X121).
+    cleverly_density = "known"
+
     def __init__(self, dgp: ShiftDGP, edges: tuple[float, ...]) -> None:
         self.dgp = dgp
         self.edges = edges

@@ -396,9 +396,12 @@ def check(namespace: dict[str, Any]) -> None:
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
 
-    # The support labels the readings name: the nudge experimental, the raise supported.
+    # The support labels the readings name: all three experimental. The raise learns its density,
+    # and the rows that cover a shift (T21, T22) give the method the exact density.
     assert set(namespace["incremental_result"].to_frame()["support"]) == {"experimental"}
-    assert set(namespace["shift_result"].to_frame()["support"]) == {"supported"}
+    assert set(namespace["shift_result"].to_frame()["support"]) == {"experimental"}
+    (reason,) = set(namespace["shift_result"].to_frame()["support_reason"])
+    assert "Nearest row: T21" in reason
     assert set(namespace["regime_result"].to_frame()["support"]) == {"experimental"}
     # The screen's fit declares q_bounds, so its outcome-axis cells move the score on the logit
     # scale of [0, 1], and the reading reads them through the induced correlation.

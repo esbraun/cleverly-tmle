@@ -16,7 +16,7 @@ import warnings
 from typing import Any
 
 import pytest
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly._support as support
 from cleverly.datasets import make_shift_dose
@@ -25,6 +25,16 @@ from cleverly.interventions import DoseQuantile, Shift
 
 DECLARED = Shift(0.5, cap=5.0)
 TUNED = Shift(0.5, cap=DoseQuantile(0.9), target="population")
+
+
+class _KnownDensity(LogisticRegression):
+    """A density that declares itself known, as T21's study oracle does (X121).
+
+    T21 covers a known density only, so the declared-cap witness declares one; the tuned cap
+    is the one difference between the two fits.
+    """
+
+    cleverly_density = "known"
 
 
 def _fit(policy: Any, keys: list[Any]) -> Any:
@@ -41,7 +51,11 @@ def _fit(policy: Any, keys: list[Any]) -> Any:
         patch.setattr(support, "point_key", spy)
         warnings.simplefilter("ignore")
         return TMLE(
-            policies=[policy], cross_fit=False, ratio="density", outcome_learner=LinearRegression()
+            policies=[policy],
+            cross_fit=False,
+            ratio="density",
+            outcome_learner=LinearRegression(),
+            treatment_learner=_KnownDensity(max_iter=1000),
         ).fit(
             frame,
             outcome="Y",
