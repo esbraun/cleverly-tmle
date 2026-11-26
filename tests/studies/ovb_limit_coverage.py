@@ -51,7 +51,10 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
 #: 20262301 was ``canonical-composite-drtmle``'s seed, so the first run shared its resampling
-#: streams.  The study was rerun on fresh seeds and its results accepted as drawn.
+#: streams.  The study was rerun on fresh seeds and its results accepted as drawn.  The new
+#: seed is ``marginal-bound-limit-coverage``'s seed too, declared 20 minutes earlier, so the
+#: two primary phases share a root; this study re-seeds at its next run
+#: (``tests/unit/test_study_seed_roots.py``).
 SEED = 20262321
 #: 20262322 was also ``marginal-bound-limit-coverage``'s resampling seed, declared first, so
 #: registering that study shared every resampling stream.  Only this entropy moved: the primary

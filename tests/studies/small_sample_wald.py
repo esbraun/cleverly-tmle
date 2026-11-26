@@ -38,7 +38,10 @@ and :func:`family_pass` are the exact binomial sizing of plan 5.4 (``rev4_sizing
 ``tests/unit/test_small_sample_wald_design.py`` recomputes every number the planning scripts
 printed from them and from the law module.
 
-**Seeds.**  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study.  Property
+**Seeds.**  :data:`RESAMPLING_SEED` is used by no other study.  :data:`SEED` is also the seed
+``drtmle-foldwise-n1500`` declared earlier the same day, so the two primary phases draw their
+replications from one root.  The committed run stays as drawn, and the study takes a fresh seed
+at its next run (``tests/unit/test_study_seed_roots.py``).  Property
 replicate ``r`` of group ``label`` draws from ``stream_seed(STUDY, "property_sample", label,
 r)``, disjoint from every owner study's stream and from the planning simulations' seeds.
 """
