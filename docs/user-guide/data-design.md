@@ -49,6 +49,8 @@ study = CausalStudy(
   model, refuses `cluster=` at every setting except `strategy="derivative"`
   ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
+  [Flexible models and shared teams](../examples/cross-fitting.ipynb) declares the navigator team
+  of each patient as the cluster.
 
   Clusters may differ in size. Below 40 clusters that hold at least one row with a nonzero
   weight, a clustered fit reports a Student t interval with the cluster count minus 2 degrees of
@@ -140,6 +142,9 @@ trial = CausalStudy(
 [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
 gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the same declaration
 per node ([known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms)).
+
+[A randomized pilot](../examples/randomized-pilot.ipynb) passes the known treatment chances of a
+trial.
 
 ### Known chances beside weights
 
@@ -311,6 +316,10 @@ is right. They come with no interval
 missing data in the per-arm design", and the status table in
 [inference](../technical-reference/inference.md)).
 
+[Missing survey answers](../examples/survey-nonresponse.ipynb) and
+[Gain over current practice](../examples/population-impact.ipynb) fit effects when some outcomes
+were never recorded.
+
 ## Continuous treatment
 
 Set `treatment_kind="continuous"` when the treatment is a dose, such as a price or a discount.
@@ -371,11 +380,16 @@ It takes the outcome, a binary treatment, the adjustment columns, and `source=`,
 marks trial rows. [A small trial with external data](trial-with-external-data.md) shows the
 workflow.
 
+[A small pilot with outside records](../examples/trial-with-external-data.ipynb) runs this design.
+
 ## Longitudinal treatment
 
 A longitudinal design records one ordered treatment role per node, the history available at each
 node, censoring, and either an end-of-study outcome or event processes. Continue with the
 [longitudinal guide](longitudinal.md).
+
+[Weekly offer policies](../examples/sequential-offers.ipynb) reads a long panel with one row per
+customer and week.
 
 ## Change one field of a design
 

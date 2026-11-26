@@ -579,3 +579,13 @@ how the planted confounder moves each kind of fit, and every limit.
 | a continuous outcome fitted with a declared range (`q_bounds`) | `bounded_outcome_law="logit"` (the default) or `"normal_score"` | moved outcomes stay inside the bounds, so the outcome strength is not in the outcome's own units; compare `induced_outcome_association` across fits |
 | observation weights | nothing | each weight stays on its row, and the replay does not regenerate estimated weights. `surface.target_measure` and `surface.weight_report` describe the weights |
 | a treatment over time, fitted with `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula`, on a panel with no covariate measured after the first node: an uncensored end-of-study outcome, or a survival outcome with the treatment held from baseline ([survival](survival.md#check-sensitivity-to-a-missing-confounder)) | `estimand=`, such as `"ate_regimen[never vs always]"`. `treatment={"A2": (0.0, 0.1)}` moves one node | one hidden value per person is shared by every node and the outcome. Each cell reports one association per node, and a later node's includes the path through the earlier ones |
+
+### The analyses in the tutorials
+
+| tutorial | what it runs |
+| --- | --- |
+| [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) | the missing-confounder bound with a recorded covariate for comparison, the E-value, the worst-case bounds and the planted confounder |
+| [Smoking and twins' birth weight](../examples/twins-causal-inference.ipynb) | the bound, the E-value and the planted confounder for the effect on the treated |
+| [Missing survey answers](../examples/survey-nonresponse.ipynb), [Gain over current practice](../examples/population-impact.ipynb) | the bound and the E-value, and the analyses for missing outcomes |
+| [A strong predictor of treatment](../examples/collaborative-tmle.ipynb) | the bound and the planted confounder on a collaborative TMLE fit |
+| [Three offer policies](../examples/interventions.ipynb), [More contacts and more service time](../examples/schedules-and-intensity.ipynb) | the planted confounder on policy effects |

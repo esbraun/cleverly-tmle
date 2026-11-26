@@ -117,6 +117,9 @@ as "probability of readmission by time 2 if every unit followed plan always". Re
 whenever a name in your output is unfamiliar. A `TimeToEvent` result also reports the actual grid
 time in the `time` column of `curve()` and `to_frame()`.
 
+[One treatment, one outcome](../examples/point-treatment-tmle.ipynb) prints a full summary and explains
+it line by line.
+
 ### Labels, warnings and notes
 
 A `support` column appears when an estimate is `experimental`, and a note below the table says
