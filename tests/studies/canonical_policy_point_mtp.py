@@ -256,6 +256,9 @@ class OraclePointHazard(BaseEstimator):
         Whether to ignore the covariates, the misspecified mechanism.
     """
 
+    #: The exact density of the law, read by the support key (X121).
+    cleverly_density = "known"
+
     #: The oracle reads only the bin index, so the density layer omits the indicator block.
     bin_design = "index"
 

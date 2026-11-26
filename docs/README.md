@@ -15,18 +15,18 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries the tutorials on simulated data and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
 
 | method entry | tutorials |
 | --- | --- |
-| [point-treatment TMLE](technical-reference/point-treatment-tmle.md) | point-treatment-tmle, survey-nonresponse, interventions, population-impact, randomized-pilot, treatment-rules, schedules-and-intensity |
+| [point-treatment TMLE](technical-reference/point-treatment-tmle.md) | point-treatment-tmle, survey-nonresponse, sampling-weights, interventions, population-impact, randomized-pilot, treatment-rules, schedules-and-intensity |
 | [CV-TMLE](technical-reference/cv-tmle.md) | cross-fitting |
 | [collaborative TMLE](technical-reference/collaborative-tmle.md) | collaborative-tmle |
 | [MSM projections](technical-reference/msm-projections.md) | msm-projections |
-| [longitudinal TMLE](technical-reference/longitudinal-tmle.md) | sequential-pricing, longitudinal-survival, sequential-offers, weekly-outcomes, discharge-to-readmission |
+| [longitudinal TMLE](technical-reference/longitudinal-tmle.md) | sequential-pricing, longitudinal-survival, sequential-offers, weekly-outcomes, discharge-to-readmission, two-decision-rules |
 | [sequential g-computation and IPW](technical-reference/sequential-baselines.md) | sequential-offers |
 | [parametric g-formula](technical-reference/parametric-gformula.md) | model-based-over-time |
 | [structural dynamic effects](technical-reference/structural-dynamic-effects.md) | model-based-over-time |
@@ -36,10 +36,10 @@ that fits its question.
 | [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 | [conditional effects](technical-reference/conditional-effects.md) | conditional-effects, subgroup-effects |
 
-The tutorials share two narratives. Fourteen follow one health program: a health plan's hospital
+The tutorials share two narratives. Most follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
-tutorial is that case, because the health program has no continuous price. Four tutorials follow a
+tutorial is that case, because the health program has no continuous price. Several tutorials follow a
 second program, a subscription retailer that sends weekly offers, counts weekly orders, sets
 monthly renewal prices, and gives renewal discounts. The weekly-orders tutorial uses the retailer's
 weekly orders, an outcome recorded every week that the health program lacks, and the offers

@@ -42,6 +42,9 @@ study = CausalStudy(
   numbers. The standard error therefore leaves out the error of the weight model, and the
   summary's Weights line says the weights were estimated. Some fits then carry the
   `experimental` label (the status table in [inference](../technical-reference/inference.md)).
+
+  [An interview of a sample of patients](../examples/sampling-weights.ipynb) weights a sample
+  drawn with known chances, and reports effects for two risk groups with `strata`.
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters.
@@ -319,7 +322,8 @@ missing data in the per-arm design", and the status table in
 
 [Missing survey answers](../examples/survey-nonresponse.ipynb) and
 [Gain over current practice](../examples/population-impact.ipynb) fit effects when some outcomes
-were never recorded.
+were never recorded, and [An interview of a sample of patients](../examples/sampling-weights.ipynb)
+fits one when some treatment records are missing.
 
 ## Continuous treatment
 

@@ -584,6 +584,34 @@ def _option(value: Any) -> Any:
 #: value ``"parametric"`` declares a fixed-dimension model that selects nothing from the data.
 LEARNER_FAMILY_MARKER: Final[str] = "cleverly_learner_family"
 
+#: The class attribute a density learner sets to ``"known"`` when it returns the exact
+#: conditional density of the data's law rather than one fitted from the data.
+DENSITY_MARKER: Final[str] = "cleverly_density"
+
+
+def density_learner_family(learner: Any) -> Literal["known", "parametric", "adaptive"]:
+    """The family of the treatment learner of an in-sample density-route policy fit.
+
+    ``"known"`` when the learner's class declares :data:`DENSITY_MARKER` as ``"known"``: it
+    returns the exact conditional density, as the oracle learners of the shift studies do,
+    and a user who passes the true density may declare it the same way. Otherwise the
+    :func:`learner_family` of the learner, ``"parametric"`` or ``"adaptive"``. The default
+    learner (``None``) is ``"adaptive"``.
+
+    Parameters
+    ----------
+    learner : object or None
+        The treatment learner as passed to the estimator.
+
+    Returns
+    -------
+    str
+        ``"known"``, ``"parametric"`` or ``"adaptive"``.
+    """
+    if learner is not None and getattr(type(learner), DENSITY_MARKER, None) == "known":
+        return "known"
+    return learner_family(learner)
+
 
 def _parametric_classes() -> tuple[type, ...]:
     """The learner classes that :func:`learner_family` reads as parametric without a marker."""
@@ -1230,6 +1258,16 @@ def point_key(
         # matches a row whose study fitted the density route.
         # A ratio left unset reads the route it resolves to on this data.
         options["ratio"] = estimator.ratio_route(data).route
+        if (
+            options["ratio"] == "density"
+            and scheme == "in_sample"
+            and (treatment == ("vector",) or data.is_continuous_treatment)
+        ):
+            # The in-sample interval of the density route reads the fitted density ratio,
+            # and the shift studies give the method the exact density. A learned density
+            # adds error the influence-curve SE omits (X121), so a row of a known density
+            # never covers a learned one.
+            options["density_learner_family"] = density_learner_family(estimator.treatment_learner)
         from .estimators._tuned_policies import declares_tuned
 
         if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):

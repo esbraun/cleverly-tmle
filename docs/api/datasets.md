@@ -71,6 +71,13 @@ unreturned surveys and a 7-day primary-care visit after the offer. `population_i
 its exact truths, including the population attributable risk and the controlled direct effect at
 each visit level. `make_population_impact` is not in `GENERATORS`.
 
+`make_discharge_practices` draws the program data of the
+[discharge-practices example](../examples/ranking-exposures.ipynb): five discharge practices and
+whether each patient stayed home for 30 days. The navigation offer makes a booked follow-up visit
+more likely. `discharge_practices_truth` holds the exact effect of each practice with
+the other practices held as they were and with the booking following the navigation offer, and
+`PRACTICES` names the five practices in order. `make_discharge_practices` is not in `GENERATORS`.
+
 Three functions serve the team readmission part of the
 [discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
 
@@ -88,6 +95,15 @@ Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
 | `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
+
+Four names serve the [two-decision rules tutorial](../examples/two-decision-rules.ipynb).
+
+| name | what it holds |
+| --- | --- |
+| `make_two_decision_rules` | a wide frame of patients through navigation at discharge, a day-14 self-care score, telemonitoring at day 14, dropout after each decision, and staying home through day 30, with the value of each fixed plan and of the best pair of rules, and the best rules' cutoffs |
+| `TWO_DECISION_COLUMNS` | the `LTMLE.fit` roles of those columns |
+| `learned_regimen_truth` | the true value of the fold rule pairs of a learned-regimen fit of these data |
+| `two_decision_rules_protocol` | the `StudyProtocol` of the two-decision question |
 
 Three functions serve the [subgroup-effects tutorial](../examples/subgroup-effects.ipynb).
 
@@ -142,6 +158,8 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact
    cleverly.datasets.population_impact_truth
+   cleverly.datasets.make_discharge_practices
+   cleverly.datasets.discharge_practices_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
@@ -171,6 +189,9 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_two_decision_rules
+   cleverly.datasets.learned_regimen_truth
+   cleverly.datasets.two_decision_rules_protocol
    cleverly.datasets.make_home_support
    cleverly.datasets.home_support_truth
    cleverly.datasets.home_support_effect

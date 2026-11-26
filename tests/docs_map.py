@@ -234,7 +234,7 @@ AREAS: tuple[Area, ...] = (
         "observation weights and their variance",
         (S + "data/weighting.py", S + "data/_weight_summary.py"),
         (TR + "inference.md",),
-        see=(UG + "assessment.md",),
+        see=(UG + "assessment.md", EX + "sampling-weights.ipynb"),
     ),
     _area(
         "planned fits, timing and parallel jobs",
@@ -322,6 +322,7 @@ AREAS: tuple[Area, ...] = (
             UG + "estimands.md",
             EX + "point-treatment-tmle.ipynb",
             EX + "survey-nonresponse.ipynb",
+            EX + "sampling-weights.ipynb",
         ),
     ),
     _area(
@@ -452,7 +453,11 @@ AREAS: tuple[Area, ...] = (
             S + "longitudinal/_record_summary.py",
         ),
         (TR + "longitudinal-tmle.md", UG + "longitudinal.md"),
-        see=(EX + "sequential-pricing.ipynb", EX + "weekly-outcomes.ipynb"),
+        see=(
+            EX + "sequential-pricing.ipynb",
+            EX + "weekly-outcomes.ipynb",
+            EX + "two-decision-rules.ipynb",
+        ),
     ),
     _area(
         "survival over time",
@@ -571,7 +576,11 @@ AREAS: tuple[Area, ...] = (
         "variable importance",
         (S + "variable_importance.py", S + "_importance_assessment.py"),
         (TR + "validation-methods.md", UG + "variable-importance.md"),
-        see=(UG + "methods-learners.md", API + "results-assessment.md"),
+        see=(
+            UG + "methods-learners.md",
+            API + "results-assessment.md",
+            EX + "ranking-exposures.ipynb",
+        ),
     ),
     _area(
         "plots",
@@ -588,6 +597,11 @@ AREAS: tuple[Area, ...] = (
         see=(EX + "point-treatment-tmle.ipynb", EX + "survey-nonresponse.ipynb"),
     ),
     _area("pilot data", (S + "datasets/pilot.py",), see=(EX + "randomized-pilot.ipynb",)),
+    _area(
+        "discharge-practices data",
+        (S + "datasets/discharge_practices.py",),
+        see=(EX + "ranking-exposures.ipynb",),
+    ),
     _area(
         "home-support data",
         (S + "datasets/home_support.py",),
@@ -621,6 +635,11 @@ AREAS: tuple[Area, ...] = (
         see=(EX + "treatment-rules.ipynb",),
     ),
     _area(
+        "two-decision data",
+        (S + "datasets/two_decisions.py",),
+        see=(EX + "two-decision-rules.ipynb",),
+    ),
+    _area(
         "heart-failure data",
         (S + "datasets/heart_failure.py",),
         see=(EX + "separable-effects.ipynb",),
@@ -633,7 +652,11 @@ AREAS: tuple[Area, ...] = (
             S + "datasets/recovery.py",
             S + "datasets/synthetic.py",
         ),
-        see=(EX + "longitudinal-survival.ipynb", EX + "model-based-over-time.ipynb"),
+        see=(
+            EX + "longitudinal-survival.ipynb",
+            EX + "model-based-over-time.ipynb",
+            EX + "sampling-weights.ipynb",
+        ),
     ),
     # ---- study status -----------------------------------------------------------------------
     _area(
