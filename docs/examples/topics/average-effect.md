@@ -1,7 +1,7 @@
-# One-time actions
+# Overall effect of one or several treatments
 
-These tutorials estimate what a treatment, offer or practice given once did to an outcome measured
-later. They cover a randomized pilot, the gain over current practice, and several practices at once.
+These tutorials estimate what giving a treatment to everyone would change on average, compared with
+giving it to no one or with current practice. One of them ranks several practices at once.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ later. They cover a randomized pilot, the gain over current practice, and severa
 
 ## See also
 
-- [A small pilot with outside records: adaptive TMLE](../trial-with-external-data.ipynb) combines a small randomized pilot with outside records of patients who were not randomized.
+- [A small pilot with outside records: adaptive TMLE](../trial-with-external-data.ipynb) estimates the average effect in a small randomized pilot, borrowing outside records.
 
 ```{toctree}
 :hidden:

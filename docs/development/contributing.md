@@ -148,6 +148,12 @@ the guide's reader review before you open the pull request.
 examples contract: a new method entry needs a new tutorial, and the two link to each other in both
 directions.
 
+The user guide is grouped by the stage of an analysis, and each page sits under one sidebar heading
+of `docs/user-guide/index.md`, directly or through one topic page under `docs/user-guide/topics/`.
+A new guide page joins exactly one of them, with a bullet in the index's "Find the page for your
+task" and, under a topic, a row in that topic's question table.
+`tests/unit/test_user_guide_navigation.py` checks that the three agree.
+
 Follow these steps when you change a document.
 
 1. Rewrite the text your change touches. Do not sweep unrelated pages.

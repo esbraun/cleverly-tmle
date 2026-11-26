@@ -40,7 +40,7 @@ outcome model on plain rows, so that fit reads `supported` too. A combination no
 pooled model with weights, or weights together with clusters, for example) reads
 `experimental`: it is computed the same way, and no study has checked it. The label appears in
 `fit.summary()` only when it is experimental
-([read the support label](results-assessment.md#read-the-support-label)).
+([read the support label](reading-output.md#read-the-support-label)).
 
 The band over a grid has its own label, in its note in `curve.summary()` and in the notes of the
 `curve.plot()` figure, because a study can check the coefficients without checking the band. A
@@ -49,7 +49,7 @@ study checked the default band (random signs as multipliers,
 cross-fitting, and it held at all grid points together about 95% of the time. Other band
 settings, and fits that study did not run, read `experimental`. `fit.summary()` also prints a
 band over the coefficients themselves, and its own note says whether a study measured it
-([bands](results-assessment.md#bands-that-cover-several-estimates-at-once)).
+([bands](inference.md#bands-that-cover-several-estimates-at-once)).
 
 Every modifier must also be an adjustment column. A column outside the adjustment set is
 refused, because the effect given a column can be worked out from the outcome model only when
@@ -489,7 +489,7 @@ is fitted and say what to do instead. The hidden-confounding checks on the log-r
 groups refuse when you call them on the fitted result. A continuous treatment, or one with several
 components, is refused too, because a conditional contrast compares two arms. Cut the treatment into
 levels and declare `treatment=` and `reference=` on the contrast, or estimate a [curve over a
-continuous dose](estimands.md#a-curve-over-a-continuous-dose). The reference's
+continuous dose](policies.md#a-curve-over-a-continuous-dose). The reference's
 [refusals](../technical-reference/conditional-effects.md#refusals) table lists the combinations that
 the score checks and the targeting curves refuse.
 
@@ -501,7 +501,7 @@ and [treatment rules](../examples/treatment-rules.ipynb) learns from records who
 [Effects by group](../examples/subgroup-effects.ipynb) makes the coefficients with intervals its
 main path: one effect per living situation, a band over the groups, a test that they gain the
 same, and an age line beside the groups.
-Under [learned treatment rules](estimands.md#learned-treatment-rules),
+Under [learned treatment rules](learned-rules.md#learned-treatment-rules),
 `LearnedRule(loss="ep", modifiers=...)` fits this EP curve in each fold and treats where it is
 above zero, and [its study](../technical-reference/method-evidence/learned-rule-ep.md) gives its
 label.

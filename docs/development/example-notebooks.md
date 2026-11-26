@@ -27,7 +27,8 @@ refit cell. The next section defines a refit cell. The module can also define
 The package docstring in `tests/unit/tutorial_semantics/__init__.py` states the convention.
 
 A new tutorial joins exactly one topic page under `docs/examples/topics/`: a row of its situation
-table and an entry of its hidden toctree, which places it in the sidebar. It also joins the list
+table and an entry of its hidden toctree, which places it in the sidebar. Only the two "Start
+here" tutorials sit directly in the index's first toctree. It also joins the list
 under that topic's heading in the [examples index](../examples/index.md), and a row of the methods
 table there. `tests/unit/test_examples_navigation.py` checks that the index, the topic pages and the
 notebooks agree.

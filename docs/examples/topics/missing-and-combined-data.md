@@ -1,4 +1,4 @@
-# Missing, sampled or combined data
+# Missing answers, samples, or a trial plus outside records
 
 These tutorials handle data that a textbook analysis assumes away. Outcomes go missing, a sample is
 drawn with unequal chances, or a small randomized trial is combined with outside records that differ

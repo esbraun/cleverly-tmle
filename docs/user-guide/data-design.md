@@ -1,5 +1,10 @@
 # Data and study design
 
+A design names the role of each column: the outcome, the treatment, the covariates to adjust for
+(the adjustment set), and any weights, clusters or missing values. Identification starts here,
+because the design and the estimand together say what the data can answer. This page covers a
+treatment decided once; the designs at the end of the page have their own guides.
+
 ## Accepted table backends
 
 `CausalStudy` accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
@@ -61,7 +66,7 @@ study = CausalStudy(
   clusters the fit reports no interval. The floor is 10 clusters for most fits of a treatment given
   once and 20 for fits over time, and lower only for the one contrast a simulation study measured
   at few clusters for that kind of fit. For TMLE and DR-TMLE these rules also apply to each
-  reported stratum ([clusters](results-assessment.md#clusters),
+  reported stratum ([clusters](inference.md#clusters),
   [few clusters](../technical-reference/inference.md#few-clusters)).
 
   A fit that averages one estimate per cross-fitting fold (`CrossFitting(fold_evaluation=True)`)
@@ -329,7 +334,7 @@ fits one when some treatment records are missing.
 
 Set `treatment_kind="continuous"` when the treatment is a dose, such as a price or a discount.
 The design answers a modified treatment policy, a working model over doses (`MSMProjection`)
-and the smoothed dose-response curve ([`DoseResponseCurve`](estimands.md#a-curve-over-a-continuous-dose)).
+and the smoothed dose-response curve ([`DoseResponseCurve`](policies.md#a-curve-over-a-continuous-dose)).
 Arm-indexed estimands are refused on this design.
 
 ```python
@@ -378,23 +383,17 @@ bundle = CausalStudy(
 `treatment_support=` and `dose_atoms=` then take a mapping from the amount's column to its
 declaration, such as `treatment_support={"dose": Support(0.0, 10.0)}`.
 
-## A trial with external data
+## Designs with their own guide
 
-`TrialWithExternalData` declares a randomized trial pooled with external rows on the same outcome.
-It takes the outcome, a binary treatment, the adjustment columns, and `source=`, the column that
-marks trial rows. [A small trial with external data](trial-with-external-data.md) shows the
-workflow.
-
-[A small pilot with outside records](../examples/trial-with-external-data.ipynb) runs this design.
-
-## Longitudinal treatment
-
-A longitudinal design records one ordered treatment role per node, the history available at each
-node, censoring, and either an end-of-study outcome or event processes. Continue with the
-[longitudinal guide](longitudinal.md).
-
-[Weekly offer policies](../examples/sequential-offers.ipynb) reads a long panel with one row per
-customer and week.
+Two designs change more than the column roles, so each has its own pages. `TrialWithExternalData`
+pools a randomized trial with external rows on the same outcome; [A small trial with external
+data](trial-with-external-data.md) declares and fits it, and [a small pilot with outside
+records](../examples/trial-with-external-data.ipynb) runs it. `LongitudinalTreatment` records a
+treatment decided at several times, with the history known at each one, censoring, and an
+end-of-study outcome or an event; [describe data over time](longitudinal.md) declares it, and
+[weekly offer policies](../examples/sequential-offers.ipynb) reads a long panel with one row per
+customer and week. A time to an event uses `TimeToEvent`, which [risks at set check
+times](survival.md) introduces.
 
 ## Change one field of a design
 

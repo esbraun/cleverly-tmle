@@ -46,7 +46,7 @@ such as why an interval is missing or which numbers only describe the data. They
 estimate or its band is *experimental*: no simulation study covers a fit like it, or a condition
 such as too few clusters applies, so its interval has no checked coverage. The figure itself does
 not mark this, so read `notes(fig)` or the result's `summary()` before you share a figure, as
-[read the support label](results-assessment.md#read-the-support-label) explains.
+[read the support label](reading-output.md#read-the-support-label) explains.
 
 ## Large data
 
