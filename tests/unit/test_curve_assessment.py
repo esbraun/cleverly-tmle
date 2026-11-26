@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
 from cleverly._curve_assessment import STABILITY_WARNING, CurveDiagnostics
-from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL
+from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL, _curve_refute_row
 from cleverly.bases import Linear, Modifiers
 from cleverly.exceptions import CapabilityError
 
@@ -80,8 +80,48 @@ def test_the_rows_are_the_curve_family(fitted: Any) -> None:
     rows = {row.operation: row for row in fitted.diagnostics.capabilities}
     assert set(CURVE_OPERATIONS) <= set(rows)
     assert all(rows[name].available for name in (*CURVE_OPERATIONS, "support"))
-    assert not rows["refute"].available and rows["refute"].refusal == CURVE_REFUTE_REFUSAL
+    assert not rows["refute"].available
+    assert rows["refute"] == _curve_refute_row(fitted, rows["refute"])
+    assert rows["refute"].refusal.reason is CURVE_REFUTE_REFUSAL.reason
     assert rows["calibration"].execution == "refit" and rows["calibration"].accepts_random_state
+
+
+def _refute_messages(curve: Any) -> list[str]:
+    """What the curve's ``refute`` row says, and what its refute and preview calls raise."""
+    messages = [
+        str(_raised(curve.diagnostics.refute)),
+        str(_raised(curve.diagnostics.planned_refits)),
+    ]
+    refusal = curve.diagnostics.capability("refute").refusal
+    return [*messages, f"{refusal.condition} {refusal.alternative}"]
+
+
+@pytest.mark.parametrize(
+    ("scale", "coefficient"),
+    [("difference", "cate_projection[W2]"), ("log_ratio", "log_crr_projection[W2]")],
+)
+def test_a_curve_s_refute_row_names_one_of_its_own_coefficients(
+    scale: str, coefficient: str
+) -> None:
+    """Nonzero witness: the named coefficient is this curve's, at its scale and basis.
+
+    A constant example name (the record once named 'cate_projection[W1]' for every curve)
+    fails both cases, since neither curve has that coefficient.
+    """
+    fitted = curve(frame(), scale=scale, basis=Linear(["W2"]))
+    for message in _refute_messages(fitted):
+        assert f"'{coefficient}'" in message
+        assert "[W1]" not in message
+
+
+def test_an_ep_curve_s_refute_row_redirects_to_the_same_basis_projection(
+    sieve_curve: Any,
+) -> None:
+    """An EP fit has no coefficients, so the row names the projection on its basis."""
+    for message in _refute_messages(sieve_curve):
+        assert "model=curve.model.basis" in message
+        assert "method='tmle'" in message
+        assert "projection[" not in message
 
 
 def test_a_held_out_fold_never_sees_its_own_outcomes(fitted: Any) -> None:

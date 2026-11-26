@@ -605,8 +605,9 @@ class CausalData:
         outside = [name for name in strata_names if name not in covariate_names]
         if outside:
             raise DataError(
-                f"baseline strata must also be adjustment covariates; add {outside} to "
-                "covariates= (or leave covariates=None)"
+                f"baseline strata must also be adjustment covariates; add {outside} to the "
+                "adjustment set (adjustment= on PointTreatment, covariates= on "
+                "CausalData.from_frame)"
             )
 
         strata_codes, strata_levels = _encode_strata(frame, strata_names)
