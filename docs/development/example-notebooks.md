@@ -383,11 +383,11 @@ change.
 
 | family | tutorials that show it |
 | --- | --- |
-| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); sampling-weights (ATE with sampling weights, and strata); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
 | ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
 | Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
-| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
+| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`); sampling-weights (a missing treatment, `treatment_missingness=`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
 | Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
