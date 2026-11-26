@@ -628,8 +628,12 @@ counts, so each arm must appear in two distinct clusters. See
 | `conditional_form=` | the ATT and ATC plug-in: the mean over the conditioning arm (`"arm_mean"`), or the declared-score weighted mean (`"known_score"`) | **yes.** The second is the TMLE of the model with a known mechanism and needs one. See [known treatment mechanism](#known-treatment-mechanism) |
 | `treatment_adjustment=` | the adjustment columns the treatment mechanism reads | **yes.** It restricts the statistical model. See [treatment-mechanism covariates](#treatment-mechanism-covariates) |
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
+| `cluster_variance=` | `"jackknife"` would replace the cluster influence-curve variance with the delete-one-cluster jackknife. `TMLE` refuses it on every fit today, before any learner ([cluster jackknife](inference.md#cluster-jackknife)) | no. It changes the variance estimator only |
 
 `submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level.
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
 
 ### Stopping rules, step bound and best iterate
 
@@ -728,11 +732,13 @@ $$
 \hat\psi \pm \bigl(z\,\widehat{\mathrm{se}} + \lvert r_n\rvert\bigr),
 $$
 
-on the scale the interval is built on: the logit or log scale for a transformed estimate, the
-log scale for a ratio. On an unclustered mean of a binary outcome, whose interval is built on the
-logit scale ([small-sample scale](inference.md#small-sample-scale)), the residual enters as
+on the scale the interval is built on ([small-sample scale](inference.md#small-sample-scale)):
+the logit or log scale for a transformed estimate, the log scale for a ratio. On an unclustered
+mean of a binary outcome, whose interval is built on the logit scale, the residual enters as
 $\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
-error. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+error. On an unclustered difference of two such means with recorded components (correlated
+MOVER) and on an unclustered estimate of a continuous outcome (the skew-widened $t$),
+$\lvert r_n\rvert$ is added to each side's half-width. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
 curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
@@ -793,10 +799,14 @@ in sample at n = 2,000 on the `canonical-tmle` binary and continuous laws, under
 the Newton and the one-step walk. The widened interval covers 0.949 to 0.957 of the ATE. On the
 one-step walk a `scaled_var` residual reaches 0.01 SE on 0.854 (binary) and 0.999 (continuous) of
 draws. With every threshold eight times larger, so that the rule binds hard, the plain interval
-of the mean under treatment covers 0.837 and the widened one 0.977. The
-support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
-`experimental`. The binary-outcome interval rows will be recomputed with the composed half-width
-when the planned small-sample interval for bounded estimates ships.
+of the mean under treatment covers 0.837 and the widened one 0.977.
+
+The support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
+`experimental`. The committed rows record the identity interval. Read under the logit interval
+of a binary mean, they move no verdict (`tests/canonical/interval-audit-screen.csv`). A refit of
+the committed draws under MOVER and the skew-widened $t$ moves none either
+(`tests/canonical/asymmetric-audit-screen.csv`, with the refits in
+`tests/canonical/asymmetric-refit/option-stopping-point/`).
 
 #### What the result reports
 

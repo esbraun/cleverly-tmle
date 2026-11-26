@@ -29,6 +29,7 @@ from cleverly import (
     ConditionalContrast,
     CounterfactualMean,
     CrossFitting,
+    DRTMLEMethod,
     EPMethod,
     IncrementalMean,
     LongitudinalTreatment,
@@ -465,6 +466,21 @@ def ep_curve() -> Any:
         random_state=0,
     )
     return _quiet(study.identify(ConditionalContrast(one)).estimate, method)
+
+
+@cache
+def drtmle_curve() -> Any:
+    """A DR-TMLE projection with an estimated treatment model, which reports no interval."""
+    study = CausalStudy(
+        _modifier_frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+    )
+    method = DRTMLEMethod(
+        reduced_outcome_learner=LinearRegression(),
+        reduced_mechanism_residual_learner=LinearRegression(),
+        reduced_treatment_learner=LogisticRegression(),
+    ).with_overrides(**_CURVE_FIT)
+    contrast = ConditionalContrast(Modifiers(["W"], domains={"W": (-1, 1)}), model=Linear(["W"]))
+    return _quiet(study.identify(contrast).estimate, method).effect_curve()
 
 
 # ---------------------------------------------------------------------------- readers
@@ -1861,6 +1877,31 @@ class TestEffectCurve:
         assert "carries no interval" in _core.note_text(fig)
         # Mutation control: the projection curve draws its ribbon.
         assert ribbons(curve(cate(), modifier="W", at={"Z": 0.0}).axes[0], _core.GID_INTERVAL)
+
+    def test_a_drtmle_curve_with_an_estimated_mechanism_draws_no_interval(self) -> None:
+        """Rule 1, on a projection whose fit withholds inference.
+
+        The coefficients are reported and the curve is defined, but the fit reports no
+        standard error, so the plot draws the estimate alone and says why.  The witness:
+        the interval route the plot used to take raises on this curve.
+        """
+        result = drtmle_curve()
+        assert result.fitted_method == "drtmle"
+        with pytest.raises(CapabilityError, match="the curve's standard error is not defined"):
+            result.predict({"W": np.array([0.0])}, interval=True)
+        fig = result.plot()
+        ax = fig.axes[0]
+        assert not ribbons(ax, _core.GID_INTERVAL)
+        assert not band_marks(ax).size
+        (line,) = lines(ax, "cleverly-curve")
+        x, y = line.get_xydata().T
+        np.testing.assert_allclose(y, result.predict({"W": x}))
+        noted = _core.note_text(fig)
+        assert "No interval is drawn" in noted
+        assert "carries no interval" not in noted
+        assert "The point estimate stands" in noted
+        # Mutation control: the TMLE projection on the same model draws its ribbon.
+        assert ribbons(curve(intercept_curve()).axes[0], _core.GID_INTERVAL)
 
     def test_an_experimental_curve_says_so(self) -> None:
         """Rule 3."""
