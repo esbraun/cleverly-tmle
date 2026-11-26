@@ -31,7 +31,7 @@ Step 10, the sensitivity analysis
   medication_burden cf_d 5% / 50% / 95%: [0.0, 0.043, 0.103], max 0.456
   medication_burden cf_y > cf_d: 0.955 (MC SE 0.015; 191 of 200)
   bias-adjusted bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
-  95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  medication_burden: 95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
   bounds contain the truth: 0.930 (MC SE 0.018; 186 of 200)
 
 Step 3

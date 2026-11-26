@@ -81,7 +81,7 @@ print(
 )
 print(f"  medication_burden cf_y > cf_d: {share(rows['med_cf_y'] > rows['med_cf_d'])}")
 print(f"  bias-adjusted bounds exclude zero: {share(rows['bound_lower'] > 0)}")
-print(f"  95% limits of the bounds exclude zero: {share(rows['limit_lower'] > 0)}")
+print(f"  medication_burden: 95% limits of the bounds exclude zero: {share(rows['limit_lower'] > 0)}")
 print(
     f"  bounds contain the truth: {share((rows['bound_lower'] <= TRUTH) & (TRUTH <= rows['bound_upper']))}"
 )
@@ -158,6 +158,8 @@ print(
 print(
     f"  tipping / largest benchmarked cf_d 5% / 50% / 95%: {ratio.quantile([0.05, 0.5, 0.95]).round(2).tolist()}"
 )
-print(f"  tipping above the largest benchmarked cf_d: {share(ratio > 1)}")
+# The bisection starts at the largest benchmark, so a draw whose limit is already at zero there
+# returns a value a hair above it; such a draw does not count as "above".
+print(f"  tipping above the largest benchmarked cf_d: {share(ratio > 1 + 1e-6)}")
 print(f"  tipping above three times the largest benchmarked cf_d: {share(ratio > 3)}")
 print(f"  discharge_risk bounds' 95% limits exclude zero: {share(rows['strong_limit_lower'] > 0)}")
