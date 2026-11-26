@@ -269,17 +269,36 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
 
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    from cleverly import RegimeContrast
     from cleverly.exceptions import CapabilityError
     from cleverly.sensitivity import ConfounderStrengthGrid
 
     # "because about half the patients were offered".
     assert 0.4 < namespace["frame"]["offer"].mean() < 0.6
     # "The replay refuses the team fit"; the refusal comes before any draw or refit.
-    with pytest.raises(CapabilityError, match="simulated_confounding"):
+    with pytest.raises(CapabilityError, match=r"simulated_confounding(.|\n)*has no outcome"):
         namespace["team_result"].sensitivity.simulated_confounding(
             namespace["target"],
             grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
             latent_level="cluster",
+        )
+    # "no check yet for a missing cause of dropout on either fit (the ledger's `missingness` and
+    # `tipping_gamma` rows are unavailable)".
+    for fit in (namespace["result"], namespace["team_result"]):
+        status = fit.assess().to_frame().set_index("check")["status"]
+        assert status["missingness"] == "unavailable" and status["tipping_gamma"] == "unavailable"
+    # "A time-to-event fit takes none yet": the refusal comes before any refit.
+    survival_fit = (
+        namespace["study"]
+        .identify(RegimeContrast(namespace["plans"], reference="not offered", horizons=(90.0,)))
+        .estimate(method=namespace["method"])
+    )
+    with pytest.raises(CapabilityError, match="negative-control outcome on a survival"):
+        survival_fit.diagnostics.refute(
+            estimand="ate_regimen[offered vs not offered @ t=4]",
+            tests=("negative_control_outcome",),
+            negative_control_outcome=np.zeros(len(namespace["frame"])),
+            n_replicates=2,
         )
     moves = namespace["moves"]
     by_name = {(move["fit"], move["left out"]): move["move in SEs"] for move in moves}
@@ -316,6 +335,7 @@ def _check_overlap(namespace: dict[str, Any]) -> None:
     # "the smallest is 0.233, one over the largest weight".
     assert round(float(lowest.min()), 3) == 0.233
     assert lowest.idxmin() == "not offered"
+    assert [text for text in namespace["below"] if "below" in text] == ["0% below", "0% below"]
     assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
 
 
@@ -332,11 +352,11 @@ def _check_team_models(namespace: dict[str, Any]) -> None:
     assert (gap < 1.0).all()
     # "slopes of 1.30 and 1.28": the outcome predictions are too compressed.
     outcome = models[models["role"].eq("outcome")]["calibration_slope"]
-    assert sorted(outcome.round(2)) == [1.28, 1.30]
+    assert sorted(outcome) == pytest.approx([1.28, 1.30], abs=0.006)
     # The witness: "With almost no penalty the slopes fall to 0.98 and 0.97, and the estimate
     # moves from -0.1319 to -0.1317".
-    assert sorted(namespace["loose_slopes"].round(2)) == [0.97, 0.98]
-    assert round(namespace["loose_estimate"].psi, 4) == -0.1317
+    assert sorted(namespace["loose_slopes"]) == pytest.approx([0.97, 0.98], abs=0.006)
+    assert namespace["loose_estimate"].psi == pytest.approx(-0.1317, abs=6e-5)
     assert abs(namespace["loose_estimate"].psi - namespace["clustered"].psi) < 0.001
     # "every patient readmitted by day 30, 16.1% of the day-90 rows, is readmitted by day 90".
     early = namespace["early"]
@@ -364,18 +384,21 @@ def _check_restricted(namespace: dict[str, Any]) -> None:
     for days_fit in (grid_days, exact_days):
         assert all(days_fit.rmst(plan, 90.0).support.label == "experimental" for plan in plans)
     # "Both fits estimate the same risks: by day 90 they differ only in the fourth decimal".
-    for plan in plans:
-        estimands = exact_days.to_frame()["estimand"]
-        exact_name = estimands[estimands.str.startswith(f"risk_regimen[{plan} @")].iloc[0]
-        gap = abs(exact_days[exact_name].psi - grid_days[namespace["risk"](plan, 90.0)].psi)
-        assert gap < 0.001
-    # The hazard fit "cannot fall", agrees to 0.0003, and reads experimental; isotonic moves none.
+    for grid_risk, exact_risk in zip(
+        namespace["grid_risks"], namespace["exact_risks"], strict=True
+    ):
+        assert abs(grid_risk - exact_risk) < 0.001
+    # The hazard fit "cannot fall", agrees to 0.0003, and reads experimental for its options;
+    # isotonic moves none.
     hazard, both = namespace["hazard_result"], namespace["both"]
-    assert round(float((both["hazard fit"] - both["default"]).abs().max()), 4) == 0.0003
+    assert float((both["hazard fit"] - both["default"]).abs().max()) == pytest.approx(
+        3e-4, abs=6e-5
+    )
     for plan in plans:
         values = [hazard[namespace["risk"](plan, day)].psi for day in namespace["horizons"]]
         assert values == sorted(values)
-    assert hazard[both.index[0]].support.label == "experimental"
+    support = hazard[both.index[0]].support
+    assert support.label == "experimental" and "one_step" in support.reason
     assert len(namespace["projected"].isotonic_moves) == 0
 
 
