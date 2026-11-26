@@ -151,7 +151,7 @@ Every generic group row and intervention `score_load` row carries these concentr
 
 | key | what it holds |
 | --- | --- |
-| `equation` | the score equation with the smallest `targeted_ratio` |
+| `equation` | the score equation with the smallest Kish ratio over its rows with a nonzero load (`weighted_load_ratio`) |
 | `n_total` | all rows in the fitted data |
 | `n_targeted` | rows in the fitted score mask, including structural zeros in the selected equation |
 | `effective` | Kish-equivalent rows for the selected equation's absolute load |
@@ -164,6 +164,14 @@ Every generic group row and intervention `score_load` row carries these concentr
 | `reported_repeat`, `n_repeats` | draw 01 and the total draw count, on intervention rows only |
 | `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
 | `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
+
+Generic group rows select their equation, and the overlap summary's equation table and
+concentration note print their share, by `effective` over the rows with a nonzero load,
+`n_targeted - zero_load` (`cleverly.data.weighting.weighted_load_ratio`). The other arm's
+structural zeros in an arm-indexed equation would otherwise rank a column by its arm's size. An
+equation where no row carries a load ranks first, and the note says so. `targeted_ratio` keeps the
+score-mask denominator, which the assessment's load line and intervention rows print as mask
+rows.
 
 `top_1pct` and `top_5pct` count at least one row each. Each key takes the largest
 `max(1, ceil(fraction * n_targeted))` loads. At 20 score-mask rows or fewer the two keys therefore

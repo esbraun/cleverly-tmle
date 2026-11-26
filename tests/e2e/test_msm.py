@@ -678,7 +678,11 @@ class TestEachMSMScoreEquationIsDiagnosedSeparately:
         artifact = ordinary.fluctuations["msm"].absolute_score_weights
         assert artifact is not None
         ratios = np.array([_kish(artifact[:, j]) / artifact.shape[0] for j in range(2)])
-        selected = int(np.argmin(ratios))
+        # Selected by Kish's count over the rows with a nonzero load in each column.
+        weighted = np.array(
+            [_kish(artifact[:, j]) / np.count_nonzero(artifact[:, j]) for j in range(2)]
+        )
+        selected = int(np.argmin(weighted))
         load = artifact[:, selected]
 
         assert row["equation"] == ordinary.fluctuations["msm"].names[selected]

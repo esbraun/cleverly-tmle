@@ -1745,9 +1745,13 @@ T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "equation_concentration": (
             "In the estimating equation the weights concentrate most for {group}: {effective} "
-            "effective rows of {rows} ({share}). This describes how unevenly rows are "
-            "weighted; it is not the estimator's sample size, its precision or a test of "
-            "overlap."
+            "effective rows of {rows} ({share}), counting the rows with a nonzero weight in "
+            "that equation. This describes how unevenly rows are weighted; it is not the "
+            "estimator's sample size, its precision or a test of overlap."
+        ),
+        "equation_concentration_empty": (
+            "In the estimating equation no row carries weight for {group}: every row's term "
+            "in equation {equation} is zero."
         ),
         "simplex": (
             "With more than two arms each arm's probability is capped on its own and not "
