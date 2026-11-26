@@ -27,6 +27,7 @@ from cleverly import (
 from cleverly.datasets import weekly_orders_protocol, weekly_orders_truth
 from cleverly.interventions import RiskRatioTilt
 from cleverly.longitudinal import DynamicRegimen
+from cleverly.validation import BernoulliAdjustmentOutcome, refute
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -53,7 +54,8 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/sweep.log",
     "0.098": f"mean amount by which the week-3 separate fit falls below the truth, 400 draws: "
     f"{_PROBE}/sweep.log",
-    "0.0004": f"the largest absolute mean bias of the nine plan shares, 400 draws: "
+    "ipsi-reading: 1.5": "the factor of the example risk-ratio tilt, RiskRatioTilt(1.5) in _check_ipsi",
+    "means-reading: 0.0005": f"a bound on the absolute mean bias of the nine plan shares, 400 draws: "
     f"{_PROBE}/means_sweep.log",
 }
 
@@ -82,6 +84,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_sensitivity(namespace)
     _check_weights_lesson(namespace)
     _check_sdr(namespace)
+    _check_refutation_limits(namespace)
     _check_means(namespace)
     _check_probe_logs(namespace)
     _check_prose_phrases()
@@ -229,7 +232,14 @@ def _check_ipsi(namespace: dict[str, Any]) -> None:
     assert {estimate.support.label for estimate in risk_ratio.estimates.values()} == {
         "experimental"
     }
-    assert "`IPSIMethod` is not a TMLE" in _prose("ipsi-reading")
+    ipsi_reading = _prose("ipsi-reading")
+    for phrase in (
+        "`IPSIMethod` is not a TMLE",
+        "`RiskRatioTilt`",
+        "some chance of a code",
+        "its rows read `experimental`",
+    ):
+        assert phrase in ipsi_reading
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
@@ -298,6 +308,38 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     assert "f16-longitudinal-sensitivity-bound-estimation" in reading
 
 
+def _check_refutation_limits(namespace: dict[str, Any]) -> None:
+    """The two refused checks that "Try to break the result" names; each refuses before refitting."""
+    result, frame = namespace["result"], namespace["frame"]
+    estimand = _key("always", 3)
+    for test in ("simulated_outcome", "plasmode"):
+        with pytest.raises(
+            CapabilityError, match="matching Gaussian outcome configurations"
+        ) as excinfo:
+            refute(result, estimand=estimand, tests=(test,), n_replicates=5)
+        assert "X82" in str(excinfo.value)
+    with pytest.raises(CapabilityError, match="for the Gaussian processes only"):
+        refute(
+            result,
+            estimand=estimand,
+            tests=("simulated_outcome",),
+            simulated_outcome=BernoulliAdjustmentOutcome(),
+            n_replicates=5,
+        )
+    with pytest.raises(CapabilityError, match="a pre-treatment control is one value per unit"):
+        refute(
+            result,
+            estimand=estimand,
+            tests=("negative_control_outcome",),
+            negative_control_outcome=frame["order_0"].to_numpy(),
+            negative_control_kind="pre_treatment",
+            n_replicates=5,
+        )
+    reading = _prose("refutation-reading")
+    assert "x82-refutation-and-sensitivity-checks-for-every-estimator" in reading
+    assert "does not run on a weekly outcome" in reading
+
+
 def _check_sdr(namespace: dict[str, Any]) -> None:
     result, sdr_result, truth = namespace["result"], namespace["sdr_result"], namespace["truth"]
     labels = {estimate.support.label for estimate in sdr_result.estimates.values()}
@@ -359,15 +401,25 @@ def _check_means(namespace: dict[str, Any]) -> None:
             assert first[f"{stem}_psi"] == pytest.approx(means[_ey(plan, week)].psi, abs=1e-9)
             assert set(frame[f"{stem}_label"]) == {"supported"}
             biases.append(frame[f"{stem}_psi"].mean() - sweep_truth[_ey(plan, week)])
-    assert round(max(abs(value) for value in biases), 4) == 0.0004
+    # "the average error of each share was within 0.0005 of zero".
+    assert max(abs(value) for value in biases) < 0.0005
     # The declared rule for calling never's week-3 miss chance: its bias within 2 Monte Carlo
     # standard errors of zero and its coverage's Monte Carlo interval holding 0.95.
     never_bias = frame["never_3_psi"] - sweep_truth[_ey("never", 3)]
     assert abs(never_bias.mean()) < 2 * never_bias.std() / np.sqrt(DRAWS)
     coverage = frame["never_3_covers"].mean()
     assert abs(coverage - 0.95) < 1.96 * np.sqrt(coverage * (1 - coverage) / DRAWS)
+    # The declared rule for naming a row in the reading, which names none: every coverage at
+    # least 0.92 and every bias within 3 Monte Carlo standard errors.
+    for plan in plans:
+        for week in WEEKS:
+            stem = f"{plan}_{week}"
+            bias = frame[f"{stem}_psi"] - sweep_truth[_ey(plan, week)]
+            assert frame[f"{stem}_covers"].mean() >= 0.92
+            assert abs(bias.mean()) < 3 * bias.std() / np.sqrt(DRAWS)
     counts = [_hits(frame, f"{plan}_{week}_covers") for plan in plans for week in WEEKS]
     reading = _prose("means-reading")
+    assert "Eight of the nine intervals hold their true values" in reading
     assert f"held its true value on {_span(counts)}" in reading
     assert f"`never`'s week-3 interval on {_hits(frame, 'never_3_covers')}," in reading
 

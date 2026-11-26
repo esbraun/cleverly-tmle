@@ -462,7 +462,7 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
 
 
 def _check_generated_limits(namespace: dict[str, Any]) -> None:
-    """The refusals that the tests on simulated scores meet, as the refutation Details state."""
+    """The refusals that the tests on simulated scores meet; the Details name the raise's."""
     # The limits of the step table.
     regimes, incremental = namespace["regime_result"], namespace["incremental_result"]
     shift = namespace["shift_result"]
