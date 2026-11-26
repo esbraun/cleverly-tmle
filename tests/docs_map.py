@@ -570,7 +570,7 @@ AREAS: tuple[Area, ...] = (
     _area(
         "variable importance",
         (S + "variable_importance.py", S + "_importance_assessment.py"),
-        (TR + "validation-methods.md",),
+        (TR + "validation-methods.md", UG + "variable-importance.md"),
         see=(UG + "methods-learners.md", API + "results-assessment.md"),
     ),
     _area(
