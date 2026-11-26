@@ -234,7 +234,7 @@ AREAS: tuple[Area, ...] = (
         "observation weights and their variance",
         (S + "data/weighting.py", S + "data/_weight_summary.py"),
         (TR + "inference.md",),
-        see=(UG + "assessment.md",),
+        see=(UG + "assessment.md", EX + "sampling-weights.ipynb"),
     ),
     _area(
         "planned fits, timing and parallel jobs",
@@ -322,6 +322,7 @@ AREAS: tuple[Area, ...] = (
             UG + "estimands.md",
             EX + "point-treatment-tmle.ipynb",
             EX + "survey-nonresponse.ipynb",
+            EX + "sampling-weights.ipynb",
         ),
     ),
     _area(
@@ -628,7 +629,11 @@ AREAS: tuple[Area, ...] = (
             S + "datasets/recovery.py",
             S + "datasets/synthetic.py",
         ),
-        see=(EX + "longitudinal-survival.ipynb", EX + "model-based-over-time.ipynb"),
+        see=(
+            EX + "longitudinal-survival.ipynb",
+            EX + "model-based-over-time.ipynb",
+            EX + "sampling-weights.ipynb",
+        ),
     ),
     # ---- study status -----------------------------------------------------------------------
     _area(

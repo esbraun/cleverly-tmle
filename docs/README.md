@@ -15,14 +15,14 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries twenty-two tutorials and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
 
 | method entry | tutorials |
 | --- | --- |
-| [point-treatment TMLE](technical-reference/point-treatment-tmle.md) | point-treatment-tmle, survey-nonresponse, interventions, population-impact, randomized-pilot, treatment-rules, schedules-and-intensity |
+| [point-treatment TMLE](technical-reference/point-treatment-tmle.md) | point-treatment-tmle, survey-nonresponse, sampling-weights, interventions, population-impact, randomized-pilot, treatment-rules, schedules-and-intensity |
 | [CV-TMLE](technical-reference/cv-tmle.md) | cross-fitting |
 | [collaborative TMLE](technical-reference/collaborative-tmle.md) | collaborative-tmle |
 | [MSM projections](technical-reference/msm-projections.md) | msm-projections |

@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Twenty-one examples use simulated data, so each page can compare its estimate with the
-true answer. The twenty-second uses real birth records. If you are new to causal inference, read
+manager. Twenty-two examples use simulated data, so each page can compare its estimate with the
+true answer. The twenty-third uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
 tables and row names that every page prints.
@@ -24,6 +24,7 @@ treatment was unlikely.
 | flexible models such as gradient boosting, or patients who share a care team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
 | one recorded variable strongly predicts who gets the treatment | [a strong predictor of treatment](collaborative-tmle.ipynb) | some patients become nearly certain or nearly unable to get the treatment, so the few exceptions get very large weights. In 2,000 simulated repeats, the 95% interval of standard TMLE contained the truth only 93% of the time, so it was slightly too narrow |
 | many outcomes are missing, for example unanswered surveys | [missing survey answers](survey-nonresponse.ipynb) | analyzing only those who answered estimates the effect for people like the respondents, who differ from the whole group |
+| the outcome was measured on a sample drawn with known, unequal chances, such as an interview that picks high-risk patients more often | [an interview of a sample of patients](sampling-weights.ipynb) | an analysis without the sampling weights estimates the effect among the sampled patients, who differ from everyone the sample stands for |
 | a small randomized trial, plus outside records on the same outcome from patients who were not randomized | [a small pilot with outside records](trial-with-external-data.ipynb) | in the records, sicker patients got the offer more often, so the simple pooled difference is off (7.58 against a true 6.05). Learning how the records differ from the pilot, a fixed offset, and removing it narrowed the interval, and the interval is valid only for the effect within the description of the difference that the fit picked |
 | the treatment was assigned at random with a recorded chance, as in a pilot | [a randomized pilot](randomized-pilot.ipynb) | because the chance of the offer differed by risk group, a simple comparison of offered and other patients is confounded even though the offer was random (here -0.006 against a true 0.142). Replacing the recorded chances with a fitted model of who got the treatment gives up the one model known to be right; when that fitted model and the outcome model are both wrong, the estimate is biased |
 | the gain from offering everyone over current practice, or whether the offer still helps when a later step, such as a doctor's visit within 7 days, is guaranteed for everyone | [gain over current practice](population-impact.ipynb) | the usual average effect compares offering everyone with offering no one, so it also counts the gain current practice has already collected and overstates what offering everyone would add |
@@ -191,6 +192,7 @@ figures of fits that the pages below explain.
 | [flexible models and shared teams](cross-fitting.ipynb) | the same method (CV-TMLE), showing why those out-of-fold predictions matter with flexible models, and keeping each team together when the models are trained and the interval computed | [CV-TMLE](../technical-reference/cv-tmle.md) |
 | [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
 | [missing survey answers](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [an interview of a sample of patients](sampling-weights.ipynb) | TMLE with sampling weights, with effects for two risk groups and missing treatment records | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [a small pilot with outside records](trial-with-external-data.ipynb) | adaptive TMLE, which learns how the outside records differ from the pilot and removes that difference | [adaptive TMLE](../technical-reference/adaptive-tmle.md) |
 | [a randomized pilot](randomized-pilot.ipynb) | TMLE with the recorded chances of treatment, also for the effects among treated and untreated patients (ATT, ATC), beside doubly robust TMLE (DR-TMLE) and adaptive-propensity weighting | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md), [DR-TMLE](../technical-reference/dr-tmle/index.md) and [adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) |
 | [gain over current practice](population-impact.ipynb) | TMLE for the population gain over current practice (attributable risk and fraction), risk and odds ratios, and the controlled direct effect | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
@@ -230,6 +232,7 @@ plots
 cross-fitting
 collaborative-tmle
 survey-nonresponse
+sampling-weights
 randomized-pilot
 trial-with-external-data
 population-impact
