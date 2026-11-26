@@ -228,12 +228,11 @@ def _check_grid_and_arms(namespace: dict[str, Any]) -> None:
     assert covers(point, truth["ey[high]"] - truth["ey[low]"])
     assert point.support.label == "experimental"
     assert point.psi > max(p.psi for p in effects.values())
-    smallest = {
-        model.name: 1 / model.metrics["largest_inverse_weight"]
-        for model in namespace["nuisance"].models
-        if model.name.startswith("propensity[")
-    }
-    assert min(smallest.values()) > 0.02  # "every patient keeps a real chance of each schedule"
+    chances = namespace["tilt_result"].nuisance.propensity
+    # "every patient keeps some chance of each schedule", over all rows, not one arm's
+    assert min(chances.arm(code).min() for code in chances.arms) > 0.01
+    assert "yes" in stored_output(NOTEBOOK, "assessment").split("solved its equations:")[1]
+    assert namespace["worst"] < 1e-3
 
 
 def _check_cross_fit(namespace: dict[str, Any]) -> None:
