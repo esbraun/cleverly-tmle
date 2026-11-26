@@ -659,9 +659,9 @@ each part reaches the other event only through the event it acts on, and no unme
 both events exists beyond the covariates you adjust for.
 [Separable effects](../technical-reference/longitudinal-tmle.md#separable-effects) gives the exact
 estimand and what a separable fit refuses. The
-[separable effects tutorial](../examples/separable-effects.ipynb) works a full analysis: a water
-pill whose fluid-clearing part keeps heart-failure patients out of hospital while its
-potassium-lowering part raises the risk of death.
+[separable effects tutorial](../examples/separable-effects.ipynb) works a full analysis: a
+simulated water pill whose fluid-clearing part keeps heart-failure patients out of hospital while
+its potassium-lowering part raises the risk of death.
 
 ## Keep the risk curve from dipping
 
