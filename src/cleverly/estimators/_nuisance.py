@@ -670,6 +670,12 @@ class NodePredictions:
         """Return the bytes the matrices hold."""
         return int(sum(matrix.nbytes for matrix in self.matrices))
 
+    def __getstate__(self) -> dict[str, Any]:
+        # The row lookup is rebuilt from ``tests`` on first use, so an artifact holds none.
+        state = dict(self.__dict__)
+        state.pop("_location", None)
+        return state
+
     def block(self, rows: IntArray, start: int, stop: int) -> FloatArray:
         """``(len(rows), stop - start)`` predictions of ``rows`` at nodes ``start:stop``.
 
