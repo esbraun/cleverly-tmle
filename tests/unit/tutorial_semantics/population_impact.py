@@ -38,6 +38,8 @@ UNPRINTED_DECIMALS = {
     "known-effect-reading: 1.0911": f"the noise outcome's SE ratio at 400 draws: "
     f"{_KNOWN_EFFECT_PROBE}/generated.log (check asserts it)",
     "known-effect-reading: 1.15": f"the upper end of the SE-ratio band: {_KNOWN_EFFECT_PROBE}/generated.log",
+    "known-effect-reading: 0.9780": f"the noise outcome's SE ratio at 400 draws, seed 62: "
+    f"{_KNOWN_EFFECT_PROBE}/generated.log (check asserts it)",
     "assessment-heading: 0.01": "the fit's floor on the chance of answering, which no summary "
     "prints; check asserts gain_fit.config.missingness_bound == 0.01",
 }
@@ -212,8 +214,9 @@ def _check_estimates(namespace: dict[str, Any]) -> None:
     assert not covers(ate, -truth["par[reference=1]"])
     assert covers(ate, truth["ate"])
     assert f"{namespace['not_offered']:.3f}" == "0.563"
-    # "Today's interval is built on a scale that keeps it between 0 and 1."
+    # "Today's interval, like the ATE's below, is built on a scale that keeps it in range."
     assert current.interval_scale == "range_logit"
+    assert ate.interval_scale == "mover"
     # The ratios: both above 1, the odds ratio further from it, and each interval holds its truth.
     assert covers(rr, truth["rr"]) and covers(odds, truth["or"])
     assert odds.psi > rr.psi > 1.0
@@ -249,7 +252,7 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert namespace["scores"].passed
     assert not namespace["nuisance"].findings
     # The score check prints its largest ratio to the limit, rounded, never a raw residual.
-    assert f"{namespace['largest_ratio']:.3f}" == "0.000"
+    assert namespace["largest_ratio"] < 0.001 and namespace["shown_ratio"] == "below 0.001"
 
 
 def _check_tilt(namespace: dict[str, Any]) -> None:
@@ -277,10 +280,12 @@ def _check_tilt(namespace: dict[str, Any]) -> None:
 def _assert_known_effect_probe() -> None:
     """The 400-draw numbers the generated-outcome reading quotes match the committed log."""
     text = (ROOT / _KNOWN_EFFECT_PROBE / "generated.log").read_text(encoding="utf-8")
-    assert "dummy_outcome: 400 draws, level L2, verdict failed" in text
+    assert "dummy_outcome, seed 61: 400 draws, level L2, verdict failed" in text
     assert "se_ratio 1.0911 in (1.0156, 1.1723), band (0.85, 1.15), inside False" in text
-    assert "simulated_outcome: 400 draws, level L2, verdict passed" in text
-    assert "plasmode: 400 draws, level L2, verdict passed" in text
+    assert "dummy_outcome, seed 62: 400 draws, level L2, verdict passed" in text
+    assert "se_ratio 0.9780 in" in text
+    assert "simulated_outcome, seed 61: 400 draws, level L2, verdict passed" in text
+    assert "plasmode, seed 61: 400 draws, level L2, verdict passed" in text
 
 
 def _check_lessons(namespace: dict[str, Any]) -> None:

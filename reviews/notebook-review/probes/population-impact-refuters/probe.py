@@ -1,8 +1,9 @@
 """Review probe of the generated-outcome lesson of docs/examples/population-impact.ipynb.
 
 The notebook runs the three generated-outcome tests at 20 draws on the gain fit, because the slow
-tier runs its cells. This probe refits that fit with the page's own data, learners and seeds and
-runs the same tests at 400 draws, the count their level-2 bands need.
+tier runs its cells. This probe refits that fit with the page's own data, learners and fit seed,
+and runs the same tests at 400 draws, the count their level-2 bands need, with refutation seed 61.
+The no-effect test runs again with seed 62, because its seed-61 run fails its band.
 
 Usage: ``python reviews/notebook-review/probes/population-impact-refuters/probe.py`` with the
 output sent to ``generated.log`` next to it. The page quotes that log. A review probe is not a
@@ -65,7 +66,12 @@ declared = {
     "dummy_outcome": BernoulliAdjustmentOutcome(effect=0.0, adjustment_scale=0.0),
     "simulated_outcome": BernoulliAdjustmentOutcome(effect=0.4),
 }
-for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
+for name, seed in (
+    ("dummy_outcome", 61),
+    ("simulated_outcome", 61),
+    ("plasmode", 61),
+    ("dummy_outcome", 62),
+):
     start = time.time()
     report = gain_fit.diagnostics.refute(
         estimand="par",
@@ -73,11 +79,12 @@ for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
         dummy_outcome=declared["dummy_outcome"],
         simulated_outcome=declared["simulated_outcome"],
         n_replicates=400,
-        random_state=61,
+        random_state=seed,
     )
     test = report.tests[0]
     print(
-        f"{name}: {test.n_replicates} draws, level {test.rung}, verdict {test.verdict}, "
+        f"{name}, seed {seed}: {test.n_replicates} draws, level {test.rung}, "
+        f"verdict {test.verdict}, "
         f"true value {test.declared_effect:.4f}, mean estimate {test.mean:.4f}, "
         f"{time.time() - start:.0f} s",
         flush=True,

@@ -1,11 +1,15 @@
 gain fit: par -0.0956
-dummy_outcome: 400 draws, level L2, verdict failed, true value 0.0000, mean estimate -0.0001, 73 s
+dummy_outcome, seed 61: 400 draws, level L2, verdict failed, true value 0.0000, mean estimate -0.0001, 65 s
   bias -0.0113 in (-0.1093, 0.0867), band (-0.2, 0.2), inside True
   se_ratio 1.0911 in (1.0156, 1.1723), band (0.85, 1.15), inside False
   coverage 0.9700 in (0.9482, 0.9844), band (0.88, 0.99), inside True
-simulated_outcome: 400 draws, level L2, verdict passed, true value -0.0453, mean estimate -0.0455, 77 s
+simulated_outcome, seed 61: 400 draws, level L2, verdict passed, true value -0.0453, mean estimate -0.0455, 69 s
   bias -0.0188 in (-0.1168, 0.0792), band (-0.2, 0.2), inside True
-plasmode: 400 draws, level L2, verdict passed, true value -0.0453, mean estimate -0.0450, 75 s
+plasmode, seed 61: 400 draws, level L2, verdict passed, true value -0.0453, mean estimate -0.0450, 75 s
   bias 0.0281 in (-0.0699, 0.1261), band (-0.2, 0.2), inside True
   se_ratio 1.0065 in (0.9383, 1.0796), band (0.85, 1.15), inside True
   coverage 0.9575 in (0.9328, 0.9751), band (0.88, 0.99), inside True
+dummy_outcome, seed 62: 400 draws, level L2, verdict passed, true value 0.0000, mean estimate -0.0003, 64 s
+  bias -0.0275 in (-0.1255, 0.0705), band (-0.2, 0.2), inside True
+  se_ratio 0.9780 in (0.9075, 1.0540), band (0.85, 1.15), inside True
+  coverage 0.9400 in (0.9120, 0.9612), band (0.88, 0.99), inside True
