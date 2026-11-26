@@ -126,7 +126,8 @@ trial = CausalStudy(
   [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
   gives each case.
 - The probability columns are not adjustment variables, and they can depend on the adjustment
-  set, as a stratified allocation does.
+  set, as a stratified allocation does. The [randomized pilot](../examples/randomized-pilot.ipynb)
+  example analyzes a pilot whose chances depend on a risk group.
 - `CollaborativeTMLEMethod` is unavailable on such a design, because there is no mechanism to
   select.
 - A fit refuses a bound pair that would move a declared value, before any learner. Pass

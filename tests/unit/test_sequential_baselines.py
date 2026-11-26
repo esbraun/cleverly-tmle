@@ -1039,10 +1039,12 @@ def test_a_diagnostic_mechanism_that_cannot_fit_leaves_the_estimate() -> None:
     """
     frame, columns = _small()
     frame["A1"] = (frame["W"] > 0.0).astype(float)
-    with pytest.warns(Warning, match="did not fit"):
+    with pytest.warns(Warning, match="did not fit") as caught:
         result = SequentialGComputation(
             {"always": 1}, outcome_learner=GLM(), simultaneous=False
         ).fit(frame, **columns)
+    # The classifier-route remedy belongs only to that route.
+    assert not any("classifier route" in str(w.message) for w in caught)
     assert np.isfinite(result.psi("ey_regimen[always]"))
     assert result.inference_status == "influence_curve"
 

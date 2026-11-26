@@ -26,7 +26,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("sensitivity", "refute")
+REFIT_CELLS = ("sensitivity", "refute", "simulated-confounding")
 
 NOTEBOOK = EXAMPLES / "treatment-rules.ipynb"
 
@@ -65,7 +65,15 @@ UNPRINTED_DECIMALS = {
 #: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
 #: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
-    "rule-reading": {"0.7175": "failure-mode"},
+    "deploy-reading": {
+        "0.7175": "failure-mode",
+        "0.345": "rule",
+        "0.545": "rule",
+        "-0.1": "rule",
+        "0.2": "rule",
+    },
+    "optimal-reading": {"-0.1": "rule", "0.2": "rule"},
+    "interpret": {"2.4": "simulated-confounding"},
     "gains-reading": {"0.0241": "association"},
 }
 
@@ -212,6 +220,98 @@ def _check_random_offer(namespace: dict[str, Any]) -> None:
     assert round(float(weights.max()), 2) == 3.19
 
 
+def _check_compare(namespace: dict[str, Any]) -> None:
+    compared, truth = namespace["compared"], namespace["truth"]
+    rule_truth = namespace["rule_truth"]
+    truths = {
+        "current practice": truth["ey_natural_course"],
+        "random offer": namespace["true_random"],
+        "offer to none": truth["ey_none"],
+    }
+    for name in compared.to_frame()["estimand"]:
+        support = compared[name].support
+        assert support.label == "supported" and support.row == "T58.combined.fold_evaluated"
+    gaps = {option: compared[f"ate_learned_rule[learned rule vs {option}]"] for option in truths}
+    # At a glance and the reading: "4.8 per 100 more than under current practice (2.9 to 6.7)",
+    # "the true gap, 4.4, lies inside"; every interval holds its true gap.
+    for option, gap in gaps.items():
+        assert covers(gap, rule_truth - truths[option])
+    practice = gaps["current practice"]
+    assert round(100 * practice.psi, 1) == 4.8 and practice.ci[0] > 0.0
+    assert round(100 * (rule_truth - truths["current practice"]), 1) == 4.4
+    # "the gaps over the random offer and over no offers sit about one standard error below the
+    # truth".
+    for option in ("random offer", "offer to none"):
+        gap = gaps[option]
+        assert 0.8 < (rule_truth - truths[option] - gap.psi) / gap.std_error < 1.4
+    # "offer navigation to 0.45 of patients against its 0.25".
+    assert round(float(namespace["offered_by_rule"].mean()), 2) == 0.45
+    assert round(float(namespace["reach"]), 2) == 0.25
+    # "The joint fit moves the rules' value slightly, to 0.7176", while the rules are the same.
+    in_contrast = namespace["rule_in_contrast"]
+    assert round(in_contrast.psi, 4) == 0.7176 and in_contrast.psi != namespace["value"].psi
+    assert abs(in_contrast.psi - namespace["value"].psi) < 0.001
+    assert np.array_equal(
+        compared.nuisance.regimes.values[:, 1, 0],
+        namespace["learned"].nuisance.regimes.values[:, 1, 0],
+    )
+    # "as it is here": the page's outcome model is the logistic model with every pairwise product
+    # of the offer and the two characteristics, which the generator documents as containing the
+    # true law.
+    steps = namespace["outcome_model"].named_steps
+    assert steps["polynomialfeatures"].interaction_only and steps["polynomialfeatures"].degree == 2
+
+
+def _check_optimal(namespace: dict[str, Any]) -> None:
+    best, value, truth = namespace["best_value"], namespace["value"], namespace["truth"]
+    # "It reuses the learned rules' fit, so the numbers are the same".
+    assert best.psi == pytest.approx(value.psi, abs=1e-12)
+    assert best.ci == pytest.approx(value.ci, abs=1e-12)
+    # "the interval contains the true 0.7197"; "The estimate sits below the best value".
+    assert covers(best, truth["ey_best_rule"]) and best.psi < truth["ey_best_rule"]
+    # "`cleverly` marks it experimental because this page estimates the offer's chances".
+    assert best.support.label == "experimental"
+
+
+def _check_effect_curve(namespace: dict[str, Any]) -> None:
+    effects, curve = namespace["effects"], namespace["curve"]
+    effects = effects.set_index("need")
+    estimated, true = effects["estimated effect"], effects["true effect"]
+    # "negative at low need and positive at high need".
+    assert estimated.loc[-0.8] < 0.0 < estimated.loc[0.6]
+    # "sits below the true effect at low need".
+    assert (estimated.loc[[-0.8, -0.4, -0.1]] < true.loc[[-0.8, -0.4, -0.1]]).all()
+    # "crosses zero between 0 and 0.1, not at -0.1": the true effect is zero at -0.1.
+    assert estimated.loc[0.0] < 0.0 < estimated.loc[0.1]
+    assert true.loc[-0.1] == pytest.approx(0.0, abs=1e-12)
+    # "The curve has no interval, and `cleverly` marks it experimental".
+    assert curve.status == "experimental"
+
+
+def _check_rule_options(namespace: dict[str, Any]) -> None:
+    rows = namespace["rows"]
+    # "options with their labels": every row reads supported.
+    assert [row["label"] for row in rows] == ["supported"] * 5
+    need_alone = next(row for row in rows if row["rule"].startswith("need alone"))
+    assert round(need_alone["value"], 4) == 0.7097
+    by_group = namespace["by_group"]
+    assert round(by_group["ey_learned_rule[learned rule][lives_alone=0.0]"].psi, 4) == 0.7502
+    assert round(by_group["ey_learned_rule[learned rule][lives_alone=1.0]"].psi, 4) == 0.6834
+    # "both supported; the overall row, 0.7168, mixes the two groups by their shares".
+    for name in by_group.to_frame()["estimand"]:
+        assert by_group[name].support.label == "supported"
+    overall = by_group["ey_learned_rule[learned rule]"]
+    assert round(overall.psi, 4) == 0.7168 and overall.psi != namespace["value"].psi
+    # "The default `CrossFitting()` ... with ten folds of 200 it gives the same value".
+    from dataclasses import replace
+
+    from cleverly import CrossFitting
+
+    method = replace(namespace["method"], cross_fitting=CrossFitting(n_folds=10))
+    stacked = namespace["question"].estimate(method=method)["ey_learned_rule[learned rule]"]
+    assert stacked.psi == pytest.approx(namespace["value"].psi, abs=1e-9)
+
+
 def _check_rule_sensitivity(namespace: dict[str, Any]) -> None:
     from cleverly.exceptions import CapabilityError
 
@@ -241,7 +341,11 @@ def check(namespace: dict[str, Any]) -> None:
     _check_assessment(namespace)
     _check_failure(namespace)
     _check_random_offer(namespace)
+    _check_compare(namespace)
     _check_rule_sensitivity(namespace)
+    _check_optimal(namespace)
+    _check_effect_curve(namespace)
+    _check_rule_options(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -264,6 +368,16 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # "Living alone has strengths of only 0.003 and 0.002".
     benchmark = namespace["benchmark"]
     assert round(benchmark.cf_y, 3) == 0.003 and round(benchmark.cf_d, 3) == 0.002
+
+    # The simulated hidden cause: "falls to 0.0035 ... and to 0.0023 ... and rises to 0.0387";
+    # "The last column stays near zero"; "moved the random offer's gain by up to 2.4 per 100".
+    cells = namespace["cells"].set_index(["treatment_strength", "outcome_strength"])
+    assert round(float(cells.loc[(0.0, 0.0), "estimate"]), 4) == 0.0262
+    assert round(float(cells.loc[(0.0, 0.3), "estimate"]), 4) == 0.0035
+    assert round(float(cells.loc[(0.3, 0.0), "estimate"]), 4) == 0.0023
+    assert round(float(cells.loc[(0.3, 0.3), "estimate"]), 4) == 0.0387
+    assert cells["induced_treatment_association"].abs().max() < 0.05
+    assert round(float(cells["move per 100"].abs().max()), 1) == 2.4
 
     reports = namespace["refutations"]
     assert list(reports) == ["random offer's gain", "learned rule's value"]

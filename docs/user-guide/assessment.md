@@ -301,6 +301,11 @@ Here `discharge_risk` starts at 0.27 and ends near zero. The check describes the
 interval or test, and it ignores covariates you did not adjust for. A treatment decided at several
 times gets a balance over time ([balance over time](#balance-when-treatment-repeats-over-time)).
 
+When the data declare each row's chances (`treatment_probabilities=`), no treatment model is
+fitted: the weights read the declared chances, and the summary says so. A gap past 0.1 is then a
+chance difference or a sign that treatment did not follow those chances, as the
+[randomized pilot](../examples/randomized-pilot.ipynb) example discusses.
+
 ## Go deeper
 
 ### Read a calibration-slope finding
@@ -578,9 +583,8 @@ The correction step solves one estimating equation per estimate. In each, every 
 the correction step is multiplied by a weight built from the treatment model: for row $i$ and
 equation $j$ that multiplier is $w_i H_{ij}$, which for a mean grows as one over the row's predicted
 chance of its own treatment. The `group_score_load` table summarizes how unevenly those multipliers
-are spread. Its group row picks the equation whose multipliers concentrate most: the one with the
-smallest Kish load ratio, the effective share of rows, among the rows the equation reads (its
-targeted rows). Its `equation` field names it.
+are spread. Its group row picks the equation whose multipliers concentrate most: the one with the smallest Kish
+load ratio, the effective share of rows, among the rows whose multiplier is not zero. Its `equation` field names it.
 
 ```python
 mean_load = support.group_score_load["mean"]
@@ -592,7 +596,8 @@ print("fitted bound:", (mean_load["lower_bound"], mean_load["upper_bound"]))
 
 Read this row as a measure of how concentrated the weights are. It does not include the residual, so
 it describes neither the estimate's sample size nor any row's pull on the estimate. `n_targeted`
-counts the rows the equation reads, including rows whose term is zero by construction. The row also
+counts the rows the equation reads, including rows whose term is zero by construction. The
+printed overlap summary instead counts only the rows with a nonzero multiplier. The row also
 cannot prove or rule out overlap in the population.
 
 The overlap report provides these group rows for `mean`, `att`, `atc`, and `msm` fits. Regime,

@@ -171,6 +171,10 @@ between 0.88 and 0.99. Here all three are inside, so the test passed: on outcome
 way, the analysis recovers the effect, its standard error matches the real spread, and its
 intervals cover about 95% of the time.
 
+A sound analysis still fails one of the three numbers by chance in roughly one run of fifteen,
+usually a bias just past its band edge. Before you read a failure as a problem, run the test again
+with another `random_state` and see whether it repeats.
+
 `outcome_bands=` sets other bands (an `EquivalenceBands` object, one band per number). Each test
 makes 400 draws by default; fewer print the numbers with no pass or fail, and fewer than 10 are
 refused. Each row in `draws` records one draw: its seed, the estimate and standard error, the kind

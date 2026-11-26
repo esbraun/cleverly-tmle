@@ -199,6 +199,12 @@ treatment level occurs among the rows at risk. Where no unit follows the regimen
 
 A diagnostic mechanism that cannot fit, for example under separation, does not stop a
 g-computation fit. The fit warns with `PositivityWarning`, and the diagnostics report `nan`.
+On the classifier density-ratio route, a modified policy can leave some recorded doses
+unassigned, as one held inside a declared band does. The exact ratio there is zero, so the
+policy's step columns separate the stacked observed and policy rows. The default unpenalized `GLM` treatment
+learner cannot fit that design. The warning then names the remedy: pass a penalized classifier,
+such as scikit-learn's `LogisticRegression`, as `treatment_learner=`
+(`tests/unit/test_gcomp_mechanism_warning.py`).
 
 ## Validation
 

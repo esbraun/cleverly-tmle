@@ -28,7 +28,7 @@ from tests.unit.tutorial_semantics import (
 
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
-REFIT_CELLS = ("simulated-confounding", "refute", "refute-generated")
+REFIT_CELLS = ("refute", "refute-generated", "simulated-confounding")
 
 
 NOTEBOOK = EXAMPLES / "discharge-to-readmission.ipynb"
@@ -50,6 +50,9 @@ NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "method-evidence": {"-0.1539": "data"},
     "interpret": {"2.15": "evalue", "4.1": "sensitivity"},
 }
+
+#: Decimals a reading writes in another form than the cell prints them.
+DERIVED_DECIMALS = {"team-models-reading: 16.1": ("team-models", "0.161", "percent")}
 
 
 def _check_probe_log() -> None:
@@ -211,6 +214,38 @@ def _check_teams(namespace: dict[str, Any]) -> None:
     # "The largest weight, 58.2 among patients who got neither".
     top = team_support.loc[team_support["max_weight"].idxmax()]
     assert top["regimen"] == "neither" and round(float(top["max_weight"]), 1) == 58.2
+    assert namespace["largest"].idxmax() == "neither"
+    _check_few_teams(namespace)
+
+
+def _check_few_teams(namespace: dict[str, Any]) -> None:
+    """ "With fewer than 40 teams the interval widens ..., and with very few teams `cleverly`
+    labels it experimental or reports none".  On this contrast the floor is 4 teams, and the
+    t reference starts at 3; refits on the first 2 and 3 teams show both ends."""
+    from dataclasses import replace
+
+    from cleverly import CausalStudy, CrossFitting, RegimeContrast
+    from cleverly._inference_status import (
+        CLUSTER_INTERVAL_FLOORS,
+        FEW_CLUSTER_THRESHOLD,
+        MINIMUM_T_REFERENCE_CLUSTERS,
+    )
+    from cleverly.exceptions import CapabilityError
+
+    assert FEW_CLUSTER_THRESHOLD == 40 and MINIMUM_T_REFERENCE_CLUSTERS == 3
+    assert CLUSTER_INTERVAL_FLOORS["ltmle_cross_fitted"] == 4
+    teams, target = namespace["teams"], namespace["target"]
+    estimates = {}
+    for count in (2, 3):
+        method = replace(namespace["team_method"], cross_fitting=CrossFitting(n_folds=count))
+        estimates[count] = (
+            CausalStudy(teams[teams["team"] < count], design=namespace["team_design"])
+            .identify(RegimeContrast(namespace["schedules"], reference="neither"))
+            .estimate(method=method)[target]
+        )
+    with pytest.raises(CapabilityError, match="fewer than 3 clusters"):
+        estimates[2].std_error  # noqa: B018
+    assert estimates[3].support.label == "experimental" and estimates[3].std_error > 0
 
 
 def _check_evalue(namespace: dict[str, Any]) -> None:
@@ -226,20 +261,44 @@ def _check_evalue(namespace: dict[str, Any]) -> None:
     # "the missing confounder does not change who leaves follow-up"; "read it as a description".
     assert "does not affect censoring" in bound.note
     assert "read it as descriptive" in str(bound.summary())
+    # "0.714 times ... (95% CI 0.650 to 0.784)"; the ratio "reads `experimental`".
+    ratio = namespace["risk_ratio"]
+    assert ratio.psi == pytest.approx(bound.risk_ratio, rel=1e-9)
+    assert ratio.ci[1] == pytest.approx(bound.risk_ratio_ci[1], rel=1e-9)
+    assert round(ratio.ci[0], 3) == 0.650 and ratio.support.label == "experimental"
 
 
 def _check_sensitivity(namespace: dict[str, Any]) -> None:
+    from cleverly import RegimeContrast
     from cleverly.exceptions import CapabilityError
     from cleverly.sensitivity import ConfounderStrengthGrid
 
     # "because about half the patients were offered".
     assert 0.4 < namespace["frame"]["offer"].mean() < 0.6
     # "The replay refuses the team fit"; the refusal comes before any draw or refit.
-    with pytest.raises(CapabilityError, match="simulated_confounding"):
+    with pytest.raises(CapabilityError, match=r"simulated_confounding(.|\n)*has no outcome"):
         namespace["team_result"].sensitivity.simulated_confounding(
             namespace["target"],
             grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
             latent_level="cluster",
+        )
+    # "no check yet for a missing cause of dropout on either fit (the ledger's `missingness` and
+    # `tipping_gamma` rows are unavailable)".
+    for fit in (namespace["result"], namespace["team_result"]):
+        status = fit.assess().to_frame().set_index("check")["status"]
+        assert status["missingness"] == "unavailable" and status["tipping_gamma"] == "unavailable"
+    # "A time-to-event fit takes none yet": the refusal comes before any refit.
+    survival_fit = (
+        namespace["study"]
+        .identify(RegimeContrast(namespace["plans"], reference="not offered", horizons=(90.0,)))
+        .estimate(method=namespace["method"])
+    )
+    with pytest.raises(CapabilityError, match="negative-control outcome on a survival"):
+        survival_fit.diagnostics.refute(
+            estimand="ate_regimen[offered vs not offered @ t=4]",
+            tests=("negative_control_outcome",),
+            negative_control_outcome=np.zeros(len(namespace["frame"])),
+            n_replicates=2,
         )
     moves = namespace["moves"]
     by_name = {(move["fit"], move["left out"]): move["move in SEs"] for move in moves}
@@ -264,6 +323,83 @@ def check(namespace: dict[str, Any]) -> None:
     _check_teams(namespace)
     _check_sensitivity(namespace)
     _check_weights_lesson(namespace)
+    _check_overlap(namespace)
+    _check_team_models(namespace)
+    _check_restricted(namespace)
+
+
+def _check_overlap(namespace: dict[str, Any]) -> None:
+    """The overlap figure and the offer model's numbers beside it."""
+    offer_model, lowest = namespace["offer_model"], namespace["lowest"]
+    assert offer_model["role"] == "treatment" and round(float(offer_model["auc"]), 2) == 0.64
+    # "the smallest is 0.233, one over the largest weight".
+    assert round(float(lowest.min()), 3) == 0.233
+    assert lowest.idxmin() == "not offered"
+    assert [text for text in namespace["below"] if "below" in text] == ["0% below", "0% below"]
+    assert figure_title(namespace["overlap_fig"]) == "Predicted probability of treatment, by group"
+
+
+def _check_team_models(namespace: dict[str, Any]) -> None:
+    """Out-of-fold model checks of the team fit, the unpenalized witness, and the team count."""
+    models = namespace["team_models"]
+    assert set(models["evaluation"]) == {"out_of_fold"}
+    slopes = models.set_index(["role", "time"])["calibration_slope"]
+    # "The treatment models calibrate (slopes 1.00 at both decisions)".
+    assert all(round(float(slopes["treatment", t]), 2) == 1.00 for t in (1, 2))
+    # "the censoring slopes ... sit within about one standard error of 1".
+    censoring = models[models["role"].eq("censoring")]
+    gap = (censoring["calibration_slope"] - 1).abs() / censoring["calibration_slope_se"]
+    assert (gap < 1.0).all()
+    # "slopes of 1.30 and 1.28": the outcome predictions are too compressed.
+    outcome = models[models["role"].eq("outcome")]["calibration_slope"]
+    assert sorted(outcome) == pytest.approx([1.28, 1.30], abs=0.006)
+    # The witness: "With almost no penalty the slopes fall to 0.98 and 0.97, and the estimate
+    # moves from -0.1319 to -0.1317".
+    assert sorted(namespace["loose_slopes"]) == pytest.approx([0.97, 0.98], abs=0.006)
+    assert namespace["loose_estimate"].psi == pytest.approx(-0.1317, abs=6e-5)
+    assert abs(namespace["loose_estimate"].psi - namespace["clustered"].psi) < 0.001
+    # "every patient readmitted by day 30, 16.1% of the day-90 rows, is readmitted by day 90".
+    early = namespace["early"]
+    assert early.loc[early["readmitted_30"].eq(1), "readmitted_90"].eq(1).all()
+    assert round(float(early["readmitted_30"].mean()), 3) == 0.161
+    # "26.9 effective teams of 100", below the 100 / 3 of normally spread team totals.
+    row = namespace["team_influence"].iloc[0]
+    assert row["n"] == 100 and round(float(row["kish"]), 1) == 26.9 and row["kish"] < 100 / 3
+
+
+def _check_restricted(namespace: dict[str, Any]) -> None:
+    """Readmission-free days on the grid and on exact days, and the hazard fit."""
+    grid_days, exact_days = namespace["grid_days"], namespace["exact_days"]
+    plans = ("offered", "not offered")
+    grid = [grid_days.rmst(plan, 90.0).psi for plan in plans]
+    exact = [exact_days.rmst(plan, 90.0).psi for plan in plans]
+    assert [round(v, 2) for v in grid] == [73.53, 65.78]
+    assert [round(v, 2) for v in exact] == [68.25, 58.31]
+    # The grid adds days to each plan, more to the plan with more readmissions, so the gain shrinks.
+    assert grid[0] > exact[0] and grid[1] > exact[1]
+    assert grid[1] - exact[1] > grid[0] - exact[0]
+    assert round(grid[0] - grid[1], 2) == 7.75 and round(exact[0] - exact[1], 2) == 9.94
+    # Each grid mean exceeds the exact one by less than the longest gap between checks (30 days).
+    assert all(0 < g - e < 30 for g, e in zip(grid, exact, strict=True))
+    for days_fit in (grid_days, exact_days):
+        assert all(days_fit.rmst(plan, 90.0).support.label == "experimental" for plan in plans)
+    # "Both fits estimate the same risks: by day 90 they differ only in the fourth decimal".
+    for grid_risk, exact_risk in zip(
+        namespace["grid_risks"], namespace["exact_risks"], strict=True
+    ):
+        assert abs(grid_risk - exact_risk) < 0.001
+    # The hazard fit "cannot fall", agrees to 0.0003, and reads experimental for its options;
+    # isotonic moves none.
+    hazard, both = namespace["hazard_result"], namespace["both"]
+    assert float((both["hazard fit"] - both["default"]).abs().max()) == pytest.approx(
+        3e-4, abs=6e-5
+    )
+    for plan in plans:
+        values = [hazard[namespace["risk"](plan, day)].psi for day in namespace["horizons"]]
+        assert values == sorted(values)
+    support = hazard[both.index[0]].support
+    assert support.label == "experimental" and "one_step" in support.reason
+    assert len(namespace["projected"].isotonic_moves) == 0
 
 
 def _check_surface(namespace: dict[str, Any]) -> None:
@@ -326,8 +462,22 @@ def check_refits(namespace: dict[str, Any]) -> None:
         assert abs(tests["random_common_cause"].statistic) < 0.05
         # "spread about as the standard error predicts ... 20 refits leave wide room".
         assert 0.7 < tests["subset"].statistic < 1.4
-        # The study behind the verdict used out-of-fold predictions and no teams.
+        # "The study behind these checks fitted a time-to-event outcome ..., with out-of-fold
+        # predictions".
         assert "out-of-fold predictions in 5 folds" in tests["placebo"].evidence
+        assert "a survival outcome" in tests["placebo"].evidence
+    # "The first program differs in its in-sample fit, its four checks and its learner; the team
+    # program in its end-of-study outcome, its learner and its 100 teams."
+    first, team = (
+        {test.name: test for test in report.tests}["placebo"].evidence.split(
+            "Where this fit differs"
+        )[1]
+        for report in reports.values()
+    )
+    for phrase in ("no out-of-fold predictions", "4 time points", "a learner outside"):
+        assert phrase in first
+    for phrase in ("another kind of outcome (binary)", "a learner outside", "100 clusters"):
+        assert phrase in team
 
     generated = namespace["generated_tests"]
     assert list(generated) == ["dummy_outcome", "simulated_outcome"]
