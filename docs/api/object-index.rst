@@ -334,7 +334,7 @@ categorized API tables.
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
-   cleverly.datasets.treatment_rules_effect
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship

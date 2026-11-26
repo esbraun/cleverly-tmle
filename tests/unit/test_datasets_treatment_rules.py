@@ -34,7 +34,7 @@ from cleverly.datasets import (
     learned_rule_truth,
     make_treatment_rules,
     treatment_rule_value,
-    treatment_rules_effect,
+    treatment_rule_effect,
 )
 from cleverly.datasets import treatment_rules as law
 from cleverly.learners import random_partition
@@ -112,7 +112,7 @@ def test_the_natural_course_value_matches_draws_of_the_recorded_offers() -> None
 
 
 def test_the_effect_curve_matches_draws_at_fixed_need_scores() -> None:
-    """``treatment_rules_effect`` is the offered-minus-not chance of staying home at a need score."""
+    """``treatment_rule_effect`` is the offered-minus-not chance of staying home at a need score."""
     rng = np.random.default_rng(105)
     n = 1_000_000
     for need in (-0.8, -0.1, 0.5):
@@ -120,16 +120,20 @@ def test_the_effect_curve_matches_draws_at_fixed_need_scores() -> None:
         offered = rng.binomial(1, law._home(1.0, need, alone)).astype(float)
         usual = rng.binomial(1, law._home(0.0, need, alone)).astype(float)
         difference = offered - usual
-        (effect,) = treatment_rules_effect([need])
+        (effect,) = treatment_rule_effect([need])
         assert _agrees(effect, difference)
         if need != law.BEST_RULE_CUTOFF:
             # Mutation control: the sign-reversed effect fails the comparison.
             assert not _agrees(-effect, difference)
+            # Mutation control: the effect for patients who do not live alone, without the
+            # average over living situation, fails it too.
+            alone_only = law._home(1.0, need, 0.0) - law._home(0.0, need, 0.0)
+            assert not _agrees(float(alone_only), difference)
     # The effect changes sign where the best rule cuts.
-    low, cut, high = treatment_rules_effect([-0.5, law.BEST_RULE_CUTOFF, 0.5])
+    low, cut, high = treatment_rule_effect([-0.5, law.BEST_RULE_CUTOFF, 0.5])
     assert low < 0.0 < high and cut == pytest.approx(0.0, abs=1e-12)
     with pytest.raises(ValueError, match="need"):
-        treatment_rules_effect([1.5])
+        treatment_rule_effect([1.5])
 
 
 def test_the_best_rule_beats_every_other_threshold() -> None:

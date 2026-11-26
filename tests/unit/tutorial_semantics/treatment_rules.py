@@ -255,8 +255,11 @@ def _check_compare(namespace: dict[str, Any]) -> None:
         compared.nuisance.regimes.values[:, 1, 0],
         namespace["learned"].nuisance.regimes.values[:, 1, 0],
     )
-    # The page's outcome model contains the true law ("as it is here"): the generator documents
-    # the logistic model with every pairwise product, which this pipeline fits.
+    # "as it is here": the page's outcome model is the logistic model with every pairwise product
+    # of the offer and the two characteristics, which the generator documents as containing the
+    # true law.
+    steps = namespace["outcome_model"].named_steps
+    assert steps["polynomialfeatures"].interaction_only and steps["polynomialfeatures"].degree == 2
 
 
 def _check_optimal(namespace: dict[str, Any]) -> None:
@@ -294,6 +297,11 @@ def _check_rule_options(namespace: dict[str, Any]) -> None:
     by_group = namespace["by_group"]
     assert round(by_group["ey_learned_rule[learned rule][lives_alone=0.0]"].psi, 4) == 0.7502
     assert round(by_group["ey_learned_rule[learned rule][lives_alone=1.0]"].psi, 4) == 0.6834
+    # "both supported; the overall row, 0.7168, mixes the two groups by their shares".
+    for name in by_group.to_frame()["estimand"]:
+        assert by_group[name].support.label == "supported"
+    overall = by_group["ey_learned_rule[learned rule]"]
+    assert round(overall.psi, 4) == 0.7168 and overall.psi != namespace["value"].psi
     # "The default `CrossFitting()` ... with ten folds of 200 it gives the same value".
     from dataclasses import replace
 

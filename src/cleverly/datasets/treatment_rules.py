@@ -54,7 +54,7 @@ __all__ = [
     "learned_rule_truth",
     "make_treatment_rules",
     "treatment_rule_value",
-    "treatment_rules_effect",
+    "treatment_rule_effect",
 ]
 
 #: The coefficients of the law, each on the logit scale.
@@ -109,6 +109,22 @@ def _integral(offer: float, alone: float, low: float, high: float) -> float:
         (np.logaddexp(0.0, intercept + slope * high) - np.logaddexp(0.0, intercept + slope * low))
         / slope
     )
+
+
+def _natural_course_value() -> float:
+    """The share who stay home under the recorded offers, by the trapezoid rule over ``need``.
+
+    The offer's chance varies smoothly with ``need``, so the default grid of
+    :func:`treatment_rule_value` is accurate far beyond the digits a tutorial prints.  It reads
+    no frame, so a draw on any backend computes it without pandas.
+    """
+    need = np.linspace(-1.0, 1.0, _GRID_POINTS)
+    total = 0.0
+    for alone, mass in ((1.0, _LAW["lives_alone"]), (0.0, 1.0 - _LAW["lives_alone"])):
+        chance = _offer_chance(need, alone)
+        values = chance * _home(1.0, need, alone) + (1.0 - chance) * _home(0.0, need, alone)
+        total += mass * float(np.trapezoid(values, need)) / 2.0
+    return total
 
 
 def _threshold_value(cutoff: float) -> float:
@@ -167,7 +183,7 @@ def treatment_rule_value(
     return total
 
 
-def treatment_rules_effect(need: Any) -> np.ndarray:
+def treatment_rule_effect(need: Any) -> np.ndarray:
     r"""Return the true effect of the offer at each need score, averaged over living situation.
 
     Parameters
@@ -190,8 +206,8 @@ def treatment_rules_effect(need: Any) -> np.ndarray:
 
     Examples
     --------
-    >>> from cleverly.datasets import treatment_rules_effect
-    >>> treatment_rules_effect([-0.1, 0.5]).round(4).tolist()
+    >>> from cleverly.datasets import treatment_rule_effect
+    >>> treatment_rule_effect([-0.1, 0.5]).round(4).tolist()
     [0.0, 0.134]
     """
     need = np.asarray(need, dtype=float)
@@ -234,8 +250,8 @@ def make_treatment_rules(
         (``ey_all``), had none been (``ey_none``), and under the best rule (``ey_best_rule``),
         each exact; their difference ``ate`` (``ey_all - ey_none``); ``best_rule_cutoff``,
         the need score above which the best rule offers navigation; and ``ey_natural_course``,
-        the share under the recorded offers (current practice), from
-        :func:`treatment_rule_value` of the offer's chance.
+        the share under the recorded offers (current practice), by the trapezoid rule over
+        ``need`` as in :func:`treatment_rule_value`.
 
     See Also
     --------
@@ -266,9 +282,7 @@ def make_treatment_rules(
         "best_rule_cutoff": BEST_RULE_CUTOFF,
     }
     truth["ate"] = truth["ey_all"] - truth["ey_none"]
-    truth["ey_natural_course"] = treatment_rule_value(
-        lambda rows: _offer_chance(rows["need"].to_numpy(), rows["lives_alone"].to_numpy())
-    )
+    truth["ey_natural_course"] = _natural_course_value()
     return frame_from_dict(payload, backend=backend), truth
 
 
