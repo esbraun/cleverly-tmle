@@ -391,7 +391,7 @@ change.
 | ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
 | Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
-| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`); sampling-weights (a missing treatment, `treatment_missingness=`) |
+| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`); sampling-weights (a missing treatment, `treatment_missingness=`); subgroup-effects (a `ControlledDirectEffect` projection on group indicators, under Go deeper) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
 | Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome); two-decision-rules (a rule learned over two decisions, `LTMLE(regimens=LearnedRegimen())`, with its rule record) |
@@ -420,7 +420,7 @@ change.
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
-| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`) |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`); subgroup-effects (a CATE projection on `Indicators` and on `Additive(Indicators, Linear)` with its band and test; under Go deeper, `strata=` and a log-CRR projection on `Indicators`) |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
 | External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |

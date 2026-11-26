@@ -88,7 +88,10 @@ The basis is fixed before the fit, so the coefficients carry ordinary confidence
 | `UserBasis(function, terms=..., columns=..., basis_kind="known")` | your own fixed function of the modifiers; it receives a mapping from each column name to its array of values | `basis_kind="known"`, which states that the function was fixed without reading this study's rows; without it the basis is refused |
 
 `Constant()` alone has one term, the intercept, so its coefficient is the average effect on the
-fit's scale.
+fit's scale. `Indicators(column)` with its default intercept makes the first declared level the
+reference: the intercept is that group's average effect and each other coefficient is a group's
+difference from it. [Effects by group](../examples/subgroup-effects.ipynb) fits it on a living
+situation stored as text.
 
 A domain or a set of levels must be declared rather than read off the data. A basis whose knots
 came from the sample would make the target depend on the sample, and the interval would miss
@@ -423,7 +426,8 @@ bootstrap with `cross_fit=False`. Those read `supported`, and other combinations
   column must also be an adjustment column, or the design is refused. Inside each group no basis
   column may be redundant, such as a modifier that is constant there, or the fit stops and names
   the group. `fit.heterogeneity_test(stratum="S=1")` and `fit.effect_curve(..., stratum="S=1")`
-  read one group, named by its label.
+  read one group, named by its label. [Effects by group](../examples/subgroup-effects.ipynb)
+  fits an age line inside each living situation under its Go deeper.
 - **Repeating the split.** `repeats=3` refits on three random splits of the rows and reports the
   median coefficient. Its standard error adds how much the coefficient moves between splits. The
   summary prints the standard error without that addition in the next column, for comparison
@@ -474,7 +478,8 @@ value in every treatment arm at every covariate value. A simulation study checke
 one outcome model per arm and the default cross-fitting, and its intervals covered the true
 coefficients about 95% of the time, so it reads `supported`. Other settings, such as weights or a
 fit without cross-fitting, read `experimental`. The score checks and the held-out curve checks refuse on it,
-because they would check the total effect instead.
+because they would check the total effect instead. [Effects by group](../examples/subgroup-effects.ipynb)
+fits this effect by group under its Go deeper, with a 7-day doctor's visit held at no and at yes.
 
 ## What is not supported yet
 
@@ -493,6 +498,9 @@ the score checks and the targeting curves refuse.
 The [worked example](../examples/conditional-effects.ipynb) fits the EP curve on simulated data,
 then a cosine projection with intervals, the score checks and a learned rule under its Go deeper,
 and [treatment rules](../examples/treatment-rules.ipynb) learns from records whom to treat.
+[Effects by group](../examples/subgroup-effects.ipynb) makes the coefficients with intervals its
+main path: one effect per living situation, a band over the groups, a test that they gain the
+same, and an age line beside the groups.
 Under [learned treatment rules](estimands.md#learned-treatment-rules),
 `LearnedRule(loss="ep", modifiers=...)` fits this EP curve in each fold and treats where it is
 above zero, and [its study](../technical-reference/method-evidence/learned-rule-ep.md) gives its

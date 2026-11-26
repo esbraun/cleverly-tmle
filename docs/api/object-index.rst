@@ -344,6 +344,9 @@ categorized API tables.
    cleverly.datasets.make_two_decision_rules
    cleverly.datasets.learned_regimen_truth
    cleverly.datasets.two_decision_rules_protocol
+   cleverly.datasets.make_home_support
+   cleverly.datasets.home_support_truth
+   cleverly.datasets.home_support_effect
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
    cleverly.datasets.make_sequential_pricing

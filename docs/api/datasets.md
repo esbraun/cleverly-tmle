@@ -106,6 +106,16 @@ Four names serve the [two-decision rules tutorial](../examples/two-decision-rule
 | `learned_regimen_truth` | the true value of the fold rule pairs of a learned-regimen fit of these data |
 | `two_decision_rules_protocol` | the `StudyProtocol` of the two-decision question |
 
+Three functions serve the [subgroup-effects tutorial](../examples/subgroup-effects.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_home_support` | a frame of patients with age, discharge risk, a living situation stored as text (`HOME_SUPPORT_LEVELS`: family, alone, paid carer), the navigation offer, a 7-day primary-care visit, and staying home for 30 days, with the exact truths |
+| `home_support_truth` | the exact effect of the offer in each living situation, with the visit free or held at no or yes, the risk ratios, and the coefficients of four projections by the names a fit prints |
+| `home_support_effect` | the true effect at any living situation and age, total or with the visit held |
+
+`make_home_support` is not in `GENERATORS`.
+
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
 
 | function | what it returns |
@@ -184,6 +194,9 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.make_two_decision_rules
    cleverly.datasets.learned_regimen_truth
    cleverly.datasets.two_decision_rules_protocol
+   cleverly.datasets.make_home_support
+   cleverly.datasets.home_support_truth
+   cleverly.datasets.home_support_effect
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol

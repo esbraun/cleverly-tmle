@@ -17,7 +17,12 @@ a declared grid, and a Wald test of the non-constant terms all carry intervals.
 | risk difference and calibration of a fixed external score, and the paired risk difference of two (`assess_score`, `compare=`), on either scale | Wald, from one TMLE fit | the efficient influence curve of the risk at a fixed function, and its difference for two; the calibration is a projection onto $(1, s(V))$ |
 | the conditional effect itself, with no basis (`model=None`), by `method="ep"` | none: `predict(interval=True)` refuses | not pathwise differentiable; the EP learner's theorems give rates, not a limit law |
 
-The [user guide page](../user-guide/conditional-effects.md) gives the workflow.
+The [user guide page](../user-guide/conditional-effects.md) gives the workflow. Two tutorials fit
+these outputs: [who gains most from a coupon](../examples/conditional-effects.ipynb) (the EP curve,
+a `Cosine` projection, the score checks and a log-CRR projection on `Linear`) and
+[effects by group](../examples/subgroup-effects.ipynb) (projections on `Indicators` and on
+`Additive(Indicators, Linear)` with the band and the test, a controlled direct effect by group,
+`strata=`, and a log-CRR projection on `Indicators`).
 
 ## Estimands
 

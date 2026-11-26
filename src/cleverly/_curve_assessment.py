@@ -676,7 +676,29 @@ class CurveDiagnostics(DiagnosticsFacade):
         return fit, data, spec, pseudo
 
     def _frame(self, data: Any) -> pd.DataFrame:
-        return pd.DataFrame(np.asarray(data.covariates, dtype=float), columns=data.covariate_names)
+        """The rows of ``data`` as a refit's curve reads them.
+
+        The covariate matrix holds a categorical adjustment column as indicators, which a
+        basis does not read, so each modifier is added back under its own name with the
+        raw values the caller declared, rebuilt from the indicators.
+
+        Parameters
+        ----------
+        data : CausalData
+            The producing fit's data, or a subset of it.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The covariates by their encoded names, and each modifier by its own name.
+        """
+        from .effect_modification import modifier_frame
+
+        frame = pd.DataFrame(np.asarray(data.covariates, dtype=float), columns=data.covariate_names)
+        columns = tuple(self.curve.modifiers.columns)
+        for name, values in modifier_frame(data, columns).items():
+            frame[name] = values
+        return frame
 
     def _folds(self, data: Any, n_folds: int, seed: int) -> IntArray:
         units = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
