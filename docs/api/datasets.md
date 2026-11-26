@@ -71,6 +71,13 @@ unreturned surveys and a 7-day primary-care visit after the offer. `population_i
 its exact truths, including the population attributable risk and the controlled direct effect at
 each visit level. `make_population_impact` is not in `GENERATORS`.
 
+`make_discharge_practices` draws the program data of the
+[discharge-practices example](../examples/ranking-exposures.ipynb): five discharge practices and
+whether each patient stayed home for 30 days. The navigation offer makes a booked follow-up visit
+more likely. `discharge_practices_truth` holds the exact effect of each practice with
+the other practices held as they were and with the booking following the navigation offer, and
+`PRACTICES` names the five practices in order. `make_discharge_practices` is not in `GENERATORS`.
+
 Three functions serve the team readmission part of the
 [discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
 
@@ -132,6 +139,8 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact
    cleverly.datasets.population_impact_truth
+   cleverly.datasets.make_discharge_practices
+   cleverly.datasets.discharge_practices_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol

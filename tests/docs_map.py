@@ -571,7 +571,11 @@ AREAS: tuple[Area, ...] = (
         "variable importance",
         (S + "variable_importance.py", S + "_importance_assessment.py"),
         (TR + "validation-methods.md", UG + "variable-importance.md"),
-        see=(UG + "methods-learners.md", API + "results-assessment.md"),
+        see=(
+            UG + "methods-learners.md",
+            API + "results-assessment.md",
+            EX + "ranking-exposures.ipynb",
+        ),
     ),
     _area(
         "plots",
@@ -588,6 +592,11 @@ AREAS: tuple[Area, ...] = (
         see=(EX + "point-treatment-tmle.ipynb", EX + "survey-nonresponse.ipynb"),
     ),
     _area("pilot data", (S + "datasets/pilot.py",), see=(EX + "randomized-pilot.ipynb",)),
+    _area(
+        "discharge-practices data",
+        (S + "datasets/discharge_practices.py",),
+        see=(EX + "ranking-exposures.ipynb",),
+    ),
     _area(
         "population-impact data",
         (S + "datasets/population_impact.py",),
