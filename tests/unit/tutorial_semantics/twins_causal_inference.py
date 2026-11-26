@@ -50,6 +50,8 @@ DERIVED_DECIMALS = {
 #: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
 NARRATION_SOURCES: dict[str, dict[str, str]] = {
     "assessment-heading": {"0.975": "att-fit"},
+    # The plasmode keeps its treatment model inside the fit's probability limits.
+    "refute-generated-heading": {"0.025": "att-fit", "0.975": "att-fit"},
 }
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
