@@ -711,7 +711,7 @@ once against the generator's known truth, the part of X113 (d) that a Markdown g
 - (c) Sampling weights, strata and missing treatment values on a point treatment.
 - (d) Ranking candidate exposures.
 - (e) Choosing nuisance learners: the default library, a declared super learner and screening.
-- (f) A learned rule over two decisions.
+- (f) A learned rule over two decisions. Delivered: [two decisions after discharge](examples/two-decision-rules.ipynb).
 
 Each follows `docs/development/example-notebooks.md`, on simulated data with a known answer.
 

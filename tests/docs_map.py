@@ -453,7 +453,11 @@ AREAS: tuple[Area, ...] = (
             S + "longitudinal/_record_summary.py",
         ),
         (TR + "longitudinal-tmle.md", UG + "longitudinal.md"),
-        see=(EX + "sequential-pricing.ipynb", EX + "weekly-outcomes.ipynb"),
+        see=(
+            EX + "sequential-pricing.ipynb",
+            EX + "weekly-outcomes.ipynb",
+            EX + "two-decision-rules.ipynb",
+        ),
     ),
     _area(
         "survival over time",
@@ -624,6 +628,11 @@ AREAS: tuple[Area, ...] = (
         "treatment-rule data",
         (S + "datasets/treatment_rules.py",),
         see=(EX + "treatment-rules.ipynb",),
+    ),
+    _area(
+        "two-decision data",
+        (S + "datasets/two_decisions.py",),
+        see=(EX + "two-decision-rules.ipynb",),
     ),
     _area(
         "heart-failure data",

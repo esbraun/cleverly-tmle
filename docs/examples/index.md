@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Twenty-two examples use simulated data, so each page can compare its estimate with the
-true answer. The twenty-third uses real birth records. If you are new to causal inference, read
+manager. Twenty-four examples use simulated data, so each page can compare its estimate with the
+true answer. The twenty-fifth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
 tables and row names that every page prints.
@@ -36,6 +36,7 @@ treatment was unlikely.
 | several treatment levels, summarized by one trend | [a trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
 | time until an event, when another event such as death can come first and some people leave follow-up | [readmission when death can come first](longitudinal-survival.ipynb) | treating death like dropout estimates readmission in a world where nobody dies, which the program cannot bring about |
 | one treatment at discharge and an event such as readmission by day 30, 60 and 90, when some patients leave follow-up, or patients who share a team over two decisions | [readmission by day 30, 60 and 90](discharge-to-readmission.ipynb) | treating patients of one team as independent ignores that their risks move together, so the interval is too narrow |
+| two decisions in a row, such as an offer at discharge and another at day 14, where you want a rule for each decision learned from the records | [two decisions after discharge](two-decision-rules.ipynb) | patients who got both offers stayed home more often than both offers for everyone would achieve, because who got each offer depended on readiness and on a score the first offer changed. The best first rule also depends on the second: judged alone, the first offer looks helpful for patients the best pair of rules leaves without it |
 | a treatment repeated weekly, where earlier offers change later behavior | [weekly offer policies](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
 | an outcome recorded every week, such as whether a customer ordered, while the treatment repeats | [weekly orders under repeated offers](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding the weekly variances as if the weeks were independent makes the interval for the total slightly too narrow |
 | repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
@@ -259,6 +260,7 @@ dose-response
 
 longitudinal-survival
 discharge-to-readmission
+two-decision-rules
 sequential-offers
 weekly-outcomes
 model-based-over-time
