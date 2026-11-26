@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
-| [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
@@ -654,19 +653,6 @@ known-mechanism designs over time, or the cluster jackknife.
 - (f) Clustered, weighted and known-mechanism designs over time, and learned two-decision rules.
 - (g) Plots, diagnostics and links to the tutorials.
 
-### X113. User guide: conditional effects and trials with external data
-
-The conditional-effects guide labels settings experimental that read `supported`, cites a status
-line the summary does not print, and omits a band rule and the continuous-treatment refusal. The
-trial guide misstates the default candidate terms, omits refusals a registry analyst meets
-first, and lists options no page runs.
-
-- (a) Conditional-effects status claims.
-- (b) The conditional-effects surface: the curve figure, every basis, the EP final learner,
-  diagnostics and links.
-- (c) Trial page accuracy.
-- (d) Each trial option run once against a known truth.
-
 ### X115. Technical reference: shared inference, validation and scope pages
 
 The shared pages call a comparator-backed study pending, count seven refutation operations where
@@ -752,7 +738,8 @@ One part per notebook: `interventions`, `treatment-rules`, `conditional-effects`
 `msm-projections` and `trial-with-external-data`. Each corrects its stale claims (for example a
 comparison reported as pending after it ran, a default stated wrongly), adds the refutation and
 sensitivity checks the outline asks for, and shows the supported, interval-bearing fit where the
-page shows only a fit without one.
+page shows only a fit without one. The `trial-with-external-data` part also runs each trial option
+once against the generator's known truth, the part of X113 (d) that a Markdown guide cannot show.
 
 ### X122. New tutorials for shipped methods that no example fits
 
