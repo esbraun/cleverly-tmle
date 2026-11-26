@@ -1532,7 +1532,7 @@ def _check_weights_lesson(namespace: dict[str, Any]) -> None:
     assert (trimmed["inference_status"] == "trimmed_ratio_plugin").all()
     # "Even that moves each effect by at most 0.04 standard errors".
     assert cap_moves(namespace, "ratio_trim").abs().max().max() < 0.045
-    # "The cut's effect rests on fewer".
+    # "The cut's standard error rests on fewer".
     kish = namespace["influence_rows"]["kish"]
     down = "ate_regimen[price_down vs natural_prices]"
     assert kish[down] < kish["ate_regimen[price_up vs natural_prices]"]
