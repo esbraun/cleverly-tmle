@@ -185,9 +185,50 @@ def test_the_fold_truth_refuses_rules_it_cannot_reproduce() -> None:
 
     with pytest.raises(ValueError, match="must be a LogisticRegression"):
         learned_regimen_truth(Forest(), frame)
+
+    class NoPseudo(Mutated):
+        learned_regimen = record
+        estimator = SimpleNamespace(
+            repeats=1, outcome_learner=study.outcome_learner(), pseudo_learner=None
+        )
+
+    with pytest.raises(ValueError, match="must declare its pseudo_learner"):
+        learned_regimen_truth(NoPseudo(), frame)
+
+    class Repeated(Mutated):
+        learned_regimen = record
+        estimator = SimpleNamespace(repeats=2)
+
+    with pytest.raises(ValueError, match="repeats=1"):
+        learned_regimen_truth(Repeated(), frame)
+
+    class Weighted(Mutated):
+        learned_regimen = record
+        data = SimpleNamespace(is_weighted=True)
+
+    with pytest.raises(ValueError, match="unweighted"):
+        learned_regimen_truth(Weighted(), frame)
+
+    class OtherRoles(Mutated):
+        learned_regimen = record
+        data = dataclasses.replace(result.data, time_varying_names=((), ()))
+
+    with pytest.raises(ValueError, match="roles of TWO_DECISION_COLUMNS"):
+        learned_regimen_truth(OtherRoles(), frame)
+
     other, _ = make_two_decision_rules(2_000, seed=8)
     with pytest.raises(ValueError, match="frame must be the frame"):
         learned_regimen_truth(result, other)
+    # A frame whose outcome was edited after the fit is refused, though its baseline matches.
+    edited = frame.copy()
+    edited.loc[edited["home_30"].notna().idxmax(), "home_30"] = (
+        1 - edited["home_30"].dropna().iloc[0]
+    )
+    with pytest.raises(ValueError, match="its home_30 differ"):
+        learned_regimen_truth(result, edited)
+    polars = pytest.importorskip("polars")
+    with pytest.raises(ValueError, match="pandas DataFrame"):
+        learned_regimen_truth(result, polars.from_pandas(frame))
 
 
 def test_the_protocol_names_the_learned_strategy() -> None:

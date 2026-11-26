@@ -75,9 +75,18 @@ def check(namespace: dict[str, Any]) -> None:
     )
     started = namespace["started"].mean().unstack().round(2)
     assert (started.iloc[:, 1] <= started.iloc[:, 0]).all()
+    assert (started.iloc[1:3, 1] < started.iloc[1:3, 0]).all()
+    # "where the day-14 score is high": the share rises across the score bands on each path.
+    assert (started.diff().iloc[1:] >= 0).all().all()
+    assert (started.iloc[0] == 0).all() and (started.iloc[-1] == 1).all()
     nodes = learned.learned_regimen.nodes
-    assert round(nodes[0].rule_disagreement, 3) == 0.053
-    assert round(nodes[1].rule_disagreement, 3) == 0.079
+    # One patient is 0.0005 of the rows, so a library release that moves one boundary row moves
+    # the third decimal; the stored-output comparison guards the printed digits.
+    assert nodes[0].rule_disagreement == pytest.approx(0.053, abs=1.5e-3)
+    assert nodes[1].rule_disagreement == pytest.approx(0.079, abs=1.5e-3)
+    # "In every fold and at both decisions, 95% of patients have a gain of at least 0.011".
+    lowest = min(float(np.min(np.asarray(node.gap_quantiles)[:, 0])) for node in nodes)
+    assert round(lowest, 3) >= 0.011
     # The rules each patient follows are the stored ones of the fold that held them out.
     folds = learned.folds
     for fold, (_, held_out) in enumerate(folds):
@@ -86,12 +95,14 @@ def check(namespace: dict[str, Any]) -> None:
         )
     assert reached.sum() > 0
 
-    # The weights check: no weight was cut, and the quoted day-14 numbers.
+    # The weights check: no weight was cut, 1,104 follow the navigation rule at day 14, and the
+    # quoted numbers of the 555 who follow both rules to day 30.
     support = namespace["support"]
     assert (support["share_truncated"] == 0).all()
-    day_14 = support.set_index("time").loc[2]
-    assert int(day_14["n_followed"]) == 555
-    assert round(float(day_14["max_weight"]), 2) == 6.09
+    day_30 = support.set_index("time").loc[2]
+    assert int(support.set_index("time").loc[1, "n_followed"]) == 1104
+    assert int(day_30["n_followed"]) == 555
+    assert round(float(day_30["max_weight"]), 2) == 6.09
     printed = stored_output(NOTEBOOK, "assessment")
     assert "score_equations    passed" in printed
     # "Refutation checks and the curve of weight caps do not run on this fit": each refits.
@@ -99,9 +110,14 @@ def check(namespace: dict[str, Any]) -> None:
     for check_name in ("refute", "truncation_curve"):
         assert ledger.loc[check_name, "status"] == "unavailable"
         assert "relearns the rules" in ledger.loc[check_name, "detail"]
-    # "No check of a missing confounder runs on this fit yet".
+    # "No check of a missing confounder runs on this fit yet: the bounds and the E-value need a
+    # derivation over time, the simulated confounder refuses dropout before an end-of-study
+    # outcome".
     for check_name in ("omitted_confounding", "evalue", "simulated_confounding"):
         assert ledger.loc[check_name, "status"] == "unavailable"
+    for check_name in ("omitted_confounding", "evalue"):
+        assert "per-period latent law" in ledger.loc[check_name, "detail"]
+    assert "censored end-of-study" in ledger.loc["simulated_confounding", "detail"]
 
     # Why the first rule depends on the second: the cutoff that ignores telemonitoring is far
     # below the best rule's.
@@ -114,7 +130,10 @@ def check(namespace: dict[str, Any]) -> None:
     balance = namespace["balance"]
     by_kind = balance.groupby("diagnostic")
     assert by_kind.get_group("confounding")["after"].abs().round(2).max() <= 0.03
-    assert by_kind.get_group("censoring")["after"].abs().max() <= 0.085
+    censoring = by_kind.get_group("censoring")
+    assert censoring["after"].abs().max() <= 0.085
+    # "leaves every censoring gap at 0.08 or less": one gap grows, so the prose says "leaves".
+    assert (censoring["after"].abs() > censoring["before"].abs()).any()
     assert by_kind.get_group("confounding")["before"].abs().max() == pytest.approx(0.50, abs=0.005)
     feedback = by_kind.get_group("feedback")
     assert (feedback["after"].abs() > feedback["before"].abs()).all()
@@ -123,7 +142,7 @@ def check(namespace: dict[str, Any]) -> None:
     # effective size of the followers.
     influence = namespace["influence"]
     kish = float(influence["kish"].iloc[0])
-    assert kish < float(day_14["effective_n"]) < len(frame)
+    assert kish < float(day_30["effective_n"]) < len(frame)
 
 
 def _check_true_target_against_the_study(frame: Any, learned: Any, true_target: float) -> None:

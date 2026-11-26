@@ -48,9 +48,9 @@ crossed with a nonzero slope, so the best rules are unique.
 rules is an integral of :math:`\bar Q` over ``readiness``, ``lives_alone`` and ``self_care_14``.
 The trapezoid rule on 1,001 points of ``readiness`` handles the first axis, and for
 ``self_care_14`` given the first decision a Gauss-Legendre rule on the probability scale, split
-at the rule's cutoff, is exact up to rounding whenever the second rule is a cutoff in
-``self_care_14``.  The study's design test compares that grid with 16,001 points: the value moves
-by about ``1e-5``.
+at the rule's cutoff so that no node straddles the rule's jump.  The values are accurate to about
+``1e-5``: the study's design test compares the grid with 16,001 points, and 200 nodes in place of
+24 move the best pair's value by under ``1e-5``.
 """
 
 from __future__ import annotations
@@ -318,7 +318,8 @@ def make_two_decision_rules(
         first rule offers navigation, for patients living with others and alone
         (``navigation_cutoff_with_others``, ``navigation_cutoff_alone``), and the cutoff above
         which navigation helps when nobody gets telemonitoring
-        (``navigation_cutoff_without_telemonitoring_with_others``, ``..._alone``), each by
+        (``navigation_cutoff_without_telemonitoring_with_others``,
+        ``navigation_cutoff_without_telemonitoring_alone``), each by
         root-finding.
 
     Raises
@@ -462,8 +463,9 @@ def learned_regimen_truth(result: Any, frame: Any) -> float:
     ------
     ValueError
         In this order: if the fit holds no learned regimen; if it used ``repeats`` above 1 or
-        observation weights; if its treatments and baseline columns are not those of
-        :data:`TWO_DECISION_COLUMNS`; if ``frame`` is not the fit's data; if its
+        observation weights; if its roles are not those of :data:`TWO_DECISION_COLUMNS`; if
+        ``frame`` is not a pandas frame or any of its model columns differs from the fit's
+        data; if its
         ``outcome_learner`` is not a ``LogisticRegression`` or its ``pseudo_learner`` is
         ``None``; or if a refitted pair differs from the stored one on a row.
 
@@ -472,6 +474,7 @@ def learned_regimen_truth(result: Any, frame: Any) -> float:
     cleverly.datasets.make_two_decision_rules : The data, and the value of the best rules.
     cleverly.longitudinal.LearnedRegimen : The regimen whose value the fit estimates.
     """
+    import pandas as pd
     from sklearn.base import clone
     from sklearn.linear_model import LogisticRegression
 
@@ -481,17 +484,38 @@ def learned_regimen_truth(result: Any, frame: Any) -> float:
     _require(int(estimator.repeats) == 1, "the fit must use repeats=1")
     data = result.data
     _require(not data.is_weighted, "the fit must be unweighted")
+    roles = TWO_DECISION_COLUMNS
     _require(
-        tuple(data.treatment_names) == ("navigation", "telemonitoring")
-        and tuple(data.baseline_names) == ("readiness", "lives_alone"),
-        "the fit must have the treatments navigation and telemonitoring and adjust for "
-        "readiness and lives_alone, in that order, as TWO_DECISION_COLUMNS declares",
+        data.outcome_name == roles["outcome"]
+        and tuple(data.treatment_names) == tuple(roles["treatment"])
+        and tuple(data.baseline_names) == tuple(roles["baseline"])
+        and tuple(map(tuple, data.time_varying_names)) == tuple(map(tuple, roles["time_varying"]))
+        and tuple(data.censoring_names) == tuple(roles["censoring"]),
+        "the fit must declare the roles of TWO_DECISION_COLUMNS, with the same columns in the "
+        "same order",
+    )
+    _require(
+        isinstance(frame, pd.DataFrame),
+        "frame must be a pandas DataFrame; convert a polars or pyarrow draw with to_pandas()",
+    )
+    _require(len(frame) == data.n, "frame must be the frame the fit was given")
+    stored_columns = {
+        "baseline": (["readiness", "lives_alone"], np.asarray(data.baseline, dtype=float)),
+        "treatment": (["navigation", "telemonitoring"], np.asarray(data.treatment, dtype=float)),
+        "time_varying": (["self_care_14"], np.asarray(data.time_varying[1], dtype=float)),
+        "outcome": (["home_30"], np.asarray(data.outcome, dtype=float)[:, None]),
+    }
+    for names, fitted in stored_columns.values():
+        _require(
+            np.array_equal(frame[names].to_numpy(dtype=float), fitted, equal_nan=True),
+            f"frame must be the frame the fit was given: its {', '.join(names)} differ",
+        )
+    tracked = np.nan_to_num(frame[list(roles["censoring"])].to_numpy(dtype=float))
+    _require(
+        np.array_equal(tracked, np.asarray(data.uncensored, dtype=float)),
+        "frame must be the frame the fit was given: its tracked_14, tracked_30 differ",
     )
     x1 = frame[["readiness", "lives_alone"]].to_numpy(dtype=float)
-    _require(
-        x1.shape == np.shape(data.baseline) and np.array_equal(x1, np.asarray(data.baseline)),
-        "frame must be the frame the fit was given",
-    )
     outcome_learner, pseudo_learner = estimator.outcome_learner, estimator.pseudo_learner
     _require(
         isinstance(outcome_learner, LogisticRegression),
