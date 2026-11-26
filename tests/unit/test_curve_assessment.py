@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import CausalStudy, ConditionalContrast, PointTreatment
 from cleverly._curve_assessment import STABILITY_WARNING, CurveDiagnostics
-from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL, _curve_refute_row
+from cleverly.assessment import CURVE_OPERATIONS, CURVE_REFUTE_REFUSAL
 from cleverly.bases import Linear, Modifiers
 from cleverly.exceptions import CapabilityError
 
@@ -81,7 +81,10 @@ def test_the_rows_are_the_curve_family(fitted: Any) -> None:
     assert set(CURVE_OPERATIONS) <= set(rows)
     assert all(rows[name].available for name in (*CURVE_OPERATIONS, "support"))
     assert not rows["refute"].available
-    assert rows["refute"] == _curve_refute_row(fitted, rows["refute"])
+    assert rows["refute"].refusal.alternative == (
+        "Run refute on the fit that produced the curve, naming a coefficient such as "
+        "'cate_projection[W2]'."
+    )
     assert rows["refute"].refusal.reason is CURVE_REFUTE_REFUSAL.reason
     assert rows["calibration"].execution == "refit" and rows["calibration"].accepts_random_state
 

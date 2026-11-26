@@ -1234,7 +1234,8 @@ def _curve_refute_row(curve: Any, row: AssessmentCapability) -> AssessmentCapabi
         refusal = replace(
             CURVE_REFUTE_REFUSAL,
             condition=(
-                f"{CURVE_REFUTE_REFUSAL.condition} An EP curve's fit reports no coefficients. "
+                f"{CURVE_REFUTE_REFUSAL.condition} An EP curve's fit reports no coefficients on "
+                "the curve's basis. "
                 f"The projection on the same basis, {basis}, does."
             ),
             alternative=(
