@@ -87,7 +87,6 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
@@ -664,17 +663,6 @@ and study records that state something the code does not do. No number moves.
   confounder surface, the refutation operations) get a test that ties the owner page to the code.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
-### X111. User guide: designs and estimands
-
-The design guide says fold evaluation refuses strata (it runs and reads `supported`) and omits
-several `PointTreatment` fields; the estimands guide omits policy declarations, mean-level
-estimands and examples for the controlled direct effect and the working-model projection.
-
-- (a) The design page: fold settings and every design field.
-- (b) The estimands page: the missing declarations and examples, the dose-response labels and how
-  to call it.
-- (c) Links from the analysis pages to the tutorials that run each feature.
 
 ### X112. User guide: analyses over time and survival
 
