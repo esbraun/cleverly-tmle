@@ -423,6 +423,37 @@ that a single learner predicts in sample. Otherwise it measures `atmle`'s shrink
 in-sample nuisances and not the method. The comparison is declared and not run, and it never
 blocks the method.
 
+## Validation issues special to this method
+
+**Coverage of $\Psi$ rests on a condition no data check confirms.** Every fit carries the
+`working_model_projection` status under the experimental label. The interval covers $\Psi_w$, and
+covers $\Psi$ only under the oracle-approximation condition ([Inference status](#inference-status)).
+A study can measure coverage of $\Psi$ only on its own laws, so no result moves the label.
+
+**The fit checks are the four diagnostics.** No refutation or truncation curve is derived, because a
+refit selects its own working model, and no sensitivity bound, because the bounds assume a
+point-treatment fit and not a projection onto a selected working model ([Refusals](#refusals)). `support()`, `score_equations()`, `nuisance_models()` and
+`corrections()` read the stored fit, and `result.assess()` collects them.
+
+**The efficiency gain depends on the external difference.** The gain over the trial alone needs the
+lasso to drop every arm-shift column of the bias model. The efficiency contrast of the trial study
+gates a gain on the law with no external difference and reports none on its laws whose difference
+varies with $W$ ([Studies](#studies)). With `force_arm=True` the bound is the trial-only one by
+construction ([why the defaults differ](#differences-from-the-published-algorithm-and-the-atmle-package)).
+
+**The studies ran at their own learners and sizes.** The trial study uses explicit spline learners at
+4,000 rows, and the selective-enrollment study a Super Learner at 3,200 rows. Main-terms nuisances
+under selective enrollment are a reporting row, not a gate, and no study runs a custom
+`working_basis=`.
+
+**A binary outcome is a reported stress row.** The scenario `b1y` has a bias outside the span of the
+dictionary, and no verdict reads it.
+
+**No grid row.** Neither study declares a property cell, so the
+[implementation validation grid](method-evidence/validation-grid.md) has no row for the method
+([the implementation matrix](index.md#implementation-matrix) gives the same reason). Separately, the R `atmle` pairing for
+the pooled form is declared and has not run, and the cross-validated form has no comparator.
+
 ## Evidence
 
 Two registered studies and exact-law unit tests check the method. Study A, `adaptive-tmle-trial`,

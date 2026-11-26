@@ -14,7 +14,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly._summary import vocabulary
-from cleverly.datasets import make_linear_ate, make_multi_arm
+from cleverly.datasets import make_linear_ate, make_multi_arm, make_randomized_pilot
 from cleverly.sensitivity import CovariateBalance, covariate_balance
 
 from . import Case
@@ -53,6 +53,27 @@ def three_arms() -> CovariateBalance:
     return _balance(make_multi_arm(n=400, seed=5)[0], ("W1", "W2", "W3"))
 
 
+@functools.cache
+def declared() -> CovariateBalance:
+    """A pilot whose data declare the offer chances: the weights read those, not a model."""
+    frame, _ = make_randomized_pilot(n=400, seed=3)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="transition_success",
+            treatment="transition_navigation",
+            adjustment=("discharge_risk", "prior_utilization"),
+            treatment_probabilities={0: "chance_no_offer", 1: "chance_offer"},
+        ),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = study.identify(ATE(reference=0)).estimate(
+            outcome_learner=LogisticRegression(max_iter=1000), cross_fit=False, random_state=0
+        )
+    return covariate_balance(result)
+
+
 def read_balance(balance: CovariateBalance, text: str) -> None:
     """Assert that every number a balance summary prints equals the object's.
 
@@ -87,4 +108,5 @@ def _case(build: Any) -> Case:
 FIXTURES = {
     "balance_two_arms": _case(two_arms),
     "balance_three_arms": _case(three_arms),
+    "balance_declared": _case(declared),
 }

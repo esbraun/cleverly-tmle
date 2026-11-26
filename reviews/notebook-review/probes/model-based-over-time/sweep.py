@@ -4,8 +4,11 @@ Each seed ``s`` draws ``make_recovery_score(4_000, seed=s)`` and runs the page's
 parametric g-formula of the plans ``never`` and ``always`` with symptom models that hold every
 product of two record columns (the right models), the same fit with
 main-terms symptom models (the wrong models), the cross-fitted structural nested mean model with
-``lives_alone`` in the blips of the first two offers, its model check against LTMLE, and the crude
-comparison of the patients who followed each plan. Truths come from ``make_recovery_score``.
+``lives_alone`` in the blips of the first two offers, its model check against LTMLE, longitudinal
+TMLE (in sample) of the gain, the targeted plan of the page's "Go deeper" lesson (the g-formula and
+LTMLE of its gain over ``never``, its share of the gain of ``always``, and LTMLE of the offers it
+makes), and the crude comparison of the patients who followed each plan. Truths come from
+``make_recovery_score``, ``recovery_score_truth`` and ``recovery_offer_count``.
 
 Usage: ``python sweep.py <first seed> <count> <workers>``. The page cites
 ``python sweep.py 3100 400 4``. The notebook draws seed 3100, the first of that range, by a rule
@@ -41,19 +44,49 @@ BLIPS = (
 )
 
 
+def offer_if_alone(history):
+    """The targeted plan at discharge: offer to patients who live alone."""
+    return history["lives_alone"]
+
+
+def offer_if_flagged_day10(history):
+    """The targeted plan on day 10: offer after a day-10 symptom flag."""
+    return history["symptoms_day10"]
+
+
+def offer_if_flagged_day20(history):
+    """The targeted plan on day 20: offer after a day-20 symptom flag."""
+    return history["symptoms_day20"]
+
+
+RULES = (offer_if_alone, offer_if_flagged_day10, offer_if_flagged_day20)
+TARGETED = "ate_regimen[targeted vs never]"
+SHARE = "share kept"
+OFFERS_MADE = "ey_regimen[targeted]:offers"
+
+
 def one_seed(seed: int) -> dict:
     warnings.filterwarnings("ignore")
     from cleverly import (
         CausalStudy,
+        CrossFitting,
         LongitudinalTreatment,
         ModelSpec,
         ParametricGFormulaMethod,
+        RegimeContrast,
         RegimeMean,
         Runtime,
+        Targeting,
+        TMLEMethod,
     )
-    from cleverly.datasets import RECOVERY_BOUNDS, make_recovery_score
+    from cleverly.datasets import (
+        RECOVERY_BOUNDS,
+        make_recovery_score,
+        recovery_offer_count,
+        recovery_score_truth,
+    )
     from cleverly.learners import GLM
-    from cleverly.longitudinal import snmm
+    from cleverly.longitudinal import DynamicRegimen, snmm
 
     frame, truth = make_recovery_score(N, seed=seed)
     row: dict = {"seed": seed}
@@ -70,28 +103,78 @@ def one_seed(seed: int) -> dict:
         baseline=("lives_alone", "discharge_risk"),
         time_varying=((), ("symptoms_day10",), ("symptoms_day20",)),
     )
-    question = CausalStudy(frame, design=design).identify(RegimeMean(PLANS, reference="never"))
+    study = CausalStudy(frame, design=design)
+    means = study.identify(RegimeMean(PLANS, reference="never"))
+    question = study.identify(RegimeContrast(PLANS, reference="never"))
     models = ModelSpec(outcome_learner=GLM(family="gaussian"), treatment_learner=GLM())
+    methods = {}
     for tag, learner in (("gf", GLM(interactions=2)), ("wrong", None)):
-        fit = question.estimate(
-            method=ParametricGFormulaMethod(
-                models=models,
-                covariate_learner=learner,
-                n_draws=10,
-                runtime=Runtime(random_state=seed, n_jobs=1),
-            )
+        methods[tag] = method = ParametricGFormulaMethod(
+            models=models,
+            covariate_learner=learner,
+            n_draws=10,
+            runtime=Runtime(random_state=seed, n_jobs=1),
         )
+        fit = means.estimate(method=method)
         for key in LEVELS:
             estimate = fit[key]
             row[f"{tag}:{key}"] = estimate.psi
             row[f"{tag}:{key}:covers"] = estimate.ci[0] <= truth[key] <= estimate.ci[1]
-        contrast = fit.contrast(lambda v: v[1] - v[0], list(LEVELS), name=CONTRAST)
+        contrast = question.estimate(method=method)[CONTRAST]
         row[f"{tag}:{CONTRAST}"] = contrast.psi
         row[f"{tag}:{CONTRAST}:covers"] = contrast.ci[0] <= truth[CONTRAST] <= contrast.ci[1]
         if tag == "gf":
             shares = fit.simulation.monte_carlo_share
             for key in (*LEVELS, CONTRAST):
                 row[f"gf:{key}:mc_share"] = shares.get(key, float("nan"))
+
+    def ltmle(bounds):
+        return TMLEMethod(
+            models=models,
+            cross_fitting=CrossFitting(enabled=False),
+            targeting=Targeting(q_bounds=bounds),
+            runtime=Runtime(random_state=seed, n_jobs=1),
+        )
+
+    estimate = question.estimate(method=ltmle(RECOVERY_BOUNDS))[CONTRAST]
+    row[f"ltmle:{CONTRAST}"] = estimate.psi
+    row[f"ltmle:{CONTRAST}:covers"] = estimate.ci[0] <= truth[CONTRAST] <= estimate.ci[1]
+
+    # The targeted plan: its gain over never, by the g-formula and LTMLE, and its share of the
+    # gain of always, with the truths of the finite sum.
+    targeted = DynamicRegimen("targeted", RULES, rule_kind="known")
+    three = study.identify(RegimeContrast({**PLANS, "targeted": targeted}, reference="never"))
+    truth[TARGETED] = recovery_score_truth(*RULES) - recovery_score_truth(0, 0, 0)
+    truth[SHARE] = truth[TARGETED] / truth[CONTRAST]
+    for tag, method in (("gf", methods["gf"]), ("ltmle", ltmle(RECOVERY_BOUNDS))):
+        fit = three.estimate(method=method)
+        gains = {key: fit[key] for key in (TARGETED, CONTRAST)}
+        estimate = gains[TARGETED]
+        row[f"{tag}:{TARGETED}"] = estimate.psi
+        row[f"{tag}:{TARGETED}:covers"] = estimate.ci[0] <= truth[TARGETED] <= estimate.ci[1]
+        share = fit.contrast(lambda v: v[0] / v[1], [TARGETED, CONTRAST], name=SHARE)
+        row[f"{tag}:{SHARE}"] = share.psi
+        row[f"{tag}:{SHARE}:covers"] = share.ci[0] <= truth[SHARE] <= share.ci[1]
+    # The offers the targeted plan makes: LTMLE of lives_alone + both flags under its first two
+    # rules, the number of offers that plan makes to each patient.
+    frame["offers_made"] = frame["lives_alone"] + frame["symptoms_day10"] + frame["symptoms_day20"]
+    offers = LongitudinalTreatment(
+        outcome="offers_made",
+        treatment=OFFERS[:2],
+        baseline=("lives_alone", "discharge_risk"),
+        time_varying=((), ("symptoms_day10",)),
+    )
+    two = DynamicRegimen("targeted", RULES[:2], rule_kind="known")
+    estimate = (
+        CausalStudy(frame, design=offers)
+        .identify(RegimeMean({"targeted": two}))
+        .estimate(method=ltmle((0.0, 3.0)))["ey_regimen[targeted]"]
+    )
+    truth[OFFERS_MADE] = recovery_offer_count(*RULES)
+    row[f"ltmle:{OFFERS_MADE}"] = estimate.psi
+    row[f"ltmle:{OFFERS_MADE}:covers"] = estimate.ci[0] <= truth[OFFERS_MADE] <= estimate.ci[1]
+    for key in (TARGETED, SHARE, OFFERS_MADE):
+        row[f"truth:{key}"] = truth[key]
 
     structural = snmm(
         frame,

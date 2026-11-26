@@ -15,7 +15,12 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from cleverly.datasets import make_recovery_score, recovery_score_protocol
+from cleverly.datasets import (
+    make_recovery_score,
+    recovery_offer_count,
+    recovery_score_protocol,
+    recovery_score_truth,
+)
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -47,13 +52,15 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/sweep.log",
     "2.26": f"the mean error of the wrong models' mean under always, 400 draws: {_PROBE}/sweep.log",
     "0.05": f"the bound on the mean error of every blip-model effect, 400 draws: {_PROBE}/sweep.log",
-    "0.3": "the bound on the gap between the two methods' plan means, which the compare cell "
-    "prints row by row; check() asserts it",
 }
+
+#: Decimals a summary cell quotes from a lesson under "Go deeper", by the cell that prints them.
+NARRATION_SOURCES = {"interpret": {"0.55": "targeted", "0.82": "targeted"}}
 
 DRAWS = 400
 LEVELS = ("ey_regimen[never]", "ey_regimen[always]")
 CONTRAST = "ate_regimen[always vs never]"
+TARGETED = "ate_regimen[targeted vs never]"
 OFFERS = ("offer_discharge", "offer_day10", "offer_day20")
 
 
@@ -67,6 +74,9 @@ def check(namespace: dict[str, Any]) -> None:
     _check_compare(namespace)
     _check_assessment(namespace)
     _check_sensitivity(namespace)
+    _check_targeted(namespace)
+    _check_blip_overlap(namespace)
+    _check_bootstrap(namespace)
     _check_probe_log(namespace)
     _check_prose_phrases()
 
@@ -109,40 +119,42 @@ def _support(estimates: Any) -> set[tuple[str, str | None]]:
 
 
 def _check_gformula(namespace: dict[str, Any]) -> None:
-    result, difference, truth = namespace["result"], namespace["difference"], namespace["truth"]
-    assert [round(result[key].psi, 2) for key in LEVELS] == [49.37, 60.03]
-    assert [round(value, 2) for value in difference.ci] == [9.49, 11.82]
-    assert round(difference.psi, 2) == 10.66
-    assert difference.psi == pytest.approx(result[LEVELS[1]].psi - result[LEVELS[0]].psi)
+    result, means, truth = namespace["result"], namespace["means"], namespace["truth"]
+    gain = result[CONTRAST]
+    assert list(result.estimates) == [CONTRAST]
+    assert [round(means[key].psi, 2) for key in LEVELS] == [49.37, 60.03]
+    assert [round(value, 2) for value in gain.ci] == [9.49, 11.82]
+    assert round(gain.psi, 2) == 10.66
+    # The gain of the contrast fit is the difference of the plan means of the same simulation.
+    assert gain.psi == pytest.approx(means[LEVELS[1]].psi - means[LEVELS[0]].psi, abs=1e-9)
     # "all three intervals hold".
     for key in LEVELS:
-        assert covers(result[key], truth[key])
-    assert covers(difference, truth[CONTRAST])
-    assert _support(result[key] for key in LEVELS) == {("supported", "G29.g2_g5")}
+        assert covers(means[key], truth[key])
+    assert covers(gain, truth[CONTRAST])
+    assert _support([*(means[key] for key in LEVELS), gain]) == {("supported", "G29.g2_g5")}
     # The simulation's share of each variance, smallest for the difference.
     shares = result.simulation.monte_carlo_share
     assert [round(100 * shares[key], 1) for key in (*LEVELS, CONTRAST)] == [2.7, 1.2, 0.5]
     assert shares[CONTRAST] < min(shares[key] for key in LEVELS) < 0.10
     printed = stored_output(NOTEBOOK, "gformula")
     assert "never        812 of 4,000" in printed and "always       495 of 4,000" in printed
+    # "the summary's note on the natural-treatment model" names a note the summary prints.
+    assert "natural-treatment model" in printed
 
 
 def _check_failure_mode(namespace: dict[str, Any]) -> None:
-    wrong, wrong_difference = namespace["wrong"], namespace["wrong_difference"]
-    truth, result = namespace["truth"], namespace["result"]
+    wrong, truth, result = namespace["wrong"], namespace["truth"], namespace["result"]
     assert namespace["gformula"].covariate_learner is not None
-    assert wrong.estimates[LEVELS[1]].psi != result[LEVELS[1]].psi
-    # "all three intervals miss", with the printed values.
-    assert [round(wrong[key].psi, 2) for key in LEVELS] == [50.05, 62.38]
-    assert [round(value, 2) for value in wrong[LEVELS[1]].ci] == [61.70, 63.04]
-    assert round(wrong_difference.psi, 2) == 12.32
+    gain = wrong[CONTRAST]
+    assert gain.psi != result[CONTRAST].psi
+    # "the interval for the gain misses: 12.32 (11.30 to 13.34)".
+    assert round(gain.psi, 2) == 12.32
+    assert [round(value, 2) for value in gain.ci] == [11.30, 13.34]
     # "Simple symptom models moved the answer by 1.66 points".
-    assert round(wrong_difference.psi - namespace["difference"].psi, 2) == 1.66
-    for key in LEVELS:
-        assert not covers(wrong[key], truth[key])
-    assert not covers(wrong_difference, truth[CONTRAST])
+    assert round(gain.psi - result[CONTRAST].psi, 2) == 1.66
+    assert not covers(gain, truth[CONTRAST])
     # "The fit still reads `supported`."
-    assert _support(wrong[key] for key in LEVELS) == {("supported", "G29.g2_g5")}
+    assert _support([gain]) == {("supported", "G29.g2_g5")}
 
 
 def _effects(namespace: dict[str, Any]) -> pd.DataFrame:
@@ -195,23 +207,43 @@ def _check_blips(namespace: dict[str, Any]) -> None:
 
 
 def _check_compare(namespace: dict[str, Any]) -> None:
-    result, blips, difference = namespace["result"], namespace["blips"], namespace["difference"]
-    # "they agree with the g-formula's to within 0.3 points".
-    gaps = [abs(blips[key].psi - result[key].psi) for key in LEVELS]
-    gaps.append(abs(blips[CONTRAST].psi - difference.psi))
-    assert 0.0 < max(gaps) < 0.3
-    # "sits well above the blip model (12.32 against 10.82 for the gain)".
-    wrong = namespace["wrong"]
-    assert round(namespace["wrong_difference"].psi, 2) == 12.32
+    result, blips, truth = namespace["result"], namespace["blips"], namespace["truth"]
+    wrong, tmle = namespace["wrong"], namespace["tmle_fit"]
+    # "the g-formula's gain sits 0.16 points below the blip model's; with simple ones it sits 1.50
+    # points above".
+    assert round(result[CONTRAST].psi - blips[CONTRAST].psi, 2) == -0.16
+    assert round(wrong[CONTRAST].psi - blips[CONTRAST].psi, 2) == 1.50
     assert round(blips[CONTRAST].psi, 2) == 10.82
-    assert all(wrong[key].psi - blips[key].psi > 0.5 for key in LEVELS)
+    # LTMLE: in sample, GLM models, the score's known range; "10.42 (9.08 to 11.73), holds the
+    # true value" and reads `experimental` beside the G08 row, which differs on outcome.
+    ltmle = namespace["ltmle"]
+    assert ltmle.cross_fitting.enabled is False
+    assert tuple(ltmle.targeting.q_bounds) == (0.0, 100.0)
+    gain = tmle[CONTRAST]
+    assert round(gain.psi, 2) == 10.42
+    assert [round(value, 2) for value in gain.ci] == [9.08, 11.73]
+    assert covers(gain, truth[CONTRAST])
+    assert gain.support.label == "experimental"
+    assert "G08" in gain.support.reason
+    assert "outcome" in gain.support.reason and "treatment" in gain.support.reason
+    # The figure's companion prints the four intervals it draws.
+    assert list(namespace["gains"]) == [
+        "g-formula",
+        "g-formula, simple symptom models",
+        "blip model",
+        "LTMLE",
+    ]
+    printed = stored_output(NOTEBOOK, "compare")
+    for label in namespace["gains"]:
+        assert label in printed
     check = namespace["check"]
     assert check.names == (CONTRAST,)
     assert round(float(check.structural[0]), 2) == 10.80
     assert round(float(check.nonparametric[0]), 2) == 10.41
     assert round(float(check.pvalue), 2) == 0.29
-    # "The check reads `experimental`", printed by the cell.
+    # "The check reads `experimental`", printed by the cell; its LTMLE half is off the rows.
     assert check.support.label == "experimental"
+    assert "G08" in check.support.reason
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
@@ -228,6 +260,56 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     assert risk.tolist() == [-6.26, -6.57]
     assert flags.tolist() == [-7.36, -10.83]
     assert (moves < 0).all().all()
+
+
+def _check_targeted(namespace: dict[str, Any]) -> None:
+    """The targeted plan: both fits hold its exact truth, and LTMLE estimates its offers."""
+    rules = namespace["RULES"]
+    assert recovery_score_truth(*rules) - recovery_score_truth(0, 0, 0) == pytest.approx(
+        6.0765, abs=1e-12
+    )
+    assert recovery_offer_count(*rules) == pytest.approx(0.82275, abs=1e-12)
+    table = namespace["targeted_table"]
+    expected = {
+        ("g-formula", "gain over never"): (5.86, 5.26, 6.46),
+        ("g-formula", "share of the gain of always"): (0.55, 0.49, 0.61),
+        ("LTMLE", "gain over never"): (6.00, 5.17, 6.84),
+    }
+    for index, values in expected.items():
+        row = table.loc[index]
+        assert tuple(round(float(row[c]), 2) for c in ("estimate", "ci_low", "ci_high")) == values
+    assert table["covers"].all()
+    assert round(float(table.loc[("g-formula", "gain over never"), "truth"]), 2) == 6.08
+    fits = namespace["targeted_fits"]
+    # "Every fit here reads `experimental`": the g-formula's rule cells are on the binary law.
+    assert fits["g-formula"][TARGETED].support.label == "experimental"
+    assert fits["g-formula"][TARGETED].support.row is None
+    assert fits["LTMLE"][TARGETED].support.label == "experimental"
+    # A nonzero witness: the targeted plan is neither fixed plan, so its gain is not always's.
+    assert fits["g-formula"][TARGETED].psi < 0.6 * fits["g-formula"][CONTRAST].psi
+    offers = namespace["offers"]
+    assert [round(value, 2) for value in (offers.psi, *offers.ci)] == [0.82, 0.79, 0.85]
+    assert offers.ci[0] <= 0.82275 <= offers.ci[1]
+
+
+def _check_blip_overlap(namespace: dict[str, Any]) -> None:
+    positivity = namespace["blips"].structural_diagnostics
+    assert [round(value, 4) for value in positivity.smallest_eigenvalue[:2]] == [0.2758, 0.4277]
+    assert all(share == 0.0 for share in positivity.extreme_share)
+    quantiles = namespace["quantiles"]
+    # "the smallest is 0.075, at the discharge offer": the figure's values, printed beside it.
+    assert round(float(quantiles["min"].min()), 3) == 0.075
+    assert quantiles["min"].idxmin() == "time 1"
+
+
+def _check_bootstrap(namespace: dict[str, Any]) -> None:
+    boot, derived = namespace["boot"], namespace["derived"]
+    assert boot.n_replicates == 100
+    assert round(boot.std_error, 2) == 0.58
+    assert round(derived.std_error, 2) == 0.59
+    assert [round(float(value), 2) for value in boot.ci] == [9.50, 11.86]
+    # "The bootstrap interval reads `experimental`".
+    assert boot.support.label == "experimental"
 
 
 def _sweep() -> tuple[str, pd.DataFrame]:
@@ -253,7 +335,7 @@ def _check_probe_log(namespace: dict[str, Any]) -> None:
     simple = frame[f"wrong:{CONTRAST}"] - frame[f"snmm:{CONTRAST}"]
     assert round(right.abs().max(), 2) == 0.43
     assert round(simple.min(), 2) == 0.96
-    low, high = (round(float(bound), 2) for bound in namespace["difference"].ci)
+    low, high = (round(float(bound), 2) for bound in namespace["result"][CONTRAST].ci)
     half = round((high - low) / 2, 3)
     assert half == 1.165
     assert int((simple > half).sum()) == 380
@@ -263,11 +345,18 @@ def _check_probe_log(namespace: dict[str, Any]) -> None:
             assert abs(frame[column].mean() - frame[f"truth:{name}"].iloc[0]) < 0.05
     # The sweep fits the page: its first row is the draw that the page shows.
     first = frame.iloc[0]
-    result, wrong, blips = namespace["result"], namespace["wrong"], namespace["blips"]
+    means, blips = namespace["means"], namespace["blips"]
     for key in LEVELS:
-        assert first[f"gf:{key}"] == pytest.approx(result[key].psi, abs=1e-9)
-        assert first[f"wrong:{key}"] == pytest.approx(wrong[key].psi, abs=1e-9)
+        assert first[f"gf:{key}"] == pytest.approx(means[key].psi, abs=1e-9)
         assert first[f"snmm:{key}"] == pytest.approx(blips[key].psi, abs=1e-9)
+    for tag, fit in (("gf", "result"), ("wrong", "wrong"), ("ltmle", "tmle_fit")):
+        assert first[f"{tag}:{CONTRAST}"] == pytest.approx(namespace[fit][CONTRAST].psi, abs=1e-9)
+    fits = namespace["targeted_fits"]
+    assert first[f"gf:{TARGETED}"] == pytest.approx(fits["g-formula"][TARGETED].psi, abs=1e-9)
+    assert first[f"ltmle:{TARGETED}"] == pytest.approx(fits["LTMLE"][TARGETED].psi, abs=1e-9)
+    assert first["ltmle:ey_regimen[targeted]:offers"] == pytest.approx(
+        namespace["offers"].psi, abs=1e-9
+    )
     assert first["check:pvalue"] == pytest.approx(namespace["check"].pvalue, abs=1e-9)
 
 
@@ -310,27 +399,43 @@ def _check_prose_phrases() -> None:
     assert f"held their true values on {min(effects)} to {max(effects)} of {DRAWS}" in _prose(
         "snmm-reading"
     )
+    targeted = [
+        _hits(frame, column)
+        for column in (
+            f"gf:{TARGETED}:covers",
+            f"ltmle:{TARGETED}:covers",
+            "ltmle:ey_regimen[targeted]:offers:covers",
+        )
+    ]
+    assert (
+        f"held the true value on {targeted[0]} of {DRAWS} draws for the g-formula and {targeted[1]} for "
+        f"LTMLE, and LTMLE's interval for the offers on {targeted[2]}"
+    ) in _prose("targeted-reading")
+    ltmle = _hits(frame, f"ltmle:{CONTRAST}:covers")
+    assert f"LTMLE's interval held the true gain on {ltmle} of {DRAWS} draws" in _prose(
+        "compare-reading"
+    )
     rejects = int((frame["check:pvalue"] < 0.05).sum())
     assert f"p below 0.05 on {rejects} of {DRAWS} draws" in _prose("compare-reading")
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """ "Try to break the result": the three refits of the blip model's gain of `always`."""
-    blips, refutation = namespace["blips"], namespace["refutation"]
+    """ "Try to break the result": the three refits of the g-formula's gain of `always`."""
+    result, refutation = namespace["result"], namespace["refutation"]
     assert refutation.estimand == CONTRAST
     tests = {test.name: test for test in refutation.tests}
     assert list(tests) == ["placebo", "subset", "random_common_cause"]
-    original = blips[CONTRAST].psi
+    original = result[CONTRAST].psi
     for test in tests.values():
         # "`descriptive` ... means no simulation study backs a pass or fail".
         assert test.passed is None
         assert len(test.values) == 20 and test.original == pytest.approx(original)
     placebo = tests["placebo"]
-    assert round(float(placebo.statistic), 3) == 1.065
+    assert round(float(placebo.statistic), 3) == 1.033
     # A nonzero witness: a placebo that kept the observed offers would return the original gain.
     assert abs(sum(placebo.values) / len(placebo.values)) < 0.1 * original
     noise = tests["random_common_cause"]
-    assert round(sum(noise.values) / len(noise.values), 3) == 10.822
-    assert round(original, 3) == 10.824
-    assert round(float(tests["subset"].statistic), 3) == 1.028
+    # "the noise column leaves the gain unchanged to two decimals".
+    assert round(sum(noise.values) / len(noise.values), 2) == round(original, 2) == 10.66
+    assert round(float(tests["subset"].statistic), 3) == 1.069
     assert "descriptive" in stored_output(NOTEBOOK, "refute")

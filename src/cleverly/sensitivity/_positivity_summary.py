@@ -26,7 +26,11 @@ from .._summary import (
 )
 from .._summary._estimates import without_roadmap
 from .._summary._render import count_text, share_text
-from ..data.weighting import REPORTED_DRAW, SCORE_LOAD_VERDICT_RATIO_FORMAT
+from ..data.weighting import (
+    REPORTED_DRAW,
+    SCORE_LOAD_VERDICT_RATIO_FORMAT,
+    weighted_load_ratio,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .positivity import OverlapGrade, PositivityReport
@@ -164,15 +168,20 @@ def _capped(count: Any, fraction: Any) -> Cell:
     return Cell(float(fraction), f"{count_text(count)} ({_percent(float(fraction))})")
 
 
+def _weighted_rows(load: Any) -> float:
+    """The rows of the selected score column that carry a nonzero load."""
+    return float(load["n_targeted"]) - float(load["zero_load"])
+
+
 def _equation_table(report: PositivityReport) -> SummaryTable | None:
     if not report.group_score_load:
         return None
     rows = tuple(
         (
             Cell(group, group),
-            Cell(load["n_targeted"], count_text(load["n_targeted"])),
+            Cell(_weighted_rows(load), count_text(_weighted_rows(load))),
             _number(load["effective"], 1),
-            _share(load["targeted_ratio"]),
+            _share(weighted_load_ratio(load)),
             _share(load["top_1pct"]),
             _share(load["top_5pct"]),
             _number(load["max_load"], 2),
@@ -268,18 +277,19 @@ def _notes(report: PositivityReport) -> list[Note]:
         if math.isfinite(load["targeted_ratio"])
     ]
     if group_rows:
-        group, load = min(group_rows, key=lambda item: item[1]["targeted_ratio"])
-        notes.append(
-            note(
-                "equation_concentration",
-                texts["equation_concentration"].format(
-                    group=group,
-                    effective=f"{load['effective']:.1f}",
-                    rows=count_text(load["n_targeted"]),
-                    share=f"{load['targeted_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}}",
-                ),
+        group, load = min(group_rows, key=lambda item: weighted_load_ratio(item[1]))
+        if _weighted_rows(load) > 0:
+            text = texts["equation_concentration"].format(
+                group=group,
+                effective=f"{load['effective']:.1f}",
+                rows=count_text(_weighted_rows(load)),
+                share=f"{weighted_load_ratio(load):{SCORE_LOAD_VERDICT_RATIO_FORMAT}}",
             )
-        )
+        else:
+            text = texts["equation_concentration_empty"].format(
+                group=group, equation=load["equation"]
+            )
+        notes.append(note("equation_concentration", text))
     if len(report.effective_sample_size) > 2 and report.simplex_deviation > 0:
         notes.append(
             note("simplex", texts["simplex"].format(deviation=f"{report.simplex_deviation:.3g}"))

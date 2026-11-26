@@ -75,6 +75,7 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
+from .inference.bootstrap import bootstrap_band
 from .inference.multiplier import (
     SimultaneousBands,
     band_member,
@@ -114,6 +115,7 @@ from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
     IPW_MTP_REFUSAL,
+    _ReportedRows,
     _restricted_times,
     refuse_curve_functional,
     restriction,
@@ -3730,15 +3732,6 @@ _NARROWED_BAND: Final[Support] = Support(
 )
 
 
-def _declared_nodes(data: LongitudinalData, horizons: Sequence[float]) -> set[int]:
-    """The node indices of declared ``horizons=``: grid times on a grid, nodes otherwise."""
-    grid = data.time_grid
-    if grid is None:
-        return {int(horizon) for horizon in horizons}
-    values = np.asarray(grid, dtype=float)
-    return {int(np.flatnonzero(values == float(horizon))[0]) + 1 for horizon in horizons}
-
-
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     """Bootstrap draws for the parameters this effect reports, and no others.
 
@@ -3752,7 +3745,37 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     return replace(
         bootstrap,
         draws={name: values for name, values in bootstrap.draws.items() if name in retained},
+        std_errors={
+            name: values for name, values in bootstrap.std_errors.items() if name in retained
+        },
     )
+
+
+def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> Any:
+    """The studentized bootstrap band over the parameters this effect reports.
+
+    The engine bands every estimate it computed, so a contrast identified from a fit that
+    also computed the plan means carried a band over rows it no longer reported, and
+    ``summary()`` counted them.  As for :func:`_narrow_bands`, the band is recomputed over the
+    retained members of the engine's family from the same replicate draws, replicate standard
+    errors and ``alpha``, which makes it the band the engine would have built for that family
+    alone.  Below two members there is no joint question left, and the engine builds none.
+    """
+    band = getattr(result, "bootstrap_band", None)
+    if band is None:
+        return None
+    family = {name: estimate for name, estimate in retained.items() if name in band.bands}
+    if set(family) == set(band.bands):
+        return band
+    if len(family) < 2:
+        return None
+    narrowed = bootstrap_band(
+        result.bootstrap,
+        {name: estimate.psi for name, estimate in family.items()},
+        {name: estimate.plugin_std_error for name, estimate in family.items()},
+        alpha=band.alpha,
+    )
+    return replace(narrowed, support=combine_support([band.support, _NARROWED_BAND]))
 
 
 @dataclass(frozen=True)
@@ -8153,7 +8176,6 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
         estimator = self._longitudinal_engine(method)
-        raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
             "ate_regime": ("ate_regimen[", "risk_difference["),
@@ -8161,17 +8183,19 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             "ate_ipsi": ("ate_regimen[", "risk_difference["),
             "msm_regimen": ("msm_regimen[",),
         }[functional.target]
-        estimates = {
-            name: value for name, value in raw.estimates.items() if name.startswith(prefixes)
-        }
+        # The risks at grid times the fit added for the restricted means only are dropped too.
+        declared = None
         if functional.horizons is not None and functional.restricted_horizons:
-            # The risks at grid times the fit added for the restricted means only.
-            declared = _declared_nodes(raw.data, functional.horizons)
-            estimates = {
-                name: value
-                for name, value in estimates.items()
-                if raw.parameter_index is None or raw.parameter_index[name][2] in declared
-            }
+            declared = tuple(float(horizon) for horizon in functional.horizons)
+        reported = _ReportedRows(prefixes, declared)
+        # The engine's sparse-influence warning reads the rule, so it names a flagged row the
+        # result drops as one, with the reported contrasts whose interval reads it.
+        estimator._reported_rows = reported
+        raw = estimator.fit(self._study.data)
+        estimates = {
+            name: raw.estimates[name]
+            for name in reported.select(raw.estimates, raw.parameter_index, raw.data)
+        }
         # The band narrows over the risks alone: a restricted mean never joins a band.
         banded = dict(estimates)
         contrast = functional.target in ("ate_regime", "ate_ipsi")
@@ -8199,6 +8223,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             parameter_index=index,
             simultaneous=_narrow_bands(raw, banded, method),
             bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
+            bootstrap_band=_narrow_bootstrap_band(raw, banded),
             repeats=repeats,
             restricted_index=restricted_index,
             restricted_weights={name: raw.restricted_weights[name] for name in restricted_index},

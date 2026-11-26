@@ -5696,6 +5696,10 @@ def _gformula_rows() -> list[SupportRow]:
     Every fit of the study is an in-sample main-terms ``GLM`` fit with no clusters and no
     weights. ``G2`` and ``G5`` share one key, because both fit a Gaussian outcome with complete
     data and two arms at three nodes.
+
+    A known rule is its own regimen kind on this engine (:func:`~cleverly._support.regimen_kinds`),
+    so only ``G1`` and ``G4``, whose cells include a rule, list it.  ``G2``/``G5`` measure fixed
+    plans, a stochastic policy and a tilt, and leave a rule fit on that law experimental.
     """
     study = ["parametric-gformula"]
     glm = {"outcome": GLM, "treatment": GLM, "censoring": GLM}
@@ -5704,7 +5708,7 @@ def _gformula_rows() -> list[SupportRow]:
         long_row(
             "G29.g1",
             study,
-            regimens=("static", "tilt"),
+            regimens=("static", "rule", "tilt"),
             engine="parametric_gformula",
             treatment=three,
             learners=glm,
@@ -5746,7 +5750,7 @@ def _gformula_rows() -> list[SupportRow]:
         long_row(
             "G29.g4",
             study,
-            regimens=("static", "mtp"),
+            regimens=("static", "rule", "mtp"),
             outcome=CONTINUOUS,
             missing=("complete",),
             engine="parametric_gformula",
@@ -7557,6 +7561,13 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
         "",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+    # A known rule evaluated on simulated covariates (the parametric g-formula only): its exact
+    # laws are the g-formula's own (W1 to W10 read rules on the simulated history).
+    "rule": _anchor(
+        "parametric g-formula (`ParametricGFormula`)",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_parametric_gformula.py",
     ),
     "separable": _anchor(
         "separable effects on competing events",
