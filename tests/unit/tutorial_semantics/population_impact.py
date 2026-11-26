@@ -312,7 +312,7 @@ def _check_lessons(namespace: dict[str, Any]) -> None:
     direct_evalue = namespace["direct_evalue"]
     assert f"{direct_evalue.risk_ratio:.3f}" == "1.185"
     assert (f"{direct_evalue.point:.2f}", f"{direct_evalue.limit:.2f}") == ("1.40", "1.25")
-    assert "four associations" in direct_evalue.summary()
+    assert "each of four associations" in " ".join(str(direct_evalue.summary()).split())
     robustness = namespace["direct_robustness"]
     assert f"{robustness['rv']:.3f}" == "0.118"
 
@@ -432,5 +432,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # "It never flips the offer for a direct effect (F15)."
     with pytest.raises(CapabilityError, match="F15"):
         simulated_confounding(
-            namespace["direct_fit"], grid=ConfounderStrengthGrid(treatment=(0.0, 0.1))
+            namespace["direct_fit"],
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
         )
