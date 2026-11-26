@@ -702,20 +702,20 @@ or `not_applicable` for one request at run time, such as a refused parameter. "n
 the family has no row: its facade has no such call, so the call raises rather than reporting a
 status.
 
-| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `effect_modification` | `dose_response` |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
-| `support` | runs | runs | unavailable | runs | runs | runs | runs |
-| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs |
-| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs |
-| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable |
-| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | not applicable |
-| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable |
-| `calibration` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `continuous_longitudinal` | `effect_modification` | `dose_response` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
+| `support` | runs | runs | unavailable | runs | runs | runs | runs | runs |
+| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs | runs |
+| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs | runs |
+| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable | not applicable |
+| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | unavailable | not applicable |
+| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable | unavailable |
+| `calibration` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `stability` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
 
 The methods row lists the `method=` values of each family; in the `longitudinal` column `tmle` is
 `LTMLE`. A curve (`effect_modification`) rewrites three of its rows by the method that produced it
