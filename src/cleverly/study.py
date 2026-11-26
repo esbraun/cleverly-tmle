@@ -114,6 +114,7 @@ from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
     IPW_MTP_REFUSAL,
+    _ReportedRows,
     _restricted_times,
     refuse_curve_functional,
     restriction,
@@ -3728,15 +3729,6 @@ _NARROWED_BAND: Final[Support] = Support(
     "The band covers a subset of the parameters of the fit's own band, and no study measures a "
     "band over that subset.",
 )
-
-
-def _declared_nodes(data: LongitudinalData, horizons: Sequence[float]) -> set[int]:
-    """The node indices of declared ``horizons=``: grid times on a grid, nodes otherwise."""
-    grid = data.time_grid
-    if grid is None:
-        return {int(horizon) for horizon in horizons}
-    values = np.asarray(grid, dtype=float)
-    return {int(np.flatnonzero(values == float(horizon))[0]) + 1 for horizon in horizons}
 
 
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
@@ -8153,7 +8145,6 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
         estimator = self._longitudinal_engine(method)
-        raw = estimator.fit(self._study.data)
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
             "ate_regime": ("ate_regimen[", "risk_difference["),
@@ -8161,17 +8152,19 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             "ate_ipsi": ("ate_regimen[", "risk_difference["),
             "msm_regimen": ("msm_regimen[",),
         }[functional.target]
-        estimates = {
-            name: value for name, value in raw.estimates.items() if name.startswith(prefixes)
-        }
+        # The risks at grid times the fit added for the restricted means only are dropped too.
+        declared = None
         if functional.horizons is not None and functional.restricted_horizons:
-            # The risks at grid times the fit added for the restricted means only.
-            declared = _declared_nodes(raw.data, functional.horizons)
-            estimates = {
-                name: value
-                for name, value in estimates.items()
-                if raw.parameter_index is None or raw.parameter_index[name][2] in declared
-            }
+            declared = tuple(float(horizon) for horizon in functional.horizons)
+        reported = _ReportedRows(prefixes, declared)
+        # The engine's sparse-influence warning reads the rule, so it names a flagged row the
+        # result drops as one, with the reported contrasts whose interval reads it.
+        estimator._reported_rows = reported
+        raw = estimator.fit(self._study.data)
+        estimates = {
+            name: raw.estimates[name]
+            for name in reported.select(raw.estimates, raw.parameter_index, raw.data)
+        }
         # The band narrows over the risks alone: a restricted mean never joins a band.
         banded = dict(estimates)
         contrast = functional.target in ("ate_regime", "ate_ipsi")

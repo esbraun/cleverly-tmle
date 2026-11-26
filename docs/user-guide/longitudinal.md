@@ -645,6 +645,11 @@ A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a p
 bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
 The bootstrap is opt in. A fit never turns it on.
 
+A study fit computes each plan's estimate and each difference between plans, then reports only the
+ones you asked for, and it warns about all of them. So a fit of the differences (`RegimeContrast`)
+can warn about one plan's estimate, which its table does not show. The warning then says so, and
+names each reported difference whose interval is built from that estimate's interval.
+
 A policy that shifts a continuous dose needs another interval, because the bootstrap does not
 help there. [When few customers carry the interval](#when-few-customers-carry-the-interval)
 gives it.

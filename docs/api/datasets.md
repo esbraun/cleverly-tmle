@@ -95,6 +95,11 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
 | `heart_failure_truth` | the exact risk of each event by each check when the part acting on readmission and the part acting on death are set to two doses, in either event order |
 | `heart_failure_protocol` | the `StudyProtocol` of the separable-effects question |
 
+The [readmission when death can come first](../examples/longitudinal-survival.ipynb) tutorial
+draws its patients with `make_longitudinal_competing`, whose truth holds the exact risk of each
+cause under four fixed plans. `competing_rule_truth` gives the same risk when the day-31 offer
+follows a rule of the needs recorded before it.
+
 ```{eval-rst}
 .. autosummary::
    :nosignatures:
@@ -120,6 +125,7 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
    cleverly.datasets.make_longitudinal_repeated
    cleverly.datasets.make_longitudinal_competing
    cleverly.datasets.make_longitudinal_weighted
+   cleverly.datasets.competing_rule_truth
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact

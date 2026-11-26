@@ -4591,6 +4591,121 @@ def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None, mechanism: Mecha
     return replace(fit, node_ratio=ratio, ratio_trim=trim)
 
 
+def _declared_nodes(data: LongitudinalData, horizons: Sequence[float]) -> set[int]:
+    """The node indices of declared ``horizons=``: grid times on a grid, nodes otherwise.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The fitted container, whose time grid maps a grid time to its node.
+    horizons : sequence of float
+        The declared horizons.
+
+    Returns
+    -------
+    set of int
+        The one-based node index of each horizon.
+    """
+    grid = data.time_grid
+    if grid is None:
+        return {int(horizon) for horizon in horizons}
+    values = np.asarray(grid, dtype=float)
+    return {int(np.flatnonzero(values == float(horizon))[0]) + 1 for horizon in horizons}
+
+
+@dataclass(frozen=True)
+class _ReportedRows:
+    """The rows of a longitudinal fit that a study keeps in its result.
+
+    A :class:`~cleverly.CausalEffect` fits an engine that builds every level and contrast of
+    its regimens, then keeps the rows of the quantity it identified. The engine reads this
+    rule only to say, in a sparse-influence warning, which flagged rows the result does not
+    report; the study narrows its result by the same rule, so the two cannot disagree.
+
+    Parameters
+    ----------
+    prefixes : tuple of str
+        The name prefixes of the identified quantity, such as ``("ate_regimen[",)``.
+    horizons : tuple of float or None, default=None
+        The declared horizons, when the fit also added grid times for restricted means
+        only. The risks at those added times are then not reported. ``None`` keeps every
+        horizon the prefixes match.
+    """
+
+    prefixes: tuple[str, ...]
+    horizons: tuple[float, ...] | None = None
+
+    def select(
+        self,
+        names: Iterable[str],
+        parameter_index: Mapping[str, tuple[Any, ...]] | None,
+        data: LongitudinalData,
+    ) -> list[str]:
+        """The reported names among ``names``, in their order.
+
+        Parameters
+        ----------
+        names : iterable of str
+            The names the fit built.
+        parameter_index : mapping of str to tuple, or None
+            ``name -> (regimen, cause, horizon node)`` of the fit, or ``None`` on a
+            working-model fit.
+        data : LongitudinalData
+            The fitted container, which maps the declared horizons to nodes.
+
+        Returns
+        -------
+        list of str
+            Each name the result reports.
+        """
+        kept = [name for name in names if name.startswith(self.prefixes)]
+        if self.horizons is None or parameter_index is None:
+            return kept
+        declared = _declared_nodes(data, self.horizons)
+        return [name for name in kept if parameter_index[name][2] in declared]
+
+
+def _unreported_readers(
+    rule: _ReportedRows | None,
+    estimates: Mapping[str, ParameterEstimate],
+    parameter_index: Mapping[str, tuple[Any, ...]] | None,
+    data: LongitudinalData,
+) -> dict[str, tuple[str, ...]] | None:
+    """Each built row a study does not report, and the reported rows whose interval reads it.
+
+    A reported bounded contrast reads its two levels' intervals by correlated MOVER, which
+    :func:`~cleverly.inference.with_components` records as its ``components``; that is the
+    only way a reported interval reads another row. A contrast without components (an
+    unbounded outcome, or a working-model fit) reads its own curve, so it names no row.
+
+    Parameters
+    ----------
+    rule : _ReportedRows or None
+        The study's rule, or ``None`` when the caller sees every row.
+    estimates : mapping of str to ParameterEstimate
+        The built estimates.
+    parameter_index : mapping of str to tuple, or None
+        The fit's parameter index.
+    data : LongitudinalData
+        The fitted container.
+
+    Returns
+    -------
+    dict of str to tuple of str, or None
+        ``None`` without a rule; otherwise each unreported name and its readers.
+    """
+    if rule is None:
+        return None
+    shown = rule.select(estimates, parameter_index, data)
+    readers: dict[str, list[str]] = {name: [] for name in estimates if name not in shown}
+    for name in shown:
+        components = getattr(estimates[name], "components", None) or ()
+        for component in components:
+            if component.name in readers:
+                readers[component.name].append(name)
+    return {name: tuple(values) for name, values in readers.items()}
+
+
 @dataclass(frozen=True)
 class _Reported:
     """What one recursion reports: the names, their index, and the fits behind each.
@@ -5516,6 +5631,9 @@ class _SequentialEstimator:
     restricted_horizons: tuple[float, ...] = ()
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
+    #: The rows a study keeps from this fit (``_ReportedRows``); ``None`` keeps every row.
+    #: Only the sparse-influence warning reads it, to name a flagged row the result drops.
+    _reported_rows: _ReportedRows | None = None
     #: Whether this class runs the memory guard (X106 J2d): ``LTMLE``, ``SDR`` and ``IPSI``.
     _retention_guard: ClassVar[bool] = False
     #: Whether this fit runs it.  A bootstrap replicate does not: the call that runs the
@@ -6688,6 +6806,9 @@ class _SequentialEstimator:
                 percentile_bootstrap=bool(self.n_bootstrap),
                 policy_variance=self.variance == "policy_weighted",
                 policy_available=policy_available and self._estimator in ("tmle", "sdr"),
+                unreported=_unreported_readers(
+                    self._reported_rows, estimates, parameter_index, prepared
+                ),
             )
         result = self._finish(result, first.reported, repeats[0].fits)
         if self.n_bootstrap:
@@ -8706,10 +8827,12 @@ class _SequentialEstimator:
 
         A copy, so a later change to this instance does not change what the result says it
         was fitted with. It runs no bootstrap and builds no simultaneous band, so a refit
-        costs one fit, and it records no support classification. It holds no frozen split.
+        costs one fit, and it records no support classification. It holds no frozen split,
+        and no study's reported rows, since a refit returns every row it builds.
         """
         template = copy.copy(self)
         template._record_support = False
+        template._reported_rows = None
         template.n_bootstrap = 0
         template.simultaneous = False
         template._frozen_folds = None
