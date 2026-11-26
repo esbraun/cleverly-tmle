@@ -70,13 +70,13 @@ selection inside 5 inner folds, and the influence-curve variance, at n = 1,000.
 
 | cell | law | regimes | rows | count | role |
 | --- | --- | --- | --- | --- | --- |
-| `day_cf` | CT-day | always, never, rule | 30 (12 rule rows) | 2,400 | gated |
-| `cont_cf` | CT | always, never | 18 | 2,400 | gated |
-| `mechanism_correct` | CT-day | always, never | 12 (days 20 and 30) | 1,600 | gated |
-| plug-in control | CT-day | always, never | 4 day-30 risks | 1,600 | gated control |
-| calibration | both | always, never | difference of cause 1 at day 20 in each cell | 2,400 | gated |
+| `day_cf` | CT-day | always, never, rule | 30 (12 rule rows) | 3,200 | gated |
+| `cont_cf` | CT | always, never | 18 | 3,200 | gated |
+| `mechanism_correct` | CT-day | always, never | 12 (days 20 and 30) | 2,400 | gated |
+| plug-in control | CT-day | always, never | 4 day-30 risks | 2,400 | gated control |
+| calibration | both | always, never | difference of cause 1 at day 20 in each cell | 3,200 | gated |
 | `outcome_correct`, `both_wrong` | CT-day | always, never | 12 | 800 each | reported |
-| `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 2,400 | reported |
+| `sparse_calibration` | CT-day | always, never | difference of cause 2 at day 10 | 3,200 | reported |
 | X70 pairing | CT-day panel | always, never | 18 | 400 | reported |
 
 The primary rule gates every row of `day_cf`, `cont_cf` and `mechanism_correct`. A row passes when
@@ -120,20 +120,36 @@ Pending. The declared run fills this section.
 
 ## Sizing
 
+The counts are declared: 3,200 draws for `day_cf` and `cont_cf` and 2,400 for
+`mechanism_correct`, fixed by Eric's choice on 2026-11-25 against plan 5.7's design values of
+2,400 and 1,600. All 60 primary rows are gated, the 12 rule rows among them, and no row moves to
+reported for a low pilot coverage.
+
 The pilot runs 400 draws of each of `day_cf`, `cont_cf`, `mechanism_correct` and
-`outcome_correct`. It sets the counts by the family rule over the 60 gated primary rows: the
-cheapest pair from (2,400, 3,200, 4,800) primary and (1,600, 2,400, 3,200) `mechanism_correct`
-draws at which the product of the rows' plug-in pass probabilities reaches 0.95. The record holds
-one primary count, so `day_cf` and `cont_cf` share it. The smoke projects the declared run at
-95 CPU-hours at the design counts and 181 at the largest rung, below the plan's hold of 200.
-`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements.
+`outcome_correct`, and chooses no count. It reads each gated row at its group's pooled coverage
+and SE ratio, the groups being `cont_cf` static, `day_cf` static, `day_cf` rule and
+`mechanism_correct`, and at the row's own standardized bias. A product of 60 single-row readings
+from 400 draws each would be pessimistic, since each row's coverage carries an SE near 0.011. A
+group mean of signed biases would let opposite biases cancel.
+
+Read this way, five rows pass below 0.96 at the declared counts: the rule regime's cause-1 risks
+at days 10, 20 and 30, and in `mechanism_correct` the cause-1 day-30 risk of never and difference
+of always minus never. Eric chose on 2026-11-25 to keep them gated with a declared route, given
+under [Red-cell route](#red-cell-route). A declared run is refused unless the product of the other
+55 rows' pass probabilities reaches 0.95. On the second pilot it is 0.988; over all 60 rows it is
+0.544, and with pooled biases 0.997.
+
+At the pilot's seconds per fit the declared run costs 159.5 CPU-hours, below the plan's hold of
+200, and runs as three shards of 53.2 CPU-hours.
+`tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md` holds the measurements and
+every count's pass as a report.
 
 A first pilot failed the family rule: on static rows the estimated SE ran 7 to 8% above the
 Monte Carlo spread at every n. The default treatment model was one logistic fit pooled over
 baseline and later visits, which cannot hold law CT's baseline mechanism beside its visit
 mechanism. The engine now gives baseline coefficients of its own, and on refits of the first 20
 pilot draws the influence curve's spread is within 1% of the exact efficient one on static rows.
-The first pilot's primary draws were dropped, and the fresh pilot is pending.
+The first pilot's primary draws were dropped, and a second pilot ran on the fixed engine.
 
 The plug-in control was checked before any replicate. On one draw of 200,000 units, the plug-in
 limit of `mechanism_correct`'s outcome side misses the day-30 risk of cause 1 by 0.58 true-weight
@@ -152,6 +168,23 @@ against the capped truth at the fit's cap: a row green against it is a cap red, 
 share condition of the support labels, not an engine defect suspect. A red rule row keeps only
 rules experimental. A plug-in control that does not fire, or a shrunk-SE control that fails its
 reading, voids the run.
+
+The five rows the sizing names stay gated, each with a foreseen failure mode, by Eric's choice on
+2026-11-25. The three rule rows carry the rule levels' positive cause-1 bias at n = 1,000, about
+0.12 to 0.13 SD in both pilots, which targeting does not remove and whose cause is not shown.
+`mechanism_correct`'s day-30 risk of never carries the visit cap's gap (-0.112 SD against the full
+risk, -0.076 against the capped truth). Its day-30 difference reads +0.134 SD, or +0.094 against
+the capped truth, which is the always arm's +0.07 SD less the never arm's -0.08 SD. The two
+mechanism rows can therefore turn red together.
+
+If one of these rows is red on bias alone, with its coverage and SE ratio passing, the record
+still registers and the row's claim stays experimental: rule regimes, or double robustness under
+a correct treatment model. Any other red, including a coverage or SE-ratio red on one of them,
+fails the record. `exposed-rows.csv` records each row's verdict and route. A routed rule row stays
+red in the published table, so the [red-cell ledger](red-cells.md) admits it by a named exception
+owned by `X6-E2-rule-bias`, keyed to the run's replicates. A routed `mechanism_correct` row is
+read by the study's own audit, which the ledger does not read, and its owner is the roadmap entry
+`X6-E2-day30-bias`, which cites `exposed-rows.csv`.
 
 The support constants of the labels (the largest `variance_rel_sd` rung, the event-share window,
 the fewest followers and the largest share past the cap) are read after the run from the

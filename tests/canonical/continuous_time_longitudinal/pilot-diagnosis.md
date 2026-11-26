@@ -123,45 +123,90 @@ coverage, and counts them as `x70_interval_refused` in `ltmle-pairing.csv`.
 
 ## Budget
 
+The declared counts are 3,200 primary and 2,400 `mechanism_correct` fits (Eric's choice,
+2026-11-25; see [Declared counts and the anchored check](#declared-counts-and-the-anchored-check-2026-11-25)).
+The seconds per fit are the second pilot's medians, on 400 draws of each cell on the stratified
+treatment default. `both_wrong` and X70, which the pilot does not run, take the smoke's.
+
 | item | fits | seconds per fit | CPU-h |
 | --- | --- | --- | --- |
-| `day_cf` | 2,400 | 17.4 | 11.6 |
-| `cont_cf` | 2,400 | 106.0 | 70.7 |
-| `mechanism_correct` | 1,600 | 8.9 | 4.0 |
-| `outcome_correct` | 800 | 11.6 | 2.6 |
+| `day_cf` | 3,200 | 21.5 | 19.1 |
+| `cont_cf` | 3,200 | 143.1 | 127.2 |
+| `mechanism_correct` | 2,400 | 6.1 | 4.0 |
+| `outcome_correct` | 800 | 12.9 | 2.9 |
 | `both_wrong` | 800 | 2.4 | 0.5 |
 | `ltmle_daily` | 400 | 51.0 | 5.7 |
-| declared run | | | 95.0 |
+| declared run | | | 159.5 |
 
-The projection is below the plan's hold of 200 CPU-h. The pilot's `budget` repeats it from the
-pilot's own seconds once the primary draws are in, and `regenerate.py` refuses a projection above
-200. A larger rung costs more: 3,200 primary and 2,400 mechanism fits project to 124 CPU-h, and
-4,800 and 3,200 to 181 CPU-h.
-
-The pilot's 400 draws of each of its four cells cost 16.0 CPU-h at these seconds. The first pilot
-ran about 1.4 times slower per fit under four-job contention, which puts the fresh pilot near
-22.6 CPU-h. If a calibration row needs the 800-draw extension, `cont_cf`'s costs 11.8 CPU-h more
-and `day_cf`'s 1.9.
+The projection is below the plan's hold of 200 CPU-h, and `regenerate.py` refuses a projection
+above 200 (`pilot.budget`). The pilot's seconds run above the smoke's (143.1 against 106.0 for
+`cont_cf`), as the first pilot's did under four-job contention. Three shards of 53.2 CPU-h each
+run the declared run ([Sharded declared run](#sharded-declared-run)). The 800-draw extension of
+`cont_cf`'s pilot costs 15.9 CPU-h at these seconds.
 
 ## The `--jobs` rule
 
-A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s 2.1 GB (the
-first smoke's peak; the rerun read 1.9 GB, and the rule keeps the larger). Allow
-2.2 GB per worker and keep 6 GB for the parent process, the operating system and the page cache.
+A worker keeps its largest fit's memory, so every worker can reach `cont_cf`'s peak: 2.1 GB in
+the first smoke, 1.9 GB in the rerun and 2.17 GB in the second pilot. Allow 2.2 GB per worker
+and keep 6 GB for the parent process, the operating system and the page cache.
 
-| machine | threads | memory | `--jobs` | declared run | pilot |
-| --- | --- | --- | --- | --- | --- |
-| cloud | 4 cores | 15 GB | 4 | about 24 h | about 4 h |
-| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 24 h (285 thread-hours) | about 4 h |
+| machine | threads | memory | `--jobs` | each of three shards |
+| --- | --- | --- | --- | --- |
+| cloud | 4 cores | 15 GB | 4 | about 13.3 h |
+| local | 16 threads at about 1/3 of a cloud core each | 34 GB | 12 | about 13.3 h (160 thread-hours) |
 
 On the local machine, (34 - 6) / 2.2 allows 12 workers; 16 would need about 35 GB at the peak.
+
+## Sharded declared run
+
+The declared run splits across three 4-core cloud machines, each under 24 hours. Shard `i/3`
+fits every replicate whose index leaves remainder `i - 1` on division by 3, in both cells, with
+the secondary fits that run inside each `day_cf` replicate. Each shard therefore holds a third
+of the `cont_cf` fits and of the X70 pairing, the two costliest fits. At the second pilot's
+seconds per fit (`day_cf` 21.5, `cont_cf` 143.1, `mechanism_correct` 6.1 and `outcome_correct`
+12.9, with the smoke's 2.4 for `both_wrong` and 51.0 for
+X70), a shard costs:
+
+| primary / `mechanism_correct` fits | each shard | three shards | wall hours at `--jobs 4` |
+| --- | --- | --- | --- |
+| 3,200 / 2,400, declared | 53.2 CPU-h | 159.5 CPU-h | 13.3 |
+| 2,400 / 1,600, plan 5.7's design values | 40.5 CPU-h | 121.5 CPU-h | 10.1 |
+
+At 3,200 and 2,400 no split into three shards brings each one below about 50 CPU-h, since the
+whole run costs 159.5. The split by halves of `cont_cf` with everything else in a third shard
+would cost 63.6, 63.6 and 32.3 CPU-h, so the longest shard would run about 16 hours. Each shard
+uses the `--jobs` rule above.
+
+```
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 1/3 --output /scratch/shard-1 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 2/3 --output /scratch/shard-2 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --shard 3/3 --output /scratch/shard-3 --jobs 4
+python tests/canonical/continuous_time_longitudinal/regenerate.py --merge /scratch/shard-1 /scratch/shard-2 /scratch/shard-3 --output /scratch/merged
+```
+
+Each shard runs at the same pushed commit with every thread variable at 1, and copies nothing
+into the repository. A crashed shard resumes when run again into the same `--output`. The merge
+runs at that commit too, on a machine that holds the three shard outputs. It refuses a shard that
+is incomplete or that ran at another commit, tree, declaration or library stack, and a set of
+shards that overlaps or leaves a gap. It joins their checkpoints and runs the declared run
+from them, which fits nothing, writes the record as an unsharded run does and copies it here.
+The manifest adds each shard's commit, runtime and machine under `generated_with.shards`. The
+resume key holds the package versions but not the CPU model or the BLAS kernel, and machines of
+different CPU generations can differ at rounding level, which can change a targeting step count.
+So each `shard.json` records its CPU model and BLAS kernel, and the merge warns when the shards
+differ. The merged record equals an unsharded run only when the shards ran on one machine type.
+
+A smoke of two replicates, split into two shards and merged on 2026-11-25, matched an unsharded
+smoke of the same replicates byte for byte in every artifact but two: the wall-clock `seconds`
+of `secondary-rows.csv.gz` and the `median_seconds` of `targeting-readings.csv`, which differ
+between any two runs. The merge fitted nothing and took 5 seconds.
 
 ## Calibration rules
 
 **The shrunk-SE controls** (review B1). The pilot's refusal reads a shrunk control's power at a
-true SE ratio of 1, as plan 5's preface states it: 0.99996 at 2,400 fits, against the floor of
-0.999. Read at a pilot's point ratio, the power falls below 0.999 above a ratio near 1.01 (0.9993
-at 1.01, 0.993 at 1.02, 0.63 at 1.05), and a 400-draw ratio has a relative SD near 0.035, so that
+true SE ratio of 1, as plan 5's preface states it: 0.9999996 at 3,200 fits, against the floor of
+0.999. Read at a pilot's point ratio, the power falls below 0.999 above a ratio near 1.02 (0.9994
+at 1.02, 0.992 at 1.03, 0.78 at 1.05), and a 400-draw ratio has a relative SD near 0.035, so that
 reading would refuse a calibrated estimator by chance; it is reported here once the draws are in
 (`shrunken_power_at_pilot`) and refuses nothing. In the declared run a shrunk control passes when
 its SE-ratio interval lies below 0.93 or wholly below its calibration row's own interval. The
@@ -173,15 +218,15 @@ below 1. On a conservative row the control checks only that the replicates resol
 shortfall from the row.
 
 **The plug-in control's power** must reach 0.99 at the pilot's plug-in bias and
-`mechanism_correct`'s count. At 1,600 fits that needs a bias near 0.32 SD; the separation of
+`mechanism_correct`'s count. At 2,400 fits that needs a bias near 0.30 SD; the separation of
 0.5 IPW SDs predicts 0.5 or more, read by the pilot with an SE near 0.05, so the floor refuses by
 chance only when the true bias lies within about 0.1 of the threshold. A floor of 0.80 would have
 accepted a control that voids the declared run with probability 0.2.
 
-**The extension** (review S4). A calibration row's plug-in pass at 2,400 reaches 0.90 only for a
-pilot SE ratio inside about [0.985, 1.013]. A calibrated row's 400-draw ratio lands there with
-probability 0.31 and an 800-draw ratio with 0.43, so a calibrated row extends with probability
-0.69. Under the first declaration's rule, which asked a diagnosis of every row still below 0.90
+**The extension** (review S4). A calibration row's plug-in pass at 3,200 reaches 0.90 only for a
+pilot SE ratio inside about [0.977, 1.021]. A calibrated row's 400-draw ratio lands there with
+probability 0.46 and an 800-draw ratio with 0.62, so a calibrated row extends with probability
+0.54 (0.69 at 2,400). Under the first declaration's rule, at 2,400, which asked a diagnosis of every row still below 0.90
 after the extension, a calibrated row would have needed one with probability about 0.44, and one
 of the two rows with about 0.68 (a simulation of the nested 400 and 800 draws). Only a confirmed
 departure needs a diagnosis now: the extended pilot's 99% SE-ratio interval excludes 1 or its
@@ -193,9 +238,14 @@ here as a chance reading, as the `continuous-survival-bootstrap` pilot recorded 
 The readings are declared in `regenerate.py`'s docstring before any run, and this section repeats
 them. Every primary row of `day_cf` and `cont_cf`, every row of `mechanism_correct`, the plug-in
 control, both calibration rows and both shrunk-SE controls are gates, and any red verdict fails
-the run. No cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law changes to
+the run, save the exposed rows' declared route. No cell is re-sized, re-drawn or downgraded after a verdict is seen, and no law changes to
 make a row pass.
 
+- The five exposed rows stay gated with a declared route (Eric's choice, 2026-11-25; see
+  [Exposed rows and their route](#exposed-rows-and-their-route-2026-11-25)). An exposed row red on
+  its bias clause alone, with its coverage floor and SE-ratio band passing, does not fail the
+  record: its claim stays experimental and it goes to an owner row. Any other red of an exposed
+  row fails the record.
 - A red calibration row is a finite-sample red only when the 99% interval of its SE ratio
   contains 1, its coverage is consistent with 0.95 and the diagnosis finds no defect; it then goes
   to reporting with an owner. Any other red row is a defect suspect.
@@ -425,3 +475,126 @@ feasibility and plug-in limit rows stand, and the primary rows were dropped from
 `tests/studies/continuous_time_longitudinal_pilot.csv.gz`. `pilot_refusals()` now refuses with "the
 pilot holds no primary draws" until the fresh pilot is committed. The command under Running the
 pilot reruns all four cells, at about 16 CPU-h at the smoke's seconds.
+
+## Declared counts and the anchored check (2026-11-25)
+
+Eric fixed the counts on 2026-11-25: 3,200 primary fits for `day_cf` and `cont_cf` and 2,400 for
+`mechanism_correct`, the rung paired with 3,200, which costs 1.4 CPU-h more than 1,600 and buys
+margin. All 60 primary rows stay gated, the 12 rule rows among them, so rules can earn their
+label from their own rows. By the same choice, the plan's remedy that moves rows with pilot
+coverage below 0.925 to reported is not applied.
+
+The pilot no longer chooses a rung. This section first recorded a check of the anchored family
+pass at the declared counts (`pilot.anchored_family_pass`), which `pilot_refusals()` no longer
+reads; the check it reads now is in [Exposed rows and their route](#exposed-rows-and-their-route-2026-11-25).
+The anchored reading reads each gated row at its group's pooled coverage, SE ratio and standardized
+bias. A 400-draw row reads its coverage with an SE near 0.011 and its SE ratio with a relative SD
+near 0.035, so a product of 60 row-level point readings is pessimistic. No earlier study pooled
+across rows: the `continuous-survival-bootstrap` pilot anchored each row's SE ratio to the
+external `v4_in_sample` study, row by row, and read no bias. Because the counts are fixed, the `cont_cf` extension cannot change
+them; it can only make the check refuse.
+
+The second pilot's pooled readings (`pilot.pooled_table`):
+
+| group | rows | coverage | SE ratio | standardized bias |
+| --- | ---: | ---: | ---: | ---: |
+| `cont_cf` static | 18 | 0.945 | 0.990 | +0.004 |
+| `day_cf` static | 18 | 0.943 | 0.988 | +0.047 |
+| `day_cf` rule | 12 | 0.930 | 0.937 | +0.078 |
+| `mechanism_correct` | 12 | 0.941 | 0.994 | +0.022 |
+
+Pooling the signed bias lets opposite biases cancel within a group, and bias is a property of
+each estimand rather than a group value. In `mechanism_correct`, never, cause 1, day 30 reads
+-0.112 and the cause-1 day-30 difference +0.134, while the group's mean is +0.022. The per-row
+bias reading keeps the group's pooled coverage and SE ratio and reads each row at its own pilot
+bias (`pilot.own_passes`, `pilot.per_row_family_pass`). Every rung's family pass under the three
+readings, a report only (`pilot.anchored_passes`):
+
+| primary / `mechanism_correct` | anchored pass | per-row bias pass | row-level pass | CPU-h |
+| --- | ---: | ---: | ---: | ---: |
+| 2,400 / 1,600 | 0.947 | 0.199 | 0.001 | 121.5 |
+| 2,400 / 2,400 | 0.949 | 0.329 | 0.003 | 122.9 |
+| 3,200 / 1,600 | 0.995 | 0.329 | 0.002 | 158.1 |
+| 3,200 / 2,400, declared | 0.997 | 0.544 | 0.007 | 159.5 |
+| 3,200 / 3,200 | 0.997 | 0.662 | 0.012 | 160.8 |
+| 4,800 / 1,600 | 0.998 | 0.416 | 0.004 | 231.3 |
+| 4,800 / 2,400 | 1.000 | 0.687 | 0.014 | 232.6 |
+| 4,800 / 3,200 | 1.000 | 0.837 | 0.025 | 234.0 |
+
+Under the per-row bias reading, five rows pass below 0.96 at the declared counts, and every other
+gated row passes above 0.99:
+
+| row | pilot standardized bias | own pass |
+| --- | ---: | ---: |
+| `mechanism_correct` always minus never, cause 1, day 30 (2,400 fits) | +0.134 | 0.744 |
+| `day_cf` rule, cause 1, day 10 | +0.132 | 0.899 |
+| `day_cf` rule, cause 1, day 20 | +0.132 | 0.899 |
+| `day_cf` rule, cause 1, day 30 | +0.124 | 0.955 |
+| `mechanism_correct` never, cause 1, day 30 (2,400 fits) | -0.112 | 0.959 |
+
+The three rule rows share their fits, so their joint pass is likely higher than the product of their
+own passes.
+
+The row-level pass reads each row at its own 400-draw point values. At the declared counts the
+other checks read: the calibration pair passes at target with 0.995, the plug-in control fires
+with probability 1.000, a shrunk-SE control leaves the band with 0.9999996, and no cell predicts
+a failure above its bound. `day_cf`'s calibration row passes with plug-in probability 0.980 at
+3,200 (SE ratio 0.987, coverage 0.938). `cont_cf`'s passes with 0.603 (SE ratio 0.965, coverage
+0.943), so its pilot extends to 800 draws before the declaration, and `pilot_refusals()` asks for
+that extension alone.
+
+## Exposed rows and their route (2026-11-25)
+
+Eric chose on 2026-11-25 to keep the five rows whose own pass at the declared counts is below 0.96
+gated, each with a declared route, rather than move them to reported or raise the counts. The
+list is `study.EXPOSED_ROWS`; `pilot.exposed_rows` computes it from the committed pilot,
+`pilot_refusals()` refuses if the two differ, and the design test pins it.
+
+| row | own pass | foreseen failure mode | claim kept experimental by a routed red |
+| --- | ---: | --- | --- |
+| `mechanism_correct` always minus never, cause 1, day 30 | 0.744 | +0.134 SD against the full difference and +0.094 against the capped one: about 0.04 SD is the visit cap's gap on the never arm, and the capped +0.09 SD is the always arm's +0.07 SD less the never arm's -0.08 SD against its capped truth, each within about 1.5 pilot SEs of zero | `mechanism_correct`'s double robustness |
+| `day_cf` rule, cause 1, day 10 | 0.899 | the rule levels' positive cause-1 bias at n = 1,000 | rule regimes |
+| `day_cf` rule, cause 1, day 20 | 0.899 | the same | rule regimes |
+| `day_cf` rule, cause 1, day 30 | 0.955 | the same | rule regimes |
+| `mechanism_correct` never, cause 1, day 30 | 0.959 | the visit cap on never at day 30: -0.112 SD against the full risk and -0.076 against the capped truth, the rest within about 1.5 pilot SEs of zero | `mechanism_correct`'s double robustness |
+
+The rule levels' cause-1 bias reads +0.12 to +0.13 SD in the second pilot and +0.11 to +0.13 in
+the first. It is already in the initial estimate and targeting does not remove it. The first
+diagnosis excluded the visit cap, the residual score and the treatment misfit; CT-day's tie or
+day-grid approximations are suspected, not shown (see [The rule regime](#the-rule-regime)).
+
+The difference's route and the never row's route are correlated, since the difference's
+residual is the sum of the two arms' residuals: one cause can turn both red.
+
+**The route.** An exposed row red in the declared run on its bias clause alone, with its coverage
+floor and SE-ratio band passing (and, in `mechanism_correct`, its failure bound held), does not
+fail the record. Code reads it: `readings.routed` decides it, `exposed-rows.csv` records each
+exposed row's verdict, route and claim status, `readings.gates` leaves a routed row out of the
+`mechanism_correct` gate, and the shared driver leaves it out of its independent-performance gate
+through `study.routed_performance`. That hook can only drop rows that are red on the bias clause
+alone, or the run stops. The record registers and the row's claim stays experimental. Any other red, including a
+coverage or SE-ratio red on an exposed row, fails the record as usual. When a fit is lost in an
+exposed row's cell, the failure-accounting gate still reads the row strictly.
+
+**The ledger.** A routed rule row stays red in `performance-tests.csv`, which the red-cell
+ledger (`tests/studies/evidence/red_cells.py`) reads, and a `gated` study may publish a red truth
+row only by a named exception. It registers through an `ACCEPTED_BY_EXCEPTION` entry with an
+owner: the exception quotes Eric's decision of 2026-11-25 and the declared run's
+`replicates.parquet` hash, its date joins `EXCEPTION_DECISIONS`, and the row is claimed by
+`X6-E2-rule-bias`, a new row of the roadmap's Red-cell owners table whose acceptance is a
+diagnosis of the rule levels' cause-1 bias. A routed `mechanism_correct` row lives in the
+`scientific_failures` hook, which the ledger does not read, so it takes no ledger entry; its owner
+is `X6-E2-day30-bias`, a roadmap entry that cites `exposed-rows.csv`. `readings.ledger_entries`
+writes these entries from `exposed-rows.csv`, and the change that registers the record enters
+them, with the slug's `EXCLUDED_HOOKS` line.
+
+**The check.** `pilot_refusals()` refuses unless the per-row bias family pass over the 55 gated
+rows outside the exposed list reaches 0.95 at the declared counts
+(`pilot.remainder_family_pass`). On the second pilot it is 0.988: the rows outside the list pass
+above 0.99 each. Every rung's remainder pass, a report only:
+
+| primary / `mechanism_correct` | remainder (55 rows) | all 60 rows, per-row bias | anchored |
+| --- | ---: | ---: | ---: |
+| 2,400 / 1,600 | 0.886 | 0.199 | 0.947 |
+| 3,200 / 2,400, declared | 0.988 | 0.544 | 0.997 |
+| 4,800 / 3,200 | 1.000 | 0.837 | 1.000 |

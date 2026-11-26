@@ -86,48 +86,55 @@ or wholly below the row's own interval, which carries a row that reads conservat
 ``sparse_calibration`` reads ``day_cf``'s difference of cause 2 at day 10 under the same rule and
 gates nothing (review S5).  A gate reads code: :func:`scientific_failures`.
 
-**Size and seeds.**  :data:`PRIMARY_REPLICATES` and :data:`MECHANISM_REPLICATES` are the design
-values of plan 5.7 (2,400 and 1,600); ``mechanism_correct`` runs inside ``day_cf``'s
-replicates, so its count never exceeds the primary count (review S2).  The pilot
+**Size and seeds.**  :data:`PRIMARY_REPLICATES` is 3,200 and :data:`MECHANISM_REPLICATES`
+2,400, fixed by Eric's choice on 2026-11-25 (plan 5.7's design values were 2,400 and 1,600;
+2,400 is the ``mechanism_correct`` rung paired with 3,200, 1.4 CPU-h dearer than 1,600).  All 60
+primary rows are gated, the 12 rule rows among them; ``mechanism_correct`` runs inside
+``day_cf``'s replicates, so its count never exceeds the primary count (review S2).  The pilot
 (:mod:`tests.studies.continuous_time_longitudinal_pilot`, :data:`PILOT_REPLICATES` draws of each
-of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) sets
-them by the family rule over the 60 gated primary rows (:func:`pilot.counts`): the cheapest pair
-from (2,400, 3,200, 4,800) and (1,600, 2,400, 3,200) at which the product of the rows' plug-in
-pass probabilities reaches 0.95.  The record holds one count, so ``day_cf`` and ``cont_cf`` share
-the primary count.  ``regenerate.py`` refuses a declared run that disagrees with the committed
-pilot.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study; replicate ``r`` of a
-cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams are ``pilot/<cell>``,
-``plugin_limit`` and ``truth`` (``stream_seed``).
+of ``day_cf``, ``cont_cf``, ``mechanism_correct`` and ``outcome_correct`` on its own stream) no
+longer chooses a rung.  Each gated row is read at its group's pooled coverage and SE ratio and
+at its own pilot standardized bias (``pilot.own_passes``).  The five rows whose own pass is below
+0.96 (:data:`EXPOSED_ROWS`) stay gated with a declared route, by Eric's choice on 2026-11-25: a
+red on the bias clause alone, with coverage and the SE ratio passing, keeps the row's claim
+experimental and goes to an owner row, and any other red fails the record
+(``readings.routed``, :func:`routed_performance`).  ``regenerate.py`` refuses a declared run
+unless the product of the other 55 rows' pass probabilities reaches 0.95 at the declared counts
+(``pilot.remainder_family_pass``, 0.988 on the second pilot).  The plan's move of rows with pilot coverage below 0.925 to reported is not
+applied, by the same choice.  The record holds one count, so ``day_cf`` and ``cont_cf`` share
+the primary count.  :data:`SEED` and :data:`RESAMPLING_SEED` are used by no other study;
+replicate ``r`` of a cell draws from ``replicate_seed(STUDY, cell, r)``, and the named streams
+are ``pilot/<cell>``, ``plugin_limit`` and ``truth`` (``stream_seed``).
 
-**Budget** (measured by the smoke on 2026-11-25 after the default treatment model gained its
-baseline indicator, recorded in
-``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md``: two draws of each cell at
-:math:`n = 1{,}000`, each cell in a fresh process, seconds per fit on one core of the cloud
-machine, peak resident memory of the process; ``ltmle_daily`` is the first smoke's, since the
-change does not reach X70).
+**Budget** (the second pilot's median seconds per fit, from 400 draws of each cell on the
+stratified treatment default, and the smoke's for ``both_wrong`` and ``ltmle_daily``, which the
+pilot does not run; peak memory is the largest a pilot worker recorded for ``day_cf`` and
+``cont_cf`` and the smoke's process peak for the rest, whose pilot workers had also run
+``cont_cf``; ``tests/canonical/continuous_time_longitudinal/pilot-diagnosis.md`` holds both).
 
 ======================  =======  ===============  =====  ===========
 item                    fits     seconds per fit  CPU-h  peak memory
 ======================  =======  ===============  =====  ===========
-``day_cf``              2,400    17.4             11.6   282 MB
-``cont_cf``             2,400    106.0            70.7   1,947 MB
-``mechanism_correct``   1,600    8.9              4.0    280 MB
-``outcome_correct``     800      11.6             2.6    280 MB
+``day_cf``              3,200    21.5             19.1   278 MB
+``cont_cf``             3,200    143.1            127.2  2,172 MB
+``mechanism_correct``   2,400    6.1              4.0    280 MB
+``outcome_correct``     800      12.9             2.9    280 MB
 ``both_wrong``          800      2.4              0.5    281 MB
 ``ltmle_daily``         400      51.0             5.7    252 MB
-total                                             95.0
+total                                             159.5
 ======================  =======  ===============  =====  ===========
 
-The projection, 95.0 CPU-h, is below the plan's hold of 200.  A local thread runs at about a
-third of a cloud core, so the run is about 285 thread-hours there.  ``cont_cf``'s memory per
-worker binds the ``--jobs`` rule, which keeps the first smoke's 2.1 GB peak: ``--jobs 12`` on
-the local machine (34 GB, 16 threads; about 25 GB of workers, about 24 hours) and ``--jobs 4``
-on the 4-core cloud machine (about 24 hours).
+The projection, 159.5 CPU-h, is below the plan's hold of 200.  The declared run splits into
+three shards (``regenerate.py --shard i/3``) of 53.2 CPU-h each, about 13.3 hours on a 4-core
+cloud machine at ``--jobs 4``, which ``cont_cf``'s 2.2 GB per worker allows; ``--merge`` joins
+them into the record.
 
 **Registration** (plan 7.3) lands with the declared run's artifacts, in the change that ships
 E1 and E2 together, and touches what a pending study cannot: the registry import and the
 scenario, estimand, arm and cell descriptions (``descriptions.py``); the ``EXEMPT_STUDIES`` entry
-(:data:`EXEMPT_REASON`); the clause bindings (``tests/canonical/clause-bindings.csv``); the
+(:data:`EXEMPT_REASON`); the ``EXCLUDED_HOOKS`` entry of the red-cell ledger
+(:data:`EXCLUDED_HOOK`) and its line in the evidence page's ledger section; for each routed
+exposed row, its ledger entries (``readings.ledger_entries``); the clause bindings (``tests/canonical/clause-bindings.csv``); the
 interval-audit screen row (``interval-audit-screen.csv``), the asymmetric screen row
 (``asymmetric-audit-screen.csv``) and the asymmetric refit capture
 (``asymmetric-refit/continuous-time-longitudinal/capture.json``); and the evidence page's tables,
@@ -157,16 +164,17 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
-#: The design value of plan 5.7 for ``day_cf`` and ``cont_cf``; the pilot's family rule sets it
-#: (``pilot.counts``), checked by the design test once the pilot is committed.
-PRIMARY_REPLICATES = 2_400
-#: The design value of plan 5.7 for ``mechanism_correct``, set with the primary count.
-MECHANISM_REPLICATES = 1_600
+#: ``day_cf`` and ``cont_cf``'s count, fixed by Eric's choice on 2026-11-25; the pilot checks
+#: the anchored family pass at it (``pilot.anchored_family_pass``) and chooses no rung.
+PRIMARY_REPLICATES = 3_200
+#: ``mechanism_correct``'s count, the rung paired with 3,200 in the same choice.
+MECHANISM_REPLICATES = 2_400
 #: ``outcome_correct`` and ``both_wrong`` (plan 5.7).
 REPORTED_REPLICATES = 800
 #: The X70 pairing's draws: the first 400 ``day_cf`` draws (the module docstring's deviation).
 PAIRED_REPLICATES = 400
-#: The rungs of the family rule (plan 5.7): the primary cells' and ``mechanism_correct``'s.
+#: The rungs of plan 5.7's family rule, the primary cells' and ``mechanism_correct``'s; the pilot
+#: reports the family pass at each.
 PRIMARY_RUNGS = (2_400, 3_200, 4_800)
 MECHANISM_RUNGS = (1_600, 2_400, 3_200)
 #: ``guide/studies.md``: primaries run at 1,000 replications or more.
@@ -219,6 +227,65 @@ SECONDARY: dict[str, tuple[str, int, tuple[str, ...]]] = {
 #: The gated secondary cell; the others are reported.
 GATED_SECONDARY = ("mechanism_correct",)
 
+#: A gated row whose own pass at the declared counts is below this is exposed (Eric's choice,
+#: 2026-11-25): read at its own pilot standardized bias with its group's pooled coverage and SE
+#: ratio (``pilot.own_passes``).
+EXPOSED_PASS = 0.96
+RULE_CLAIM = "rule regimes"
+ROBUST_CLAIM = "double robustness (mechanism_correct)"
+RULE_MODE = (
+    "the rule levels' positive cause-1 bias at n = 1,000 (+0.12 to +0.13 SD in the second pilot, "
+    "+0.11 to +0.13 in the first), already in the initial estimate and not removed by targeting; "
+    "the first diagnosis excluded the visit cap, the residual score and the treatment misfit, and "
+    "it is unexplained beyond that: CT-day's tie or day-grid approximations are suspected, not "
+    "shown"
+)
+#: ``(cell, row) -> (claim, foreseen mode)`` of every exposed row (Eric's choice, 2026-11-25).
+#: An exposed row stays gated; a red on its bias clause alone, with its coverage and SE ratio
+#: passing, keeps its claim experimental and goes to an owner row instead of failing the record
+#: (``readings.exposed``, ``routed_performance``).  The design test pins the list against the
+#: committed pilot.
+EXPOSED_ROWS: dict[tuple[str, str], tuple[str, str]] = {
+    ("day_cf", laws.level_name("rule", 1, 10.0)): (RULE_CLAIM, RULE_MODE),
+    ("day_cf", laws.level_name("rule", 1, 20.0)): (RULE_CLAIM, RULE_MODE),
+    ("day_cf", laws.level_name("rule", 1, 30.0)): (RULE_CLAIM, RULE_MODE),
+    ("mechanism_correct", laws.level_name("never", 1, 30.0)): (
+        ROBUST_CLAIM,
+        "the visit cap on never at day 30: the fit targets the capped risk and the gate reads the "
+        "full one; the pilot bias is -0.112 SD against the full risk and -0.076 against the "
+        "capped truth, so about 0.04 SD is the cap's gap and the rest lies within about 1.5 "
+        "pilot SEs of zero",
+    ),
+    ("mechanism_correct", laws.difference_name("always", 1, 30.0)): (
+        ROBUST_CLAIM,
+        "the two arms' residuals: the pilot bias is +0.134 SD against the full difference and "
+        "+0.094 against the capped one, about 0.04 SD being the visit cap's gap on the never arm; "
+        "the capped +0.09 SD is the always arm's +0.07 SD (cause 1, day 30) less the never arm's "
+        "-0.08 SD against its capped truth, each within about 1.5 pilot SEs of zero, so this "
+        "row's route and the never row's are correlated and one cause can turn both red",
+    ),
+}
+#: The roadmap's Red-cell owners ids a routed red receives, entered with the run's artifacts in
+#: the change that registers the record (Eric's choice, 2026-11-25; ``readings.ledger_entries``).
+#: A routed rule row stays red in ``performance-tests.csv``, which the red-cell ledger reads, so
+#: it registers through an ``ACCEPTED_BY_EXCEPTION`` entry that keeps this owner.
+RULE_OWNER = "X6-E2-rule-bias"
+#: A routed ``mechanism_correct`` row lives in the ``scientific_failures`` hook, which the ledger
+#: does not read, so its owner is a roadmap entry outside the ledger's map, citing
+#: ``exposed-rows.csv``.
+ROBUST_OWNER = "X6-E2-day30-bias"
+#: The written decision an exception entry quotes.
+ROUTE_DECISION = (
+    "Eric, 2026-11-25: keep the five exposed rows of continuous-time-longitudinal gated, each "
+    "with a pre-declared route for a red on its bias clause alone (regenerate.py, red-cell "
+    "readings)"
+)
+#: The ``EXCLUDED_HOOKS`` entry of the slug at registration (``tests/studies/evidence/red_cells.py``).
+EXCLUDED_HOOK = (
+    "the mechanism_correct primary rule, the plug-in control, the calibration rule and the "
+    "shrunk-SE control; a routed exposed row leaves its gate and is recorded in exposed-rows.csv"
+)
+
 #: The X70 panel's node ends, in days: three nodes per 10 days, of 3, 3 and 4 days.
 NODE_ENDS: tuple[int, ...] = (3, 6, 10, 13, 16, 20, 23, 26, 30)
 
@@ -231,6 +298,7 @@ PAIRING_FILE = "ltmle-pairing.csv"
 READINGS_FILE = "targeting-readings.csv"
 VISIT_CAP_FILE = "visit-cap.csv"
 FLOORS_FILE = "floors.csv"
+EXPOSED_FILE = "exposed-rows.csv"
 
 STUDY = StudyRecord(
     name="continuous-time longitudinal TMLE",
@@ -258,6 +326,7 @@ STUDY = StudyRecord(
         READINGS_FILE,
         VISIT_CAP_FILE,
         FLOORS_FILE,
+        EXPOSED_FILE,
     ),
     modules=(
         "tests/studies/continuous_time_longitudinal.py",
@@ -688,21 +757,48 @@ def _replicate(
     return rows
 
 
+def shard_keys(
+    replicates: int,
+    shard: tuple[int, int] | None = None,
+    scenarios: tuple[str, ...] | None = None,
+) -> list[tuple[str, int]]:
+    """The ``(cell, replicate)`` keys of a run, or of shard ``(index, total)`` of it.
+
+    Shard ``i`` of ``k`` holds every replicate ``r`` with ``r % k == i - 1`` in every cell, so
+    the shards are disjoint, cover the run, and each holds a third of the ``cont_cf`` fits and
+    of the secondary fits inside ``day_cf``'s replicates when ``k`` is 3.  A replicate's seed is
+    a function of its key alone, so a shard draws and fits what the unsharded run does.
+    """
+    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
+    index, total = (1, 1) if shard is None else shard
+    if not 1 <= index <= total:
+        raise ValueError(f"shard {index}/{total} is not one of 1/{total} to {total}/{total}")
+    return [
+        (scenario, replicate)
+        for scenario in chosen
+        for replicate in range(replicates)
+        if replicate % total == index - 1
+    ]
+
+
 def draw_and_fit(
     *,
     replicates: int,
     n: int,
     n_jobs: int = STUDY_JOBS,
     scenarios: tuple[str, ...] | None = None,
+    shard: tuple[int, int] | None = None,
 ) -> replication.PhaseResult:
-    """Every cell of ``scenarios`` (all by default), each at its declared size."""
+    """Every cell of ``scenarios`` (all by default), each at its declared size.
+
+    ``shard`` fits only that shard's keys (:func:`shard_keys`), for a declared run split across
+    machines (``regenerate.py --shard``).
+    """
     sizes = STUDY.sizes(n)
-    chosen = tuple(STUDY.scenarios) if scenarios is None else scenarios
     outcomes = replication.fit_primary(
         [
             (scenario, replicate, sizes[scenario])
-            for scenario in chosen
-            for replicate in range(replicates)
+            for scenario, replicate in shard_keys(replicates, shard, scenarios)
         ],
         _replicate,
         draw=_draw,
@@ -723,6 +819,28 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     from tests.studies import continuous_time_longitudinal_readings as readings_module
 
     return readings_module.artifacts(rows)
+
+
+def routed_performance(failures: pd.DataFrame) -> pd.DataFrame:
+    """The independent-performance failures a declared route carries (the driver's hook).
+
+    The rows of ``failures`` that are exposed (:data:`EXPOSED_ROWS`) and red on the bias clause
+    alone, with coverage and the SE ratio passing.  The shared driver drops them from its gate,
+    and ``exposed-rows.csv`` records each one as routed, its claim experimental.
+    """
+    from tests.studies import continuous_time_longitudinal_readings as readings_module
+
+    keep = [
+        readings_module.routed(
+            str(row["scenario"]),
+            str(row["estimand"]),
+            bias_equivalent=bool(row["bias_equivalent"]),
+            coverage_valid=bool(row["coverage_valid"]),
+            se_calibrated=bool(row["se_calibrated"]),
+        )
+        for _, row in failures.iterrows()
+    ]
+    return failures.loc[keep] if len(failures) else failures
 
 
 def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:

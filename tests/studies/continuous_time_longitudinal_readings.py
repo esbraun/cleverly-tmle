@@ -30,9 +30,16 @@ Every table is computed from the primary rows of
 * ``floors.csv`` (:func:`floors`): per gated primary row, its verdict and the readings from which
   :func:`floor_values` reads part (e)'s support constants after the run (plan 3.5.9, review S7).
 
+* ``exposed-rows.csv`` (:func:`exposed`): the verdict of each exposed row (``study.EXPOSED_ROWS``,
+  Eric's choice of 2026-11-25), its route and its claim's status.
+
 :func:`gates` reads four gates, each failing on any row it returns: the primary rule of
 ``mechanism_correct`` (and its failure bound), the plug-in control, the calibration rule and
-the shrunk-SE control.
+the shrunk-SE control.  An exposed row red on its bias clause alone, with coverage and the SE
+ratio passing (:func:`routed`), leaves its gate: the ``mechanism_correct`` gate here, and the
+shared driver's independent-performance gate through ``study.routed_performance``.  The record
+then registers, the row's claim (rule regimes, or ``mechanism_correct``'s double robustness)
+stays experimental, and the row goes to an owner row in the roadmap's Red-cell owners table.
 """
 
 from __future__ import annotations
@@ -282,9 +289,12 @@ def mechanism(secondary: pd.DataFrame) -> pd.DataFrame:
                 "coverage": float(row["coverage"]),
                 "coverage_ci_lower": float(row["coverage_ci_lower"]),
                 "coverage_ci_upper": float(row["coverage_ci_upper"]),
+                "coverage_valid": bool(row["coverage_valid"]),
                 "se_ratio": float(row["se_ratio"]),
                 "se_ratio_ci_lower": float(row["se_ratio_ci_lower"]),
                 "se_ratio_ci_upper": float(row["se_ratio_ci_upper"]),
+                "se_calibrated": bool(row["se_calibrated"]),
+                "within_failure_bound": failed <= allowance,
                 "passed": bool(row["passed"]) and failed <= allowance,
             }
         )
@@ -612,19 +622,145 @@ def targeting(rows: pd.DataFrame, secondary: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([table, pd.DataFrame.from_records(seconds)], ignore_index=True)
 
 
+def routed(
+    cell: str,
+    estimand: str,
+    *,
+    bias_equivalent: bool,
+    coverage_valid: bool,
+    se_calibrated: bool,
+    within_failure_bound: bool = True,
+) -> bool:
+    """Whether a row's red takes its declared route (Eric's choice, 2026-11-25).
+
+    Only an exposed row (``study.EXPOSED_ROWS``) red on the bias clause alone, with its coverage
+    floor and SE-ratio band passing (and, in ``mechanism_correct``, its failure bound held), is
+    routed: the record still registers, the row's claim stays experimental and the row goes to
+    an owner row.  Any other red fails the record.
+    """
+    return (
+        (cell, estimand) in study.EXPOSED_ROWS
+        and not bias_equivalent
+        and coverage_valid
+        and se_calibrated
+        and within_failure_bound
+    )
+
+
+def exposed(rows: pd.DataFrame, mechanism_table: pd.DataFrame) -> pd.DataFrame:
+    """Every exposed row's primary-rule verdict, its route and its claim's status.
+
+    ``route`` is ``passed``, ``routed`` (red on the bias clause alone, :func:`routed`) or
+    ``red``; ``claim_status`` is ``experimental`` unless the row passed.  A ``day_cf`` row's
+    verdict is the shared driver's (same rows, margins and performance seed); a
+    ``mechanism_correct`` row's is ``mechanism-correct.csv``'s.
+    """
+    names = [name for cell, name in study.EXPOSED_ROWS if cell == "day_cf"]
+    chosen = rows.loc[(rows["scenario"] == "day_cf") & rows["estimand"].isin(names)]
+    primary = independent_performance_tests(
+        chosen.loc[:, list(_PERFORMANCE_COLUMNS)], record=study.STUDY, n_jobs=1
+    )
+    verdicts = {
+        ("day_cf", str(row["estimand"])): {**row.to_dict(), "within_failure_bound": True}
+        for _, row in primary.iterrows()
+    }
+    positive = mechanism_table.loc[mechanism_table["role"] == "positive"]
+    verdicts.update(
+        {
+            ("mechanism_correct", str(row["estimand"])): row.to_dict()
+            for _, row in positive.iterrows()
+        }
+    )
+    records = []
+    for (cell, name), (claim, mode) in study.EXPOSED_ROWS.items():
+        verdict = verdicts[(cell, name)]
+        flags = {
+            "bias_equivalent": bool(verdict["bias_equivalent"]),
+            "coverage_valid": bool(verdict["coverage_valid"]),
+            "se_calibrated": bool(verdict["se_calibrated"]),
+            "within_failure_bound": bool(verdict["within_failure_bound"]),
+        }
+        passed = bool(verdict["passed"])
+        route = "passed" if passed else "routed" if routed(cell, name, **flags) else "red"
+        records.append(
+            {
+                "cell": cell,
+                "estimand": name,
+                "claim": claim,
+                "foreseen_mode": mode,
+                "standardized_bias": float(verdict["standardized_bias"]),
+                "bias_ci_lower": float(verdict["bias_ci_lower"]),
+                "bias_ci_upper": float(verdict["bias_ci_upper"]),
+                **flags,
+                "passed": passed,
+                "route": route,
+                "claim_status": "supported by this row" if passed else "experimental",
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
+def ledger_entries(exposed_table: pd.DataFrame, replicates_sha256: str) -> dict[str, Any]:
+    """What the red-cell ledger needs for each routed row of a declared run.
+
+    A routed ``day_cf`` rule row stays red in ``performance-tests.csv``, which
+    ``red_cells.red_rows`` reads, so it needs an ``ACCEPTED_BY_EXCEPTION`` entry (``accepted``),
+    granted by Eric's decision of 2026-11-25 and keyed to the run's ``replicates.parquet``, and a
+    ``CLAIMS`` entry under ``study.RULE_OWNER`` (``claims``): an exception with an owner lifts the
+    ``reporting`` requirement and keeps the row owned.  A routed ``mechanism_correct`` row lives
+    in the ``scientific_failures`` hook, which the ledger does not read, so it needs a roadmap
+    entry under ``study.ROBUST_OWNER`` that cites ``exposed-rows.csv`` (``roadmap``).  The
+    change that registers the record enters them, with the owners' rows in the roadmap's
+    Red-cell owners table.
+    """
+    from tests.studies.evidence.red_cells import AcceptedRow, RedKey
+
+    routed_rows = exposed_table.loc[exposed_table["route"] == "routed"]
+    accepted: dict[Any, Any] = {}
+    claims: dict[Any, str] = {}
+    roadmap: list[str] = []
+    for _, row in routed_rows.iterrows():
+        name = str(row["estimand"])
+        bias = (
+            f"standardized bias {row['standardized_bias']:+.3f} (99% interval "
+            f"{row['bias_ci_lower']:+.3f} to {row['bias_ci_upper']:+.3f}), coverage and SE ratio "
+            "passing"
+        )
+        if row["cell"] == "day_cf":
+            key = RedKey(study.STUDY.slug, "truth", f"{study.SUBJECT}/day_cf/{name}")
+            accepted[key] = AcceptedRow(
+                reason=(
+                    f"{study.ROUTE_DECISION}. {name} is red on its bias clause alone ({bias}); "
+                    f"its foreseen mode: {row['foreseen_mode']}. Rule regimes stay experimental, "
+                    f"and {study.RULE_OWNER} owns the row until the bias is diagnosed."
+                ),
+                replicates_sha256=replicates_sha256,
+            )
+            claims[key] = study.RULE_OWNER
+        else:
+            roadmap.append(
+                f"{study.ROBUST_OWNER}: mechanism_correct {name} is red on its bias clause alone "
+                f"({bias}) and routed by {study.ROUTE_DECISION} (exposed-rows.csv); "
+                f"{row['claim']} stays experimental until the bias is diagnosed"
+            )
+    return {"accepted": accepted, "claims": claims, "roadmap": roadmap}
+
+
 def artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Every extra artifact of the record, from the primary rows."""
     secondary = secondary_table(rows)
+    mechanism_table = mechanism(secondary)
     return {
         study.ROWS_FILE: row_table(rows),
         study.SECONDARY_FILE: secondary,
         study.CALIBRATION_FILE: calibration(rows),
-        study.MECHANISM_FILE: mechanism(secondary),
+        study.MECHANISM_FILE: mechanism_table,
         study.MISSPECIFIED_FILE: misspecified(secondary),
         study.PAIRING_FILE: pairing(rows, secondary),
         study.READINGS_FILE: targeting(rows, secondary),
         study.VISIT_CAP_FILE: visit_cap(rows, secondary),
         study.FLOORS_FILE: floors(rows),
+        study.EXPOSED_FILE: exposed(rows, mechanism_table),
     }
 
 
@@ -634,8 +770,15 @@ def gates(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     positive = table.loc[table["role"] == "positive"]
     control = table.loc[table["role"] == "control"]
     calibrated = artifacts[study.CALIBRATION_FILE]
+    carried = {
+        str(row["estimand"])
+        for _, row in artifacts[study.EXPOSED_FILE].iterrows()
+        if row["cell"] == "mechanism_correct" and row["route"] == "routed"
+    }
+    red = positive.loc[~positive["passed"].astype(bool)]
     return {
-        MECHANISM_GATE: positive.loc[~positive["passed"].astype(bool)],
+        # A routed exposed row is red in the table and carried by its declared route.
+        MECHANISM_GATE: red.loc[~red["estimand"].isin(carried)],
         # One day-30 risk of always or never must establish a bias beyond 0.2 SD.
         PLUG_IN_GATE: control.iloc[0:0] if control["passed"].astype(bool).any() else control,
         CALIBRATION_GATE: calibrated.loc[

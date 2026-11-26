@@ -267,6 +267,21 @@ def _digest(parts: Sequence[Any]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
 
 
+def _ident(implementation: str, label: str, cell: str, replicate: int) -> str:
+    """The name every file of one replicate's checkpoint starts with."""
+    return _digest((implementation, label, cell, int(replicate)))
+
+
+def checkpoint_file(implementation: str, label: str, cell: str, replicate: int) -> Path:
+    """Where a replicate's checkpoint sits under a run's checkpoint root.
+
+    :func:`fit_replicates` names its checkpoints by the same :func:`_ident`.  A run split across
+    machines (``continuous-time-longitudinal``'s ``--shard``) reads it to tell a complete shard
+    from an incomplete one and to join the shards' checkpoints.
+    """
+    return Path(implementation) / label / f"{_ident(implementation, label, cell, replicate)}.pkl.gz"
+
+
 @dataclass(frozen=True)
 class _Task:
     key: Any
@@ -501,7 +516,7 @@ def fit_replicates(
             replicate=int(replicate_of(key)),
             cell=str(cell_of(key)),
             seed=None if seed_of is None else seed_of(key),
-            ident=_digest((implementation, label, cell_of(key), replicate_of(key))),
+            ident=_ident(implementation, label, str(cell_of(key)), int(replicate_of(key))),
             scenarios=str((scenarios_of or cell_of)(key)),
         )
         for key in keys

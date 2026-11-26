@@ -27,15 +27,20 @@ the stream ``plugin_limit``.  The driver writes one file beside this module,
 The committed rows give these readings, which ``regenerate.pilot_refusals`` checks before a
 declared run:
 
-* **the counts** (:func:`counts`): the cheapest pair of the primary count
-  (:data:`~tests.studies.continuous_time_longitudinal.PRIMARY_RUNGS`) and
-  ``mechanism_correct``'s (``MECHANISM_RUNGS``), the second no larger than the first, at which the product of the 60 gated rows'
-  plug-in pass probabilities (:func:`row_pass`, rows taken as independent) reaches
-  ``FAMILY_WISE_PASS`` 0.95; cost is the measured seconds per fit.  When no pair carries the
-  family, every row whose plug-in coverage is below 0.925 moves to reported before the
-  declaration (:func:`binding_rows`);
+* **the remainder family pass** (:func:`remainder_family_pass`): the counts are declared, 3,200
+  primary and 2,400 ``mechanism_correct`` fits (Eric's choice, 2026-11-25).  Each gated row is
+  read at its group's pooled coverage and SE ratio (:func:`pooled_table`: ``cont_cf`` static,
+  ``day_cf`` static, ``day_cf`` rule, ``mechanism_correct``) and at its own pilot standardized
+  bias (:func:`own_passes`), since a signed group mean lets opposite biases cancel.  The rows
+  whose own pass is below 0.96 are exposed (:func:`exposed_rows`, which must equal
+  ``study.EXPOSED_ROWS``, by Eric's choice of the same date); they stay gated with a declared
+  route for a red on the bias clause alone, and the product over the other 55 rows must reach
+  ``FAMILY_WISE_PASS`` 0.95.  The pooled reading (:func:`anchored_family_pass`), the product
+  over all 60 rows (:func:`per_row_family_pass`), the row-level product (:func:`family_pass`)
+  and every rung's passes (:func:`anchored_passes`) are reports; no rung is chosen from them,
+  and the plan's move of rows with coverage below 0.925 to reported is not applied;
 * **the at-target family pass** (:func:`at_target_pass`): both calibration rows at SE ratio 1
-  and coverage 0.95 at the primary count (0.954 for the pair at 2,400), and each calibration
+  and coverage 0.95 at the primary count (0.995 for the pair at 3,200), and each calibration
   row's plug-in pass at the declared count (:func:`calibration_checks`): a row below 0.90
   extends its cell's pilot to :data:`EXTENSION_DRAWS`, and only a confirmed departure
   (:func:`calibration_departure`) needs a committed diagnosis;
@@ -60,7 +65,7 @@ import itertools
 import resource
 import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +89,6 @@ DRAWS = study.PILOT_REPLICATES
 EXTENSION_DRAWS = 800
 BLOCK = 50
 PLUG_IN_PASS = 0.90
-#: The plan's binding coverage: rows below it move to reported when no count carries the family.
-REPORTED_COVERAGE = 0.925
 #: The plug-in separation the declaration needs (review S8), in true-weight IPW SDs.
 SEPARATION = 0.5
 FAILURE_EXCEEDANCE = 0.10
@@ -537,27 +540,148 @@ SMOKE_X70_SECONDS = 51.0
 SMOKE_BOTH_WRONG_SECONDS = 2.4
 
 
-def counts(rows: pd.DataFrame) -> tuple[int, int] | None:
-    """The cheapest ``(primary, mechanism_correct)`` counts that carry the family, or ``None``."""
-    passing = [
-        (cost(rows, primary, mechanism), primary, mechanism)
-        for primary, mechanism in itertools.product(study.PRIMARY_RUNGS, study.MECHANISM_RUNGS)
-        # mechanism_correct runs inside day_cf's replicates, so it holds at most the primary
-        # count (review S2).
-        if mechanism <= primary and family_pass(rows, primary, mechanism) >= sizing.FAMILY_WISE_PASS
-    ]
-    if not passing:
-        return None
-    _, primary, mechanism = min(passing)
-    return primary, mechanism
+#: The groups of the anchored reading: the static and rule rows of ``day_cf``, ``cont_cf`` and
+#: ``mechanism_correct``.
+GROUPS = ("cont_cf static", "day_cf static", "day_cf rule", "mechanism_correct")
+_STATIC_ROWS = frozenset(laws.targets(tuple(laws.STATIC)))
 
 
-def binding_rows(rows: pd.DataFrame) -> list[str]:
-    """The gated rows whose plug-in coverage is below 0.925: reported if no count carries the
-    family (plan 5.7)."""
+def group_of(cell: str, estimand: str) -> str:
+    """The anchored group of a gated row: its cell, and for ``day_cf`` static or rule."""
+    if cell == "mechanism_correct":
+        return cell
+    return f"{cell} {'static' if estimand in _STATIC_ROWS else 'rule'}"
+
+
+def pooled_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """Each group's gated rows, mean coverage, mean SE ratio and mean standardized bias."""
     table = coverage_table(rows)
-    chosen = table.loc[table["gated"] & (table["coverage"] < REPORTED_COVERAGE)]
-    return [f"{cell}/{name}" for cell, name in zip(chosen["cell"], chosen["estimand"], strict=True)]
+    gated = table.loc[table["gated"]].copy()
+    gated["group"] = [
+        group_of(cell, name) for cell, name in zip(gated["cell"], gated["estimand"], strict=True)
+    ]
+    pooled = gated.groupby("group", sort=False).agg(
+        rows=("estimand", "size"),
+        coverage=("coverage", "mean"),
+        se_ratio=("se_ratio", "mean"),
+        standardized_bias=("standardized_bias", "mean"),
+    )
+    return pooled.reindex(list(GROUPS)).reset_index()
+
+
+def anchored_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
+    """The product of the 60 gated rows' plug-in pass probabilities, each read at its group's
+    pooled coverage, SE ratio and standardized bias (the anchored reading).
+
+    A 400-draw row reads its coverage with an SE near 0.011 and its SE ratio with a relative SD
+    near 0.035, so a product of 60 row-level point readings is pessimistic.  No earlier study
+    pooled readings across rows: the ``continuous-survival-bootstrap`` pilot anchored each row's
+    SE ratio to an external study row by row and read no bias.  Averaging signed biases lets
+    opposite biases cancel within a group, so :func:`per_row_family_pass`, which reads each row's
+    own bias, is reported beside it.
+    """
+    pooled = pooled_table(rows).set_index("group")
+    product = 1.0
+    for group, row in pooled.iterrows():
+        count = mechanism if group == "mechanism_correct" else primary
+        product *= row_pass(
+            count, row["coverage"], row["se_ratio"], row["standardized_bias"]
+        ) ** int(row["rows"])
+    return float(product)
+
+
+def own_passes(rows: pd.DataFrame, primary: int, mechanism: int) -> pd.DataFrame:
+    """Each gated row's plug-in pass probability at the two counts, read at its group's pooled
+    coverage and SE ratio and at its own pilot standardized bias (the per-row bias reading).
+
+    Coverage and the SE ratio plausibly share a group value up to pilot noise; bias is a property
+    of each estimand, and a signed group mean lets opposite biases cancel.
+    """
+    table = coverage_table(rows)
+    gated = table.loc[table["gated"]].reset_index(drop=True)
+    pooled = pooled_table(rows).set_index("group")
+    records = []
+    for cell, name, bias in zip(
+        gated["cell"], gated["estimand"], gated["standardized_bias"], strict=True
+    ):
+        group = pooled.loc[group_of(cell, name)]
+        count = mechanism if cell == "mechanism_correct" else primary
+        records.append(
+            {
+                "cell": cell,
+                "estimand": name,
+                "standardized_bias": float(bias),
+                "own_pass": row_pass(count, group["coverage"], group["se_ratio"], float(bias)),
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
+def per_row_family_pass(
+    rows: pd.DataFrame,
+    primary: int,
+    mechanism: int,
+    exclude: Collection[tuple[str, str]] = (),
+) -> float:
+    """The product of the gated rows' :func:`own_passes`, leaving out the ``(cell, row)`` pairs
+    of ``exclude``.
+
+    Over all 60 rows it is a report; over the rows outside ``study.EXPOSED_ROWS`` it is the
+    declared check (:func:`remainder_family_pass`).
+    """
+    table = own_passes(rows, primary, mechanism)
+    left_out = {(str(cell), str(name)) for cell, name in exclude}
+    keep = [
+        (cell, name) not in left_out
+        for cell, name in zip(table["cell"], table["estimand"], strict=True)
+    ]
+    return float(np.prod(table.loc[keep, "own_pass"].to_numpy()))
+
+
+def exposed_rows(rows: pd.DataFrame) -> list[tuple[str, str]]:
+    """The gated rows whose own pass at the declared counts is below ``study.EXPOSED_PASS``.
+
+    The declaration (``study.EXPOSED_ROWS``, Eric's choice of 2026-11-25) must name exactly
+    these.
+    """
+    table = own_passes(rows, study.PRIMARY_REPLICATES, study.MECHANISM_REPLICATES)
+    chosen = table.loc[table["own_pass"] < study.EXPOSED_PASS]
+    return [
+        (str(cell), str(name))
+        for cell, name in zip(chosen["cell"], chosen["estimand"], strict=True)
+    ]
+
+
+def remainder_family_pass(rows: pd.DataFrame, primary: int, mechanism: int) -> float:
+    """The per-row bias family pass over the 55 gated rows outside ``study.EXPOSED_ROWS``.
+
+    ``regenerate.pilot_refusals`` refuses below ``FAMILY_WISE_PASS`` 0.95 at the declared
+    counts.  An exposed row stays gated, with a declared route for a red on its bias clause
+    alone (``readings.routed``), so the check covers the rows no route carries.
+    """
+    return per_row_family_pass(rows, primary, mechanism, exclude=tuple(study.EXPOSED_ROWS))
+
+
+def anchored_passes(rows: pd.DataFrame) -> pd.DataFrame:
+    """The anchored, per-row bias and row-level family pass and the cost of every pair of rungs:
+    a report.
+
+    The counts are declared (Eric's choice, 2026-11-25), so no rung is chosen from it.
+    """
+    records = [
+        {
+            "primary": primary,
+            "mechanism": mechanism,
+            "anchored": anchored_family_pass(rows, primary, mechanism),
+            "per_row_bias": per_row_family_pass(rows, primary, mechanism),
+            "remainder": remainder_family_pass(rows, primary, mechanism),
+            "row_level": family_pass(rows, primary, mechanism),
+            "cpu_hours": cost(rows, primary, mechanism),
+        }
+        for primary, mechanism in itertools.product(study.PRIMARY_RUNGS, study.MECHANISM_RUNGS)
+        if mechanism <= primary
+    ]
+    return pd.DataFrame.from_records(records)
 
 
 def at_target_pass(replicates: int) -> float:
