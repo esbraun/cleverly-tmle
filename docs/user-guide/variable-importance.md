@@ -47,6 +47,13 @@ does nothing. Exercise comes first: it raises the chance of recovery by about 0.
 0.09 to 0.23), with an adjusted p-value far below 0.05. Diet's small effect is not detected at this
 sample size, and smoking's estimate sits near zero.
 
+The [discharge practices example](../examples/ranking-exposures.ipynb) runs a full ranking, with
+its checks, on simulated data where one practice causes another.
+
+To record what the study is about, pass a `StudyProtocol` as `protocol=`. The estimates do not
+change. The result keeps the record, `ranking.summary(detail="full")` prints it as the study
+description, and each candidate's fit stores its fingerprint, as a fit from a `CausalStudy` does.
+
 The rows are sorted by adjusted p-value, so the first row is the candidate whose effect is
 clearest. That is not a ranking by size: a small effect measured precisely can come before a
 large one measured loosely. Compare the `psi` column, the estimated effect, and its interval

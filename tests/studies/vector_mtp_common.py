@@ -1141,6 +1141,9 @@ class Oracle(BaseEstimator):
         The misspecified mechanism of both factors.
     """
 
+    #: The exact density of the law, read by the support key (X121).
+    cleverly_density = "known"
+
     bin_design = "index"
     FLAG_WIDTHS: ClassVar[dict[str, tuple[int, ...]]] = {
         "point": (2,),

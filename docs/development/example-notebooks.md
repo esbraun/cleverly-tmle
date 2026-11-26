@@ -142,6 +142,12 @@ analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark 
 `StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
 `method-evidence` lesson sits under "Go deeper".
 
+`two-decision-rules` keeps the outline, but no result on it carries the protocol it prints. A
+learned two-node regimen is fitted with `LTMLE` directly, because `CausalStudy` cannot declare it
+([X11](../roadmap.md#x11-learned-policy-follow-ups) part (b2)). The page prints the record and
+says that the result does not store it, and its callback calls `assert_protocol_recorded` with no
+results.
+
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
 | step | what to do |
@@ -320,6 +326,7 @@ of the technical reference describes each one and says which of them is a bound.
 | a conditional effect: the EP curve, a log-ratio projection, or a difference-scale projection coefficient | on the EP curve, none: every sensitivity entry and `refute` refuse. On a log-CRR projection coefficient, every sensitivity entry refuses and `refute()` runs. On a difference-scale `cate_projection` coefficient, `robustness_value(estimand=...)` and `omitted_confounding(estimand=...)`; `contour` and `refute()` also run, and `evalue()` and `simulated_confounding()` refuse. For a decision taken from the curve, run the regime row on that decision's contrast, as `conditional-effects` does | the projection bound reads one coefficient of the projection, not the curve. State in one sentence that the EP curve has no bound |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
 | adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
+| a learned two-node regimen (`LTMLE(regimens=LearnedRegimen())`) | none runs: every `cleverly.sensitivity` entry point, `refute()` and the truncation curve refuse ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation), [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay), [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)), and a refit without a covariate relearns the rules, so its move is not a benchmark of confounding. Run `result.assess()` and read the score, support and model rows, and the rule record `result.learned_regimen` | state the limit in one sentence in the conclusion. The weights-and-balance lesson runs without its truncation-curve half |
 
 Run the checks below on the fit of the page as well, under the rule that follows the table.
 
@@ -380,14 +387,14 @@ change.
 
 | family | tutorials that show it |
 | --- | --- |
-| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle (ATE and both counterfactual means), cross-fitting, collaborative-tmle, survey-nonresponse (ATE); sampling-weights (ATE with sampling weights, and strata); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
 | ATT and ATC | point-treatment-tmle (ATT, ATC), twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
 | Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
-| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
+| Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`); sampling-weights (a missing treatment, `treatment_missingness=`); subgroup-effects (a `ControlledDirectEffect` projection on group indicators, under Go deeper) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
+| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome); two-decision-rules (a rule learned over two decisions, `LTMLE(regimens=LearnedRegimen())`, with its rule record) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
 | Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
@@ -396,7 +403,7 @@ change.
 | Categorical incremental interventions | schedules-and-intensity |
 | Smoothed dose-response curve | dose-response |
 | Point and longitudinal MSM projections | msm-projections (point, with an effect modifier and a logit link in Go deeper, and a longitudinal projection on `make_longitudinal`, the two-decision binary law with dropout that its supported rows need) |
-| Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
+| Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission, two-decision-rules |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
 | Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
 | Structural nested mean model | model-based-over-time |
@@ -413,7 +420,7 @@ change.
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Nuisance learners | learner-choice (two declared `SuperLearner` libraries, their weights and cross-validated risks, the default library, the discrete selector, and `screen_treatment`); twins-causal-inference (two declared `SuperLearner` libraries) |
-| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`) |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`); subgroup-effects (a CATE projection on `Indicators` and on `Additive(Indicators, Linear)` with its band and test; under Go deeper, `strata=` and a log-CRR projection on `Indicators`) |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
 | External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |

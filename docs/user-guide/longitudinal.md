@@ -364,7 +364,8 @@ because that cross-validation would score rules learned from its own rows. Pass 
 there, as here. It also refuses `n_folds=1`, `n_bootstrap=` and `repeats=` above 1, and a study
 cannot declare a learned plan, so call `LTMLE` directly.
 [Learned regimens](../technical-reference/longitudinal-tmle.md#learned-regimens) lists every
-refusal.
+refusal, and [two decisions after discharge](../examples/two-decision-rules.ipynb) works through a
+learned pair of rules from the data to the conclusion.
 
 ## Declare a stochastic policy
 

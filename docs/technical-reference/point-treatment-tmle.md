@@ -27,11 +27,13 @@ Reach for a different entry in four cases.
 | the adjustment set is large and mostly irrelevant | [collaborative TMLE](collaborative-tmle.md) |
 | you expect one nuisance to be inconsistent and still want an interval | a declared [known treatment mechanism](#known-treatment-mechanism), or [DR-TMLE](dr-tmle/index.md), whose one-wrong interval is established only in [the listed cases](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) |
 
-Three worked applied analyses cover this entry. The
+Four worked applied analyses cover this entry. The
 [point-treatment tutorial](../examples/point-treatment-tmle.ipynb) is the main one, and it also
 demonstrates the conditional-population effects below. The intervention axes have their own
 tutorial, [choosing a navigation policy](../examples/interventions.ipynb). Missing outcomes have theirs in
-[survey non-response](../examples/survey-nonresponse.ipynb).
+[survey non-response](../examples/survey-nonresponse.ipynb), and sampling weights, baseline
+strata and a missing treatment have theirs in
+[an interview of a sample of patients](../examples/sampling-weights.ipynb).
 
 ## The algorithm as implemented
 
@@ -518,6 +520,8 @@ The [learned-nuisance weighted study](method-evidence/learned-weighted-point-tre
 also fits both nuisance regressions with those weights. Its learner-only control separates the
 target and selected plug-ins, while weighted targeting repairs the control under a correct
 treatment mechanism.
+[An interview of a sample of patients](../examples/sampling-weights.ipynb) fits the weighted ATE
+on a sample selected by a recorded covariate.
 
 `strata=` produces stratum-specific parameters. A stratum parameter is the marginal parameter of
 the law given $S=s$, for a fixed partition $S$ of the adjustment columns with $P(S=s)>0$. Every

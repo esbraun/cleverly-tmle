@@ -1,0 +1,64 @@
+seeds 100 to 199, 100 draws; the page shows seed 100
+
+Why a simple comparison misleads
+  simple difference below the truth in every group: 1.00 (MC SE 0.000; 100 of 100)
+  family gap above 0.03: 0.98 (MC SE 0.014; 98 of 100)
+  alone gap above 0.03: 0.97 (MC SE 0.017; 97 of 100)
+  carer gap above 0.03: 0.90 (MC SE 0.030; 90 of 100)
+
+Projection on the group indicators
+  family term interval covers: 0.98 (MC SE 0.014; 98 of 100)
+  alone term interval covers: 0.97 (MC SE 0.017; 97 of 100)
+  carer term interval covers: 0.96 (MC SE 0.020; 96 of 100)
+  every row supported: 1.00 (MC SE 0.000; 100 of 100)
+  every group's pointwise interval covers: 0.88 (MC SE 0.032; 88 of 100)
+  band covers all three groups: 0.96 (MC SE 0.020; 96 of 100)
+  band label supported: 1.00 (MC SE 0.000; 100 of 100)
+  heterogeneity test p < 0.01: 0.93 (MC SE 0.026; 93 of 100)
+  heterogeneity test p < 0.05: 0.99 (MC SE 0.010; 99 of 100)
+  family effect error: mean -0.0005 (MC SE 0.0015), SD 0.015
+  alone effect error: mean +0.0009 (MC SE 0.0021), SD 0.021
+  carer effect error: mean +0.0033 (MC SE 0.0026), SD 0.026
+
+Indicators plus a straight line in age
+  family term interval covers: 0.95 (MC SE 0.022; 95 of 100)
+  alone term interval covers: 0.96 (MC SE 0.020; 96 of 100)
+  carer term interval covers: 0.96 (MC SE 0.020; 96 of 100)
+  age slope interval covers 0.003: 0.95 (MC SE 0.022; 95 of 100)
+  age slope interval excludes 0: 0.81 (MC SE 0.039; 81 of 100)
+  band covers all nine points: 0.98 (MC SE 0.014; 98 of 100)
+  all nine pointwise intervals cover: 0.79 (MC SE 0.041; 79 of 100)
+  test p < 0.01: 0.98 (MC SE 0.014; 98 of 100)
+
+Omitted-variable bound on the alone-minus-family difference
+  bound at strength 0.03 stays above 0: 0.97 (MC SE 0.017; 97 of 100)
+  robustness value 5% / 50% / 95%: [0.033, 0.053, 0.068]
+
+Refutation of the alone-minus-family difference
+  placebo mean within 2 SDs of 0: 1.00 (MC SE 0.000; 100 of 100)
+  random common cause within 0.01: 1.00 (MC SE 0.000; 100 of 100)
+  subset within 0.01: 0.99 (MC SE 0.010; 99 of 100)
+
+Direct effect, visit held at no
+  family term interval covers: 1.00 (MC SE 0.000; 100 of 100)
+  alone term interval covers: 0.99 (MC SE 0.010; 99 of 100)
+  carer term interval covers: 0.93 (MC SE 0.026; 93 of 100)
+  every group's pointwise interval covers: 0.91 (MC SE 0.029; 91 of 100)
+  band covers all three groups: 0.97 (MC SE 0.017; 97 of 100)
+Direct effect, visit held at yes
+  family term interval covers: 0.95 (MC SE 0.022; 95 of 100)
+  alone term interval covers: 0.96 (MC SE 0.020; 96 of 100)
+  carer term interval covers: 0.95 (MC SE 0.022; 95 of 100)
+  every group's pointwise interval covers: 0.84 (MC SE 0.037; 84 of 100)
+  band covers all three groups: 0.94 (MC SE 0.024; 94 of 100)
+
+Age slope inside each group (strata=)
+  family slope interval covers 0.003: 0.98 (MC SE 0.014; 98 of 100)
+  alone slope interval covers 0.003: 0.94 (MC SE 0.024; 94 of 100)
+  carer slope interval covers 0.003: 0.95 (MC SE 0.022; 95 of 100)
+
+Log risk ratio on the group indicators
+  family term interval covers: 0.98 (MC SE 0.014; 98 of 100)
+  alone term interval covers: 0.96 (MC SE 0.020; 96 of 100)
+  carer term interval covers: 0.97 (MC SE 0.017; 97 of 100)
+  every group's ratio interval covers: 0.91 (MC SE 0.029; 91 of 100)
