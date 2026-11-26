@@ -65,7 +65,8 @@ NARRATION_SOURCES: dict[str, dict[str, str]] = {
 
 _REFUTE_PROBE = "reviews/notebook-review/probes/sn-refute/summary.log"
 
-#: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in the log.
+#: Decimals of the 400-draw readings the Details quote, which no cell prints.  Each appears in
+#: the log.
 _REFUTE_LOG_DECIMALS = ("-0.134", "-0.232", "-0.036", "0.1023", "0.10287", "0.0042")
 UNPRINTED_DECIMALS.update(
     dict.fromkeys(_REFUTE_LOG_DECIMALS, f"a value of the 400-draw review probe, {_REFUTE_PROBE}")
@@ -116,10 +117,30 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{cc.mean() - cc_target:.5f}" == "0.00043"
     assert f"{cc.std(ddof=1) / np.sqrt(500):.5f}" == "0.00023"
     tips = np.array([float(row["tip_ci"]) for row in probe if row["tip_ci"]])
-    assert len(tips) == 485
-    assert sum(bool(row["tip_point"]) for row in probe) == 358
-    assert (f"{np.percentile(tips, 5):.2f}", f"{np.percentile(tips, 95):.2f}") == ("3.17", "5.48")
+    assert len(tips) == 497
+    assert sum(bool(row["tip_point"]) for row in probe) == 362
+    assert (f"{np.percentile(tips, 5):.2f}", f"{np.percentile(tips, 95):.2f}") == ("2.71", "4.05")
 
+    # The 400-refit review probe of the generated-outcome Details.
+    probe = (EXAMPLES.parents[1] / _REFUTE_PROBE).read_text(encoding="utf-8")
+    for literal in _REFUTE_LOG_DECIMALS:
+        assert literal in probe, literal
+    # Three runs of 400 refits each, in the order dummy_outcome, simulated_outcome, plasmode;
+    # only simulated_outcome leaves its band.
+    assert len(re.findall(r"Repeats per test:\s+400\n", probe)) == 3
+    assert re.findall(r"Result:\s+(passed|failed)\n", probe) == ["passed", "failed", "passed"]
+    assert re.search(
+        r"simulated outcome\s+std\. bias\s+-0\.134\s+\[-0\.232, -0\.036\]\s+"
+        r"\[-0\.2, 0\.2\]\s+no\n",
+        probe,
+    )
+    assert len(re.findall(r"std\. bias .*\[-0\.2, 0\.2\]\s+yes\n", probe)) == 2
+    # dummy_outcome and plasmode stay inside all three bands; simulated_outcome reads the bias only.
+    assert len(re.findall(r"\s+yes\n", probe)) == 6
+    assert len(re.findall(r"\s+no\n", probe)) == 1
+    assert re.search(r"simulated outcome\s+0\.1023\s+0\.0042\s+about 0\.10287", probe)
+    # "about a tenth of the fit's standard error below the truth".
+    assert round((0.10287 - 0.1023) / namespace["full"]["ate"].std_error, 1) == 0.1
     effect = namespace["effect"]
     fitted = namespace["full"]
     expression = effect.functional.expression
@@ -134,8 +155,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert fitted.nuisance.missingness is not None
     assert expression in summary.section("Assumptions").lines[0]
 
-    # "Estimate the effect": a cross-fitted, stacked fit with boosted trees for Q, logistic g and pi, and the
-    # known range of the score as q_bounds.
+    # "Estimate the effect": a cross-fitted, stacked fit with boosted trees for Q, logistic g and
+    # pi, and the known range of the score as q_bounds.
     method = namespace["method"]
     fit_summary = fitted.summary()
     assert dict(fit_summary.header)["Out-of-fold predictions"] == "5 folds"
@@ -180,8 +201,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.70 < float(frame["responded"].mean()) < 0.80
     assert int(frame["transition_score"].isna().sum()) == int((frame["responded"] == 0).sum())
 
-    # "Who answers the survey": respondents have lower discharge risk (W1 -> Delta) and more prior utilization
-    # (W3 -> Delta).
+    # "Who answers the survey": respondents have lower discharge risk (W1 -> Delta) and more prior
+    # utilization (W3 -> Delta).
     by_response = namespace["by_response"]
     assert by_response.loc[1.0, "discharge_risk"] < 0.0 < by_response.loc[0.0, "discharge_risk"]
     assert by_response.loc[1.0, "prior_utilization"] > by_response.loc[0.0, "prior_utilization"]
@@ -215,8 +236,8 @@ def check(namespace: dict[str, Any]) -> None:
         return float(law.outcome_mean(w, 1.0, None)[0] - law.outcome_mean(w, 0.0, None)[0])
 
     assert effect_at(high_risk) < effect_at(base) - 0.05
-    # "Estimate the effect": "in this synthetic law the two logistic models have the true form" (their
-    # logits are exactly linear in A and W), and the outcome surface is not linear.
+    # "Estimate the effect": "in this synthetic law the two logistic models have the true form"
+    # (their logits are exactly linear in A and W), and the outcome surface is not linear.
     rng = np.random.default_rng(0)
     w = rng.normal(size=(500, 3))
     ones = np.ones(len(w))
@@ -306,8 +327,8 @@ def check(namespace: dict[str, Any]) -> None:
     for row in ("missingness", "tipping_gamma"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
 
-    # "What if non-responders differ": the estimate never reaches 0 under the navigation-arm tilt.  Each moved
-    # estimate is re-targeted with its own interval, so the interval search runs.
+    # "What if non-responders differ": the estimate never reaches 0 under the navigation-arm tilt.
+    # Each moved estimate is re-targeted with its own interval, so the interval search runs.
     assert namespace["tipping_gamma"] is None
     arm_gamma = {0: 0.0, 1: -1.0}
     limit = fitted.sensitivity.tipping_gamma(arm_gamma=arm_gamma, use_ci=True)
@@ -349,6 +370,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert float(printed["mean drop"].iloc[1]) < 0.5 * namespace["mar_mean"]
     assert figure_title(namespace["missingness_fig"]) == "Estimate across missingness assumptions"
     assert figure_title(namespace["comparison_fig"]) == "Estimates and intervals"
+    # "the cross in the figure": one truth mark per row, both at the all-patient effect.
+    marks = namespace["comparison_fig"].findobj(lambda artist: artist.get_gid() == "cleverly-truth")
+    assert len(marks) == 2
+    for mark in marks:
+        assert np.allclose(np.asarray(mark.get_xdata(), dtype=float), truth)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -359,7 +385,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Try to break the result: the three refits are descriptive, and each check the page skips refuses."""
+    """Try to break the result: the refits are descriptive, and each skipped check refuses."""
     fitted = namespace["full"]
     refutation = namespace["refutation"]
     original = fitted["ate"].psi
@@ -421,31 +447,18 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
         simulated_confounding(fitted, grid=grid)
     assert "F12" in str(excinfo.value)
+    # "Left to move only the score, it runs".
+    outcome_only = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.1))
+    assert simulated_confounding(fitted, grid=outcome_only, random_state=0) is not None
 
 
 def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
-    """Test the method on a known effect: the generated outcomes run at level L1 on the bounded process."""
+    """Test the method on a known effect: the generated outcomes run at level L1."""
     fitted = namespace["full"]
     independent, adjusted = namespace["independent"], namespace["adjusted"]
     assert isinstance(independent, BoundedAdjustmentOutcome)
     assert (independent.effect, independent.adjustment_scale) == (0.0, 0.0)
     assert adjusted.effect != 0.0 and adjusted.adjustment_scale != 0.0
-    probe = (EXAMPLES.parents[1] / _REFUTE_PROBE).read_text(encoding="utf-8")
-    for literal in _REFUTE_LOG_DECIMALS:
-        assert literal in probe, literal
-    # Three runs of 400 refits each, in the order dummy_outcome, simulated_outcome, plasmode;
-    # only simulated_outcome leaves its band.
-    assert len(re.findall(r"Repeats per test:\s+400\n", probe)) == 3
-    assert re.findall(r"Result:\s+(passed|failed)\n", probe) == ["passed", "failed", "passed"]
-    assert re.search(
-        r"simulated outcome\s+std\. bias\s+-0\.134\s+\[-0\.232, -0\.036\]\s+"
-        r"\[-0\.2, 0\.2\]\s+no\n",
-        probe,
-    )
-    assert len(re.findall(r"std\. bias .*\[-0\.2, 0\.2\]\s+yes\n", probe)) == 2
-    assert re.search(r"simulated outcome\s+0\.1023\s+0\.0042\s+about 0\.10287", probe)
-    # "about a tenth of the fit's standard error below the truth".
-    assert round((0.10287 - 0.1023) / fitted["ate"].std_error, 1) == 0.1
     tests = namespace["generated_tests"]
     # "with 10 every line prints level L1, the numbers without a pass or fail".
     assert set(tests) == {"dummy_outcome", "simulated_outcome", "plasmode"}
@@ -472,7 +485,7 @@ def _check_generated_outcomes(namespace: dict[str, Any]) -> None:
 
 
 def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
-    """The E-value and "What if a confounder is missing?": and the omitted-variable bound, read on the fit."""
+    """The E-value, and "What if a confounder is missing?": the bound and its figure."""
     fitted = namespace["full"]
     evalue = namespace["evalue"]
     assert evalue.approximate and evalue.limit_descriptive
@@ -526,4 +539,10 @@ def _check_evalue_and_bounds(namespace: dict[str, Any]) -> None:
     assert strengths["prior_utilization"] < strengths["age"] < tipping < strengths["discharge_risk"]
     assert 0.4 < tipping / strengths["discharge_risk"] < 0.6
     assert 5.0 < tipping / strengths["age"] < 6.0
-    assert figure_title(namespace["confounding_fig"]) == "Sensitivity to hidden confounding"
+    figure = namespace["confounding_fig"]
+    assert figure_title(figure) == "Sensitivity to hidden confounding"
+    # "the bold line marks where the range's lower end ... reaches zero", and the robustness
+    # value is drawn.
+    null_lines = figure.findobj(lambda artist: artist.get_gid() == "cleverly-null-contour")
+    assert null_lines and any(len(np.asarray(line.get_paths()[0].vertices)) for line in null_lines)
+    assert figure.findobj(lambda artist: artist.get_gid() == "cleverly-robustness-value")

@@ -1,4 +1,6 @@
-"""Seed sweep of the Step 6 and Step 7 fits of docs/examples/survey-nonresponse.ipynb.
+"""Seed sweep of two fits of docs/examples/survey-nonresponse.ipynb.
+
+The fits are those of "Estimate the effect" and "What you get from respondents only".
 
 Run from the repository root: ``python reviews/notebook-review/probes/sn-bounded/probe.py``.
 It writes ``sweep.csv`` and ``summary.log`` beside this file.  The fits copy the notebook's
