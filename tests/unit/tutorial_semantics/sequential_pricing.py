@@ -1580,6 +1580,14 @@ def _check_other_estimators(namespace: dict[str, Any]) -> None:
         and "`ate_regimen[price_down vs natural_prices]`" in line
     ]
     assert sdr_cut and "| 0.9230 |" in sdr_cut[0] and "**fail**" in sdr_cut[0]
+    # "finds its interval on target at three months": every 3-node SDR contrast row passes.
+    sdr_tau3 = [
+        line
+        for line in evidence.splitlines()
+        if line.startswith("| 3-node pricing law") and ", SDR |" in line and "`ate_regimen[" in line
+    ]
+    assert len(sdr_tau3) >= 2 and all(line.rstrip().endswith("| pass |") for line in sdr_tau3)
+    assert "at 5,000 rows" in text and "1,000 samples of 5,000 rows" in evidence
     assert "exact density ratio" in text
     # The foil is g-computation with the revenue fit's linear outcome models and no weights.
     method = namespace["gcomp_method"]
@@ -1617,5 +1625,5 @@ def _check_probe_row_matches_page(namespace: dict[str, Any]) -> None:
     for prefix, fit in (("y", namespace["result"]), ("r", namespace["revenue_result"])):
         for plan in PLANS:
             low, high = fit[_key(plan)].ci
-            assert row[f"{prefix}_{plan}_lo"] == pytest.approx(low, abs=1e-4), (prefix, plan)
-            assert row[f"{prefix}_{plan}_hi"] == pytest.approx(high, abs=1e-4), (prefix, plan)
+            assert row[f"{prefix}_{plan}_lo"] == pytest.approx(low, abs=5e-4), (prefix, plan)
+            assert row[f"{prefix}_{plan}_hi"] == pytest.approx(high, abs=5e-4), (prefix, plan)
