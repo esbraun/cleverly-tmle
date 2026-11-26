@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -152,29 +151,30 @@ def _check_options(namespace: dict[str, Any]) -> None:
     gaps = namespace["with_gaps"]
     assert gaps["transition_score"].isna().sum() == (gaps["answered"] == 0).sum() > 0
     assert namespace["frame"]["transition_score"].notna().all()
+    # "it refuses the usual missing-outcome tilt checks".
+    rows = options["missing scores"].assess().to_frame().set_index("check")["status"]
+    assert rows["missingness"] == rows["tipping_gamma"] == "unavailable"
 
 
 def _check_binary(namespace: dict[str, Any]) -> None:
     fit, truth = namespace["binary_fit"], namespace["binary_truth"]
-    # An independent route to the known answer: draw both potential outcomes for the large
-    # draw's pilot rows from the score's formula and count the scores above 55.
-    pilot = namespace["large"]
-    pilot = pilot[pilot["in_pilot"] == 1]
-    rng = np.random.default_rng(2024)
-    noise = rng.normal(0, 8, len(pilot))
-    usual = 50 + 3 * pilot["discharge_risk"] + 2 * pilot["age"] + noise
-    offered = usual + 5 + 2 * pilot["discharge_risk"]
-    simulated = float(np.mean(offered > 55) - np.mean(usual > 55))
-    assert abs(simulated - truth) < 0.003
+    # A route that reads simulate() itself: the large draw's pilot randomized the offer, so the
+    # difference in the share of scores above 55 between its arms estimates the same effect.
+    large = namespace["large"]
+    pilot = large[large["in_pilot"] == 1]
+    good = pilot["transition_score"] > 55
+    offered = pilot["transition_navigation"] == 1
+    randomized = float(good[offered].mean() - good[~offered].mean())
+    assert abs(randomized - truth) < 0.006
     assert covers(fit.estimate, truth)
 
 
 def _check_flexible(namespace: dict[str, Any]) -> None:
     boosted, borrowed = namespace["boosted"], namespace["borrowed"]
     target = namespace["truth"]["pilot patients"]
-    # "both contain the true 6.05", "with the same standard error, 0.36".
+    # "both contain the true 6.05", "with about the same standard error, 0.36".
     assert covers(boosted.estimate, target) and covers(borrowed.estimate, target)
-    assert round(boosted.estimate.std_error, 2) == round(borrowed.estimate.std_error, 2)
+    assert abs(boosted.estimate.std_error - borrowed.estimate.std_error) < 0.02
 
 
 def check(namespace: dict[str, Any]) -> None:

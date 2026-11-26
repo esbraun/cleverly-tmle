@@ -20,8 +20,8 @@ from .._summary import (
     vocabulary,
 )
 from .._summary._estimates import estimates_table, plain_support_reason
-from .._summary._setup import _protocol_section
 from .._summary._learners import learner_name
+from .._summary._setup import _protocol_section
 from ._point_summary import _warning_notes
 
 if TYPE_CHECKING:

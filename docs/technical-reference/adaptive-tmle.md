@@ -430,9 +430,9 @@ blocks the method.
 covers $\Psi$ only under the oracle-approximation condition ([Inference status](#inference-status)).
 A study can measure coverage of $\Psi$ only on its own laws, so no result moves the label.
 
-**The fit checks are the four diagnostics.** No refutation, sensitivity bound or truncation curve is
-derived for a fit whose working model is selected from the data, because a refit selects its own
-working model ([Refusals](#refusals)). `support()`, `score_equations()`, `nuisance_models()` and
+**The fit checks are the four diagnostics.** No refutation or truncation curve is derived, because a
+refit selects its own working model, and no sensitivity bound, because the bounds assume a
+point-treatment fit and not a projection onto a selected working model ([Refusals](#refusals)). `support()`, `score_equations()`, `nuisance_models()` and
 `corrections()` read the stored fit, and `result.assess()` collects them.
 
 **The efficiency gain depends on the external difference.** The gain over the trial alone needs the
