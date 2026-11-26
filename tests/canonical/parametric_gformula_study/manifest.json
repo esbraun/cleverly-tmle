@@ -5,14 +5,16 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-parametric-gformula",
-      "cleverly_version": "0.1.4",
-      "cleverly_commit": "96074e49601337ea3513739d341bbb2a0bb68b23",
+      "cleverly_version": "0.2.8",
+      "cleverly_commit": "b778e4dd39e5883c19a6b5d87c75976a140e8897",
       "cleverly_worktree_clean": true,
-      "python": "3.13.16",
-      "numpy": "2.5.4",
+      "python": "3.13.18",
+      "numpy": "2.5.3",
       "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "83aef5d141eef81dab3f8d6ada2cd29b513f15373809fed8887810270d15ab60"
     },
     "reference": null
   },
@@ -103,26 +105,26 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_parametric_gformula.py": "45887dc64d2570bf78d9a93224600bacd76488a3bd3e36be99dae4ddccc5168e",
-    "tests/studies/parametric_gformula_properties.py": "4f3a8bdb072524305c3b034e1d93bf5f0ebda9963f9b18c80b1330485f70a675",
-    "tests/studies/parametric_gformula_laws.py": "039123ae4e42310c4481c4228fd5c75adc5ef651b54810130094ba998ccdc988",
+    "tests/studies/canonical_parametric_gformula.py": "744e8ca1c2c92d4b66f1257a3f391ca74109ed8d105cd88cc0d04e430692ecf2",
+    "tests/studies/parametric_gformula_properties.py": "77326f24027aad8a607abb3bc721ed8a619f00f985b6139e7a14dd4d070a28a4",
+    "tests/studies/parametric_gformula_laws.py": "c65e2ba3e717918981cd9cb7c519348aaf39b0f9c6e2c51bdf6cfeb039b01fb4",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
-    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "0983217d38df582900a498db61afd9f6c63a2758ed190abf415c0c91d95fc3ab",
+    "tests/studies/evidence/property_verdicts.py": "91f9f50df353faf0e9024efbbe868bd0fcd277b4cb1bb1ded03a9fae7103d1f2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.parquet": "3bb86f7a1fd998eab4088f97bc0dc5eb2b004b30a134783d85d88449add8e596",
-    "summary.csv": "daca70a51c2ac50a0d10f2605ef5e58d7f073a3957f318df9c05c336dec255ec",
+    "replicates.parquet": "4ef2723300c6b14e4ca8849424bb1bf4b070b8a6b7c15634788bc4bcaab490e3",
+    "summary.csv": "bd987532cff827b1fade8cb3f54b21dd0c8eaf387384f6a088de82c46d3822b1",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "051e17ef24c6556c12be5ec40ae34051600ffcceeff818adeb134a9fc4abb82b",
-    "property-replicates.parquet": "5854f48bdc8967e94358c44b9136fc04d957e836d82851224cb757759bfde973",
-    "properties.csv": "13e01a556a4f109ba060929902d292c1c53879354f7b88595375d055f6d2d04b",
+    "performance-tests.csv": "44b3ae359ab3a7bafdf9619695b4906bbe70cee63e9a7eefd14eb997314d59b5",
+    "property-replicates.parquet": "45ddb286a620633eddc1cd0dbb66b621eca2c50dafe076e5cb740105594570fe",
+    "properties.csv": "88f3e84beaa918fa64d54ca2fd290f40d3365063d2585c13f8a5fb5f6c4719db",
     "property-failures.csv": "66d79a8021b76b4745069ced330b04ac23952a7b83ee90b35bb5ff78b5eeee0e",
     "property-failure-accounting.csv": "39ddceffc0284ae9286fd25e10ffb5af4ecded326e670a13267a26d68d20c586",
-    "property-failure-witnesses.parquet": "1017051a42c32485d86bd8360cb0083716b9701e88539909fb9e5dd008ca5903"
+    "property-failure-witnesses.parquet": "822c3abd149946b2933721caab96020342bb07d3f5091ebd724b5d9ac6d6d797"
   }
 }

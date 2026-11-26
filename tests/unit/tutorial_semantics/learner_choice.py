@@ -148,9 +148,15 @@ def check(namespace: dict[str, Any]) -> None:
     outcome = _weights(weights, "outcome model")
     treatment = _weights(weights, "treatment model")
     assert outcome.idxmax() == "boosting"
-    assert outcome["linear"] == 0.0
-    assert treatment.idxmax() == "splines"
-    assert (treatment > 0).all()
+    # The stored output prints 0.0000; the simplex solver can leave a float residue on another
+    # platform (CI read a nonzero value), so check the printed reading rather than exact zero.
+    assert outcome["linear"] < 5e-5
+    # The page reads the treatment model as spreading its weight over all three candidates
+    # because their risks are nearly equal.  Which one leads is not claimed: with risks this
+    # close it moves with library versions and rounding.
+    assert (treatment >= 0.1).all()
+    rows = weights[weights["model"] == "treatment model"]["cross-validated risk"]
+    assert rows.max() - rows.min() < 0.02
 
     # The default ensembles: weights on the simplex, the forest carries the treatment model,
     # boosting the outcome model, and the default booster has the worst treatment-model risk.
@@ -194,9 +200,10 @@ def check(namespace: dict[str, Any]) -> None:
     picks = {
         model.name: model.learner_weights for model in discrete.diagnostics.nuisance_models().models
     }
-    assert picks["outcome"]["boosting"] == 1.0
-    assert np.isclose(picks["propensity"]["splines"], 0.8)
-    assert np.isclose(picks["propensity"]["boosting"], 0.2)
+    assert np.isclose(picks["outcome"]["boosting"], 1.0)
+    # The treatment model's pick changes from fold to fold, as the reading says; which candidate
+    # wins how many folds is the stored output's, not a claim that survives a rerun elsewhere.
+    assert sum(weight > 0 for weight in picks["propensity"].values()) >= 2
 
     # Check the fit: nothing needs attention.
     assert not namespace["assessment"].attention

@@ -1305,7 +1305,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "G29.g1",
         ("wald",),
         LIMIT,
-        "X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",
+        "X45-finite-sample: coverage 0.9305 to 0.9552, SE ratio 0.9259 to 1.0000",
         "",
     ),
     (
