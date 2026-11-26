@@ -12,6 +12,6 @@ other tutorials reuse. The second runs one on real records, where no true answer
 :hidden:
 :maxdepth: 1
 
-/examples/point-treatment-tmle
-/examples/twins-causal-inference
+One treatment, one outcome </examples/point-treatment-tmle>
+Smoking and twins' birth weight </examples/twins-causal-inference>
 ```

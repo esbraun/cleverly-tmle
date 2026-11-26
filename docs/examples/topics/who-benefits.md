@@ -17,7 +17,7 @@ treat.
 :hidden:
 :maxdepth: 1
 
-/examples/conditional-effects
-/examples/subgroup-effects
-/examples/treatment-rules
+Who gains most from a coupon </examples/conditional-effects>
+Does navigation help patients who live alone more? </examples/subgroup-effects>
+Who should get the offer </examples/treatment-rules>
 ```

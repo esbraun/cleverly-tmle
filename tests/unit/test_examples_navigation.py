@@ -9,6 +9,7 @@ topic lists, so these checks pin the three views together.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -39,11 +40,31 @@ def index_topic_order() -> list[str]:
     return [entry.removeprefix("topics/") for entry in entries]
 
 
+TITLED_ENTRY = re.compile(r"^(?P<label>.+) </examples/(?P<stem>[a-z0-9-]+)>$")
+
+
+def topic_entries(slug: str) -> list[tuple[str, str]]:
+    """(sidebar label, stem) of each entry of one topic page's toctree, in order."""
+    entries = toctree_entries((TOPICS / f"{slug}.md").read_text(encoding="utf-8"))
+    matches = [TITLED_ENTRY.match(entry) for entry in entries]
+    assert all(matches), entries
+    return [(match.group("label"), match.group("stem")) for match in matches if match]
+
+
 def topic_stems(slug: str) -> list[str]:
     """Tutorial stems of one topic page's toctree, in order."""
-    entries = toctree_entries((TOPICS / f"{slug}.md").read_text(encoding="utf-8"))
-    assert all(entry.startswith("/examples/") for entry in entries), entries
-    return [entry.removeprefix("/examples/") for entry in entries]
+    return [stem for _, stem in topic_entries(slug)]
+
+
+def notebook_title(stem: str) -> str:
+    """The level-one heading of an example notebook."""
+    cells = json.loads((EXAMPLES / f"{stem}.ipynb").read_text(encoding="utf-8"))["cells"]
+    for cell in cells:
+        if cell["cell_type"] == "markdown":
+            for line in "".join(cell["source"]).splitlines():
+                if line.startswith("# "):
+                    return line.removeprefix("# ")
+    raise AssertionError(f"{stem} has no title")
 
 
 def topic_title_and_scope(slug: str) -> tuple[str, str]:
@@ -114,3 +135,18 @@ def test_the_methods_table_covers_each_tutorial_in_topic_order() -> None:
     stems = [m.group(1) for m in re.finditer(r"^\| \[[^\]]+\]\(([a-z0-9-]+)\.ipynb\)", table, re.M)]
     expected = [s for slug in index_topic_order() for s in topic_stems(slug) if s != "plots"]
     assert stems == expected
+
+
+def test_each_sidebar_label_is_the_subject_half_of_the_title() -> None:
+    """The sidebar shows the subject of each title and leaves the method to the page.
+
+    A title reads "<subject>: <method>", or ends its subject with a question mark. Method names
+    such as "longitudinal TMLE" mean nothing to a reader who is still choosing a tutorial, and
+    they wrap most sidebar entries onto three lines.
+    """
+    for slug in index_topic_order():
+        for label, stem in topic_entries(slug):
+            title = notebook_title(stem)
+            question = re.match(r"^(.*?\?) ", title)
+            subject = question.group(1) if question else title.split(": ", 1)[0]
+            assert label == subject, (stem, label, subject)

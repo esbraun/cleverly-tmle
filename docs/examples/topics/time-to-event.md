@@ -1,7 +1,8 @@
-# Time until an event
+# Time until an event (churn, readmission)
 
-These tutorials estimate the risk of an event, such as readmission, by a given day, when some people
-leave follow-up and another event, such as death, can come first.
+These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
+another event, such as death, can come first. They follow hospital readmission, and a customer's
+churn works the same way.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |
@@ -13,7 +14,7 @@ leave follow-up and another event, such as death, can come first.
 :hidden:
 :maxdepth: 1
 
-/examples/longitudinal-survival
-/examples/discharge-to-readmission
-/examples/separable-effects
+Readmission when death can come first </examples/longitudinal-survival>
+Readmission by day 30, 60 and 90 </examples/discharge-to-readmission>
+A medicine with two effects on readmission and death </examples/separable-effects>
 ```

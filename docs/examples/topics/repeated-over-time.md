@@ -1,4 +1,4 @@
-# Treatments repeated over time
+# Repeated actions over time
 
 These tutorials follow a treatment that is decided again and again, such as a weekly offer or a
 monthly price, where earlier treatments change later behavior and later decisions.
@@ -19,9 +19,9 @@ monthly price, where earlier treatments change later behavior and later decision
 :hidden:
 :maxdepth: 1
 
-/examples/sequential-offers
-/examples/weekly-outcomes
-/examples/two-decision-rules
-/examples/model-based-over-time
-/examples/sequential-pricing
+Weekly offer policies </examples/sequential-offers>
+Weekly orders under repeated offers </examples/weekly-outcomes>
+Two decisions after discharge </examples/two-decision-rules>
+Three offers after discharge </examples/model-based-over-time>
+Monthly prices </examples/sequential-pricing>
 ```

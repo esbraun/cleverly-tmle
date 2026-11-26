@@ -1,4 +1,4 @@
-# Doses, amounts and policies
+# Amounts, discounts and policies
 
 These tutorials go beyond treated against untreated: policies that change who gets the treatment,
 more or less of a treatment, and a continuous dose such as a discount.
@@ -18,8 +18,8 @@ more or less of a treatment, and a continuous dose such as a discount.
 :hidden:
 :maxdepth: 1
 
-/examples/interventions
-/examples/schedules-and-intensity
-/examples/msm-projections
-/examples/dose-response
+Three offer policies </examples/interventions>
+More contacts and more service time </examples/schedules-and-intensity>
+A trend across three contact schedules </examples/msm-projections>
+Renewal discounts </examples/dose-response>
 ```
