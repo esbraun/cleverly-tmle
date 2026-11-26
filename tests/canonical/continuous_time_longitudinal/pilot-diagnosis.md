@@ -539,9 +539,11 @@ The row-level pass reads each row at its own 400-draw point values. At the decla
 other checks read: the calibration pair passes at target with 0.995, the plug-in control fires
 with probability 1.000, a shrunk-SE control leaves the band with 0.9999996, and no cell predicts
 a failure above its bound. `day_cf`'s calibration row passes with plug-in probability 0.980 at
-3,200 (SE ratio 0.987, coverage 0.938). `cont_cf`'s passes with 0.603 (SE ratio 0.965, coverage
-0.943), so its pilot extends to 800 draws before the declaration, and `pilot_refusals()` asks for
-that extension alone.
+3,200 (SE ratio 0.987, coverage 0.938). At 400 draws `cont_cf`'s passed with 0.603 (SE ratio
+0.965, coverage 0.943), so its pilot was extended to 800 draws before the declaration. At 800 draws
+it passes with 0.992 (SE ratio 0.992, coverage 0.948), so the 400-draw reading was chance, no
+calibration row stays below 0.90, and `pilot_refusals()` returns no refusal. The extension leaves
+the exposed list and the remainder pass of 0.988 unchanged.
 
 ## Exposed rows and their route (2026-11-25)
 
