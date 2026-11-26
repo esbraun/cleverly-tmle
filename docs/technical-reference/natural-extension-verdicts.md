@@ -1,7 +1,10 @@
 # Natural-extension verdicts
 
-This page records the source audit of forty-two compositions that the package refused or did not
-implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
+This page is a dated record. It holds the source audit of the compositions that the package refused
+or did not implement when the audit ran, and it gives no verdict on a composition added since. The
+live index of what the package refuses today is [scope and refusals](scope-and-refusals.md).
+
+The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
 part qualifies when each step is a standard step and no source records an objection. An objection
 is a source that records a step as open or as a defect. A step that needs a new kind of limit
 theorem is an objection too.
@@ -13,7 +16,7 @@ and its registered study. The verdict column marks each part that ships now.
 The roadmap held this review as one row until the review was complete.
 [The roadmap at commit `6a55f038`](https://github.com/esbraun/cleverly-tmle/blob/6a55f0388b703765eab79c78efec82474e67ab8e/docs/roadmap.md#x18-natural-extension-reviews)
 records the questions as they were asked. Each owning row now holds the full contract of its part.
-A row that delivers a part updates the last column of the table below.
+A row that delivers an audited part updates the verdict column of the table below.
 
 ## The terms
 
