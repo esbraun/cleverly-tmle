@@ -1,0 +1,6 @@
+cell,scenario,estimand,role,fits,coverage,coverage_ci_lower,coverage_ci_upper,se_ratio,se_ratio_ci_lower,se_ratio_ci_upper,meets_rule,reading,gated,passed
+calibration,day_cf,"ate_regimen[always vs never, cause1 @ t=20]",positive,3200,0.9475,0.9365034339953989,0.9571393204917343,0.9973506725526312,0.9652100741735216,1.0323160653180958,True,rule,True,True
+calibration,cont_cf,"ate_regimen[always vs never, cause1 @ t=20]",positive,3199,0.9534229446702095,0.9429735990321289,0.9624950525988023,1.0273003779989514,0.9955636127531197,1.060464762042505,True,rule,True,True
+shrunk_se,day_cf,"ate_regimen[always vs never, cause1 @ t=20]",control,3200,0.9075,0.8935361362891128,0.9202336336593548,0.8477480716697366,0.8200720889510186,0.8772548787492512,False,below the band,True,True
+shrunk_se,cont_cf,"ate_regimen[always vs never, cause1 @ t=20]",control,3199,0.9146608315098468,0.9011537493122757,0.9269149487311443,0.8732053212991088,0.8460996555620162,0.9012817356059923,False,below the band,True,True
+sparse_calibration,day_cf,"ate_regimen[always vs never, cause2 @ t=10]",reported,3200,0.949375,0.9385480742110609,0.9588385236637595,0.999222898789534,0.9678670888337559,1.0316317484815023,True,rule,False,True

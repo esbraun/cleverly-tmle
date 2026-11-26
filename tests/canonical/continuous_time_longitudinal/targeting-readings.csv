@@ -1,0 +1,7 @@
+scenario,fits,mean_steps,converged_share,mean_bounded_share,mean_jump_bound_share,mean_visit_bound_share,largest_cap,median_seconds,fewest_followers,largest_past_cap_share,largest_variance_rel_sd
+cont_cf,3199,91.38855892466395,0.9978118161925602,2.7734176540033124e-05,0.0,0.0,6.0,140.5637184110019,49.0,0.1776787070035202,0.6584383030164338
+day_cf,3200,138.7228125,0.998125,0.00011500873635704718,0.0,0.0,6.0,21.025044219500117,54.0,0.17341400387286976,0.70242824207628
+mechanism_correct,2400,,,,,,,6.031427706500381,,,
+outcome_correct,800,,,,,,,12.779127772000095,,,
+both_wrong,800,,,,,,,2.774149918500143,,,
+ltmle_daily,400,,,,,,,74.63097391200017,,,
