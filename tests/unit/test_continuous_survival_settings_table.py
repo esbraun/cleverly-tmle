@@ -2,7 +2,7 @@
 
 ``## Settings`` lists every argument of :class:`~cleverly.survival.ContinuousSurvivalTMLE`
 once, with its default, where a ``CausalStudy`` route takes it from, and whether a value other
-than the default can move the support label. The first two columns are read from the signature,
+whether the support label reads it as configuration. The first two columns are read from the signature,
 the route column from :func:`cleverly.survival.data.continuous_kwargs` and the keywords
 ``CausalStudy`` passes from the estimand, and the label column from
 :data:`cleverly.survival.result.MEASURED_DEFAULTS` and the other inputs of
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -28,15 +29,15 @@ PAGE = ROOT / "docs" / "technical-reference" / "continuous-time-survival.md"
 HEADING = "## Settings"
 
 #: The arguments that reach the label through an input of ``continuous_survival_support`` other
-#: than ``settings``: the default nuisances, ``cross_fitted``, the cause count, the restricted
-#: horizons, and the event share at each target time.
+#: than ``settings``: the default nuisances, ``cross_fitted``, the restricted horizons, and the
+#: event share at each target time.  ``causes`` only labels the observed codes, every one of
+#: which must be named, so the cause count the label reads does not move with it.
 OTHER_LABEL_INPUTS = frozenset(
     {
         "hazard_library",
         "censoring_library",
         "treatment_learner",
         "cross_fit",
-        "causes",
         "restricted_horizons",
         "horizons",
     }
@@ -68,6 +69,36 @@ def _estimand_keywords() -> set[str]:
     raise AssertionError("CausalStudy._continuous_engine builds no ContinuousSurvivalTMLE")
 
 
+#: The inputs of ``continuous_survival_support``.  A new input may read a new argument, so it
+#: fails here until the table and :data:`OTHER_LABEL_INPUTS` account for it.
+SUPPORT_INPUTS = frozenset(
+    {
+        "scale",
+        "event_share",
+        "n",
+        "causes",
+        "cross_fitted",
+        "default_nuisances",
+        "settings",
+        "restricted",
+        "restricted_horizons",
+        "variance_rel_sd",
+        "past_last_time",
+        "jump_bound_pairs",
+    }
+)
+
+
+def _optional_keywords() -> set[str]:
+    """The keywords ``continuous_kwargs`` passes only when the method sets them, from its source."""
+    from cleverly.survival import data
+
+    source = inspect.getsource(data.continuous_kwargs)
+    match = re.search(r"optional = \{.*?\n    \}", source, re.S)
+    assert match is not None, "continuous_kwargs builds no optional mapping"
+    return set(re.findall(r'\("(\w+)", \w+\.\w+\)', match.group(0)))
+
+
 def _method_keywords() -> set[str]:
     """The keywords ``continuous_kwargs`` reads from a method, ``norm`` and ``variance`` included.
 
@@ -76,7 +107,9 @@ def _method_keywords() -> set[str]:
     method = TMLEMethod(
         targeting=Targeting(norm="variance"), inference=Inference(variance="influence_curve")
     )
-    return set(continuous_kwargs(method))
+    keywords = set(continuous_kwargs(method))
+    assert _optional_keywords() <= keywords, "a new optional keyword needs a value set here"
+    return keywords
 
 
 def expected_rows() -> list[list[str]]:
@@ -126,6 +159,10 @@ def test_each_measured_default_moves_the_label() -> None:
         ).label
         == "experimental"
     )
+
+
+def test_the_label_inputs_are_known() -> None:
+    assert set(inspect.signature(continuous_survival_support).parameters) == SUPPORT_INPUTS
 
 
 def test_the_route_column_names_real_keywords() -> None:

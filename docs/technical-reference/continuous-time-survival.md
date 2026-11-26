@@ -64,13 +64,15 @@ compare only over the same risk sets; a one-member library may hold a `Stratifie
 
 On separated data, such as a cause with no events in one arm or a covariate that orders the event
 times, the partial likelihood rises toward a limit it never reaches. `CoxHazard` then stops along
-its Newton path where the Breslow sums still hold full precision, sets `monotone_likelihood_` and
-emits a `ConvergenceWarning` that names the coefficients that may be infinite. That fit is not a
-maximum-likelihood estimate: the hazards the separating direction sends toward zero or infinity
-are effectively at their limit, and the usual cause is a positivity problem in the data. A positive
-`penalty` gives the likelihood a finite maximum, and a `StratifiedNelsonAalen` on a separating
-discrete column fits the limit exactly. The warning does not change the support label, which reads
-the configuration, not the fit; a member with a non-finite cross-validated loss cannot be selected.
+its Newton path where the Breslow sums still hold full precision. When the infinite-coefficient
+test of R's `survival::coxph` detects the case, a heuristic that a small separated sample can pass,
+the fit sets `monotone_likelihood_` and emits a `ConvergenceWarning` that names the coefficients
+that may be infinite. That fit is not a maximum-likelihood estimate: the hazards the separating
+direction sends toward zero or infinity are effectively at their limit. A positive `penalty` gives
+the likelihood a finite maximum, and a `StratifiedNelsonAalen` on a separating discrete column fits
+the limit exactly. Neither the warning nor `monotone_likelihood_` is an input of the support label,
+though the event shares, the influence curve's sparsity and the jump bound it does read come from
+the fit. A member with a non-finite cross-validated loss cannot be selected.
 `tests/unit/test_continuous_survival.py` checks the stopping point and the warning
 (`test_a_separated_fit_stops_inside_the_resolved_range_and_says_why`), the finite penalized maximum
 and a regular fit with no warning.
@@ -459,7 +461,7 @@ of the nuisances plus one walk per floor. A simulated common-cause surface costs
 other than the anchor, so a 3 by 3 grid costs 8 refits. At n = 4,000 a cross-fitted default fit takes 60 to 120 s
 (`tests/studies/continuous_survival.py`), and the curve holds one extra copy of the initial hazard
 jumps and the weight product, about 600 MB, while it runs. `planned_refits()` counts a refute's
-refits, bootstrap refits included, before they run, and `refute(result, sample_limit=m)` refits on
+refits before they run, which leave out the fit's own bootstrap, and `refute(result, sample_limit=m)` refits on
 a random sample of `m` units; [refutation operations](validation-methods.md#refutation-operations)
 states both rules ("Counting the refits before they run" and "Refuting a sample of the units").
 
@@ -624,8 +626,11 @@ lower $M$ but changes the analysis, so the engine never does it.
 
 ## Settings
 
-Every argument of `ContinuousSurvivalTMLE`, its default, where a `CausalStudy` fit takes it from,
-and whether a value other than the default can move the support label. A study fit reads the
+The table lists every argument of `ContinuousSurvivalTMLE` with its default, where a `CausalStudy`
+fit takes it from, and whether the support label reads it as part of the configuration. The label
+also reads the fit itself (the event shares, the influence curve's sparsity and the jump bound),
+which `random_state` moves through the folds. `simultaneous` and `n_bootstrap` add a band and
+bootstrap intervals with labels of their own. A study fit reads the
 target times, restricted horizons and arms from the estimand, and the rest from the method through
 `continuous_kwargs`. `causes` and `tilt` are reachable only on the class. The label reads a
 supported configuration as the registered studies measured it: the settings of
@@ -633,13 +638,13 @@ supported configuration as the registered studies measured it: the settings of
 the conditions [Evidence](#evidence) states. `tests/unit/test_continuous_survival_settings_table.py`
 rebuilds the first four columns from the code.
 
-| setting | default | on a study fit, from | can move the label | what it sets |
+| setting | default | on a study fit, from | read by the label | what it sets |
 | --- | --- | --- | --- | --- |
 | `horizons` | required | the estimand | yes | the target times; the label reads the share of events by each one |
 | `restricted_horizons` | `()` | the estimand | yes | the restriction times of the restricted means; more than one reads experimental |
 | `arms` | `None` | the estimand | no | the label of each of the two treatment levels |
 | `reference` | `None` | the estimand | no | the comparison arm of the contrasts |
-| `causes` | `None` | none | yes | the label of each event code; the label reads the cause count |
+| `causes` | `None` | none | no | the label of each event code; every observed code must be named, so the cause count the label reads stays the observed one |
 | `cross_fit` | `True` | the method | yes | out-of-fold nuisances; an in-sample fit is supported only in the variance study's in-sample cell |
 | `n_folds` | `10` | the method | yes | the cross-fitting folds |
 | `learner_folds` | `5` | the method | yes | the folds of each nuisance's model selection |
@@ -687,11 +692,12 @@ rebuilds the first four columns from the code.
 | a hazard library of more than one member with a member that is not a `CoxHazard` | the cross-validated partial likelihood compares members over the same risk sets, which a stratified or nonparametric learner does not share ([X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)) |
 | a hazard library every member of which has a non-finite cross-validated loss | each member's coefficients run to a monotone-likelihood boundary on some training fold; add a penalized member |
 
-The rows on an arm's first event of a cause, on an arm's follow-up and on an infinite jump read the
-drawn data, not the request, so they raise `DataError`, and a repeated-sampling study records such
+The rows on an arm's first event of a cause, on an arm's follow-up, on an infinite jump and on a
+library with no finite cross-validated loss read the drawn data, not the request, so they raise
+`DataError`, and a repeated-sampling study records such
 a draw as a lost replicate. The withheld bootstrap warns and returns the fit, and `n_bootstrap=` or
 `bootstrap_interval=` set wrongly raises `ValueError` at construction. The other rows raise
-`CapabilityError`.
+`CapabilityError`; a mixed hazard library does so at fit, when its selection runs.
 
 ## Evidence
 
