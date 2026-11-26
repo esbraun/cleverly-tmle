@@ -4,9 +4,9 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Twenty-four examples use simulated data, so each page can compare its estimate with the
-true answer. The twenty-fifth uses real birth records. If you are new to causal inference, read
-[one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
+manager. Every example but one uses simulated data, so each page can compare its estimate with the
+true answer. The [TWINS example](twins-causal-inference.ipynb) uses real birth records. If you
+are new to causal inference, read [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
 tables and row names that every page prints.
 
@@ -135,7 +135,7 @@ correlated. Scores are in simulated units.
 
 ## The retailer program
 
-Four examples follow a subscription retailer. On the [weekly offer
+Several examples follow a subscription retailer. On the [weekly offer
 policies](sequential-offers.ipynb) page, the retailer sends each customer one offer in each of three
 weeks: nothing, a 15% discount code, or a free-shipping code. Its system draws each offer at random,
 with logged probabilities that depend on the customer's engagement that week, so the chance of each
