@@ -1895,10 +1895,11 @@ Kish size of 136 with an SE ratio of 0.96. This item has five parts.
   The X93 run publishes the coverage split by the current label (`pair-support.csv`). The
   pair's influence-curve Kish size (`diagnostics.influence()`) is one candidate diagnostic.
   The dose-response tutorial's probe (`reviews/notebook-review/probes/dose-response/`) found a
-  case neither fitted Kish size sees: at n = 4,000, intervals at a dose the treatment mechanism almost
-  never gives some covariate groups covered 0.76 to 0.82 with both Kish sizes well above the floor,
-  because the fitted density smooths over the rare large weights; the true nuisances still covered
-  only 0.93 there, so the sample is pre-asymptotic at that dose.
+  case neither fitted Kish size flags: at n = 4,000, intervals at a dose the treatment mechanism
+  rarely gives some covariate groups covered 0.76 to 0.82 while the clever-covariate Kish size
+  stayed far above the floor (median 250 to 330) and the influence-curve Kish size near 70. The
+  true nuisances covered 0.93 there (SE ratio 0.81), so the sample is pre-asymptotic at that dose;
+  with fitted nuisances the SE ratio fell to 0.60 to 0.69.
 - (b) Clustered rows. `DoseResponseTMLE` refuses `id=`. Its intervals and band would need the
   package's few-cluster rule: the status `few_cluster_plugin` and a $t$ reference below 40
   clusters, which the multiplier band does not take.

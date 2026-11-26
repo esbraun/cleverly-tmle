@@ -10,7 +10,7 @@ Each arm refits the page's configuration (sweep.py) on the same seeds with one c
   hazard enters the covariates linearly with one slope across all bins.
 
 The page's own arm is sweep.csv. Run:
-python reviews/notebook-review/probes/dose-response/cause.py <arm> 20000 20200 4
+python reviews/notebook-review/probes/dose-response/cause.py <arm> 20000 20160 4
 Writes cause-<arm>.csv beside this script; summarize_cause.py compares the arms with sweep.csv (cause-summary.log).
 """
 

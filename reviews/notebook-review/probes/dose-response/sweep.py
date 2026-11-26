@@ -13,9 +13,10 @@ over a 1,000,000-row covariate draw (seed 20261126), not a value the library com
 
 The truth does not depend on the engine, so one truth.csv serves both engines.
 
-Run: python reviews/notebook-review/probes/dose-response/sweep.py 20000 20200 4
+Run at cleverly-tmle e671bb7c (cleverly 0.2.8) on four cores:
+python reviews/notebook-review/probes/dose-response/sweep.py 20000 20200 4
      JITTER=1.0 python reviews/notebook-review/probes/dose-response/sweep.py 20000 20200 4
-Writes sweep.csv (one row per draw and pair, resumable) and truth.csv beside this script; then
+Writes sweep.csv, or sweep-jitter1.csv with JITTER=1.0 (one row per draw and pair, resumable), and truth.csv beside this script; then
 run summarize.py.
 """
 

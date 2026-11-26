@@ -6,8 +6,8 @@ coverage, the share of draws below the support floor, and the medians of the cle
 and influence-curve Kish sizes; then the joint coverage of the band and the share of draws on
 which each relation that the page narrates about its own draw holds.
 
-Run: python reviews/notebook-review/probes/dose-response/summarize.py
-(JITTER=1.0 in the environment reads sweep-jitter1.csv, as sweep.py does.)
+Run: python reviews/notebook-review/probes/dose-response/summarize.py > summary.log
+     JITTER=1.0 python reviews/notebook-review/probes/dose-response/summarize.py > summary-jitter1.log
 """
 
 from pathlib import Path

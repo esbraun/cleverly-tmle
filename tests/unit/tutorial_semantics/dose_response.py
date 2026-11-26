@@ -38,6 +38,8 @@ UNPRINTED_DECIMALS = {
     "0.800": f"coverage, flexible discount model, dose 5, bandwidth 5: {_PROBE}/cause-summary.log",
     "0.934": f"coverage with the true models, dose 5, bandwidth 2.5: {_PROBE}/oracle_onestep.log",
     "0.932": f"coverage with the true models, dose 5, bandwidth 5: {_PROBE}/oracle_onestep.log",
+    "0.949": f"coverage with the true models, dose 5, bandwidth 5, redrawn engine: "
+    f"{_PROBE}/oracle_onestep-jitter1.log",
 }
 
 
@@ -76,6 +78,19 @@ def _check_probes() -> None:
     rows = [line.split() for line in flexible if line.strip().endswith(tuple("0123456789"))]
     assert rows[0][:2] == ["2.5", "5.0"] and rows[0][-1] == "0.881"
     assert rows[6][:2] == ["5.0", "5.0"] and rows[6][-1] == "0.800"
+
+    # "a correctly specified outcome model or a finer discount model left the coverage unchanged"
+    def dose_5(arm: str) -> list[float]:
+        block = arms.split(f"arm: {arm}\n")[1].splitlines()
+        lines = [line.split() for line in block if line.strip().endswith(tuple("0123456789"))]
+        return [float(lines[0][-1]), float(lines[6][-1])]
+
+    for arm in ("true_outcome", "more_bins"):
+        assert np.allclose(dose_5(arm), dose_5("page"), atol=0.02)
+    sweep = (ROOT / _PROBE / "sweep.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("JITTER", "0.8")' in sweep, "the earlier engine's jitter"
+    redrawn_oracle = (ROOT / _PROBE / "oracle_onestep-jitter1.log").read_text(encoding="utf-8")
+    assert "h=5 dose=5: coverage 0.949," in redrawn_oracle
     oracle = (ROOT / _PROBE / "oracle_onestep.log").read_text(encoding="utf-8")
     assert "h=2.5 dose=5: coverage 0.934," in oracle and "h=5 dose=5: coverage 0.932," in oracle
 

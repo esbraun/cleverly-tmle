@@ -3,7 +3,7 @@
 D = w(A) {Y - Q(A, W)} / g(A | W) + int_D w(a) Q(a, W) da - theta_h(a0), with the true outcome
 regression Q and the true conditional density g of the page's generator: the engine's score is
 N(m(W), s^2) with s the jitter SD (0.8, or 1.0 with JITTER=1.0) and the discount is 40 / (1 + exp(-score)), so
-g(a | W) = phi((logit(a / 40) - m(W)) / 0.8) / 0.8 * 40 / (a (40 - a)).
+g(a | W) = phi((logit(a / 40) - m(W)) / s) / s * 40 / (a (40 - a)).
 Monte Carlo over 2,000,000 rows (seed 20261127); prints SD(D) / sqrt(4,000) per pair, the SE a
 fit of 4,000 rows should report, beside the sweep's mean reported SE and the SD of its estimates.
 
