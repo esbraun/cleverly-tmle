@@ -130,7 +130,7 @@ lists every refusal. Without a known finite support, fit in sample with
 one fold balances nothing.
 
 [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) runs an `ATE` from start to
-finish, and [Gain over current practice](../examples/population-impact.ipynb) adds counterfactual
+finish and fits the `ATT`, `ATC`, and both counterfactual means under "Go deeper", and [Gain over current practice](../examples/population-impact.ipynb) adds counterfactual
 means, risk and odds ratios, and the population-impact estimands.
 
 ## The trial's effect with external data

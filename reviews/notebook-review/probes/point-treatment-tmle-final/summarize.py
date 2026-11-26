@@ -1,5 +1,11 @@
 """Summarize ``sweep.csv`` into the repeated-draw numbers the notebook quotes.
 
+The decision rule for calling a miss on the page draw chance, fixed before the re-run
+(cleverly-beta-plans ``rows/X118/a-plan.md``, rev 2 item 3): at least 185 of 200 draws cover
+(a one-sided exact binomial test at 5% against 0.95), and the absolute mean bias is at most 0.25
+times the row's mean standard error.  A multiplier ("three times") is written only if it holds on
+at least 180 of 200 draws.
+
 Usage: ``python summarize.py``.  Output: ``summary.log``.  The ATE truth is the package value
 ``navigation_data(...)[1]["ate"]``, which ``truth.py`` confirms independently.
 """
@@ -22,6 +28,8 @@ def share(mask) -> str:
 
 sd = rows["psi"].std(ddof=1)
 print(f"seeds {rows['seed'].min()} to {rows['seed'].max()}, {n} draws")
+for line in (HERE / "sweep.log").read_text(encoding="utf-8").splitlines()[1:3]:
+    print(line)
 print()
 print("Step 6, the headline fit")
 print(f"  bias {rows['psi'].mean() - TRUTH:+.4f} (MC SE {sd / np.sqrt(n):.4f})")
@@ -102,3 +110,54 @@ print(
     f" {1 - rows['nu2'].mean() / LAW_NU2:.3f} in nu^2,"
     f" {1 - np.sqrt(rows['nu2'].mean() / LAW_NU2):.3f} in the bias scale"
 )
+print()
+print("Who gains: the conditional effects and the counterfactual means, on the flexible fit")
+TRUTHS = {"att": 0.1773421396657229, "atc": 0.15052866627757527}
+TRUTHS |= {"ey0": 0.4044277293202797, "ey1": 0.5672857669774632}
+for label, target in TRUTHS.items():
+    psi = rows[f"{label}_psi"]
+    bias = psi.mean() - target
+    mc = psi.std(ddof=1) / np.sqrt(n)
+    mean_se = rows[f"{label}_se"].mean()
+    count = int(rows[f"{label}_covers"].sum())
+    chance = count >= 185 and abs(bias) <= 0.25 * mean_se
+    print(
+        f"  {label:4s} coverage {share(rows[f'{label}_covers'])}; bias {bias:+.4f} (MC SE {mc:.4f});"
+        f" mean SE {mean_se:.4f}; |bias| / mean SE {abs(bias) / mean_se:.2f};"
+        f" SE/SD {mean_se / psi.std(ddof=1):.2f}; rule: {'chance' if chance else 'not chance'}"
+    )
+print(f"  ATT estimate above ATC estimate: {share(rows['att_psi'] > rows['atc_psi'])}")
+print(f"  ATT and ATC intervals do not overlap: {share(rows['att_ci_low'] > rows['atc_ci_high'])}")
+print(
+    f"  ey0 and ey1 both below their truths: {share((rows['ey0_psi'] < TRUTHS['ey0']) & (rows['ey1_psi'] < TRUTHS['ey1']))}"
+)
+for label in ("atc", "att"):
+    print(
+        f"  {label} df 5% / 50% / 95%: {rows[f'{label}_df'].quantile([0.05, 0.5, 0.95]).round(0).tolist()};"
+        f" kish 5% / 50% / 95%: {rows[f'{label}_kish'].quantile([0.05, 0.5, 0.95]).round(0).tolist()}"
+    )
+atc_misses = ~rows["atc_covers"]
+print(
+    f"  atc misses with df below 200: {int((atc_misses & (rows['atc_df'] < 200)).sum())} of {int(atc_misses.sum())}"
+)
+print()
+print("Step 10, the four benchmarks and the tipping point")
+names = ("discharge_risk", "prior_utilization", "medication_burden", "age")
+for name in names:
+    print(
+        f"  {name:18s} cf_d 5% / 50% / 95%: {rows[f'bench_{name}_cf_d'].quantile([0.05, 0.5, 0.95]).round(3).tolist()};"
+        f" cf_y 50%: {rows[f'bench_{name}_cf_y'].median():.3f}"
+    )
+print(
+    f"  largest cf_d is prior_utilization's: {share(rows['max_bench_name'] == 'prior_utilization')}"
+)
+ratio = rows["tipping_cf_d"] / rows["max_bench_cf_d"]
+print(
+    f"  tipping cf_d 5% / 50% / 95%: {rows['tipping_cf_d'].quantile([0.05, 0.5, 0.95]).round(3).tolist()}"
+)
+print(
+    f"  tipping / largest benchmarked cf_d 5% / 50% / 95%: {ratio.quantile([0.05, 0.5, 0.95]).round(2).tolist()}"
+)
+print(f"  tipping above the largest benchmarked cf_d: {share(ratio > 1)}")
+print(f"  tipping above three times the largest benchmarked cf_d: {share(ratio > 3)}")
+print(f"  discharge_risk bounds' 95% limits exclude zero: {share(rows['strong_limit_lower'] > 0)}")
