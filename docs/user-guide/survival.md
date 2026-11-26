@@ -658,7 +658,10 @@ also needs two conditions no data can check unless the two parts were given apar
 each part reaches the other event only through the event it acts on, and no unmeasured cause of
 both events exists beyond the covariates you adjust for.
 [Separable effects](../technical-reference/longitudinal-tmle.md#separable-effects) gives the exact
-estimand and what a separable fit refuses.
+estimand and what a separable fit refuses. The
+[separable effects tutorial](../examples/separable-effects.ipynb) works a full analysis: a water
+pill whose fluid-clearing part keeps heart-failure patients out of hospital while its
+potassium-lowering part raises the risk of death.
 
 ## Keep the risk curve from dipping
 

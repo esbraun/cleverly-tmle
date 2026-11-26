@@ -699,6 +699,18 @@ print(result.bootstrap_band.critical_value)
 The example uses 20 resamples to run fast. Use at least 199 in an analysis. With `B` resamples a
 BCa limit is an order statistic of the draws, so a small `B` gives a coarse limit.
 
+To see whether the resampled estimates look normal, plot them:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.bootstrap(result, name="ate_regimen[never vs always]")
+```
+
+The histogram shows the 20 resampled differences, the curve is a normal density with their mean
+and spread for comparison, and the vertical lines mark the BCa limits. When the histogram is
+lopsided, the percentile and BCa limits move apart, as "Percentile or BCa" explains.
+
 **Percentile or BCa.** The percentile interval takes the 2.5% and 97.5% quantiles of the draws. It
 assumes the draws are symmetric about the estimate. The BCa interval shifts both limits by a bias
 correction, from the share of draws below the estimate, and by an acceleration, from the skew of
@@ -732,6 +744,17 @@ A cross-fitted fit, a hazard-model fit and an isotonic fit warn too, but the mes
 advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and the roadmap owner
 `X20-bootstrap` in the roadmap holds that result.
 
+To see how few rows carry the standard error, plot it:
+
+```python
+fig = cleverly.plotting.influence(result, name="ate_regimen[never vs always]")
+```
+
+The plot ranks the rows by how much each one moves the estimate and draws the share of the
+variance that the top rows carry. A curve on the diagonal means every row counts equally, and a
+steep rise means a few rows carry the interval. `cleverly.plotting.notes(fig)` gives the Kish
+count, 40 of 300 rows here.
+
 **Cost.** Each resample refits every nuisance. A fit of 64,000 rows and five decisions takes about
 0.2 seconds for each resample on the fast path, a development measurement that no committed
 artifact records yet. The long-horizon studies declare `B = 199`, so one such fit costs about 40 seconds of
@@ -750,7 +773,8 @@ The `SDR` bootstrap band, the cross-fitted bootstrap and an MSM fit stay `experi
 ## Repeated outcomes
 
 A repeated outcome is measured at every node and can return to zero. Declare it with
-`Repeated([...])` as the `outcome`. The fit reports the mean of the outcome at every horizon.
+`Repeated([...])` as the `outcome`. At every horizon the fit reports each plan's mean outcome, or
+the difference between plans, as this example does.
 
 ```python
 from cleverly import RegimeContrast, Repeated
@@ -776,9 +800,21 @@ means = study.estimate(
 print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
+To draw the same rows over time, pass the fit to `curve`:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.curve(means)
+```
+
+The figure shows the difference at each horizon with its interval and simultaneous band. This fit
+estimates no plan's own mean, so no plan's curve is drawn; a `RegimeMean` fit draws one curve for
+each plan.
+
 | item | value |
 | --- | --- |
-| result keys | `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]` at every horizon `h` |
+| result keys | `ate_regimen[d vs ref @ t=h]` at every horizon `h` from `RegimeContrast`, as here, and `ey_regimen[d @ t=h]` from `RegimeMean` |
 | `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
 | survival view | not available. A repeated outcome has no absorbing event |
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
@@ -797,6 +833,11 @@ within six millionths.
 
 The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
 does the same for `IPSI`. It has no comparator.
+
+The [weekly orders tutorial](../examples/weekly-outcomes.ipynb) works a repeated outcome from start
+to finish. It estimates the weekly share of customers ordering under three plans for a
+free-shipping code and refits that curve with the sequentially doubly robust estimator. It also
+compares doubled odds of a code with the current way of choosing who gets one.
 
 ## Fit the sequentially doubly robust estimator
 
@@ -838,7 +879,9 @@ Give `pseudo_learner` a learner of a real-valued target. A transform can leave $
 level can leave the outcome range too. The fit then warns with `ParameterSpaceWarning`, and
 `ratio()` refuses a scale that is undefined at that level.
 [The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
-states the contract and what differs from the default method.
+states the contract and what differs from the default method. The
+[weekly orders tutorial](../examples/weekly-outcomes.ipynb) fits it beside `LTMLE` on a repeated
+outcome.
 
 ## Report the sequential baselines
 
@@ -982,7 +1025,9 @@ non-rejection does not confirm the model.
 The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
 static level, a contrast and `check_model` when a feature reads a time-varying covariate.
 [Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
-each refusal and its alternative.
+each refusal and its alternative. The
+[three offers after discharge tutorial](../examples/model-based-over-time.ipynb) fits blip models
+to ask how much each single offer adds.
 
 ## Simulate the parametric g-formula
 
@@ -1039,7 +1084,9 @@ is a fixed dose, and a `DynamicRegimen` rule with `rule_kind="known"` there sets
 simulated history. The result then states its model reliance and reports a support diagnostic. No
 published analytic variance exists for the simulation form, so the interval is a natural
 extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
-estimator, the argument, the settings, the refusals and the validation.
+estimator, the argument, the settings, the refusals and the validation. The
+[three offers after discharge tutorial](../examples/model-based-over-time.ipynb) uses it for its
+main answer and compares it with structural blips.
 
 ## Estimate an incremental intervention over time
 
@@ -1112,7 +1159,8 @@ keeps their treatment with chance `delta` at each time point, and with `delta` a
 untreated person stays untreated with chance `1 / delta`. Declare it as a node, as in
 `DynamicRegimen("rr 0.5", (RiskRatioTilt(0.5),) * 2)`, and fit it with the default method.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time)
-states the contract.
+states the contract. The [weekly orders tutorial](../examples/weekly-outcomes.ipynb) doubles each
+customer's odds of a free-shipping code over three weeks.
 
 ## Summarize several plans with a trend line
 
@@ -1225,6 +1273,15 @@ repeated = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="n
 assert repeated.n_repeats == 3
 assert len({draw.seed for draw in repeated.repeats}) == 3
 print(repeated.repeat_spread())
+```
+
+To see how much the split moves the answer, plot one point for each draw against the reported
+estimate and its interval:
+
+```python
+import cleverly.plotting
+
+fig = cleverly.plotting.repeats(repeated)
 ```
 
 | task | how |
@@ -1520,6 +1577,19 @@ and other fits print their numbers without one.
 The "Longitudinal refutation" part of
 [refutation operations](../technical-reference/validation-methods.md#refutation-operations) lists
 every test.
+
+Each test refits the whole analysis, about 20 times by default, so on a long panel a refutation
+takes time. Pass the key of the estimate you test as `estimand=`, such as
+`estimand="ate_regimen[never vs always]"`, because the default `"ate"` is not a longitudinal key.
+`planned_refits(estimand=...)` then counts the refits before you run them, and `sample_limit=` runs
+the tests on a random sample of people. On the tests with long draw counts,
+`checkpoint=RefutationCheckpoint(folder)` saves each draw as it finishes, so a stopped run resumes.
+[Try to break the result](refutation.md) shows all three under "Go deeper".
+
+To check that the weights balanced the covariates at each time point, among people with the same
+earlier treatments, call `covariate_balance(result)` from `cleverly.sensitivity`. The section
+"Balance when treatment repeats over time" of [Check a fitted result](assessment.md) shows it on
+a fit to data from the same simulator as the first example here.
 
 `result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
 the first node, as [Sensitivity analysis](sensitivity.md) shows. An
