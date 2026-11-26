@@ -5633,6 +5633,9 @@ class _SequentialEstimator:
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
     _allow_set_dose: ClassVar[bool] = False
+    #: Whether the fit evaluates a known rule on simulated histories, which gives the rule its
+    #: own support kind (:func:`~cleverly._support.regimen_kinds`).
+    _simulated_rules: ClassVar[bool] = False
     #: Whether the fit reads a density ratio at a continuous node, which R-b4 of X40 guards.
     _reads_density_ratio: ClassVar[bool] = True
     #: Why ``ratio=None`` resolves to the density route on this estimator whatever the data,
@@ -6627,7 +6630,10 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 known_nodes=_known_nodes(prepared),
                 has_msm=self.msm is not None,
-                regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
+                regimen_kinds=(
+                    regimen_kinds(plans, simulated_rules=self._simulated_rules)
+                    | ({"separable"} if separable else set())
+                ),
                 tuned_cap=tuned_folds is not None,
                 # Every plan of one fit shares its first cause (``resolve_separable``).
                 separable_first=separable[0].first + 1 if separable else None,
@@ -11698,6 +11704,7 @@ class ParametricGFormula(_Baseline):
 
     _estimator: ClassVar[str] = "parametric_gformula"
     _allow_set_dose: ClassVar[bool] = True
+    _simulated_rules: ClassVar[bool] = True
     #: The simulation draws the natural dose from its fitted law and reads no ratio.
     _reads_density_ratio: ClassVar[bool] = False
     _density_only_ratio: ClassVar[str | None] = "this estimator reads the density route only"

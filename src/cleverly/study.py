@@ -75,7 +75,7 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
-from .inference.bootstrap import BootstrapBand, bootstrap_band
+from .inference.bootstrap import bootstrap_band
 from .inference.multiplier import (
     SimultaneousBands,
     band_member,
@@ -3738,8 +3738,7 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     Unlike a joint band, per-parameter draws stay correct under narrowing -- each estimand's
     resampling distribution is its own. What they must not do is outlive their parameter: a
     result narrowed to one arm would still hand out ``bootstrap.draws`` for the arms it
-    dropped, keyed by names it cannot itself index.  The replicate standard errors narrow
-    with them.
+    dropped, keyed by names it cannot itself index.
     """
     if bootstrap is None:
         return None
@@ -3752,24 +3751,22 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     )
 
 
-def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> BootstrapBand | None:
-    """The bootstrap sup-t band over the parameters this effect reports.
+def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> Any:
+    """The studentized bootstrap band over the parameters this effect reports.
 
-    The engine bands every row it builds, so a study that keeps the contrasts would otherwise
-    carry a band, and a critical value, over levels it does not report.  As for
-    :func:`_narrow_bands`, the band is recomputed rather than filtered: the same replicate
-    draws and replicate standard errors, over the reported members only, give the band the
-    engine would have built for that family.  A member is a row of the engine's own band, so
-    an estimate the engine left out, such as one with a boundary-node supplement, stays out.
-    Below two members no joint band is left.
+    The engine bands every estimate it computed, so a contrast identified from a fit that
+    also computed the plan means carried a band over rows it no longer reported, and
+    ``summary()`` counted them.  As for :func:`_narrow_bands`, the band is recomputed over the
+    retained members of the engine's family from the same replicate draws, replicate standard
+    errors and ``alpha``, which makes it the band the engine would have built for that family
+    alone.  Below two members there is no joint question left, and the engine builds none.
     """
-    band = result.bootstrap_band
-    if band is None or result.bootstrap is None:
-        return band
-    family = {name: retained[name] for name in band.bands if name in retained}
+    band = getattr(result, "bootstrap_band", None)
+    if band is None:
+        return None
+    family = {name: estimate for name, estimate in retained.items() if name in band.bands}
     if set(family) == set(band.bands):
         return band
-    # The engine builds no band when any row is a constant arm cell, so no retained row is one.
     if len(family) < 2:
         return None
     narrowed = bootstrap_band(
@@ -3778,7 +3775,6 @@ def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> Bootstra
         {name: estimate.plugin_std_error for name, estimate in family.items()},
         alpha=band.alpha,
     )
-    # No study measures a band over a narrowed family, as for the multiplier band.
     return replace(narrowed, support=combine_support([band.support, _NARROWED_BAND]))
 
 
