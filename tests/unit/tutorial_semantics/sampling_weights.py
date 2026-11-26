@@ -8,6 +8,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -175,6 +176,14 @@ def check(namespace: dict[str, Any]) -> None:
     joint = np.hypot(weighted.std_error, unweighted.std_error)
     assert (unweighted.psi - weighted.psi) / joint > 5.0
     assert figure_title(namespace["comparison_fig"]) == "Estimates and intervals"
+    # "the two correction steps give the same estimate to three decimals": the unweighted fit
+    # with the linear correction step of the weighted fit.
+    linear = (
+        namespace["CausalStudy"](frame, design=namespace["unweighted_design"])
+        .identify(namespace["ATE"](reference=0))
+        .estimate(method=replace(namespace["plain_method"], targeting=method.targeting))
+    )["ate"]
+    assert f"{linear.psi:.3f}" == f"{unweighted.psi:.3f}"
 
     # The groups: every row is experimental, each interval covers its own fit's target, and the
     # unweighted rows sit above the weighted ones in both groups.
@@ -237,14 +246,14 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # "sits at the top of the score side": the benchmark clips to 1.
     assert risk_record.cf_y == 1.0
     assert risk_bound.lower > 0.0 and age_bound.lower > risk_bound.lower
-    # The tipping weight-side strength exceeds the discharge-risk benchmark's.
-    assert namespace["tipping_cf_d"] > risk_record.cf_d
-    assert (
-        namespace["sensitivity"]
-        .omitted_confounding(cf_y=1.0, cf_d=namespace["tipping_cf_d"] + 0.01)
-        .ci_lower
-        <= 0.0
-    )
+    # The tipping weight-side strength exceeds the discharge-risk benchmark's, and the range of
+    # the estimate (the point bound, not a confidence limit) crosses zero there.
+    tipping = namespace["tipping_cf_d"]
+    sensitivity = namespace["sensitivity"]
+    assert tipping > risk_record.cf_d
+    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).lower > 0.0
+    assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 0.01).lower <= 0.0
+    assert f"{tipping:.2f}" == "0.15"
 
     refutation = namespace["refutation"]
     tests = {test.name: test for test in refutation.tests}
@@ -252,4 +261,16 @@ def check_refits(namespace: dict[str, Any]) -> None:
     for test in tests.values():
         assert test.passed is None
         assert test.original == pytest.approx(weighted.psi)
+    # The reading's reasons the verdicts are withheld: no study covers the noise column, and the
+    # studies of the other two do not cover an in-sample fit with these learners.
+    assert tests["random_common_cause"].evidence == "No study covers this test."
+    for name in ("placebo", "subset"):
+        assert "no out-of-fold predictions" in tests[name].evidence, tests[name].evidence
     assert abs(float(np.mean(tests["placebo"].values))) < 3 * weighted.std_error
+    # "the noise column does not move it"
+    noise = tests["random_common_cause"]
+    assert abs(float(np.mean(noise.values)) - weighted.psi) < 0.1 * weighted.std_error
+    # "the 70% refits spread about as much as the standard error predicts"
+    subset = tests["subset"]
+    expected = float(subset.expectation.rsplit("~", 1)[1])
+    assert 0.5 < float(np.std(subset.values, ddof=1)) / expected < 1.5
