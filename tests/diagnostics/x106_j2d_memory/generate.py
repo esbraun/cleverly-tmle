@@ -322,9 +322,17 @@ def extensions_table() -> str:
 # byte into ``rev9/`` or ``part_d/`` (see the module docstring), and :func:`accuracy_phrases`
 # returns the reference's sentences that quote it.
 
-#: The record kinds of ``part_d/fit.out``'s checked cells that ran with the default learner
+#: The record kind of ``part_d/fit.out``'s checked cells that ran with the default learner
 #: library, which the prediction does not count.
 GAP = "gap"
+
+#: The four continuous families the part D refit changed.
+REFITTED = (
+    "ltmle_continuous",
+    "sdr_continuous",
+    "ltmle_continuous_index",
+    "sdr_continuous_index",
+)
 
 _CELL = re.compile(
     r"^(?P<kind>\w+)\s+(?P<family>\w+)\s+(?P<n>\d+)\s+(?P<ratio>[\d.]+)\s+(?P<case>est=.*)$"
@@ -361,14 +369,26 @@ def _two(value: float) -> str:
 
 
 def accuracy_readings() -> dict[str, object]:
-    """Every number the accuracy and range sections quote, read from the copied outputs."""
+    """The ranges the accuracy and range sections quote, read from the copied outputs.
+
+    The checked cells in the calibrated range are every kind but :data:`GAP`, less the path fits
+    at eight regimens.  That holds for the copied rows only, so ``in_range_cells`` is returned for
+    the test to pin.
+    """
     families, cells = _fit_summary(HERE / "part_d" / "fit.out")
     fitted = [float(row[key]) for row in families for key in ("low", "high")]
+    refitted = [
+        float(row[key]) for row in families if row["family"] in REFITTED for key in ("low", "high")
+    ]
     in_range = [c for c in cells if c["kind"] != GAP and not _excluded_extension(c)]
     low = min(in_range, key=lambda c: c["ratio"])
     high = max(in_range, key=lambda c: c["ratio"])
     gap = [c["ratio"] for c in cells if c["kind"] == GAP]
-    held_out = [c["ratio"] for c in cells if c["kind"] in ("bins_check", "dens_check")]
+    held_out = [
+        c["ratio"]
+        for c in cells
+        if c["kind"] in ("bins_check", "dens_check") and c["family"] in REFITTED
+    ]
     probes = [c["ratio"] for c in cells if c["kind"] == "rev10"]
     paths = {c["ratio"] for c in cells if _excluded_extension(c)}
 
@@ -441,6 +461,8 @@ def accuracy_readings() -> dict[str, object]:
     route = {"n": 2000, "T": 2, "R": 4, "folds": 1}
     return {
         "fitted": (min(fitted), max(fitted)),
+        "refitted": (min(refitted), max(refitted)),
+        "in_range_cells": in_range,
         "checked": (low, high),
         "paths": paths,
         "rss": max(rss),
@@ -494,7 +516,7 @@ def accuracy_phrases() -> tuple[str, ...]:
         f"the prediction reads {_two(parallel_low)} to {_two(parallel_high)} times the measured resident footprint",
         f"read {_two(gap_low)} to {_two(gap_high)} times the traced peak on {('eight' if gaps == 8 else str(gaps))} small cells",
         f"Without it the index families read up to {_two(r['no_ceiling']['ltmle_continuous_index'])} and {_two(r['no_ceiling']['sdr_continuous_index'])} at 20,000 units",
-        f"Fitted cells now read {_two(r['fitted'][0])} to {_two(r['fitted'][1])}, the held-out cells {_two(r['held_out'][0])} to {_two(r['held_out'][1])}, and their band cells {_two(r['part_d_band'][0])} to {_two(r['part_d_band'][1])}",
+        f"Fitted cells now read {_two(r['refitted'][0])} to {_two(r['refitted'][1])}, the held-out cells {_two(r['held_out'][0])} to {_two(r['held_out'][1])}, and their band cells {_two(r['part_d_band'][0])} to {_two(r['part_d_band'][1])}",
         f"read {summed_high:.2f} on a fitted `{summed_family}` cell at {summed_n:,} units",
         f"`LTMLE` read {lib[('ltmle_continuous', 60, 'liblinear')]:.2f}, {lib[('ltmle_continuous', 200, 'liblinear')]:.2f} and {lib[('ltmle_continuous', 320, 'liblinear')]:.2f} times the traced peak at 60, 200 and 320 bins with liblinear ({lib[('ltmle_continuous', 60, 'lbfgs')]:.2f}, {lib[('ltmle_continuous', 200, 'lbfgs')]:.2f} and {lib[('ltmle_continuous', 320, 'lbfgs')]:.2f} with the default solver), and `SDR` read {lib[('sdr_continuous', 60, 'liblinear')]:.2f}, {lib[('sdr_continuous', 200, 'liblinear')]:.2f} and {lib[('sdr_continuous', 320, 'liblinear')]:.2f}",
         f"the `rev10` rows of `part_d/fit.out`, which read {_two(r['probes'][0])} to {_two(r['probes'][1])}",

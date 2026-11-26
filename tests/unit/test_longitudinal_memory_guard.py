@@ -103,6 +103,18 @@ def test_the_reference_quotes_the_copied_calibration_outputs() -> None:
     low, high = generate.accuracy_readings()["checked"]
     assert (low["family"], low["censor"], low["n"]) == ("sdr", "True", "20000")
     assert high["est"] == "learned"
+    # The in-range filter is by record kind; a new kind or row must be placed by hand.
+    in_range = generate.accuracy_readings()["in_range_cells"]
+    assert {c["kind"] for c in in_range} == {
+        "bins_check",
+        "dens_check",
+        "ext",
+        "extra",
+        "rev10",
+        "twin",
+        "variants",
+    }
+    assert len(in_range) == 97
     assert "plans repository" not in text
 
 

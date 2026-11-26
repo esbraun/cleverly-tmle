@@ -3525,10 +3525,11 @@ families.
 it is given, which is `treatment_learner` or its seeded clone, so the guard reads the index route
 only when both carry it. A `bin_design` set on an instance and dropped by cloning counts as binned,
 which over-counts the fit. A `SuperLearner` carries no `bin_design`, so the density step builds the
-indicator block whatever its library holds, and the guard counts it as binned. At 2,000 units, two
-nodes, four regimens, one fold and 320 bins the three routes traced about 1,600 MiB (`rev9/bins.jsonl`),
-43 MiB and 3.5 to 3.9 MiB (`rev9/dens.jsonl`). The route families' constants, fitted on the `dens` grid
-with the same program:
+indicator block whatever its library holds, and the guard counts it as binned. In the J2d runs, before the part
+D change to the binned density, the three routes at 2,000 units, two nodes, four regimens, one
+fold and 320 bins traced about 1,600 MiB (`rev9/bins.jsonl`), 43 MiB and 3.5 to 3.9 MiB
+(`rev9/dens.jsonl`). The route families' constants, fitted on the `dens` grid with the same
+program:
 
 | count | `ltmle_continuous_index` | `sdr_continuous_index` | `ltmle_continuous_classifier` | `sdr_continuous_classifier` |
 | --- | ---: | ---: | ---: | ---: |
@@ -3581,10 +3582,9 @@ prediction read 0.74 to 1.40 times the traced peak on eight small cells (5,000 u
 four for the one-node hazard fit, and two regimens; the `gap` rows of `part_d/fit.out`), so a fit with
 heavier learners can pass the check and still run out of memory.
 
-The four continuous families of the binned and index routes were refitted in X106 part D. The binned
-density now builds its pooled hazard design once rather than twice, and both routes' counts and
-peaks had moved since the J2d calibration, and the refined grid counts more bins than were
-declared, which is why the fitted bounds above start at 12 binned and 31 index bins.
+The four continuous families of the binned and index routes were refitted in X106 part D, after the
+binned density began to build its pooled hazard design once rather than twice. The refit's fitted
+bounds, in the ranges table below, start at 12 binned and 31 index bins (`extbox.out`).
 
 The refit reran every J2d cell of the four families on current code, 2,000 to 100,000 units,
 with the same program, objective and margin, and one added constraint: the margined draw is at most
@@ -3667,10 +3667,11 @@ note name the counts outside and say the prediction is an extrapolation. Joint c
 row were fitted where the grid crossed the counts (nodes, regimens, folds and horizons for the
 iterated-mean, `SDR` and `IPSI` estimators; width with nodes and regimens at three folds; ten folds
 at two regimens; two causes at up to two regimens; the continuous families and the hazard families
-over all their counts). Other corners rest on probe cells at
-joint corners, such as twelve nodes with ten folds or eight regimens at eight nodes. These are
-the `rev10` rows of `part_d/fit.out`, which read 1.37 to 2.27. Below 5,000 units, where only the continuous families were fitted, the fixed
-term is a larger share, and the other families' fast-suite fixtures at 2,000 units read 1.35 to
+over all their counts). Seven probe cells at joint corners
+of `hazard_paths`, `IPSI`, `LTMLE` and `hazard_backward`, such as twelve nodes with ten folds or
+eight regimens at eight nodes, are the `rev10` rows of `part_d/fit.out`, which read 1.37 to 2.27.
+No other corner was probed. Below 5,000 units, where only the continuous families were fitted,
+the fixed term is a larger share, and the other families' fast-suite fixtures at 2,000 units read 1.35 to
 2.12 (`rev9/witness11.jsonl`).
 
 ### The budget and the two guards
