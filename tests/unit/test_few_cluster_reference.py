@@ -882,6 +882,7 @@ ALLOWED = {
     "validation/nuisance.py": "a Bonferroni calibration screen, not an interval",
     "datasets/synthetic.py": "a data generator",
     "datasets/pricing.py": "a data generator",
+    "datasets/two_decisions.py": "a data generator's truth quadrature on the normal scale",
     "longitudinal/gformula.py": "an inverse-CDF draw of a Gaussian covariate, not an interval",
     "sensitivity/simulated_confounding.py": "a latent perturbation threshold",
     "longitudinal/_memory_guard.py": "a measured worker-share ratio that happens to read 1.96",
