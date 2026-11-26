@@ -50,13 +50,26 @@ UNPRINTED_DECIMALS = {
     "0.0156": "the product of the three smallest logged offer probabilities, 0.25 cubed = 0.015625: "
     "src/cleverly/datasets/offers.py, recomputed in _check_cap",
     "0.0019": f"Monte Carlo standard error of the crude and wrong-model g-computation "
-    f"win-back biases, 100 draws: {_PROBE}/summary.log",
+    f"win-back biases, and of the LTMLE win-back bias, 100 draws: {_PROBE}/summary.log",
     "0.0314": f"mean amount by which the crude win-back contrast, and the wrong-model "
     f"g-computation estimate of it, fall below the truth, 100 draws: {_PROBE}/summary.log",
     "-0.0061": f"bias of the crude shipping contrast, and of the wrong-model g-computation "
     f"estimate of it, 100 draws: {_PROBE}/summary.log",
-    "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
+    "0.0029": f"Monte Carlo standard error of that bias, and of the LTMLE shipping bias, 100 draws: "
+    f"{_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
+    "0.98": f"mean SE over SD of the discount contrast, 0.982, 100 draws: {_PROBE}/summary.log",
+    "0.97": f"mean SE over SD of the shipping contrast, 0.972, 100 draws: {_PROBE}/summary.log",
+    "1.05": f"mean SE over SD of the win-back contrast, 1.049, 100 draws: {_PROBE}/summary.log",
+    "1.03": f"mean SE over SD of the win-back then ship contrast, 1.028, 100 draws: "
+    f"{_PROBE}/summary.log",
+    "0.0059": f"shortfall of the LTMLE shipping contrast, 100 draws: {_PROBE}/summary.log",
+    "0.0065": f"shortfall of the LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
+    "0.0056": f"shortfall of the LTMLE win-back then ship contrast, 100 draws: {_PROBE}/summary.log",
+    "0.0016": f"shortfall of the LTMLE win-back contrast, 400 other draws: "
+    f"{_PROBE}/bias_check_summary.log",
+    "0.0010": f"Monte Carlo standard error of that shortfall: {_PROBE}/bias_check_summary.log",
+    "0.006": f"the LTMLE shortfalls of 0.0056 to 0.0065, rounded, 100 draws: {_PROBE}/summary.log",
     "1.96": "the two-sided 95% normal quantile, the usual Wald multiplier; asserted in "
     "_check_deployment_and_benchmark",
     "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
@@ -85,6 +98,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_design(namespace)
     _check_fits(namespace)
     _check_blind(namespace)
+    _check_weighting(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
     _check_weights_lesson(namespace)
@@ -461,6 +475,52 @@ def _check_blind(namespace: dict[str, Any]) -> None:
     assert round(table.loc["win_back", "ltmle_se"], 3) == 0.020
 
 
+def _check_weighting(namespace: dict[str, Any]) -> None:
+    """The "Weighting only" lesson: IPW is the blind LTMLE, and the outcome models buy precision."""
+    from cleverly import IPWMethod, ModelSpec
+
+    result, truth, effect = namespace["result"], namespace["truth"], namespace["effect"]
+    ipw, blind_ltmle = namespace["ipw"], namespace["blind_ltmle"]
+    table = namespace["weighting"]
+    keys = [_key(name) for name in CONTRASTS]
+    assert ipw.estimates.keys() == result.estimates.keys()
+    assert list(table.index) == list(CONTRASTS)
+    # "Weighting alone gives 0.080 for win-back (interval 0.039 to 0.122), and all four of its
+    # intervals hold their true values."
+    win = ipw[_key("win_back")]
+    assert round(win.psi, 3) == 0.080 and [round(v, 3) for v in win.ci] == [0.039, 0.122]
+    assert table["covers"].all()
+    for key in keys:
+        assert covers(ipw[key], truth[key])
+    # "with a scikit-learn model it gives a point estimate only", and the identity the reading
+    # states: with the same consent model, IPW equals LTMLE with the constant outcome model.
+    same = effect.estimate(
+        method=IPWMethod(
+            models=ModelSpec(censoring_learner=namespace["logistic"]),
+            runtime=namespace["ltmle"].runtime,
+        )
+    )
+    with pytest.raises(CapabilityError, match="GLM"):
+        getattr(same[_key("win_back")], "std_error")
+    for key in keys:
+        assert abs(same[key].psi - blind_ltmle[key].psi) < 1e-10
+    # "It matches LTMLE with the useless outcome model on every row ... only in the last digits":
+    # equal at the printed three decimals, and not exactly equal, since the consent models differ.
+    gaps = (table["ipw"] - table["blind_ltmle"]).abs()
+    assert (table["ipw"].round(3) == table["blind_ltmle"].round(3)).all()
+    assert 0 < gaps.max() < 5e-4
+    # A nonzero witness: weighting is not the main LTMLE fit.
+    assert (table["ipw"] - table["ltmle"]).abs().max() > 0.005
+    # "LTMLE's standard error is smaller on every row, 0.020 against 0.021 for win-back and 0.028
+    # against 0.030 for free shipping."
+    assert (table["ltmle_se"] < table["ipw_se"]).all()
+    assert round(table.loc["win_back", "ltmle_se"], 3) == 0.020
+    assert round(table.loc["win_back", "ipw_se"], 3) == 0.021
+    assert round(table.loc["shipping", "ltmle_se"], 3) == 0.028
+    assert round(table.loc["shipping", "ipw_se"], 3) == 0.030
+    assert namespace["forest_fig"] is not None
+
+
 def _check_paired(namespace: dict[str, Any]) -> None:
     truth, result = namespace["truth"], namespace["result"]
     comparison = namespace["comparison"]
@@ -796,6 +856,30 @@ def _check_probe_logs() -> None:
     assert round(first["blind_win_back_psi"], 3) == 0.080
     assert round(first["blindg_win_back_psi"], 3) == 0.049
     assert round(first["crude_win_back_psi"], 3) == 0.049
+    # The interval ends of the first row are the page's, so the log was made under the current
+    # interval (a difference of two proportions built from their log-odds intervals).
+    page_ends = {
+        "discount": (-0.146, -0.0285),
+        "shipping": (0.0008, 0.1121),
+        "win_back": (0.0353, 0.1153),
+        "win_back_ship": (0.0354, 0.1283),
+    }
+    for contrast, ends in page_ends.items():
+        logged = (first[f"ltmle_{contrast}_lo"], first[f"ltmle_{contrast}_hi"])
+        assert tuple(round(value, 4) for value in logged) == ends
+    assert round(first["ipw_win_back_psi"], 3) == 0.080
+    # The 400-draw bias check: every contrast within two Monte Carlo standard errors.
+    bias = (folder / "bias_check_summary.log").read_text()
+    assert bias.startswith("draws 400, seeds 2000 to 2399")
+    win_bias = line(bias, "  win_back  ", "bias")
+    assert "bias -0.0016 (MC SE 0.0010" in win_bias
+    contrast_rows = bias.split("ltmle: the five levels")[0].splitlines()
+    zs = [
+        float(re.search(r"z ([+-]\d\.\d\d)\)", row).group(1))
+        for row in contrast_rows
+        if " z " in row
+    ]
+    assert len(zs) == 4 and all(abs(z) < 2 for z in zs)
 
 
 def _prose(cell_id: str) -> str:
@@ -868,6 +952,31 @@ def _check_prose_phrases() -> None:
         f"The wrong-model LTMLE bias was {blind_win[0]}, and its interval covered the truth on "
         f"{count_of(blind_ltmle, 'coverage')} of 100 draws"
     ) in reading
+
+    ratios = [grab(r"ratio (\d\.\d{3})", ltmle[c]) for c in contrasts]
+    assert (
+        "Their average standard errors were "
+        f"{', '.join(f'{float(r):.2f}' for r in ratios[:-1])}, and {float(ratios[-1]):.2f} times"
+    ) in reading_ltmle
+    shortfalls = [bias_of(ltmle[c])[0].lstrip("-") for c in contrasts[1:]]
+    assert all(bias_of(ltmle[c])[0].startswith("-") for c in contrasts[1:])
+    assert (
+        f"by {shortfalls[0]}, {shortfalls[1]}, and {shortfalls[2]} (Monte Carlo standard errors"
+        in reading_ltmle
+    )
+
+    ipw = {c: line(sweep, "  ipw    ", c.ljust(14), "coverage") for c in contrasts}
+    ipw_hits = [count_of(ipw[c], "coverage") for c in contrasts]
+    smaller = [
+        count_of(line(sweep, f"  {c.ljust(14)} LTMLE SE below IPW SE"), "IPW SE:")
+        for c in contrasts
+    ]
+    weighting = _prose("weighting-reading")
+    assert (
+        f"covered the truth on {', '.join(ipw_hits[:-1])}, and {ipw_hits[-1]} of 100 draws"
+        in weighting
+    )
+    assert f"smaller of the two on {', '.join(smaller[:-1])}, and {smaller[-1]} of 100" in weighting
 
     paired = _prose("failure-mode-reading")
     assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in paired

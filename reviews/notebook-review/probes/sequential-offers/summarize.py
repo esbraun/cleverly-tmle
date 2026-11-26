@@ -13,7 +13,7 @@ from cleverly.datasets import offers_truth
 HERE = Path(__file__).resolve().parent
 TRUTH = offers_truth()
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
-METHODS = ("ltmle",)
+METHODS = ("ltmle", "ipw")
 PAIRS = (("win_back", "discount"), ("win_back", "shipping"), ("win_back_ship", "win_back"))
 frame = pd.read_csv(HERE / "sweep.csv", float_precision="round_trip")
 n = len(frame)
@@ -88,6 +88,14 @@ for contrast in CONTRASTS:
         f"largest gap from the crude contrast {np.abs(blindg - frame[f'crude_{contrast}_psi']).max():.2e}"
     )
 print()
+print("Weighting only (IPW, GLM consent model) against the main LTMLE fit")
+for contrast in CONTRASTS:
+    smaller = frame[f"ltmle_{contrast}_se"] < frame[f"ipw_{contrast}_se"]
+    ratio = frame[f"ipw_{contrast}_se"] / frame[f"ltmle_{contrast}_se"]
+    print(
+        f"  {contrast:14s} LTMLE SE below IPW SE: {count(smaller)}; IPW SE over LTMLE SE: {spread(ratio)}"
+    )
+print()
 print("Paired comparisons")
 for better, other in PAIRS:
     label = f"{better}_minus_{other}"
@@ -96,7 +104,10 @@ for better, other in PAIRS:
     ratio = frame[f"{label}_unpaired_se"] / frame[f"{label}_se"]
     print(f"  {better} - {other}: truth {truth:.4f}")
     print("    paired coverage:", count((low <= truth) & (truth <= high)))
-    print("    paired SE below unpaired SE:", count(frame[f"{label}_se"] < frame[f"{label}_unpaired_se"]))
+    print(
+        "    paired SE below unpaired SE:",
+        count(frame[f"{label}_se"] < frame[f"{label}_unpaired_se"]),
+    )
     print("    unpaired SE over paired SE:", spread(ratio))
     print("    paired interval excludes zero:", count((low > 0) | (high < 0)))
 print()
