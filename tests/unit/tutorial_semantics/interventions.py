@@ -48,12 +48,8 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
     # The mean density ratio of the shown dose configuration, quad_rboost40.
-    "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
-    # The earlier printed weight of 1.03 is gone with the smooth reading; the sweep still says it.
-    "1.03": f"smallest mean of the mean density ratio, quad_rboost40 (uncapped, 1.031): {_DOSE}",
-    # The density comparison, same quadratic Q.
-    "1.01": f"largest mean density ratio, quad_oracle320 (+1.0 uncapped): {_DOSE}",
-    "1.00": f"smallest mean density ratio, quad_oracle320 (+0.5 capped, 1.002): {_DOSE}",
+    "0.97": f"smallest mean of the mean density ratio, quad_rboost40 (+1.0, 0.966): {_DOSE}",
+    "1.00": f"largest mean of the mean density ratio, quad_rboost40 (capped, 1.003): {_DOSE}",
     # The cross-fitted shift probe that the technical reference cites.
     "3.91": (
         "cross-fitted +1.0 mean SE over empirical SD, default booster density: "
@@ -116,9 +112,12 @@ _PROBE_COVERAGE = {
     ("poly2", "screen"): 117,
     ("poly2", "ipsi"): 116,
     ("booster", "ipsi"): 110,
-    ("quad_rboost40", "capped"): 117,
-    ("quad_rboost40", "uncapped"): 117,
-    ("quad_rboost40", "one"): 114,
+    ("quad_rboost40", "capped"): 109,
+    ("quad_rboost40", "uncapped"): 110,
+    ("quad_rboost40", "one"): 103,
+    ("quad_oracle320", "capped"): 112,
+    ("quad_oracle320", "uncapped"): 115,
+    ("quad_oracle320", "one"): 112,
 }
 
 
@@ -150,13 +149,20 @@ def check_sources() -> None:
     summary = _read(_SUMMARY)
     slopes = re.findall(r"calibration slope 5%, 50%, 95%: [\d.]+, ([\d.]+), ", summary)
     assert [round(float(value), 2) for value in slopes] == [0.94, 0.93]  # booster, poly2
-    # Density-ratio means: 1.03 to 1.05 with this density, 1.00 to 1.01 with the exact one.
-    for section, low, high in (("quad_rboost40", 1.03, 1.05), ("quad_oracle320", 1.00, 1.01)):
-        part = summary[summary.index(_SECTIONS[section]) :]
-        means = re.search(r"capped ([\d.]+) \(.*?uncapped ([\d.]+) \(.*?one ([\d.]+) \(", part)
-        assert means is not None
-        values = [round(float(value), 2) for value in means.groups()]
-        assert (min(values), max(values)) == (low, high), section
+    # Density-ratio means of the shown configuration: "averaged 0.97 to 1.00".
+    part = summary[summary.index(_SECTIONS["quad_rboost40"]) :]
+    means = re.search(r"capped ([\d.]+) \(.*?uncapped ([\d.]+) \(.*?one ([\d.]+) \(", part)
+    assert means is not None
+    values = [round(float(value), 2) for value in means.groups()]
+    assert (min(values), max(values)) == (0.97, 1.00)
+    # "The reported standard errors were 15% to 24% smaller than the spread of the estimates",
+    # "with little bias": each mean error within 2 Monte Carlo SEs of zero.
+    shortfall = []
+    for row in ("capped", "uncapped", "one"):
+        _, error, error_se, ratio = _probe_row("quad_rboost40", row)
+        shortfall.append(round(100 * (1 - float(ratio))))
+        assert abs(float(error)) < 2 * float(error_se), row
+    assert (min(shortfall), max(shortfall)) == (15, 24)
     truth = _read(f"{_PROBE}/truth.log")
     assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)  # the callback's truth check
     # The cross-fitted shift probe of the technical reference: 3.91 and 0.98.
@@ -284,6 +290,18 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{smallest:.3e}" == "2.664e-06"  # the Details of the overlap reading
     assert smallest < TRUNCATION < 0.05
     assert smallest < 0.01 / rows["offer to all"].max_ratio
+    # The model checks, the overlap figure, and the truncation curve of the Details.
+    stored = stored_output(NOTEBOOK, "regime-support")
+    assert "treatment model calibration slope: 0.935 (standard error 0.054)" in stored
+    assert "outcome model regression slope: 0.954" in stored
+    assert "not offered  below 0.05: 2.6%" in stored and "offered      below 0.05: 0.2%" in stored
+    assert namespace["overlap_fig"].axes
+    assert "truncation curve, screen: largest move 0.18 standard errors" in stored
+    assert "truncation curve, offer to all: largest move 0.29 standard errors" in stored
+    assert "rows capped at the limit 0.2: 10.9%" in stored
+    # A nonzero witness: the curve's widest limit does move the estimate.
+    curve = namespace["curve"]
+    assert curve["delta_from_fitted"].abs().max() > 0.0
     # "The screen asks for offers where current practice already offers more often, and its
     # effective sample size is the largest."
     assert rows["screen on risk"].effective_sample_size == max(
@@ -375,8 +393,12 @@ def check(namespace: dict[str, Any]) -> None:
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
 
-    # The grid has no outcome axis because the fit declares q_bounds: the outcome strength of
-    # such a fit is a coefficient on the logit scale of the score.
+    # The support labels the readings name: the nudge experimental, the raise supported.
+    assert set(namespace["incremental_result"].to_frame()["support"]) == {"experimental"}
+    assert set(namespace["shift_result"].to_frame()["support"]) == {"supported"}
+    assert set(namespace["regime_result"].to_frame()["support"]) == {"experimental"}
+    # The screen's fit declares q_bounds, so its outcome-axis cells move the score on the logit
+    # scale of [0, 1], and the reading reads them through the induced correlation.
     assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
     _check_refutation_limits(namespace)
     _check_generated_limits(namespace)
@@ -393,36 +415,67 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert any(line.startswith("Bounded outcome law: logit on [0, 1];") for line in settings)
     law = vocabulary.NOTE_TEXTS["law_outcome_logit"]
     assert law in surface_summary.note("sensitivity_assumption").text
-    cells = sorted(surface.cells, key=lambda cell: cell.treatment_strength)
-    assert [cell.treatment_strength for cell in cells] == [0.0, 0.1]
-    assert all(cell.outcome_strength == 0.0 and cell.failure is None for cell in cells)
-    assert cells[1].estimate < cells[0].estimate
-    assert cells[1].displacement == pytest.approx(-0.0290, abs=0.001)
-    for cell in cells:
+    cells = {(cell.treatment_strength, cell.outcome_strength): cell for cell in surface.cells}
+    assert set(cells) == {(0.0, 0.0), (0.0, 0.3), (0.1, 0.0), (0.1, 0.3)}
+    assert all(cell.failure is None for cell in cells.values())
+    assert cells[0.1, 0.0].displacement == pytest.approx(-0.0290, abs=0.001)
+    # "The flip barely ties the hidden variable to the offer": every association is small.
+    for cell in cells.values():
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
+    assert cells[0.0, 0.3].induced_outcome_association == pytest.approx(-0.211, abs=5e-4)
+    _check_surface_relations(cells, namespace["regime_result"][SCREEN].std_error)
+    nudge = {
+        (c.treatment_strength, c.outcome_strength): c for c in namespace["nudge_surface"].cells
+    }
+    _check_surface_relations(nudge, namespace["incremental_result"][IPSI].std_error)
+    # The raise: the score strength 0.6 is in score units, and its correlation is computed.
+    raise_cells = {
+        (c.treatment_strength, c.outcome_strength): c for c in namespace["raise_surface"].cells
+    }
+    assert set(raise_cells) == {(0.0, 0.0), (0.0, 0.6), (0.1, 0.0), (0.1, 0.6)}
+    assert all(cell.induced_outcome_association is None for cell in raise_cells.values())
+    variance = float(namespace["dose_frame"]["transition_score"].var(ddof=0))
+    assert -0.6 / np.sqrt(variance + 0.36) == pytest.approx(-0.205, abs=5e-4)
+    se = namespace["shift_result"][CAPPED].std_error
+    moves = {key: cell.displacement / se for key, cell in raise_cells.items()}
+    # "That alone moves the raise 0.3 standard errors, but together with the intensity noise
+    # 4.1": the joint cell moves more than the sum of its parts.
+    assert abs(moves[0.0, 0.6]) < 0.5
+    assert moves[0.1, 0.6] < moves[0.1, 0.0] + moves[0.0, 0.6] < 0.0
     _check_refutation(namespace)
     _check_benchmarks(namespace)
-    # The nudge and raise surfaces: the flip moves each estimate down.
-    for key in ("nudge_surface", "raise_surface"):
-        flipped = max(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        zero = min(namespace[key].cells, key=lambda cell: cell.treatment_strength)
-        assert flipped.estimate < zero.estimate
-        assert flipped.outcome_strength == 0.0 and flipped.failure is None
+
+
+def _check_surface_relations(cells: dict[tuple[float, float], Any], se: float) -> None:
+    """The outcome-only cell barely moves the estimate; the joint cell moves it a little more."""
+    moves = {key: cell.displacement / se for key, cell in cells.items()}
+    assert abs(moves[0.0, 0.3]) < 0.5
+    assert moves[0.1, 0.0] < -5.0
+    # The part a confounder adds, joint minus flip, is negative and small beside the flip.
+    added = moves[0.1, 0.3] - moves[0.1, 0.0]
+    assert -0.3 * abs(moves[0.1, 0.0]) < added < 0.0
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Step 14: the placebo and subset checks of the screen, and the stated limit."""
+    """The refutation of the three fits, and the raise's off-zero placebo."""
     regimes = namespace["regime_result"]
     screen_report = namespace["screen_refutation"]
     assert screen_report.estimand == SCREEN
+    every = ["placebo", "subset", "random_common_cause"]
+    for key, replicates, names in (
+        ("screen_refutation", 20, every),
+        ("nudge_refutation", 20, every),
+        ("raise_refutation", 10, ["placebo", "subset"]),
+    ):
+        report = namespace[key]
+        assert [test.name for test in report.tests] == names
+        for test in report.tests:
+            # "No check prints a verdict": no registry row covers these fits.
+            assert test.passed is None and test.rung == "L0" and len(test.values) == replicates
+        assert report.passed is None
     tests = {test.name: test for test in screen_report.tests}
-    assert list(tests) == ["placebo", "subset"]
     original = regimes[SCREEN].psi
-    for test in tests.values():
-        # "No check prints a verdict": no registry row covers a TMLE regime contrast.
-        assert test.passed is None and test.rung == "L0" and len(test.values) == 20
-    assert screen_report.passed is None
     compared = screen_report.summary(detail="full").section(vocabulary.SECTION_COMPARED).lines
     assert any(
         "another estimate (ate_regime[screen on risk vs offer to none])" in line
@@ -440,13 +493,26 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     reference = float(regimes[SCREEN].std_error * np.sqrt((3000 / 2100 - 1) * 3000 / 2999))
     assert round(float(np.std(subset, ddof=1)), 7) == 0.0026376
     assert round(reference, 7) == 0.0031383
+    # The noise column moves neither the screen nor the nudge by more than 0.1 standard error.
+    for key in ("screen_refutation", "nudge_refutation"):
+        noise = {test.name: test for test in namespace[key].tests}["random_common_cause"]
+        assert abs(noise.statistic) < 0.1
+    # "The raise's shuffled-intensity refits sit above zero ... with a t of 3.01, and its 70%
+    # refits spread 1.29 times what its standard error predicts." A relation, not a pass.
+    raised = {test.name: test for test in namespace["raise_refutation"].tests}
+    assert np.mean(raised["placebo"].values) > 0.0 and raised["placebo"].statistic > 2.0
+    assert raised["subset"].statistic > 1.0
+    # The screen and nudge placebos sit near zero, a control for the raise's.
+    for key in ("screen_refutation", "nudge_refutation"):
+        placebo_i = {test.name: test for test in namespace[key].tests}["placebo"]
+        assert abs(placebo_i.statistic) < 2.0
 
 
 def _check_refutation_limits(namespace: dict[str, Any]) -> None:
     """Step 14: the stored output, and the negative control that the page says it cannot run."""
     regimes = namespace["regime_result"]
     stored = stored_output(NOTEBOOK, "refute-regimes")
-    assert stored.count("descriptive") == 2
+    assert stored.count("descriptive") == 8
     # The limit: `prior_utilization` is an adjustment column, so a control that equals it is
     # refused, and the frame holds no other pre-offer measure.
     frame = namespace["frame"]
@@ -564,5 +630,10 @@ def _check_bound_and_surfaces(namespace: dict[str, Any]) -> None:
             call()
     # The nudge and raise surfaces: the flip moves each estimate down, by the stored amounts.
     stored = stored_output(NOTEBOOK, "sensitivity-other")
-    assert "nudge: movement -6.4 standard errors" in stored
-    assert "raise: movement -1.1 standard errors" in stored
+    for line in (
+        "0.10             0.0      -6.4              0.023",
+        "0.10             0.3      -7.8             -0.211",
+        "0.10             0.0      -1.1              0.000",
+        "0.10             0.6      -4.1             -0.205",
+    ):
+        assert line in stored
