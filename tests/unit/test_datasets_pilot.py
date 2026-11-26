@@ -102,6 +102,18 @@ def test_a_wrong_law_fails_the_monte_carlo_comparison(
     assert any(misses)
 
 
+def test_a_wrong_chance_weight_fails_the_monte_carlo_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Swapping the chances the truth weights by must move the ATT and the ATC off the oracle.
+    observed = _oracle_means(MONTE_CARLO_N, 20261025)
+    monkeypatch.setattr(law, "PILOT_OFFER_CHANCES", {0: 0.8, 1: 0.2})
+    mutated = randomized_pilot_truth()
+    for key in ("att", "atc"):
+        mean, error = observed[key]
+        assert abs(mutated[key] - mean) > 4.0 * error, key
+
+
 def test_the_draw_records_the_design_chances() -> None:
     frame, _ = make_randomized_pilot(4_000, seed=5)
     high = frame["high_risk"].to_numpy()

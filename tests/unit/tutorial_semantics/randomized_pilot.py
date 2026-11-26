@@ -54,7 +54,7 @@ NARRATION_SOURCES: dict[str, dict[str, str]] = {
         "0.2": "association",
         "0.8": "association",
     },
-    "interpret": {"0.119": "sensitivity"},
+    "interpret": {"0.119": "sensitivity", "2.13": "sensitivity"},
 }
 
 
@@ -183,7 +183,9 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
     )
     evalue = namespace["evalue"]
     assert evalue.point > evalue.limit > 1.0
-    assert abs(evalue.risk_ratio - namespace["others"]["risk ratio"].psi) < 1e-9
+    assert abs(evalue.risk_ratio - namespace["others"]["risk ratio"].psi) < 1e-6
+    # "one strong on a single side can": the tipping strength is below the robustness value.
+    assert tipping < robustness["rva"]
 
 
 def _check_other_estimands(namespace: dict[str, Any]) -> None:

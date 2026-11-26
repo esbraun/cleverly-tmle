@@ -111,9 +111,10 @@ def weights_text(balance: CovariateBalance) -> str:
     str
         The sentences.
     """
+    # A declared probability is never moved: the fit refuses limits that would move one.
     limits = (
         ""
-        if balance.limits is None
+        if balance.limits is None or balance.declared
         else f", kept within [{balance.limits[0]:.3g}, {balance.limits[1]:.3g}]"
     )
     text = vocabulary.BALANCE_WEIGHT_TEXTS[(balance.estimand, balance.weighted_data)]

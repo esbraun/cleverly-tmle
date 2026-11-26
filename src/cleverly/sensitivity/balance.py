@@ -110,8 +110,9 @@ class CovariateBalance:
     cross_fitted : bool
         Whether the propensities are out-of-fold predictions; in-sample otherwise.
     declared : bool
-        Whether the data declare the treatment probabilities (``treatment_probabilities=``),
-        so no treatment model was fitted and the weights read the declared probabilities.
+        Whether the fit's weights read declared treatment probabilities
+        (``treatment_probabilities=``) and no treatment model was fitted. A fit with
+        ``mechanism_law="sample"`` fits a treatment model, so it is not declared here.
     n_arms : int
         The treatment's arms.
     threshold : float
@@ -639,7 +640,7 @@ def covariate_balance(
         weighted_data=bool(np.ptp(base) > 0.0),
         estimand=chosen,
         cross_fitted=bool(getattr(config, "cross_fit", False)),
-        declared=getattr(data, "known_treatment", None) is not None,
+        declared=getattr(config, "treatment_mechanism", None) == "known",
         n_arms=len(arms),
         threshold=float(threshold),
     )
