@@ -73,5 +73,5 @@ performance,cleverly-continuous-time-longitudinal,cont_cf,"cif_regimen[never, ca
 performance,cleverly-continuous-time-longitudinal,cont_cf,"cif_regimen[never, cause2 @ t=30]",3200,1,0.0003125,0.01,32,1,se ratio,0.10072335609248606,0.09541250118976452,"SE at min, estimates j=0 at min",True,True,within bound,,,1,0,,
 hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,mechanism_correct primary rule,0.0,,,True,True,within bound,,,1,0,,
 hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,plug-in control,0.0,,,True,True,within bound,,,1,0,,
-hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,calibration rule,18.0,,,False,False,worst case fails,,,1,0,,
-hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,shrunk-SE control,18.0,,,False,False,worst case fails,,,1,0,,
+hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,calibration rule,1.0,,,False,False,worst case fails,,,1,0,,
+hook,cleverly-continuous-time-longitudinal,,,3200,1,,0.01,32,1,shrunk-SE control,1.0,,,False,False,worst case fails,,,1,0,,
