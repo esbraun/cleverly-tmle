@@ -5,6 +5,10 @@ symptom flags.  A Monte Carlo draw of the intervened law checks every plan mean 
 Exact-law checks are blind to a term that vanishes at the truth, so two wrong truths must fail the
 same comparison: one that drops the offer's effect on the day-10 symptoms, and one that drops the
 product of the day-10 offer with ``lives_alone``, the term the tutorial's wrong model misses.
+
+A known rule of the binary history has a finite-sum truth too.  The Monte Carlo draw applies the
+rule itself to the drawn history, so it does not share the truth's code; a truth that
+fed the rule's day-10 offer into the score but not into the day-20 symptoms must fail it.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from cleverly.datasets import (
     RECOVERY_BOUNDS,
     RECOVERY_PLANS,
     make_recovery_score,
+    recovery_offer_count,
     recovery_score_protocol,
     recovery_score_truth,
 )
@@ -34,26 +39,49 @@ Day10 = Callable[[Any, Any], Any]
 Day20 = Callable[[Any, Any], Any]
 
 
+def _offers(plan: Any, node: int, history: dict[str, np.ndarray]) -> np.ndarray:
+    """The offer each drawn patient gets at one node: a constant, or the rule on the drawn history.
+
+    The rule is handed a mapping of the drawn columns, not the truth's one-row frames, so this
+    draw shares no code with the finite sum it checks.
+    """
+    entry = plan[node]
+    n = history["lives_alone"].size
+    if not callable(entry):
+        return np.full(n, float(entry))
+    names = ("lives_alone", "symptoms_day10", "symptoms_day20")[: node + 1]
+    return np.broadcast_to(np.asarray(entry({name: history[name] for name in names}), float), n)
+
+
 def _intervened(
-    plan: Plan,
+    plan: Any,
     alone: np.ndarray,
     rng: np.random.Generator,
     day10: Day10 = law._symptoms_day10,
     day20: Day20 = law._symptoms_day20,
+    count: bool = False,
 ) -> np.ndarray:
-    """Draw the day-30 score of each patient in ``alone`` with every offer set by ``plan``."""
-    o1, o2, o3 = plan
+    """Draw the day-30 score of each patient in ``alone`` with every offer set by ``plan``.
+
+    With ``count=True``, return the number of offers each patient got instead.
+    """
     n = alone.size
     risk = rng.uniform(0.0, 1.0, n)
-    s1 = np.asarray(rng.binomial(1, day10(alone, o1)), dtype=float)
-    s2 = np.asarray(rng.binomial(1, day20(alone, o2)), dtype=float)
+    history: dict[str, np.ndarray] = {"lives_alone": alone}
+    o1 = _offers(plan, 0, history)
+    history["symptoms_day10"] = s1 = np.asarray(rng.binomial(1, day10(alone, o1)), dtype=float)
+    o2 = _offers(plan, 1, history)
+    history["symptoms_day20"] = s2 = np.asarray(rng.binomial(1, day20(alone, o2)), dtype=float)
+    o3 = _offers(plan, 2, history)
+    if count:
+        return np.asarray(o1 + o2 + o3, dtype=float)
     mean = law._score_mean(risk, alone, o1, s1, o2, s2, o3)
     return np.asarray(mean + rng.uniform(-law._NOISE, law._NOISE, n), dtype=float)
 
 
-def _plan_draws(plan: Plan, seed: int, **wrong: Any) -> np.ndarray:
+def _plan_draws(plan: Any, seed: int, n: int = MONTE_CARLO_N, **wrong: Any) -> np.ndarray:
     rng = np.random.default_rng(seed)
-    alone = rng.binomial(1, law._ALONE, MONTE_CARLO_N).astype(float)
+    alone = rng.binomial(1, law._ALONE, n).astype(float)
     return _intervened(plan, alone, rng, **wrong)
 
 
@@ -108,6 +136,105 @@ def test_a_wrong_law_fails_the_same_comparison(wrong: dict[str, Any]) -> None:
     draws = _plan_draws(RECOVERY_PLANS["always"], seed=21, **wrong)
     gap = abs(draws.mean() - recovery_score_truth(*RECOVERY_PLANS["always"]))
     assert gap > 10.0 * _tolerance(draws)
+
+
+#: The tutorial's targeted plan: offer at discharge to patients who live alone, and on day 10 or
+#: day 20 after a symptom flag on that day.
+TARGETED = (
+    lambda history: history["lives_alone"],
+    lambda history: history["symptoms_day10"],
+    lambda history: history["symptoms_day20"],
+)
+#: Draws for the rule comparisons.
+RULE_N = MONTE_CARLO_N
+
+
+def test_a_rule_truth_matches_a_monte_carlo_draw_that_applies_the_rule() -> None:
+    draws = _plan_draws(TARGETED, seed=41, n=RULE_N)
+    truth = recovery_score_truth(*TARGETED)
+    assert abs(draws.mean() - truth) < _tolerance(draws)
+    assert truth - recovery_score_truth(0, 0, 0) == pytest.approx(6.0765, abs=1e-12)
+
+
+def test_the_offer_count_matches_a_monte_carlo_draw_that_applies_the_rule() -> None:
+    draws = _plan_draws(TARGETED, seed=43, n=RULE_N, count=True)
+    count = recovery_offer_count(*TARGETED)
+    assert abs(draws.mean() - count) < _tolerance(draws)
+    assert count == pytest.approx(0.82275, abs=1e-12)
+    assert recovery_offer_count(1, 1, 1) == 3.0 and recovery_offer_count(0, 0, 0) == 0.0
+
+
+def _rule_offer_left_out_of_day20(o1: Any, o2: Any, o3: Any) -> float:
+    """A wrong truth: the day-10 rule's offer moves the score but not the day-20 symptoms."""
+    total = 0.0
+    for alone, weight in ((0.0, 1.0 - law._ALONE), (1.0, law._ALONE)):
+        a1 = float(o1({"lives_alone": alone}))
+        p1 = float(law._symptoms_day10(alone, a1))
+        for s1, w1 in ((1.0, p1), (0.0, 1.0 - p1)):
+            a2 = float(o2({"lives_alone": alone, "symptoms_day10": s1}))
+            p2 = float(law._symptoms_day20(alone, 0.0))
+            for s2, w2 in ((1.0, p2), (0.0, 1.0 - p2)):
+                history = {"lives_alone": alone, "symptoms_day10": s1, "symptoms_day20": s2}
+                a3 = float(o3(history))
+                total += weight * w1 * w2 * float(law._score_mean(0.5, alone, a1, s1, a2, s2, a3))
+    return total
+
+
+def test_a_wrong_rule_truth_fails_the_same_comparison() -> None:
+    draws = _plan_draws(TARGETED, seed=41, n=RULE_N)
+    gap = abs(draws.mean() - _rule_offer_left_out_of_day20(*TARGETED))
+    assert gap > 4.0 * _tolerance(draws)
+
+
+def test_a_rule_equal_to_a_fixed_plan_has_its_truth() -> None:
+    always = (lambda h: 1, lambda h: True, lambda h: np.ones(1))
+    assert recovery_score_truth(*always) == recovery_score_truth(1, 1, 1)
+    # A nonzero witness: the targeted rule is neither fixed plan.
+    assert recovery_score_truth(*TARGETED) not in {
+        recovery_score_truth(0, 0, 0),
+        recovery_score_truth(1, 1, 1),
+    }
+
+
+def test_each_rule_sees_only_its_own_binary_history() -> None:
+    seen: dict[int, list[str]] = {}
+
+    def record(node: int) -> Any:
+        def rule(history: Any) -> Any:
+            seen[node] = list(history.columns)
+            return 0
+
+        return rule
+
+    recovery_score_truth(record(1), record(2), record(3))
+    assert seen == {
+        1: ["lives_alone"],
+        2: ["lives_alone", "symptoms_day10"],
+        3: ["lives_alone", "symptoms_day10", "symptoms_day20"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("plan", "message"),
+    [
+        ((lambda h: h["discharge_risk"] > 0.5, 0, 0), "reads 'discharge_risk'"),
+        ((lambda h: h["symptoms_day20"], 0, 0), "reads 'symptoms_day20'"),
+        ((0.5, 0, 0), "must be 0 or 1"),
+        ((lambda h: 2, 0, 0), "must be 0 or 1"),
+    ],
+    ids=["risk", "future-flag", "fraction", "rule-value"],
+)
+def test_a_plan_without_a_finite_sum_truth_is_refused(plan: Any, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        recovery_score_truth(*plan)
+
+
+def test_a_stochastic_node_is_refused() -> None:
+    from cleverly.interventions import Stochastic
+
+    node = Stochastic(lambda frame: np.full((len(frame), 2), 0.5), "half", density_kind="known")
+    with pytest.raises(ValueError, match="stochastic policy node"):
+        recovery_offer_count(node, 0, 0)
 
 
 def test_the_truth_dictionary_uses_the_names_a_fit_reports() -> None:

@@ -45,12 +45,15 @@ that need different models to be right, and both are right here.
 **Truths.**  ``discharge_risk`` enters only the offers and the score, linearly, so it averages to
 its mean 0.5.  Every other variable is binary, so a plan mean is a finite sum over
 ``lives_alone`` and the two flags (:func:`recovery_score_truth`), and each blip is a difference of
-two such sums within a ``lives_alone`` group.  ``tests/unit/test_datasets_recovery.py`` compares
-each truth with a Monte Carlo draw of the intervened law.
+two such sums within a ``lives_alone`` group.  The sum holds for a known rule that reads only that
+binary history too, and :func:`recovery_offer_count` sums the offers such a plan makes.
+``tests/unit/test_datasets_recovery.py`` compares each truth with a Monte Carlo draw of the
+intervened law.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -66,6 +69,7 @@ __all__ = [
     "RECOVERY_BOUNDS",
     "RECOVERY_PLANS",
     "make_recovery_score",
+    "recovery_offer_count",
     "recovery_score_protocol",
     "recovery_score_truth",
 ]
@@ -154,28 +158,92 @@ def _score_mean(risk: Any, alone: Any, o1: Any, s1: Any, o2: Any, s2: Any, o3: A
     )
 
 
-def _group_mean(alone: float, o1: float, o2: float, o3: float) -> float:
-    """The mean score under the plan ``(o1, o2, o3)`` given ``lives_alone = alone``."""
-    total = 0.0
-    p1 = float(_symptoms_day10(alone, o1))
+#: The history columns a rule at each decision is handed: the binary record before it, without
+#: ``discharge_risk`` (a rule that reads it has no finite-sum truth).
+_RULE_COLUMNS = (
+    ("lives_alone",),
+    ("lives_alone", "symptoms_day10"),
+    ("lives_alone", "symptoms_day10", "symptoms_day20"),
+)
+
+#: One offer of a plan: 0 or 1 for every patient, or a known rule of the binary history.
+Offer = float | Callable[[Any], Any]
+
+
+def _offer(node: int, offer: Offer, history: dict[str, float]) -> float:
+    """The offer that one node of a plan makes to a patient with this binary history."""
+    if hasattr(offer, "density_kind"):
+        raise ValueError(
+            f"decision {node + 1} is a stochastic policy node; recovery truths take 0, 1 or a "
+            "known rule at each decision"
+        )
+    if callable(offer):
+        columns = _RULE_COLUMNS[node]
+        frame = frame_from_dict({name: np.array([history[name]]) for name in columns})
+        try:
+            returned = offer(frame)
+        except KeyError as error:
+            raise ValueError(
+                f"the rule at decision {node + 1} reads {error}, which is not in the binary "
+                f"history {list(columns)}; the exact truth is a finite sum over that history, so "
+                "a rule may read only those columns"
+            ) from error
+        value = np.asarray(returned).reshape(-1)
+        if value.size != 1:
+            raise ValueError(
+                f"the rule at decision {node + 1} returned {value.size} offers for one row"
+            )
+        offer = value[0]
+    if isinstance(offer, (bool, np.bool_)):
+        return float(offer)
+    if isinstance(offer, (int, float, np.integer, np.floating)) and float(offer) in (0.0, 1.0):
+        return float(offer)
+    raise ValueError(
+        f"the offer at decision {node + 1} must be 0 or 1, or a rule returning 0 or 1; "
+        f"got {offer!r}"
+    )
+
+
+def _plan_expectation(o1: Offer, o2: Offer, o3: Offer, alone: float) -> tuple[float, float]:
+    """The mean score and the mean number of offers under a plan, given ``lives_alone``.
+
+    A finite sum over the two symptom flags. Each offer is fixed by the plan given the binary
+    history, and ``discharge_risk`` enters only the score, linearly, so it averages to 0.5.
+    """
+    score = offers = 0.0
+    history = {"lives_alone": alone}
+    a1 = _offer(0, o1, history)
+    p1 = float(_symptoms_day10(alone, a1))
     for s1, w1 in ((1.0, p1), (0.0, 1.0 - p1)):
-        p2 = float(_symptoms_day20(alone, o2))
+        a2 = _offer(1, o2, {**history, "symptoms_day10": s1})
+        p2 = float(_symptoms_day20(alone, a2))
         for s2, w2 in ((1.0, p2), (0.0, 1.0 - p2)):
-            total += w1 * w2 * float(_score_mean(0.5, alone, o1, s1, o2, s2, o3))
-    return total
+            a3 = _offer(2, o3, {**history, "symptoms_day10": s1, "symptoms_day20": s2})
+            weight = w1 * w2
+            score += weight * float(_score_mean(0.5, alone, a1, s1, a2, s2, a3))
+            offers += weight * (a1 + a2 + a3)
+    return score, offers
 
 
-def recovery_score_truth(o1: float, o2: float, o3: float) -> float:
-    """Return the exact mean 30-day recovery score under one static plan.
+def _group_mean(alone: float, o1: Offer, o2: Offer, o3: Offer) -> float:
+    """The mean score under the plan ``(o1, o2, o3)`` given ``lives_alone = alone``."""
+    return _plan_expectation(o1, o2, o3, alone)[0]
+
+
+def recovery_score_truth(o1: Offer, o2: Offer, o3: Offer) -> float:
+    """Return the exact mean 30-day recovery score under one plan.
 
     Parameters
     ----------
-    o1 : float
-        The offer at discharge, 0 or 1.
-    o2 : float
-        The offer on day 10, 0 or 1.
-    o3 : float
-        The offer on day 20, 0 or 1.
+    o1 : float or callable
+        The offer at discharge: 0 or 1 for every patient, or a known rule. A rule is handed a
+        one-row history frame with the column ``lives_alone`` and returns 0 or 1 (or a boolean),
+        the way a :class:`~cleverly.longitudinal.DynamicRegimen` rule is handed its history.
+    o2 : float or callable
+        The offer on day 10. A rule is handed ``lives_alone`` and ``symptoms_day10``.
+    o3 : float or callable
+        The offer on day 20. A rule is handed ``lives_alone``, ``symptoms_day10`` and
+        ``symptoms_day20``.
 
     Returns
     -------
@@ -183,17 +251,73 @@ def recovery_score_truth(o1: float, o2: float, o3: float) -> float:
         The mean score had every patient followed the plan, a finite sum over ``lives_alone``
         and the two symptom flags.
 
+    Raises
+    ------
+    ValueError
+        When an offer is not 0 or 1, a rule reads a column outside its binary history (such as
+        ``discharge_risk``), or a node is a stochastic policy.
+
     See Also
     --------
     cleverly.datasets.make_recovery_score : The simulated program whose truths these are.
+    cleverly.datasets.recovery_offer_count : The expected number of offers under one plan.
 
     Examples
     --------
     >>> from cleverly.datasets import recovery_score_truth
     >>> round(recovery_score_truth(1, 1, 1) - recovery_score_truth(0, 0, 0), 4)
     11.215
+
+    A known rule: offer at discharge to patients who live alone, and later after a symptom flag.
+
+    >>> targeted = (
+    ...     lambda history: history["lives_alone"],
+    ...     lambda history: history["symptoms_day10"],
+    ...     lambda history: history["symptoms_day20"],
+    ... )
+    >>> round(recovery_score_truth(*targeted) - recovery_score_truth(0, 0, 0), 4)
+    6.0765
     """
     return (1.0 - _ALONE) * _group_mean(0.0, o1, o2, o3) + _ALONE * _group_mean(1.0, o1, o2, o3)
+
+
+def recovery_offer_count(o1: Offer, o2: Offer, o3: Offer) -> float:
+    """Return the exact expected number of offers per patient under one plan.
+
+    Parameters
+    ----------
+    o1 : float or callable
+        The offer at discharge, as for :func:`recovery_score_truth`.
+    o2 : float or callable
+        The offer on day 10, as for :func:`recovery_score_truth`.
+    o3 : float or callable
+        The offer on day 20, as for :func:`recovery_score_truth`.
+
+    Returns
+    -------
+    float
+        The mean number of offers, from 0 to 3, had every patient followed the plan.
+
+    Raises
+    ------
+    ValueError
+        On the inputs :func:`recovery_score_truth` refuses.
+
+    See Also
+    --------
+    cleverly.datasets.recovery_score_truth : The exact mean score under one plan.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import recovery_offer_count
+    >>> recovery_offer_count(1, 1, 1)
+    3.0
+    >>> round(recovery_offer_count(lambda history: history["lives_alone"], 0, 0), 2)
+    0.35
+    """
+    return (1.0 - _ALONE) * _plan_expectation(o1, o2, o3, 0.0)[1] + _ALONE * _plan_expectation(
+        o1, o2, o3, 1.0
+    )[1]
 
 
 def _blips() -> dict[str, float]:
