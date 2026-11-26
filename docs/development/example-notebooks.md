@@ -419,7 +419,7 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
-| Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
+| Nuisance learners | learner-choice (two declared `SuperLearner` libraries, their weights and cross-validated risks, the default library, the discrete selector, and `screen_treatment`); twins-causal-inference (two declared `SuperLearner` libraries) |
 | Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`); subgroup-effects (a CATE projection on `Indicators` and on `Additive(Indicators, Linear)` with its band and test; under Go deeper, `strata=` and a log-CRR projection on `Indicators`) |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
 | External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |

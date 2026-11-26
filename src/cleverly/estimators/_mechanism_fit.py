@@ -187,11 +187,17 @@ def describe_mechanism(model: Any) -> MechanismFit:
     class_weight = params.get("class_weight")
     n_iter = np.asarray(getattr(final, "n_iter_", [0]))
     C = (
-        float(getattr(final, "C_", [params.get("C", 1.0)])[0])
+        float(np.ravel(getattr(final, "C_", params.get("C", 1.0)))[0])
         if type(final) is LogisticRegressionCV
         else float(params.get("C", 1.0))
     )
     penalty = params.get("penalty")
+    l1_ratio = params.get("l1_ratio")
+    if type(final) is LogisticRegressionCV:
+        # The CV form names the grid ``l1_ratios``; its fitted ``l1_ratio_`` is the chosen one
+        # (a float, or an array per class under the legacy layout, holding None without a grid).
+        chosen = np.ravel(np.asarray(getattr(final, "l1_ratio_", None), dtype=object))
+        l1_ratio = chosen[0] if chosen.size else None
     return MechanismFit(
         kind="logistic",
         learner_name=learner_name,
@@ -204,7 +210,7 @@ def describe_mechanism(model: Any) -> MechanismFit:
         fit_intercept=bool(params.get("fit_intercept", True)),
         C=C,
         penalty=None if penalty is None else str(penalty),
-        l1_ratio=None if params.get("l1_ratio") is None else float(params["l1_ratio"]),
+        l1_ratio=None if l1_ratio is None else float(l1_ratio),
         solver=str(params.get("solver", "")),
         class_weight=None if class_weight is None else repr(class_weight),
         n_iter=int(n_iter.max()) if n_iter.size else 0,

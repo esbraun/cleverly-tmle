@@ -22,6 +22,7 @@ treatment was unlikely.
 | --- | --- | --- |
 | a treatment given once and an outcome measured later | [one treatment, one outcome](point-treatment-tmle.ipynb) | a simple comparison of treated and untreated patients mixes the treatment's effect with who received it. The page also shows what happens to the estimate when one or both models are wrong |
 | flexible models such as gradient boosting, or patients who share a care team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
+| which prediction models to put inside the fit, such as a blend of a straight line, splines and gradient boosting, or many recorded columns to screen | [choosing the prediction models](learner-choice.ipynb) | a screen that picks the treatment model's columns by a straight-line fit to the outcome can drop real confounders whose link to the outcome is curved, leaving them to the outcome model alone |
 | one recorded variable strongly predicts who gets the treatment | [a strong predictor of treatment](collaborative-tmle.ipynb) | some patients become nearly certain or nearly unable to get the treatment, so the few exceptions get very large weights. In 2,000 simulated repeats, the 95% interval of standard TMLE contained the truth only 93% of the time, so it was slightly too narrow |
 | many outcomes are missing, for example unanswered surveys | [missing survey answers](survey-nonresponse.ipynb) | analyzing only those who answered estimates the effect for people like the respondents, who differ from the whole group |
 | the outcome was measured on a sample drawn with known, unequal chances, such as an interview that picks high-risk patients more often | [an interview of a sample of patients](sampling-weights.ipynb) | an analysis without the sampling weights estimates the effect among the sampled patients, who differ from everyone the sample stands for |
@@ -193,6 +194,7 @@ figures of fits that the pages below explain.
 | --- | --- | --- |
 | [one treatment, one outcome](point-treatment-tmle.ipynb) | TMLE, with each row predicted by models trained without it | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [flexible models and shared teams](cross-fitting.ipynb) | the same method (CV-TMLE), showing why those out-of-fold predictions matter with flexible models, and keeping each team together when the models are trained and the interval computed | [CV-TMLE](../technical-reference/cv-tmle.md) |
+| [choosing the prediction models](learner-choice.ipynb) | TMLE with out-of-fold predictions, with each model a cross-validated blend of candidate models (a Super Learner), the default blend, and screening of the treatment model's columns | [nuisance learners](../technical-reference/nuisance-learners.md) and [CV-TMLE](../technical-reference/cv-tmle.md) |
 | [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
 | [missing survey answers](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [an interview of a sample of patients](sampling-weights.ipynb) | TMLE with sampling weights, with effects for two risk groups and missing treatment records | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
@@ -235,6 +237,7 @@ plots
 :maxdepth: 1
 
 cross-fitting
+learner-choice
 collaborative-tmle
 survey-nonresponse
 sampling-weights
