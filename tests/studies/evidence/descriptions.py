@@ -835,6 +835,7 @@ _PGF_TARGETS = {
     "g2_treat_none": "law G2, mean under no treatment",
     "g2_policy_b": "law G2, mean under the known policy that treats with probability 0.3 + 0.4 B_t",
     "g2_contrast": "law G2, treatment at all three times against none",
+    "g2_rule": "law G2, mean under the rule A_t = 1{Z_t > 0} on the Gaussian covariate",
     "g3_relapse_h2": "law G3, relapse incidence by t = 2 under treatment at all four times",
     "g3_relapse_h4": "law G3, relapse incidence by t = 4 under treatment at all four times",
     "g3_death_h4": "law G3, death incidence by t = 4 under treatment at all four times",
@@ -847,6 +848,7 @@ _PGF_TARGETS = {
     "g5_treat_none": "law G5, mean under no treatment",
     "g5_odds_x2": "law G5, mean under the odds tilt of two",
     "g5_contrast": "law G5, treatment at all three times against none",
+    "g5_rule": "law G5, mean under the rule A_1 = L_1, then A_t = 1{S_t = 1} at nodes 2 and 3",
 }
 _PGF_PAIRS = {
     "g1_treat_all": _PGF_TARGETS["g1_treat_all"],

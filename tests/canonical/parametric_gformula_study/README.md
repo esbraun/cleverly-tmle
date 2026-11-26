@@ -27,8 +27,9 @@ The declared run is committed. The artifacts in this directory are its results.
 The module `tests/studies/canonical_parametric_gformula.py` declares the reading before any run.
 Each gated calibration cell is sized for a pass chance of at least 0.95 at its shrunk SE ratio
 and at least 0.925 with the posterior SD of that ratio counted. The expected count of
-finite-sample reds is 1.26 over 114 gated cells, and the chance of at least one is 0.72. The count
-includes the 42 derived-control cells. Two reds read as expected. A red
+finite-sample reds is 1.31 over 120 gated cells, and the chance of at least one is 0.73. The count
+includes the 46 derived-control cells and the rule cells of `G2` and `G5`, which the committed
+run below predates. Two reds read as expected. A red
 calibration row is a finite-sample red only when its 99% SE-ratio interval contains 1, its
 coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red row is a
 defect suspect. The `mc_removed` cells report and carry no verdict.

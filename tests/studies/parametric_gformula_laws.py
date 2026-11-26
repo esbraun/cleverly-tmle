@@ -36,7 +36,9 @@ law     structure
 ======  ======================================================================================
 
 **Truths.**  The binary laws sum over every branch, with Gauss-Hermite nodes for a Gaussian
-variable (:func:`g_formula`).  The design test shows the nodes converge and that a sampler of
+variable (:func:`g_formula`).  A Gaussian variable that a threshold rule reads (:class:`Threshold`)
+is integrated on each side of its cut by Gauss-Legendre nodes, because the mean steps there.
+The design test shows the nodes converge and that a sampler of
 the law under the plan agrees within four Monte Carlo errors.  ``G4`` reads closed forms:
 every variable is linear, so a mean passes through the linear recursion (:func:`linear_means`).
 """
@@ -45,20 +47,54 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy.special import expit
+from scipy.stats import norm
 
 #: Gauss-Hermite nodes per Gaussian variable in the sums.  The design test pins the convergence.
 GH_ORDER = 12
+#: Gauss-Legendre nodes per panel of a Gaussian variable that a threshold rule reads
+#: (:class:`Threshold`, :func:`_split_nodes`).  The design test pins the convergence.
+SPLIT_ORDER = 16
+#: The standardized half-width of the split integral: the normal mass beyond it is about 1e-15.
+SPLIT_BOUND = 8.0
 
 
 def _hermite(order: int) -> tuple[np.ndarray, np.ndarray]:
     """Probabilists' Gauss-Hermite nodes and weights of :math:`N(0, 1)`, weights summing to 1."""
     nodes, weights = np.polynomial.hermite_e.hermegauss(order)
     return np.asarray(nodes, dtype=float), np.asarray(weights / weights.sum(), dtype=float)
+
+
+def _split_nodes(
+    eta: np.ndarray, sd: float, cut: float, order: int
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Values and weights of :math:`N(\eta, sd^2)` integrated on each side of ``cut``.
+
+    The integrand of a threshold rule steps at the cut, so Gauss-Hermite nodes converge slowly
+    there.  On the standardized scale the cut sits at :math:`s_0 = (cut - \eta) / sd`, per path.
+    The panels :math:`[-B, \min(s_0, 0)]`, :math:`[\min(s_0, 0), \max(s_0, 0)]` and
+    :math:`[\max(s_0, 0), B]` each take ``order`` Gauss-Legendre nodes weighted by the standard
+    normal density.  The integrand is smooth inside each panel, and the split at the mode keeps
+    a far cut from leaving the bulk of the density to one long panel.
+    """
+    x, w = np.polynomial.legendre.leggauss(order)
+    bound = SPLIT_BOUND
+    s0 = np.clip((cut - eta) / sd, -bound, bound)[:, None]
+    inner, outer = np.minimum(s0, 0.0), np.maximum(s0, 0.0)
+    edges = (np.full_like(s0, -bound), inner, outer, np.full_like(s0, bound))
+    values = []
+    weights = []
+    for low, high in pairwise(edges):
+        half = (high - low) / 2.0
+        z = half * x[None, :] + (high + low) / 2.0
+        values.append(eta[:, None] + sd * z)
+        weights.append(half * w[None, :] * norm.pdf(z))
+    return np.hstack(values), np.hstack(weights)
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -190,6 +226,25 @@ class Rule(NodePlan):
     def branches(self, table: Mapping[str, np.ndarray], var: Var, n: int) -> tuple[Any, Any]:
         value = np.asarray(self.rule(table), dtype=float)
         return value.reshape(n, 1), np.ones((n, 1))
+
+
+@dataclass(frozen=True)
+class Threshold(NodePlan):
+    """Assign 1 when the simulated Gaussian ``column`` exceeds ``cut`` (0 otherwise).
+
+    ``above=False`` assigns the complement, 1 when the column is at most ``cut``.  The sums
+    integrate the column on each side of the cut (:func:`_split_nodes`), because the regimen
+    mean steps there.
+    """
+
+    column: str
+    cut: float
+    above: bool = True
+
+    def branches(self, table: Mapping[str, np.ndarray], var: Var, n: int) -> tuple[Any, Any]:
+        over = np.asarray(table[self.column], dtype=float) > float(self.cut)
+        value = over if self.above else ~over
+        return value.astype(float).reshape(n, 1), np.ones((n, 1))
 
 
 @dataclass(frozen=True)
@@ -489,6 +544,8 @@ class Law:
         order: int = GH_ORDER,
         chunks: int = 1,
         horizons: Sequence[int] | None = None,
+        split_order: int = SPLIT_ORDER,
+        cuts: Mapping[str, float] | None = None,
     ) -> Any:
         """The regimen mean (end of study) or the cumulative incidences (survival).
 
@@ -503,6 +560,14 @@ class Law:
             bound the memory.
         horizons : sequence of int or None
             On a survival law, the horizons to report.
+        split_order : int
+            Gauss-Legendre nodes per panel of a Gaussian column split at a cut (a
+            :class:`Threshold` node or ``cuts``).  Every other Gaussian variable takes ``order``
+            Gauss-Hermite nodes.
+        cuts : mapping of str to float or None
+            Further Gaussian columns to integrate on each side of a cut, beside those a
+            :class:`Threshold` node reads.  The design test integrates a smooth plan this way
+            to check the split quadrature against Gauss-Hermite.
 
         Returns
         -------
@@ -512,9 +577,16 @@ class Law:
         nodes, weights = _hermite(order)
         total: Any = 0.0 if not self.is_survival else {}
         first = self.of("baseline")[0]
+        cuts = dict(cuts or {}) | {
+            p.column: float(p.cut) for p in plan.values() if isinstance(p, Threshold)
+        }
+        if first.name in cuts:
+            raise ValueError("a threshold on the first baseline variable is not integrated")
         split = np.array_split(np.arange(order), chunks)
         for part in split:
-            result = self._walk(plan, nodes, weights, order, first.name, part, horizons)
+            result = self._walk(
+                plan, nodes, weights, order, first.name, part, horizons, cuts, split_order
+            )
             if self.is_survival:
                 for key, value in result.items():
                     total[key] = total.get(key, 0.0) + value
@@ -531,7 +603,10 @@ class Law:
         first: str,
         part: np.ndarray,
         horizons: Sequence[int] | None,
+        cuts: Mapping[str, float] | None = None,
+        split_order: int = SPLIT_ORDER,
     ) -> Any:
+        cuts = {} if cuts is None else cuts
         cols: dict[str, np.ndarray] = {}
         w = np.ones(1)
         n = 1
@@ -550,6 +625,8 @@ class Law:
                 if v.name == first:
                     values = eta[:, None] + v.sd * nodes[part][None, :]
                     probs = np.tile(weights[part], (n, 1))
+                elif v.name in cuts:
+                    values, probs = _split_nodes(eta, v.sd, cuts[v.name], split_order)
                 else:
                     values = eta[:, None] + v.sd * nodes[None, :]
                     probs = np.tile(weights, (n, 1))
@@ -807,6 +884,9 @@ G2 = _g2()
 
 #: The known stochastic policy of ``G2``: treat with probability :math:`0.3 + 0.4 B_t`.
 G2_POLICY = (0.3, 0.4)
+#: The known rule of ``G2``: treat when the simulated Gaussian covariate exceeds the cut,
+#: :math:`A_t = 1\{Z_t > 0\}`.  About half of each node's units are above it.
+G2_RULE_CUT = 0.0
 
 # ---------------------------------------------------------------------------------- law G3
 
@@ -973,6 +1053,9 @@ def _g5() -> Law:
 
 
 G5 = _g5()
+#: The known rule of ``G5``: :math:`A_1 = L_1`, then treat at the categorical level
+#: :math:`A_t = 1\{S_t = 1\}` at nodes 2 and 3.  Level 1 is the one the outcome reads most.
+G5_RULE_LEVEL = 1
 
 # ------------------------------------------------------------------- linear means (law G4)
 
@@ -1030,6 +1113,7 @@ __all__ = [
     "Policy",
     "Rule",
     "ShiftPlan",
+    "Threshold",
     "Tilt",
     "Var",
     "linear_means",
