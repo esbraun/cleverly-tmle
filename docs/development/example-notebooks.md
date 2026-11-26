@@ -8,8 +8,7 @@ analysis and explain the result. That guide holds the writing rules for every ma
 page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
 how to execute it.
 
-Roadmap item X88 rewrites the notebooks to this page, one notebook at a time. Until a notebook's
-rewrite merges, use it as an example of code-cell practice, not of prose or headings. The
+The
 [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
 program tutorial.
 
@@ -311,6 +310,7 @@ of the technical reference describes each one and says which of them is a bound.
 | a regime, or a shift whose observed and shifted doses are all declared `dose_atom` values | `omitted_confounding()` on the contrast ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G2c) and `simulated_confounding()` where the intervention has a known density. On a Gaussian fit that declares `q_bounds`, outcome-axis cells move the outcome on the logit scale of the bounds by default (`bounded_outcome_law=`), so read the outcome strength through `induced_outcome_association` rather than in outcome SDs | the bound reads the contrast. The surface is not a bound. A treatment-only cell, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`, moves the estimate by misclassification of the treatment, not by confounding. Say so in the reading |
 | a continuous-dose shift | `simulated_confounding()` only | the bound refuses a continuous-dose shift. State that limit in one sentence |
 | longitudinal TMLE with a modified treatment policy at a node (`sequential-pricing`) | refit without one recorded covariate at a time where the fit allows it. The fit refuses an empty baseline ([X63](../roadmap.md#x63-missing-data-intermediates-and-designs) part (c)), and a covariate that a declared band reads cannot be dropped | no `cleverly.sensitivity` bound runs on the fit ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation)), and `simulated_confounding()` refuses a covariate recorded after the first node ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). When no refit is possible either, state each limit in one sentence in the reading that needs it |
+| a conditional effect: the EP curve, a log-ratio projection, or a difference-scale projection coefficient | on the EP curve and a log-CRR projection, none: every sensitivity entry and `refute` refuse. On a difference-scale `cate_projection` coefficient, `robustness_value(estimand=...)` and `omitted_confounding(estimand=...)`. For a decision taken from the curve, run the regime row on that decision's contrast, as `conditional-effects` does | the projection bound reads one coefficient of the projection, not the curve. State in one sentence that the EP curve has no bound |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
 | adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
 
@@ -376,7 +376,7 @@ change.
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules |
+| Value of a learned treatment rule | treatment-rules; conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
 | Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
@@ -402,9 +402,9 @@ change.
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
 | Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
-| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve with no basis; under Go deeper, a CATE projection on `Cosine` and `Additive` bases with its band, and a log-CRR projection on `Linear`) |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
-| External scores | No tutorial fits `assess_score` |
+| External scores | conditional-effects (`assess_score` and a paired `compare=` targeting curve on held-out rows) |
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |
 | Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
 | Drift-corrected survival TMLE | No tutorial fits it |
