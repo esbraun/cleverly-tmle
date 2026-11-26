@@ -347,6 +347,67 @@ def check_stored() -> None:
     assert threat[0] < 0 < threat[1]
     assert by_cell[("0.02", "0.1")][0] < 0
 
+    # Full report: only the checks that ran, and the refitting checks named, not run.
+    report = stored_output(NOTEBOOK, "full-report")
+    assert "not_applicable" not in report and "deferred" not in report
+    for check in ("support", "nuisance_models"):
+        assert re.search(rf"(?m)^\s*validation\s+{check}\s+warning\s*$", report), check
+    assert re.search(r"(?m)^\s*validation\s+score_equations\s+passed\s*$", report)
+    refitting = re.search(r"refitting checks, run in their own cells: (.+)", report)
+    assert refitting
+    for check in ("refute", "benchmark", "simulated_confounding", "marginal_bounds"):
+        assert check in refitting[1], check
+
+    # Balance: the weights leave no column above 0.1, as the reading says.
+    balance = stored_output(NOTEBOOK, "balance")
+    before = _number(balance, r"above 0\.1, before weighting: (\d+) of 71")
+    after = _number(balance, r"above 0\.1, after weighting: (\d+) of 71")
+    assert before > 0 and after == 0
+    assert _number(balance, r"largest difference after weighting: (\S+)") < 0.1
+
+    # The figure cell prints the slope that "Check the fit" prints.
+    figures_text = stored_output(NOTEBOOK, "model-figures")
+    printed_slope = re.search(
+        r"calibration slope: (\S+) \(95% interval (\S+) to (\S+)\)", figures_text
+    )
+    assert printed_slope and printed_slope.groups() == slope.groups()
+
+    # Richer treatment model: the flag stays, and the ATT stays inside the main interval.
+    richer = stored_output(NOTEBOOK, "richer-treatment")
+    richer_slope = re.search(r"richer fit (\S+) \(95% interval (\S+) to", richer)
+    assert richer_slope and float(richer_slope[2]) > 1, "the reading says the flag remains"
+    richer_att = _number(richer, r"ATT, richer fit: (\S+) g")
+    assert float(interval[1]) < richer_att < float(interval[2])
+
+    # Odds bounds: one value at gamma 1, zero first inside the range at 1.5 and not at 1.3,
+    # and the interval descriptive.
+    bounds = stored_output(NOTEBOOK, "marginal-bounds")
+    gamma_rows = {
+        row[0]: (float(row[1]), float(row[2]))
+        for row in re.findall(r"(?m)^(1(?:\.\d)?)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+\[", bounds)
+    }
+    assert gamma_rows["1"][0] == gamma_rows["1"][1]
+    assert gamma_rows["1.3"][1] < 0 < gamma_rows["1.5"][1]
+    assert "read it as descriptive" in bounds
+
+    # Dose: four rows, every one experimental with an interval below zero; the declared pooling
+    # rule (df of 30 or more and moves of at most 0.5 standard errors) keeps four levels.
+    dose = stored_output(NOTEBOOK, "dose")
+    dose_rows = re.findall(
+        r"(?m)^(1-5|6-10|11-20|21\+)\s+(-\d+\.\d)\s+\[\s*(-\d+\.\d),\s*(-\d+\.\d)\]\s+(\d+)\s+(\w+)$",
+        dose,
+    )
+    assert [row[0] for row in dose_rows] == ["1-5", "6-10", "11-20", "21+"], dose_rows
+    for row in dose_rows:
+        assert float(row[3]) < 0 and row[5] == "experimental" and int(row[4]) >= 30, row
+    moves_in_se = [
+        float(value) for value in re.findall(r"(?m)^0\.00\d+\s+\S+\s+\S+\s+(-?\d\.\d+)$", dose)
+    ]
+    assert len(moves_in_se) == 12 and max(abs(value) for value in moves_in_se) <= 0.5
+    weighted = _number(dose, r"share-weighted average of the four rows: (\S+) g")
+    assert abs(weighted - att) < standard_error, "the reading calls the two a near match"
+    assert "smoking pairs with no stated amount, left out of this fit: 456" in dose
+
     # Over-adjustment: each refit moves the ATT by under one standard error.
     refit = stored_output(NOTEBOOK, "over-adjustment")
     moves = [float(value) for value in re.findall(r", ([+-]\d+\.\d+) standard errors", refit)]
