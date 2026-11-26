@@ -238,11 +238,12 @@ def _check_balance(namespace: dict[str, Any]) -> None:
     assert abs(staffing["smd_weighted"] - staffing["smd_unweighted"]) < 0.01
     # "take readiness only to 0.256": a nonzero witness that the collaborative weights move it.
     readiness = collaborative.loc["baseline_readiness"]
-    assert 0.1 < readiness["smd_weighted"] < 0.35 < readiness["smd_unweighted"] + 0.1
+    assert 0.1 < readiness["smd_weighted"] < 0.35
+    assert readiness["smd_weighted"] < readiness["smd_unweighted"]
     # "widen the need difference from -0.029 to -0.099".
     need = collaborative.loc["coordination_need"]
     assert abs(need["smd_weighted"]) > 2 * abs(need["smd_unweighted"])
-    assert figure_title(namespace["balance_fig"])
+    assert figure_title(namespace["balance_fig"]) == "Covariate balance before and after weighting"
 
 
 def _check_crossfit(namespace: dict[str, Any]) -> None:
@@ -270,7 +271,7 @@ def _check_other_strategies(namespace: dict[str, Any]) -> None:
     assert greedy["ate"].inference == "working_mechanism_plugin"
     with pytest.raises(CapabilityError):
         _ = greedy["ate"].ci
-    assert figure_title(namespace["search_fig"])
+    assert figure_title(namespace["search_fig"]) == "Treatment model selection"
 
     derivative = namespace["derivative"]
     point = derivative["ate"]
@@ -282,8 +283,10 @@ def _check_other_strategies(namespace: dict[str, Any]) -> None:
     assert low < point.psi < high
     rv = namespace["derivative_rv"]
     assert 0.0 < rv["rva"] < rv["rv"] < 1.0
-    # The derivative strategy fits its own lasso treatment model ("lasso logistic regression").
-    assert "lasso" in str(derivative.summary())
+    # "Its treatment model is a lasso logistic regression": the fit records the lasso source and
+    # no collaborative search.
+    record = derivative.extra["ctmle"]
+    assert type(record).__name__ == "CTMLEDerivativeFit" and record.source == "lasso"
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
