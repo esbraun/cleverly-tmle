@@ -630,7 +630,10 @@ counts, so each arm must appear in two distinct clusters. See
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
 | `cluster_variance=` | `"jackknife"` would replace the cluster influence-curve variance with the delete-one-cluster jackknife. `TMLE` refuses it on every fit today, before any learner ([cluster jackknife](inference.md#cluster-jackknife)) | no. It changes the variance estimator only |
 
-`submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level. The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale) states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened $t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
+`submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level.
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
 
 ### Stopping rules, step bound and best iterate
 
@@ -733,9 +736,9 @@ on the scale the interval is built on ([small-sample scale](inference.md#small-s
 the logit or log scale for a transformed estimate, the log scale for a ratio. On an unclustered
 mean of a binary outcome, whose interval is built on the logit scale, the residual enters as
 $\lvert r_n\rvert / \bigl(\hat\psi(1 - \hat\psi)\bigr)$, the slope that carries the standard
-error. On an unclustered difference of two such means (correlated MOVER) and on an unclustered
-estimate of a continuous outcome (the skew-widened $t$), $\lvert r_n\rvert$ is added to each
-side's half-width. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
+error. On an unclustered difference of two such means with recorded components (correlated
+MOVER) and on an unclustered estimate of a continuous outcome (the skew-widened $t$),
+$\lvert r_n\rvert$ is added to each side's half-width. It covers whenever $\lvert Z\rvert \le z$, whatever $B$ is, so it keeps
 its level asymptotically. `ParameterEstimate.rule_widened` records the widening, which every
 fit under `scaled_var` or `sample_size` sets. Each derived estimate inherits it with its own
 curve's mean: a contrast, a ratio, a transform, a stratum, a fold average, the median over
@@ -799,11 +802,11 @@ draws. With every threshold eight times larger, so that the rule binds hard, the
 of the mean under treatment covers 0.837 and the widened one 0.977.
 
 The support rows `T52` cover these fits; a rule with `step_bound=` or `iterate="best"` reads
-`experimental`. The committed rows record the identity interval. Recomputed under the shipped
-intervals, the logit interval of a binary mean (`tests/canonical/interval-audit-screen.csv`) and
-MOVER and the skew-widened $t$, read by refitting the committed draws
+`experimental`. The committed rows record the identity interval. Read under the logit interval
+of a binary mean, they move no verdict (`tests/canonical/interval-audit-screen.csv`). A refit of
+the committed draws under MOVER and the skew-widened $t$ moves none either
 (`tests/canonical/asymmetric-audit-screen.csv`, with the refits in
-`tests/canonical/asymmetric-refit/option-stopping-point/`), move no verdict.
+`tests/canonical/asymmetric-refit/option-stopping-point/`).
 
 #### What the result reports
 

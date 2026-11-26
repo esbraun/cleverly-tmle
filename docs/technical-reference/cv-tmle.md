@@ -157,7 +157,9 @@ the feature `fold_evaluated_strata`, which no `ovb_limit` row covers, so its lim
 descriptive and its plug-in limits refuse. `tests/unit/test_fold_evaluated_strata_refusals.py` runs that bound,
 the robustness value, the truncation curve and the default simultaneous band on such a fit.
 
-The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale) states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened $t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
+The interval's shape follows the estimate: [small-sample scale](inference.md#small-sample-scale)
+states when an unclustered estimate takes the logit interval, correlated MOVER or the skew-widened
+$t$, and the `interval_scale` column of `to_frame()` names the one each estimate used.
 
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
