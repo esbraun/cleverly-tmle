@@ -362,7 +362,8 @@ all_cached = result.diagnostics.run_all()
 `Results` rows, and `battery.report("support")` returns the same overlap report from a combined run.
 `corrections()` applies only to a `DRTMLE` fit (a TMLE variant whose interval aims to stay valid
 when one of the two models is wrong) fitted with a guard, an extra term the fit subtracts to protect
-that interval; ordinary and collaborative TMLE report it as `not_applicable`. `run_all()` with no
+that interval; ordinary and collaborative TMLE report it as `not_applicable`. An adaptive TMLE fit of a
+[trial with external data](trial-with-external-data.md) also answers it, with its own updates. `run_all()` with no
 flags runs every check of `result.diagnostics` that reads only what the fit stored, and
 `result.diagnostics.run_all(include_refits=True, include_retargets=True)` runs the model and weight
 checks, including the refutation tests, without the missing-confounder analyses. `random_state`

@@ -231,8 +231,9 @@ Four checks run on the fit:
 - `corrections()`: how many passes adjusted the trial-membership model, and whether they met the
   stopping rule.
 
-`result.assess()` collects the four and lists each refused check with its reason, and
-`result.diagnostics.run_all()` gives the four plus the two refused refits. Neither runs
+`result.assess()` collects the four, naming the model and update rows `the three prediction
+models` (four with a missingness model) and `targeting updates`. It lists each refused check with
+its reason, and `result.diagnostics.run_all()` gives the four plus the two refused refits. Neither runs
 `result.diagnostics.influence()`. It counts the effective rows, how many equal contributions would
 give the same spread, and flags the estimate `noisy` when the standard error is itself uncertain
 enough that the interval may miss its 95% level ([checking a fit](assessment.md) explains the
