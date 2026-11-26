@@ -562,39 +562,41 @@ def _continuous(
     )
 
 
-#: The held-out continuous cells (the rows of ``bins-check.jsonl``, checked and not fitted, in
-#: ``rows/X106/J2/evidence/2026-11-19-j2d/rev9/`` in the plans repository): each row's guard
-#: counts and its traced peak.
+#: The held-out continuous cells (the ``bins_check`` rows, checked and not fitted, of the X106 part D
+#: refit, ``rows/X106/D/evidence/2026-11-25-j2d-recal/grid-*.jsonl`` in the plans repository): each
+#: row's guard counts and its traced peak.
 HELD_OUT: dict[str, tuple[FitCounts, int]] = {
     "mtp T 8, B 320": (
         _continuous("ltmle_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
-        1_771_256_839,
+        1_000_158_283,
     ),
     "mtp F 10, B 320": (
         _continuous("ltmle_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
-        1_522_250_077,
+        794_556_292,
     ),
     "mtp n 5,000, B 20": (
-        _continuous("ltmle_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
-        18_807_706,
+        _continuous("ltmle_continuous", 5_000, 2, 4, 3, width=5, bins=35, panel_bytes=290_000),
+        46_532_843,
     ),
     "sdr_mtp T 8, B 320": (
         _continuous("sdr_continuous", 2_000, 8, 1, 1, width=17, bins=320, panel_bytes=320_000),
-        1_771_244_018,
+        1_000_160_483,
     ),
     "sdr_mtp F 10, B 320": (
         _continuous("sdr_continuous", 2_000, 2, 4, 10, width=5, bins=320, panel_bytes=116_000),
-        1_617_177_744,
+        1_111_518_731,
     ),
     "sdr_mtp n 5,000, B 20": (
-        _continuous("sdr_continuous", 5_000, 2, 4, 3, width=5, bins=20, panel_bytes=290_000),
-        26_388_174,
+        _continuous("sdr_continuous", 5_000, 2, 4, 3, width=5, bins=35, panel_bytes=290_000),
+        75_347_076,
     ),
 }
 
 
-#: The held-out cells of the two density routes (the rows of ``dens-check.jsonl``, beside
-#: ``bins-check.jsonl``): n 5,000, T 4, R 2, F 5, with 160 bins on the index route.
+#: The held-out cells of the two density routes: n 5,000, T 4, R 2, F 5, with 160 bins on the index
+#: route.  The index rows are the part D refit's ``dens_check`` rows; the classifier rows are J2d's
+#: ``dens-check.jsonl`` (``rows/X106/J2/evidence/2026-11-19-j2d/rev9/``), whose family was not
+#: refitted.
 HELD_OUT.update(
     {
         f"{family} F 5": (
@@ -614,9 +616,9 @@ HELD_OUT.update(
             peak,
         )
         for family, peak in (
-            ("ltmle_continuous_index", 88_873_073),
+            ("ltmle_continuous_index", 195_805_546),
             ("ltmle_continuous_classifier", 9_629_809),
-            ("sdr_continuous_index", 217_045_226),
+            ("sdr_continuous_index", 599_921_986),
             ("sdr_continuous_classifier", 16_309_789),
         )
     }
@@ -798,12 +800,14 @@ def test_the_counts_read_the_band_setting_of_the_estimator(simultaneous: bool) -
     assert (_memory_guard.predict(counts).band > 0) is simultaneous
 
 
-#: One fitted cell of each route family: ``dens.jsonl`` (``rows/X106/J2/evidence/
-#: 2026-11-19-j2d/rev9/`` in the plans repository), n 2,000, T 4, R 4, F 3, B 320 on the index
-#: route; each row's guard counts, with the route's family and bins, and its traced peak.
+#: One fitted cell of each route family, n 2,000, T 4, R 4, F 3, B 320 on the index route: the
+#: index rows from the part D refit (``rows/X106/D/evidence/2026-11-25-j2d-recal/grid-2000.jsonl``
+#: in the plans repository), the classifier rows from J2d's ``dens.jsonl`` (``rows/X106/J2/
+#: evidence/2026-11-19-j2d/rev9/``); each row's guard counts, with the route's family and bins, and
+#: its traced peak.
 ROUTE_CELLS: dict[str, tuple[int, int]] = {
-    "ltmle_continuous_index": (320, 61_997_343),
-    "sdr_continuous_index": (320, 122_706_013),
+    "ltmle_continuous_index": (320, 169_586_005),
+    "sdr_continuous_index": (320, 362_604_524),
     "ltmle_continuous_classifier": (0, 6_934_545),
     "sdr_continuous_classifier": (0, 10_641_843),
 }
@@ -1462,7 +1466,7 @@ def test_the_message_omits_counts_at_one_and_names_bins() -> None:
     assert 'ratio="classifier" (no binned density)' in str(error.refusal.alternative)
     assert (
         "At one worker it can exceed the true peak by up to 3.5 times, more on fits under about "
-        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a binned density."
+        "20 MiB with the simultaneous band on, and more with n_jobs > 1 or a liblinear treatment learner."
         in text
     )
     # The classifier route builds no binned density, so neither bins remedy appears.

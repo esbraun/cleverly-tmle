@@ -298,12 +298,14 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "p": 4.613350122839041,
     },
     "ltmle_continuous": {
-        "BB": 1.0330401608187134,
-        "FRT": 0.1769268663194445,
-        "RSJ": 21.833618893914473,
-        "TB": 2.8438090497076023,
-        "c0": 54760.44444444538,
-        "one": 16.554266885964946,
+        "BB": 0.48473000945841316,
+        "FRT": 0.14509580237472028,
+        "FT": 0.13586852661223,
+        "RSJ": 10.002207307969798,
+        "TB": 2.485800138115847,
+        "TBB": 0.018543062729164922,
+        "Tp": 1.2192738151631,
+        "one": 286.53919550876515,
     },
     "ltmle_continuous_classifier": {
         "FRT": 0.16648877314814775,
@@ -316,13 +318,12 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "one": 32.14179166666665,
     },
     "ltmle_continuous_index": {
-        "BB": 0.005982036524261605,
-        "FRT": 0.0810425925925927,
-        "FTB": 0.01875441550925926,
-        "RSJ": 9.685106378926394,
-        "TB": 3.0662097640134203,
-        "c0": 90297.66666666667,
-        "one": 169.5478579113924,
+        "BB": 0.040765055391971575,
+        "RHJ": 5.6063364883401885,
+        "RTB": 0.035873021690672295,
+        "TB": 3.2479649993497786,
+        "c0": 2249824.117125356,
+        "one": 2063.157713087547,
     },
     "sdr": {
         "FRT": 2.6710343784101345,
@@ -334,14 +335,12 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "p": 4.6976572703230035,
     },
     "sdr_continuous": {
-        "BB": 1.0252908761899118,
-        "FRT": 5.890451226417773,
-        "FT": 0.37585378386435897,
-        "FTB": 0.8802002933429112,
-        "RSJ": 21.12371663324668,
-        "TB": 2.1809721392122894,
-        "Tp": 0.01863825458807292,
-        "c0": 52098.22222222275,
+        "BB": 0.5083367385153763,
+        "FRT": 3.9001067986258446,
+        "FT": 14.363974578296204,
+        "FTB": 3.859623220705197,
+        "RSJ": 11.356025769154998,
+        "one": 218.61107917073033,
     },
     "sdr_continuous_classifier": {
         "FRT": 3.117472470238094,
@@ -353,13 +352,10 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "one": 18.26745833333332,
     },
     "sdr_continuous_index": {
-        "BB": 0.00638890353970742,
-        "FRT": 2.664582872732425,
-        "FTB": 1.1129619968820863,
-        "RSJ": 21.95116125641087,
-        "TB": 1.8867153326622568,
-        "c0": 79724.99999999689,
-        "one": 152.8956108672938,
+        "BB": 0.035047496139785424,
+        "FTB": 4.6499840575107205,
+        "RHJ": 33.17026666666667,
+        "one": 1857.1325631987238,
     },
 }
 WORKER_BYTES = 251658240
@@ -483,7 +479,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (4, 17),
-        "bins": (5, 320),
+        "bins": (12, 320),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -515,7 +511,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (5, 17),
-        "bins": (20, 320),
+        "bins": (31, 394),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -547,7 +543,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (4, 17),
-        "bins": (5, 320),
+        "bins": (12, 320),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -579,7 +575,7 @@ FITTED: dict[str, dict[str, tuple[int, int]]] = {
         "causes": (1, 1),
         "folds": (1, 10),
         "width": (5, 17),
-        "bins": (20, 320),
+        "bins": (31, 394),
         "paths": (0, 0),
         "horizons": (1, 1),
         "repeats": (1, 1),
@@ -1385,7 +1381,7 @@ def refusal(prediction: Prediction, budget: int, *, explicit: bool) -> Longitudi
         f"({predicted:,} bytes) at its peak, {_whole_call(prediction)}; the budget is "
         f"{_size(budget)} ({budget:,} bytes), {source}. {LEARNERS} At one worker it can exceed "
         f"the true peak by up to {FACTOR:g} times, more on fits under about 20 MiB with the "
-        "simultaneous band on, and more with n_jobs > 1 or a binned density."
+        "simultaneous band on, and more with n_jobs > 1 or a liblinear treatment learner."
         f"{_range_clause(counts)} No learner was fitted."
     )
     remedies = [f"Pass {name}(max_memory_bytes=...) a value above {predicted:,}"]
