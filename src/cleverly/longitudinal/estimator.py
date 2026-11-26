@@ -710,13 +710,28 @@ def baseline_cross_fit_refusal(estimator: str) -> Refusal:
     )
 
 
-#: The warning when the diagnostic mechanism of a g-computation fit does not fit.
+#: The warning when the diagnostic mechanism of a g-computation fit does not fit.  The
+#: estimate reads only the outcome regressions, which need not be GLMs, and the fit reports
+#: an interval only when every regression is one, so the text conditions on both.
 GCOMP_MECHANISM_WARNING = (
     "the diagnostic treatment and censoring mechanism of this g-computation fit did not fit "
     "({error}). The g-computation estimate does not read it, so the fit continues. Where no "
-    "unit follows the regimen, the outcome GLMs extrapolate, and the interval holds only if "
-    "they are correct there. The positivity diagnostics and the diagnostic curve read the "
-    "mechanism, so they are unavailable (nan)"
+    "unit follows the regimen, the outcome regressions extrapolate, and an interval, where "
+    "the fit reports one, holds only if they are correct there. The positivity diagnostics "
+    "and the diagnostic curve read the mechanism, so they are unavailable (nan).{remedy}"
+)
+
+#: The remedy :data:`GCOMP_MECHANISM_WARNING` adds on the classifier route.  A policy that
+#: never assigns some recorded doses, such as a shift held inside a declared band, gives
+#: the stacked rows of those doses one label, and the policy's step columns then separate
+#: the two classes: the true ratio there is exactly zero, a limit an unpenalized GLM cannot
+#: reach.
+GCOMP_CLASSIFIER_REMEDY = (
+    " On the classifier route, a policy that never assigns some recorded doses, such as one "
+    "held inside a declared band, can separate the stacked observed and policy rows, and an "
+    "unpenalized GLM, the default treatment learner, cannot fit a separated design. Pass a "
+    "penalized classifier as treatment_learner, such as scikit-learn's LogisticRegression, "
+    "to compute the diagnostics"
 )
 
 
@@ -10774,7 +10789,12 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
                 ratio=self._route,
             )
         except DataError as error:
-            _warn(GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5)
+            remedy = GCOMP_CLASSIFIER_REMEDY if self._route == "classifier" else ""
+            _warn(
+                GCOMP_MECHANISM_WARNING.format(error=error, remedy=remedy),
+                PositivityWarning,
+                stacklevel=5,
+            )
             return _unavailable_mechanism(data, plans)
 
     @abstractmethod
