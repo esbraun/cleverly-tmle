@@ -1,4 +1,6 @@
 seeds 6000 to 6199, 200 draws
+commit a8f91c23d0222d7ca7017fe2ae9eeb14dcfe2e2c; cleverly 0.2.8
+numpy 2.5.5; pandas 3.1.1; scikit-learn 1.9.1
 
 Step 6, the headline fit
   bias +0.0003 (MC SE 0.0004)
@@ -29,7 +31,7 @@ Step 10, the sensitivity analysis
   medication_burden cf_d 5% / 50% / 95%: [0.0, 0.043, 0.103], max 0.456
   medication_burden cf_y > cf_d: 0.955 (MC SE 0.015; 191 of 200)
   bias-adjusted bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
-  95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  medication_burden: 95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
   bounds contain the truth: 0.930 (MC SE 0.018; 186 of 200)
 
 Step 3
@@ -39,3 +41,27 @@ Step 10, the shown draw at the law's nu^2 (truth.py)
   fitted nu^2 4.4183: bias scale 0.27859; bias <= 0.0233; lower bound 0.1433; rv 0.445
   law    nu^2 4.8286: bias scale 0.29124; bias <= 0.0244; lower bound 0.1422; rv 0.431
   mean doubly robust nu^2 over the draws 4.479: shortfall 0.072 in nu^2, 0.037 in the bias scale
+
+Who gains: the conditional effects and the counterfactual means, on the flexible fit
+  att  coverage 0.955 (MC SE 0.015; 191 of 200); bias +0.0002 (MC SE 0.0004); mean SE 0.0060; |bias| / mean SE 0.04; SE/SD 1.03; rule: chance
+  atc  coverage 0.960 (MC SE 0.014; 192 of 200); bias +0.0003 (MC SE 0.0005); mean SE 0.0063; |bias| / mean SE 0.05; SE/SD 0.97; rule: chance
+  ey0  coverage 0.970 (MC SE 0.012; 194 of 200); bias +0.0002 (MC SE 0.0003); mean SE 0.0045; |bias| / mean SE 0.04; SE/SD 0.99; rule: chance
+  ey1  coverage 0.930 (MC SE 0.018; 186 of 200); bias +0.0005 (MC SE 0.0004); mean SE 0.0054; |bias| / mean SE 0.10; SE/SD 0.95; rule: chance
+  ATT estimate above ATC estimate: 1.000 (MC SE 0.000; 200 of 200)
+  ATT and ATC intervals do not overlap: 0.685 (MC SE 0.033; 137 of 200)
+  ey0 and ey1 both below their truths: 0.280 (MC SE 0.032; 56 of 200)
+  atc df 5% / 50% / 95%: [51.0, 273.0, 738.0]; kish 5% / 50% / 95%: [25.0, 131.0, 328.0]
+  att df 5% / 50% / 95%: [297.0, 916.0, 1443.0]; kish 5% / 50% / 95%: [141.0, 397.0, 582.0]
+  atc misses with df below 200: 4 of 8
+
+Step 10, the four benchmarks and the tipping point
+  discharge_risk     cf_d 5% / 50% / 95%: [0.0, 0.066, 0.148]; cf_y 50%: 1.000
+  prior_utilization  cf_d 5% / 50% / 95%: [0.004, 0.08, 0.142]; cf_y 50%: 0.276
+  medication_burden  cf_d 5% / 50% / 95%: [0.0, 0.043, 0.103]; cf_y 50%: 0.109
+  age                cf_d 5% / 50% / 95%: [0.0, 0.0, 0.06]; cf_y 50%: 0.130
+  largest cf_d is prior_utilization's: 0.565 (MC SE 0.035; 113 of 200)
+  tipping cf_d 5% / 50% / 95%: [0.192, 0.215, 0.243]
+  tipping / largest benchmarked cf_d 5% / 50% / 95%: [1.16, 2.4, 4.61]
+  tipping above the largest benchmarked cf_d: 0.970 (MC SE 0.012; 194 of 200)
+  tipping above three times the largest benchmarked cf_d: 0.280 (MC SE 0.032; 56 of 200)
+  discharge_risk bounds' 95% limits exclude zero: 0.985 (MC SE 0.009; 197 of 200)

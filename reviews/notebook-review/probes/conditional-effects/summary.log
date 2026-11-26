@@ -1,0 +1,26 @@
+seeds 1000 to 1199, 200 draws
+
+TMLE projection on Cosine(['age'], 3): coverage of the shape's own truth
+  intercept interval covers: 0.980 (MC SE 0.010; 196 of 200)
+  cos1 interval covers: 0.950 (MC SE 0.015; 190 of 200)
+  cos2 interval covers: 0.950 (MC SE 0.015; 190 of 200)
+  cos3 interval covers: 0.915 (MC SE 0.020; 183 of 200)
+  pointwise interval at age 20 covers: 0.945 (MC SE 0.016; 189 of 200)
+  pointwise interval at age 30 covers: 0.960 (MC SE 0.014; 192 of 200)
+  pointwise interval at age 40 covers: 0.940 (MC SE 0.017; 188 of 200)
+  pointwise interval at age 50 covers: 0.935 (MC SE 0.017; 187 of 200)
+  pointwise interval at age 60 covers: 0.920 (MC SE 0.019; 184 of 200)
+  pointwise interval at age 70 covers: 0.970 (MC SE 0.012; 194 of 200)
+  pointwise interval at age 80 covers: 0.970 (MC SE 0.012; 194 of 200)
+  band covers all seven ages: 0.955 (MC SE 0.015; 191 of 200)
+  heterogeneity test p < 0.0001: 1.000 (MC SE 0.000; 200 of 200)
+
+EP curve at the declared schedule
+  label supported: 1.000 (MC SE 0.000; 200 of 200)
+  RMSE over ages 18-80, 5% / 50% / 95%: [0.017, 0.03, 0.045]
+
+Held-out rule score
+  cutoff (last age before the first-half curve first falls to the cost), 5% / 50% / 95%: [42.0, 50.0, 60.0]
+  old rule (oldest age above the cost) at 80: 0.065 (MC SE 0.017; 13 of 200)
+  net-gain interval covers the true net gain: 0.935 (MC SE 0.017; 187 of 200)
+  net-gain bias -0.0006 (MC SE 0.0008)

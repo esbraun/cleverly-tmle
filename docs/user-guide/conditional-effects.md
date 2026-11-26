@@ -491,6 +491,7 @@ the score checks and the targeting curves refuse.
 ## Go deeper
 
 The [worked example](../examples/conditional-effects.ipynb) fits the EP curve on simulated data,
+then a cosine projection with intervals, the score checks and a learned rule under its Go deeper,
 and [treatment rules](../examples/treatment-rules.ipynb) learns from records whom to treat.
 Under [learned treatment rules](estimands.md#learned-treatment-rules),
 `LearnedRule(loss="ep", modifiers=...)` fits this EP curve in each fold and treats where it is

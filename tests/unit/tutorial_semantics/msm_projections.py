@@ -443,6 +443,12 @@ def _check_go_deeper_lessons(namespace: dict[str, Any]) -> None:
         NOTEBOOK, "logit", namespace["binary_protocol"], namespace["odds_result"]
     )
 
+    # "No study checks the intervals of a three-schedule fit like this page's ... So
+    # the schedule averages, their differences from `low`, the trend ... all print
+    # `experimental`."
+    for fit in (namespace["arm_result"], namespace["arm_contrasts"], namespace["trend_result"]):
+        assert set(fit.to_frame()["support"]) == {"experimental"}
+
     # Treatment plans: the true line is the least-squares line through the three plan means,
     # and both coefficients carry the supported label.
     plan_means = namespace["plan_means"]
