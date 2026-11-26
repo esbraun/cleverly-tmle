@@ -1173,7 +1173,11 @@ When the public layer reports a subset of the parameters an engine computed, the
 reports is the inference for that subset. A joint band is a statement about a family. Narrowing the
 family and keeping the critical value would assert a coverage property over parameters the result
 no longer contains. `cleverly` recomputes from the retained influence curves under the same
-significance level, draw count, multiplier distribution, seed, and cluster structure.
+significance level, draw count, multiplier distribution, seed, and cluster structure. A
+longitudinal fit's studentized bootstrap band is rebuilt the same way, from the retained
+parameters' replicate estimates and replicate standard errors at the same level. Below two
+retained parameters neither band exists. A narrowed band of either kind is `experimental`, because
+no study measures a band over the subset.
 
 ## What is not on this page
 
