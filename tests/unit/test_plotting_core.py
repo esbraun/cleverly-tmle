@@ -984,12 +984,14 @@ def _nearest_row_reason(qualifiers: str) -> Support:
 
 
 def test_forest_note_names_known_mechanisms_in_words_not_column_ids(binary_fit: Any) -> None:
-    """A longitudinal fit's qualifiers are column names; ids such as A1 must not leave gaps."""
-    support = _nearest_row_reason("A1 and A2 and A3 and C1 and C2 and offer@1 and offer@2")
+    """A longitudinal fit's qualifiers are node ids; ids such as known_treatment@1 leave no gaps."""
+    support = _nearest_row_reason(
+        "known_censoring@1 and known_censoring@2 and known_treatment@1 and known_treatment@2"
+    )
     note = _core.note_text(forest(dataclasses.replace(binary_fit["ate"], support=support)))
     assert "and and" not in note
     assert "in and" not in note
-    assert "offer@1" not in note
+    assert "@1" not in note and "known_censoring" not in note
     assert "differs in which treatment and censoring mechanisms are declared known." in note
     # Control: the qualifiers of a point-treatment fit keep their own words.
     support = _nearest_row_reason("known_mechanism and strata")

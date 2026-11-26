@@ -1756,21 +1756,37 @@ def _replay_recipe(
     )
 
 
-def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
-    """The treatment and censoring columns whose declared factor the fit divides by.
+def _known_declarations(data: LongitudinalData) -> tuple[tuple[str, int, str], ...]:
+    """The ``(role, node, column)`` of each factor whose declared value the fit divides by.
 
-    A declaration read in the sample beside weights that tilt the law is not one: its
-    factor is estimated from it (:func:`~cleverly.data.known_mechanism.tilted_treatment_at`).
+    ``role`` is ``"treatment"`` or ``"censoring"`` and ``node`` the 1-based node index. A
+    declaration read in the sample beside weights that tilt the law is not one: its factor is
+    estimated from it (:func:`~cleverly.data.known_mechanism.tilted_treatment_at`).
     """
     if data.known_mechanisms is None:
         return ()
-    names: list[str] = []
+    declared: list[tuple[str, int, str]] = []
     for time in range(1, data.n_times + 1):
         if not data.is_held_node(time) and divided_treatment_at(data, time) is not None:
-            names.append(data.decision_name(time))
+            declared.append(("treatment", time, data.decision_name(time)))
         if data.censoring_names and divided_censoring_at(data, time) is not None:
-            names.append(data.censoring_names[time - 1])
-    return tuple(names)
+            declared.append(("censoring", time, data.censoring_names[time - 1]))
+    return tuple(declared)
+
+
+def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
+    """The treatment and censoring columns whose declared factor the fit divides by."""
+    return tuple(column for _, _, column in _known_declarations(data))
+
+
+def _known_nodes(data: LongitudinalData) -> tuple[str, ...]:
+    """The support qualifiers of the declared factors: ``known_<role>@<node>``.
+
+    The support key holds the role and node index, never the column name, so a fit's label
+    does not depend on what the user called the columns. The node is the loop index, not a
+    value parsed from a generated name such as ``time>=g``, whose ``g`` is a grid value.
+    """
+    return tuple(f"known_{role}@{node}" for role, node, _ in _known_declarations(data))
 
 
 @dataclass(frozen=True)
@@ -6476,6 +6492,7 @@ class _SequentialEstimator:
                 outcome_kind=outcome_kind(prepared),
                 cross_fitted=not draws[0][0].is_single,
                 known_factors=_known_factors(prepared),
+                known_nodes=_known_nodes(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans) | ({"separable"} if separable else set()),
                 tuned_cap=tuned_folds is not None,

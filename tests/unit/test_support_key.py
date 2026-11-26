@@ -346,6 +346,7 @@ def long_key(estimator: Any, data: Any) -> SupportKey:
         outcome_kind="end_of_study",
         cross_fitted=False,
         known_factors=(),
+        known_nodes=(),
         has_msm=False,
         regimen_kinds={"static"},
     )[0]

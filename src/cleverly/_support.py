@@ -363,13 +363,14 @@ class SupportKey:
         ``interventions=`` or a :class:`~cleverly.interventions.NaturalCourse`) adds
         ``known_regimes``. Beside it, ``known_stochastic_regimes`` unless every known regime is
         a ``Static`` level or a known ``Rule`` (:func:`stochastic_comparators`), and
-        ``natural_course`` when a natural course is declared. A longitudinal key
-        holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
-        weighted sample. A clustered key on the ``t`` tier adds ``adaptive_nuisance`` when a
-        nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`), and with it
-        ``adaptive_nuisance_measured`` inside the ground ``few-cluster-adaptive-learners``
-        measured (:data:`ADAPTIVE_MEASURED`); a row that does not declare either still covers
-        the fit (:data:`SOFT_QUALIFIERS`).
+        ``natural_course`` when a natural course is declared. A longitudinal key holds
+        ``known_treatment@t`` or ``known_censoring@t`` for each factor the data declare known,
+        by role and 1-based node ``t`` and never by column name, and ``tilted_mechanism`` when
+        a declared node is read in the weighted sample. A clustered key on the ``t`` tier adds
+        ``adaptive_nuisance`` when a nuisance learner the fit uses is data-adaptive
+        (:func:`adaptive_nuisance`), and with it ``adaptive_nuisance_measured`` inside the
+        ground ``few-cluster-adaptive-learners`` measured (:data:`ADAPTIVE_MEASURED`); a row
+        that does not declare either still covers the fit (:data:`SOFT_QUALIFIERS`).
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
         point key holds the ``stopping`` rule, whether the fit declares ``outcome_by_arm=True``, the
@@ -1323,6 +1324,7 @@ def longitudinal_key(
     outcome_kind: str,
     cross_fitted: bool,
     known_factors: Iterable[str],
+    known_nodes: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
@@ -1341,7 +1343,12 @@ def longitudinal_key(
     cross_fitted : bool
         Whether the outer split holds more than one fold.
     known_factors : iterable of str
-        The treatment and censoring columns whose factor the data declares known.
+        The treatment and censoring columns whose factor the data declares known. They decide
+        which mechanism learners the fit uses; the key does not hold them.
+    known_nodes : iterable of str
+        The same factors as qualifiers, ``known_treatment@t`` or ``known_censoring@t`` by role
+        and 1-based node. The key holds these, so a fit's label does not depend on its column
+        names.
     has_msm : bool
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
@@ -1398,7 +1405,7 @@ def longitudinal_key(
         dependence="",
         qualifiers=frozenset(
             (
-                *known_factors,
+                *known_nodes,
                 *(
                     (f"separable_first_cause_{separable_first}",)
                     if separable_first is not None
@@ -1440,8 +1447,9 @@ def longitudinal_key(
     )
     key = _with_dependence(key, data)
     # X54 part (h), as for a point fit.
+    # The learners are chosen by column name; the key holds node positions.
     adaptive = _adaptive_qualifiers(
-        key, _longitudinal_nuisance_learners(estimator, data, key.qualifiers), data
+        key, _longitudinal_nuisance_learners(estimator, data, known_factors), data
     )
     key = replace(key, qualifiers=key.qualifiers | adaptive)
     learners = {
@@ -2300,6 +2308,7 @@ def classify_longitudinal_fit(
     outcome_kind: str,
     cross_fitted: bool,
     known_factors: Iterable[str],
+    known_nodes: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
     tuned_cap: bool = False,
@@ -2322,7 +2331,9 @@ def classify_longitudinal_fit(
     cross_fitted : bool
         Whether the outer split holds more than one fold.
     known_factors : iterable of str
-        The known treatment and censoring factors.
+        The treatment and censoring columns whose factor the data declares known.
+    known_nodes : iterable of str
+        The same factors by role and node, ``known_treatment@t`` or ``known_censoring@t``.
     has_msm : bool
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
@@ -2344,6 +2355,7 @@ def classify_longitudinal_fit(
             outcome_kind=outcome_kind,
             cross_fitted=cross_fitted,
             known_factors=known_factors,
+            known_nodes=known_nodes,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
             tuned_cap=tuned_cap,
