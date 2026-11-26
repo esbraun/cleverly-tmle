@@ -109,6 +109,10 @@ class CovariateBalance:
         standard deviation. ``"atc"``: the mirror image, among the reference arm.
     cross_fitted : bool
         Whether the propensities are out-of-fold predictions; in-sample otherwise.
+    declared : bool
+        Whether the fit's weights read declared treatment probabilities
+        (``treatment_probabilities=``) and no treatment model was fitted. A fit with
+        ``mechanism_law="sample"`` fits a treatment model, so it is not declared here.
     n_arms : int
         The treatment's arms.
     threshold : float
@@ -124,6 +128,7 @@ class CovariateBalance:
     weighted_data: bool
     estimand: BalanceEstimand = "ate"
     cross_fitted: bool = False
+    declared: bool = False
     n_arms: int = 2
     threshold: float = DEFAULT_THRESHOLD
 
@@ -387,7 +392,9 @@ def covariate_balance(
     two-level one a single row.
 
     The propensities are the first cross-fitting repeat's out-of-fold predictions, or the
-    in-sample predictions of a fit that was not cross-fitted. The result is descriptive: it
+    in-sample predictions of a fit that was not cross-fitted. A fit whose data declare the
+    treatment probabilities (``treatment_probabilities=``) fits no treatment model, and its
+    weights read the declared probabilities. The result is descriptive: it
     has no interval or test, and a small difference on the covariates listed does not show
     balance on covariates that were not.
 
@@ -633,6 +640,7 @@ def covariate_balance(
         weighted_data=bool(np.ptp(base) > 0.0),
         estimand=chosen,
         cross_fitted=bool(getattr(config, "cross_fit", False)),
+        declared=getattr(config, "treatment_mechanism", None) == "known",
         n_arms=len(arms),
         threshold=float(threshold),
     )

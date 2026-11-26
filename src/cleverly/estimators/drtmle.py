@@ -639,8 +639,10 @@ class DRTMLE(TMLE):
         is near constant (X83 measured about +0.2 SD of ATE bias that does not shrink
         with ``n``).  **A classifier cannot serve** :math:`Q_r` or :math:`g_{r,2}`, whose
         targets are signed.  A guarded fit refuses one in either regression slot before any
-        learner fits.  On a binary outcome ``outcome_learner=`` is often a classifier, so pass
-        a regressor to both regression slots.
+        learner fits, and refuses a :class:`~cleverly.learners.ParametricOutcome` there too,
+        whose design is the treatment columns followed by the covariates.  On a binary
+        outcome ``outcome_learner=`` is often a classifier, so pass a regressor to both
+        regression slots.
     randomized:
         Declare that treatment was randomized for a fit with ``delta=``, at any number of
         arms, which selects Díaz & van der Laan (2017)'s construction.  The treatment learner
@@ -1855,9 +1857,21 @@ class DRTMLE(TMLE):
             )
         for name, learner, regression in slots:
             resolved = self.outcome_learner if learner is None else learner
+            source = f"{name}=None takes outcome_learner=, which" if learner is None else f"{name}="
+            if _is_parametric_outcome(resolved):
+                raise CapabilityError(
+                    f"{source} is a ParametricOutcome, which models the outcome on the "
+                    "treatment columns followed by the covariates. The reduced regression "
+                    f"{regression} reads one fitted nuisance column and no treatment column, so "
+                    "that model cannot fit it.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        f"Pass a regressor that takes any design as {name}=, such as "
+                        "LinearRegression(). The two regression slots resolve independently."
+                    ),
+                )
             if not _is_classifier(resolved):
                 continue
-            source = f"{name}=None takes outcome_learner=, which" if learner is None else f"{name}="
             raise CapabilityError(
                 f"{source} is a classifier. The reduced regression {regression} has a "
                 "signed target, so it needs a regressor.",
@@ -1867,6 +1881,13 @@ class DRTMLE(TMLE):
                     "regression slots resolve independently."
                 ),
             )
+
+
+def _is_parametric_outcome(learner: Any) -> bool:
+    """Whether a learner is :class:`~cleverly.learners.ParametricOutcome`, whose design is fixed."""
+    from ..learners.parametric import ParametricOutcome
+
+    return isinstance(learner, ParametricOutcome)
 
 
 def _is_classifier(learner: Any) -> bool:

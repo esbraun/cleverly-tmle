@@ -21,6 +21,7 @@ from .._summary import (
 )
 from .._summary._estimates import estimates_table, plain_support_reason
 from .._summary._learners import learner_name
+from .._summary._setup import _protocol_section
 from ._point_summary import _warning_notes
 
 if TYPE_CHECKING:
@@ -130,7 +131,8 @@ def atmle_summary(result: AdaptiveTMLEResult, detail: Detail) -> Summary:
     result : AdaptiveTMLEResult
         The fitted result.
     detail : {"short", "full"}
-        ``"full"`` adds the Assumptions and Settings sections.
+        ``"full"`` adds the Assumptions, Settings and Study sections, the last as the
+        point-treatment, dose-response and longitudinal TMLE summaries print it.
 
     Returns
     -------
@@ -144,6 +146,7 @@ def atmle_summary(result: AdaptiveTMLEResult, detail: Detail) -> Summary:
     if detail == "full":
         sections.append(_assumptions(result))
         sections.append(_settings(result))
+        sections.append(_protocol_section(result.identified_effect.protocol))
     return Summary.build(
         title=vocabulary.ATMLE_TITLE,
         header=header,

@@ -212,9 +212,10 @@ def curve(
     its survival, risk or mean-outcome curve for each regimen, the difference between
     regimens in a second panel, and the number of units still following each regimen under
     observation below. A point-treatment fit of a family of policies (a sequence of shifts,
-    scale factors or incremental odds multipliers) draws the effect against the policy's
-    parameter. A point-treatment fit of per-level means draws the means against the
-    treatment level, and the working model of a marginal structural model fit beside them.
+    scale factors or incremental odds multipliers, including factors on the odds of one
+    level of a categorical treatment) draws the effect against the policy's parameter. A
+    point-treatment fit of per-level means draws the means against the treatment level, and
+    the working model of a marginal structural model fit beside them.
     A conditional effect curve draws the effect over one modifier. A smoothed dose-response
     curve draws one series per declared bandwidth, at most three, with its pointwise
     intervals and the band over every declared pair. A continuous-time survival fit draws
@@ -2074,12 +2075,52 @@ def _policy_axis(estimand: Any) -> tuple[dict[str, float], str, bool, str] | Non
         return values, "Factor multiplying the treatment", False, cap_note
     if kind is Incremental:
         if any(isinstance(p.delta, (Mapping, tuple, list)) for p in policies):
-            return None
+            return _single_level_odds_axis(policies)
         values = {str(p.name): float(p.delta) for p in policies}
         if any(v <= 0 for v in values.values()):
             return None
         return values, "Multiplier on the odds of treatment (log scale)", True, ""
     return None
+
+
+def _factor_pairs(delta: Any) -> list[tuple[Any, float]] | None:
+    """The ``(level, factor)`` pairs of a mapping delta, which ``Incremental`` stores as a tuple of
+    pairs; ``None`` for a scalar."""
+    if not isinstance(delta, tuple):
+        return None
+    if not all(isinstance(pair, tuple) and len(pair) == 2 for pair in delta):
+        return None
+    return [(level, float(factor)) for level, factor in delta]
+
+
+def _single_level_odds_axis(policies: list[Any]) -> tuple[dict[str, float], str, bool, str] | None:
+    """The odds axis of a family of factor mappings that each move one and the same level.
+
+    A mapping keeps the factor 1 on every level it does not name, and a mapping whose factors
+    are all 1 changes nothing (the family is scale free), so ``{"low": 1.0}`` is the natural
+    course on any level. When every other mapping moves exactly one level, the same one, its
+    factor orders the family: each policy multiplies the odds of that level against every other
+    level by it. A family that moves two levels, or different levels, has no single parameter.
+    """
+    values: dict[str, float] = {}
+    moved_levels: set[Any] = set()
+    for policy in policies:
+        factors = _factor_pairs(policy.delta)
+        if factors is None:
+            return None
+        moved = {level: f for level, f in factors if f != 1.0}
+        if len(moved) > 1:
+            return None
+        if moved:
+            ((level, factor),) = moved.items()
+            moved_levels.add(level)
+            values[str(policy.name)] = factor
+        else:
+            values[str(policy.name)] = 1.0
+    if len(moved_levels) != 1 or any(v <= 0 for v in values.values()):
+        return None
+    (level,) = moved_levels
+    return values, f"Multiplier on the odds of treatment = {level} (log scale)", True, ""
 
 
 def _policies(

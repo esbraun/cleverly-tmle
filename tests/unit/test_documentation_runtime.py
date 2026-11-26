@@ -312,11 +312,14 @@ PRELUDES: dict[str, str] = {
     "docs/user-guide/reading-output.md": "",
     "docs/user-guide/refutation.md": "",
     "docs/user-guide/settings.md": "",
+    "docs/user-guide/run-time-and-memory.md": _EFFECT,
+    "docs/user-guide/variable-importance.md": "",
     "docs/user-guide/conditional-effects.md": _CONDITIONAL,
     "docs/user-guide/data-design.md": _FRAME,
     "docs/user-guide/estimands.md": _STUDY,
     "docs/user-guide/methods-learners.md": _EFFECT,
     "docs/user-guide/results-assessment.md": _RESULT,
+    "docs/user-guide/plots.md": _RESULT,
     "docs/user-guide/assessment.md": _RESULT,
     "docs/user-guide/sensitivity.md": _RESULT,
     "docs/user-guide/trial-with-external-data.md": _TRIAL,
@@ -852,6 +855,11 @@ def _headless_matplotlib(monkeypatch: Any) -> None:
         import matplotlib
 
         matplotlib.use("Agg")
+        # A kernel's inline backend closes each cell's figures once it displays them, so a
+        # notebook never holds more than one cell's figures open there. Running every cell in one
+        # namespace keeps them all open until the run ends, and pyplot's warning past 20 open
+        # figures is then the harness's artefact, not the notebook's.
+        monkeypatch.setitem(matplotlib.rcParams, "figure.max_open_warning", 0)
 
 
 def _close_figures() -> None:

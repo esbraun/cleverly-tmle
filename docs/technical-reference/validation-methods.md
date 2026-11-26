@@ -151,7 +151,7 @@ Every generic group row and intervention `score_load` row carries these concentr
 
 | key | what it holds |
 | --- | --- |
-| `equation` | the score equation with the smallest `targeted_ratio` |
+| `equation` | the score equation with the smallest Kish ratio over its rows with a nonzero load (`weighted_load_ratio`) |
 | `n_total` | all rows in the fitted data |
 | `n_targeted` | rows in the fitted score mask, including structural zeros in the selected equation |
 | `effective` | Kish-equivalent rows for the selected equation's absolute load |
@@ -164,6 +164,14 @@ Every generic group row and intervention `score_load` row carries these concentr
 | `reported_repeat`, `n_repeats` | draw 01 and the total draw count, on intervention rows only |
 | `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
 | `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
+
+Generic group rows select their equation, and the overlap summary's equation table and
+concentration note print their share, by `effective` over the rows with a nonzero load,
+`n_targeted - zero_load` (`cleverly.data.weighting.weighted_load_ratio`). The other arm's
+structural zeros in an arm-indexed equation would otherwise rank a column by its arm's size. An
+equation where no row carries a load ranks first, and the note says so. `targeted_ratio` keeps the
+score-mask denominator, which the assessment's load line and intervention rows print as mask
+rows.
 
 `top_1pct` and `top_5pct` count at least one row each. Each key takes the largest
 `max(1, ceil(fraction * n_targeted))` loads. At 20 score-mask rows or fewer the two keys therefore
@@ -4077,6 +4085,13 @@ draws are few. An equivalence band asks the question that the user needs answere
 interval of the reading lie inside a stated tolerance? The 95% interval of the bias has a width
 of about 0.20 standard deviations at 400 draws, which is why 400 is the calibrated minimum.
 
+The same width makes the band strict. The bias reading passes only when its estimate lies within
+about 0.10 standard deviations of zero. An unbiased estimator therefore fails it in about 4% of runs
+at 400 draws, whenever its estimate lands more than 2.04 of its own standard errors from zero, and
+the three readings together fail by chance in roughly one run in fifteen. A failure just past the
+edge is weak evidence of bias. Rerun with another `random_state` or more draws before reading it as
+a defect.
+
 `refute()` and its `_validate_generated_eligibility` helper in
 [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
 check the conditions in the table before the operation refits a point fit. The bands row and the
@@ -4222,6 +4237,16 @@ reports the target-relevant change with multiplicity-adjusted p-values
 ([`variable_importance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/variable_importance.py)).
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
+
+Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
+with more than two levels gives one contrast per non-reference level, each a row, and the
+Benjamini-Hochberg adjustment counts rows. Before any fit, `_checked_candidates` refuses data that
+is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
+as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
+Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
+`tests/unit/test_variable_importance.py`), the discrete preparation's limit of 20 levels, which
+refuses a continuous candidate, the outcome-scale refusal, so a cross-fitted fit of a continuous
+outcome needs a declared `q_bounds`, and the inference-status refusal below.
 
 An estimator whose status withholds its interval is refused with `CapabilityError` before the
 first fit. That includes a selector-path or generated-design collaborative estimator, and a

@@ -50,6 +50,7 @@ from .recovery import (
     RECOVERY_BOUNDS,
     RECOVERY_PLANS,
     make_recovery_score,
+    recovery_offer_count,
     recovery_score_protocol,
     recovery_score_truth,
 )
@@ -101,7 +102,12 @@ from .synthetic import (
     shift_dgp,
     weak_overlap_dgp,
 )
-from .treatment_rules import learned_rule_truth, make_treatment_rules, treatment_rule_value
+from .treatment_rules import (
+    learned_rule_truth,
+    make_treatment_rules,
+    treatment_rule_effect,
+    treatment_rule_value,
+)
 from .weekly_orders import (
     ORDER_PLANS,
     ORDER_TILTS,
@@ -201,6 +207,7 @@ __all__ = [
     "pricing_protocol",
     "pricing_truth",
     "randomized_pilot_truth",
+    "recovery_offer_count",
     "recovery_score_protocol",
     "recovery_score_truth",
     "repeated_truth",
@@ -210,6 +217,7 @@ __all__ = [
     "survival_truth",
     "team_readmission_protocol",
     "team_readmission_truth",
+    "treatment_rule_effect",
     "treatment_rule_value",
     "weak_overlap_dgp",
     "weekly_orders_protocol",

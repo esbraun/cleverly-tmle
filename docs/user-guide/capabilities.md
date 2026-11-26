@@ -98,7 +98,13 @@ readmission, prevents it.
 
 | question you ask | what to ask for | where to read |
 | --- | --- | --- |
-| Which of several candidate exposures moves the outcome most, with p-values adjusted for testing many? | `variable_importance`; `variable_importance_plan` counts the model fits first | [Python API](../api/results-assessment.md); [method](../technical-reference/validation-methods.md#variable-importance) |
+| Which of several candidate exposures has an effect on the outcome you can detect, with p-values adjusted for testing many? | `variable_importance`; `variable_importance_plan` counts the model fits first | [rank candidate exposures](variable-importance.md); [method](../technical-reference/validation-methods.md#variable-importance) |
+
+## Plotting a result
+
+| question you ask | what to ask for | where to read |
+| --- | --- | --- |
+| Which figure shows the size of an effect, the overlap of the groups, the weights or the sensitivity analyses? | `cleverly.plotting`: `forest`, `overlap`, `weights`, `sensitivity` and ten more | [which plot answers which question](plots.md); [plotting reference](../api/plotting.md) |
 
 ## Choosing how to fit
 
@@ -107,10 +113,11 @@ readmission, prevents it.
 | Can the data choose which covariates the treatment model uses? | `CollaborativeTMLEMethod` | [methods and learners](methods-learners.md), "Method presets"; [theory](../technical-reference/collaborative-tmle.md) |
 | The default interval needs both models close to right. Can it hold when one is wrong? | `DRTMLEMethod` | [methods and learners](methods-learners.md), "Method presets"; [theory](../technical-reference/dr-tmle/index.md) |
 | Can I estimate with treatment weights alone (IPTW), with no outcome model? | `AdaptiveIPTWMethod` | [methods and learners](methods-learners.md), "Method presets"; [theory](../technical-reference/adaptive-iptw.md) |
-| How do I use my own scikit-learn models? | `outcome_learner=`, `treatment_learner=` and other `ModelSpec` settings | [methods and learners](methods-learners.md), "Learner choices" |
+| How do I use my own scikit-learn models? | `outcome_learner=`, `treatment_learner=` and other `ModelSpec` settings | [methods and learners](methods-learners.md), "Learner choices"; [theory](../technical-reference/nuisance-learners.md) |
 | How are the models trained out of fold, and when are the folds reused? | `CrossFitting` | [methods and learners](methods-learners.md), "Two fold layers"; [theory](../technical-reference/cv-tmle.md) |
 | How does the correction step stop, and which other fitting options exist? | `Targeting`, `ModelSpec` | [settings reference](settings.md); [theory](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) |
 | How are intervals, bands, diagnostics and sensitivity analyses computed? | `Inference`; `result.diagnostics`, `result.sensitivity` | [results](results-assessment.md), [checks](assessment.md) and [sensitivity](sensitivity.md); [theory](../technical-reference/inference.md) |
+| How long will a fit take, and how do I make it faster or fit in memory? | `planned_fits`, `n_jobs`, `set_thread_limit`, `max_memory_bytes`, `RefutationCheckpoint` | [run time and memory](run-time-and-memory.md) |
 | How far does the evidence for analyses over time reach, in number of treatment times? | studies cover three to five times; a fit no study covers is marked experimental | [analyses over time](longitudinal.md); [theory](../technical-reference/longitudinal-tmle.md) |
 
 ## Why a request can be refused

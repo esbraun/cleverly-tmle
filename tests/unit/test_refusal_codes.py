@@ -354,6 +354,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/datasets/longitudinal.py", "can only take a step function"): "data "
     "generator argument: a rule whose jump is not at split= is a malformed argument of a "
     "generator, and no estimator capability is involved",
+    ("src/cleverly/datasets/recovery.py", "which is not in the binary history"): "truth "
+    "function argument: a rule that reads a column outside the decision's binary history is a "
+    "malformed argument of an exact-truth helper, and no estimator capability is involved",
     ("src/cleverly/datasets/synthetic.py", "rows were selected; raise n_population"): "data "
     "generator argument: too small a population for the requested sample is a malformed "
     "argument of a generator",

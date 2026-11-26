@@ -46,6 +46,11 @@ UNPRINTED_DECIMALS = {
     "7.5": "the both-raises estimate +0.0747 in percentage points",
     "6.2": "the lower limit +0.0625 of the both-raises interval in percentage points",
     "4.6": "the printed movement -4.6 standard errors, read as a size without its sign",
+    "refutation-reading: 0.03": f"pooled plasmode bias +0.028, eight seeds: {_PROBE}/plasmode.log",
+    "refutation-reading: -0.01": f"lower limit -0.006 of the pooled bias: {_PROBE}/plasmode.log",
+    "refutation-reading: 0.06": f"upper limit +0.063 of the pooled bias: {_PROBE}/plasmode.log",
+    "refutation-reading: 0.12": f"plasmode bias +0.123, seed 24: {_PROBE}/plasmode.log",
+    "refutation-reading: 1.08": f"plasmode SE ratio 1.082, seed 4: {_PROBE}/plasmode.log",
 }
 
 
@@ -88,6 +93,20 @@ def _assert_sweep_log() -> None:
         line = row(name)
         assert all(part in line for part in parts), (name, line)
     assert "below the lower limit of both's interval: 394 of 400" in log
+
+
+def _assert_plasmode_log() -> None:
+    """The refutation reading's eight-seed plasmode numbers match the committed probe log."""
+    log = (ROOT / _PROBE / "plasmode.log").read_text(encoding="utf-8")
+    assert log.startswith("plasmode, high doubled; n = 3000; draws = 400 per seed")
+    seeds = re.findall(r"^seed \d+: standardized bias ([+-]\d\.\d+); (.*)$", log, flags=re.M)
+    assert len(seeds) == 8
+    failed = [rest for _, rest in seeds if rest != "all readings inside their bands"]
+    assert failed == [
+        "bias 0.123 [0.025, 0.221] outside (-0.2, 0.2)",
+        "se_ratio 1.082 [1.011, 1.159] outside (0.85, 1.15)",
+    ]
+    assert "pooled over 3200 draws: +0.028 (-0.006, +0.063)" in log
 
 
 def _check_schedules(namespace: dict[str, Any]) -> None:
@@ -193,6 +212,7 @@ def _check_failure_mode(namespace: dict[str, Any]) -> None:
     assert extra.ci[0] > 0.0
     assert extra.support.label == "experimental"
     _assert_sweep_log()
+    _assert_plasmode_log()
 
 
 def _check_levels(namespace: dict[str, Any]) -> None:

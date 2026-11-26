@@ -57,6 +57,7 @@ from ..data.weighting import (
     score_load_row,
     top_weight_share,
     validate_score_loads,
+    weighted_load_ratio,
 )
 from ..estimators._nuisance import KnownPropensity
 from ..estimators.composite import composite_state
@@ -267,10 +268,10 @@ class PositivityReport:
         :attr:`PositivityReport.n_repeats` records once for the whole fit.  The fitted
         fluctuation retains ``abs(w_i * h_ij)`` on the
         exact rows and with the exact weights used to evaluate each score equation.  This
-        report computes one Kish
-        concentration ratio per column, then retains the most concentrated column and
-        names it under ``equation``.  Every metric in a group row comes from that one
-        column.  It never sums columns with different units.
+        report computes one Kish concentration ratio per column over its rows with a nonzero
+        load (:func:`~cleverly.data.weighting.weighted_load_ratio`), then retains the most
+        concentrated column and names it under ``equation``.  Every metric in a group row
+        comes from that one column.  It never sums columns with different units.
 
         ``effective`` is the Kish-equivalent row count of that absolute load.  It is a
         descriptive concentration index.  It is not the estimator's information, actual
@@ -1132,9 +1133,11 @@ def _group_score_load(
             score_load_row(loads[:, index], name, result.data.n)
             for index, name in enumerate(fluctuation.names)
         ]
-        # Stable first-column selection in an exact tie.  A zero-load equation has ratio
-        # zero and is correctly the one the report must expose rather than average away.
-        selected = int(np.argmin([column["targeted_ratio"] for column in columns]))
+        # The most concentrated column over the rows that carry a load, so an arm-indexed
+        # equation is not ranked by its arm's size.  Stable first-column selection in an exact
+        # tie.  A zero-load equation has ratio zero and is correctly the one the report must
+        # expose rather than average away.
+        selected = int(np.argmin([weighted_load_ratio(column) for column in columns]))
 
         clipping = group_clipping(result, group)
         lower, upper = clipping.bounds
