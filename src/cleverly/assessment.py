@@ -474,15 +474,14 @@ POINT_METHODS = ("tmle", "collaborative_tmle", "drtmle")
 POINT_METHODS_WITH_IPTW = (*POINT_METHODS, "adaptive_iptw")
 
 #: The refusal of ``refute`` on an effect curve (R-curve-refute of the P1 PR 3 plan): the fit
-#: that produced the curve is what a refutation refits.
+#: that produced the curve is what a refutation refits.  This is the static row's record; a
+#: curve's own row names one of its coefficients, or, for an EP curve, the same-basis
+#: projection (:func:`_curve_refute_row`).
 CURVE_REFUTE_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
     "refute refits an estimator and compares one reported estimate. A curve is computed from a "
     "fit and reports no estimand of its own.",
-    alternative=(
-        "Run refute on the fit that produced the curve, naming a coefficient such as "
-        "'cate_projection[W1]'."
-    ),
+    alternative="Run refute on the fit that produced the curve, naming one of its coefficients.",
 )
 
 #: The ``truncation_curve`` row of an EP curve: the truncation curve reports an interval at
@@ -1188,6 +1187,9 @@ def _curve_fit_wide_rules(
         if row.operation == "truncation_curve":
             resolved.append(_ep_truncation_row(result, row))
             continue
+        if row.operation == "refute":
+            resolved.append(_curve_refute_row(result, row))
+            continue
         if row.operation == "corrections" and method == "drtmle":
             # A DR-TMLE projection solves the correction equations per arm and term, so its
             # curve reads the producing fit's corrections (P1 PR 3, 3.1 step 8).  A fit with
@@ -1218,6 +1220,38 @@ def _curve_fit_wide_rules(
             else replace(row, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=refusal)
         )
     return tuple(resolved)
+
+
+def _curve_refute_row(curve: Any, row: AssessmentCapability) -> AssessmentCapability:
+    """The ``refute`` row of a curve, naming what this curve's refutation refits.
+
+    A projection curve redirects to its producing fit and names one of that fit's
+    coefficients.  An EP curve's producing fit reports no coefficients, so the row redirects
+    to the projection by ``method="tmle"`` on the curve's basis, as its sensitivity rows do.
+    """
+    if _is_ep_curve(curve):
+        basis = _ep_basis(curve)
+        refusal = replace(
+            CURVE_REFUTE_REFUSAL,
+            condition=(
+                f"{CURVE_REFUTE_REFUSAL.condition} An EP curve's fit reports no coefficients on "
+                "the curve's basis. "
+                f"The projection on the same basis, {basis}, does."
+            ),
+            alternative=(
+                "Fit ConditionalContrast(..., model=curve.model.basis) with method='tmle' and "
+                "run refute on that fit."
+            ),
+        )
+    else:
+        refusal = replace(
+            CURVE_REFUTE_REFUSAL,
+            alternative=(
+                "Run refute on the fit that produced the curve, naming a coefficient such as "
+                f"'{_projection_coefficient(curve)}'."
+            ),
+        )
+    return replace(row, refusal=refusal)
 
 
 def _ep_truncation_row(curve: Any, row: AssessmentCapability) -> AssessmentCapability:

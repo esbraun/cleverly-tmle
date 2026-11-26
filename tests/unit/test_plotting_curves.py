@@ -42,6 +42,7 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly._refusal import RefusalReason
+from cleverly._summary import vocabulary
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.datasets import (
@@ -1757,11 +1758,42 @@ class TestEffectCurve:
         assert not ribbons(ax, _core.GID_BAND)
         assert "95% simultaneous band" in key_texts(ax)
         note = _core.note_text(ax.figure)
-        assert "No registered study measures its joint coverage" in note
         assert "Brackets mark it at those points only" in note
         # Mutation control: the same curve without a band marks nothing.
         bare = replace(result, band=None)
         assert not band_marks(curve(bare, modifier="W", at={"Z": 0.0}).axes[0]).size
+
+    def test_the_band_note_reads_an_unmeasured_band_s_label(self) -> None:
+        """Control: a band whose support reads experimental says no study measured it."""
+        result = cate()
+        assert result.band.support is not None
+        assert result.band.support.label == "experimental"
+        note = _core.note_text(curve(result, modifier="W", at={"Z": 0.0}))
+        unmeasured = vocabulary.CURVE_BAND_UNMEASURED_FIGURE.format(
+            kind="rademacher", draws="1,000"
+        )
+        assert unmeasured in note
+        assert "A registered study measures" not in note
+        assert "Brackets mark it at those points only" in note
+
+    def test_the_band_note_reads_a_measured_band_s_label(self) -> None:
+        """Witness: a band the projection study registered reads measured, as the summary does.
+
+        Mutation control: the same curve with its band's support removed reads unmeasured.
+        """
+        from tests.unit.test_projection_band_support import GRID, _fit
+
+        result = _fit().effect_curve(grid=GRID, random_state=0)
+        assert result.band.support is not None
+        assert result.band.support.label == "supported"
+        note = _core.note_text(curve(result, modifier="W1", at={"W3": 0.0}))
+        measured = vocabulary.CURVE_BAND_MEASURED.format(kind="rademacher", draws="1,000")
+        assert measured in note
+        assert "No registered study measures" not in note
+        assert "Brackets mark it at those points only" in note
+        bare = replace(result, band=replace(result.band, support=None))
+        bare_note = _core.note_text(curve(bare, modifier="W1", at={"W3": 0.0}))
+        assert "No registered study measures its joint coverage" in bare_note
 
     def test_a_band_at_other_held_values_is_not_drawn_and_the_note_says_so(self) -> None:
         result = cate()

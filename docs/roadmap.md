@@ -86,16 +86,14 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
-| [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X124 for the separable method table |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | none |
 | [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
@@ -640,30 +638,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
 
-### X124. Messages, docstrings and records that misstate the code
-
-A review of the published documentation against the code on 2026-11-25 found messages, docstrings
-and study records that state something the code does not do. No number moves.
-
-- (a) The bootstrap docstrings of the sequential baselines, the parametric g-formula, `SDR` and
-  `IPSI` say the full-refit bootstrap gives no percentile inference; it prints percentile and BCa
-  intervals and a sup-t band under the experimental label.
-- (b) The `TMLE` docstring of `cluster_variance=` and the [cluster jackknife](technical-reference/inference.md)
-  section disagree on whether a point fit takes it; the `LearnedRuleValue` docstring and the
-  estimands guide disagree on the stacked report's label.
-- (c) The identify summary of a separable plan lists methods that refuse it, and its conditions
-  table omits the conditions that make the two treatment components separable.
-- (d) `TrialWithExternalData(weights=...)` and the other undeclared design roles raise a bare
-  `TypeError` instead of a refusal with its reason; `planned_refits()` on a projection curve or
-  a trial result raises a refusal that names `refute`.
-- (e) The truncation curve of a dose fit reads available and moves nothing; diagnose it.
-- (f) The adaptive IPTW gate study still declares a pending `drtmle` comparator although its
-  pairing study ran.
-- (g) Counts that pages hard-code and no test pins (the fit-wide stops of the simulated
-  confounder surface, the refutation operations) get a test that ties the owner page to the code.
-
-Acceptance: each statement matches the code, with a test where a count or a list can drift.
-
 ### X112. User guide: analyses over time and survival
 
 The survival guide says refutation and sensitivity do not run on a continuous-time fit and that no
@@ -678,19 +652,6 @@ known-mechanism designs over time, or the cluster jackknife.
 - (e) Other estimators of a risk curve and what each refuses.
 - (f) Clustered, weighted and known-mechanism designs over time, and learned two-decision rules.
 - (g) Plots, diagnostics and links to the tutorials.
-
-### X113. User guide: conditional effects and trials with external data
-
-The conditional-effects guide labels settings experimental that read `supported`, cites a status
-line the summary does not print, and omits a band rule and the continuous-treatment refusal. The
-trial guide misstates the default candidate terms, omits refusals a registry analyst meets
-first, and lists options no page runs.
-
-- (a) Conditional-effects status claims.
-- (b) The conditional-effects surface: the curve figure, every basis, the EP final learner,
-  diagnostics and links.
-- (c) Trial page accuracy.
-- (d) Each trial option run once against a known truth.
 
 ### X115. Technical reference: shared inference, validation and scope pages
 
@@ -777,7 +738,8 @@ One part per notebook: `interventions`, `treatment-rules`, `conditional-effects`
 `msm-projections` and `trial-with-external-data`. Each corrects its stale claims (for example a
 comparison reported as pending after it ran, a default stated wrongly), adds the refutation and
 sensitivity checks the outline asks for, and shows the supported, interval-bearing fit where the
-page shows only a fit without one.
+page shows only a fit without one. The `trial-with-external-data` part also runs each trial option
+once against the generator's known truth, the part of X113 (d) that a Markdown guide cannot show.
 
 ### X122. New tutorials for shipped methods that no example fits
 
