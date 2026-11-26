@@ -190,7 +190,8 @@ cleverly.plotting.curve(risks)
 ```
 
 The top panel shows each plan's risk at every grid time with its 95% interval, held flat until
-the next grid time, and the panel below counts the people still followed. The brackets mark the
+the next grid time, and the rows below count, for each plan, the people who received it and are
+still followed. The paler band around each interval, drawn as brackets at the last time, is the
 simultaneous band, which covers every risk at once; no study has measured it yet, so it reads
 `experimental`. On a `RegimeContrast` fit, which keeps no single plan's risk, the figure draws
 only the differences.
@@ -256,7 +257,7 @@ regressions and the treatment with logistic regression, picks among a few of eac
 cross-validation, and fits each person's predictions on the other rows. It then nudges the
 predicted rates, in small steps, until the risks satisfy the equations that make their intervals
 valid, the method of Rytgaard and van der Laan (2024). It needs no learners, and a fit takes
-about ten seconds at 1,000 people.
+a few seconds at 1,000 people.
 
 The fit works through the people in small groups, so its memory grows with the number of people
 and of estimates, not with the number of distinct follow-up times. With one kind of event, 100,000
@@ -277,16 +278,16 @@ time by which a quarter had happened, a
 [second study](../technical-reference/method-evidence/continuous-survival-variance.md) on five
 other data-generating setups found some intervals still too narrow, and a
 [third study](../technical-reference/method-evidence/continuous-survival-causes.md) measured fits
-with one and with three kinds of event. Each estimate's label follows from those studies. The
+with one and with three kinds of event. The
 share in the table counts every observed event of any kind together, and leaves out people who
 left follow-up.
 
 | the fit, with the default models and settings | an estimate reads `supported` when |
 | --- | --- |
-| two kinds of event, `cross_fit=True` | n is at least 500, 40% to 85% of the events have happened by its time, and it does not lean on a few people (its `variance_rel_sd` is at most 0.246) |
-| one or three kinds of event | the same, from 1,000 people |
+| two kinds of event, `cross_fit=True` | n is at least 500, 40% to 85% of the events have happened by its time, and its interval does not lean on a few people (its `variance_rel_sd` is at most 0.246) |
+| one or three kinds of event, `cross_fit=True` | the same, from 1,000 people, with no restricted mean |
 | two kinds of event, `cross_fit=False` | the same, from 1,000 people, with no restricted mean |
-| two kinds of event, `cross_fit=True`, one cut-off in `restricted_horizons=` | n is at least 1,000; `rmst` and `rmtl` also need 67% to 85% of the events by the cut-off, and the risk ratio of the two arms reads `supported` only in such a fit |
+| two kinds of event, `cross_fit=True`, one cut-off in `restricted_horizons=` | the same, from 1,000 people; `rmst` and `rmtl` also need 67% to 85% of the events by the cut-off, and the risk ratio of the two arms reads `supported` only in such a fit |
 
 Anything else you change from the defaults, such as the models, `n_folds=` or
 `variance="influence_curve"`, makes the estimate `experimental`, and so does a fit with four or
@@ -294,7 +295,7 @@ more kinds of event. Each estimate's `support.reason` names the condition it mis
 [Evidence](../technical-reference/continuous-time-survival.md#evidence) section gives every
 condition. In the example, about a fifth of the events had happened by time 0.5, so the first line
 reads `experimental`. The treated arm's risk of death by time 2, and the difference in that risk,
-read `experimental` too, because they rest on a few people.
+read `experimental` too, because their intervals lean on a few people.
 
 `exact_risks.assess()` checks the fit after it runs. It reports how far the predicted chances of
 each treatment, and of staying in follow-up, come from 0, which models the fit chose, and whether
@@ -302,7 +303,9 @@ the step that adjusts the risks met the stopping rule its intervals rely on. Thr
 analysis: the refutation tests (placebo, random common cause and subset), the truncation curve
 (how the estimates move as the floor on small chances is raised), and the simulated-confounder
 stress test. They run when you call them, and the report lists them as waiting for that call;
-the refutation and the stress test also need you to name the estimate to check. The E-value of a risk ratio waits too, until you name the two risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder)
+the refutation also needs you to name the estimate to check, and the stress test an estimate and
+a grid of confounder strengths. The E-value of a risk ratio waits too, until you name the two
+risks, as [Check sensitivity to a missing confounder](#check-sensitivity-to-a-missing-confounder)
 shows. The omitted-variable bound, the marginal bound and the missingness tilt are refused for this
 fit, each with its reason; the [Assessment](../technical-reference/continuous-time-survival.md#assessment)
 table lists every check.
@@ -419,9 +422,10 @@ is refused" table of
 The extra cut-offs join the adjustment, so the risks of this fit differ slightly
 from those of a fit without them.
 
-`ratio`, `rmst` and `rmtl` work as in the grid fits above. A fit with exact times also reports the
+`ratio`, `rmst` and `rmtl` work as in the grid fits above, except that `rmst` and `rmtl` read
+only a cut-off declared in `restricted_horizons=`. A fit with exact times also reports the
 risk ratio of the two arms beside each difference, under `rr_regimen[...]`, and these read
-`supported` only in a fit with one cut-off, as the label table says. Its other calls:
+`supported` only in a fit with one cut-off. Its other calls:
 
 | call | what it gives |
 | --- | --- |
@@ -488,11 +492,11 @@ more than one model must hold `CoxHazard` models only, because the cross-validat
 fits on the same people at risk; mixing in `StratifiedNelsonAalen` is refused. Any library other
 than the default makes every estimate `experimental`, as this one prints.
 
-A Cox fit can fail to settle when a covariate sorts the event times almost perfectly, or a kind of
-event is missing from one arm in a training fold. The fit then may warn with a
+A Cox fit can fail to settle when a covariate sorts the event times perfectly, or a kind of
+event is missing from one arm in a training fold. The fit may then warn with a
 `ConvergenceWarning` naming the coefficients that may be infinite; a check of this kind catches
 most such cases, not all. Its message gives the two remedies: a `penalty=` on `CoxHazard`, or
-`StratifiedNelsonAalen` stratified on a discrete column that separates the data.
+`StratifiedNelsonAalen(by=...)` stratified on a discrete column that separates the data.
 [Initial fits](../technical-reference/continuous-time-survival.md#initial-fits) gives the
 selection rule, and [Settings](settings.md#models-and-learners-modelspec) lists both arguments.
 
@@ -599,9 +603,8 @@ exact-time design `grid="continuous"` refuses it (roadmap
 [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)), and so do the collaborative and doubly robust
 survival fits (the [collaborative TMLE refusals](../technical-reference/scope-and-refusals.md#collaborative-tmle-of-a-risk-curve)
 and [doubly robust TMLE on time-to-event outcomes](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes)).
-A learned plan and a separable effect refuse it too, and
-[the refusals for eliminated events](../technical-reference/scope-and-refusals.md#eliminated-competing-events)
-give those reasons.
+A [learned plan](../technical-reference/longitudinal-tmle.md#learned-regimens) and a
+[separable effect](../technical-reference/scope-and-refusals.md#separable-effects) refuse it too.
 
 The [registered study](../technical-reference/method-evidence/eliminated-competing-events.md)
 covers iterated-mean longitudinal TMLE (`LTMLE`) on two binary treatment decisions and hazard
