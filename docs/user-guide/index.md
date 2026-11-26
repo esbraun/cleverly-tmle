@@ -27,6 +27,7 @@ conditional-effects
 variable-importance
 methods-learners
 settings
+run-time-and-memory
 trial-with-external-data
 results-assessment
 plots
