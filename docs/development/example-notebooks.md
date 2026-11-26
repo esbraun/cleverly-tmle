@@ -371,9 +371,9 @@ change.
 | family | tutorials that show it |
 | --- | --- |
 | Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle, cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
-| ATT and ATC | twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`) |
+| ATT and ATC | twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`); population-impact (`ATT` and `ATC`, both experimental with missing outcomes) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
-| Natural-course mean, PAR, and PAF | population-impact |
+| Natural-course mean, PAR, and PAF | population-impact, which also runs the refutation, generated-outcome and missing-outcome tilt checks on the PAR |
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
