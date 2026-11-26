@@ -129,11 +129,11 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     smallest = {
         name: report.propensity_quantiles["overall"][0.0] for name, report in reports.items()
     }
-    assert min(smallest, key=smallest.get) == "home_health_referral"
+    assert min(smallest, key=lambda name: smallest[name]) == "home_health_referral"
     ratios = {
         name: report.effective_sample_size["treated"]["ratio"] for name, report in reports.items()
     }
-    assert min(ratios, key=ratios.get) == "home_health_referral"
+    assert min(ratios, key=lambda name: ratios[name]) == "home_health_referral"
     # "which its standard error, the largest of the five, already shows".
     table = namespace["table"]
     assert table["std_err"].idxmax() == "home_health_referral"

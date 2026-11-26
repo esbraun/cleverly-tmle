@@ -84,27 +84,30 @@ PRACTICES = (
 #: Gauss--Hermite nodes per covariate axis for the truth.
 _NODES = 40
 
-_Chance = Callable[[FloatArray, Mapping[str, float]], FloatArray]
+#: A practice level: one value for every patient, or one per patient.
+_Level = float | FloatArray
+
+_Chance = Callable[[FloatArray, Mapping[str, _Level]], FloatArray]
 
 
-def _navigation(w: FloatArray, _: Mapping[str, float]) -> FloatArray:
+def _navigation(w: FloatArray, _: Mapping[str, _Level]) -> FloatArray:
     return np.asarray(expit(-0.3 + 0.7 * w[:, 0] - 0.3 * w[:, 1] + 0.2 * w[:, 2]))
 
 
-def _followup(w: FloatArray, practices: Mapping[str, float]) -> FloatArray:
+def _followup(w: FloatArray, practices: Mapping[str, _Level]) -> FloatArray:
     navigation = practices["transition_navigation"]
     return np.asarray(expit(-0.8 + 1.5 * navigation + 0.3 * w[:, 0] - 0.2 * w[:, 1]))
 
 
-def _review(w: FloatArray, _: Mapping[str, float]) -> FloatArray:
+def _review(w: FloatArray, _: Mapping[str, _Level]) -> FloatArray:
     return np.asarray(expit(-0.2 + 0.5 * w[:, 2] + 0.3 * w[:, 1]))
 
 
-def _teach_back(w: FloatArray, _: Mapping[str, float]) -> FloatArray:
+def _teach_back(w: FloatArray, _: Mapping[str, _Level]) -> FloatArray:
     return np.asarray(expit(0.1 - 0.2 * w[:, 0] + 0.3 * w[:, 1]))
 
 
-def _home_health(w: FloatArray, _: Mapping[str, float]) -> FloatArray:
+def _home_health(w: FloatArray, _: Mapping[str, _Level]) -> FloatArray:
     return np.asarray(expit(-1.0 + 1.0 * w[:, 0] + 0.4 * w[:, 1]))
 
 
@@ -118,7 +121,7 @@ CHANCES: Mapping[str, _Chance] = {
 }
 
 
-def outcome_probability(w: FloatArray, practices: Mapping[str, float]) -> FloatArray:
+def outcome_probability(w: FloatArray, practices: Mapping[str, _Level]) -> FloatArray:
     """``P(stayed_home = 1 | practices, W)``."""
     logit = (
         0.8
