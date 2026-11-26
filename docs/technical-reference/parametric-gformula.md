@@ -211,7 +211,13 @@ whose treatment mechanism the data declares has no model (see
 not read leaves the status unchanged. No result gives the asymptotic linearity of the simulation
 form with data-adaptive learners.
 
-The full-refit bootstrap runs and reports `bootstrap sd`, as for the other baselines.
+The full-refit bootstrap runs, as for the other baselines. Under `influence_curve` it reports a
+percentile interval and a sup-t band under the `experimental` label, and under
+`adaptive_baseline_plugin` the bootstrap SD and percentile range as diagnostics only.
+`bootstrap_interval="bca"` is refused.
+
+With `id=`, a cluster is the unit of the curve, and the default longitudinal floor of 20 positive-mass clusters applies; only `LTMLE` without repeated splits has lower measured floors ([few clusters](inference.md#few-clusters)). No study measures that floor
+for this estimator, and no support row lists a clustered fit.
 
 ### Support label
 
@@ -303,6 +309,7 @@ caveat. `TestOrderAndNodeOne` checks that the simulation uses the order of the f
 | `hazard_learner=` | the template of every hazard model of a survival outcome |
 | `treatment_learner=` | the natural-treatment models and the diagnostic mechanism |
 | `random_state=` | seeds the simulation. A fit repeats exactly |
+| `reference=`, `horizons=`, `alpha_sig=`, the band settings, `n_bootstrap=`, `bootstrap_resampling=`, `learner_folds=`, `n_jobs=`, `run_id=` | as for the [sequential baselines](sequential-baselines.md#settings) |
 
 The default learner library is a `GLM`. A `GLM` family other than `"auto"` is refused, because the
 fit chooses the family of each model from its response.
@@ -311,10 +318,14 @@ fit chooses the family of each model from its response.
 
 | request | error |
 | --- | --- |
-| `n_folds > 1` | `CapabilityError`, `implementation_gap`. The fit is in sample only |
+| `n_folds > 1`, `repeats` above 1 | `CapabilityError`, `api_redirection`. The fit is in sample only; `LTMLE` and `SDR` cross-fit |
 | `msm=` | `CapabilityError`, `api_redirection`. `LTMLE(msm=...)` fits a working model |
 | `markov_order=` on the design | `CapabilityError`, `api_redirection`. The simulation models read the full history. `LTMLE`, `SDR` and the sequential baselines read the window |
 | `ratio_trim=`, `hazard_pooling="pooled"` | `CapabilityError`, `api_redirection`. `LTMLE` and `SDR` take them |
+| `bootstrap_interval="bca"` | `CapabilityError`, `api_redirection` |
+| `node_bounds=` | `MethodConfigurationError`, `invalid_declaration` |
+| `variance="policy_weighted"` | `CapabilityError`, `invalid_declaration` |
+| `survival_model=`, `targeting=`, `isotonic=`, `cluster_variance=`, `max_memory_bytes=` | `TypeError`. The fit has no such setting |
 | `alpha=`, `max_iter=`, `tol=` | `MethodConfigurationError`. No fluctuation exists |
 | `pseudo_learner=` | `CapabilityError`. The fit has no pseudo-outcome regression |
 | a risk-ratio tilt | `CapabilityError`, `api_redirection`. The fit simulates an odds tilt only |
@@ -326,6 +337,14 @@ fit chooses the family of each model from its response.
 | a repeated outcome | `CapabilityError`, `api_redirection`. `LTMLE`, `SDR` and `IPSI` fit one |
 | a truncation curve | `CapabilityError`, `api_redirection`. The estimate divides by no mechanism |
 | a regimen that leaves the span of an aliased `GLM` column | `DataError`, from the simulation |
+
+## Assessment and run size
+
+`refute()` runs on these fits, and the simulated common-cause surface replays them, as [which
+operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-
+checks) state. `CausalStudy.planned_fits` counts the learner fits before a run; the memory guard
+does not cover these estimators, so `max_memory_bytes=` raises `TypeError`.
 
 ## How it differs from `gfoRmula` and `pygformula`
 
@@ -380,7 +399,7 @@ the law with complex-step arithmetic, so it does not share code with the simulat
 | refusals | each refusal arrives before any learner | `TestRefusals` |
 
 Pull request #352 records 35 one-line mutation controls of `gformula.py`, run by hand before the
-estimator merged: 34 killed and one survivor, accepted in planning notes outside this repository.
+estimator merged: 34 killed and one survivor.
 No committed test reruns them. The named witness killed each mutation in the table.
 
 | mutation | witness that fails |

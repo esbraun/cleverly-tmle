@@ -128,8 +128,8 @@ No registered study measures the bootstrap for the baselines.
 
 ### Clusters
 
-A cluster is the unit of the curve, as for `LTMLE`. The few-cluster floor of `LTMLE` applies
-unchanged. No study measures that floor for the baselines.
+A cluster is the unit of the curve, as for `LTMLE`, and the default longitudinal floor of 20 positive-mass clusters applies; only `LTMLE` without repeated splits has lower measured floors ([few clusters](inference.md#few-clusters)). No study measures that floor
+for the baselines.
 
 ## Settings
 
@@ -142,9 +142,26 @@ unchanged. No study measures that floor for the baselines.
 | `treatment_learner=`, `censoring_learner=` | fit the diagnostic mechanism only | fit the estimate |
 | `outcome_learner=`, `pseudo_learner=` | fit the estimate | `CapabilityError`. IPW fits no outcome regression |
 | `normalization=` | none | `"hajek"` (default) or `"horvitz_thompson"` |
+| `reference=`, `horizons=` | the reference regimen of the contrasts and the reported horizons, as for [`LTMLE`](longitudinal-tmle.md#variations) | the same |
+| `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=`, `band_scale=`, `band_reference=` | the interval level and the simultaneous band, which is on by default, as for `LTMLE` | the same |
+| `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap above | the same |
+| `learner_folds=`, `n_jobs=`, `random_state=`, `run_id=` | the inner Super Learner split, the worker count, the seed and the run label, as for `LTMLE` | the same |
+| `node_bounds=` | `MethodConfigurationError` with code `invalid_declaration` | the same |
+| `variance="policy_weighted"` | `CapabilityError` with code `invalid_declaration` | the same |
+| `bootstrap_interval="bca"`, `msm=`, `ratio_trim=`, `hazard_pooling="pooled"`, `repeats` above 1 | `CapabilityError` with code `api_redirection` | the same |
 
-The default `GLM()` follows the `SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
+The baselines take no `survival_model=`, `targeting=`, `isotonic=`, `cluster_variance=` or
+`max_memory_bytes=`, so passing one raises `TypeError`. The default `GLM()` follows the
+`SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
 adds products of distinct columns.
+
+## Assessment and run size
+
+`refute()` runs on these fits, and the simulated common-cause surface replays them, as [which
+operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
+and [longitudinal refutation and sensitivity](longitudinal-tmle.md#refutation-and-sensitivity-
+checks) state. `CausalStudy.planned_fits` counts the learner fits before a run; the memory guard
+does not cover these estimators, so `max_memory_bytes=` raises `TypeError`.
 
 ## Diagnostics
 
