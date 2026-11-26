@@ -129,6 +129,10 @@ lists every refusal. Without a known finite support, fit in sample with
 `CrossFitting(enabled=False)`. The in-sample fit keeps whichever fold policy you declare, because
 one fold balances nothing.
 
+[One treatment, one outcome](../examples/point-treatment-tmle.ipynb) runs an `ATE` from start to
+finish, and [Gain over current practice](../examples/population-impact.ipynb) adds counterfactual
+means, risk and odds ratios, and the population-impact estimands.
+
 ## The trial's effect with external data
 
 `TrialATE(population=)` asks for the treatment effect in a randomized trial that is pooled with
@@ -136,6 +140,9 @@ external rows. `"trial"` averages it over the trial's patients, and `"pooled"` o
 every row. It applies only to a `TrialWithExternalData` design and to a two-valued treatment on the
 difference scale. [A small trial with external data](trial-with-external-data.md) explains the
 choice.
+
+[A small pilot with outside records](../examples/trial-with-external-data.ipynb) fits `TrialATE`
+on a pilot pooled with outside rows.
 
 ## Known regimes
 
@@ -629,7 +636,8 @@ more, held at their own dose where the raise would pass 4.0, as with the capped 
 `ModifiedTreatmentPolicy` reports the mean outcome under each policy, where
 `ModifiedTreatmentPolicyEffect` reports each policy's difference from the first one by default.
 `Shift(0.0, cap=None)` changes no dose, so its row is the mean under current practice, named
-`natural course`.
+`natural course`. A `randomizer=` that is not a `Randomizer`, such as a continuous draw, is
+refused ([modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)).
 
 ```python
 from cleverly import ModifiedTreatmentPolicy
@@ -694,6 +702,10 @@ from cleverly import IncrementalMean
 odds_means = study.estimate(IncrementalMean(tilts), method=quick, random_state=3)
 ```
 
+[Three offer policies](../examples/interventions.ipynb) and
+[More contacts and more service time](../examples/schedules-and-intensity.ipynb) run shifts and
+odds multipliers side by side, the second with two treatments at once.
+
 ## Marginal structural models
 
 `MSMProjection` summarizes the mean outcomes under the treatment options with a simple formula
@@ -723,6 +735,9 @@ On a continuous dose, `MSMProjection` needs every outcome observed. `CausalStudy
 raises `CapabilityError` when an outcome is missing. The refused table of
 [MSM projections](../technical-reference/msm-projections.md#variations) lists this refusal.
 [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks that composition.
+
+[A trend across three contact schedules](../examples/msm-projections.ipynb) projects the arm means
+onto a line with `MSMProjection`.
 
 ## A curve over a continuous dose
 
@@ -792,6 +807,9 @@ is the same fit without a study.
 [Smoothed dose-response curve](../technical-reference/dose-response.md) states the estimand, the
 conditions and the refusals.
 
+[Renewal discounts](../examples/dose-response.ipynb) fits this curve on a discount and reads its
+band.
+
 ## Effects that change with a baseline column
 
 `ConditionalContrast` asks how the effect of a treatment changes with a few adjustment columns,
@@ -799,6 +817,9 @@ such as age. You declare those columns and a fixed set of functions of them, and
 the best curve of that form with intervals. On the difference scale the curve summarizes the
 conditional average treatment effect, the average effect among people with the same values of
 those columns. [Conditional effects](conditional-effects.md) gives the workflow.
+
+[Who gains most from a coupon](../examples/conditional-effects.ipynb) fits an effect that changes
+with age.
 
 ## Controlled direct effects
 
@@ -844,7 +865,8 @@ outcome, given the covariates. It also needs none of the intermediate and the ou
 treatment and the covariates are known. Every patient must have had a real chance of each
 treatment, and of the held value of the intermediate under either treatment.
 [Conditional effects](../technical-reference/conditional-effects.md), section "Controlled direct
-effects", states the conditions.
+effects", states the conditions. [Gain over current practice](../examples/population-impact.ipynb)
+reports one beside the population-impact estimands.
 
 See the [technical implementation matrix](../technical-reference/index.md) for assumptions and
 citations for every family.

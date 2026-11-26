@@ -390,6 +390,9 @@ is wrong), these rules also apply to each reported subgroup (stratum). Below the
 bootstrap is published as `bootstrap sd` and a percentile range, and its summary labels both as
 diagnostics ([few clusters](../technical-reference/inference.md#few-clusters)).
 
+[Flexible models and shared teams](../examples/cross-fitting.ipynb) compares the interval with
+patients and with care teams as the units.
+
 ### Bands that cover several estimates at once
 
 A fit that reports several estimates adds a simultaneous band by default. The band is built to cover

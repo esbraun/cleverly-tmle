@@ -530,3 +530,13 @@ which fits get a pass or fail.
 | `sample_limit`, `sampling` | refute a random sample of people or clusters |
 | `random_state` | the seed of every draw |
 | `checkpoint`, `progress` | save each draw as it finishes, and report each one |
+
+### The checks in the tutorials
+
+| tutorial | what it runs |
+| --- | --- |
+| [One treatment, one outcome](../examples/point-treatment-tmle.ipynb), [A randomized pilot](../examples/randomized-pilot.ipynb) | the default checks |
+| [Smoking and twins' birth weight](../examples/twins-causal-inference.ipynb), [A strong predictor of treatment](../examples/collaborative-tmle.ipynb) | the default checks and a check against a known answer |
+| [Flexible models and shared teams](../examples/cross-fitting.ipynb) | random common cause and subset with varied fold seeds, and a known answer on clustered data |
+| [Missing survey answers](../examples/survey-nonresponse.ipynb), [A trend across three contact schedules](../examples/msm-projections.ipynb) | the default checks and the generated-outcome checks |
+| [Readmission by day 30, 60 and 90](../examples/discharge-to-readmission.ipynb), [Readmission when death can come first](../examples/longitudinal-survival.ipynb) | the default checks and generated outcomes on survival fits; the second also checks stability on bootstrap samples |

@@ -141,6 +141,10 @@ trial = CausalStudy(
 gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the same declaration
 per node ([known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms)).
 
+[A randomized pilot](../examples/randomized-pilot.ipynb) passes the known treatment chances of a
+trial, and [Flexible models and shared teams](../examples/cross-fitting.ipynb) declares a `cluster=`
+column for patients who share a care team.
+
 ### Known chances beside weights
 
 With `weights=`, the fit estimates the effect in the population the weights describe, so it needs
@@ -311,6 +315,9 @@ is right. They come with no interval
 missing data in the per-arm design", and the status table in
 [inference](../technical-reference/inference.md)).
 
+[Missing survey answers](../examples/survey-nonresponse.ipynb) fits an effect when some outcomes
+were never recorded.
+
 ## Continuous treatment
 
 Set `treatment_kind="continuous"` when the treatment is a dose, such as a price or a discount.
@@ -371,11 +378,16 @@ It takes the outcome, a binary treatment, the adjustment columns, and `source=`,
 marks trial rows. [A small trial with external data](trial-with-external-data.md) shows the
 workflow.
 
+[A small pilot with outside records](../examples/trial-with-external-data.ipynb) runs this design.
+
 ## Longitudinal treatment
 
 A longitudinal design records one ordered treatment role per node, the history available at each
 node, censoring, and either an end-of-study outcome or event processes. Continue with the
 [longitudinal guide](longitudinal.md).
+
+[Weekly offer policies](../examples/sequential-offers.ipynb) reads a long panel with one row per
+customer and week.
 
 ## Change one field of a design
 
