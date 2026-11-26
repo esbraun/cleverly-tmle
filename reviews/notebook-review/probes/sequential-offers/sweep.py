@@ -3,7 +3,8 @@
 Each seed ``s`` draws ``make_sequential_offers(20_000, seed=s)`` and runs the notebook's code: the
 in-sample LTMLE of the four contrasts with the declared offer mechanism; the crude follower
 contrasts of the association step; the blind-outcome comparison (LTMLE and g-computation with
-outcome regressions that read no history); the three paired comparisons; the synthetic deployment
+outcome regressions that read no history); weighting only (IPW with a GLM consent model); the
+three paired comparisons; the synthetic deployment
 check with a pilot drawn at seed ``s + 100_000``; the stagewise support; and the benchmark that
 drops engagement from the history of the static plans. Truths come from ``offers_truth()``.
 
@@ -42,6 +43,7 @@ def one_seed(seed: int) -> dict:
         CausalStudy,
         CrossFitting,
         GComputationMethod,
+        IPWMethod,
         LongPanel,
         ModelSpec,
         RegimeContrast,
@@ -58,6 +60,7 @@ def one_seed(seed: int) -> dict:
         win_back,
         win_back_then_ship,
     )
+    from cleverly.learners import GLM
     from cleverly.longitudinal import DynamicRegimen, each_node
 
     truth = offers_truth()
@@ -147,6 +150,16 @@ def one_seed(seed: int) -> dict:
         row[f"blind_{contrast}_se"] = blind_ltmle[key].std_error
         row[f"blind_{contrast}_lo"], row[f"blind_{contrast}_hi"] = blind_ltmle[key].ci
         row[f"blindg_{contrast}_psi"] = blind_gcomp[key].psi
+
+    # Weighting only: no outcome model, and a GLM consent model so that it has an interval.
+    ipw = effect.estimate(
+        method=IPWMethod(models=ModelSpec(censoring_learner=GLM()), runtime=ltmle.runtime)
+    )
+    for contrast in CONTRASTS:
+        key = f"ate_regimen[{contrast} vs none]"
+        row[f"ipw_{contrast}_psi"] = ipw[key].psi
+        row[f"ipw_{contrast}_se"] = ipw[key].std_error
+        row[f"ipw_{contrast}_lo"], row[f"ipw_{contrast}_hi"] = ipw[key].ci
 
     for better, other in PAIRS:
         keys = [f"ate_regimen[{better} vs none]", f"ate_regimen[{other} vs none]"]

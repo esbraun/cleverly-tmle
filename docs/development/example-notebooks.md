@@ -386,7 +386,7 @@ change.
 | Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
-| Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
+| Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
 | Structural nested mean model | model-based-over-time |
 | Parametric g-formula over time | model-based-over-time |
 | Longitudinal survival and competing risks | longitudinal-survival; separable-effects (separable effects of a treatment's two parts, `Separable`) |
@@ -400,6 +400,7 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Nuisance learners | twins-causal-inference (two declared `SuperLearner` libraries) |
 | Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
 | Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
 | External scores | No tutorial fits `assess_score` |

@@ -165,6 +165,14 @@
     const headers = Array.from(table.tHead?.rows[0]?.cells || []).map((cell) =>
       cell.textContent.trim(),
     );
+    // The row label is the method cell, found by its header so that a column added before it
+    // (the family) does not become every row's label.
+    const methodIndex = headers.indexOf("method in cleverly");
+    if (methodIndex < 0) {
+      console.warn("validation grid: no 'method in cleverly' column, so rows are not labelled");
+      return;
+    }
+    rows.forEach((row) => row.cells[methodIndex]?.classList.add("cleverly-grid-method-cell"));
 
     const topScroller = document.createElement("div");
     const topScrollerTrack = document.createElement("div");
@@ -283,7 +291,7 @@
       activeCell = cell;
       const content = cell.querySelector(".cleverly-grid-cell-content");
       popoverContent.replaceChildren(...Array.from(content.childNodes).map((node) => node.cloneNode(true)));
-      const rowLabel = cell.parentElement.cells[0].textContent.trim();
+      const rowLabel = cell.parentElement.cells[methodIndex].textContent.trim();
       const columnLabel = headers[cell.cellIndex] || `Column ${cell.cellIndex + 1}`;
       popover.setAttribute("aria-label", `${rowLabel}: ${columnLabel}`);
       cell.setAttribute("aria-expanded", "true");
@@ -362,7 +370,7 @@
     const rowLinks = new Map();
     const usedIds = new Set();
     rows.forEach((row, index) => {
-      const label = row.cells[0].textContent.trim();
+      const label = row.cells[methodIndex].textContent.trim();
       const baseId = `study-${rowSlug(row, label) || index + 1}`;
       let id = baseId;
       let suffix = 2;
