@@ -367,7 +367,7 @@ class TestTheFewClusterThreshold:
 
 class TestVarianceSourcesAreDocumented:
     def test_every_variance_source_is_named_where_the_page_routes_them(self) -> None:
-        """``inference.md`` names each ``VarianceSource`` value and where its rule is stated."""
+        """``inference.md`` names each ``VarianceSource`` value where it routes the variance rules."""
         text = INFERENCE_PAGE.read_text(encoding="utf-8")
         section = text.split("## What is not on this page", 1)[1].split("\n## ", 1)[0]
         named = set(re.findall(r'`"([a-z_]+)"`', section))
