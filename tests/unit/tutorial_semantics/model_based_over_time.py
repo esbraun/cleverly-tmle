@@ -407,7 +407,7 @@ def _check_prose_phrases() -> None:
         )
     ]
     assert (
-        f"held the true value on {targeted[0]} draws for the g-formula and {targeted[1]} for "
+        f"held the true value on {targeted[0]} of {DRAWS} draws for the g-formula and {targeted[1]} for "
         f"LTMLE, and LTMLE's interval for the offers on {targeted[2]}"
     ) in _prose("targeted-reading")
     ltmle = _hits(frame, f"ltmle:{CONTRAST}:covers")
