@@ -1172,8 +1172,13 @@ the boundary, the tie rule and the one-sided case.
 When the public layer reports a subset of the parameters an engine computed, the inference it
 reports is the inference for that subset. A joint band is a statement about a family. Narrowing the
 family and keeping the critical value would assert a coverage property over parameters the result
-no longer contains. `cleverly` recomputes from the retained influence curves under the same
-significance level, draw count, multiplier distribution, seed, and cluster structure.
+no longer contains. `cleverly` recomputes the multiplier band from the retained influence curves
+under the same significance level, draw count, multiplier distribution, seed, and cluster
+structure. A longitudinal `CausalStudy` result recomputes its bootstrap sup-t band from the
+retained rows' replicate estimates and replicate standard errors at the same level, so
+`result.bootstrap_band` covers the reported rows only (`_narrow_bootstrap_band` in
+`src/cleverly/study.py`). No study measures a band over a narrowed family, so a narrowed band of
+either kind reads `experimental`. `tests/unit/test_ltmle_bootstrap.py` checks the bootstrap case.
 
 ## What is not on this page
 

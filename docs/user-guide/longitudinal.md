@@ -730,7 +730,10 @@ across the estimates in each replicate. Its critical value is a high order stati
 maxima.
 
 The band is $\hat\psi_j \pm c^* \widehat{SE}_j$ for each estimate. The multiplier band in
-`result.simultaneous` does not change. The summary lists both.
+`result.simultaneous` does not change. The summary lists both. A study fit covers only the
+estimates its table reports: a fit of the differences (`RegimeContrast`) bands the differences,
+not each plan's estimate behind them. Such a band reads `experimental`, because no study measures
+a band over part of what the fit computed.
 
 **The influence report.** `result.diagnostics.influence()` returns one row for each estimate.
 

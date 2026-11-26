@@ -575,3 +575,128 @@ class TestRefusals:
             ValueError, match="resampling='cluster' requires the data to carry cluster ids"
         ):
             _estimator(n_bootstrap=2, bootstrap_resampling="cluster").fit(survival_frame, **COLUMNS)
+
+
+class TestStudyBootstrapBand:
+    """A study keeps the rows it identified, and its bootstrap band covers only those rows."""
+
+    REGIMENS: dict[str, int] = {"always": 1, "never": 0}  # noqa: RUF012
+
+    @staticmethod
+    def _study() -> Any:
+        from cleverly.datasets import make_longitudinal_competing
+
+        frame, _ = make_longitudinal_competing(n=600, seed=53, censoring=True)
+        return CausalStudy(
+            frame,
+            design=LongitudinalTreatment(
+                outcome={"r": ("R1", "R2"), "d": ("D1", "D2")},
+                censoring=("C1", "C2"),
+                treatment=("A1", "A2"),
+                baseline=("W1", "W2"),
+                time_varying=((), ("L2",)),
+            ),
+        )
+
+    @staticmethod
+    def _method() -> Any:
+        from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
+
+        return TMLEMethod(
+            models=ModelSpec(
+                outcome_learner=LogisticRegression(max_iter=1000),
+                pseudo_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                censoring_learner=LogisticRegression(max_iter=1000),
+            ),
+            cross_fitting=CrossFitting(enabled=False),
+            runtime=Runtime(random_state=1, n_jobs=1),
+            inference=Inference(n_bootstrap=20, simultaneous=True),
+        )
+
+    def _fit(self, estimand: Any) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return self._study().identify(estimand).estimate(method=self._method())
+
+    @pytest.fixture(scope="class")
+    def contrast(self) -> Any:
+        from cleverly import RegimeContrast
+
+        return self._fit(RegimeContrast(self.REGIMENS, reference="never", horizons=(1, 2)))
+
+    @pytest.fixture(scope="class")
+    def level(self) -> Any:
+        return self._fit(RegimeMean(self.REGIMENS, reference="never", horizons=(1, 2)))
+
+    def test_a_contrast_band_holds_exactly_the_reported_rows(self, contrast: Any) -> None:
+        assert contrast.bootstrap_band is not None
+        assert set(contrast.bootstrap_band.bands) == set(contrast.estimates)
+        assert set(contrast.bootstrap.std_errors) == set(contrast.estimates)
+        assert all(name.startswith("ate_regimen[") for name in contrast.estimates)
+
+    def test_an_unreported_level_row_is_absent(self, contrast: Any) -> None:
+        # The engine builds and bands this level; the contrast result does not report it.
+        assert "cif_regimen[always, d @ t=1]" not in contrast.bootstrap_band.bands
+
+    def test_the_narrowed_band_is_the_band_of_the_reported_family(self, contrast: Any) -> None:
+        from cleverly.inference.bootstrap import bootstrap_band
+
+        estimates = contrast.estimates
+        rebuilt = bootstrap_band(
+            contrast.bootstrap,
+            {name: e.psi for name, e in estimates.items()},
+            {name: e.plugin_std_error for name, e in estimates.items()},
+            alpha=contrast.bootstrap_band.alpha,
+        )
+        assert contrast.bootstrap_band.critical_value == rebuilt.critical_value
+        assert contrast.bootstrap_band.bands == rebuilt.bands
+        assert contrast.bootstrap_band.support.label == "experimental"
+
+    def test_a_level_fit_bands_its_levels_only(self, level: Any) -> None:
+        assert set(level.bootstrap_band.bands) == set(level.estimates)
+        assert all(name.startswith("cif_regimen[") for name in level.estimates)
+
+    def test_the_engine_band_still_holds_every_row(self) -> None:
+        from cleverly.datasets import make_longitudinal_competing
+
+        # The narrowing belongs to the study; a direct engine fit bands levels and contrasts.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            frame, _ = make_longitudinal_competing(n=600, seed=53, censoring=True)
+            engine = LTMLE(
+                self.REGIMENS,
+                reference="never",
+                n_folds=1,
+                random_state=1,
+                outcome_learner=LogisticRegression(max_iter=1000),
+                pseudo_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                censoring_learner=LogisticRegression(max_iter=1000),
+                n_bootstrap=20,
+                simultaneous=True,
+            ).fit(
+                frame,
+                outcome={"r": ["R1", "R2"], "d": ["D1", "D2"]},
+                censoring=["C1", "C2"],
+                treatment=["A1", "A2"],
+                baseline=["W1", "W2"],
+                time_varying=[[], ["L2"]],
+            )
+        names = set(engine.bootstrap_band.bands)
+        assert any(name.startswith("cif_regimen[") for name in names)
+        assert any(name.startswith("ate_regimen[") for name in names)
+
+    def test_without_the_narrowing_the_band_keeps_unreported_rows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the witness above fails when the band is not narrowed."""
+        import cleverly.study as study_module
+        from cleverly import RegimeContrast
+
+        monkeypatch.setattr(
+            study_module, "_narrow_bootstrap_band", lambda result, retained: result.bootstrap_band
+        )
+        mutated = self._fit(RegimeContrast(self.REGIMENS, reference="never", horizons=(1, 2)))
+        assert "cif_regimen[always, d @ t=1]" in mutated.bootstrap_band.bands
+        assert set(mutated.bootstrap_band.bands) != set(mutated.estimates)

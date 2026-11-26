@@ -75,6 +75,7 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
+from .inference.bootstrap import BootstrapBand, bootstrap_band
 from .inference.multiplier import (
     SimultaneousBands,
     band_member,
@@ -3737,14 +3738,47 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
     Unlike a joint band, per-parameter draws stay correct under narrowing -- each estimand's
     resampling distribution is its own. What they must not do is outlive their parameter: a
     result narrowed to one arm would still hand out ``bootstrap.draws`` for the arms it
-    dropped, keyed by names it cannot itself index.
+    dropped, keyed by names it cannot itself index.  The replicate standard errors narrow
+    with them.
     """
     if bootstrap is None:
         return None
     return replace(
         bootstrap,
         draws={name: values for name, values in bootstrap.draws.items() if name in retained},
+        std_errors={
+            name: values for name, values in bootstrap.std_errors.items() if name in retained
+        },
     )
+
+
+def _narrow_bootstrap_band(result: Any, retained: Mapping[str, Any]) -> BootstrapBand | None:
+    """The bootstrap sup-t band over the parameters this effect reports.
+
+    The engine bands every row it builds, so a study that keeps the contrasts would otherwise
+    carry a band, and a critical value, over levels it does not report.  As for
+    :func:`_narrow_bands`, the band is recomputed rather than filtered: the same replicate
+    draws and replicate standard errors, over the reported members only, give the band the
+    engine would have built for that family.  A member is a row of the engine's own band, so
+    an estimate the engine left out, such as one with a boundary-node supplement, stays out.
+    Below two members no joint band is left.
+    """
+    band = result.bootstrap_band
+    if band is None or result.bootstrap is None:
+        return band
+    family = {name: retained[name] for name in band.bands if name in retained}
+    if set(family) == set(band.bands):
+        return band
+    if len(family) < 2 or constant_arm_members(retained):
+        return None
+    narrowed = bootstrap_band(
+        result.bootstrap,
+        {name: estimate.psi for name, estimate in family.items()},
+        {name: estimate.plugin_std_error for name, estimate in family.items()},
+        alpha=band.alpha,
+    )
+    # No study measures a band over a narrowed family, as for the multiplier band.
+    return replace(narrowed, support=combine_support([band.support, _NARROWED_BAND]))
 
 
 @dataclass(frozen=True)
@@ -8192,6 +8226,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             parameter_index=index,
             simultaneous=_narrow_bands(raw, banded, method),
             bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
+            bootstrap_band=_narrow_bootstrap_band(raw, banded),
             repeats=repeats,
             restricted_index=restricted_index,
             restricted_weights={name: raw.restricted_weights[name] for name in restricted_index},
