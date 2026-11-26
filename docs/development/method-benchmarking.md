@@ -694,7 +694,7 @@ Follow the rest of this guide rather than designing new margins, fold-matching r
 artifacts, or provenance conventions for each comparison.
 
 1. **Declare it.** Add a `StudyRecord` to `tests/studies/evidence/registry.py`'s register: the
-   name the validation grid's first cell must carry, the artefact directory, the document and
+   name the validation grid's method cell must carry, the artefact directory, the document and
    section anchor, the scenarios and their estimands, the replication count and sample size, and a
    `Margins`. The `Margins` carries every acceptance margin, declared before the run rather
    than chosen after it. The study page's level-one heading is the record's `name` in sentence
@@ -723,6 +723,28 @@ artifacts, or provenance conventions for each comparison.
 7. **Link it from the matrix.** Add the page to its family's row of the implementation matrix in
    `docs/technical-reference/index.md`, after the word for its publication policy.
    `test_the_matrix_links_every_registered_study` fails while a registered page has no link.
+8. **Place it in its family.** Add the page to one captioned toctree of
+   `docs/technical-reference/method-evidence/index.md`, and give its grid row that caption as its
+   `family` cell. Keep toctree entries alphabetical by file name, and grid rows alphabetical by
+   the case-folded method name inside their family, so two branches that each add a study insert
+   at different lines. `TestTheStudyPagesArePlacedByFamily` checks the placement and the order,
+   not the choice of family. Choose it by the first rule that applies:
+   1. A study whose subject is a cross-cutting option goes to that option's family: clustered
+      data, cross-fitting and CV-TMLE, targeting and fitting options, intervals, bands and the
+      bootstrap, or sensitivity, refutation and diagnostics.
+   2. A time-to-event outcome goes to survival and competing risks, whatever the estimator.
+   3. A conditional effect, a projection of a conditional contrast, a learned rule or regimen, an
+      EP curve, or a score target goes to learned rules, conditional effects and scores, whatever
+      the estimator. A marginal structural model projects counterfactual means across treatment
+      levels or regimes onto a working model. It is not a projection of a conditional contrast, so
+      an MSM study goes by the rules below.
+   4. An estimator family goes to its own: collaborative TMLE, DR-TMLE, or adaptive IPTW and
+      adaptive TMLE with external data.
+   5. A stochastic regime, a modified treatment policy, an incremental propensity score
+      intervention or a dose-response curve goes to policies, incremental interventions and
+      dose-response, at one node or over time. A deterministic regime does not.
+   6. Treatment over time goes to longitudinal TMLE, SDR and comparison estimators.
+   7. Anything else goes to point-treatment TMLE.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
