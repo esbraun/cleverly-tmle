@@ -4,11 +4,14 @@ Each arm refits the page's configuration (sweep.py) on the same seeds with one c
 
 - ``true_outcome``: the outcome model is a logistic regression on the true form of the
   structural equation, (1 - exp(-discount / 8), usage, tenure), so the outcome model is right;
-- ``more_bins``: the page's learners with ``density_bins=24`` instead of 12, a finer dose density.
+- ``more_bins``: the page's learners with ``density_bins=24`` instead of 12, a finer dose density;
+- ``flexible_density``: the page's outcome model and 12 bins, with a boosted hazard classifier
+  (depth 3) for the discount, so the covariates' effect can differ by bin. The default logistic
+  hazard enters the covariates linearly with one slope across all bins.
 
 The page's own arm is sweep.csv. Run:
 python reviews/notebook-review/probes/dose-response/cause.py <arm> 20000 20200 4
-Writes cause-<arm>.csv beside this script; summarize_cause.py compares the arms.
+Writes cause-<arm>.csv beside this script; summarize_cause.py compares the arms with sweep.csv (cause-summary.log).
 """
 
 import os
@@ -43,17 +46,20 @@ def true_form(design):
 
 def learners(arm):
     boosted = HistGradientBoostingClassifier(max_depth=2, max_iter=100, random_state=0)
+    hazard = LogisticRegression(max_iter=1000)
     if arm == "true_outcome":
         outcome = make_pipeline(FunctionTransformer(true_form), LogisticRegression(C=1e6))
-        return outcome, 12
+        return outcome, hazard, 12
     if arm == "more_bins":
-        return boosted, 24
+        return boosted, hazard, 24
+    if arm == "flexible_density":
+        return boosted, HistGradientBoostingClassifier(max_depth=3, random_state=0), 12
     raise SystemExit(f"unknown arm {arm!r}")
 
 
 def one_draw(job):
     arm, seed = job
-    outcome, bins = learners(arm)
+    outcome, hazard, bins = learners(arm)
     frame = simulate_renewals(4_000, seed)
     study = CausalStudy(
         frame,
@@ -68,7 +74,7 @@ def one_draw(job):
         warnings.simplefilter("ignore")
         result = study.identify(DoseResponseCurve(CURVE)).estimate(
             outcome_learner=outcome,
-            treatment_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=hazard,
             density_bins=bins,
             n_folds=5,
             random_state=0,
