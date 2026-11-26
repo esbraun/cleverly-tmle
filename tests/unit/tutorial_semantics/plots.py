@@ -127,7 +127,7 @@ def _check_learners_and_bootstrap(namespace: dict[str, Any]) -> None:
     assert result.bootstrap.n_failed == 0 and namespace["spread"]["n_replicates"] == 200
     row = namespace["row"]
     assert row["bootstrap_ci_lower"] < row["psi"] < row["bootstrap_ci_upper"]
-    assert row["std_err"] < namespace["spread"]["sd"] < 1.5 * row["std_err"]
+    assert row["std_err"] < namespace["spread"]["sd"] < 1.25 * row["std_err"]
     assert row["bootstrap_support"] == "experimental"
     assert figure_title(namespace["bootstrap_fig"]) == "Bootstrap replicates"
 
@@ -227,8 +227,12 @@ def _check_visits(namespace: dict[str, Any]) -> None:
     # The offer changes the later covariate, so the feedback row stays large after weighting.
     assert largest.loc["feedback", "after"] > 0.5
     assert figure_title(namespace["visit_weights_fig"]) == "Weights over time"
-    moves = namespace["cap_curve"]["move in SEs"].abs()
-    assert moves.max() < 0.05, "no estimate leans on its largest weights"
+    caps = namespace["cap_curve"].set_index(["lower_bound", "estimand"])
+    # The loosest floor caps almost nothing and the tightest caps a tenth, so the curve is not
+    # flat by construction, yet no estimate moves by half a standard error.
+    assert caps.xs(0.05, level="lower_bound")["share capped"].max() < 0.01
+    assert caps.xs(0.2, level="lower_bound")["share capped"].max() > 0.05
+    assert caps["move in SEs"].abs().max() < 0.5, "no estimate leans on its largest weights"
     kish = namespace["influence_rows"]["kish"]
     assert (
         kish["ey_regimen[never]"]
@@ -253,8 +257,9 @@ def _check_exact(namespace: dict[str, Any]) -> None:
     assert namespace["retention"].loc["1%", 2.0] > 0.6
     title = figure_title(namespace["exact_overlap_fig"])
     assert title == "Predicted probability of treatment, by arm"
-    effective = namespace["effective"]
-    assert ((effective["effective"] / effective["n"]).between(0.75, 0.9)).all()
+    drawn = namespace["drawn"]
+    largest = max(row["largest"] for row in drawn)
+    assert 5.0 < largest < 30.0 and all(row["median"] < 3.0 for row in drawn)
     assert figure_title(namespace["exact_weights_fig"]) == "Weights over time"
     assert figure_title(namespace["exact_learners_fig"]) == "Hazard and treatment model selection"
     lost = namespace["lost"]
@@ -286,9 +291,12 @@ def check_refits(namespace: dict[str, Any]) -> None:
     std_error = namespace["result"]["ate"].std_error
     psi = namespace["result"]["ate"].psi
     rows = {row["left out"]: row for row in namespace["rows"]}
+    sensitivity = namespace["sensitivity"]
     for name in ("discharge_risk", "prior_utilization"):
         row = rows[name]
         assert row["score side"] > floor and row["weight side"] > floor
+        # The weight-side share prints 1.0 because the raw gain reaches 1 or more.
+        assert sensitivity.benchmark(covariates=(name,)).gain_d >= 1.0
         assert abs(row["estimate without it"] - psi) > 5 * std_error
     # The witness the contrast needs: a characteristic below the floor on both sides moves the
     # estimate by less than one standard error.

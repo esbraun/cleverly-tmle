@@ -331,8 +331,8 @@ Run the checks below on the fit of the page as well, under the rule that follows
 
 `point-treatment-tmle` runs the full set for a point-treatment fit: refutation, `simulated_outcome`
 and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `marginal_bounds()`,
-`simulated_confounding()`, and the truncation curve. `plots` draws the bound with benchmarks,
-`evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
+`simulated_confounding()`, and the truncation curve. `plots` draws the bound's contour and prints
+its benchmarks, and draws `evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
 `simulated_outcome` and `plasmode` have no figure. `twins-causal-inference`, the real-data
 capstone, shows the full report. Every other tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
