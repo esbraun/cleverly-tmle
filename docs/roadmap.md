@@ -91,7 +91,6 @@ different pages and run in parallel.
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | none |
 | [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
@@ -694,13 +693,6 @@ One part per notebook: `weekly-outcomes`, `sequential-offers`, `sequential-prici
 a wrong reason for a refusal, interval counts computed under the old interval), adds the shared
 longitudinal checks and its missing figures, and fits what its conclusion quotes. The pricing
 notebook follows the merged MTP ratio change.
-
-### X120. Survival example notebooks
-
-One part per notebook: `longitudinal-survival`, `discharge-to-readmission` and `separable-effects`.
-Each corrects its stale claims (a few-cluster sentence, a supported label printed under an
-experimental contrast), adds the checks and figures its fit supports, and reports what its program
-reads, such as restricted mean survival and risk ratios.
 
 ### X121. Policy, rule and effect-curve example notebooks
 
