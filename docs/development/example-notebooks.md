@@ -137,10 +137,16 @@ cell, update the callback in the same change. Keep every scientific claim of the
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
 
-`plots` is the one exception to the outline. It is a tour of the figures on four fits, not one
+`plots` is the main exception to the outline. It is a tour of the figures on four fits, not one
 analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
 `StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
 `method-evidence` lesson sits under "Go deeper".
+
+`two-decision-rules` keeps the outline, but no result on it carries the protocol it prints. A
+learned two-node regimen is fitted with `LTMLE` directly, because `CausalStudy` cannot declare it
+([X11](../roadmap.md#x11-learned-policy-follow-ups) part (b2)). The page prints the record and
+says that the result does not store it, and its callback calls `assert_protocol_recorded` with no
+results.
 
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
@@ -320,6 +326,7 @@ of the technical reference describes each one and says which of them is a bound.
 | a conditional effect: the EP curve, a log-ratio projection, or a difference-scale projection coefficient | on the EP curve, none: every sensitivity entry and `refute` refuse. On a log-CRR projection coefficient, every sensitivity entry refuses and `refute()` runs. On a difference-scale `cate_projection` coefficient, `robustness_value(estimand=...)` and `omitted_confounding(estimand=...)`; `contour` and `refute()` also run, and `evalue()` and `simulated_confounding()` refuse. For a decision taken from the curve, run the regime row on that decision's contrast, as `conditional-effects` does | the projection bound reads one coefficient of the projection, not the curve. State in one sentence that the EP curve has no bound |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
 | adaptive TMLE (`TrialWithExternalData`, `AdaptiveTMLEMethod`) | no sensitivity or `refute()` call. Every `cleverly.sensitivity` entry point and the refutation and truncation curve of `cleverly.validation` refuse. Run `result.diagnostics.support()`, `score_equations()`, `nuisance_models()`, and `corrections()` | no bound is derived for an adaptive working-model fit, and a refit selects its own working model, so the refits do not estimate the same thing. State that limit in one sentence and read the diagnostics that run |
+| a learned two-node regimen (`LTMLE(regimens=LearnedRegimen())`) | none runs: every `cleverly.sensitivity` entry point, `refute()` and the truncation curve refuse ([F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation), [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay), [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)), and a refit without a covariate relearns the rules, so its move is not a benchmark of confounding. Run `result.assess()` and read the score, support and model rows, and the rule record `result.learned_regimen` | state the limit in one sentence in the conclusion. The weights-and-balance lesson runs without its truncation-curve half |
 
 Run the checks below on the fit of the page as well, under the rule that follows the table.
 
@@ -387,7 +394,7 @@ change.
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |
 | Deterministic and dynamic regimes | interventions |
 | Known stochastic regimes | treatment-rules |
-| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome) |
+| Value of a learned treatment rule | treatment-rules (the value of the rules learned in folds, with the rule from the outcome model, an EP curve of need, a blip model, a classifier, three splits and strata; the best possible rule, `OptimalRuleValue`; the rule against current practice, a random offer and no offers, `LearnedRuleContrast`); conditional-effects (`LearnedRuleContrast` with an EP rule learner on a net outcome); two-decision-rules (a rule learned over two decisions, `LTMLE(regimens=LearnedRegimen())`, with its rule record) |
 | Continuous modified treatment policies | interventions |
 | Modified treatment policies on a vector treatment | schedules-and-intensity |
 | Continuous policies at declared boundaries, with a classifier-learned density ratio | sequential-pricing |
@@ -396,7 +403,7 @@ change.
 | Categorical incremental interventions | schedules-and-intensity |
 | Smoothed dose-response curve | dose-response |
 | Point and longitudinal MSM projections | msm-projections (point, with an effect modifier and a logit link in Go deeper, and a longitudinal projection on `make_longitudinal`, the two-decision binary law with dropout that its supported rows need) |
-| Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
+| Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission, two-decision-rules |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
 | Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
 | Structural nested mean model | model-based-over-time |

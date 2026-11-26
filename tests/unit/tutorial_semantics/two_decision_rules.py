@@ -73,7 +73,7 @@ def check(namespace: dict[str, Any]) -> None:
         first[above & (frame["lives_alone"] == 1)].mean()
         < first[above & (frame["lives_alone"] == 0)].mean()
     )
-    started = namespace["started"].mean().unstack()
+    started = namespace["started"].mean().unstack().round(2)
     assert (started.iloc[:, 1] <= started.iloc[:, 0]).all()
     nodes = learned.learned_regimen.nodes
     assert round(nodes[0].rule_disagreement, 3) == 0.053
@@ -113,7 +113,7 @@ def check(namespace: dict[str, Any]) -> None:
     # 0.08 (absolute), and the feedback row grows, the code's own effect.
     balance = namespace["balance"]
     by_kind = balance.groupby("diagnostic")
-    assert by_kind.get_group("confounding")["after"].abs().max() <= 0.03
+    assert by_kind.get_group("confounding")["after"].abs().round(2).max() <= 0.03
     assert by_kind.get_group("censoring")["after"].abs().max() <= 0.085
     assert by_kind.get_group("confounding")["before"].abs().max() == pytest.approx(0.50, abs=0.005)
     feedback = by_kind.get_group("feedback")

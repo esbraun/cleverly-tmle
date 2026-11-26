@@ -338,6 +338,9 @@ categorized API tables.
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_two_decision_rules
+   cleverly.datasets.learned_regimen_truth
+   cleverly.datasets.two_decision_rules_protocol
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
    cleverly.datasets.make_sequential_pricing

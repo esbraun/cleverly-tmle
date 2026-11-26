@@ -15,7 +15,7 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries twenty-two tutorials and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
@@ -26,7 +26,7 @@ that fits its question.
 | [CV-TMLE](technical-reference/cv-tmle.md) | cross-fitting |
 | [collaborative TMLE](technical-reference/collaborative-tmle.md) | collaborative-tmle |
 | [MSM projections](technical-reference/msm-projections.md) | msm-projections |
-| [longitudinal TMLE](technical-reference/longitudinal-tmle.md) | sequential-pricing, longitudinal-survival, sequential-offers, weekly-outcomes, discharge-to-readmission |
+| [longitudinal TMLE](technical-reference/longitudinal-tmle.md) | sequential-pricing, longitudinal-survival, sequential-offers, weekly-outcomes, discharge-to-readmission, two-decision-rules |
 | [sequential g-computation and IPW](technical-reference/sequential-baselines.md) | sequential-offers |
 | [parametric g-formula](technical-reference/parametric-gformula.md) | model-based-over-time |
 | [structural dynamic effects](technical-reference/structural-dynamic-effects.md) | model-based-over-time |
@@ -35,7 +35,7 @@ that fits its question.
 | [adaptive TMLE](technical-reference/adaptive-tmle.md) | trial-with-external-data |
 | [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 
-The tutorials share two narratives. Fourteen follow one health program: a health plan's hospital
+The tutorials share two narratives. Seventeen follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather
 than inventing a scenario, unless the method needs a law that the program lacks. The pricing
 tutorial is that case, because the health program has no continuous price. Four tutorials follow a

@@ -89,6 +89,15 @@ Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.
 | `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
+Four names serve the [two-decision rules tutorial](../examples/two-decision-rules.ipynb).
+
+| name | what it holds |
+| --- | --- |
+| `make_two_decision_rules` | a wide frame of patients through navigation at discharge, a day-14 self-care score, telemonitoring at day 14, dropout after each decision, and staying home through day 30, with the value of each fixed plan and of the best pair of rules, and the best rules' cutoffs |
+| `TWO_DECISION_COLUMNS` | the `LTMLE.fit` roles of those columns |
+| `learned_regimen_truth` | the true value of the fold rule pairs of a learned-regimen fit of these data |
+| `two_decision_rules_protocol` | the `StudyProtocol` of the two-decision question |
+
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
 
 | function | what it returns |
@@ -161,6 +170,9 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_two_decision_rules
+   cleverly.datasets.learned_regimen_truth
+   cleverly.datasets.two_decision_rules_protocol
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol
