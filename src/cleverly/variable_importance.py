@@ -12,19 +12,21 @@ import functools
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import numpy as np
+from scipy import stats
 
 from ._assessment_cache import AssessmentCache
-from ._inference_status import is_labelled, supplies_inference
+from ._inference_status import FEW_CLUSTER_THRESHOLD, is_labelled, supplies_inference
+from ._support import Support
 from ._warnings import muted
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason, refuse_inference
 from .inference.influence import ParameterEstimate, support_column
-from .inference.results import reported_status
+from .inference.results import estimate_covariance, reported_status
 from .protocol import StudyProtocol
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
@@ -34,12 +36,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ._summary import Detail, Summary
 
 __all__ = [
+    "ADJUSTMENTS",
+    "CORRELATION_TOLERANCE",
     "KEEP_FITS_REFUSAL",
+    "MEASURED_N",
+    "MEASURED_ROWS",
+    "MINIMUM_MULTIPLIER_DRAWS",
+    "PENDING_REASON",
+    "AdjustmentKey",
     "ImportanceFacts",
     "VariableImportanceEntry",
     "VariableImportanceResult",
     "variable_importance",
     "variable_importance_plan",
+    "variable_importance_support",
 ]
 
 #: Why a ``keep_fits=False`` run refuses :attr:`VariableImportanceResult.fits` and every
@@ -50,6 +60,217 @@ KEEP_FITS_REFUSAL = Refusal(
     "estimates and drops its fit.",
     alternative="Run variable_importance again with keep_fits=True.",
 )
+
+Adjustment = Literal["max_t", "bh"]
+ErrorRate = Literal["fwer", "fdr"]
+
+#: The multiplicity adjustments :func:`variable_importance` offers: the step-down max-T, which
+#: controls the family-wise error rate, and Benjamini-Hochberg, whose false-discovery claim is
+#: experimental.
+ADJUSTMENTS: Final[tuple[Adjustment, ...]] = ("max_t", "bh")
+
+#: The fewest multiplier draws the step-down max-T accepts. At 1,000 draws the Monte Carlo
+#: standard error of an adjusted p-value near 0.05 is about 0.007.
+MINIMUM_MULTIPLIER_DRAWS: Final[int] = 1_000
+
+#: The smallest eigenvalue of the rows' correlation matrix the step-down max-T accepts. Below
+#: it the matrix is numerically singular: two rows are, to working precision, one test.
+CORRELATION_TOLERANCE: Final[float] = 1e-8
+
+#: The study that measures the step-down max-T adjustment of :func:`variable_importance`.
+VARIABLE_IMPORTANCE_STUDY: Final[str] = "variable-importance"
+
+#: The sample size the variable-importance study declares. A run with fewer rows reads
+#: experimental: at n = 2,000 the design probe measured a family-wise error rate of 0.080 at
+#: level 0.05 on its law with correlated nulls tied to signals, from per-candidate tests that
+#: are liberal at that size.
+MEASURED_N: Final[int] = 4_000
+
+#: The most adjusted rows the variable-importance study measures.
+MEASURED_ROWS: Final[int] = 12
+
+#: The per-estimate support rows of the candidates the study measures: in sample, a binary
+#: candidate (``T01.binary``) or a three-level one (``T08``); cross-fitted, a binary candidate
+#: (``T02.binary``) only.
+MEASURED_ENTRY_ROWS: Final[Mapping[bool, frozenset[str]]] = {
+    False: frozenset({"T01.binary", "T08"}),
+    True: frozenset({"T02.binary"}),
+}
+
+#: The fold count of the study's cross-fitted configuration.
+MEASURED_FOLDS: Final[int] = 5
+
+#: Why a configuration the study covers still reads experimental: the study is declared and
+#: its run has not landed. ``None`` once the run's verdicts are committed.
+PENDING_REASON: Final[str | None] = (
+    f"The {VARIABLE_IMPORTANCE_STUDY} study that measures this adjustment is declared and has "
+    "not run yet, so no study measures its family-wise error rate."
+)
+
+#: Why the Benjamini-Hochberg adjustment always reads experimental.
+BH_REASON: Final[str] = (
+    "Benjamini-Hochberg has no theorem for two-sided tests that share rows, and correlated "
+    "two-sided Gaussian tests can exceed its false discovery rate (Dobriban 2026)."
+)
+
+
+#: The ``method`` a result records for each adjustment.
+METHOD_NAMES: Final[Mapping[str, str]] = {
+    "max_t": "step-down max-T",
+    "bh": "Benjamini-Hochberg",
+}
+
+
+@dataclass(frozen=True)
+class AdjustmentKey:
+    """The configuration of a variable-importance run that its adjustment label reads.
+
+    Parameters
+    ----------
+    engine : str
+        The estimator class, such as ``"TMLE"``.
+    estimand : str
+        The estimand stem fitted for each candidate.
+    adjust_for_other_candidates : bool
+        Whether the other candidates joined each candidate's adjustment set.
+    clustered : bool
+        Whether the run passed ``id=``.
+    weighted : bool
+        Whether the run passed ``weights=``.
+    missing_outcome : bool
+        Whether the run passed ``delta=``.
+    n : int
+        The number of rows.
+    cross_fitted : bool
+        Whether the nuisances are fitted out of fold.
+    n_folds : int
+        The number of folds of a cross-fitted run.
+    logistic_learners : bool
+        Whether the outcome and the treatment learner are both scikit-learn
+        ``LogisticRegression``.
+    binary_outcome : bool
+        Whether every estimate is a functional of a binary outcome.
+    """
+
+    engine: str
+    estimand: str
+    adjust_for_other_candidates: bool
+    clustered: bool
+    weighted: bool
+    missing_outcome: bool
+    n: int
+    cross_fitted: bool
+    n_folds: int
+    logistic_learners: bool
+    binary_outcome: bool
+
+
+def variable_importance_support(
+    *, adjustment: str, key: AdjustmentKey, entries: Sequence[Support]
+) -> Support:
+    """The support of a variable-importance run's multiplicity claim.
+
+    The step-down max-T claim reads ``supported`` when the ``variable-importance`` study
+    measures the run's configuration: a :class:`~cleverly.estimators.TMLE` of the ATE of a
+    binary outcome, with the other candidates adjusted for, no ``id=``, ``weights=`` or
+    ``delta=``, ``LogisticRegression`` for both learners, at least :data:`MEASURED_N` rows and
+    at most :data:`MEASURED_ROWS` adjusted rows. In sample, each candidate is binary or has
+    three levels; cross-fitted with :data:`MEASURED_FOLDS` folds, each candidate is binary.
+    Every row's own estimate must read ``supported`` too. While :data:`PENDING_REASON` is set,
+    the study has not run and every configuration reads ``experimental``. The
+    Benjamini-Hochberg claim always reads ``experimental``: no theorem covers it.
+
+    Parameters
+    ----------
+    adjustment : {"max_t", "bh"}
+        The adjustment the run applied.
+    key : AdjustmentKey
+        The run's configuration.
+    entries : sequence of Support
+        The support of each adjusted row's own estimate.
+
+    Returns
+    -------
+    Support
+        The support of the adjusted p-values' error-rate claim.
+
+    Examples
+    --------
+    >>> from cleverly._support import Support
+    >>> from cleverly.variable_importance import AdjustmentKey, variable_importance_support
+    >>> key = AdjustmentKey(
+    ...     engine="TMLE", estimand="ate", adjust_for_other_candidates=True, clustered=False,
+    ...     weighted=False, missing_outcome=False, n=4_000, cross_fitted=False, n_folds=10,
+    ...     logistic_learners=True, binary_outcome=True,
+    ... )
+    >>> row = Support("supported", "Covered.", ("canonical-tmle",), row="T01.binary")
+    >>> variable_importance_support(adjustment="bh", key=key, entries=[row]).label
+    'experimental'
+    """
+    if adjustment == "bh":
+        return Support("experimental", BH_REASON)
+    reasons: list[str] = []
+    study = f"The {VARIABLE_IMPORTANCE_STUDY} study"
+    if key.engine != "TMLE":
+        reasons.append(f"{study} measures TMLE only, and this run fits {key.engine}.")
+    if key.estimand != "ate":
+        reasons.append(f"{study} measures the ATE only, and this run targets {key.estimand}.")
+    if not key.binary_outcome:
+        reasons.append(f"{study} measures a binary outcome only.")
+    if not key.adjust_for_other_candidates:
+        reasons.append(
+            f"{study} adjusts each candidate for the others, and this run does not, so its "
+            "rows answer a different question for each candidate."
+        )
+    for passed, option in (
+        (key.clustered, "clustered data (id=)"),
+        (key.weighted, "weights="),
+        (key.missing_outcome, "missing outcomes (delta=)"),
+    ):
+        if passed:
+            reasons.append(f"No study covers {option} under adjustment='max_t'.")
+    if not key.logistic_learners:
+        reasons.append(
+            f"{study} fits LogisticRegression for the outcome and the treatment, and this run "
+            "uses another learner."
+        )
+    if key.cross_fitted and key.n_folds != MEASURED_FOLDS:
+        reasons.append(
+            f"{study} cross-fits with {MEASURED_FOLDS} folds, and this run uses {key.n_folds}."
+        )
+    if key.n < MEASURED_N:
+        reasons.append(
+            f"The run has {key.n:,} rows, and the {VARIABLE_IMPORTANCE_STUDY} study measures "
+            f"n = {MEASURED_N:,}; "
+            "at n = 2,000 its design probe found the per-candidate tests liberal enough to "
+            "lift the family-wise error rate to 0.080 at level 0.05."
+        )
+    if len(entries) > MEASURED_ROWS:
+        reasons.append(
+            f"The run adjusts {len(entries)} rows, and the {VARIABLE_IMPORTANCE_STUDY} study "
+            f"measures at most {MEASURED_ROWS}."
+        )
+    measured = MEASURED_ENTRY_ROWS[key.cross_fitted]
+    if any(support.label != "supported" for support in entries):
+        reasons.append("A candidate's own estimate is experimental.")
+    elif any(support.row not in measured for support in entries):
+        reasons.append(
+            f"{study} measures "
+            + (
+                "cross-fitted binary candidates only."
+                if key.cross_fitted
+                else "binary and three-level candidates only."
+            )
+        )
+    if not reasons and PENDING_REASON is not None:
+        reasons.append(PENDING_REASON)
+    if reasons:
+        return Support("experimental", " ".join(reasons))
+    return Support(
+        "supported",
+        f"{study} measures the family-wise error rate of this configuration.",
+        (VARIABLE_IMPORTANCE_STUDY,),
+    )
 
 
 @dataclass(frozen=True)
@@ -130,11 +351,26 @@ class VariableImportanceResult:
         One entry per candidate and parameter.
     facts : ImportanceFacts
         What the summary reads from the fits, kept whether or not the fits are.
+    adjustment_key : AdjustmentKey
+        The run's configuration, which :attr:`adjustment_support` reads.
     keep_fits : bool
         Whether the run kept each candidate's fit. ``False`` keeps the entries and the facts
         only, and :attr:`fits` then refuses.
     method : str
-        Multiplicity adjustment applied to the p-values.
+        Multiplicity adjustment applied to the p-values: ``"step-down max-T"`` or
+        ``"Benjamini-Hochberg"``.
+    error_rate : {"fwer", "fdr"}
+        What the adjusted p-values aim to control: the family-wise error rate under the
+        step-down max-T, the false discovery rate under Benjamini-Hochberg.
+    correlation : ndarray or None
+        The ``(m, m)`` correlation of the rows' estimates, read from their influence curves,
+        in the order of the entries, under the step-down max-T. ``None`` under
+        Benjamini-Hochberg.
+    multiplier_draws : int or None
+        The number of Gaussian draws of the step-down max-T, ``None`` under
+        Benjamini-Hochberg.
+    multiplier_seed : int or None
+        The seed of those draws, ``None`` under Benjamini-Hochberg.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns.
     kept_fits : mapping of str to TMLEResult
@@ -146,6 +382,7 @@ class VariableImportanceResult:
 
     Attributes
     ----------
+    adjustment_support : Support
     fits : mapping of str to TMLEResult
     fitted_method : str
     diagnostics : CandidateDiagnostics
@@ -155,8 +392,13 @@ class VariableImportanceResult:
 
     entries: tuple[VariableImportanceEntry, ...]
     facts: ImportanceFacts
+    adjustment_key: AdjustmentKey
     keep_fits: bool = True
-    method: str = "Benjamini-Hochberg"
+    method: str = "step-down max-T"
+    error_rate: ErrorRate = "fwer"
+    correlation: np.ndarray | None = field(default=None, repr=False, compare=False)
+    multiplier_draws: int | None = None
+    multiplier_seed: int | None = None
     backend: str | None = None
     kept_fits: Mapping[str, TMLEResult] = field(default_factory=dict, repr=False)
     protocol: StudyProtocol | None = None
@@ -177,6 +419,37 @@ class VariableImportanceResult:
         if not self.keep_fits and kept:
             raise ValueError("a result with keep_fits=False holds no fits")
         _check_protocol(self.protocol)
+        max_t = (self.method, self.error_rate) == (METHOD_NAMES["max_t"], "fwer")
+        bh = (self.method, self.error_rate) == (METHOD_NAMES["bh"], "fdr")
+        if not max_t and not bh:
+            raise ValueError(
+                "method and error_rate must be 'step-down max-T' with 'fwer' or "
+                "'Benjamini-Hochberg' with 'fdr'"
+            )
+        recorded = (self.correlation, self.multiplier_draws, self.multiplier_seed)
+        if bh and any(value is not None for value in recorded):
+            raise ValueError("a Benjamini-Hochberg result records no correlation or draws")
+        if max_t:
+            m = len(self.entries)
+            if self.correlation is None or np.shape(self.correlation) != (m, m):
+                raise ValueError("a step-down max-T result records the (m, m) correlation")
+            if self.multiplier_draws is None or self.multiplier_seed is None:
+                raise ValueError("a step-down max-T result records its draws and seed")
+
+    @property
+    def adjustment_support(self) -> Support:
+        """The support of the adjusted p-values' error-rate claim.
+
+        It reads :func:`variable_importance_support` on the run's configuration and on each
+        row's own estimate. The step-down max-T claim reads ``supported`` only on the
+        configuration the ``variable-importance`` study measures, and the Benjamini-Hochberg
+        claim always reads ``experimental``.
+        """
+        return variable_importance_support(
+            adjustment="max_t" if self.error_rate == "fwer" else "bh",
+            key=self.adjustment_key,
+            entries=[entry.estimate.support for entry in self.entries],
+        )
 
     @property
     def fits(self) -> Mapping[str, TMLEResult]:
@@ -215,7 +488,7 @@ class VariableImportanceResult:
         """The sensitivity analyses of each candidate's fit, asked together.
 
         Each analysis reads one candidate's own estimate and unadjusted interval, not the
-        Benjamini-Hochberg adjusted test.  A ``keep_fits=False`` run refuses every one.
+        multiplicity-adjusted test.  A ``keep_fits=False`` run refuses every one.
         """
         from ._importance_assessment import CandidateSensitivity
 
@@ -429,18 +702,20 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
                 header.append((label, facts[label]))
         header.append((vocabulary.ROWS, count_text(kept.n)))
     header.append((vocabulary.CANDIDATES, count_text(len(kept.candidates))))
+    max_t = result.error_rate == "fwer"
     if inferential:
-        header.append((vocabulary.ADJUSTMENT, f"{result.method}, {count_text(len(entries))} tests"))
+        rate = "family-wise error rate" if max_t else "false discovery rate"
+        header.append(
+            (vocabulary.ADJUSTMENT, f"{result.method}, {count_text(len(entries))} tests ({rate})")
+        )
     notes = list(notes)
     if inferential:
-        notes.append(
-            note(
-                "multiple_testing",
-                vocabulary.NOTE_TEXTS["multiple_testing"].format(
-                    count=count_text(len(entries)), method=result.method
-                ),
-            )
-        )
+        code = "multiple_testing" if max_t else "multiple_testing_bh"
+        text = vocabulary.NOTE_TEXTS[code].format(count=count_text(len(entries)))
+        support = result.adjustment_support
+        if max_t and support.label == "experimental":
+            text = f"{text} {vocabulary.ADJUSTMENT_EXPERIMENTAL} {support.reason}"
+        notes.append(note(code, text))
     notes.append(note("separate_fits", vocabulary.NOTE_TEXTS["separate_fits"]))
     cautious = kept.cautious
     if cautious and result.keep_fits:
@@ -497,6 +772,129 @@ def _bh_adjust(pvalues: Sequence[float]) -> np.ndarray:
     return adjusted
 
 
+def _max_t_statistics(pvalues: Sequence[float]) -> np.ndarray:
+    """The two-sided normal quantile of each row's own p-value, ``isf(p / 2)``.
+
+    The upper-tail form keeps a p-value below about ``1e-16`` finite, where
+    ``ppf(1 - p / 2)`` rounds to infinity and ties every such row.
+    """
+    values = np.asarray(pvalues, dtype=float)
+    if values.ndim != 1 or np.any(~np.isfinite(values)) or np.any((values < 0) | (values > 1)):
+        raise ValueError("p-values must be finite values in [0, 1]")
+    return np.asarray(stats.norm.isf(values / 2.0), dtype=float)
+
+
+def _null_draws(correlation: np.ndarray, draws: int, seed: int) -> np.ndarray:
+    """``draws`` absolute draws of ``N(0, correlation)``, by Cholesky, one row per draw.
+
+    This is the exact conditional law, given the data, of the Gaussian-multiplier bootstrap of
+    the studentized, centred influence curves.
+    """
+    factor = np.linalg.cholesky(correlation)
+    normals = np.random.default_rng(seed).standard_normal((draws, correlation.shape[0]))
+    return np.abs(normals @ factor.T)
+
+
+def _step_down(
+    statistics: np.ndarray, pvalues: Sequence[float], null_draws: np.ndarray
+) -> np.ndarray:
+    """Step-down max-T adjusted p-values on fixed null draws.
+
+    Rows are ranked by statistic, largest first. The row at rank ``k`` reads the share of draws
+    whose maximum over ranks ``k`` to ``m`` reaches its statistic. A running maximum in rank
+    makes the values monotone, each is floored at the row's own p-value, which absorbs Monte
+    Carlo error only, and capped at one.
+    """
+    floor = np.asarray(pvalues, dtype=float)
+    order = np.argsort(-statistics, kind="stable")
+    ranked = null_draws[:, order]
+    remaining_max = np.maximum.accumulate(ranked[:, ::-1], axis=1)[:, ::-1]
+    exceed = np.mean(remaining_max >= statistics[order], axis=0)
+    adjusted = np.empty(statistics.size, dtype=float)
+    adjusted[order] = np.maximum.accumulate(exceed)
+    return np.asarray(np.minimum(np.maximum(adjusted, floor), 1.0), dtype=float)
+
+
+def _row_correlation(
+    estimates: Sequence[ParameterEstimate], labels: Sequence[str], cluster: Any
+) -> np.ndarray:
+    """The correlation of the rows' estimates from their joint influence curves.
+
+    Refuses a row whose curve has no variance and a correlation whose smallest eigenvalue is
+    below :data:`CORRELATION_TOLERANCE`, naming the rows involved.
+    """
+    covariance = estimate_covariance(
+        {str(index): estimate for index, estimate in enumerate(estimates)}, None, cluster=cluster
+    )
+    variances = np.diag(covariance)
+    flat = [label for label, value in zip(labels, variances, strict=True) if not value > 0]
+    if flat:
+        raise CapabilityError(
+            f"adjustment='max_t' needs each row's influence curve to vary, and {flat} do not, "
+            "so their correlation with the other rows is undefined.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Drop the constant candidates, or pass adjustment='bh' (experimental).",
+        )
+    scale = np.sqrt(variances)
+    correlation = covariance / np.outer(scale, scale)
+    correlation = (correlation + correlation.T) / 2.0
+    np.fill_diagonal(correlation, 1.0)
+    eigenvalues, eigenvectors = np.linalg.eigh(correlation)
+    if eigenvalues[0] < CORRELATION_TOLERANCE:
+        loading = np.abs(eigenvectors[:, 0])
+        involved = [
+            label
+            for label, value in zip(labels, loading, strict=True)
+            if value >= 0.1 * loading.max()
+        ]
+        raise CapabilityError(
+            f"adjustment='max_t' needs the rows' correlation matrix to be nonsingular, and the "
+            f"rows {involved} are linearly dependent to working precision (smallest "
+            f"eigenvalue {eigenvalues[0]:.2e}, below {CORRELATION_TOLERANCE:.0e}): they are "
+            "one test.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Drop one of the dependent candidates, or pass adjustment='bh' "
+            "(experimental).",
+        )
+    return np.asarray(correlation, dtype=float)
+
+
+def _check_adjustment(
+    adjustment: object, multiplier_draws: object, multiplier_seed: object
+) -> None:
+    if adjustment not in ADJUSTMENTS:
+        raise ValueError(f"adjustment must be one of {list(ADJUSTMENTS)}; got {adjustment!r}")
+    for name, value in (
+        ("multiplier_draws", multiplier_draws),
+        ("multiplier_seed", multiplier_seed),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise TypeError(f"{name} must be an integer; got {value!r}")
+    assert isinstance(multiplier_draws, (int, np.integer))
+    if multiplier_draws < MINIMUM_MULTIPLIER_DRAWS:
+        raise ValueError(
+            f"multiplier_draws must be at least {MINIMUM_MULTIPLIER_DRAWS:,}, where the Monte "
+            f"Carlo error of an adjusted p-value near 0.05 is about 0.007; got {multiplier_draws}"
+        )
+
+
+#: Why the step-down max-T refuses estimated weights.
+ESTIMATED_WEIGHTS_REFUSAL: Final[str] = (
+    "adjustment='max_t' reads the joint law of the rows from their influence curves, and with "
+    "weights_estimated=True the curves omit the term of the weight estimation, so the "
+    "correlation misses a component of that law."
+)
+
+#: Why the step-down max-T refuses few clusters.
+FEW_CLUSTER_REFUSAL: Final[str] = (
+    "adjustment='max_t' rests on a Gaussian limit in the number of independent units, and "
+    "with {clusters} clusters, fewer than {floor}, each row's test reads a Student t "
+    "reference, which has no Gaussian joint law to draw from."
+)
+
+_MAX_T_ALTERNATIVE: Final[str] = "Pass adjustment='bh' (experimental)."
+
+
 @dataclass(frozen=True)
 class _Candidate:
     """One candidate after the pre-pass: its adjustment set, prepared data and engine."""
@@ -522,13 +920,18 @@ def _checked_candidates(
     weights_type: str,
     weights_estimated: bool,
     id: str | None,
+    adjustment: str,
+    multiplier_draws: int,
+    multiplier_seed: int,
 ) -> Iterator[_Candidate]:
     """Run every refusal of a variable-importance call and yield each candidate in turn.
 
     :func:`variable_importance` drains it before its first fit, and
-    :func:`variable_importance_plan` prices each candidate as it is yielded, so both refuse
-    identically and in the same order.
+    :func:`variable_importance_plan` drains it before it prices a candidate, so both refuse
+    identically and in the same order. The refusals of the step-down max-T that the
+    configuration decides come after every candidate's own checks.
     """
+    _check_adjustment(adjustment, multiplier_draws, multiplier_seed)
     if not is_dataframe(data):
         raise TypeError(
             "variable_importance needs the original dataframe because each candidate "
@@ -588,11 +991,12 @@ def _checked_candidates(
             treatment_kind="discrete",
         )
 
+    clusters: int | None = None
     for candidate in candidate_names:
-        adjustment = [name for name in base_covariates if name != candidate]
+        chosen = [name for name in base_covariates if name != candidate]
         if adjust_for_other_candidates:
-            adjustment.extend(name for name in candidate_names if name != candidate)
-        adjustment_set = tuple(dict.fromkeys(adjustment))
+            chosen.extend(name for name in candidate_names if name != candidate)
+        adjustment_set = tuple(dict.fromkeys(chosen))
         if not adjustment_set:
             raise DataError(
                 f"candidate {candidate!r} has an empty adjustment set; cleverly's "
@@ -614,8 +1018,24 @@ def _checked_candidates(
             engine()._inference_status(candidate_data),
             operation="variable_importance()",
         )
+        if id is not None:
+            clusters = candidate_data.n_clusters
         yield _Candidate(candidate, adjustment_set, candidate_data, engine(), prepare)
         del candidate_data
+    if adjustment != "max_t":
+        return
+    if weights_estimated:
+        raise CapabilityError(
+            ESTIMATED_WEIGHTS_REFUSAL,
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Pass known weights, or adjustment='bh' (experimental).",
+        )
+    if clusters is not None and clusters < FEW_CLUSTER_THRESHOLD:
+        raise CapabilityError(
+            FEW_CLUSTER_REFUSAL.format(clusters=clusters, floor=FEW_CLUSTER_THRESHOLD),
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=_MAX_T_ALTERNATIVE,
+        )
 
 
 def variable_importance(
@@ -627,6 +1047,9 @@ def variable_importance(
     estimand: str = "ate",
     estimator: TMLE | None = None,
     adjust_for_other_candidates: bool = True,
+    adjustment: Adjustment = "max_t",
+    multiplier_draws: int = 10_000,
+    multiplier_seed: int = 0,
     delta: str | None = None,
     weights: str | None = None,
     weights_type: str = "probability",
@@ -644,8 +1067,31 @@ def variable_importance(
     are descendants, colliders, or otherwise should not be conditioned on.
 
     Tests are two-sided on each parameter's native null (zero for differences/levels,
-    one for ratios), then adjusted jointly by Benjamini--Hochberg.  This corrects the
-    one-tail normal probability used by the historical ``tmle3_vim`` helper.
+    one for ratios), then adjusted jointly. This corrects the one-tail normal probability
+    used by the historical ``tmle3_vim`` helper.
+
+    The default adjustment, ``adjustment="max_t"``, is a studentized step-down max-T that
+    controls the family-wise error rate, the chance of any false rejection among the rows,
+    and so also bounds the false discovery rate. It reads the correlation of the rows'
+    estimates from their influence curves, which every candidate's fit computes on the same
+    rows. Each row's statistic is the two-sided normal quantile of its own p-value,
+    ``norm.isf(p / 2)``. ``multiplier_draws`` draws of the absolute values of a normal vector
+    with that correlation, seeded by ``multiplier_seed``, give the step-down critical values:
+    this is the Gaussian-multiplier bootstrap of the studentized curves computed through its
+    exact conditional law. The adjusted p-values are made monotone in rank and floored at
+    each row's own p-value, so the result is deterministic for a given seed. The control is
+    asymptotic in the number of independent units (Dudoit, van der Laan and Pollard, Part II,
+    Theorems 1, 3 and 6; Chernozhukov, Chetverikov and Kato 2013, Theorem 5.1).
+    ``adjustment="bh"`` applies Benjamini--Hochberg, whose false-discovery claim is
+    experimental: no theorem covers two-sided tests that share rows, and correlated
+    two-sided Gaussian tests can exceed its rate.
+    :attr:`VariableImportanceResult.adjustment_support` labels either claim.
+
+    The step-down max-T refuses, before the first fit, ``weights_estimated=True`` (the curves
+    omit the weight-estimation term) and clustered data with fewer than 40 clusters (each
+    test reads a Student t reference). After the fits it refuses a row whose test still reads
+    a t reference, a row whose curve does not vary, and rows whose correlation matrix is
+    singular to working precision. Benjamini--Hochberg runs in each of these cases.
 
     Refuses, before the first fit, when the estimator's inference status on any
     candidate's prepared data supplies no inference. A
@@ -678,6 +1124,15 @@ def variable_importance(
     adjust_for_other_candidates : bool
         Whether the other candidates join the baseline covariates. Set it false when
         they are descendants, colliders, or otherwise should not be conditioned on.
+    adjustment : {"max_t", "bh"}
+        The multiplicity adjustment: the step-down max-T (family-wise error rate) or
+        Benjamini--Hochberg (false discovery rate, experimental).
+    multiplier_draws : int
+        Gaussian draws of the step-down max-T, at least 1,000. The Monte Carlo error of an
+        adjusted p-value near 0.05 is about 0.002 at the default 10,000. Read only under
+        ``"max_t"``.
+    multiplier_seed : int
+        Seed of those draws. Read only under ``"max_t"``.
     delta : str or None
         Outcome-observation indicator column.
     weights : str or None
@@ -691,8 +1146,9 @@ def variable_importance(
     keep_fits : bool
         Whether the result keeps each candidate's fit. ``False`` keeps the estimates, the
         adjusted p-values and the summary, and releases each candidate's data and fit before
-        the next one starts, so memory no longer grows with the number of candidates. Each
-        candidate's data is then prepared a second time for its fit.
+        the next one starts. Each estimate keeps its length-n influence curve, which the
+        adjustment reads, so memory still grows by one curve per row but no longer by a fit
+        per candidate. Each candidate's data is then prepared a second time for its fit.
     protocol : StudyProtocol or None
         Scientific study protocol for the whole ranking, recorded on the result and printed
         by ``summary(detail="full")`` as the study description. ``None`` records that no
@@ -721,6 +1177,9 @@ def variable_importance(
         weights_type=weights_type,
         weights_estimated=weights_estimated,
         id=id,
+        adjustment=adjustment,
+        multiplier_draws=multiplier_draws,
+        multiplier_seed=multiplier_seed,
     ):
         # Without kept fits, the data is prepared again for its fit, so no candidate's data
         # outlives its own turn.
@@ -733,6 +1192,8 @@ def variable_importance(
     outcome_name, n_rows, fitted_method = outcome, 0, ""
     cautions: dict[str, tuple[str, ...]] = {}
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
+    cluster: Any = None
+    first_engine = next(iter(engines.values()))
     for candidate in list(prepared):
         adjustment_set, kept_data = prepared[candidate]
         if kept_data is None:
@@ -742,6 +1203,14 @@ def variable_importance(
                 kept_data = prepare(candidate, adjustment_set)
         else:
             prepared[candidate] = (adjustment_set, None)
+        codes = kept_data.cluster
+        if not raw:
+            cluster = codes
+        elif not _same_rows(cluster, codes, n_rows, int(kept_data.n)):
+            # The joint curves need every fit on the same rows and units.
+            raise RuntimeError(
+                f"the fit for {candidate!r} reads other rows or clusters than the first fit"
+            )
         result = engines.pop(candidate).fit(kept_data).single()
         del kept_data
         if protocol is not None and result.provenance is not None:
@@ -772,12 +1241,51 @@ def variable_importance(
         raw.extend((candidate, estimate.name, adjustment_set, estimate) for estimate in estimates)
         del result, estimates, fit_summary
 
-    adjusted = _bh_adjust([item[3].pvalue for item in raw])
-    ranked = sorted(zip(raw, adjusted, strict=True), key=lambda item: float(item[1]))
-    entries = [
-        VariableImportanceEntry(candidate, parameter, adjustment, estimate, float(pvalue))
-        for (candidate, parameter, adjustment, estimate), pvalue in ranked
-    ]
+    estimates = [item[3] for item in raw]
+    if any(estimate.influence_curve.shape != (n_rows,) for estimate in estimates):
+        raise RuntimeError("every candidate's influence curve must have one value per row")
+    pvalues = [estimate.pvalue for estimate in estimates]
+    correlation: np.ndarray | None = None
+    if adjustment == "max_t":
+        labels = [f"{candidate}: {parameter}" for candidate, parameter, _, _ in raw]
+        t_rows = [
+            label
+            for label, estimate in zip(labels, estimates, strict=True)
+            if estimate.reference_df is not None
+        ]
+        if t_rows:
+            raise CapabilityError(
+                f"adjustment='max_t' rests on a Gaussian limit, and the tests of {t_rows} read "
+                "a Student t reference (a clustered fold-evaluated fit, or fewer than 40 "
+                "clusters with positive weight), which has no Gaussian joint law to draw from.",
+                reason=RefusalReason.INFERENCE_GAP,
+                alternative=_MAX_T_ALTERNATIVE,
+            )
+        correlation = _row_correlation(estimates, labels, cluster)
+        statistics = _max_t_statistics(pvalues)
+        adjusted = _step_down(
+            statistics, pvalues, _null_draws(correlation, int(multiplier_draws), multiplier_seed)
+        )
+    else:
+        adjusted = _bh_adjust(pvalues)
+    order = sorted(range(len(raw)), key=lambda index: float(adjusted[index]))
+    entries = [VariableImportanceEntry(*raw[index], float(adjusted[index])) for index in order]
+    if correlation is not None:
+        correlation = correlation[np.ix_(order, order)].copy()
+        correlation.setflags(write=False)
+    key = AdjustmentKey(
+        engine=type(first_engine).__name__,
+        estimand=estimand,
+        adjust_for_other_candidates=adjust_for_other_candidates,
+        clustered=id is not None,
+        weighted=weights is not None,
+        missing_outcome=delta is not None,
+        n=n_rows,
+        cross_fitted=bool(getattr(first_engine, "cross_fit", False)),
+        n_folds=int(getattr(first_engine, "n_folds", 0)),
+        logistic_learners=_logistic_learners(first_engine),
+        binary_outcome=all(estimate.outcome_family == "binomial" for estimate in estimates),
+    )
     facts = ImportanceFacts(
         candidates=tuple(prepared),
         first_fit=first_fit,
@@ -786,13 +1294,37 @@ def variable_importance(
         cautions=cautions,
         fitted_method=fitted_method,
     )
+    max_t = adjustment == "max_t"
     return VariableImportanceResult(
         tuple(entries),
         facts,
+        key,
         keep_fits=keep_fits,
+        method=METHOD_NAMES[adjustment],
+        error_rate="fwer" if max_t else "fdr",
+        correlation=correlation,
+        multiplier_draws=int(multiplier_draws) if max_t else None,
+        multiplier_seed=int(multiplier_seed) if max_t else None,
         backend=backend_of(as_frame(data)),
         kept_fits=fits,
         protocol=protocol,
+    )
+
+
+def _same_rows(first: Any, codes: Any, n_first: int, n: int) -> bool:
+    """Whether a candidate's data has the first candidate's rows and cluster codes."""
+    if n_first and n != n_first:
+        return False
+    if first is None or codes is None:
+        return first is None and codes is None
+    return bool(np.array_equal(np.asarray(first), np.asarray(codes)))
+
+
+def _logistic_learners(engine: TMLE) -> bool:
+    from sklearn.linear_model import LogisticRegression
+
+    return isinstance(getattr(engine, "outcome_learner", None), LogisticRegression) and (
+        isinstance(getattr(engine, "treatment_learner", None), LogisticRegression)
     )
 
 
@@ -809,6 +1341,9 @@ def variable_importance_plan(
     estimand: str = "ate",
     estimator: TMLE | None = None,
     adjust_for_other_candidates: bool = True,
+    adjustment: Adjustment = "max_t",
+    multiplier_draws: int = 10_000,
+    multiplier_seed: int = 0,
     delta: str | None = None,
     weights: str | None = None,
     weights_type: str = "probability",
@@ -820,7 +1355,11 @@ def variable_importance_plan(
 
     Takes the arguments of :func:`variable_importance` except ``keep_fits``, which does not
     change the fits. It runs the same refusals in the same order, prepares each candidate's
-    data as the run does, and counts the fits of each candidate's own TMLE fit.
+    data as the run does, and counts the fits of each candidate's own TMLE fit. The
+    multiplicity adjustment fits no model, so ``adjustment`` and the multiplier settings
+    change no count; the plan raises the refusals the configuration decides before any fit.
+    The refusals the step-down max-T can make only after the fits (a row on a t reference,
+    a constant curve, singular correlation) are not previewed.
 
     Parameters
     ----------
@@ -838,6 +1377,12 @@ def variable_importance_plan(
         Template estimator; ``None`` uses ``TMLE(estimands=estimand)``.
     adjust_for_other_candidates : bool
         Whether the other candidates join each candidate's adjustment set.
+    adjustment : {"max_t", "bh"}
+        The multiplicity adjustment, checked as the run checks it.
+    multiplier_draws : int
+        Gaussian draws of the step-down max-T, checked as the run checks them.
+    multiplier_seed : int
+        Seed of those draws, checked as the run checks it.
     delta : str or None
         Outcome-observation indicator column.
     weights : str or None
@@ -917,6 +1462,9 @@ def variable_importance_plan(
         weights_type=weights_type,
         weights_estimated=weights_estimated,
         id=id,
+        adjustment=adjustment,
+        multiplier_draws=multiplier_draws,
+        multiplier_seed=multiplier_seed,
     ):
         checked_candidates.append((checked.name, checked.adjustment_set, checked.engine))
         prepare = checked.prepare

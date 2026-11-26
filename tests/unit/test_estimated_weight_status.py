@@ -184,6 +184,8 @@ class TestVariableImportanceNamesTheStatus:
             estimator=DRTMLE(**linear_in_sample()),
             weights="w",
             weights_estimated=True,
+            # The step-down max-T refuses estimated weights; Benjamini-Hochberg runs.
+            adjustment="bh",
         )
         table = entries.to_frame()
         assert set(table["inference"]) == {STATUS}

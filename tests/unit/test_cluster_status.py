@@ -307,6 +307,8 @@ class TestFewClustersShowALabelledTInterval:
             covariates=["W1", "W2"],
             estimator=TMLE(**linear_in_sample()),
             id="cluster",
+            # The step-down max-T refuses a t reference; Benjamini-Hochberg reads it.
+            adjustment="bh",
         )
         frame = entries.to_frame()
         assert set(frame["inference"]) == {FEW}

@@ -322,6 +322,9 @@ class TestAShownStatusReachesEveryReport:
             covariates=["W1", "W2"],
             estimator=estimator(),
             id="cluster",
+            # The step-down max-T refuses few clusters and estimated weights; the status
+            # reaches the Benjamini-Hochberg run.
+            adjustment="bh",
         )
         assert set(entries.to_frame()["inference"]) == {shown}
 
