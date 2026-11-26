@@ -78,8 +78,8 @@ size, misses the fits that under-cover (roadmap X95).
 
 **Initial estimate.** The ``initial_estimate`` column is each pair's untargeted plug-in
 :math:`n^{-1}\sum_i \int_D w(a)\hat{\bar Q}(a, W_i)\,da` from the same cross-fitted regression on
-the same quadrature rule.  :func:`fit_with_initials` reads it by observing each call to
-``target_pair`` that the fit makes, without changing any argument or result.
+the same quadrature rule.  :func:`fit_with_initials` reads it by observing each cell's
+untargeted plug-in (``_untargeted_observer``), without changing any argument or result.
 
 **Not covered.** Observation weights, an in-sample fit, clustered rows (refused), a missing
 outcome (refused), the triweight and uniform kernels, the package's default learner library,
@@ -90,7 +90,7 @@ The red-cell readings are declared in ``tests/canonical/dose_response/regenerate
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from unittest import mock
@@ -410,28 +410,17 @@ def fit_with_initials(
     The fit targets every reported estimate on the declared rule first, in report order, and
     then again on the doubled rule.  The observer records the weighted plug-in
     :math:`\\sum_i \\omega_i \\int_D w\\hat{\\bar Q}(\\cdot, W_i) / \\sum_i \\omega_i` of each of
-    the first calls, which is the untargeted value the fluctuation starts from, and passes
-    every call through unchanged.
+    the first calls, which is the untargeted value the fluctuation starts from
+    (``_untargeted_observer``, which changes nothing in the fit).
     """
     spec = SCENARIOS[scenario]
-    original: Callable[..., Any] = dose_engine.target_pair
     seen: list[float] = []
 
-    def observed(
-        y: np.ndarray,
-        q_obs: np.ndarray,
-        q_nodes: np.ndarray,
-        h_obs: np.ndarray,
-        h_nodes: np.ndarray,
-        pair_weights: np.ndarray,
-        row_weights: np.ndarray,
-        **options: Any,
-    ) -> Any:
+    def observed(untargeted: np.ndarray, row_weights: np.ndarray) -> None:
         omega = np.asarray(row_weights, dtype=float)
-        seen.append(float(np.sum(omega * (q_nodes @ pair_weights)) / np.sum(omega)))
-        return original(y, q_obs, q_nodes, h_obs, h_nodes, pair_weights, row_weights, **options)
+        seen.append(float(np.sum(omega * untargeted) / np.sum(omega)))
 
-    with mock.patch.object(dose_engine, "target_pair", observed):
+    with mock.patch.object(dose_engine, "_untargeted_observer", observed):
         result = fit(frame, scenario, **overrides)
     names = list(result.estimates)
     if len(seen) != 2 * len(names):
