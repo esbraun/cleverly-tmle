@@ -86,7 +86,6 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
@@ -638,21 +637,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
-
-### X112. User guide: analyses over time and survival
-
-The survival guide says refutation and sensitivity do not run on a continuous-time fit and that no
-band is drawn; both are false on the study route. The guides have no section on dose shifts over
-time, working-model summaries of a risk curve, the other estimators of a risk curve, clustered and
-known-mechanism designs over time, or the cluster jackknife.
-
-- (a) Correct the false sentences.
-- (b) The continuous-time result surface, the label rules in one table, and hazard learners.
-- (c) Dose shifts over time, written against the merged MTP ratio change.
-- (d) Working-model summaries over time.
-- (e) Other estimators of a risk curve and what each refuses.
-- (f) Clustered, weighted and known-mechanism designs over time, and learned two-decision rules.
-- (g) Plots, diagnostics and links to the tutorials.
 
 ### X115. Technical reference: shared inference, validation and scope pages
 
