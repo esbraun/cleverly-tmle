@@ -34,6 +34,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
@@ -740,12 +741,12 @@ def test_the_learner_allowance_covers_every_default_library_cell_by_the_margin()
         assert _memory_guard.predicted_bytes(counts) >= _memory_guard.MARGIN * peak * (1 - 1e-6)
 
 
-def test_mutation_a_dropped_learner_allowance_reads_below_the_peak() -> None:
-    # Without the allowance the 80-bin cells read about 0.6 of their peak.
-    lowest = min(
-        _memory_guard.predicted_bytes(replace(counts, adaptive_density=False)) / peak
-        for counts, peak in _gap_cells()
-    )
+def test_mutation_a_zero_learner_allowance_reads_below_the_peak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # With the allowance set to zero the 80-bin cells read about 0.6 of their peak.
+    monkeypatch.setattr(_memory_guard, "LEARNER_ALLOWANCE", 0.0)
+    lowest = min(_memory_guard.predicted_bytes(counts) / peak for counts, peak in _gap_cells())
     assert lowest < 0.65
 
 
@@ -756,11 +757,14 @@ def test_the_allowance_grows_with_the_squared_bins_and_the_nodes() -> None:
     assert added == pytest.approx(_memory_guard.LEARNER_ALLOWANCE * 1_000 * 2 * 40 * 40)
 
 
+@pytest.mark.parametrize("est", ["mtp", "sdr_mtp"])
 @pytest.mark.parametrize(
     ("overrides", "adaptive"),
     [
         ({}, False),
         ({"treatment_learner": None}, True),
+        ({"treatment_learner": SuperLearner(task="classification")}, True),
+        ({"treatment_learner": RandomForestClassifier(n_estimators=2)}, False),
         (
             {
                 "treatment_learner": SuperLearner(
@@ -772,16 +776,25 @@ def test_the_allowance_grows_with_the_squared_bins_and_the_nodes() -> None:
         ({"treatment_learner": _IndexLogistic(max_iter=1000)}, False),
         ({"treatment_learner": None, "ratio": "classifier"}, False),
     ],
-    ids=["logistic", "default", "parametric_stack", "index", "classifier"],
+    ids=[
+        "logistic",
+        "default",
+        "default_stack",
+        "forest",
+        "parametric_stack",
+        "index",
+        "classifier",
+    ],
 )
-def test_only_an_adaptive_learner_on_the_binned_route_takes_the_allowance(
-    overrides: dict[str, Any], adaptive: bool
+def test_only_the_default_library_on_the_binned_route_takes_the_allowance(
+    est: str, overrides: dict[str, Any], adaptive: bool
 ) -> None:
-    # The support builder's own treatment learner is a logistic regression; ``None`` is the
-    # default library.  The classifier route fits no binned density, the index route no
-    # indicator block.
+    # The allowance was measured for the default library only (``None``, or a SuperLearner
+    # naming no library); another learner's memory is not counted.  The support builder's own
+    # treatment learner is a logistic regression.  The classifier route fits no binned
+    # density, and the index route no indicator block.
     bins = 0 if overrides.get("ratio") == "classifier" else 12
-    counts = _route_counts("mtp", overrides=dict(overrides), B=bins)
+    counts = _route_counts(est, overrides=dict(overrides), B=bins)
     assert counts.adaptive_density is adaptive
 
 
