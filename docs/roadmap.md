@@ -86,7 +86,6 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
 | [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
@@ -96,7 +95,7 @@ different pages and run in parallel.
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
 | [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
 | [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X124 for the separable method table |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | none |
 | [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
@@ -640,30 +639,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
-
-### X124. Messages, docstrings and records that misstate the code
-
-A review of the published documentation against the code on 2026-11-25 found messages, docstrings
-and study records that state something the code does not do. No number moves.
-
-- (a) The bootstrap docstrings of the sequential baselines, the parametric g-formula, `SDR` and
-  `IPSI` say the full-refit bootstrap gives no percentile inference; it prints percentile and BCa
-  intervals and a sup-t band under the experimental label.
-- (b) The `TMLE` docstring of `cluster_variance=` and the [cluster jackknife](technical-reference/inference.md)
-  section disagree on whether a point fit takes it; the `LearnedRuleValue` docstring and the
-  estimands guide disagree on the stacked report's label.
-- (c) The identify summary of a separable plan lists methods that refuse it, and its conditions
-  table omits the conditions that make the two treatment components separable.
-- (d) `TrialWithExternalData(weights=...)` and the other undeclared design roles raise a bare
-  `TypeError` instead of a refusal with its reason; `planned_refits()` on a projection curve or
-  a trial result raises a refusal that names `refute`.
-- (e) The truncation curve of a dose fit reads available and moves nothing; diagnose it.
-- (f) The adaptive IPTW gate study still declares a pending `drtmle` comparator although its
-  pairing study ran.
-- (g) Counts that pages hard-code and no test pins (the fit-wide stops of the simulated
-  confounder surface, the refutation operations) get a test that ties the owner page to the code.
-
-Acceptance: each statement matches the code, with a test where a count or a list can drift.
 
 ### X111. User guide: designs and estimands
 
