@@ -4,13 +4,13 @@
 covariates, with each row's exact potential-outcome chances (no Bernoulli noise), checks every
 group effect, direct effect, risk ratio and projection coefficient.  A second set of checks reads
 the drawn columns themselves: an inverse-probability-weighted group effect with the true offer
-chance, and the share with a 7-day visit in each arm, so a frame wired from the wrong column
-fails even when the law's functions are right.
+chance, and the share with a 7-day visit in each arm weighted by the same chance, so a frame
+wired from the wrong column fails even when the law's functions are right.
 
 Exact-law checks are blind to a term that vanishes at the truth, so three wrong truths must fail
 the same comparisons: the direct effect at visit 1 without the offer-by-visit term, the total
 effect without the part the visit adds, and the group effects with "alone" and "paid carer"
-swapped.  Two mutated frames must fail the drawn-column checks.
+swapped.  Three mutated frames must fail the drawn-column checks.
 """
 
 from __future__ import annotations

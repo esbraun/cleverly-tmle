@@ -725,7 +725,7 @@ def _held_out_matches_the_raw_rows(data: pd.DataFrame, fitted: Any) -> bool:
 def test_the_held_out_checks_run_on_a_group_column_stored_as_text(
     text_group: tuple[pd.DataFrame, Any],
 ) -> None:
-    """Every refit reading of a text-coded ``Indicators`` curve runs (defect D1 of X122).
+    """Every refit reading of a text-coded ``Indicators`` curve runs, where it used to raise.
 
     The covariate matrix holds the group as indicators, so a frame built from it alone
     lacks the column the basis reads, and each call raised ``DataError``.
