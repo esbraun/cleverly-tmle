@@ -1,6 +1,6 @@
 """The tuned-cap composition table on ``scope-and-refusals.md`` matches the code.
 
-Each ``_composition(...)`` call in ``refuse_tuned_compositions`` names a composition, a reason
+Each ``_composition(...)`` call in ``_tuned_policies.py`` names a composition, a reason
 code and, for a missing capability, a roadmap item. The table under ``### Data-tuned caps``
 must hold a row whose first cell is that composition, whose code cell names that code and
 whose roadmap cell names that item.
@@ -21,15 +21,10 @@ def _keyword(call: ast.Call, name: str) -> ast.expr | None:
 
 
 def code_compositions() -> list[tuple[str, str, str | None]]:
-    """``(composition, code, roadmap)`` of every ``_composition`` call in the function."""
+    """``(composition, code, roadmap)`` of every ``_composition`` call in the module."""
     module = ast.parse(SOURCE.read_text(encoding="utf-8"))
-    function = next(
-        node
-        for node in ast.walk(module)
-        if isinstance(node, ast.FunctionDef) and node.name == "refuse_tuned_compositions"
-    )
     found = []
-    for node in ast.walk(function):
+    for node in ast.walk(module):
         if not (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)

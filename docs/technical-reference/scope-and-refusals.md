@@ -76,10 +76,12 @@ code that the raise site assigns, so a section can hold rows of several codes.
 | [Replay-only unavailability](#replay-only-unavailability) | the omission codes of a result that cannot replay, all `invalid_declaration` |
 | [Data-tuned caps](#data-tuned-caps) | the declarations and compositions a data-tuned policy cap refuses |
 | [Known-score ATT and ATC](#known-score-att-and-atc) | the refusals of `conditional_form="known_score"` |
+| [Refutation runs](#refutation-runs) | the refusals of `sample_limit=`, `sampling=`, `checkpoint=` and `planned_refits()` |
 | [A different question](#a-different-question) | requests that ask for another estimand, mostly `different_estimand` |
 | [Wrong by construction](#wrong-by-construction) | mistakes that would run and return a wrong number |
 
-A fit that runs but withholds its interval carries an inference status. [Inference
+A fit that runs under a labelled inference status either shows its plug-in interval under the
+experimental label or withholds it, and a call that needs the withheld interval raises. [Inference
 status](inference.md#inference-status) lists every status, the fits that take it and what each
 withholds, and `tests/unit/test_inference_status_registry.py` ties that table to the code.
 
@@ -808,6 +810,42 @@ it. All but the last row raise before any learner.
 | a node at which every eligible row is censored, at or before the last horizon | `invalid_declaration` | no one is at risk of the event there or later; set `horizons=` before it |
 | `truncation_curve()` and `simulated_confounding` on a fitted result, when called | `implementation_gap`, X62 | each replay would rerun the selection, and no study measures that |
 
+### Drift-corrected survival TMLE
+
+[Time-to-event outcomes](dr-tmle/theorem.md#time-to-event-outcomes) states the estimator. Each row is
+one refusal record of `src/cleverly/longitudinal/drift.py`, with the first sentence of its text;
+the raise site adds the rest. `tests/unit/test_scope_survival_drtmle.py` rebuilds the table from
+the module.
+
+| record | code | roadmap | what is refused | what to do |
+| --- | --- | --- | --- | --- |
+| `SEQUENTIAL_REFUSAL` | `implementation_gap` | F5 | SurvivalDRTMLE fits one baseline treatment held over every node with baseline covariates only. | Fit LTMLE, which supports a treatment at several nodes and later covariates. |
+| `DECLARED_CENSORING_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE with an estimated treatment model cannot read declared censoring probabilities. | Declare the treatment probabilities too (treatment_probabilities=), or let the censoring model be estimated. |
+| `CAUSES_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE fits a time-to-event outcome with one event type, and this fit declares two or more causes. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `ARMS_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE fits static arms of a binary baseline treatment. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `POLICY_REFUSAL` | `implementation_gap` | F5 | SurvivalDRTMLE does not fit a modified treatment policy or an odds tilt. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `DOSE_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE needs a categorical baseline treatment. | Fit LTMLE with a modified treatment policy for a dose. |
+| `OUTCOME_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE fits a time-to-event outcome, and this fit declares an end-of-study or repeated outcome. | Fit LTMLE for an end-of-study or repeated outcome. |
+| `ELIMINATE_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not take eliminate=. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `SEPARABLE_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not fit a Separable regimen. | Fit the Separable regimen with LTMLE(survival_model='hazard', targeting='one_step'). |
+| `SURVIVAL_MODEL_REFUSAL` | `api_redirection` |  | SurvivalDRTMLE fluctuates the event hazard, as Díaz (2019) does, so survival_model is 'hazard' and there is no pseudo-outcome learner. | Fit LTMLE(survival_model='iterated_mean') for the iterated-mean recursion. |
+| `ONE_STEP_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE runs the per-horizon iteration of three logistic submodels of Díaz (2019). | Keep targeting='iterative', or fit LTMLE(targeting='one_step') for a monotone curve. |
+| `Q_BOUNDS_REFUSAL` | `invalid_declaration` |  | SurvivalDRTMLE does not take q_bounds=. |  |
+| `DOSE_SETTINGS_REFUSAL` | `invalid_declaration` |  | SurvivalDRTMLE does not take density_bins= or ratio='classifier'. |  |
+| `COMPETING_LEARNER_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not take competing_learner=. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `BAND_REFUSAL` | `inference_gap` | X62 | SurvivalDRTMLE builds no simultaneous band. | Leave simultaneous=False; each horizon keeps its own interval. |
+| `ISOTONIC_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not take isotonic=True. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `PROJECTION_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not take msm=, node_bounds= or ratio_trim=. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `RULES_REFUSAL` | `invalid_declaration` |  | SurvivalDRTMLE stops by the rule of Díaz (2019), max \|epsilon\| below 1e-4 n^(-3/5), so stopping=, step_bound=, iterate=, step_size= and tol= keep their defaults. |  |
+| `GUARD_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE fluctuates the treatment, censoring and event models together, or none of them (guard=()). | Pass guard=('Q', 'g') for the drift correction, or guard=() for hazard LTMLE. |
+| `POINT_SETTINGS_REFUSAL` | `invalid_declaration` |  | SurvivalDRTMLE does not take the reduced-regression settings of point DRTMLE (reduction=, reduced_outcome_learner=, reduced_treatment_learner=, reduced_mechanism_residual_learner=, reduced_crossfit=, update_order=, evaluation=). |  |
+| `RANDOMIZED_REFUSAL` | `api_redirection` |  | SurvivalDRTMLE reads a known treatment mechanism from the design, not from randomized=. | Declare treatment_probabilities= on the TimeToEvent design. |
+| `WEIGHTS_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE does not take observation weights. | Fit LTMLE(survival_model='hazard') for the hazard TMLE without the drift correction. |
+| `BOOTSTRAP_REFUSAL` | `implementation_gap` | X62 | SurvivalDRTMLE draws no bootstrap and no repeated split. | Fit with repeats=1 and n_bootstrap=0; the interval is the influence-curve one. |
+| `RMST_REFUSAL` | `inference_gap` | X62 | SurvivalDRTMLE reports no restricted mean. | Fit LTMLE(restricted_horizons=(tau,)) for the restricted means. |
+| `TRUNCATION_REFUSAL` | `implementation_gap` | X62 | A SurvivalDRTMLE result has no truncation curve. | Fit SurvivalDRTMLE at each bound for a curve. |
+| `REPLAY_REFUSAL` | `implementation_gap` | X62 | This replay reruns the reductions and the drift loop of a SurvivalDRTMLE result, and no study measures it. | No call in this package answers this request. |
+
 ### Eliminated competing events
 
 [Eliminated competing events](longitudinal-tmle.md#eliminated-competing-events) states the
@@ -864,12 +902,13 @@ longitudinal node.
 | `target="fold_average"` with one fold (R-e4) | `invalid_declaration` | | use at least 2 folds, or a finite-dimensional tuner with `target="population"` |
 | a tuned cap at a dose with declared atoms | `implementation_gap` | [X75](../roadmap.md#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) | declare the cap as a number, or tune at a node with no atoms |
 | two targets on the tuned maps of one policy | `invalid_declaration` | | declare one target per policy |
-| a tuned cap at a component that is not continuous | `invalid_declaration` | | tune a continuous component of a `JointPolicy` |
+| a tuned cap at a node or component that is not a continuous dose | `invalid_declaration` | | tune a continuous dose, or a continuous component of a `JointPolicy` |
+| a longitudinal fit with a tuned cap and `repeats` above 1 | `implementation_gap` | [X75](../roadmap.md#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) | fit the tuned policy with `repeats=1`; the cap is fitted on one outer split |
 
 A point-treatment fit refuses these compositions with a tuned cap (`refuse_tuned_compositions` in
 `src/cleverly/estimators/_tuned_policies.py`). `tests/unit/test_scope_tuned_caps.py` checks that the
-table names each one with its code and roadmap item. The longitudinal compositions, such as row
-H16 under [hazard and isotonic survival refusals](#hazard-and-isotonic-survival-refusals) and the
+table names each one with its code and roadmap item. The other longitudinal compositions, such as
+row H16 under [hazard and isotonic survival refusals](#hazard-and-isotonic-survival-refusals) and the
 policy-weighted variance, are refused where their tables state.
 
 | composition | code | roadmap | what to do |
@@ -895,8 +934,20 @@ mechanism as the weight ([known treatment mechanism](point-treatment-tmle.md#kno
 | the option on `DRTMLE` or `CTMLE` | `MethodConfigurationError`, `api_redirection` | fit `TMLE(conditional_form="known_score")` on data that declares `treatment_probabilities=` |
 | the omitted-variable bound, the marginal sensitivity bound or the MNAR tilt on a known-score `att` or `atc` | `CapabilityError`, `inference_gap` | refit with `conditional_form="arm_mean"`; each reader recomputes the ATT and ATC as the mean over the conditioning arm |
 
-`known_score_engine_refusal` and `known_score_reader_refusal` in
-`src/cleverly/data/known_mechanism.py` hold the texts.
+`KNOWN_SCORE_ESTIMATED_REFUSAL`, `KNOWN_SCORE_NO_TARGET_REFUSAL`, `known_score_engine_refusal`
+and `known_score_reader_refusal` in `src/cleverly/data/known_mechanism.py` hold the texts.
+
+### Refutation runs
+
+The options that shape a refutation run refuse these declarations before any refit. Each owner
+section states the rule.
+
+| request | code | where it is stated |
+| --- | --- | --- |
+| `sample_limit=` below 10 units on an unclustered fit; `sampling="units"` on a clustered fit; `sampling="clusters"` on a fit with no clusters | `invalid_declaration` | [refutation operations](validation-methods.md#refutation-operations), "Refuting a sample of the units" |
+| a `checkpoint=` directory that holds draws of another request or a draw at another seed, two candidates that map to one subdirectory, or a configuration with no key that survives a new process (a lambda, a local function, an object whose description holds a memory address) | `invalid_declaration` | [refutation operations](validation-methods.md#refutation-operations), "Checkpoints and progress" |
+| `planned_refits()` on an estimator that has no preview of its refit | `implementation_gap`, [X106](../roadmap.md#x106-scaling-and-efficiency-of-the-shipped-tmle-paths) | [refutation operations](validation-methods.md#refutation-operations), "Counting the refits before they run" |
+| the resampling refutations on a fit that declared `split_plan=` | `invalid_declaration` | the [Not written yet](#not-written-yet) row on `split_plan=` |
 
 ### A different question
 
@@ -986,15 +1037,17 @@ Two more share another. **A nuisance that sits inside the estimand is not a knob
 on an incremental fit, or fitting a shift's `cap` from the data, moves the target rather than
 regularising the estimator.
 
-Three method entries carry their own detailed refusal tables, each with a `code` column:
+Four method entries carry their own detailed refusal tables:
 [marginal structural models](msm-projections.md#variations),
-[longitudinal TMLE](longitudinal-tmle.md#variations), and
-[the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface).
-The column holds the reason code of the raise site, as the `code` column of the tables above does.
+[longitudinal TMLE](longitudinal-tmle.md#variations),
+[the simulated common-cause surface](validation-methods.md#simulated-common-cause-stress-surface),
+and [continuous-time survival](continuous-time-survival.md#what-is-refused), whose table states the
+exception type of each row in the paragraph under it. The first three carry a `code` column, which
+holds the reason code of the raise site, as the `code` column of the tables above does.
 
 `_FIT_WIDE_RULES`, in `src/cleverly/sensitivity/_simulated_confounding_request.py`, holds the
 stops of the simulated common-cause surface for a whole fit. These are `implementation_gap`: a
-longitudinal fit that fails the [longitudinal stops](validation-methods.md#simulated-common-cause-stress-surface)
+longitudinal fit that fails the longitudinal stops of the [surface](validation-methods.md#simulated-common-cause-stress-surface), under its survival and competing-risk replay
 (among them a separable-effects fit, X91; a node with more than two levels or a vector node, and a
 clustered panel, X66 parts (j) and (k)), the projection of a conditional contrast, a
 risk-ratio tilt fit (X85), the learned-rule and optimal-rule compositions that no witness checks
@@ -1047,7 +1100,7 @@ theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `LTMLE`: modified treatment policies at a continuous, categorical or vector node | supported | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node). A plan node holds a `Shift`, `Scale`, `Piecewise`, `ModifiedPolicy` or `RiskRatioTilt`. A continuous node reads a pooled-hazard density or the classifier ratio. Exact-law tests cover it, and the registered study `longitudinal-mtp` validates it |
 | `LTMLE` and `SDR`: modified treatment policies at a mixed vector node | supported | [vector nodes with a continuous component](longitudinal-tmle.md#vector-nodes-with-a-continuous-component). A mixed node holds a `JointPolicy`, one policy for each component. The ratio is a chain-rule density or the classifier ratio. Exact-law tests cover it, and the registered study [`vector-mtp`](method-evidence/vector-modified-treatment-policies.md) validates it. [Vector treatments](#vector-treatments) lists the refusals |
 | `TMLE`: modified treatment policies on a point vector treatment | supported | [vector treatments](point-treatment-tmle.md#vector-treatments). A vector of categorical columns is one categorical treatment over its tuples. A vector with a dose reports `ey_policy` and `ate_policy`. The registered study `vector-mtp` validates both |
-| estimators that take two arms only: `ContinuousSurvivalTMLE`, `SurvivalDRTMLE`, `SurvivalCTMLE` and the adaptive TMLE of a trial with external data | `implementation_gap` | each source states its estimator for a binary treatment. `ContinuousSurvivalTMLE` cites [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks), `SurvivalDRTMLE` and `SurvivalCTMLE` cite [X62](../roadmap.md#x62-other-dr-tmle-and-c-tmle-compositions), and the adaptive TMLE cites [F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope). Each refusal is listed with its estimator ([continuous-time survival](continuous-time-survival.md#what-is-refused), [collaborative TMLE of a risk curve](#collaborative-tmle-of-a-risk-curve), [adaptive TMLE refusals](#adaptive-tmle-refusals)) |
+| estimators that take two arms only: `ContinuousSurvivalTMLE`, `SurvivalDRTMLE`, `SurvivalCTMLE` and the adaptive TMLE of a trial with external data | `implementation_gap` | each source states its estimator for a binary treatment. `ContinuousSurvivalTMLE` cites [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks), `SurvivalDRTMLE` and `SurvivalCTMLE` cite [X62](../roadmap.md#x62-other-dr-tmle-and-c-tmle-compositions), and the adaptive TMLE cites [F40](../roadmap.md#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope). Each refusal is listed with its estimator ([continuous-time survival](continuous-time-survival.md#what-is-refused), [drift-corrected survival TMLE](#drift-corrected-survival-tmle), [collaborative TMLE of a risk curve](#collaborative-tmle-of-a-risk-curve), [adaptive TMLE refusals](#adaptive-tmle-refusals)) |
 | a rule learner on more than two arms | `implementation_gap` | the [Not written yet](#not-written-yet) table states it and its roadmap item |
 
 The `DRTMLE` row needs no new source. It needs the implementation that its roadmap row
