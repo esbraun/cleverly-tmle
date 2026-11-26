@@ -1,0 +1,36 @@
+run scratch: /root/.cache/cleverly/runs/parametric-gformula/5ed66afa41ad
+regenerating parametric g-formula: 1000 x n=8000
+run scratch: /root/.cache/cleverly/runs/parametric-gformula/5ed66afa41ad
+removed the lock of a dead driver (pid 700) on /root/.cache/cleverly/runs/parametric-gformula/5ed66afa41ad/_lock
+regenerating parametric g-formula: 1000 x n=8000
+reusing the cached Python phase in /root/.cache/cleverly/runs/parametric-gformula/5ed66afa41ad
+cleverly-parametric-gformula/properties/calibration_g1: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/calibration_g2: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/calibration_g3: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/calibration_g4: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/calibration_g5: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/rule_g2: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/rule_g5: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/accounting_g2: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/accounting_g4: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/accounting_g5: reusing 2400 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g1_n_2000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g1_n_4000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g1_n_8000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g2_n_2000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g2_n_4000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g2_n_8000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g3_n_2000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g3_n_4000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g3_n_8000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g4_n_2000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g4_n_4000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/ladder_g4_n_8000: reusing 1000 checkpointed replicates
+cleverly-parametric-gformula/properties/paired_g1: reusing 1200 checkpointed replicates
+cleverly-parametric-gformula/properties/paired_g2: reusing 254 checkpointed replicates
+recorded property failure (10x): DataError: GLM: the information matrix is singular, so the Newton step is undefined. The usual cause is separation or a design cell with no row
+reporting policy: published scientific failures:
+statistical property:
+            property                                   cell     role    n  replicates  failed_replicates    truth  mean_estimate     bias  bias_se  bias_ci_lower  bias_ci_upper  bias_margin  standardized_bias bias_equivalent bias_discriminated  root_n_bias  empirical_se  mean_std_error  se_ratio  coverage  coverage_ci_lower  coverage_ci_upper  rejection_rate  rejection_ci_lower  rejection_ci_upper  nominal_size rate_sizes  slope  slope_ci_lower  slope_ci_upper  se_ratio_ci_lower  se_ratio_ci_upper  ice_displacement  passed  property_passed
+interval_calibration nice_g1_treat_all__correctly_specified positive 2000        2400                  0 0.390265       0.390423 0.000158 0.000393      -0.000856       0.001172     0.004817           0.008208            True              False     0.007072      0.019266        0.018533  0.961931   0.94375            0.93052           0.955181             1.0            0.997795                 1.0          0.05        NaN    NaN             NaN             NaN           0.925942           1.000027               NaN   False            False
+wrote 9 artefacts and a manifest to /home/user/pgfout/run
