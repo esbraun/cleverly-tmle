@@ -368,8 +368,8 @@ change.
 
 | family | tutorials that show it |
 | --- | --- |
-| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle, cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`) |
-| ATT and ATC | twins-causal-inference (ATT). No tutorial fits `ATC` |
+| Counterfactual means; ATE; risk and odds ratios; multi-arm contrasts | point-treatment-tmle, cross-fitting, collaborative-tmle, survey-nonresponse (ATE); msm-projections (arm means and contrasts); population-impact (`RiskRatio`, `OddsRatio`); randomized-pilot (`RiskRatio`) |
+| ATT and ATC | twins-causal-inference (ATT); randomized-pilot (`ATT`, `ATC`) |
 | Known treatment mechanism | randomized-pilot (point treatment); sequential-offers (logged node probabilities) |
 | Natural-course mean, PAR, and PAF | population-impact |
 | Missing outcomes and controlled direct effects | survey-nonresponse; population-impact (`ControlledDirectEffect`) |

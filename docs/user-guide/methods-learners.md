@@ -81,7 +81,8 @@ A standard error, an interval and a p-value need a known treatment mechanism: th
 point estimates and report no interval, with the status `estimated_mechanism_plugin` in most
 cases.
 [When an interval is reported](../technical-reference/adaptive-iptw.md#when-an-interval-is-reported)
-states the rule and the reason.
+states the rule and the reason. The [randomized pilot](../examples/randomized-pilot.ipynb) example
+fits it with recorded chances.
 
 A cross-fitted fit refits each estimated mechanism once for each ordered pair of folds, so
 `n_folds=10` adds 90 fits per estimated factor. With the default learner library, a fit takes 30 to
