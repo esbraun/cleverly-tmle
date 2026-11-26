@@ -4223,6 +4223,16 @@ reports the target-relevant change with multiplicity-adjusted p-values
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
 
+Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
+with more than two levels gives one contrast per non-reference level, each a row, and the
+Benjamini-Hochberg adjustment counts rows. Before any fit, `_checked_candidates` refuses data that
+is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
+as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
+Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
+`tests/unit/test_variable_importance.py`), the discrete preparation's limit of 20 levels, which
+refuses a continuous candidate, the outcome-scale refusal, so a cross-fitted fit of a continuous
+outcome needs a declared `q_bounds`, and the inference-status refusal below.
+
 An estimator whose status withholds its interval is refused with `CapabilityError` before the
 first fit. That includes a selector-path or generated-design collaborative estimator, and a
 clustered `TMLE` or `DRTMLE` under `"no_cluster_variance_plugin"`. A status that shows its

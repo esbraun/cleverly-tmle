@@ -5,6 +5,10 @@ Coverage, bias, and SE ratio of each method and contrast
   ltmle  shipping       coverage 95 of 100 (0.950); bias -0.0059 (MC SE 0.0029); SD 0.0290; mean SE 0.0282; ratio 0.972
   ltmle  win_back       coverage 92 of 100 (0.920); bias -0.0065 (MC SE 0.0019); SD 0.0194; mean SE 0.0203; ratio 1.049
   ltmle  win_back_ship  coverage 94 of 100 (0.940); bias -0.0056 (MC SE 0.0023); SD 0.0229; mean SE 0.0235; ratio 1.028
+  ipw    discount       coverage 95 of 100 (0.950); bias +0.0013 (MC SE 0.0031); SD 0.0310; mean SE 0.0321; ratio 1.035
+  ipw    shipping       coverage 95 of 100 (0.950); bias -0.0062 (MC SE 0.0032); SD 0.0318; mean SE 0.0300; ratio 0.944
+  ipw    win_back       coverage 94 of 100 (0.940); bias -0.0060 (MC SE 0.0022); SD 0.0217; mean SE 0.0216; ratio 0.995
+  ipw    win_back_ship  coverage 95 of 100 (0.950); bias -0.0055 (MC SE 0.0025); SD 0.0248; mean SE 0.0249; ratio 1.005
 
 Crude follower contrasts of the association step, against the truth
   crude  discount       bias -0.0140 (MC SE 0.0030); SD 0.0303; below the truth on 66 of 100 (0.660)
@@ -29,6 +33,12 @@ Blind outcome regressions: LTMLE and g-computation, same estimands as the main f
   blind g-comp  win_back       bias -0.0314 (MC SE 0.0019); SD 0.0193; largest gap from the crude contrast 0.00e+00
   blind LTMLE   win_back_ship  coverage 95 of 100 (0.950); bias -0.0055 (MC SE 0.0025); SD 0.0248; mean SE 0.0249; ratio 1.005; SE over main SE 1.060
   blind g-comp  win_back_ship  bias -0.0345 (MC SE 0.0023); SD 0.0234; largest gap from the crude contrast 0.00e+00
+
+Weighting only (IPW, GLM consent model) against the main LTMLE fit
+  discount       LTMLE SE below IPW SE: 97 of 100 (0.970); IPW SE over LTMLE SE: mean 1.0699, median 1.0708, 5% 1.0095, 95% 1.1258, min 0.9845, max 1.1589
+  shipping       LTMLE SE below IPW SE: 98 of 100 (0.980); IPW SE over LTMLE SE: mean 1.0647, median 1.0630, 5% 1.0131, 95% 1.1245, min 0.9876, max 1.1409
+  win_back       LTMLE SE below IPW SE: 99 of 100 (0.990); IPW SE over LTMLE SE: mean 1.0622, median 1.0595, 5% 1.0135, 95% 1.1263, min 0.9954, max 1.1578
+  win_back_ship  LTMLE SE below IPW SE: 100 of 100 (1.000); IPW SE over LTMLE SE: mean 1.0605, median 1.0536, 5% 1.0120, 95% 1.1258, min 1.0005, max 1.1464
 
 Paired comparisons
   win_back - discount: truth 0.1401
