@@ -2247,7 +2247,7 @@ def test_natural_course_keeps_the_two_refutations_that_still_read(
 ) -> None:  # type: ignore[no-untyped-def]
     """The other half of the placebo refusal's sentence.
 
-    ``docs/user-guide/results-assessment.md`` tells the reader that ``subset`` and
+    ``docs/user-guide/refutation.md`` tells the reader that ``subset`` and
     ``random_common_cause`` keep their usual stability interpretations for this target.
     Only the refusal was pinned, so a later change that widened it to the whole refuter
     would have contradicted that sentence with every test still green.

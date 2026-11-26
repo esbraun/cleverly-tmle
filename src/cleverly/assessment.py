@@ -6067,6 +6067,35 @@ def _dose_response_sensitivity_rows() -> tuple[AssessmentCapability, ...]:
 _DOSE_RESPONSE_SENSITIVITY: tuple[AssessmentCapability, ...] = _dose_response_sensitivity_rows()
 
 
+def family_simulated_refusal(result: Any) -> Refusal | None:
+    """The refusal the ``simulated_confounding`` row declares for a family with no replay.
+
+    A structural, dose-response or effect-curve fit has no simulated-confounding law, and
+    its capability row says why.  The free function raises the same record, so a direct
+    call and the facade refuse with one sentence.
+
+    Parameters
+    ----------
+    result : Any
+        The fitted result.
+
+    Returns
+    -------
+    Refusal or None
+        The row's refusal, or ``None`` for a family this table does not hold.
+    """
+    family = getattr(result, "assessment_family", None)
+    if family == "structural":
+        return _STRUCTURAL_SIMULATED_REFUSAL
+    if family == "dose_response":
+        return _DOSE_RESPONSE_SIMULATED_REFUSAL
+    if family == "effect_modification":
+        for row in curve_sensitivity_rows(result):
+            if row.operation == "simulated_confounding":
+                return row.refusal
+    return None
+
+
 class SensitivityFacade(_CapabilityFacade):
     """Access sensitivity analyses supported by a fitted causal result.
 

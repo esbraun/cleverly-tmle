@@ -2389,6 +2389,11 @@ _SHAPELESS_PROBES: tuple[tuple[str, Any, str], ...] = (
         "got SimpleNamespace",
     ),
     (
+        "a dose-response curve",
+        SimpleNamespace(assessment_family="dose_response"),
+        "no simulated-confounding replay of a dose-response curve",
+    ),
+    (
         "an undeclared family",
         SimpleNamespace(assessment_family="survival"),
         "no perturbation law for assessment family 'survival'",

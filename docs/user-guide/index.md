@@ -28,6 +28,9 @@ methods-learners
 settings
 trial-with-external-data
 results-assessment
+assessment
+sensitivity
+refutation
 longitudinal
 survival
 capabilities

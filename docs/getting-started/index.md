@@ -31,5 +31,5 @@ that match it.
 
 The [examples](../examples/index.md) list every analysis by situation. The
 [workflow](../workflow.md) walks through the stages of one analysis, and
-[results, inference, and assessment](../user-guide/results-assessment.md) explains how to read a
+[read and save results](../user-guide/results-assessment.md) explains how to read a
 fitted result.

@@ -7,8 +7,9 @@ Each facade's `run_all()` runs the analyses that need no further arguments, and 
 moderate retargets unless you ask for them. Each facade's `capabilities` lists every analysis,
 whether the fit supports it, and why not.
 
-The functions listed below take the result as their first argument. [Results and
-assessment](../user-guide/results-assessment.md) shows the common calls, and [validation
+The functions listed below take the result as their first argument. [Sensitivity
+analysis](../user-guide/sensitivity.md) and [Try to break the result](../user-guide/refutation.md)
+show the common calls, and [validation
 methods](../technical-reference/validation-methods.md) states the conditions of each.
 
 ## Sensitivity
