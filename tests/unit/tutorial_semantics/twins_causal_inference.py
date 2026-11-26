@@ -353,10 +353,16 @@ def check_stored() -> None:
     for check in ("support", "nuisance_models"):
         assert re.search(rf"(?m)^\s*validation\s+{check}\s+warning\s*$", report), check
     assert re.search(r"(?m)^\s*validation\s+score_equations\s+passed\s*$", report)
-    refitting = re.search(r"refitting checks, run in their own cells: (.+)", report)
-    assert refitting
-    for check in ("refute", "benchmark", "simulated_confounding", "marginal_bounds"):
-        assert check in refitting[1], check
+    ran = re.findall(
+        r"(?m)^\s*(validation|sensitivity)\s+\w+\s+(passed|warning|completed)\s*$", report
+    )
+    assert len(ran) == 8, "the reading says eight checks ran"
+    assert sum(status == "completed" for _, status in ran) == 5, "the reading says five completed"
+    separate = re.search(r"left for a separate call, made in their own cells: (.+)", report)
+    assert separate
+    for check in ("truncation_curve", "refute", "benchmark", "simulated_confounding"):
+        assert check in separate[1], check
+    assert "marginal_bounds" in separate[1]
 
     # Balance: the weights leave no column above 0.1, as the reading says.
     balance = stored_output(NOTEBOOK, "balance")
@@ -388,6 +394,9 @@ def check_stored() -> None:
     }
     assert gamma_rows["1"][0] == gamma_rows["1"][1]
     assert gamma_rows["1.3"][1] < 0 < gamma_rows["1.5"][1]
+    # The interval of the range excludes zero at 1.3, as the reading says.
+    interval_13 = re.search(r"(?m)^1\.3\s+\S+\s+\S+\s+\[(\S+), (\S+)\]", bounds)
+    assert interval_13 and float(interval_13[2].rstrip("]")) < 0
     assert "read it as descriptive" in bounds
 
     # Dose: four rows, every one experimental with an interval below zero; the declared pooling

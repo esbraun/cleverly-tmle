@@ -8,8 +8,9 @@ analysis and explain the result. That guide holds the writing rules for every ma
 page adds the rules that are special to a notebook: its outline, its code cells, its tests, and
 how to execute it.
 
-The [TWINS notebook](../examples/twins-causal-inference.ipynb) follows this page too, but it
-analyzes public data rather than a simulated program, so it has no known answer to compare with.
+The [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes public data, and it is not a
+program tutorial. It keeps this page's outline and code-cell rules, but it has no known answer and
+no tier executes it.
 
 ## What a tutorial notebook consists of
 
