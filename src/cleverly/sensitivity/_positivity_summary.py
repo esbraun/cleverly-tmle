@@ -164,15 +164,31 @@ def _capped(count: Any, fraction: Any) -> Cell:
     return Cell(float(fraction), f"{count_text(count)} ({_percent(float(fraction))})")
 
 
+def _weighted_rows(load: Any) -> float:
+    """The rows of the selected score column that carry a nonzero weight.
+
+    ``n_targeted`` also counts rows whose weight in that column is a structural zero, such as
+    the other arm's rows in an arm-indexed column, so dividing by it understates how evenly
+    the weighted rows share the load.
+    """
+    return float(load["n_targeted"]) - float(load["zero_load"])
+
+
+def _weighted_share(load: Any) -> float:
+    """Kish's effective count over the rows with a nonzero weight, or ``nan`` without any."""
+    rows = _weighted_rows(load)
+    return float(load["effective"]) / rows if rows > 0 else float("nan")
+
+
 def _equation_table(report: PositivityReport) -> SummaryTable | None:
     if not report.group_score_load:
         return None
     rows = tuple(
         (
             Cell(group, group),
-            Cell(load["n_targeted"], count_text(load["n_targeted"])),
+            Cell(_weighted_rows(load), count_text(_weighted_rows(load))),
             _number(load["effective"], 1),
-            _share(load["targeted_ratio"]),
+            _share(_weighted_share(load)),
             _share(load["top_1pct"]),
             _share(load["top_5pct"]),
             _number(load["max_load"], 2),
@@ -265,18 +281,18 @@ def _notes(report: PositivityReport) -> list[Note]:
     group_rows = [
         (group, load)
         for group, load in report.group_score_load.items()
-        if math.isfinite(load["targeted_ratio"])
+        if math.isfinite(_weighted_share(load))
     ]
     if group_rows:
-        group, load = min(group_rows, key=lambda item: item[1]["targeted_ratio"])
+        group, load = min(group_rows, key=lambda item: _weighted_share(item[1]))
         notes.append(
             note(
                 "equation_concentration",
                 texts["equation_concentration"].format(
                     group=group,
                     effective=f"{load['effective']:.1f}",
-                    rows=count_text(load["n_targeted"]),
-                    share=f"{load['targeted_ratio']:{SCORE_LOAD_VERDICT_RATIO_FORMAT}}",
+                    rows=count_text(_weighted_rows(load)),
+                    share=f"{_weighted_share(load):{SCORE_LOAD_VERDICT_RATIO_FORMAT}}",
                 ),
             )
         )

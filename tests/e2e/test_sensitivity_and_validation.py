@@ -620,7 +620,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
         for row, (group, load) in zip(table.rows, report.group_score_load.items(), strict=True):
             assert row[0].value == group
-            assert row[1].value == load["n_targeted"]
+            assert row[1].value == load["n_targeted"] - load["zero_load"]
             assert row[table.columns.index("largest")].value == load["max_load"]
             assert any(
                 line.startswith(f"{group}: equation {load['equation']},") for line in details
@@ -646,8 +646,10 @@ class TestThePerGroupCovariateLeverageIsReported:
         """
         report = loaded_fit.diagnostics.support()
         summary = report.summary()
+        # Narrowest over the rows with a nonzero load, the denominator the note prints.
         group, narrow = min(
-            report.group_score_load.items(), key=lambda item: item[1]["targeted_ratio"]
+            report.group_score_load.items(),
+            key=lambda item: item[1]["effective"] / (item[1]["n_targeted"] - item[1]["zero_load"]),
         )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 

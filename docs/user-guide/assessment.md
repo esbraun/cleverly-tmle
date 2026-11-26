@@ -588,7 +588,8 @@ print("fitted bound:", (mean_load["lower_bound"], mean_load["upper_bound"]))
 
 Read this row as a measure of how concentrated the weights are. It does not include the residual, so
 it describes neither the estimate's sample size nor any row's pull on the estimate. `n_targeted`
-counts the rows the equation reads, including rows whose term is zero by construction. The row also
+counts the rows the equation reads, including rows whose term is zero by construction; the
+printed summary counts only the rows with a nonzero weight. The row also
 cannot prove or rule out overlap in the population.
 
 The overlap report provides these group rows for `mean`, `att`, `atc`, and `msm` fits. Regime,

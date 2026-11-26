@@ -165,6 +165,11 @@ Every generic group row and intervention `score_load` row carries these concentr
 | `lower_bound`, `upper_bound` | the exact treatment-mechanism bound for the group |
 | `clipped_count`, `clipped_fraction` | units that bound changes, or unavailable when the exact targeted-mechanism mask was not retained |
 
+The overlap summary's equation table and its concentration note divide `effective` by the rows
+with a nonzero load, `n_targeted - zero_load`, so the other arm's structural zeros in an
+arm-indexed equation do not dilute the share. `targeted_ratio` keeps the score-mask denominator,
+and it selects the equation.
+
 `top_1pct` and `top_5pct` count at least one row each. Each key takes the largest
 `max(1, ceil(fraction * n_targeted))` loads. At 20 score-mask rows or fewer the two keys therefore
 report the same number, which is the largest single row's share. Read them as separate quantities

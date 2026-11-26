@@ -156,12 +156,31 @@ def test_the_disclaimers_stay() -> None:
     assert "it is not a test, and no threshold applies" in summary.note("effective_share").text
     concentration = summary.note("equation_concentration").text
     assert concentration.startswith(
-        "In the estimating equation the weights concentrate most for mean: 108.5 effective "
-        "rows of 309 (35%)."
+        "In the estimating equation the weights concentrate most for att: 189.9 effective "
+        "rows of 309 (61%), counting the rows with a nonzero weight in that equation."
     )
     assert "it is not the estimator's sample size, its precision or a test of overlap" in (
         concentration
     )
+
+
+def test_the_concentration_share_counts_only_weighted_rows() -> None:
+    """An arm-indexed equation's structural zeros do not dilute its printed share.
+
+    The ``mean`` row's selected equation ``h0`` gives the treated rows a zero load by
+    construction.  Divided by the whole score mask it would read 35% and be named the most
+    concentrated group; over its 155 weighted rows it reads 70%, and ``att`` is narrower.
+    """
+    report = _report("overlap_recording")
+    mean = report.group_score_load["mean"]
+    assert mean["equation"] == "h0" and mean["zero_load"] == 154.0
+    assert round(mean["targeted_ratio"], 2) == 0.35
+    summary = report.summary()
+    (table,) = [t for t in summary.tables if t.title == vocabulary.EQUATION_TABLE]
+    (row,) = [row for row in table.rows if row[0].value == "mean"]
+    assert row[table.columns.index("rows")].value == 155.0
+    assert round(row[table.columns.index("eff. share")].value, 2) == 0.70
+    assert "most for att:" in summary.note("equation_concentration").text
 
 
 def test_the_excluded_estimands_say_what_they_divide_by() -> None:
