@@ -1,0 +1,6 @@
+jitter SD 1; draws 2000
+h=2.5 dose=5: coverage 0.953, mean SE / SD of estimates 0.981
+h=5 dose=5: coverage 0.949, mean SE / SD of estimates 0.961
+h=5 dose=10: coverage 0.949, mean SE / SD of estimates 0.987
+h=5 dose=15: coverage 0.947, mean SE / SD of estimates 0.994
+h=5 dose=20: coverage 0.944, mean SE / SD of estimates 0.991
