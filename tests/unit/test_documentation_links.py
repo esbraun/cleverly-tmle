@@ -541,8 +541,8 @@ def _line_of(text: str, needle: str) -> int:
 PRIVATE_PLAN = re.compile(
     r"cleverly-beta-plans|plans repo|[Pp]lan X[0-9]+|\bX[0-9]+[a-z]? plan\b"
     r"|X[0-9]+(-[A-Z0-9]+)?-plan\.md|\bP[0-9] plan\b|plan amendment|amendments? rev"
-    r"|repo owner|owner.s decision|\bthe owner (decided|chose|amended)|decision E[0-9]"
-    r"|design review|\bTRACKER\b"
+    r"|repo owner|owner.s decision|\bthe owner (decided|chose|amended)|\bowner (accepted|set)\b"
+    r"|decision E[0-9]|design review|\bTRACKER\b|_x[0-9]+/"
 )
 
 TECHNICAL_REFERENCE = sorted((ROOT / "docs" / "technical-reference").rglob("*.md"))

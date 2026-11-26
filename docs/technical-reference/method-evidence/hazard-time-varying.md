@@ -42,10 +42,10 @@ $L_{k-1}$ only, and every factor at visit $k$ reads $L_k$ only. A logistic regre
 $(W_1, W_2, A, L_k)$ is then a correctly specified hazard and censoring model without being
 saturated, and the cell mean over $(W, A, L_k, s)$ is the true regression of the later events.
 
-The law of `make_point_survival` was the first candidate for `one_cause`, and the study was expected
-to need its own law. That law's dropout is linear on the probability scale and at most 0.12, so the
-`both_wrong` control could not clear its margin. The study's laws keep its structure and draw a
-logistic dropout that reads $L_k$; they are defined in `tests/studies/hazard_time_varying_law.py`.
+The first declaration used the law of `make_point_survival` for `one_cause`. That law's dropout is
+linear on the probability scale and at most 0.12, so the `both_wrong` control could not clear its
+margin. The study's laws keep its structure and draw a logistic dropout that reads $L_k$; they are
+defined in `tests/studies/hazard_time_varying_law.py`.
 
 Every truth is an exact sum over the law's support: the eight strata of $W$, the treatment
 levels and the $2^{T-1}$ covariate paths. Every efficiency bound is the exact standard deviation
@@ -340,13 +340,13 @@ arm takes 1,200 replicates, and so does the targeted necessity arm. The `both_co
 is 0.024. The untargeted plug-ins sit at +4.18, +1.41, +3.22 and +3.59 efficiency SEs from the
 truth, against exact-sample limits of +4.23, +1.37, +3.20 and +3.63.
 
-With correctly specified learners the hazard fit and the iterated-mean fit are both efficient,
-so they differ by $o_P(n^{-1/2})$. The study reports their agreement, the share of decreasing
-iterated-mean curves with its interval, and on `competing` how far each fit's incidences sum
-above one. The decrease and coherence rows record zero as a reference, not a truth: their true
-values are negative, and the hazard fit's sum is at most one by construction. So only each
-reading's share above zero and its largest value are reported, with no floor: the study declares a report of the agreement of the two fits instead of a required
-gap.
+With correctly specified learners the hazard fit and the iterated-mean fit are both efficient, so
+they differ by $o_P(n^{-1/2})$. The study reports their agreement, the share of decreasing
+iterated-mean curves with its interval, and on `competing` how far each fit's incidences sum above
+one. The decrease and coherence rows record zero as a reference, not a truth: their true values are
+negative, and the hazard fit's sum is at most one by construction. So only each reading's share
+above zero and its largest value are reported, with no floor: the study declares a report of the
+agreement of the two fits instead of a required gap.
 
 In the committed pilot of 200 draws per fit label, the standard deviation of the paired
 difference, over the efficiency-bound standard error, is 0.148 for the `one_cause` contrast and

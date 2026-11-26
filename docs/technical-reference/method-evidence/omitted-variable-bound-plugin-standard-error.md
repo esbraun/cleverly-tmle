@@ -504,7 +504,7 @@ evidence.
 
 **The first pilot is superseded.** An earlier design of the study kept a second-order correction
 of the variance of $\hat\nu^2$. The first pilot, on the seed stream `x26_pilot_sample`, measured
-that design. It led the study to drop the correction before the run. At $n = 1000$ the correction
+that design. The study dropped the correction before the run. At $n = 1000$ the correction
 took about 60 percent of the cross-fitted variance, so its expansion was not trusted. It also
 made the package refuse 1.7 to 4.2 percent of the cross-fitted three-arm draws with the key
 `corrected_nonpositive`.

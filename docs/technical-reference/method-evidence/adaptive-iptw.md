@@ -19,12 +19,14 @@ every key with an agreement verdict there passes.
 
 ## What was compared
 
-The R column states the design the pairing study ran.
+The R column states the design this record declares. The
+[pairing study](adaptive-iptw-pairing.md#what-was-compared) ran its own samples and deals the
+folds in Python; its page states that design.
 
 | setting | `cleverly` | R `drtmle` |
 | --- | --- | --- |
-| datasets | 2,000 samples for each known-mechanism cell, and 400 to 3,000 samples for each bias cell, from the laws below. Every scene draws its own stream | the identical rows, in the pairing study |
-| folds | `cross_fit=True` with 10 folds (5 on law M), drawn by the package's random partition from the replication seed. The in-sample cells use no folds | `cvFolds = 10` with the folds that R draws and the pairing study passes to Python |
+| datasets | 2,000 samples for each known-mechanism cell, and 400 to 3,000 samples for each bias cell, from the laws below. Every scene draws its own stream | the same rows, as declared; the pairing study drew its own samples |
+| folds | `cross_fit=True` with 10 folds (5 on law M), drawn by the package's random partition from the replication seed. The in-sample cells use no folds | `cvFolds = 10`, as declared |
 | reduced regression | an unpenalized polynomial of $\operatorname{logit} g$ with a degree for each law, a logistic fit for an indicator key and least squares for a stochastic-regime key. Each fold fits it on leave-two-folds-out designs | `glm_Qr` with the same formula |
 | targeting | the relative score tolerance $10^{-8}$ and at most 100 rounds. $g$ is clipped to $[0.01, 0.99]$ | `tolIC = 1e-8` and `maxIter = 100` |
 | intervals | pointwise 95% Wald from the influence curve, for a known mechanism only | the same, for a known `gn` |

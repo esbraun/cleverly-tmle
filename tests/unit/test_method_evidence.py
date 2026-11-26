@@ -4269,7 +4269,7 @@ def _unlinked_from_the_matrix(matrix: Path) -> list[str]:
 
 
 def test_the_matrix_links_every_registered_study() -> None:
-    """Every registered study page is reachable from its implementation family's matrix row.
+    """Every registered study page is reachable from the matrix.
 
     Thirty study pages, among them the ordinary point-treatment TMLE study, were linked
     from no row, so a reader who started from the matrix never met them.
@@ -4328,6 +4328,7 @@ def test_the_off_grid_check_fails_on_a_mutated_list(tmp_path: Path, mutation: st
     lines = page.read_text(encoding="utf-8").splitlines()
     head = lines.index(_OPEN.format(name="off-grid-studies"))
     if mutation == "drop-a-line":
+        assert lines[head + 1].startswith("- ["), "the block has no line to remove"
         del lines[head + 1]
     else:
         on_grid = VALIDATION_STUDIES[0]
@@ -4366,6 +4367,7 @@ def test_the_pending_comparator_check_fails_when_a_row_is_removed(tmp_path: Path
     page = navigation.PAGES["pending-comparators"]
     lines = page.read_text(encoding="utf-8").splitlines()
     head = lines.index(_OPEN.format(name="pending-comparators"))
+    assert lines[head + 3].startswith("| ["), "the block has no data row to remove"
     del lines[head + 3]
     copy = tmp_path / "how-to-read.md"
     copy.write_text("\n".join(lines) + "\n", encoding="utf-8")

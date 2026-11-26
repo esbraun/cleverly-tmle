@@ -124,23 +124,22 @@ any bound.
 
 A study can declare a canonical comparator before its runs exist. The record's
 `pending_reference` is what the grid label "Python property evidence, with comparator runs
-pending" reads, and the table below is generated from it. A comparator declared only on a study
-page, or in a module that no record reads, carries no grid label. The second table lists those
-by hand. Both use the same columns.
+pending" reads. A comparator declared only on a study page, or in a module that no record reads, carries
+no grid label.
 
-Declared in the record:
+Declared in the record, generated from `pending_reference`:
 
 <!-- generated: pending-comparators -->
-| study | comparator and pin | owner | what the study rests on meanwhile |
+| study | comparator and pin | owner or where it ran | what the study rests on meanwhile |
 | --- | --- | --- | --- |
-| [censored continuous-treatment modified policies](mtp-pricing-censored.md) | R `lmtp` 1.5.4 | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 2 property cells, published under the `reporting` policy |
-| [longitudinal incremental propensity-score interventions](longitudinal-incremental-interventions.md) | R `npcausal` 0.1.0 | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 9 property cells, published under the `gated` policy |
-| [adaptive-propensity IPTW](adaptive-iptw.md) | R `drtmle` 1.1.2 | ran in [adaptive-iptw-pairing](adaptive-iptw-pairing.md) | its truth tests and 7 property cells, published under the `reporting` policy |
+| [censored continuous-treatment modified policies](mtp-pricing-censored.md) | `lmtp` 1.5.4 | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 2 property cells, published under the `reporting` policy |
+| [longitudinal incremental propensity-score interventions](longitudinal-incremental-interventions.md) | `npcausal` at `56a5ac1` | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 9 property cells, published under the `gated` policy |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | `drtmle` 1.1.2 | ran in the [Adaptive-propensity IPTW against drtmle](adaptive-iptw-pairing.md) study | its truth tests and 7 property cells, published under the `reporting` policy |
 <!-- /generated -->
 
-Declared on the page or in a separate record:
+Declared on the page or in a separate record, kept by hand:
 
-| study | comparator and pin | owner | what the study rests on meanwhile |
+| study | comparator and pin | owner or where it ran | what the study rests on meanwhile |
 | --- | --- | --- | --- |
 | [eliminated competing events longitudinal TMLE](eliminated-competing-events.md) | R `lmtp` with a composite censoring column | [X91](../../roadmap.md#x91-survival-targets-across-the-estimators) | its truth tests and 2 property cells, published under the `gated` policy |
 | [targeting curves](targeting-curves.md) | R `grf`, `rank_average_treatment_effect` on shared nuisance scores | [X92](../../roadmap.md#x92-plots-and-visualizations) | its truth tests and 5 property cells, published under the `reporting` policy |

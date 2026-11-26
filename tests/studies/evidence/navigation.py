@@ -42,7 +42,12 @@ PAGES: Mapping[str, Path] = {
 
 #: Columns of the pending-comparator table.  The page's typed table of comparators that no
 #: record declares uses the same columns.
-PENDING_COLUMNS = ("study", "comparator and pin", "owner", "what the study rests on meanwhile")
+PENDING_COLUMNS = (
+    "study",
+    "comparator and pin",
+    "owner or where it ran",
+    "what the study rests on meanwhile",
+)
 
 #: A record whose pending comparator ran in another registered study, mapped to that study's
 #: slug.  ``adaptive-iptw`` keeps ``pending_reference="drtmle"`` by the decision recorded in
@@ -67,6 +72,10 @@ def _link(record: StudyRecord) -> str:
 
 def on_the_grid(record: StudyRecord) -> bool:
     """Whether the validation grid lists the study: it declares property cells or a reference.
+
+    ``tests/unit/test_method_evidence.py`` states the same rule as ``_on_the_grid`` on purpose,
+    and its off-grid test checks this block against that copy.  Importing one from the other
+    would remove that independent check, so keep both.
 
     Parameters
     ----------
@@ -101,7 +110,8 @@ def render_off_grid(records: Sequence[StudyRecord]) -> list[str]:
         policy = f"published under the `{record.publication_policy}` policy"
         if record.publication_policy == "gated":
             policy += (
-                ", for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records"
+                "; the reason is recorded in `GATED_OFF_GRID` in "
+                "`tests/unit/test_method_evidence.py`"
             )
         lines.append(
             f"- {_link(record)}: no property cell and no comparator in its record; {policy}."
@@ -109,8 +119,8 @@ def render_off_grid(records: Sequence[StudyRecord]) -> list[str]:
     return lines
 
 
-def pinned_version(record: StudyRecord) -> str | None:
-    """The version of the pending comparator that the image the manifest declares installs.
+def pinned_version(record: StudyRecord) -> str:
+    """The pin of the pending comparator: its recorded commit, else its declared image's version.
 
     Parameters
     ----------
@@ -119,12 +129,22 @@ def pinned_version(record: StudyRecord) -> str | None:
 
     Returns
     -------
-    str or None
-        The version a declared ``Dockerfile`` asserts with ``packageVersion``, or ``None`` when
-        no declared image asserts one.
+    str
+        ``at <commit>`` when the manifest's ``comparator.metadata`` records
+        ``<name>_commit``, else the version a declared ``Dockerfile`` asserts with
+        ``packageVersion``.
+
+    Raises
+    ------
+    LookupError
+        If neither pins the comparator.
     """
     manifest = json.loads(record.artifact("manifest.json").read_text(encoding="utf-8"))
-    sources = manifest.get("comparator", {}).get("declared_sources_sha256", {})
+    comparator = manifest.get("comparator", {})
+    commit = comparator.get("metadata", {}).get(f"{record.pending_reference}_commit")
+    if commit:
+        return f"at `{str(commit)[:7]}`"
+    sources = comparator.get("declared_sources_sha256", {})
     assertion = re.compile(
         r"packageVersion\('" + re.escape(str(record.pending_reference)) + r"'\)\)\s*==\s*'([^']+)'"
     )
@@ -134,7 +154,9 @@ def pinned_version(record: StudyRecord) -> str | None:
         match = assertion.search((ROOT / source).read_text(encoding="utf-8"))
         if match:
             return match.group(1)
-    return None
+    raise LookupError(
+        f"{record.slug}: no recorded commit or declared image pins {record.pending_reference}"
+    )
 
 
 def render_pending(records: Sequence[StudyRecord]) -> list[str]:
@@ -160,10 +182,7 @@ def render_pending(records: Sequence[StudyRecord]) -> list[str]:
     for record in records:
         if record.pending_reference is None:
             continue
-        version = pinned_version(record)
-        comparator = f"R `{record.pending_reference}`" + (
-            f" {version}" if version else ", no version asserted by the declared image"
-        )
+        comparator = f"`{record.pending_reference}` {pinned_version(record)}"
         owner = NONE_NAMED
         if record.slug in PAIRED_ELSEWHERE:
             target = by_slug.get(PAIRED_ELSEWHERE[record.slug])
@@ -172,7 +191,7 @@ def render_pending(records: Sequence[StudyRecord]) -> list[str]:
                     f"{record.slug} is paired in {PAIRED_ELSEWHERE[record.slug]}, "
                     "which is not registered"
                 )
-            owner = f"ran in {_markdown_link(target.slug, Path(target.document).name)}"
+            owner = f"ran in the {_link(target)} study"
         cells = len(record.property_cells)
         rests_on = (
             f"its truth tests and {cells} property cell{'s' if cells != 1 else ''}, "
