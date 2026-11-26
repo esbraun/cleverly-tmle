@@ -337,7 +337,9 @@ and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `margina
 `simulated_confounding()`, and the truncation curve. `plots` draws the bound's contour and prints
 its benchmarks, and draws `evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
 `simulated_outcome` and `plasmode` have no figure. `twins-causal-inference`, the real-data
-capstone, shows the full report. Every other tutorial runs
+capstone, runs the same set on an effect among the treated and adds the combined assessment
+report, covariate balance, the calibration and learner figures, and `dummy_outcome`. Every other
+tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
 each with a short reading, because its conclusion needs them.
 
