@@ -3,7 +3,7 @@
 This page describes the instruments `cleverly` gives you to review a method, with point-treatment
 and longitudinal fits as the main case.
 [Which operations each result family runs](#which-operations-each-result-family-runs) gives the
-coverage of every result family. Each entry answers
+diagnostic operations each result family declares. Each entry answers
 three questions in the same order. Why do you use it? What does it tell you? How does it tell you
 that?
 
@@ -686,11 +686,13 @@ reports the weighted effective sample size and warns when the weights concentrat
 
 Each result class declares one capability row per diagnostic operation in
 `ASSESSMENT_CAPABILITIES` (`src/cleverly/assessment.py`), and `result.assess()` and each facade
-call read that row. The table gives the declarations. "runs" means the row declares the operation
-available, and any other word is the status the call reports instead. A declared operation can
-still report `deferred`, `unavailable` or `not_applicable` for one request at run time, such as a
-refused parameter, and the family's own page states those cases. "not declared" means the family
-has no row for the operation.
+call read that row after the fit-wide rules below. The table gives the declarations before those
+rules. "runs" means the row declares the operation available, and any other word is the status the
+call reports instead. "runs for" names the `method=` values the row declares; a fit by another
+method reports `not_applicable`. A declared operation can still report `deferred`, `unavailable`
+or `not_applicable` for one request at run time, such as a refused parameter. "not declared" means
+the family has no row: its facade has no such call, so the call raises rather than reporting a
+status.
 
 | operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `effect_modification` | `dose_response` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -707,9 +709,19 @@ has no row for the operation.
 | `modifier_stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
 | `targeting_curve` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
 
-The sensitivity operations route separately (`SENSITIVITY_ROUTES`) and are not in the table.
-`tests/unit/test_assessment_coverage_table.py` rebuilds the table from the declarations. Each
-family's page states its operations in full: `point` on
+The methods row lists the `method=` values of each family; in the `longitudinal` column `tmle` is
+`LTMLE`. A curve (`effect_modification`) rewrites three of its rows by the method that produced it
+before any call. `truncation_curve` runs on every projection curve, reading the producing fit's
+truncation curve, and stays unavailable on an `ep` curve. `corrections` runs on a `drtmle` curve
+whose fit solved the correction equations. The five held-out curve operations, `calibration`
+through `targeting_curve`, are unavailable on a `drtmle` or `collaborative_tmle` curve, because
+their held-out rows rebuild a TMLE pseudo-outcome that those estimates do not solve
+(`_curve_fit_wide_rules` in `assessment.py`).
+
+The sensitivity operations route separately (`SENSITIVITY_ROUTES`), and `variable_importance()`
+declares no rows of its own ([below](#the-status-contract)), so neither is in the table.
+`tests/unit/test_assessment_coverage_table.py` rebuilds the table from the declarations. The
+families' pages state their operations: `point` on
 [point-treatment TMLE](point-treatment-tmle.md), `longitudinal` on
 [longitudinal TMLE](longitudinal-tmle.md), `structural` under
 [assessment and refutation](structural-dynamic-effects.md#assessment-and-refutation),

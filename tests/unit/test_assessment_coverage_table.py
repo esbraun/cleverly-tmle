@@ -2,13 +2,15 @@
 
 The table under ``### Which operations each result family runs`` is rebuilt here from
 :data:`cleverly.assessment.ASSESSMENT_CAPABILITIES`, one column per result family and one row
-per operation, and compared cell by cell with the page.
+per operation in declaration order, and compared cell by cell with the page.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, AssessmentCapability, AssessmentStatus
 
@@ -76,9 +78,17 @@ def test_the_page_table_is_the_declarations() -> None:
     assert _page_table() == expected_table()
 
 
-def test_a_changed_declaration_changes_the_table() -> None:
-    """Mutation control: flipping one row's availability moves exactly one cell."""
-    row = next(r for r in ASSESSMENT_CAPABILITIES if r.available and not r.requires_arguments)
-    assert _cell(row, row.result_family).startswith("runs")
+def test_a_changed_declaration_fails_the_page_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: flipping one declared row makes the page table stale."""
+    import cleverly.assessment as assessment
+
+    index, row = next(
+        (i, r)
+        for i, r in enumerate(ASSESSMENT_CAPABILITIES)
+        if r.available and not r.requires_arguments
+    )
     flipped = replace(row, available=False, status=AssessmentStatus.UNAVAILABLE)
-    assert _cell(flipped, row.result_family) == "unavailable"
+    mutated = (*ASSESSMENT_CAPABILITIES[:index], flipped, *ASSESSMENT_CAPABILITIES[index + 1 :])
+    monkeypatch.setattr(assessment, "ASSESSMENT_CAPABILITIES", mutated)
+    monkeypatch.setitem(globals(), "ASSESSMENT_CAPABILITIES", mutated)
+    assert _page_table() != expected_table()
