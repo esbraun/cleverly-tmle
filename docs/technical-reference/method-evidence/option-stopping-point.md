@@ -30,10 +30,13 @@ the p-value and every consumer that reads it, each with a mutation that drops th
 The committed rows record the identity interval. The package now builds the interval of an
 unclustered mean of a binary outcome on the logit scale
 ([small-sample scale](../inference.md#small-sample-scale)), and the residual enters there as
-$\lvert r_n\rvert / (\psi_n(1 - \psi_n))$. The ATE cells read a difference, whose interval is
-unchanged. On the same committed estimates, standard errors and residuals, the binary arm-mean row
-covers 0.9603 against the recorded 0.9606, and no cell changes its verdict
-(`tests/canonical/interval-audit-screen.csv`).
+$\lvert r_n\rvert / (\psi_n(1 - \psi_n))$. On the same committed estimates, standard errors and
+residuals, the binary arm-mean row covers 0.9603 against the recorded 0.9606, and no cell changes
+its verdict (`tests/canonical/interval-audit-screen.csv`). The ATE of the binary law now takes
+correlated MOVER and every estimate of the continuous law the skew-widened $t$, each with the
+residual added to each side's half-width. A refit of the committed draws under those intervals
+moves no verdict either (`tests/canonical/asymmetric-audit-screen.csv`, records in
+`tests/canonical/asymmetric-refit/option-stopping-point/`).
 
 ## Accuracy against known truth
 
@@ -212,10 +215,9 @@ from the committed results and checked at the precision printed.
 - **The bootstrap is refused** under a rule, because no source bounds what the residual does to
   a refit's law.
 - **No comparator.** No package widens a Wald interval by its remaining score.
-- **The binary rows read today's normal-quantile interval.** The binary arm means are built on
-  the logit scale with $z\,\widehat{\mathrm{se}}$. The planned small-sample interval for bounded
-  estimates changes that half-width, so the binary-outcome interval rows will be recomputed with
-  the composed half-width, the small-sample half-width plus $\lvert r_n\rvert$, when it ships.
+- **The committed rows record the identity interval.** The shipped logit, MOVER and
+  skew-widened $t$ intervals add the residual on their own scale. The two audits above read the
+  committed rows under them and move no verdict; a rerun would record them directly.
 
 ## Reproduction
 

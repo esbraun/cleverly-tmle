@@ -318,6 +318,11 @@ and $\tau_S$ lie in that span or when the representers of the previous section d
 owns a testable oracle condition. The fit reports `result.working_models` for every fold so that a
 reader can see which columns carried the bias.
 
+An unclustered estimate of a continuous outcome takes the skew-widened $t$ of [small-sample
+scale](inference.md#small-sample-scale). An effect on a binary outcome records no bounds and no arm
+components, so it keeps the identity normal interval; the `interval_scale` column of `to_frame()`
+names the one each estimate used.
+
 ## Exact reductions
 
 Two exact reductions serve as comparators on the same rows.
@@ -514,10 +519,10 @@ All 16 gated tests passed, with coverage of the gated target from 0.931 to 0.953
 | efficiency contrast | RMSE ratio 0.677 on `a0` (99% interval 0.651 to 0.703), gated. 1.022 on `a1a` and 1.056 on `a1b`, reported |
 | K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.948 on `e1`; coverage 0.931 with the $\Pi$ step and 0.529 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0221 |
 | K4 ladder on `e1` | bias over SE of $\Psi$ 1.80, 2.78 and 4.07 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.935, 0.948 and 0.948 |
-| study S6 | pending the declared run |
+| study S6 | `s6_pooled` inside every margin; `s6_cv` coverage 0.937 and bias 0.0290, whose 99% upper end, 0.0364, is above the 0.0355 margin, so the study was accepted by named exception on 2026-11-10 ([study page](method-evidence/adaptive-tmle-selective.md)) |
 | R `atmle` pairing | pending; declared, not blocking |
 
-The [study page](method-evidence/adaptive-tmle-trial.md) lists every row. The study declares no
+The [study A page](method-evidence/adaptive-tmle-trial.md) lists every row of study A. The study declares no
 property cell and no registered comparator, so the
 [implementation validation grid](method-evidence/validation-grid.md) does not list it, and the
 method has no grid row. Study S6 is declared the same way, under `reporting`. A property cell declared before a run,
