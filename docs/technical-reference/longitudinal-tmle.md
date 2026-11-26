@@ -3425,13 +3425,13 @@ units and 64 MiB at 20,000, and 0 with `simultaneous=False`.
 The factor 2 is set on the band runs, not derived. The measured increment, band-on minus band-off peak, is at most 1.85 buffers: 1.56 to
 1.85 for `LTMLE` iterated-mean fits (largest on survival fits), up to 1.53 for `SDR` and `IPSI`, up to
 1.6 on the classifier route, and up to 1.36 for the hazard families and the binned and index-only
-continuous routes (`band-*.jsonl`). It grows with the number of estimates, which fits the centred
+continuous routes (`rev9/band-*.jsonl`). It grows with the number of estimates, which fits the centred
 $n \times k$ copies of the influence curves. Those
 copies are covered by the margined draw, not by the term; that cover was checked only up to the band
 cells' estimate counts. The term counts once per call, because the band runs in the parent after the
 workers return and a repeated fit builds its draws' bands one at a time, and whatever the number of
 estimates. It sits inside the margin because, added outside it, band-on cells read down to 1.30
-(`band_check-outside.out`).
+(`rev9/band_check-outside.out`).
 
 The `hazard_one_node` and `hazard_separable` constants were fitted on calls given an already
 prepared `LongitudinalData`. When those fits receive a frame, the panel the fit builds, about
@@ -3478,8 +3478,9 @@ The constants solve a linear program over each family's fitted cells, subject to
 cell's `tracemalloc` peak, with every constant non-negative. It minimizes the summed prediction
 for seven families, and the summed ratio of prediction to peak for the six continuous families, so
 each of their cells weighs by its ratio and not its bytes. That objective was chosen after the
-summed prediction, on the first refit of the binned families, read above the 3.5 bound on a small
-cell (`fit11c-sum.out`); the four route families were declared with it. Either way the constraint
+summed prediction, on the first refit of the binned families, read 3.99 on a fitted `sdr_continuous`
+cell at 5,000 units, above the 3.5 bound (`rev9/fit11c-sum.out`); the four route families were
+declared with it. Either way the constraint
 and the margin make every fitted cell read at least 1.35 times its traced peak; the objective moves
 only the cells left out of the fit. The fitted cells ran with GLM, logistic and linear learners at
 5,000, 20,000 and 100,000 units, and the continuous families also at 2,000 units, all with one
@@ -3524,10 +3525,11 @@ families.
 it is given, which is `treatment_learner` or its seeded clone, so the guard reads the index route
 only when both carry it. A `bin_design` set on an instance and dropped by cloning counts as binned,
 which over-counts the fit. A `SuperLearner` carries no `bin_design`, so the density step builds the
-indicator block whatever its library holds, and the guard counts it as binned. At 2,000 units, two
-nodes, four regimens, one fold and 320 bins the three routes traced about 1,600 MiB (`bins.jsonl`),
-43 MiB and 3.5 to 3.9 MiB (`dens.jsonl`). The route families' constants, fitted on the `dens` grid
-with the same program:
+indicator block whatever its library holds, and the guard counts it as binned. In the J2d runs, before the part
+D change to the binned density, the three routes at 2,000 units, two nodes, four regimens, one
+fold and 320 bins traced about 1,600 MiB (`rev9/bins.jsonl`), 43 MiB and 3.5 to 3.9 MiB
+(`rev9/dens.jsonl`). The route families' constants, fitted on the `dens` grid with the same
+program:
 
 | count | `ltmle_continuous_index` | `sdr_continuous_index` | `ltmle_continuous_classifier` | `sdr_continuous_classifier` |
 | --- | ---: | ---: | ---: | ---: |
@@ -3546,22 +3548,23 @@ with the same program:
 
 ### Accuracy
 
-The calibration's records are in `rows/X106/J2/evidence/2026-11-19-j2d/rev9/` in the plans
-repository, and the four refitted continuous families' records in
-`rows/X106/D/evidence/2026-11-25-j2d-recal/` (the refit is described below). Over every fitted
-cell the margined draw reads 1.35 to 3.50 times the traced peak (3.50 on index-route cells at
-20,000 units, where the refit caps it), and
-over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
+The outputs this section quotes are copied byte for byte into
+`tests/diagnostics/x106_j2d_memory/`: `rev9/` holds the J2d calibration's runs and `part_d/` the
+refit of the four continuous families described below, whose `fit.out` reads every family's
+cells against the shipped constants. `generate.py` there reads each quoted range from them, and
+`tests/unit/test_longitudinal_memory_guard.py` checks this text against it.
+
+Over every fitted cell the margined draw reads 1.35 to 3.50 times the traced peak (3.50 on
+index-route cells at 20,000 units, where the refit caps it), and over every checked cell in the calibrated range 1.33 (a censored `SDR` fit at 20,000 units) to 3.31
 (a learned regimen, whose four branch plans are counted against one fitted rule), both in
-`fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
-calibration run measured, 1.32 (`packet10.out`). That cover is shown on fitted cells only: in a
-refit that left out one shape at a time, the interior shapes left out read down to 1.19, and
-never below 1 (`design-review-j2d-rev11c.md` in the plans repository).
+`part_d/fit.out`. The margin of 1.35 covers the largest resident set over the traced peak that any
+calibration run measured, 1.32 (`rev9/packet10.out`). That cover is shown on the measured cells
+only, and it is not guaranteed between grid points.
 
 Every calibration cell above ran with `simultaneous=False`. Over 280 cells run with the band on and
-off (`band_check.out`: every family at two and four regimens, except `hazard_one_node` at two only
-because its harness has no four-regimen case; two and four nodes; one fold; 2,000 to 100,000 units),
-the band-on cells read 1.54 to 5.02 and the band-off cells 1.349 and up. Three band-on cells read
+off (`rev9/band_check.out`, before the part D refit: every family at two and four regimens,
+except `hazard_one_node` at two only because its harness has no four-regimen case; two and four nodes; one fold; 2,000 to 100,000 units),
+the band-on cells read 1.54 to 5.02 and the band-off cells 1.35 and up. Three band-on cells read
 above 3.5, all `hazard_separable` at two nodes with traced peaks under 20 MiB, where the band's
 fixed buffer dominates: 5.02 and 4.08 at 2,000 units (outside that family's range) and 3.58 at
 5,000.
@@ -3571,26 +3574,23 @@ exceed the true peak by up to 3.5 times, more on fits under about 20 MiB with th
 on, and more with n_jobs > 1 or a liblinear treatment learner." Over the 92 parallel runs in a fresh process (2,000 to 100,000 units,
 two and four workers, 2 to 20 folds, and parallel bootstraps) the prediction reads 1.29 to 1.94
 times the measured resident footprint of the parent and every worker. The lowest, 1.29 to 1.30, are
-`SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`coldterm.out`).
+`SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`rev9/coldterm.out`).
 
 The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
 learners, and other learners' own memory is not counted. With the default learner library the
 prediction read 0.74 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
-four for the one-node hazard fit, and two regimens; the `gap` rows of `fit.out`), so a fit with
+four for the one-node hazard fit, and two regimens; the `gap` rows of `part_d/fit.out`), so a fit with
 heavier learners can pass the check and still run out of memory.
 
-The four continuous families of the binned and index routes were refitted in X106 part D. The binned
-density now builds its pooled hazard design once rather than twice, and both routes' counts and
-peaks had moved since the J2d calibration: the refined grid counts more bins than were declared (5
-count 12 to 15, 20 count 31 to 48). On current fits at 2,000 units the index route's prediction
-read 0.36 to 1.22 times the traced peak, below 1 on most cells, and the binned `SDR` family's read
-down to 0.62.
+The four continuous families of the binned and index routes were refitted in X106 part D, after the
+binned density began to build its pooled hazard design once rather than twice. The refit's fitted
+bounds, in the ranges table below, start at 12 binned and 31 index bins (`extbox.out`).
 
 The refit reran every J2d cell of the four families on current code, 2,000 to 100,000 units,
 with the same program, objective and margin, and one added constraint: the margined draw is at most
 3.5 times the traced peak on every fitted cell. Without it the index families read up to 3.57 and
 3.69 at 20,000 units. Fitted cells now read 1.35 to 3.50, the held-out cells 1.35 to 1.59, and
-their band cells 1.36 to 3.30 (`fit.out`, `band_check.out`). Two 20,000-unit `SDR` index cells at
+their band cells 1.36 to 3.30 (`part_d/fit.out`, `part_d/band_check.out`). Two 20,000-unit `SDR` index cells at
 eight nodes, ten folds and 320 bins have no current record (one ran out of memory on a 16 GB
 machine, the other was refused for memory) and were left out.
 
@@ -3600,7 +3600,7 @@ It gives the same model with less memory, and the families still count the dense
 prediction reads higher. On shift fits with 2,000 units, four nodes, four regimens and three folds,
 `LTMLE` read 1.72, 4.30 and 7.76 times the traced peak at 60, 200 and 320 bins with liblinear
 (1.72, 1.99 and 2.07 with the default solver), and `SDR` read 1.50, 2.66 and 4.03
-(`liblinear-readings.jsonl`). The prediction, and so every refusal, is the dense design's.
+(`part_d/liblinear-readings.jsonl`). The prediction, and so every refusal, is the dense design's.
 
 The worker constants assume workers that start cold. A second call with `n_jobs > 1` in the same
 session finds its workers already started and outside the memory available, so it is over-counted
@@ -3611,8 +3611,7 @@ budget this errs toward a needless refusal, and `max_memory_bytes=` overrides it
 
 A fit is in the calibrated range when it has no Markov order, no mixed treatment node, at most four
 workers, binary treatment nodes, and every count within its family's fitted bounds below, or when it
-lies in a checked extension further down. No mixed node was calibrated, and on a mixed law fits read
-1.07 to 1.51 (`review-j2d-rev11cd.md` in the plans repository), so a mixed node puts the fit out of
+lies in a checked extension further down. No mixed node was calibrated, so a mixed node puts the fit out of
 range with "a mixed treatment node"; its prediction is unchanged. Every fitted cell had one draw, no
 bootstrap and no censoring, except the time-to-event panels of `hazard_one_node` and
 `hazard_separable`, which are censored. The `ltmle` cells include a regimen working model.
@@ -3668,11 +3667,12 @@ note name the counts outside and say the prediction is an extrapolation. Joint c
 row were fitted where the grid crossed the counts (nodes, regimens, folds and horizons for the
 iterated-mean, `SDR` and `IPSI` estimators; width with nodes and regimens at three folds; ten folds
 at two regimens; two causes at up to two regimens; the continuous families and the hazard families
-over all their counts). Other corners rest on cells probed by the design reviews
-(`design-review-j2d-rev10.md` and `design-review-j2d-rev11.md` in the plans repository), which
-read 1.35 to 2.42. Below 5,000 units, where only the continuous families were fitted, the fixed
-term is a larger share, and the other families' fast-suite fixtures at 2,000 units read 1.35 to
-2.12 (`witness11.jsonl`).
+over all their counts). Seven probe cells at joint corners
+of `hazard_paths`, `IPSI`, `LTMLE` and `hazard_backward`, such as twelve nodes with ten folds or
+eight regimens at eight nodes, are the `rev10` rows of `part_d/fit.out`, which read 1.37 to 2.27.
+No other corner was probed. Below 5,000 units, where only the continuous families were fitted,
+the fixed term is a larger share, and the other families' fast-suite fixtures at 2,000 units read 1.35 to
+2.12 (`rev9/witness11.jsonl`).
 
 ### The budget and the two guards
 

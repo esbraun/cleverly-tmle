@@ -18,6 +18,22 @@ file                   what it holds
                        ``extbox.py`` did not record
 =====================  =========================================================================
 
+The accuracy section of the reference quotes ranges from other calibration outputs, copied byte
+for byte from the same plans directories into two subdirectories.  :func:`accuracy_readings`
+reads every quoted number from them, and :func:`accuracy_phrases` gives the sentences that quote
+them:
+
+``rev9/`` (from ``rows/X106/J2/evidence/2026-11-19-j2d/rev9/``)
+    ``packet10.out`` (resident set over traced peak), ``band_check.out`` and
+    ``band_check-outside.out`` (the band term inside and outside the margin, before the part D
+    refit), ``band-*.jsonl`` (band-on and band-off peaks), ``coldterm.out`` (parallel runs),
+    ``fit11c-sum.out`` (the summed objective), ``bins.jsonl`` and ``dens.jsonl`` (the density
+    routes' peaks) and ``witness11.jsonl`` (the fast-suite fixtures at 2,000 units).
+``part_d/`` (from ``rows/X106/D/evidence/2026-11-25-j2d-recal/``)
+    ``fit.out`` (every family's fitted and checked cells against the shipped constants),
+    ``fit-no-ceiling.out`` (the refit without the 3.5 ceiling), ``band_check.out`` (the refitted
+    families' band cells) and ``liblinear-readings.jsonl``.
+
 ``python -m tests.diagnostics.x106_j2d_memory.generate`` prints the literals to paste into the
 module and the Markdown tables of ``docs/technical-reference/longitudinal-tmle.md``.
 ``tests/unit/test_longitudinal_memory_guard.py`` checks that the module's literals and the
@@ -302,6 +318,212 @@ def extensions_table() -> str:
     return "\n".join(rows)
 
 
+# The accuracy section's readings.  Each one is computed from a calibration output copied byte for
+# byte into ``rev9/`` or ``part_d/`` (see the module docstring), and :func:`accuracy_phrases`
+# returns the reference's sentences that quote it.
+
+#: The record kind of ``part_d/fit.out``'s checked cells that ran with the default learner
+#: library, which the prediction does not count.
+GAP = "gap"
+
+#: The four continuous families the part D refit changed.
+REFITTED = (
+    "ltmle_continuous",
+    "sdr_continuous",
+    "ltmle_continuous_index",
+    "sdr_continuous_index",
+)
+
+_CELL = re.compile(
+    r"^(?P<kind>\w+)\s+(?P<family>\w+)\s+(?P<n>\d+)\s+(?P<ratio>[\d.]+)\s+(?P<case>est=.*)$"
+)
+_FAMILY_ROW = re.compile(
+    r"^(?P<family>\w+)\s+(?P<n>\d+)\s+(?P<cells>\d+)\s+(?P<low>[\d.]+)\s+[\d.]+\s+(?P<high>[\d.]+)$"
+)
+
+
+def _fit_summary(path: Path) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
+    """The per-family rows of fitted cells and the checked cells of a ``fit.py`` output."""
+    families: list[dict[str, str]] = []
+    cells: list[dict[str, object]] = []
+    for line in path.read_text().splitlines():
+        if match := _FAMILY_ROW.match(line):
+            families.append(match.groupdict())
+        elif match := _CELL.match(line):
+            case = dict(item.split("=", 1) for item in match["case"].split())
+            cells.append({**match.groupdict(), **case, "ratio": float(match["ratio"])})
+    return families, cells
+
+
+def _excluded_extension(cell: dict[str, object]) -> bool:
+    """Path fits at eight regimens, which the extension table leaves out."""
+    return cell["family"] == "hazard_paths" and cell["R"] == "8"
+
+
+def _jsonl(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _two(value: float) -> str:
+    return f"{value:.2f}"
+
+
+def accuracy_readings() -> dict[str, object]:
+    """The ranges the accuracy and range sections quote, read from the copied outputs.
+
+    The checked cells in the calibrated range are every kind but :data:`GAP`, less the path fits
+    at eight regimens.  That holds for the copied rows only, so ``in_range_cells`` is returned for
+    the test to pin.
+    """
+    families, cells = _fit_summary(HERE / "part_d" / "fit.out")
+    fitted = [float(row[key]) for row in families for key in ("low", "high")]
+    refitted = [
+        float(row[key]) for row in families if row["family"] in REFITTED for key in ("low", "high")
+    ]
+    in_range = [c for c in cells if c["kind"] != GAP and not _excluded_extension(c)]
+    low = min(in_range, key=lambda c: c["ratio"])
+    high = max(in_range, key=lambda c: c["ratio"])
+    gap = [c["ratio"] for c in cells if c["kind"] == GAP]
+    held_out = [
+        c["ratio"]
+        for c in cells
+        if c["kind"] in ("bins_check", "dens_check") and c["family"] in REFITTED
+    ]
+    probes = [c["ratio"] for c in cells if c["kind"] == "rev10"]
+    paths = {c["ratio"] for c in cells if _excluded_extension(c)}
+
+    rss = [
+        float(m[1])
+        for m in re.finditer(r"rss/traced ([\d.]+)", (HERE / "rev9" / "packet10.out").read_text())
+    ]
+
+    band = re.findall(
+        r"^(\w+)\s+n\s+(\d+) T (\d+) R (\d+) sim ([01])\s+peak\s+([\d.]+) MiB\s+band\s+[\d.]+\s+ratio\s+([\d.]+)$",
+        (HERE / "rev9" / "band_check.out").read_text(),
+        flags=re.M,
+    )
+    band_on = [float(row[6]) for row in band if row[4] == "1"]
+    band_off = [float(row[6]) for row in band if row[4] == "0"]
+    over = sorted(
+        (
+            (row[0], int(row[1]), int(row[2]), float(row[5]), float(row[6]))
+            for row in band
+            if row[4] == "1" and float(row[6]) > 3.5
+        ),
+        key=lambda row: -row[4],
+    )
+
+    outside = re.search(
+        r"band on: ([\d.]+)", (HERE / "rev9" / "band_check-outside.out").read_text()
+    )
+    part_d_band = (HERE / "part_d" / "band_check.out").read_text()
+    part_d_off = re.search(r"band off: lowest ([\d.]+)", part_d_band)
+    part_d_on = re.search(r"band on:\s+lowest [\d.]+ highest ([\d.]+)", part_d_band)
+
+    parallel = [
+        float(m[1])
+        for m in re.finditer(
+            r" j\d+\s+([\d.]+)$", (HERE / "rev9" / "coldterm.out").read_text(), flags=re.M
+        )
+    ]
+
+    ceiling_families, _ = _fit_summary(HERE / "part_d" / "fit-no-ceiling.out")
+    no_ceiling = {
+        row["family"]: float(row["high"])
+        for row in ceiling_families
+        if row["family"].endswith("_index") and row["n"] == "20000"
+    }
+
+    summed = [
+        (row["family"], int(row["n"]), float(row["high"]))
+        for row in _fit_summary(HERE / "rev9" / "fit11c-sum.out")[0]
+        if float(row["high"]) > 3.5
+    ]
+
+    liblinear = {
+        (row["family"], row["B"], row["solver"]): float(row["ratio"])
+        for row in _jsonl(HERE / "part_d" / "liblinear-readings.jsonl")
+    }
+
+    witness = [
+        float(row["margined_ratio"])
+        for row in _jsonl(HERE / "rev9" / "witness11.jsonl")
+        if "continuous" not in str(row["family"])
+    ]
+
+    def traced(name: str, **where: object) -> list[float]:
+        return [
+            float(row["peak"]) / 2**20
+            for row in _jsonl(HERE / "rev9" / name)
+            if all(row.get(key) == value for key, value in where.items())
+        ]
+
+    route = {"n": 2000, "T": 2, "R": 4, "folds": 1}
+    return {
+        "fitted": (min(fitted), max(fitted)),
+        "refitted": (min(refitted), max(refitted)),
+        "in_range_cells": in_range,
+        "checked": (low, high),
+        "paths": paths,
+        "rss": max(rss),
+        "band_cells": len(band),
+        "band_on": (min(band_on), max(band_on)),
+        "band_off": min(band_off),
+        "band_over": over,
+        "outside": float(outside[1]) if outside else None,
+        "parallel": (len(parallel), min(parallel), max(parallel)),
+        "gap": (len(gap), min(gap), max(gap)),
+        "held_out": (min(held_out), max(held_out)),
+        "part_d_band": (
+            float(part_d_off[1]) if part_d_off else None,
+            float(part_d_on[1]) if part_d_on else None,
+        ),
+        "no_ceiling": no_ceiling,
+        "summed": summed,
+        "liblinear": liblinear,
+        "witness": (min(witness), max(witness)),
+        "probes": (min(probes), max(probes)),
+        "binned_route": traced("bins.jsonl", B=320, **route),
+        "index_route": traced("dens.jsonl", B=320, density="index", **route),
+        "classifier_route": traced("dens.jsonl", density="classifier", **route),
+    }
+
+
+def accuracy_phrases() -> tuple[str, ...]:
+    """The reference's phrases that quote :func:`accuracy_readings`, with spaces collapsed."""
+    r = accuracy_readings()
+    low, high = r["checked"]
+    (paths,) = r["paths"]
+    count, parallel_low, parallel_high = r["parallel"]
+    gaps, gap_low, gap_high = r["gap"]
+    over = r["band_over"]
+    if len(over) != 3 or {row[0] for row in over} != {"hazard_separable"}:
+        raise AssertionError(f"the band cells above 3.5 changed: {over}")
+    lib = r["liblinear"]
+    ((summed_family, summed_n, summed_high),) = r["summed"]
+    return (
+        f"Over every fitted cell the margined draw reads {_two(r['fitted'][0])} to {_two(r['fitted'][1])} times the traced peak",
+        f"over every checked cell in the calibrated range {_two(low['ratio'])} (a censored `SDR` fit at {int(low['n']):,} units) to {_two(high['ratio'])} (a learned regimen,",
+        f"Path fits at eight regimens read {_two(paths)} and are excluded.",
+        f"The checked cells read at least {_two(low['ratio'])} times their traced peak.",
+        f"any calibration run measured, {_two(r['rss'])} (`rev9/packet10.out`)",
+        f"Over {r['band_cells']} cells run with the band on and off",
+        f"the band-on cells read {_two(r['band_on'][0])} to {_two(r['band_on'][1])} and the band-off cells {_two(r['band_off'])} and up",
+        f"{over[0][4]:.2f} and {over[1][4]:.2f} at {over[0][1]:,} units (outside that family's range) and {over[2][4]:.2f} at {over[2][1]:,}",
+        f"traced about {round(max(r['binned_route']), -2):,.0f} MiB (`rev9/bins.jsonl`), {max(r['index_route']):.0f} MiB and {min(r['classifier_route']):.1f} to {max(r['classifier_route']):.1f} MiB (`rev9/dens.jsonl`)",
+        f"band-on cells read down to {_two(r['outside'])} (`rev9/band_check-outside.out`)",
+        f"Over the {count} parallel runs",
+        f"the prediction reads {_two(parallel_low)} to {_two(parallel_high)} times the measured resident footprint",
+        f"read {_two(gap_low)} to {_two(gap_high)} times the traced peak on {('eight' if gaps == 8 else str(gaps))} small cells",
+        f"Without it the index families read up to {_two(r['no_ceiling']['ltmle_continuous_index'])} and {_two(r['no_ceiling']['sdr_continuous_index'])} at 20,000 units",
+        f"Fitted cells now read {_two(r['refitted'][0])} to {_two(r['refitted'][1])}, the held-out cells {_two(r['held_out'][0])} to {_two(r['held_out'][1])}, and their band cells {_two(r['part_d_band'][0])} to {_two(r['part_d_band'][1])}",
+        f"read {summed_high:.2f} on a fitted `{summed_family}` cell at {summed_n:,} units",
+        f"`LTMLE` read {lib[('ltmle_continuous', 60, 'liblinear')]:.2f}, {lib[('ltmle_continuous', 200, 'liblinear')]:.2f} and {lib[('ltmle_continuous', 320, 'liblinear')]:.2f} times the traced peak at 60, 200 and 320 bins with liblinear ({lib[('ltmle_continuous', 60, 'lbfgs')]:.2f}, {lib[('ltmle_continuous', 200, 'lbfgs')]:.2f} and {lib[('ltmle_continuous', 320, 'lbfgs')]:.2f} with the default solver), and `SDR` read {lib[('sdr_continuous', 60, 'liblinear')]:.2f}, {lib[('sdr_continuous', 200, 'liblinear')]:.2f} and {lib[('sdr_continuous', 320, 'liblinear')]:.2f}",
+        f"the `rev10` rows of `part_d/fit.out`, which read {_two(r['probes'][0])} to {_two(r['probes'][1])}",
+        f"fast-suite fixtures at 2,000 units read {_two(r['witness'][0])} to {_two(r['witness'][1])} (`rev9/witness11.jsonl`)",
+    )
+
+
 def main() -> None:
     """Print the literals and the table."""
     print(literal())
@@ -320,6 +542,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "accuracy_phrases",
+    "accuracy_readings",
     "constants",
     "constants_table",
     "extensions_table",

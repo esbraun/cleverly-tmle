@@ -1,0 +1,283 @@
+family / fitted / n: cells, min, median, max of MARGIN x draw / peak (fitted cells)
+hazard_backward         5000   51   1.35   1.55   1.79
+hazard_backward        20000   51   1.35   1.52   1.82
+hazard_backward       100000    1   1.39   1.39   1.39
+hazard_one_node         5000   69   1.35   1.36   2.09
+hazard_one_node        20000   69   1.35   1.36   2.08
+hazard_one_node       100000    1   1.35   1.35   1.35
+hazard_paths            5000   89   1.35   1.39   2.07
+hazard_paths           20000   91   1.35   1.39   2.07
+hazard_paths          100000    2   1.39   1.39   1.39
+hazard_separable        5000   48   1.35   1.75   2.50
+hazard_separable       20000   48   1.35   1.49   1.78
+hazard_separable      100000    2   1.35   1.38   1.41
+ipsi                    5000   86   1.35   1.44   1.80
+ipsi                   20000   86   1.35   1.43   1.77
+ipsi                  100000    8   1.35   1.36   1.45
+ltmle                   5000  142   1.35   1.54   2.24
+ltmle                  20000  142   1.35   1.52   2.17
+ltmle                 100000    8   1.36   1.58   1.91
+ltmle_continuous        2000   76   1.35   1.48   1.74
+ltmle_continuous        5000   77   1.35   1.45   1.75
+ltmle_continuous       20000   37   1.35   1.43   1.88
+ltmle_continuous      100000    1   1.82   1.82   1.82
+ltmle_continuous_classifier    2000   18   1.35   1.36   1.54
+ltmle_continuous_classifier    5000   18   1.35   1.37   1.56
+ltmle_continuous_classifier   20000    8   1.35   1.39   1.42
+ltmle_continuous_classifier  100000    1   1.42   1.42   1.42
+ltmle_continuous_index    2000   54   1.35   1.48   3.33
+ltmle_continuous_index    5000   54   1.35   1.92   2.91
+ltmle_continuous_index   20000   16   1.82   2.80   3.57
+ltmle_continuous_index  100000    1   2.63   2.63   2.63
+sdr                     5000   86   1.35   1.56   2.22
+sdr                    20000   86   1.35   1.42   1.79
+sdr                   100000    8   1.35   1.37   1.40
+sdr_continuous          2000   76   1.35   1.53   1.96
+sdr_continuous          5000   77   1.35   1.49   1.74
+sdr_continuous         20000   37   1.35   1.49   1.75
+sdr_continuous        100000    1   1.56   1.56   1.56
+sdr_continuous_classifier    2000   18   1.35   1.39   1.55
+sdr_continuous_classifier    5000   18   1.35   1.40   1.54
+sdr_continuous_classifier   20000    8   1.35   1.43   1.53
+sdr_continuous_classifier  100000    1   1.41   1.41   1.41
+sdr_continuous_index    2000   54   1.35   1.61   3.30
+sdr_continuous_index    5000   54   1.35   1.71   2.92
+sdr_continuous_index   20000   14   1.68   2.11   3.69
+sdr_continuous_index  100000    1   1.77   1.77   1.77
+
+checked cells (not fitted): predicted_bytes / peak
+gap       ltmle_continuous      5000   0.74  est=mtp T=2 R=2 folds=3 H=1 J=1 P=2 B=20 k=0 levels=2 censor=False repeats=1 boot=0
+gap       sdr_continuous        5000   0.89  est=sdr_mtp T=2 R=2 folds=3 H=1 J=1 P=2 B=20 k=0 levels=2 censor=False repeats=1 boot=0
+gap       ipsi                  5000   1.00  est=ipsi T=2 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+gap       sdr                   5000   1.16  est=sdr T=2 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       hazard_paths         20000   1.22  est=hz_path T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       hazard_paths          5000   1.22  est=hz_path T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+gap       ltmle                 5000   1.28  est=ltmle_surv T=2 R=2 folds=3 H=2 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     sdr                  20000   1.33  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     sdr                  20000   1.33  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+gap       hazard_one_node       5000   1.33  est=hz_point T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+bins_check sdr_continuous        2000   1.35  est=sdr_mtp T=8 R=1 folds=1 H=1 J=1 P=2 B=320 k=0 levels=2 censor=False repeats=1 boot=0
+extra     sdr                  20000   1.35  est=sdr_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       sdr                   5000   1.35  est=sdr_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                  20000   1.36  est=sdr_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                 20000   1.36  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       ipsi                  5000   1.37  est=ipsi_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+rev10     hazard_paths         20000   1.37  est=hz_path T=12 R=4 folds=10 H=12 J=2 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     sdr                   5000   1.37  est=sdr_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     sdr                   5000   1.37  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     ipsi                  5000   1.37  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       ltmle                 5000   1.37  est=ltmle_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ipsi                 20000   1.37  est=ipsi_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+dens_check sdr_continuous_classifier    5000   1.37  est=sdr_mtp T=4 R=2 folds=5 H=1 J=1 P=2 B=0 k=0 levels=2 censor=False repeats=1 boot=0
+dens_check ltmle_continuous_classifier    5000   1.37  est=mtp T=4 R=2 folds=5 H=1 J=1 P=2 B=0 k=0 levels=2 censor=False repeats=1 boot=0
+gap       hazard_backward       5000   1.37  est=hz_back T=2 R=2 folds=3 H=2 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                  20000   1.38  est=sdr_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                 20000   1.38  est=ipsi_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+bins_check sdr_continuous        5000   1.38  est=sdr_mtp T=2 R=4 folds=3 H=1 J=1 P=2 B=20 k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                  5000   1.38  est=ipsi_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       ltmle                20000   1.38  est=ltmle_surv T=12 R=2 folds=3 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                 20000   1.38  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       ltmle                20000   1.38  est=ltmle_eos T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                   5000   1.39  est=sdr_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+bins_check ltmle_continuous      5000   1.39  est=mtp T=2 R=4 folds=3 H=1 J=1 P=2 B=20 k=0 levels=2 censor=False repeats=1 boot=0
+ext       ltmle                 5000   1.39  est=ltmle_eos T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                  20000   1.40  est=sdr T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                  5000   1.40  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+gap       hazard_paths          5000   1.40  est=hz_path T=2 R=2 folds=3 H=2 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ipsi                  5000   1.40  est=ipsi_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ipsi                 20000   1.40  est=ipsi_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+rev10     ipsi                  5000   1.41  est=ipsi_surv T=12 R=4 folds=10 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     sdr                   5000   1.41  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+ext       sdr                  20000   1.41  est=sdr T=4 R=8 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                   5000   1.42  est=sdr T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+rev10     ipsi                 20000   1.42  est=ipsi_surv T=12 R=4 folds=10 H=12 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ipsi                 20000   1.43  est=ipsi T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ipsi                  5000   1.43  est=ipsi T=12 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                   5000   1.43  est=sdr T=4 R=8 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ltmle                 5000   1.45  est=ltmle_eos T=4 R=8 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ltmle                20000   1.45  est=ltmle_eos T=4 R=8 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+twin      hazard_separable     20000   1.46  est=hz_separable T=4 R=4 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+variants  hazard_separable     20000   1.46  est=hz_separable T=4 R=4 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+dens_check ltmle_continuous_index    5000   1.46  est=mtp T=4 R=2 folds=5 H=1 J=1 P=2 B=160 k=0 levels=2 censor=False repeats=1 boot=0
+bins_check ltmle_continuous      2000   1.51  est=mtp T=2 R=4 folds=10 H=1 J=1 P=2 B=320 k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                  20000   1.51  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+bins_check sdr_continuous        2000   1.51  est=sdr_mtp T=2 R=4 folds=10 H=1 J=1 P=2 B=320 k=0 levels=2 censor=False repeats=1 boot=0
+twin      ltmle                20000   1.52  est=ltmle_surv T=8 R=4 folds=3 H=8 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+dens_check sdr_continuous_index    5000   1.53  est=sdr_mtp T=4 R=2 folds=5 H=1 J=1 P=2 B=160 k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                20000   1.54  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+bins_check ltmle_continuous      2000   1.55  est=mtp T=8 R=1 folds=1 H=1 J=1 P=2 B=320 k=0 levels=2 censor=False repeats=1 boot=0
+rev10     ltmle                 5000   1.56  est=ltmle_surv T=8 R=4 folds=10 H=8 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       sdr                   5000   1.58  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+extra     ltmle                 5000   1.58  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+rev10     ltmle                20000   1.59  est=ltmle_surv T=8 R=4 folds=10 H=8 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                20000   1.64  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     sdr                  20000   1.65  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                 20000   1.65  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                  5000   1.67  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ltmle                 5000   1.68  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                 20000   1.70  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                  5000   1.70  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                 20000   1.72  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     sdr                  20000   1.73  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     ipsi                 20000   1.74  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+variants  hazard_separable      5000   1.74  est=hz_separable T=4 R=4 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ipsi                  5000   1.74  est=ipsi T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     sdr                   5000   1.75  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ipsi                  5000   1.75  est=ipsi_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+rev10     hazard_backward       5000   1.75  est=hz_back T=8 R=8 folds=3 H=8 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                20000   1.76  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     sdr                  20000   1.78  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+ext       ltmle                 5000   1.78  est=ltmle_surv T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ltmle                20000   1.79  est=ltmle_surv T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                 5000   1.82  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     sdr                   5000   1.83  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     sdr                  20000   1.83  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+ext       ltmle                20000   1.83  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+extra     ltmle                20000   1.83  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     sdr                   5000   1.83  est=sdr T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+ext       ltmle                 5000   1.84  est=ltmle_eos T=4 R=2 folds=3 H=1 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+extra     ltmle                 5000   1.84  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     ltmle                 5000   1.86  est=ltmle_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     ltmle                20000   1.86  est=ltmle_surv T=4 R=2 folds=3 H=4 J=2 P=2 B=None k=0 levels=2 censor=True repeats=1 boot=0
+extra     sdr                   5000   1.88  est=sdr_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+ext       ltmle                 5000   1.90  est=ltmle_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                20000   1.90  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+ext       ltmle                20000   1.91  est=ltmle_surv T=4 R=2 folds=3 H=4 J=3 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+extra     ltmle                 5000   1.91  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=3
+extra     ltmle                20000   1.95  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+extra     ltmle                 5000   1.97  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=2 boot=0
+ext       hazard_backward       5000   2.12  est=hz_back T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       hazard_backward      20000   2.23  est=hz_back T=4 R=8 folds=3 H=4 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+rev10     hazard_backward      20000   2.27  est=hz_back T=8 R=8 folds=3 H=8 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+ext       ltmle                20000   2.41  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+ext       ltmle                 5000   2.41  est=ltmle_surv T=4 R=2 folds=3 H=4 J=1 P=2 B=None k=0 levels=6 censor=False repeats=1 boot=0
+variants  ltmle                20000   3.26  est=learned T=2 R=1 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+variants  ltmle                 5000   3.31  est=learned T=2 R=1 folds=3 H=1 J=1 P=2 B=None k=0 levels=2 censor=False repeats=1 boot=0
+
+over every fitted and checked cell (default-library cells apart): min 1.22, max 3.69
+
+constants: {
+ "hazard_backward": {
+  "FRT": 2.269589843748443,
+  "RSJ": 2.608009131069427,
+  "RTJ": 9.526141931241302,
+  "Rp": 0.18109796547768503,
+  "TJ": 22.58170441540541,
+  "Tp": 1.6310122599110173,
+  "c0": 888246.9999958314,
+  "one": 20.313904434444225,
+  "p": 3.3657342689018925
+ },
+ "hazard_one_node": {
+  "FRT": 0.001339062500087398,
+  "FT": 0.0042960937498952275,
+  "RHJ": 1.005776190476428,
+  "RSJ": 0.003112872023749868,
+  "RTJ": 5.799387765202874,
+  "Rp": 0.7282041411398789,
+  "T": 28.80826717413222,
+  "TJ": 27.07461093271379,
+  "Tp": 0.6130211936896662,
+  "c0": 168456.66666667096,
+  "p": 1.9842937061014176
+ },
+ "hazard_paths": {
+  "FRT": 0.001307226562468958,
+  "RHJ": 1.0126630208332636,
+  "RT": 13.563276176569342,
+  "RTJ": 25.330605729166834,
+  "Rp": 1.0557431520831322,
+  "TU": 8.041822450347535,
+  "TUJ": 16.617276041666656,
+  "Tp": 0.1681739031322395,
+  "Up": 2.8483565640046695,
+  "c0": 215711.66666668633,
+  "one": 18.767787871317974,
+  "p": 3.889895072789339
+ },
+ "hazard_separable": {
+  "FRT": 0.00203398437500291,
+  "RHJ": 12.8427764090402,
+  "RSJ": 18.526549142020087,
+  "T": 73.013057437221,
+  "Tp": 0.7070639783296108,
+  "c0": 15579414.785714269
+ },
+ "ipsi": {
+  "FRT": 3.445266104166661,
+  "FT": 1.1518990048501285,
+  "RHJ": 1.9822039007936785,
+  "RSJ": 17.37978764087301,
+  "c0": 381464.3333333333,
+  "one": 13.420442947750992,
+  "p": 7.33073273478836
+ },
+ "ltmle": {
+  "FRT": 0.5059925781249999,
+  "RHJ": 15.987778093529716,
+  "RSJ": 2.0475151059368706,
+  "RS_msm": 2.1093052380334147,
+  "RT": 3.793068851885071,
+  "Rp": 0.7599453868223397,
+  "c0": 345299.01334340434,
+  "p": 4.613350122839041
+ },
+ "ltmle_continuous": {
+  "BB": 0.48473000945841316,
+  "FRT": 0.14509580237472028,
+  "FT": 0.13586852661223,
+  "RSJ": 10.002207307969798,
+  "TB": 2.485800138115847,
+  "TBB": 0.018543062729164922,
+  "Tp": 1.2192738151631,
+  "one": 286.53919550876515
+ },
+ "ltmle_continuous_classifier": {
+  "FRT": 0.16648877314814775,
+  "FT": 0.2437820601851862,
+  "RHJ": 1.638529166666678,
+  "RSJ": 22.862253935185183,
+  "T": 0.896987991898149,
+  "Tp": 0.2237153645833334,
+  "c0": 130301.0,
+  "one": 32.14179166666665
+ },
+ "ltmle_continuous_index": {
+  "BB": 0.04206972191594512,
+  "RTB": 0.06282656250000067,
+  "TB": 3.139719387847414,
+  "one": 2127.807130084875
+ },
+ "sdr": {
+  "FRT": 2.6710343784101345,
+  "FT": 0.9547574290095755,
+  "RHJ": 0.08864097902244636,
+  "RSJ": 18.035449627344054,
+  "Rp": 0.5018286423754044,
+  "c0": 1068103.697324663,
+  "p": 4.6976572703230035
+ },
+ "sdr_continuous": {
+  "BB": 0.5083367385153763,
+  "FRT": 3.9001067986258446,
+  "FT": 14.363974578296204,
+  "FTB": 3.859623220705197,
+  "RSJ": 11.356025769154998,
+  "one": 218.61107917073033
+ },
+ "sdr_continuous_classifier": {
+  "FRT": 3.117472470238094,
+  "FT": 1.4134444940476203,
+  "RSJ": 29.516525297619054,
+  "T": 0.31445870535714654,
+  "Tp": 0.029258854166666085,
+  "c0": 190461.33333333334,
+  "one": 18.26745833333332
+ },
+ "sdr_continuous_index": {
+  "BB": 0.03948865043217465,
+  "FTB": 4.3361424875152155,
+  "RHJ": 33.17026666666666,
+  "one": 2004.9341780494376
+ }
+}
