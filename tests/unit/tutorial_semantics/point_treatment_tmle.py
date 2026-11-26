@@ -118,15 +118,19 @@ def _assert_committed_numbers() -> None:
         assert match, pattern
         return float(match.group(1))
 
-    assert round(number(summary, r"SE/SD (\S+)"), 2) == 0.98
-    assert "coverage 0.945 (MC SE 0.016; 189 of 200)" in summary
+    assert "commit " in summary and "cleverly 0.2.8" in summary
+    assert round(number(summary, r"mean SE [\d.]+; SE/SD (\S+)\n"), 2) == 0.98
+    assert "SE/SD 0.98\n  coverage 0.945 (MC SE 0.016; 189 of 200)" in summary
     assert "lin_q_flex_g  coverage 0.975 (MC SE 0.011; 195 of 200)" in summary
     assert "flex_q_lin_g  coverage 0.950 (MC SE 0.015; 190 of 200)" in summary
     assert "both_linear   coverage 0.150 (MC SE 0.025; 30 of 200)" in summary
     assert round(number(summary, r"lin_q_flex_g .*bias (\S+)"), 4) == -0.0022
     assert round(number(summary, r"flex_q_lin_g .*bias (\S+)"), 4) == -0.0006
     assert round(number(summary, r"both_linear .*bias (\S+)"), 4) == -0.0218
-    assert "95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)" in summary
+    assert (
+        "medication_burden: 95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)"
+        in summary
+    )
     assert round(number(summary, r"law +nu\^2 [\d.]+: .*rv (\S+)"), 3) == 0.431
     assert round(100 * number(truth, r"share g < 0.10 +(\S+)"), 1) == 1.9
     assert round(number(truth, r"nu2 +(\S+)"), 2) == 4.83
@@ -134,6 +138,22 @@ def _assert_committed_numbers() -> None:
     assert number(truth, r"max g +(\S+)") <= 0.95
     assert round(number(plugin, r"bias (\S+)"), 3) == -0.018
     assert "seeds 6000 to 6199, 200 draws" in plugin
+    # "Who gains": the counts and the rule the dropdown quotes, each anchored to its row.
+    for label, count in (("att", 191), ("atc", 192), ("ey0", 194), ("ey1", 186)):
+        line = next(row for row in summary.splitlines() if row.startswith(f"  {label} "))
+        assert f"; {count} of 200)" in line, label
+        assert line.endswith("rule: chance"), label
+        # "about a tenth of the average standard error or less" (ey1 is 0.102).
+        assert number(line, r"\|bias\| / mean SE (\S+);") <= 0.11, label
+    assert "ATT estimate above ATC estimate: 1.000 (MC SE 0.000; 200 of 200)" in summary
+    # "In this sample the two intervals do not overlap": they do not on only 137 of 200 draws.
+    assert "ATT and ATC intervals do not overlap: 0.685 (MC SE 0.033; 137 of 200)" in summary
+    assert number(summary, r"atc df .*kish 5% / 50% / 95%: \[(\S+),") == 25.0
+    assert number(summary, r"atc df .*kish 5% / 50% / 95%: \[\S+, \S+, (\S+)\]") == 328.0
+    # No multiplier: "three times" fails the 90%-of-draws rule, and "more than any recorded
+    # characteristic" holds on at least 180 of 200 draws.
+    assert number(summary, r"tipping above three times .*; (\d+) of 200") < 180
+    assert number(summary, r"tipping above the largest benchmarked cf_d: .*; (\d+) of 200") >= 180
 
 
 def _check_probe_logs() -> None:
@@ -204,9 +224,9 @@ def _check_refutation(namespace: dict[str, Any]) -> None:
     assert list(generated) == ["simulated_outcome", "plasmode"]
     for test in generated.values():
         bias = test.readings[0]
-        assert test.n_replicates == 20 and test.rung == "L1" and test.verdict == "descriptive"
+        assert test.n_replicates == 10 and test.rung == "L1" and test.verdict == "descriptive"
         assert bias.name == "bias" and bias.band == (-0.2, 0.2)
-        # 20 draws give an interval wider than the band, which is why no verdict prints.
+        # 10 draws give an interval wider than the band, which is why no verdict prints.
         assert bias.upper - bias.lower > 2 * bias.band[1]
         assert bias.lower < 0.0 < bias.upper
     assert generated["simulated_outcome"].declared_effect == pytest.approx(truth, abs=1e-10)
@@ -289,6 +309,50 @@ def _check_surface(namespace: dict[str, Any]) -> None:
         > calibration[("medication_burden", "treatment")]
     )
     assert max(cells.index.get_level_values(0)) >= calibration[("discharge_risk", "treatment")]
+
+
+def _check_who_gains(namespace: dict[str, Any]) -> None:
+    """Go deeper, "Who gains": the conditional effects and the counterfactual means."""
+    truth = namespace["truth"]
+    rows = {row["estimand"]: row for row in namespace["gains"]}
+    assert list(rows) == ["att", "atc", "ey[0]", "ey[1]"]
+    assert [rows[key]["covers"] for key in rows] == [True, True, False, True]
+    # "The two intervals do not overlap ... as the true values say".
+    att_low = float(rows["att"]["interval"].strip("[]").split(", ")[0])
+    atc_high = float(rows["atc"]["interval"].strip("[]").split(", ")[1])
+    assert att_low > atc_high
+    assert truth["att"] > truth["atc"]
+    # "Both fits cap ... at 0.025 and 0.975 ... the sample-size cap of 0.0114".
+    assert rows["att"]["probability cap"] == rows["atc"]["probability cap"] == "[0.025, 0.975]"
+    assert rows["ey[0]"]["probability cap"] == "[0.0114, 0.9886]"
+    # "the one with an offer is also low ... so the two errors mostly cancel".
+    low0 = rows["ey[0]"]["estimate"] - truth["ey0"]
+    low1 = rows["ey[1]"]["estimate"] - truth["ey1"]
+    assert low0 < 0.0 and low1 < 0.0
+    assert abs(low1 - low0) < 0.5 * abs(low0)
+    # "126 degrees of freedom where the others print hundreds or more", "62 of 3,000".
+    assert rows["atc"]["df"] == 126 and rows["atc"]["kish"] == 62
+    assert min(rows[key]["df"] for key in ("att", "ey[0]", "ey[1]")) >= 200
+    # The fits are new names: the page's own result and estimate stay the ATE's.
+    assert namespace["estimate"] is namespace["result"]["ate"]
+
+
+def _check_keep(namespace: dict[str, Any]) -> None:
+    """Go deeper, "Keep the fit": the round trip and the checks that run without more input."""
+    assert namespace["same"] is True
+    checks = namespace["checks"]
+    assert set(checks["status"]) == {"completed", "deferred"}
+    deferred = checks.loc[checks["status"] == "deferred", "check"].tolist()
+    # "This page ran all three deferred checks by hand".
+    assert deferred == ["benchmark", "simulated_confounding", "marginal_bounds"]
+    assert (checks.loc[checks["status"] == "deferred", "next_steps"] != "").all()
+    methods = namespace["effect"].available_methods().to_frame()
+    assert methods.loc[methods["available"], "method"].tolist() == [
+        "tmle",
+        "adaptive_iptw",
+        "collaborative_tmle",
+        "drtmle",
+    ]
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -376,6 +440,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert tuple(item.name for item in assessment.attention) == ()
     ledger = assessment.to_frame()
     assert set(ledger.loc[ledger["check"] == "score_equations", "status"]) == {"passed"}
+    # The printed ratio rounds to 0.00, below 0.01, and is never a raw residual.
+    assert namespace["scores"].passed and namespace["worst"] < 0.005
     assert namespace["nuisance"].summary().reading == vocabulary.MODEL_READINGS["clear"]
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")
     assert abs(propensity.metrics["calibration_slope"] - 1.0) < 0.1
@@ -436,6 +502,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rva.ci_lower) < 1e-3
     _check_evalue(namespace)
     _check_odds_bounds(namespace)
+    _check_who_gains(namespace)
+    _check_keep(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
@@ -451,6 +519,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
     # The bound is finite at cf_y = 1 (RM47), so the clipped benchmark still calibrates one.
     strong = namespace["strong"]
+    benchmark = namespace["benchmark"]
     assert strong.covariates == ("discharge_risk",)
     assert strong.sigma2_short > 2.0 * strong.sigma2_long
     assert strong.cf_y == 1.0 < strong.gain_y
@@ -465,20 +534,32 @@ def check_refits(namespace: dict[str, Any]) -> None:
     # moves the bound further, which is the nonzero witness of that sentence.
     wider = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=2.0 * strong.cf_d, rho=1.0)
     assert wider.bias > strong_bounds.bias
-    # "would need a weight strength of about 0.24 to pull the lower limit to zero, more than three
-    # times that of any recorded characteristic": the bisection lands on the crossing, and the
-    # limit is positive just below it and negative just above it.
+    # "would need a weight strength of about 0.24 to pull the lower limit to zero, against 0.0766
+    # for `prior_utilization`, the strongest recorded characteristic on that side": the cell
+    # benchmarks all four characteristics, the bisection starts at the largest weight strength
+    # and lands on the crossing, and the limit is positive just below it and negative above it.
+    records = namespace["records"]
+    assert list(records) == list(namespace["covariates"])
+    for name, record in records.items():
+        assert record.covariates == (name,)
+    assert records["discharge_risk"] is strong and records["medication_burden"] is benchmark
+    weight_strengths = {name: record.cf_d for name, record in records.items()}
+    assert max(weight_strengths, key=weight_strengths.__getitem__) == "prior_utilization"
+    assert round(weight_strengths["prior_utilization"], 4) == 0.0766
     tipping = namespace["tipping_cf_d"]
     assert round(tipping, 2) == 0.24
-    recorded = ("age", "medication_burden", "prior_utilization", "discharge_risk")
-    weight_strengths = [result.sensitivity.benchmark(covariates=(name,)).cf_d for name in recorded]
-    assert 3.0 * max(weight_strengths) < tipping < 4.0 * max(weight_strengths)
+    # "more than any recorded characteristic does" (At a glance and the conclusion).
+    assert tipping > max(weight_strengths.values())
+    # "all four recorded characteristics sit far to its left": at each benchmark's cf_y, the
+    # bound's line sits at more than three times the benchmark's cf_d.
+    for name, record in records.items():
+        at_line = result.sensitivity.omitted_confounding(cf_y=record.cf_y, cf_d=3.0 * record.cf_d)
+        assert at_line.lower > 0.0, name
     crossing = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping)
     assert abs(crossing.ci_lower) < 1e-6
     assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).ci_lower > 0.0
     assert result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 0.01).ci_lower < 0.0
     # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
-    benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
     assert 0.0 < benchmark.cf_d < benchmark.cf_y < robustness["rv"]
     bounds = namespace["bounds"]
