@@ -358,8 +358,10 @@ longitudinal, which
 [which operations each result family runs](validation-methods.md#which-operations-each-result-family-runs)
 lists, and the boundaries of [refutation operations](validation-methods.md#refutation-operations)
 and the [simulated common-cause stress surface](validation-methods.md#simulated-common-cause-stress-surface)
-apply. One operation differs on a continuous dose: `support` is unavailable, because the arm
-support report does not cover a dose grid, while a projection over discrete arms keeps it. The
+apply. Of the declared operations, one differs on a continuous dose: `support` is unavailable,
+because the arm support report does not cover a dose grid, while a projection over discrete arms
+keeps it. The [omitted-variable bounds](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+and some refutations refuse a continuous-dose coefficient too, as those sections state. The
 simulated common-cause surface runs on the continuous-dose coefficients
 (`tests/unit/test_continuous_msm_assessment.py`).
 

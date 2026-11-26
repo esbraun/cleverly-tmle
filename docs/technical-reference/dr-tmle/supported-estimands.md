@@ -35,7 +35,8 @@ cleverly fit against a two-arm `drtmle` fit should expect agreement in the equat
 rather than in the iterates.
 
 A localization run (`tests/diagnostics/rm19_one_sided_increment/`, pinned by
-`tests/unit/test_rm19_one_sided_increment_diagnostic.py`) measured the two routes on 2,000 fresh draws of the binary `treatment_correct` law at
+`tests/unit/test_rm19_one_sided_increment_diagnostic.py`) measured the two routes on 2,000
+fresh draws of the binary `treatment_correct` law at
 `n = 3000`. There, the treatment mechanism is correct and the outcome regression is not. The
 transcription of the R loop took each of four named choices from R or from this package.
 Averaged over the other three choices, the two-arm tilt raised the mean `ate` by `0.000833` to
