@@ -439,7 +439,8 @@ def continuous_truncation_curve(
     CapabilityError
         When the result holds no estimator or data, a floor lies outside :math:`(0, 1)`,
         the fit's floor is 0 and ``bounds`` is omitted, an estimand was not reported, or the
-        replay at the fitted floor does not reproduce the fit.
+        replay at the fitted floor does not reproduce the fit; and on a continuous-time
+        longitudinal fit, whose node passes no adapter replays (roadmap X105 part (d)).
 
     Notes
     -----
@@ -447,9 +448,11 @@ def continuous_truncation_curve(
     does, so the curve holds no more memory than its fit, and its check reads the fit's
     ``max_memory_bytes``, or the memory available when that is ``None``.
     """
+    from .._continuous_longitudinal_family import refuse_continuous_longitudinal
     from ..utils.frames import emit_frame
     from .result import MEASURED_DEFAULTS
 
+    refuse_continuous_longitudinal(result, "continuous_truncation_curve")
     estimator, data = result.estimator, result.data
     if estimator is None or data is None:
         raise _invalid(

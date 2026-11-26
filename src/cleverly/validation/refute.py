@@ -86,6 +86,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._continuous_longitudinal_family import refuse_continuous_longitudinal
 from .._continuous_survival_family import is_continuous_survival
 from .._inference_status import InferenceStatus, supplies_inference
 from .._summary import Detail, Summary, check_detail
@@ -5430,6 +5431,7 @@ def _refute_preflight(
         If a request rule refuses the request.
     """
     refuse_augmented_trial(result, "refute", "refutation")
+    refuse_continuous_longitudinal(result, "refute")
     # The malformed arguments first, and the refusals of a well-formed request after them.
     # Every refusal is decided before any refit, so a mixed call does not pay for placebo
     # fits and only then discover that its outcome process has no effect derivation. The

@@ -2264,6 +2264,40 @@ def _property_failure_bound(
     return {PROPERTY_FAILURE_BOUND_KEY: float(configuration[PROPERTY_FAILURE_BOUND_KEY])}
 
 
+def drop_routed(study: ModuleType, failures: pd.DataFrame) -> pd.DataFrame:
+    """The independent-performance failures that still gate, after the study's declared routes.
+
+    A study may declare, before its run, rows whose red on the bias clause alone ends in an owner
+    row rather than a failed record (``continuous-time-longitudinal``'s exposed rows).  Its
+    ``routed_performance(failures)`` returns the failures its routes carry.  The hook can only
+    remove rows: each one it returns must be one of ``failures`` and red on the bias clause
+    alone, with its coverage floor and SE-ratio band passing, or the run stops.  The table keeps
+    the routed rows red, and each is printed.
+    """
+    routed = study.routed_performance(failures)
+    if routed.empty:
+        return failures
+    if not set(routed.index) <= set(failures.index):
+        raise RuntimeError(f"{study.STUDY.slug}: a routed row is not an independent failure")
+    clauses = failures.loc[routed.index]
+    broad = clauses.loc[
+        clauses["bias_equivalent"].astype(bool)
+        | ~clauses["coverage_valid"].astype(bool)
+        | ~clauses["se_calibrated"].astype(bool)
+    ]
+    if not broad.empty:
+        raise RuntimeError(
+            f"{study.STUDY.slug}: a declared route carries only a red on the bias clause alone, "
+            f"not:\n{broad.to_string(index=False)}"
+        )
+    print(
+        "routed by declaration (red on the bias clause alone; the claim stays experimental and "
+        f"the row goes to an owner row):\n{clauses.to_string(index=False)}",
+        flush=True,
+    )
+    return failures.drop(index=routed.index)
+
+
 def main(
     study: ModuleType,
     properties: ModuleType,
@@ -2603,6 +2637,8 @@ def _regenerate(
     context.completed = True
 
     independent_failures = performance.loc[~performance["passed"]]
+    if hasattr(study, "routed_performance"):
+        independent_failures = drop_routed(study, independent_failures)
     if reference is not None and record.accepted_reference_failure:
         independent_failures = independent_failures.loc[
             independent_failures["implementation"] != record.reference

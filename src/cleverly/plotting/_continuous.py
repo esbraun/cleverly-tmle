@@ -73,14 +73,19 @@ def selections(source: Any) -> Selections:
     The record keeps each chosen position, which this reads. The report keeps the chosen
     candidate's name only, so a library that lists that name twice is refused.
     """
+    from ..survival.longitudinal_result import ContinuousLongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
 
-    if isinstance(source, ContinuousSurvivalResult):
+    if isinstance(source, (ContinuousSurvivalResult, ContinuousLongitudinalResult)):
         record = source.record
         rows = [
             Selection(f"hazard of cause {cause}", h.names, h.losses, int(h.chosen))
             for cause, h in zip(source.causes, record.hazards, strict=True)
         ]
+        # A longitudinal fit also selects its visit intensity.
+        visit = getattr(record, "visit", None)
+        if visit is not None:
+            rows.append(Selection("visit intensity", visit.names, visit.losses, int(visit.chosen)))
         c = record.censoring
         rows.append(Selection("censoring hazard", c.names, c.losses, int(c.chosen)))
         p = record.propensity

@@ -76,6 +76,7 @@ calls `zipper`.
 
 `LongitudinalResult.plot()` draws its curve over time with `curve`, or the estimates with
 `forest` when the fit has no curve, `ContinuousSurvivalResult.plot()` draws its risks at the
+target times with `curve`, `ContinuousLongitudinalResult.plot()` draws each regime's risks at the
 target times with `curve`, and `EffectCurveResult.plot()` draws the conditional effect over a
 modifier with `curve`.
 
@@ -138,6 +139,13 @@ time point, or whose rows come from a trial and an external source.
   drawn between those times, because the fit estimates no risk there.
   `curve(result, measure="rmst")` or `"rmtl"` draws the restricted means at the times in
   `restricted_horizons=`. `result.plot()` calls `curve`.
+- A continuous-time longitudinal fit (`ContinuousLongitudinalTMLE`) draws, in `curve`, each
+  regime's risk, or its cumulative incidence of each cause, at the times in `horizons=`, with the
+  difference of every other regime from the reference regime below. `result.plot()` calls
+  `curve`. `learners` draws the candidates of each hazard, the visit intensity, the censoring
+  hazard and the treatment model, with the chosen one marked; a cross-fitted fit keeps the first
+  fold's choices. The fit keeps no per-row treatment probability or weight, so `overlap`,
+  `weights`, `balance` and `calibration` refuse it.
 - On a time-to-event fit with a grid of check times, `curve(result, measure="rmst")` or
   `"rmtl"` draws the restricted mean at each grid time whose lower risks the fit holds, and the
   restricted means declared in `restricted_horizons=` otherwise. A `RegimeContrast` fit draws the
