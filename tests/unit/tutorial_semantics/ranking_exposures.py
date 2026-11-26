@@ -13,9 +13,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from cleverly.datasets import PRACTICES, discharge_practices_truth
+from cleverly.datasets import PRACTICES, discharge_practices_protocol, discharge_practices_truth
 from tests.documents import ROOT
-from tests.unit.tutorial_semantics import EXAMPLES, covers
+from tests.unit.tutorial_semantics import EXAMPLES, assert_protocol_recorded, covers
 
 #: The seed sweep that the multiplicity lesson and the chain reading quote.
 _SWEEP = "reviews/notebook-review/probes/ranking-exposures/sweep.log"
@@ -70,6 +70,17 @@ def _check_simple_comparison(namespace: dict[str, Any]) -> None:
             simple.loc[name, "mean discharge_risk, got it"]
             > simple.loc[name, "mean discharge_risk, did not"]
         )
+
+
+def _check_protocol(namespace: dict[str, Any]) -> None:
+    # The protocol step prints the record, both rankings record it, and every candidate's fit
+    # carries its digest.
+    protocol = namespace["protocol"]
+    assert protocol == discharge_practices_protocol()
+    rankings = (namespace["ranking"], namespace["offer_first"])
+    assert all(ranking.protocol is protocol for ranking in rankings)
+    fits = [fit for ranking in rankings for fit in ranking.fits.values()]
+    assert_protocol_recorded(NOTEBOOK, "protocol", protocol, *fits)
 
 
 def _check_ranking(namespace: dict[str, Any]) -> None:
@@ -156,6 +167,7 @@ def check(namespace: dict[str, Any]) -> None:
     """The claims the readings make, on the fast tier."""
     _check_law(namespace)
     _check_simple_comparison(namespace)
+    _check_protocol(namespace)
     _check_ranking(namespace)
     _check_chain(namespace)
     _check_assessment(namespace)

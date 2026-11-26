@@ -137,13 +137,10 @@ cell, update the callback in the same change. Keep every scientific claim of the
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
 
-`plots` is one of two exceptions to the outline. It is a tour of the figures on four fits, not one
+`plots` is the one exception to the outline. It is a tour of the figures on four fits, not one
 analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
 `StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
-`method-evidence` lesson sits under "Go deeper". `ranking-exposures` has no `protocol` cell:
-`variable_importance` takes the columns directly and records no study description, so the page
-prints none that no result would carry. Its "Set up the analysis" shows the adjustment set of each
-fit with `variable_importance_plan`.
+`method-evidence` lesson sits under "Go deeper".
 
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 

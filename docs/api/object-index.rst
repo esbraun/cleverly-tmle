@@ -317,6 +317,7 @@ categorized API tables.
    cleverly.datasets.population_impact_truth
    cleverly.datasets.make_discharge_practices
    cleverly.datasets.discharge_practices_truth
+   cleverly.datasets.discharge_practices_protocol
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol

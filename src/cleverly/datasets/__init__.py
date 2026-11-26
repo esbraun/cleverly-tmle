@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from .discharge_practices import PRACTICES, discharge_practices_truth, make_discharge_practices
+from .discharge_practices import (
+    PRACTICES,
+    discharge_practices_protocol,
+    discharge_practices_truth,
+    make_discharge_practices,
+)
 from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
 from .longitudinal import (
     REPEATED_RULE_LABEL,
@@ -151,6 +156,7 @@ __all__ = [
     "competing_rule_truth",
     "competing_truth",
     "contact_schedules_truth",
+    "discharge_practices_protocol",
     "discharge_practices_truth",
     "heart_failure_protocol",
     "heart_failure_truth",

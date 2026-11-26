@@ -11,7 +11,8 @@ import polars as pl
 import pytest
 import sklearn.linear_model
 
-from cleverly import Replayability, variable_importance
+from cleverly import Replayability, StudyProtocol, variable_importance, variable_importance_plan
+from cleverly._summary import vocabulary
 from cleverly.assessment import (
     AssessmentStatus,
     CandidateReports,
@@ -301,3 +302,86 @@ def test_the_composed_refit_preview_names_itself(
     with pytest.raises(CapabilityError) as caught:
         replace(clean).diagnostics.planned_refits(n_replicates=2, random_state=0)
     assert caught.value.refusal.condition == f"{preview}candidate X2: no refit here"
+
+
+def _ranking_protocol() -> StudyProtocol:
+    return StudyProtocol(
+        target_population="Adults discharged home",
+        eligibility=["Discharged alive"],
+        time_zero="Hospital discharge",
+        treatment_strategies=["Give the practice", "Withhold the practice"],
+        treatment_versions=["As the team gives it", "Usual discharge"],
+        outcome="Y",
+        horizon="30 days after discharge",
+        intercurrent_event_handling=["None"],
+        interference_unit="Patient",
+        assumption_rationale=["W records every common cause of each practice and Y"],
+    )
+
+
+def test_the_protocol_is_recorded_and_printed_as_the_study_description() -> None:
+    protocol = _ranking_protocol()
+    ranking = _assessed(protocol=protocol)
+
+    assert ranking.protocol is protocol
+    full = str(ranking.summary(detail="full"))
+    assert vocabulary.SECTION_STUDY in full
+    for line in protocol.summary_lines():
+        assert line in full
+    # A short summary prints no protocol line, as a single fit's does.
+    assert protocol.target_population not in str(ranking.summary())
+
+
+def test_a_run_without_a_protocol_says_none_was_recorded(clean: Any) -> None:
+    assert clean.protocol is None
+    full = str(clean.summary(detail="full"))
+    assert vocabulary.NO_PROTOCOL in full
+
+
+def test_the_protocol_leaves_the_estimates_unchanged(clean: Any) -> None:
+    ranking = _assessed(protocol=_ranking_protocol())
+    _frames_equal(ranking.to_frame(), clean.to_frame())
+
+
+def test_a_protocol_that_is_not_a_record_is_refused_before_any_fit() -> None:
+    with pytest.raises(TypeError, match="StudyProtocol"):
+        _assessed(protocol={"target_population": "Adults"})
+    with pytest.raises(TypeError, match="StudyProtocol"):
+        variable_importance_plan(
+            _assessed_frame(),
+            outcome="Y",
+            candidates=("X1", "X2"),
+            covariates=("W",),
+            protocol="adults",
+        )
+    with pytest.raises(TypeError, match="StudyProtocol"):
+        replace(_assessed(), protocol="adults")
+
+
+def test_the_plan_takes_the_protocol_and_counts_the_same_fits() -> None:
+    arguments: dict[str, Any] = {
+        "outcome": "Y",
+        "candidates": ("X1", "X2"),
+        "covariates": ("W",),
+        "estimator": TMLE(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            random_state=0,
+        ),
+    }
+    with_record = variable_importance_plan(
+        _assessed_frame(), protocol=_ranking_protocol(), **arguments
+    )
+    without = variable_importance_plan(_assessed_frame(), **arguments)
+    assert with_record.total_fits == without.total_fits
+
+
+def test_each_candidate_fit_stores_the_protocol_fingerprint(clean: Any) -> None:
+    protocol = _ranking_protocol()
+    ranking = _assessed(protocol=protocol)
+    for fit in ranking.fits.values():
+        assert fit.provenance.protocol_fingerprint == protocol.fingerprint
+    # The nonzero witness: without a protocol the fits store none.
+    for fit in clean.fits.values():
+        assert fit.provenance.protocol_fingerprint is None

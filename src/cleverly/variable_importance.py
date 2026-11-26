@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
@@ -25,6 +25,7 @@ from .estimators.tmle import TMLE
 from .exceptions import CapabilityError, DataError, Refusal, RefusalReason, refuse_inference
 from .inference.influence import ParameterEstimate, support_column
 from .inference.results import reported_status
+from .protocol import StudyProtocol
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
 
@@ -139,6 +140,9 @@ class VariableImportanceResult:
     kept_fits : mapping of str to TMLEResult
         The fits a run with ``keep_fits=True`` kept, empty otherwise. Read them through
         :attr:`fits`, which refuses when they were not kept.
+    protocol : StudyProtocol or None
+        Scientific study protocol the run was given. ``None`` records that no protocol was
+        supplied. A full summary prints it as the study description.
 
     Attributes
     ----------
@@ -155,6 +159,7 @@ class VariableImportanceResult:
     method: str = "Benjamini-Hochberg"
     backend: str | None = None
     kept_fits: Mapping[str, TMLEResult] = field(default_factory=dict, repr=False)
+    protocol: StudyProtocol | None = None
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another run.
@@ -171,6 +176,7 @@ class VariableImportanceResult:
             raise ValueError("a result with keep_fits=True holds one fit per candidate")
         if not self.keep_fits and kept:
             raise ValueError("a result with keep_fits=False holds no fits")
+        _check_protocol(self.protocol)
 
     @property
     def fits(self) -> Mapping[str, TMLEResult]:
@@ -359,6 +365,11 @@ class VariableImportanceResult:
         return self.summary().as_html()
 
 
+def _check_protocol(protocol: object) -> None:
+    if protocol is not None and not isinstance(protocol, StudyProtocol):
+        raise TypeError("protocol must be a StudyProtocol or None")
+
+
 def _row_labels(entries: Sequence[VariableImportanceEntry]) -> list[str]:
     """One label per entry: the candidate, with the parameter when a candidate has several."""
     per_candidate: dict[str, int] = {}
@@ -384,6 +395,7 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
         vocabulary,
     )
     from ._summary._estimates import estimates_table
+    from ._summary._setup import _protocol_section
 
     entries = result.entries
     labels = _row_labels(entries)
@@ -452,6 +464,7 @@ def _importance_summary(result: VariableImportanceResult, detail: Detail) -> Sum
         )
     sections: list[SummarySection] = []
     if detail == "full":
+        sections.append(_protocol_section(result.protocol))
         sections.append(
             SummarySection(
                 vocabulary.SECTION_SETTINGS,
@@ -620,6 +633,7 @@ def variable_importance(
     weights_estimated: bool = False,
     id: str | None = None,
     keep_fits: bool = True,
+    protocol: StudyProtocol | None = None,
 ) -> VariableImportanceResult:
     """Estimate one causal importance parameter per candidate exposure.
 
@@ -679,12 +693,18 @@ def variable_importance(
         adjusted p-values and the summary, and releases each candidate's data and fit before
         the next one starts, so memory no longer grows with the number of candidates. Each
         candidate's data is then prepared a second time for its fit.
+    protocol : StudyProtocol or None
+        Scientific study protocol for the whole ranking, recorded on the result and printed
+        by ``summary(detail="full")`` as the study description. ``None`` records that no
+        protocol was supplied. Each candidate's fit stores the protocol's fingerprint in its
+        provenance, as a fit from a :class:`~cleverly.CausalStudy` does.
 
     Returns
     -------
     VariableImportanceResult
         One entry per candidate, with its estimate and adjusted p-value.
     """
+    _check_protocol(protocol)
     prepared: dict[str, tuple[tuple[str, ...], CausalData | None]] = {}
     engines: dict[str, TMLE] = {}
     prepare: Callable[[str, tuple[str, ...]], CausalData] | None = None
@@ -724,6 +744,12 @@ def variable_importance(
             prepared[candidate] = (adjustment_set, None)
         result = engines.pop(candidate).fit(kept_data).single()
         del kept_data
+        if protocol is not None and result.provenance is not None:
+            # Each candidate's fit stores the digest, as a fit from a study does.
+            result = replace(
+                result,
+                provenance=replace(result.provenance, protocol_fingerprint=protocol.fingerprint),
+            )
         fit_summary = result.summary()
         if not raw:
             first_fit = dict(fit_summary.facts)
@@ -766,6 +792,7 @@ def variable_importance(
         keep_fits=keep_fits,
         backend=backend_of(as_frame(data)),
         kept_fits=fits,
+        protocol=protocol,
     )
 
 
@@ -787,6 +814,7 @@ def variable_importance_plan(
     weights_type: str = "probability",
     weights_estimated: bool = False,
     id: str | None = None,
+    protocol: StudyProtocol | None = None,
 ) -> PlannedFits:
     """Count the model fits :func:`variable_importance` would make, without fitting any.
 
@@ -820,6 +848,8 @@ def variable_importance_plan(
         Whether the supplied weights were estimated from these data.
     id : str or None
         Independent-cluster identifier used for variance estimation.
+    protocol : StudyProtocol or None
+        Scientific study protocol, checked as the run checks it. It changes no fit.
 
     Returns
     -------
@@ -868,6 +898,7 @@ def variable_importance_plan(
     """
     from ._planned_fits import PlanBuilder
 
+    _check_protocol(protocol)
     # Every check runs before any candidate is priced, as every check runs before the first
     # fit, so the preview raises the run's first refusal. A candidate's preview can itself
     # refuse (it runs the fit's own preflights), as the run's fit of that candidate would.

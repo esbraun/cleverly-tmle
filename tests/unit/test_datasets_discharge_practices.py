@@ -24,6 +24,7 @@ import pytest
 
 from cleverly.datasets import (
     PRACTICES,
+    discharge_practices_protocol,
     discharge_practices_truth,
     make_discharge_practices,
 )
@@ -290,3 +291,21 @@ def test_the_backends_draw_the_same_values() -> None:
     assert list(polars_frame.columns) == list(pandas_frame.columns)
     for column in pandas_frame.columns:
         np.testing.assert_array_equal(polars_frame[column].to_numpy(), pandas_frame[column])
+
+
+def test_the_protocol_describes_the_drawn_practices_and_outcome() -> None:
+    protocol = discharge_practices_protocol()
+    assert protocol.horizon == "30 days after discharge"
+    # Every drawn practice is named in the version of the first strategy, in words.
+    words = {
+        "transition_navigation": "navigation",
+        "followup_booked": "follow-up visit",
+        "medication_review": "medication review",
+        "teach_back": "teach-back",
+        "home_health_referral": "home-health referral",
+    }
+    assert set(words) == set(PRACTICES)
+    for phrase in words.values():
+        assert phrase in protocol.treatment_versions[0]
+    assert "day 30" in protocol.outcome
+    assert len(protocol.treatment_strategies) == len(protocol.treatment_versions) == 2
