@@ -2443,10 +2443,10 @@ person-node:
   replayed events; `None` when the cell has no event.
 
 The anchor cell reuses the fit and reports no shares. Each refit runs the engine's own guards. A
-cell with $\gamma > 0$ adds events and lowers late survival, so the engine's "initial survival
-reaches zero" error grows with $\gamma$. Such a cell is a recorded failure; the work planned
-under [X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks) part (a) removes that
-error.
+cell with $\gamma > 0$ adds events and lowers late survival, so the engine's refusal "The initial
+survival falls below 1e-250 before the last time a target reads" (`SURVIVAL_UNDERFLOW` in
+`src/cleverly/survival/engine.py`, a `DataError`) becomes more frequent as $\gamma$ grows. Such a
+cell is a recorded failure. No roadmap item changes that floor.
 
 A replay model with a non-finite linear predictor, or a zero or non-finite
 jump at an observed unit's own time, fails every non-anchor cell with that reason, and
@@ -2639,7 +2639,9 @@ $$
 $$
 
 $\Gamma = 1$ is no unmeasured confounding. Call `result.sensitivity.marginal_bounds(gamma=...)` or
-`cleverly.sensitivity.marginal_sensitivity_bounds(result, gamma=...)`.
+`cleverly.sensitivity.marginal_sensitivity_bounds(result, gamma=...)`. Without `gamma=` the grid is
+$\Gamma \in \{1, 1.5, 2\}$ (`DEFAULT_GAMMA_GRID` in `sensitivity/marginal.py`); `gamma=` replaces
+it with a single value or a sequence.
 
 | term | definition |
 | --- | --- |
