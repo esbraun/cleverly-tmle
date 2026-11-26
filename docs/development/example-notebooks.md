@@ -26,6 +26,12 @@ refit cell. The next section defines a refit cell. The module can also define
 `UNPRINTED_DECIMALS`, a mapping from a decimal the prose writes to the reason no output prints it.
 The package docstring in `tests/unit/tutorial_semantics/__init__.py` states the convention.
 
+A new tutorial joins exactly one topic page under `docs/examples/topics/`: a row of its situation
+table and an entry of its hidden toctree, which places it in the sidebar. It also joins the list
+under that topic's heading in the [examples index](../examples/index.md), and a row of the methods
+table there. `tests/unit/test_examples_navigation.py` checks that the index, the topic pages and the
+notebooks agree.
+
 The TWINS notebook downloads its data, so the offline fast tier does not execute it. Its module
 `tests/unit/tutorial_semantics/twins_causal_inference.py` defines no `check`. It defines
 `UNPRINTED_DECIMALS` and `check_stored()`, which read committed outputs only.

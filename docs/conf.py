@@ -112,7 +112,11 @@ html_theme_options = {
     # wide, which pushes the header links onto a second row under about 1350 px
     # and leaves the brand overlapping the first link.
     "logo": {"text": "cleverly"},
-    "show_nav_level": 2,
+    # Only the top level of each section's sidebar starts open: the topic pages of the examples,
+    # the method-evidence and DR-TMLE pages of the technical reference. The branch that holds the
+    # current page stays open, and a chevron opens any other. pydata-sphinx-theme has no
+    # per-section setting, and a toctree caption is neither a link nor collapsible at level 1.
+    "show_nav_level": 1,
     "show_toc_level": 2,
     "navigation_with_keys": False,
     "header_links_before_dropdown": 6,
