@@ -1,16 +1,18 @@
 """The registry-decided lists of the method-evidence navigation pages.
 
-Lists on those pages that follow from the registry alone drift as soon as a branch registers
-a study: the index once named four off-grid studies when there were five.  So each is a generated
-block, filled from :func:`registered` the way :mod:`tests.studies.evidence.red_cells` fills the
-red-cell ledger.
+Two lists on those pages follow from the registry alone, and a hand-kept copy of either drifts
+the moment a branch registers a study: the index once named four off-grid studies when there
+were five.  So both are generated blocks, filled from :func:`registered` the way
+:mod:`tests.studies.evidence.red_cells` fills the red-cell ledger.
 
 * ``off-grid-studies`` on the index: each study that declares neither property cells nor a
   reference, so it has a page and no row of the validation grid.
+* ``pending-comparators`` on the reading guide: each record with a ``pending_reference``, the
+  version its declared image pins, and what the study rests on until the comparator runs.
 
 ``tests/unit/test_method_evidence.py`` asserts that each published block is what :func:`rendered`
 returns.  ``python -m tests.studies.evidence.document`` calls :func:`fill`, so registering a study
-refreshes the blocks with no hand edit.  No study imports this module.
+refreshes both blocks with no hand edit.  No study imports this module.
 
 Run it on its own with::
 
@@ -20,10 +22,12 @@ Run it on its own with::
 from __future__ import annotations
 
 import argparse
+import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from tests.studies.evidence.document import _CLOSE, _OPEN
+from tests.studies.evidence.document import _CLOSE, _OPEN, _table
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
@@ -33,12 +37,28 @@ EVIDENCE = ROOT / "docs" / "technical-reference" / "method-evidence"
 #: Each generated block and the page that carries it once.
 PAGES: Mapping[str, Path] = {
     "off-grid-studies": EVIDENCE / "index.md",
+    "pending-comparators": EVIDENCE / "how-to-read.md",
 }
+
+#: Columns of the pending-comparator table.  The page's typed table of comparators that no
+#: record declares uses the same columns.
+PENDING_COLUMNS = ("study", "comparator and pin", "owner", "what the study rests on meanwhile")
+
+#: A record whose pending comparator ran in another registered study, mapped to that study's
+#: slug.  ``adaptive-iptw`` keeps ``pending_reference="drtmle"`` by the decision recorded in
+#: ``tests/studies/canonical_adaptive_iptw.py``; the pairing study registers ``drtmle`` as its
+#: reference.  The test of this module checks that each target does.
+PAIRED_ELSEWHERE: Mapping[str, str] = {"adaptive-iptw": "adaptive-iptw-pairing"}
+
 
 def _markdown_link(text: str, target: str) -> str:
     # Joined from parts because ``test_documentation_links`` reads every bracket-parenthesis
     # pair in a source file as a link, and a template's placeholder names no file.
     return "".join(("[", text, "]", "(", target, ")"))
+
+
+#: The owner a pending comparator reads when no roadmap item names one.
+NONE_NAMED = "none named; see " + _markdown_link("Comparisons", "../../roadmap.md#comparisons")
 
 
 def _link(record: StudyRecord) -> str:
@@ -78,7 +98,7 @@ def render_off_grid(records: Sequence[StudyRecord]) -> list[str]:
     for record in records:
         if on_the_grid(record):
             continue
-        policy = f"published under `{record.publication_policy}`"
+        policy = f"published under the `{record.publication_policy}` policy"
         if record.publication_policy == "gated":
             policy += (
                 ", for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records"
@@ -89,8 +109,81 @@ def render_off_grid(records: Sequence[StudyRecord]) -> list[str]:
     return lines
 
 
+def pinned_version(record: StudyRecord) -> str | None:
+    """The version of the pending comparator that the image the manifest declares installs.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        A study with a ``pending_reference``.
+
+    Returns
+    -------
+    str or None
+        The version a declared ``Dockerfile`` asserts with ``packageVersion``, or ``None`` when
+        no declared image asserts one.
+    """
+    manifest = json.loads(record.artifact("manifest.json").read_text(encoding="utf-8"))
+    sources = manifest.get("comparator", {}).get("declared_sources_sha256", {})
+    assertion = re.compile(
+        r"packageVersion\('" + re.escape(str(record.pending_reference)) + r"'\)\)\s*==\s*'([^']+)'"
+    )
+    for source in sorted(sources):
+        if Path(source).name != "Dockerfile":
+            continue
+        match = assertion.search((ROOT / source).read_text(encoding="utf-8"))
+        if match:
+            return match.group(1)
+    return None
+
+
+def render_pending(records: Sequence[StudyRecord]) -> list[str]:
+    """One table row per record with a ``pending_reference``.
+
+    Parameters
+    ----------
+    records : Sequence of StudyRecord
+        The studies to read, in registry order.
+
+    Returns
+    -------
+    list of str
+        The block's lines: a table with :data:`PENDING_COLUMNS`.
+
+    Raises
+    ------
+    LookupError
+        If a :data:`PAIRED_ELSEWHERE` target is not a registered study.
+    """
+    by_slug = {record.slug: record for record in records}
+    rows = []
+    for record in records:
+        if record.pending_reference is None:
+            continue
+        version = pinned_version(record)
+        comparator = f"R `{record.pending_reference}`" + (
+            f" {version}" if version else ", no version asserted by the declared image"
+        )
+        owner = NONE_NAMED
+        if record.slug in PAIRED_ELSEWHERE:
+            target = by_slug.get(PAIRED_ELSEWHERE[record.slug])
+            if target is None:
+                raise LookupError(
+                    f"{record.slug} is paired in {PAIRED_ELSEWHERE[record.slug]}, "
+                    "which is not registered"
+                )
+            owner = f"ran in {_markdown_link(target.slug, Path(target.document).name)}"
+        cells = len(record.property_cells)
+        rests_on = (
+            f"its truth tests and {cells} property cell{'s' if cells != 1 else ''}, "
+            f"published under the `{record.publication_policy}` policy"
+        )
+        rows.append((_link(record), comparator, owner, rests_on))
+    return _table(PENDING_COLUMNS, rows)
+
+
 def rendered(records: Sequence[StudyRecord] | None = None) -> dict[str, list[str]]:
-    """Render every block from the registry.
+    """Render both blocks from the registry.
 
     Parameters
     ----------
@@ -105,6 +198,7 @@ def rendered(records: Sequence[StudyRecord] | None = None) -> dict[str, list[str
     records = registered() if records is None else records
     return {
         "off-grid-studies": render_off_grid(records),
+        "pending-comparators": render_pending(records),
     }
 
 
@@ -150,7 +244,7 @@ def published(name: str, page: Path | None = None) -> list[str]:
 
 
 def fill() -> list[str]:
-    """Rewrite every generated block from the registry.
+    """Rewrite both generated blocks from the registry.
 
     Returns
     -------

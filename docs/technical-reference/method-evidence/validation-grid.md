@@ -206,7 +206,9 @@ that declares neither has its own page and no row here; the
 [list of off-grid studies](index.md) names each one.
 
 A study with a pending comparator carries the label "Python property evidence, with comparator
-runs pending" and a paired count of 0/0.
+runs pending" and a paired count of 0/0. The section "Comparators that are declared and have not
+run" of [how to read these studies](how-to-read.md) lists each one, and the comparators that a
+study page declares without a grid label.
 
 Full test-by-test results are in the
 [implementation validation studies](index.md). Each study publishes one row per

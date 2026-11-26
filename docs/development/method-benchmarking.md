@@ -527,7 +527,7 @@ dependent row, and a later change registers it. This is the owner's rule, and it
 | register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
 | regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
 | manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
-| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0. `python -m tests.studies.evidence.document` adds the study's row to the generated pending-comparator table of the method-evidence reading guide. A comparator that no record declares goes in that page's typed table by hand |
 | add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
 
 `tests/unit/test_method_evidence.py` asserts the pending state for every registered study through

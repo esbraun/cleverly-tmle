@@ -120,6 +120,35 @@ legs does not. Three clauses are not accountable: `natural_course_identity`, `st
 and the closed-score clause of `correction_necessity`. A lost replicate turns each of them red at
 any bound.
 
+## Comparators that are declared and have not run
+
+A study can declare a canonical comparator before its runs exist. The record's
+`pending_reference` is what the grid label "Python property evidence, with comparator runs
+pending" reads, and the table below is generated from it. A comparator declared only on a study
+page, or in a module that no record reads, carries no grid label. The second table lists those
+by hand. Both use the same columns.
+
+Declared in the record:
+
+<!-- generated: pending-comparators -->
+| study | comparator and pin | owner | what the study rests on meanwhile |
+| --- | --- | --- | --- |
+| [censored continuous-treatment modified policies](mtp-pricing-censored.md) | R `lmtp` 1.5.4 | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 2 property cells, published under the `reporting` policy |
+| [longitudinal incremental propensity-score interventions](longitudinal-incremental-interventions.md) | R `npcausal` 0.1.0 | none named; see [Comparisons](../../roadmap.md#comparisons) | its truth tests and 9 property cells, published under the `gated` policy |
+| [adaptive-propensity IPTW](adaptive-iptw.md) | R `drtmle` 1.1.2 | ran in [adaptive-iptw-pairing](adaptive-iptw-pairing.md) | its truth tests and 7 property cells, published under the `reporting` policy |
+<!-- /generated -->
+
+Declared on the page or in a separate record:
+
+| study | comparator and pin | owner | what the study rests on meanwhile |
+| --- | --- | --- | --- |
+| [eliminated competing events longitudinal TMLE](eliminated-competing-events.md) | R `lmtp` with a composite censoring column | [X91](../../roadmap.md#x91-survival-targets-across-the-estimators) | its truth tests and 2 property cells, published under the `gated` policy |
+| [targeting curves](targeting-curves.md) | R `grf`, `rank_average_treatment_effect` on shared nuisance scores | [X92](../../roadmap.md#x92-plots-and-visualizations) | its truth tests and 5 property cells, published under the `reporting` policy |
+| [EP learner of the CATE](ep-cate.md) | hte3 `Lrnr_cate_EP` at `eac64673`, declared in `tests/studies/ep_cate.py` | none named; see [Comparisons](../../roadmap.md#comparisons) | its oracle comparisons, truth tests and 4 property cells, published under the `gated` policy |
+| [EP learner of the log CRR](ep-crr.md) | hte3 `Lrnr_crr_EP` at `eac64673`, declared in `tests/studies/ep_crr.py` | none named; see [Comparisons](../../roadmap.md#comparisons) | its oracle comparisons, truth tests and 3 property cells, published under the `gated` policy |
+| [adaptive TMLE with external data](adaptive-tmle-trial.md) | R `atmle` at `84528088`, `COMPARATOR` in `tests/studies/adaptive_tmle_trial.py`, to run as a pairing record on constant truths | none named; see [Comparisons](../../roadmap.md#comparisons) | its gated primary coverage tests and controls; it has no grid row |
+| [adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) | R `atmle`, declared as a separate pairing record | none named; see [Comparisons](../../roadmap.md#comparisons) | its gated primary coverage tests; it has no grid row |
+
 ## Terms
 
 | term | definition |

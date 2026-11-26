@@ -11,7 +11,7 @@ Read the pages in this order.
 | page | what it gives you |
 | --- | --- |
 | [Implementation validation grid](validation-grid.md) | every validation study in one table, with the counts and the declared limits |
-| [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
+| [How to read these studies](how-to-read.md) | the three questions, the verdict rules, the comparators declared and not yet run, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
 | the study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
@@ -20,11 +20,11 @@ is comparator-backed, and its agreement block names the comparison kind of each 
 studies declare neither, so each has a page and no grid row:
 
 <!-- generated: off-grid-studies -->
-- [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md): no property cell and no comparator in its record; published under `reporting`.
-- [collaborative TMLE of a risk curve](survival-ctmle.md): no property cell and no comparator in its record; published under `reporting`.
-- [continuous-time survival switched variance](continuous-survival-variance.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
-- [Adaptive TMLE with external data](adaptive-tmle-trial.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
-- [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md): no property cell and no comparator in its record; published under `gated`, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+- [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md): no property cell and no comparator in its record; published under the `reporting` policy.
+- [collaborative TMLE of a risk curve](survival-ctmle.md): no property cell and no comparator in its record; published under the `reporting` policy.
+- [continuous-time survival switched variance](continuous-survival-variance.md): no property cell and no comparator in its record; published under the `gated` policy, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+- [Adaptive TMLE with external data](adaptive-tmle-trial.md): no property cell and no comparator in its record; published under the `gated` policy, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
+- [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md): no property cell and no comparator in its record; published under the `gated` policy, for the reason `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py` records.
 <!-- /generated -->
 
 To register a new study, follow

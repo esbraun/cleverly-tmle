@@ -4337,6 +4337,56 @@ def test_the_off_grid_check_fails_on_a_mutated_list(tmp_path: Path, mutation: st
     assert len(_off_grid_findings(copy)) == 2, f"the mutation {mutation} went unreported"
 
 
+def _pending_findings(page: Path) -> list[str]:
+    """How the reading guide's pending-comparator block disagrees with the registry."""
+    block = navigation.published("pending-comparators", page)
+    findings = []
+    if block != navigation.rendered()["pending-comparators"]:
+        findings.append("the block is not what navigation.rendered() returns")
+    rows = [line for line in block[2:] if line.startswith("|")]
+    linked = {link["target"] for row in rows for link in _MARKDOWN_LINK.finditer(row.split("|")[1])}
+    expected = {Path(study.document).name for study in STUDIES if study.pending_reference}
+    if linked != expected:
+        findings.append(f"rows {sorted(linked)} differ from the pending records {sorted(expected)}")
+    return findings
+
+
+def test_the_pending_comparator_block_is_fresh() -> None:
+    """The reading guide has one row for each record with a ``pending_reference``.
+
+    No page listed the declared comparators that have not run, so a reader could not tell
+    which grid label meant a comparison was still owed.  Run
+    ``python -m tests.studies.evidence.navigation`` rather than editing the block.
+    """
+    assert _pending_findings(navigation.PAGES["pending-comparators"]) == []
+
+
+def test_the_pending_comparator_check_fails_when_a_row_is_removed(tmp_path: Path) -> None:
+    """A copy of the reading guide with one generated row removed fails both checks."""
+    page = navigation.PAGES["pending-comparators"]
+    lines = page.read_text(encoding="utf-8").splitlines()
+    head = lines.index(_OPEN.format(name="pending-comparators"))
+    del lines[head + 3]
+    copy = tmp_path / "how-to-read.md"
+    copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert len(_pending_findings(copy)) == 2
+
+
+def test_each_comparator_paired_elsewhere_ran_there() -> None:
+    """A :data:`navigation.PAIRED_ELSEWHERE` entry is pending, and its target compares the same.
+
+    The block tells the reader that the comparison ran in the target study, so the target must
+    be registered with the pending comparator as its ``reference``.
+    """
+    for slug, target in navigation.PAIRED_ELSEWHERE.items():
+        study, pairing = STUDY_BY_SLUG.get(slug), STUDY_BY_SLUG.get(target)
+        assert study is not None and pairing is not None, (slug, target)
+        assert study.pending_reference is not None, f"{slug} has no pending comparator"
+        assert pairing.reference == study.pending_reference, (
+            f"{target} does not register {study.pending_reference} as its reference"
+        )
+
+
 class TestTheQuantityVocabulary:
     """The name-to-artefact map, which one gate reads and nothing else checks."""
 
