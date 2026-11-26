@@ -4,8 +4,8 @@
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Twenty-two examples use simulated data, so each page can compare its estimate with the
-true answer. The twenty-third uses real birth records. If you are new to causal inference, read
+manager. Twenty-three examples use simulated data, so each page can compare its estimate with the
+true answer. The twenty-fourth uses real birth records. If you are new to causal inference, read
 [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
 tables and row names that every page prints.

@@ -15,7 +15,7 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries twenty-two tutorials and the TWINS notebook. Every method entry
+[Examples](examples/index.md) carries twenty-three tutorials and the TWINS notebook. Every method entry
 in the technical reference has at least one tutorial, and each entry and its tutorials link to each
 other in both directions. A new method entry needs a new tutorial, or a new section in a tutorial
 that fits its question.
