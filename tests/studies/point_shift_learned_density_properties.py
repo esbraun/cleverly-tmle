@@ -48,14 +48,14 @@ CALIBRATION_N = study.PRIMARY_N
 FAMILY = "interval_calibration"
 LABEL = "crossfit_learned"
 
-#: The calibration draws: the per-cell predictive rule
-#: (:func:`~tests.studies.mtp_study_tools.per_arm_replicates`) at a pilot SE ratio of exactly 1
-#: for all three cells, with the pilot's own error
-#: (:data:`~tests.studies.point_shift_learned_density_pilot.PILOT_DRAWS`). The three contrasts
-#: are distinct parameters, not exchangeable arms, so the per-cell rule applies. Before the
-#: declared run this count is set to :func:`calibration_count` of the pilot
+#: The calibration draws. Declared at 4,800, the per-cell predictive rule
+#: (:func:`~tests.studies.mtp_study_tools.per_arm_replicates`) at an ideal pilot; the three
+#: contrasts are distinct parameters, so the per-cell rule applies. Set before the declared run to
+#: :func:`calibration_count` of the 3,200-draw pilot (``point_shift_learned_density_pilot.csv``):
+#: the pilot's largest spread constant is 1.180 (the +1.0 contrast, SE ratio 1.046), at which the
+#: rule cannot size the cells and the cap is unbounded, so the run proceeds at the fixed ceiling
 #: (``test_point_shift_learned_density_design``).
-CALIBRATION_REPLICATES = 4_800
+CALIBRATION_REPLICATES = 19_600
 #: The cap at the shared spread constant: the 95th percentile, as a multiple of 400, of the
 #: per-cell count over simulated ideal pilots of three cells (:func:`calibration_cap`).
 CALIBRATION_REPLICATES_CAP = 19_600

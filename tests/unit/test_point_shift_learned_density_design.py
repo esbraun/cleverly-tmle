@@ -167,7 +167,7 @@ def test_the_primary_count() -> None:
 
 def test_the_calibration_count_at_an_ideal_pilot() -> None:
     sized = tools.per_arm_replicates([1.0, 1.0, 1.0], pilot.PILOT_DRAWS)
-    assert sized["R"] == properties.CALIBRATION_REPLICATES == 4_800
+    assert sized["R"] == 4_800 <= properties.CALIBRATION_REPLICATES
     # A known ratio of 1 (an infinite pilot) needs 3,200: the floor any pilot can reach.
     assert tools.smallest_replicates(1.0, 10**9, 3, tau=0.0)[0] == 3_200
 
@@ -183,7 +183,7 @@ def test_an_unsizable_heavy_tailed_pilot_runs_at_the_ceiling() -> None:
 
 def test_heavier_tails_raise_the_count() -> None:
     sized = properties.calibration_count([1.0, 1.0, 1.0], [1.25, 1.0, 1.0])
-    assert sized["c"] == 1.25 and sized["rule"] > properties.CALIBRATION_REPLICATES
+    assert sized["c"] == 1.25 and sized["rule"] > 4_800
     assert sized["declared"] == min(sized["rule"], sized["cap"])
 
 
