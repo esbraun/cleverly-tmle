@@ -121,7 +121,7 @@ COMPARISON_KINDS = ("matching implementation", "different estimator", "related t
 class StudyRecord:
     """One row of the implementation validation grid, and all the machinery needs to check it."""
 
-    #: The name the documentation grid's first cell must carry, verbatim.
+    #: The name the documentation grid's method cell must carry, verbatim.
     name: str
     slug: str
     #: Directory holding the committed artefacts.
@@ -588,7 +588,7 @@ class StudyRecord:
 
 
 def registered() -> tuple[StudyRecord, ...]:
-    """Every registered study, in documentation-grid order.
+    """Every registered study, in registration order.
 
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.

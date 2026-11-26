@@ -32,7 +32,8 @@ The last condition is the one a *variant* of the estimator can weaken. That vari
 [DR-TMLE](dr-tmle/index.md).
 
 A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.ipynb). It
-measures what an in-sample interval costs under a flexible learner.
+measures what an in-sample interval costs under a flexible learner, declares shared teams with
+grouped folds and a team-level standard error, and checks that interval with a team bootstrap.
 
 ## The algorithm as implemented
 

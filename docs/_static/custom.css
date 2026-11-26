@@ -147,7 +147,7 @@ html[data-theme="dark"] .cleverly-workflow li {
   z-index: 2;
 }
 
-#implementation-validation-grid .pst-scrollable-table-container td:first-child {
+#implementation-validation-grid .pst-scrollable-table-container td.cleverly-grid-method-cell {
   font-weight: 600;
 }
 
