@@ -89,8 +89,8 @@ contrast is the one comparison against a different estimator, the trial-only TML
 The efficiency contrast gates on `a0` only. There the external rows carry no bias and the
 selection that the oracle would make leaves the constant alone, which gives the influence function
 0.48 of the trial-only standard deviation. On `a1a` and `a1b` a gain needs the lasso to leave out
-every column that gives the external arms a free mean shift. The design review read ratios of
-about 1.05 and 1.14 on scratch draws, so those two rows report the ratio. The committed run reads
+every column that gives the external arms a free mean shift. Scratch draws before the run read
+ratios of about 1.05 and 1.14, so those two rows report the ratio. The committed run reads
 1.022 and 1.056, with upper bounds 1.038 and 1.076: no gain there, and a small loss.
 
 ## The declared stress row

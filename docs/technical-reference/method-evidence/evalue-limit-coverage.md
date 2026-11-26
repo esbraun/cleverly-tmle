@@ -21,8 +21,7 @@ absence of a comparator.
 | size | 1,600 replications at $n = 2000$ per cell, and 4,000 property draws per cell |
 | Monte Carlo inference | 99% intervals around every declared endpoint |
 
-`X82-SG-plan.md` rev 2 in the plans repository fixed the cells, the budget, the seeds and the
-red-cell route before any run.
+The study fixed the cells, the budget, the seeds and the red-cell route before any run.
 
 ## Accuracy against known truth
 
@@ -120,7 +119,7 @@ from the committed results and checked at the precision printed.
 | There is no cross-implementation evidence | No maintained implementation reports these limits |
 | One law, size and learner per rule | A fit outside the covered configuration prints the descriptive sentence and names the covered one |
 | The `cde` limit has no row | The `cde-tmle` study measures the `rr` coverage at 0.943 and 0.946, but its fits use oracle nuisances. No user fit has that configuration, so a pointer row would cover nothing |
-| `response_sd` and the derived `CTMLE` and `DRTMLE` limits have no cell | Those limits stay descriptive (`X82-SG-plan.md` rev 2, section 1) |
+| `response_sd` and the derived `CTMLE` and `DRTMLE` limits have no cell | The study declared those limits descriptive before the run |
 
 ## Reproduction
 

@@ -59,7 +59,7 @@ at which that gap is at least three SEs of the limit rule's curve: 2,085 rows ar
 2,000 gives 2.94. Every other cell keeps n = 2,000. The hinge term of the `partially_exceptional`
 learner makes its model correct, so C3f holds off the tie set and only C7 fails there. The laws,
 the learners, the budgets, the seeds, the gate and the support-row condition were fixed before
-any run, in the X11 plan, its review, the implementation review and the study design record.
+any run.
 
 `tests/unit/test_learned_rule_optimal_value_design.py` pins each limit, the gate and its
 mutations, the efficiency bound, the control's n, the sizing and the seeds.
@@ -153,8 +153,8 @@ With the treatment model fitted, the `non_exceptional` fit reads a bias interval
 -0.0004, an SE ratio of 0.975 and coverage of 0.948, with a 99% interval of 0.930 to 0.963, over
 1,200 draws. Against $\tilde\psi_{0n}$ it reads coverage of 0.954 and an SE ratio of 0.986, with a
 mean regret of 0.00135. The source states the result with $g$ known, and an estimated $g$ is the
-package's step. This reading is published for decision E2 of the X11 plan, not as a validated
-claim, and such a fit reads experimental.
+package's step. This reading is published as a report, not as a validated claim, and such a
+fit reads experimental.
 
 ### The partially exceptional law
 
@@ -265,7 +265,7 @@ committed results and checked at the precision printed.
 | One law, one size and one learner per role | The study fits n = 2,000 on one law with a binary treatment and outcome, ten equal folds, pooled targeting, the plug-in rule, `repeats=1`, iid rows and no weights, strata or known regimes. The outcome model is a correctly specified parametric logistic model, so its limit rule is the optimal rule, and the blip $0.1 + W_1$ has no tie set and a bounded density at 0. The key holds neither the learner, the law nor n, so a misspecified or flexible learner, a law with ties, a steeper margin or another n reads supported and was not measured |
 | The interval covers the optimal value up to the regret | The regret $\Psi_{d_0} - \tilde\psi_{0n}$ is $O_P(1/n)$ under these conditions, and at n = 2,000 its mean is 0.00138, about 0.09 estimate SDs. The primary bias interval excludes zero because of it, and its spread lowers the SE ratio against $\Psi_{d_0}$ by about 0.9%. Against $\tilde\psi_{0n}$ the calibration cell reads a standardized bias of +0.004, an SE ratio of 1.006 and coverage of 0.952. One n is measured, so the rate is not shown |
 | The target control runs at n = 2,500 | With a learner whose limit rule treats nobody while $d_0$ treats 29.3%, the interval covers the value of the learner's rules (0.958) and misses $\Psi_{d_0}$ (0.09). The study shows that C3f matters, not how far a learner may stray from $d_0$ |
-| Known treatment mechanism only | The row needs `treatment_probabilities=`, which keys `known_mechanism`. With an estimated $g$ the fit reads a bias interval of -0.0026 to -0.0004, an SE ratio of 0.975 and coverage of 0.948 (99% interval 0.930 to 0.963) over 1,200 draws. That is a reading for decision E2, not a claim, and such a fit reads experimental |
+| Known treatment mechanism only | The row needs `treatment_probabilities=`, which keys `known_mechanism`. With an estimated $g$ the fit reads a bias interval of -0.0026 to -0.0004, an SE ratio of 0.975 and coverage of 0.948 (99% interval 0.930 to 0.963) over 1,200 draws. That is a report, not a claim, and such a fit reads experimental |
 | No claim at an exceptional law | Where the blip is zero on 60% of the population, the interval covers 0.912 at an SE ratio of 0.888 against $\Psi_{d_0}$, and 0.919 at 0.893 against $\tilde\psi_{0n}$. The fold rules do not settle on the tie set (disagreement 0 to 0.735), which breaks the fixed-limit condition; the regret, 0.00086 on average, is not the cause |
 | Compositions outside the row | A rule learner, clusters, `repeats` above 1, fold targeting, the stacked report, more than two arms and an estimated $g$ match no row and read experimental. Weights, strata, known regimes beside the optimal value, the in-sample fit and an intermediate held at a level run and read experimental ([the value of the optimal rule](../point-treatment-tmle.md#learned-rules)) |
 | Pointwise intervals | The study reads the pointwise interval of the one optimal value |

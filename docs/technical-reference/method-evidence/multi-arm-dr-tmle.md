@@ -1,4 +1,4 @@
-# Multi-arm DR-TMLE
+# Multi-arm point-treatment DR-TMLE
 
 This study exercises the armwise multi-treatment extension implemented by `cleverly` and R
 [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2 at pinned commit `538a3a2`. The two

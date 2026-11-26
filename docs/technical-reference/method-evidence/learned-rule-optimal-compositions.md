@@ -69,7 +69,7 @@ $\mathbb 1\{W_1 > -0.1 - \log 2\}$, so the weighted target lies 0.0277 above the
 the unweighted rule, $\Psi^w_{d_0}(P_w) = 0.662385$, and 0.1130 above $\Psi_{d_0}(P_0)$. The SD
 column sizes the noise controls only, at one unit, and no verdict reads it as an efficiency bound.
 The laws, the learners, the budgets, the seeds, the gates, the controls and the support rows were
-fixed before any run, in the X11 plan, its review and the PR 2 implementation notes.
+fixed before any run.
 
 `tests/unit/test_learned_rule_optimal_compositions_design.py` pins each truth, the sizing, the
 controls' gaps and power, and the declared support rows.

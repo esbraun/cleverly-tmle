@@ -1,4 +1,4 @@
-# Longitudinal incremental interventions
+# Longitudinal incremental propensity-score interventions
 
 This study validates `IPSI` in `cleverly.longitudinal`. `IPSI` is the one-step estimator of Kennedy
 (2019), Algorithm 1, for incremental propensity-score interventions over time. The

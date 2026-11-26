@@ -32,8 +32,8 @@ The zero-row equivalence artifact records the absence of a comparator.
 | primary phase | 200 replications of the PJ1 contrast against its exact truth, as a sanity check of the fit that the rule reads |
 | Monte Carlo inference | exact 99% intervals around every rate, and 99% intervals around every primary endpoint |
 
-`X82-J-plan.md` rev 2 fixed the laws, the cells, the seeds and the red-cell route before the run.
-The design review set the size cutoff to 20, because the 20 refits of one PJ1 trial share one
+The study fixed the laws, the cells, the seeds and the red-cell route before the run. It set the
+size cutoff to 20, because the 20 refits of one PJ1 trial share one
 remainder of the OLS outcome. The module docstring of `tests/studies/refuter_calibration_band.py`
 states each law and the defect. `tests/unit/test_refuter_calibration_band_design.py` reads the
 sizing probe in `tests/diagnostics/x82_sj_sizing/`.

@@ -1,4 +1,4 @@
-# Stochastic point-treatment regimes
+# Ordinary known stochastic point-treatment regimes
 
 This study validates an ordinary known stochastic regime over two treatment arms. It compares
 `cleverly` with pinned R `lmtp` 1.5.4 on identical binary-outcome samples and exact treatment

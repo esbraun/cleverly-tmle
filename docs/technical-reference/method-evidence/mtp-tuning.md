@@ -1,4 +1,4 @@
-# MTP tuning
+# Tuned caps and their population and fold-average targets
 
 This study validates a modified treatment policy whose cap is tuned on the data. The policy is
 `Shift(1.0, cap=c(h))` at both nodes of one law. The cap is a dose quantile (`DoseQuantile`) or a
@@ -6,10 +6,9 @@ linear quantile regression of the dose (`SupportBoundary(LinearQuantileRegressio
 [modified treatment policies at a node](../longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 section states the estimator and its conditions.
 
-**Status of this page.** The study is registered, and its Python phases have run. No other
-implementation fits the tuning term of a tuned cap, so the study has no comparator and no pending
-reference. The publication policy is `reporting`. A red cell stays red on this page and in the
-[red-cell ledger](red-cells.md), with the owner row that names it.
+No other implementation fits the tuning term of a tuned cap, so the study has no comparator and no
+pending reference. The publication policy is `reporting`. A red cell stays red on this page and in
+the [red-cell ledger](red-cells.md), with the owner row that names it.
 
 | part | what it is | status |
 | --- | --- | --- |

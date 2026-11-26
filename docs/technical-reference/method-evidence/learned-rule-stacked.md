@@ -50,9 +50,8 @@ point at -0.120 stacked SDs and the stacked point at about -0.01 SD at 200 clust
 and at -0.29 and -0.03 SD at 40 clusters. `tests/unit/test_learned_rule_stacked_design.py` pins
 the law's constants, the oracle, the seeds and the sizing.
 
-The X11 plan, its review and the study design record fixed the settings, the learners, the
-budgets, the seeds, the truth rule, the variance rules and the `unequal_clusters` rule before any
-run. `tests/unit/test_learned_rule_stacked.py` holds the unit witnesses of the construction, and
+The settings, the learners, the budgets, the seeds, the truth rule, the variance rules and the
+`unequal_clusters` rule were fixed before any run. `tests/unit/test_learned_rule_stacked.py` holds the unit witnesses of the construction, and
 `tests/unit/test_learned_rule_stacked_harness.py` checks the laws, the harness, the stored
 variance rules and the variance terms.
 

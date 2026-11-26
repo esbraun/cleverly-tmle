@@ -46,7 +46,7 @@ at the larger of its second-order theory bias and its oracle bias, which sets 2,
 numbers.
 
 **Declaration history.** The study was first declared at commit `3c00484`. Before any run it was
-redeclared under the design review's rev 2.2. Those changes added the reduced-span retry of the
+redeclared. The redeclaration added the reduced-span retry of the
 log-ratio fluctuation, the pilot at 2,400 draws, the separate pool and the oracle reference.
 The n rule moved both log-ratio calibration groups from 2,000 to 4,000 rows. The final
 declaration is commit `804cfea`, which raised the bias budget to 2,000, and the declared run

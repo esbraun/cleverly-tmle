@@ -1,4 +1,4 @@
-# MTP policy variance
+# Policy-weighted variance for heavy density ratios
 
 This study validates `variance="policy_weighted"` on `LTMLE` and `SDR` for a modified treatment
 policy, and it checks the default Wald interval in the regime where its tail-size rule says the
@@ -10,10 +10,9 @@ interval in every sample. The
 [interval under heavy cumulative density ratios](../longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)
 section states the estimator, its guarantee and its conditions.
 
-**Status of this page.** The study is registered, and its Python phases have run. R `lmtp` has no
-such variance, so the study has no comparator and no pending reference. The publication policy is
-`gated`: every gated row passes. A red cell of the default interval stays red in the
-[red-cell ledger](red-cells.md), with the owner row that names it.
+R `lmtp` has no such variance, so the study has no comparator and no pending reference. The
+publication policy is `gated`: every gated row passes. A red cell of the default interval stays red
+in the [red-cell ledger](red-cells.md), with the owner row that names it.
 
 | part | what it is | status |
 | --- | --- | --- |
