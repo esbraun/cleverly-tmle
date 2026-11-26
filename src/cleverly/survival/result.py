@@ -764,7 +764,7 @@ def attach_bootstrap(
 #: mean must be targeted rather than read off the targeted risks.
 OFF_GRID_SHARE: Final[float] = 0.40
 
-#: The support of a ratio of two risks: no registered study measures one.
+#: The support of a ratio the fit does not report itself: an odds ratio or a survival-view ratio.
 RATIO_SUPPORT: Final[Support] = _experimental(RATIO_REASON)
 
 #: The support of a smooth function of reported estimates: no registered study measures one.
@@ -1621,8 +1621,10 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         type only.  Under ``variance="switched"`` the log-scale variance is
         :math:`h^\\top \\hat\\Sigma_{pv} h` with :math:`h` the gradient of the log ratio over the
         targeted levels, raised over the influence-curve variance as for a stored estimate, with
-        the switch read on the ratio's own curve.  No registered study measures a
-        continuous-time ratio, so it reads ``experimental``.
+        the switch read on the ratio's own curve.  A risk ratio on the risk view carries the
+        label of the fit's own ``rr_regimen`` estimate, which the registered
+        continuous-survival-functionals study supports only in a fit with one restricted
+        horizon; an odds ratio and a survival-view ratio read ``experimental``.
 
         Parameters
         ----------
