@@ -233,7 +233,7 @@ def test_a_stochastic_node_is_refused() -> None:
     from cleverly.interventions import Stochastic
 
     node = Stochastic(lambda frame: np.full((len(frame), 2), 0.5), "half", density_kind="known")
-    with pytest.raises(ValueError, match="stochastic policy node"):
+    with pytest.raises(ValueError, match="intervention object"):
         recovery_offer_count(node, 0, 0)
 
 

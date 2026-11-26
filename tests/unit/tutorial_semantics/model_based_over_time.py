@@ -224,7 +224,8 @@ def _check_compare(namespace: dict[str, Any]) -> None:
     assert [round(value, 2) for value in gain.ci] == [9.08, 11.73]
     assert covers(gain, truth[CONTRAST])
     assert gain.support.label == "experimental"
-    assert "G08" in gain.support.reason and "outcome" in gain.support.reason
+    assert "G08" in gain.support.reason
+    assert "outcome" in gain.support.reason and "treatment" in gain.support.reason
     # The figure's companion prints the four intervals it draws.
     assert list(namespace["gains"]) == [
         "g-formula",
@@ -300,15 +301,13 @@ def _check_blip_overlap(namespace: dict[str, Any]) -> None:
 
 
 def _check_bootstrap(namespace: dict[str, Any]) -> None:
-    replicates, derived = namespace["replicates"], namespace["derived"]
-    assert len(replicates) == 100
-    assert round(float(replicates.std(ddof=1)), 2) == 0.58
+    boot, derived = namespace["boot"], namespace["derived"]
+    assert boot.n_replicates == 100
+    assert round(boot.std_error, 2) == 0.58
     assert round(derived.std_error, 2) == 0.59
-    assert [round(float(value), 2) for value in (namespace["low"], namespace["high"])] == [
-        9.50,
-        11.86,
-    ]
-    assert "marks it experimental" in stored_output(NOTEBOOK, "bootstrap")
+    assert [round(float(value), 2) for value in boot.ci] == [9.50, 11.86]
+    # "The bootstrap interval reads `experimental`".
+    assert boot.support.label == "experimental"
 
 
 def _sweep() -> tuple[str, pd.DataFrame]:

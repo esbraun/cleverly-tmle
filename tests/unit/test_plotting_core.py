@@ -1080,6 +1080,8 @@ def test_forest_truth_follows_each_row_when_panels_regroup_the_rows(binary_fit: 
         rows = dict(zip(ax.get_yticks(), (t.get_text() for t in ax.get_yticklabels()), strict=True))
         for x, y in _truth_marks(ax):
             drawn[rows[y]] = x
+            low, high = ax.get_xlim()
+            assert low <= x <= high
     assert drawn == truth
 
 

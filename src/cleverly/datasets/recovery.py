@@ -174,8 +174,8 @@ def _offer(node: int, offer: Offer, history: dict[str, float]) -> float:
     """The offer that one node of a plan makes to a patient with this binary history."""
     if hasattr(offer, "density_kind"):
         raise ValueError(
-            f"decision {node + 1} is a stochastic policy node; recovery truths take 0, 1 or a "
-            "known rule at each decision"
+            f"decision {node + 1} is an intervention object ({type(offer).__name__}); recovery "
+            "truths take 0, 1 or a known rule at each decision"
         )
     if callable(offer):
         columns = _RULE_COLUMNS[node]

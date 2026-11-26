@@ -164,7 +164,7 @@ day 30.
 | name | what it holds |
 | --- | --- |
 | `make_recovery_score` | a wide frame of three navigation offers with a symptom flag before each later offer and the day-30 score, with the exact plan means and the effect of each offer |
-| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers, each fixed or a known rule of the symptom record |
+| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers, each fixed or a known rule of living alone and the symptom flags |
 | `recovery_offer_count` | the exact expected number of offers per patient under such a plan |
 | `recovery_score_protocol` | the `StudyProtocol` of the three-decision recovery question |
 | `RECOVERY_PLANS`, `RECOVERY_BOUNDS` | the plans `always` and `never`, and the known range of the score, 0 to 100 |
