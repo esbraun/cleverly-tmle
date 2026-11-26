@@ -462,7 +462,10 @@ class _SoftLogistic:
     """A logistic model of a fraction in ``[0, 1]``, fitted on the soft labels.
 
     Each row enters twice, as an event with weight ``w * y`` and as a non-event with weight
-    ``w * (1 - y)``, so the fit maximizes the soft log-likelihood.
+    ``w * (1 - y)``, so the fit maximizes the soft log-likelihood.  When every positive weight
+    carries one label (all the fractions zero, or all one), that label maximizes the likelihood
+    and the model predicts it, as :meth:`ContinuationModel.fit` does for its whole training set.
+    An inner training fold can hold no event where the whole set holds some.
     """
 
     def __init__(self, C: float, random_state: int | None) -> None:
@@ -492,10 +495,15 @@ class _SoftLogistic:
         labels = np.r_[np.ones(len(y)), np.zeros(len(y))]
         weights = np.r_[sample_weight * y, sample_weight * (1.0 - y)]
         keep = weights > 0
-        self.pipeline_.fit(stacked[keep], labels[keep], model__sample_weight=weights[keep])
+        seen = np.unique(labels[keep])
+        self.constant_: float | None = float(seen[0]) if seen.size == 1 else None
+        if self.constant_ is None:
+            self.pipeline_.fit(stacked[keep], labels[keep], model__sample_weight=weights[keep])
         return self
 
     def predict(self, X: FloatArray) -> FloatArray:
+        if self.constant_ is not None:
+            return np.full(len(X), self.constant_)
         return np.asarray(self.pipeline_.predict_proba(X)[:, 1], dtype=float)
 
 

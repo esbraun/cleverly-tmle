@@ -724,3 +724,33 @@ def test_default_treatment_model_reads_the_baseline_interaction(
         _fit(frame, treatment_learner=supplied)
     assert seen[0][0] is supplied
     np.testing.assert_array_equal(seen[0][1], X)
+
+
+def test_continuation_inner_fold_without_events_predicts_the_constant() -> None:
+    """An inner training fold of the default continuation can hold no event.
+
+    The whole training set has events (so the outer guard of ``ContinuationModel.fit`` passes),
+    but every event sits in inner fold 0, so the fit on folds 1 and 2 sees one label.  Before
+    the guard, that raised scikit-learn's single-class error and lost the fit; the declared
+    run of part (e) lost one fit of 3,200 to it.  The single-label member predicts its label,
+    and the cross-validated choice and the final fit proceed.
+    """
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(90, 2))
+    folds = np.repeat([0, 1, 2], 30)
+    y = np.where(folds == 0, rng.uniform(0.05, 0.4, size=90), 0.0)
+    w = np.ones(90)
+
+    for value in (0.0, 1.0):
+        member = nuisance._SoftLogistic(np.inf, 0).fit(X[:20], np.full(20, value), w[:20])
+        np.testing.assert_array_equal(member.predict(X), np.full(90, value))
+
+    fitted = nuisance._DefaultContinuation(folds, 0).fit(X, y, w)
+    held = folds == 0
+    # Both members train on the same event-free folds for held fold 0, so both predict zero
+    # there and carry the same clipped loss on it.
+    zero = nuisance._SoftLogistic(np.inf, 0).fit(X[~held], y[~held], w[~held])
+    np.testing.assert_array_equal(zero.predict(X[held]), np.zeros(int(held.sum())))
+    assert np.all(np.isfinite(fitted.losses_))
+    prediction = fitted.predict(X)
+    assert np.all((prediction > 0) & (prediction < 1))
