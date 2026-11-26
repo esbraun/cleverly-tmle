@@ -1584,7 +1584,10 @@ def _check_other_estimators(namespace: dict[str, Any]) -> None:
     sdr_tau3 = [
         line
         for line in evidence.splitlines()
-        if line.startswith("| 3-node pricing law") and ", SDR |" in line and "`ate_regimen[" in line
+        if line.startswith("| 3-node pricing law")
+        and ", SDR |" in line
+        and "`ate_regimen[" in line
+        and line.rstrip().endswith(("| pass |", "| **fail** |"))
     ]
     assert len(sdr_tau3) >= 2 and all(line.rstrip().endswith("| pass |") for line in sdr_tau3)
     assert "at 5,000 rows" in text and "1,000 samples of 5,000 rows" in evidence
