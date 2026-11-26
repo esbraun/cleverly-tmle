@@ -139,6 +139,11 @@ cell, update the callback in the same change. Keep every scientific claim of the
 words, in a Details dropdown, or on a linked page, as rule R7 of the guide asks. Drop a claim only
 when it is redundant or no longer true, and record the reason in the claim ledger.
 
+`plots` is the one exception to the outline. It is a tour of the figures on four fits, not one
+analysis, so it has no `plan`, `association`, `protocol` or `identify` landmark and records no
+`StudyProtocol`: `point-treatment-tmle` shows those steps for the same design. Its
+`method-evidence` lesson sits under "Go deeper".
+
 A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
 
 | step | what to do |
@@ -328,8 +333,10 @@ Run the checks below on the fit of the page as well, under the rule that follows
 
 `point-treatment-tmle` runs the full set for a point-treatment fit: refutation, `simulated_outcome`
 and `plasmode`, the omitted-variable bound with benchmarks, `evalue()`, `marginal_bounds()`,
-`simulated_confounding()`, and the truncation curve. `plots` draws them, and
-`twins-causal-inference`, the real-data capstone, shows the full report. Every other tutorial runs
+`simulated_confounding()`, and the truncation curve. `plots` draws the bound's contour and prints
+its benchmarks, and draws `evalue()`, `marginal_bounds()`, `simulated_confounding()` and the truncation curve; refutation,
+`simulated_outcome` and `plasmode` have no figure. `twins-causal-inference`, the real-data
+capstone, shows the full report. Every other tutorial runs
 the refutation checks and the sensitivity analysis that its fit supports and the table above names,
 each with a short reading, because its conclusion needs them.
 
@@ -409,7 +416,7 @@ change.
 | Hazard targeting beyond a held baseline treatment | No tutorial fits it |
 | Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
 | Drift-corrected survival TMLE | No tutorial fits it |
-| Continuous-time survival and competing risks | plots draws one fit's risk curve and its overlap figure. No tutorial reads its estimates |
+| Continuous-time survival and competing risks | plots (risks, their difference, and the restricted mean time lost, with the overlap, weights and model figures) |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |

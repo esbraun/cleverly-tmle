@@ -855,6 +855,11 @@ def _headless_matplotlib(monkeypatch: Any) -> None:
         import matplotlib
 
         matplotlib.use("Agg")
+        # A kernel's inline backend closes each cell's figures once it displays them, so a
+        # notebook never holds more than one cell's figures open there. Running every cell in one
+        # namespace keeps them all open until the run ends, and pyplot's warning past 20 open
+        # figures is then the harness's artefact, not the notebook's.
+        monkeypatch.setitem(matplotlib.rcParams, "figure.max_open_warning", 0)
 
 
 def _close_figures() -> None:
