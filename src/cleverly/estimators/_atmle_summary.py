@@ -132,7 +132,7 @@ def atmle_summary(result: AdaptiveTMLEResult, detail: Detail) -> Summary:
         The fitted result.
     detail : {"short", "full"}
         ``"full"`` adds the Assumptions, Settings and Study sections, the last as the
-        point-treatment and longitudinal TMLE summaries print it.
+        point-treatment, dose-response and longitudinal TMLE summaries print it.
 
     Returns
     -------
