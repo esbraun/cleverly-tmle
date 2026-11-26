@@ -14,8 +14,9 @@ Three functions serve the navigation program that the [examples](../examples/ind
 
 `make_randomized_pilot` draws the randomized pilot of the
 [randomized-pilot example](../examples/randomized-pilot.ipynb): a binary success outcome, an offer
-drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truth
-of `randomized_pilot_truth`.
+drawn with a recorded chance by discharge-risk group (`PILOT_OFFER_CHANCES`), and the exact truths
+of `randomized_pilot_truth`: the two arm means, the ATE, and the average effects among offered and
+other patients (`att`, `atc`).
 
 Two generators serve the [more contacts and more service time example](../examples/schedules-and-intensity.ipynb).
 `make_contact_schedules` draws a 0-to-1 transition score and a three-level contact schedule
@@ -79,12 +80,13 @@ Three functions serve the team readmission part of the
 | `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
 | `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
 
-Three functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
+Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
 
 | function | what it returns |
 | --- | --- |
-| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, and by the best rule |
+| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, by the best rule, and under the recorded offers |
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
+| `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
@@ -157,20 +159,22 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol
 ```
 
-Five names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
+Six names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),
 where navigation is offered at discharge, on day 10, and on day 20, and a recovery score is read on
 day 30.
 
 | name | what it holds |
 | --- | --- |
 | `make_recovery_score` | a wide frame of three navigation offers with a symptom flag before each later offer and the day-30 score, with the exact plan means and the effect of each offer |
-| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers |
+| `recovery_score_truth` | the exact mean day-30 score under one plan of three offers, each fixed or a known rule of living alone and the symptom flags |
+| `recovery_offer_count` | the exact expected number of offers per patient under such a plan |
 | `recovery_score_protocol` | the `StudyProtocol` of the three-decision recovery question |
 | `RECOVERY_PLANS`, `RECOVERY_BOUNDS` | the plans `always` and `never`, and the known range of the score, 0 to 100 |
 
@@ -180,5 +184,6 @@ day 30.
 
    cleverly.datasets.make_recovery_score
    cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_offer_count
    cleverly.datasets.recovery_score_protocol
 ```

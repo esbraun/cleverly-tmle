@@ -480,9 +480,9 @@ When the rows of a cell hold no event of a cause (or only such events), that cel
 solved only at a hazard of zero (or one), outside the bound set by `alpha`. The fit then
 stops with the cell on the bound, warns, and reports `failure="cell_separated"`, as separation
 stops a logistic regression. In the `separable-effects` study at n = 16,000 this happened in
-102 of 15,600 two-fold fits (0.65%), at relative scores of at most $2.3 \times 10^{-5}$, and
-never in sample. Three more two-fold fits stopped at 1.2 to 2.4 times `tol`
-(`failure="newton_stalled"`): their remaining score lies in two directions where the Jacobian of
+64 of 9,200 two-fold fits (0.7%), at relative scores of at most $2.3 \times 10^{-5}$, and
+never in sample. Two more two-fold fits, and one calibration fit, stopped at 1.2 to 2.4 times
+`tol` (`failure="newton_stalled"`): their remaining score lies in two directions where the Jacobian of
 the scores is singular to rounding, which the Newton steps discard. Steps forced along them reach
 a root within `tol` that moves no estimate by more than 0.0015 standard errors
 (`tests/studies/separable_effects_stalls.py`).

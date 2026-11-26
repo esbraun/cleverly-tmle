@@ -31,6 +31,7 @@ from cleverly import (
     CrossFitting,
     DRTMLEMethod,
     EPMethod,
+    IncrementalEffect,
     IncrementalMean,
     LongitudinalTreatment,
     ModelSpec,
@@ -47,6 +48,7 @@ from cleverly._summary import vocabulary
 from cleverly._support import Support
 from cleverly.bases import Additive, Cosine, Indicators, Linear, Modifiers, Sieve
 from cleverly.datasets import (
+    make_contact_schedules,
     make_linear_ate,
     make_longitudinal,
     make_longitudinal_competing,
@@ -379,6 +381,31 @@ def ipsi() -> Any:
     )
     odds = [Incremental(d, name=f"odds x{d:g}") for d in (0.5, 1.0, 2.0, 4.0)]
     return _quiet(study.identify(IncrementalMean(interventions=odds)).estimate, **_ESTIMATE)
+
+
+@cache
+def categorical_odds(families: tuple[tuple[str, tuple[tuple[str, float], ...]], ...]) -> Any:
+    """Effects of factor mappings on a three-level treatment, against the first mapping."""
+    frame, _ = make_contact_schedules(n=600, seed=3)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="transition_score",
+            treatment="cadence",
+            adjustment=("discharge_risk", "age", "baseline_support_need"),
+        ),
+    )
+    tilts = tuple(Incremental(dict(factors), name=name) for name, factors in families)
+    return _quiet(study.identify(IncrementalEffect(tilts)).estimate, **_ESTIMATE)
+
+
+#: Natural course written on the low level, then three factors on the high level's odds.
+_ONE_LEVEL = (
+    ("current", (("low", 1.0),)),
+    ("high x0.5", (("high", 0.5),)),
+    ("high x2", (("high", 2.0),)),
+    ("high x4", (("high", 4.0),)),
+)
 
 
 @cache
@@ -1612,6 +1639,40 @@ class TestPolicies:
         assert ax.get_xlabel() == "Multiplier on the odds of the offer (log scale)"
         assert "odds of treatment" not in ax.get_xlabel()
         assert "odds of A" in curve(ipsi()).axes[0].get_xlabel()
+
+    def test_factors_on_one_level_of_a_categorical_treatment_order_the_family(self) -> None:
+        result = categorical_odds(_ONE_LEVEL)
+        ax = curve(result, treatment_label="schedule").axes[0]
+        assert ax.get_xscale() == "log"
+        assert ax.get_xlabel() == "Multiplier on the odds of schedule = high (log scale)"
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["0.5", "1", "2", "4"]
+        points = sorted(tuple(ln.get_xydata()[0]) for ln in lines(ax, _core.GID_POINT))
+        assert [x for x, _ in points] == [0.5, 2.0, 4.0]
+        for (_x, y), name in zip(points, ("high x0.5", "high x2", "high x4"), strict=True):
+            assert y == pytest.approx(result.estimates[f"ate_ipsi[{name} vs current]"].psi)
+        # The reference {"low": 1} changes nothing, so it sits at multiplier 1 on the null line.
+        (anchor,) = lines(ax, "cleverly-reference-policy")
+        assert tuple(anchor.get_xydata()[0]) == (1.0, 0.0)
+
+    @pytest.mark.parametrize(
+        "families",
+        [
+            # two levels move in one policy
+            (("current", (("low", 1.0),)), ("both x2", (("medium", 2.0), ("high", 2.0)))),
+            # every policy is the natural course, so nothing orders them
+            (("current", (("low", 1.0),)), ("also current", (("high", 1.0),))),
+            # different levels move in different policies
+            (
+                ("current", (("low", 1.0),)),
+                ("high x2", (("high", 2.0),)),
+                ("medium x2", (("medium", 2.0),)),
+            ),
+        ],
+    )
+    def test_factors_on_several_levels_fall_back_to_the_forest(self, families: Any) -> None:
+        fig = curve(categorical_odds(families))
+        assert fig.axes[0].get_title(loc="left") == forest_module.TITLE
+        assert "No single parameter orders these policies" in _subtitle(fig)
 
     def test_the_pointwise_bar_and_the_band_caps_sit_on_either_side_of_the_estimate(self) -> None:
         ax = curve(shifts()).axes[0]

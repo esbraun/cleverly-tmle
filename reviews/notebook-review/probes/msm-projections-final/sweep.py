@@ -9,8 +9,9 @@ Each draw refits the page's fits on ``make_multi_arm(n=3000, seed=s)``:
 
 Truths come from the structural equations (``truth.py``), not from the library.
 
-Run: .venv/Scripts/python.exe reviews/notebook-review/probes/msm-projections-final/sweep.py 30000 33000 10
-Writes sweep.csv beside this script and prints the summary.
+Run: .venv/bin/python reviews/notebook-review/probes/msm-projections-final/sweep.py 30000 34000 4 > sweep.log
+Writes sweep.csv beside this script and prints the summary, headed by the cleverly version and
+commit the draws ran under.
 """
 
 import os
@@ -175,8 +176,24 @@ def wilson(k, n, z=1.96):
     return centre - half, centre + half
 
 
+def provenance():
+    """The commit, worktree state and package version the draws ran under."""
+    import subprocess
+
+    import cleverly
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", WORKTREE, *args], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    clean = "clean" if not git("status", "--porcelain", "--", "src") else "modified src"
+    return f"cleverly {cleverly.__version__}, commit {git('rev-parse', 'HEAD')[:12]} ({clean})"
+
+
 def summarize(df):
     n = len(df)
+    print(f"run under: {provenance()}")
     print(f"draws: {n}, seeds {df['seed'].min()} to {df['seed'].max()}")
     for column in (
         "slope_cover",

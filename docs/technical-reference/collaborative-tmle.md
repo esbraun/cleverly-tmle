@@ -148,8 +148,9 @@ iterative and the one-step sweeps are checked to solve the perturbed score. Reru
 selection. A C-TMLE0 fit has no selection. Its retarget rebuilds the derivative columns at the
 requested bounds, as the [C-TMLE0](#c-tmle0-the-derivative-covariate) section states.
 
-**Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
-`elements()` raise `CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
+**Omitted-variable outputs refuse a collaborative fit unless the call assumes a consistent
+mechanism.** The robustness value, the bounds, `elements()` and `benchmark()` raise
+`CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
 regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
 representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
@@ -157,6 +158,13 @@ within each arm and each value of $V$. Its $\nu^2$ is therefore never larger, an
 adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
 gives the full reason, and
 [RM11](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
+
+A call that declares `assume_consistent_mechanism=True` gets the robustness value and the bounds as
+point values, with no limits. A per-arm outcome-adaptive fit also needs `mechanism_learner=`,
+because its own treatment learner reads one outcome prediction. The declaration does not lift the
+refusal on a fit that selects nothing, which points to the ordinary TMLE, or on a fit with missing
+treatment, and `elements()` and `benchmark()` stay refused
+([scope and refusals](scope-and-refusals.md)).
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
@@ -432,6 +440,10 @@ Three sources supply the two mechanisms.
 | `lambdas=None` | the L1 logistic at the penalty that `learner_folds`-fold weighted deviance cross-validation chooses over the default grid, inside each training set | the nearest penalty of the grid in absolute distance. A tie goes to the larger penalty | C-LASSO Algorithm 2. Ju, Chambaz and van der Laan (2018), Section 4.2 |
 | `lambdas=(lam, lam_plus)` | the L1 logistic at `lam` | the L1 logistic at `lam_plus`, larger or smaller | `ctmleGlmnet(ctmletype = 3)` with `glmnet` at the two penalties |
 | `treatment_candidates=(g, plus)` | an unfitted learner, or a full-sample array | the same kinds | `ctmleGeneral(ctmletype = 3, g1W, g1WPrev)` |
+
+Under the first two calls `treatment_learner` fits neither mechanism, and the same holds for every
+candidate of `strategy="lasso"`. A declared `treatment_learner` then serves at most as the fallback of
+`missingness_learner`, and the fit warns so (`UserWarning`, recorded in `fit_warnings`).
 
 The partner is fitted on exactly the rows of the mechanism: every row in sample, and each outer
 fold's training rows when cross-fitted. The grid is fixed once on the analysis sample, and it reads

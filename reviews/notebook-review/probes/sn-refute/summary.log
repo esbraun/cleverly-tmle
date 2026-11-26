@@ -1,5 +1,5 @@
 ### dummy_outcome
-cleverly 0.1.5
+cleverly 0.2.8
 rows and columns: (4000, 6)
 ['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
    transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
@@ -17,69 +17,134 @@ mean baseline covariate by response status:
 responded                                          
 0.0                 0.781  0.012             -0.215
 1.0                -0.229 -0.012              0.056
-causal study protocol: schema 1; 1f8351d839cc8afe
-target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
-eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
-time zero: Discharge-home order, after baseline measurement and before the navigation offer
-treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
-treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
-outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
-horizon: 30 days after discharge
-intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
-interference unit: Individual patient
-assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
-average treatment effect, E[Y^a] - E[Y^reference]
-identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
-required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
-assumptions:
-  - consistency: Y = Y^a when A = a
-  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
-  - no unmeasured confounding: Y^a is independent of A given W
-  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
-  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
-  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-Targeted maximum likelihood estimation
-======================================
-n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
-causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
-identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
-identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-outcome family: gaussian; fluctuation: logistic (iterative)
-stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
-propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
-P(Delta=1|A,W) truncated to [0.01, 1]
-data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+Population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+Eligibility: Age 18 years or older; Discharge home ordered at a participating hospital
+Follow-up starts: Discharge-home order, after baseline measurement and before the navigation offer
+Strategies: Offer standard transition navigation; Provide usual discharge support
+Versions: Bedside transition plan and two scheduled navigator contacts within 30 days; No access to the transition-navigation offer
+Outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+Horizon: 30 days after discharge
+Intercurrent events: Use the transition score regardless of readmission; Analyze the offer regardless of completed contacts; The protocol scores death before day 30 as the worst transition score (composite strategy)
+Interference unit: Individual patient
+Rationale: The recorded baseline variables cover the measured common causes; Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random); Standardized offer and version records support that each offer is one well-defined action, so a patient's recorded outcome is the outcome they would have had under the offer they got; Reserved navigator capacity and access controls support no interference
+                            Causal question (ate)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Answered by:  adjusting for covariates
+               on transition_score (1
+               compared with 0)
+Outcome:       transition_score
+               (continuous); 3,051 of
+               4,000 observed
+Treatment:     transition_navigation
+               (levels 0, 1)
+Adjusted for:  discharge_risk, age,
+               prior_utilization
+==============================================================================
+Conditions the answer rests on
+condition                      checkable   what it says
+------------------------------------------------------------------------------
+well-defined treatment         no          Each unit's observed outcome is the
+                                           outcome it would have had under the
+                                           treatment it actually received.
+                                           This needs the treatment to be well
+                                           defined: every way of getting the
+                                           same level has the same effect.
+no interference                no          One unit's treatment does not
+                                           change another unit's outcome.
+no hidden confounding          no          Among units with the same
+                                           adjusted-for values, which
+                                           treatment a unit got is unrelated
+                                           to the outcomes it would have had.
+                                           This holds when the adjusted-for
+                                           columns account for the common
+                                           causes of transition_navigation and
+                                           transition_score and none of them
+                                           is affected by
+                                           transition_navigation.
+overlap                        partly      Every group of units that share the
+                                           adjusted-for values had some chance
+                                           of each compared level of
+                                           transition_navigation.
+outcome missing at random      no          Among units with the same treatment
+                                           and adjusted-for values, whether
+                                           transition_score was recorded is
+                                           unrelated to its value.
+chance of a recorded outcome   partly      Every group of units that share the
+                                           treatment and adjusted-for values
+                                           that the question reads had some
+                                           chance of a recorded
+                                           transition_score.
+==============================================================================
+Methods
+method               name
+------------------------------------------------------------------------------
+tmle                 targeted maximum likelihood (TMLE)
+adaptive_iptw        adaptive-propensity inverse probability weighting
+collaborative_tmle   collaborative TMLE (C-TMLE)
+drtmle               doubly robust TMLE (DR-TMLE)
+==============================================================================
+Notes:
+[1] The data cannot confirm these conditions. Overlap (marked partly) can be
+    probed: after a fit, result.diagnostics.support() shows where the fitted
+    treatment model gives units little chance of a compared treatment. That
+    check reads a fitted model, so a clean result does not prove overlap.
+[2] The methods table lists the methods that fit. 8 other methods cannot
+    estimate this question; the full summary says why.
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Treated share:                   0.499
+               on transition_score (1   Out-of-fold predictions:       5 folds
+               compared with 0)         Outcome model:       gradient boosting
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous); 3,051 of   Probability limits:         [0.009532,
+               4,000 observed                                          0.9905]
+Adjusted for:  discharge_risk, age,     Missingness model:            logistic
+               prior_utilization                                    regression
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error             95% CI    p-value
+------------------------------------------------------------------------------
+ate     0.1478       0.0052   [0.1375, 0.1581]    <0.0001
+==============================================================================
+Notes:
+[1] The interval of ate is widened on the side where a skewed outcome makes
+    misses more likely, so it need not be centred on the estimate. Its t
+    distribution has 250 or more degrees of freedom, so it is close to the
+    normal one. The p-value is the level at which the interval would just
+    reach the null value.
 
-estimand  psi      std_err   95% CI              p_value
---------  -------  --------  ------------------  -------
-ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
-
-estimate:        0.1478
-standard error:  0.0052
-95% CI:          (0.1376, 0.1581)
 population ATE:  0.1466
-Refutation tests for 'ate'
-----------------------------------
-test           original  refuted (mean)  sd        expected                              rung  ok 
--------------  --------  --------------  --------  ------------------------------------  ----  ---
-dummy_outcome  0.14782   -7.5502e-05     0.004668  readings inside their bands around 0  L2    yes
-
-dummy_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0; successful=400; failed=0
-reading: bias -0.01617 [-0.1142, 0.08182] inside [-0.2, 0.2]; se_ratio 0.9705 [0.9108, 1.034] inside [0.85, 1.15]; coverage 0.9375 [0.9091, 0.9591] inside [0.88, 0.99]
-  bias = -0.01617, 95% interval [-0.1142, 0.08182], band [-0.2, 0.2]: inside
-  se_ratio = 0.9705, 95% interval [0.9108, 1.034], band [0.85, 1.15]: inside
-  coverage = 0.9375, 95% interval [0.9091, 0.9591], band [0.88, 0.99]: inside
-  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. On the generated law named here, the standard-error ratio lies inside its equivalence band. Your own outcome law is not this one. On the generated law named here, the 95% interval coverage lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth 0.
-
-VERDICT: every refutation test with a verdict passed it.
-SECONDS 370
+                               Refutation tests
+==============================================================================
+Estimate tested:  ate = 0.1478          Repeats per test:                  400
+Tests run:        1                     Result:                         passed
+==============================================================================
+test                mean         SD   expected             result
+------------------------------------------------------------------------------
+noise outcome    -0.0001     0.0047   about 0, see bands   passed
+==============================================================================
+Readings against their allowed bands
+test            reading     estimate            95% CI   allowed band   inside
+------------------------------------------------------------------------------
+noise outcome   std. bias     -0.016   [-0.114, 0.082]    [-0.2, 0.2]      yes
+noise outcome   SE ratio       0.970    [0.911, 1.034]   [0.85, 1.15]      yes
+noise outcome   coverage       0.938    [0.909, 0.959]   [0.88, 0.99]      yes
+==============================================================================
+Every test that gives a pass or fail passed.
+Notes:
+[1] Noise outcome: cleverly replaces the outcome with random noise unrelated
+    to the treatment and the covariates, so the true effect is known, and
+    checks the bias, the std. error and the coverage against it. Your own
+    outcome law is not this one. For this kind of fit the test gives a pass or
+    fail backed by an exact reference or by a simulation study of this kind of
+    fit.
+SECONDS 385
 
 ### simulated_outcome
-cleverly 0.1.5
+cleverly 0.2.8
 rows and columns: (4000, 6)
 ['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
    transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
@@ -97,67 +162,134 @@ mean baseline covariate by response status:
 responded                                          
 0.0                 0.781  0.012             -0.215
 1.0                -0.229 -0.012              0.056
-causal study protocol: schema 1; 1f8351d839cc8afe
-target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
-eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
-time zero: Discharge-home order, after baseline measurement and before the navigation offer
-treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
-treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
-outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
-horizon: 30 days after discharge
-intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
-interference unit: Individual patient
-assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
-average treatment effect, E[Y^a] - E[Y^reference]
-identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
-required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
-assumptions:
-  - consistency: Y = Y^a when A = a
-  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
-  - no unmeasured confounding: Y^a is independent of A given W
-  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
-  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
-  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-Targeted maximum likelihood estimation
-======================================
-n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
-causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
-identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
-identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-outcome family: gaussian; fluctuation: logistic (iterative)
-stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
-propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
-P(Delta=1|A,W) truncated to [0.01, 1]
-data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+Population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+Eligibility: Age 18 years or older; Discharge home ordered at a participating hospital
+Follow-up starts: Discharge-home order, after baseline measurement and before the navigation offer
+Strategies: Offer standard transition navigation; Provide usual discharge support
+Versions: Bedside transition plan and two scheduled navigator contacts within 30 days; No access to the transition-navigation offer
+Outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+Horizon: 30 days after discharge
+Intercurrent events: Use the transition score regardless of readmission; Analyze the offer regardless of completed contacts; The protocol scores death before day 30 as the worst transition score (composite strategy)
+Interference unit: Individual patient
+Rationale: The recorded baseline variables cover the measured common causes; Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random); Standardized offer and version records support that each offer is one well-defined action, so a patient's recorded outcome is the outcome they would have had under the offer they got; Reserved navigator capacity and access controls support no interference
+                            Causal question (ate)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Answered by:  adjusting for covariates
+               on transition_score (1
+               compared with 0)
+Outcome:       transition_score
+               (continuous); 3,051 of
+               4,000 observed
+Treatment:     transition_navigation
+               (levels 0, 1)
+Adjusted for:  discharge_risk, age,
+               prior_utilization
+==============================================================================
+Conditions the answer rests on
+condition                      checkable   what it says
+------------------------------------------------------------------------------
+well-defined treatment         no          Each unit's observed outcome is the
+                                           outcome it would have had under the
+                                           treatment it actually received.
+                                           This needs the treatment to be well
+                                           defined: every way of getting the
+                                           same level has the same effect.
+no interference                no          One unit's treatment does not
+                                           change another unit's outcome.
+no hidden confounding          no          Among units with the same
+                                           adjusted-for values, which
+                                           treatment a unit got is unrelated
+                                           to the outcomes it would have had.
+                                           This holds when the adjusted-for
+                                           columns account for the common
+                                           causes of transition_navigation and
+                                           transition_score and none of them
+                                           is affected by
+                                           transition_navigation.
+overlap                        partly      Every group of units that share the
+                                           adjusted-for values had some chance
+                                           of each compared level of
+                                           transition_navigation.
+outcome missing at random      no          Among units with the same treatment
+                                           and adjusted-for values, whether
+                                           transition_score was recorded is
+                                           unrelated to its value.
+chance of a recorded outcome   partly      Every group of units that share the
+                                           treatment and adjusted-for values
+                                           that the question reads had some
+                                           chance of a recorded
+                                           transition_score.
+==============================================================================
+Methods
+method               name
+------------------------------------------------------------------------------
+tmle                 targeted maximum likelihood (TMLE)
+adaptive_iptw        adaptive-propensity inverse probability weighting
+collaborative_tmle   collaborative TMLE (C-TMLE)
+drtmle               doubly robust TMLE (DR-TMLE)
+==============================================================================
+Notes:
+[1] The data cannot confirm these conditions. Overlap (marked partly) can be
+    probed: after a fit, result.diagnostics.support() shows where the fitted
+    treatment model gives units little chance of a compared treatment. That
+    check reads a fitted model, so a clean result does not prove overlap.
+[2] The methods table lists the methods that fit. 8 other methods cannot
+    estimate this question; the full summary says why.
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Treated share:                   0.499
+               on transition_score (1   Out-of-fold predictions:       5 folds
+               compared with 0)         Outcome model:       gradient boosting
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous); 3,051 of   Probability limits:         [0.009532,
+               4,000 observed                                          0.9905]
+Adjusted for:  discharge_risk, age,     Missingness model:            logistic
+               prior_utilization                                    regression
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error             95% CI    p-value
+------------------------------------------------------------------------------
+ate     0.1478       0.0052   [0.1375, 0.1581]    <0.0001
+==============================================================================
+Notes:
+[1] The interval of ate is widened on the side where a skewed outcome makes
+    misses more likely, so it need not be centred on the estimate. Its t
+    distribution has 250 or more degrees of freedom, so it is close to the
+    normal one. The p-value is the level at which the interval would just
+    reach the null value.
 
-estimand  psi      std_err   95% CI              p_value
---------  -------  --------  ------------------  -------
-ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
-
-estimate:        0.1478
-standard error:  0.0052
-95% CI:          (0.1376, 0.1581)
 population ATE:  0.1466
-Refutation tests for 'ate'
-----------------------------------
-test               original  refuted (mean)  sd        expected                                    rung  ok
------------------  --------  --------------  --------  ------------------------------------------  ----  --
-simulated_outcome  0.14782   0.10231         0.004196  readings inside their bands around 0.10287  L2    NO
-
-simulated_outcome: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0.10287; successful=400; failed=0
-reading: bias -0.134 [-0.232, -0.03598] outside [-0.2, 0.2]; standard-error ratio and coverage withheld (covariate part of the curve)
-  bias = -0.134, 95% interval [-0.232, -0.03598], band [-0.2, 0.2]: outside
-  On the generated law named here, the bias lies inside its equivalence band. Your own outcome law is not this one. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on the held design, truth 0.10287.
-
-VERDICT: at least one refutation test failed.
-SECONDS 565
+                               Refutation tests
+==============================================================================
+Estimate tested:  ate = 0.1478          Repeats per test:                  400
+Tests run:        1                     Result:                         failed
+==============================================================================
+test                    mean         SD   expected                   result
+------------------------------------------------------------------------------
+simulated outcome     0.1023     0.0042   about 0.10287, see bands   failed
+==============================================================================
+Readings against their allowed bands
+test               reading    estimate            95% CI  allowed band  inside
+------------------------------------------------------------------------------
+simulated outcome  std. bias    -0.134  [-0.232, -0.036]   [-0.2, 0.2]      no
+==============================================================================
+Simulated outcome failed. A failure points to the kind of defect the test is
+built to find, but a correct fit also fails by chance, at about the rate its
+evidence measured or its exact reference sets; the note for each test says
+what it can show.
+Warnings:
+[1] Simulated outcome: cleverly replaces the outcome with one simulated from
+    the process you declared, with a known effect, and checks the bias against
+    it. Your own outcome law is not this one. For this kind of fit the test
+    gives a pass or fail backed by an exact reference or by a simulation study
+    of this kind of fit.
+SECONDS 581
 
 ### plasmode
-cleverly 0.1.5
+cleverly 0.2.8
 rows and columns: (4000, 6)
 ['transition_score', 'transition_navigation', 'discharge_risk', 'age', 'prior_utilization', 'responded']
    transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
@@ -175,64 +307,128 @@ mean baseline covariate by response status:
 responded                                          
 0.0                 0.781  0.012             -0.215
 1.0                -0.229 -0.012              0.056
-causal study protocol: schema 1; 1f8351d839cc8afe
-target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
-eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
-time zero: Discharge-home order, after baseline measurement and before the navigation offer
-treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
-treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
-outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
-horizon: 30 days after discharge
-intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
-interference unit: Individual patient
-assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
-average treatment effect, E[Y^a] - E[Y^reference]
-identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
-required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
-assumptions:
-  - consistency: Y = Y^a when A = a
-  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
-  - no unmeasured confounding: Y^a is independent of A given W
-  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
-  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
-  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-Targeted maximum likelihood estimation
-======================================
-n = 4000 (3051 with an observed outcome); covariates = 3; P(A=1) = 0.4993
-causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
-identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
-required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
-identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
-causal study protocol: schema 1; 1f8351d839cc8afe
-outcome family: gaussian; fluctuation: logistic (iterative)
-stacked CV-TMLE (Levy): nuisances cross-fitted over 5 folds; targeting: pooled
-propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
-P(Delta=1|A,W) truncated to [0.01, 1]
-data 20a917c8c326d554 | folds b3d93054673ed5ae | cleverly 0.1.5 | 2026-10-22T23:04:23+00:00
+Population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+Eligibility: Age 18 years or older; Discharge home ordered at a participating hospital
+Follow-up starts: Discharge-home order, after baseline measurement and before the navigation offer
+Strategies: Offer standard transition navigation; Provide usual discharge support
+Versions: Bedside transition plan and two scheduled navigator contacts within 30 days; No access to the transition-navigation offer
+Outcome: Patient-reported transition score, as a share of the maximum score, from the survey sent on day 30 and closed on day 45; the score lies between 0 and 1
+Horizon: 30 days after discharge
+Intercurrent events: Use the transition score regardless of readmission; Analyze the offer regardless of completed contacts; The protocol scores death before day 30 as the worst transition score (composite strategy)
+Interference unit: Individual patient
+Rationale: The recorded baseline variables cover the measured common causes; Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random); Standardized offer and version records support that each offer is one well-defined action, so a patient's recorded outcome is the outcome they would have had under the offer they got; Reserved navigator capacity and access controls support no interference
+                            Causal question (ate)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Answered by:  adjusting for covariates
+               on transition_score (1
+               compared with 0)
+Outcome:       transition_score
+               (continuous); 3,051 of
+               4,000 observed
+Treatment:     transition_navigation
+               (levels 0, 1)
+Adjusted for:  discharge_risk, age,
+               prior_utilization
+==============================================================================
+Conditions the answer rests on
+condition                      checkable   what it says
+------------------------------------------------------------------------------
+well-defined treatment         no          Each unit's observed outcome is the
+                                           outcome it would have had under the
+                                           treatment it actually received.
+                                           This needs the treatment to be well
+                                           defined: every way of getting the
+                                           same level has the same effect.
+no interference                no          One unit's treatment does not
+                                           change another unit's outcome.
+no hidden confounding          no          Among units with the same
+                                           adjusted-for values, which
+                                           treatment a unit got is unrelated
+                                           to the outcomes it would have had.
+                                           This holds when the adjusted-for
+                                           columns account for the common
+                                           causes of transition_navigation and
+                                           transition_score and none of them
+                                           is affected by
+                                           transition_navigation.
+overlap                        partly      Every group of units that share the
+                                           adjusted-for values had some chance
+                                           of each compared level of
+                                           transition_navigation.
+outcome missing at random      no          Among units with the same treatment
+                                           and adjusted-for values, whether
+                                           transition_score was recorded is
+                                           unrelated to its value.
+chance of a recorded outcome   partly      Every group of units that share the
+                                           treatment and adjusted-for values
+                                           that the question reads had some
+                                           chance of a recorded
+                                           transition_score.
+==============================================================================
+Methods
+method               name
+------------------------------------------------------------------------------
+tmle                 targeted maximum likelihood (TMLE)
+adaptive_iptw        adaptive-propensity inverse probability weighting
+collaborative_tmle   collaborative TMLE (C-TMLE)
+drtmle               doubly robust TMLE (DR-TMLE)
+==============================================================================
+Notes:
+[1] The data cannot confirm these conditions. Overlap (marked partly) can be
+    probed: after a fit, result.diagnostics.support() shows where the fitted
+    treatment model gives units little chance of a compared treatment. That
+    check reads a fitted model, so a clean result does not prove overlap.
+[2] The methods table lists the methods that fit. 8 other methods cannot
+    estimate this question; the full summary says why.
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            4,000
+               transition_navigation    Treated share:                   0.499
+               on transition_score (1   Out-of-fold predictions:       5 folds
+               compared with 0)         Outcome model:       gradient boosting
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous); 3,051 of   Probability limits:         [0.009532,
+               4,000 observed                                          0.9905]
+Adjusted for:  discharge_risk, age,     Missingness model:            logistic
+               prior_utilization                                    regression
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error             95% CI    p-value
+------------------------------------------------------------------------------
+ate     0.1478       0.0052   [0.1375, 0.1581]    <0.0001
+==============================================================================
+Notes:
+[1] The interval of ate is widened on the side where a skewed outcome makes
+    misses more likely, so it need not be centred on the estimate. Its t
+    distribution has 250 or more degrees of freedom, so it is close to the
+    normal one. The p-value is the level at which the interval would just
+    reach the null value.
 
-estimand  psi      std_err   95% CI              p_value
---------  -------  --------  ------------------  -------
-ate       0.14782  0.005219  [0.13759, 0.15805]  <1e-4  
-
-estimate:        0.1478
-standard error:  0.0052
-95% CI:          (0.1376, 0.1581)
 population ATE:  0.1466
-Refutation tests for 'ate'
-----------------------------------
-test      original  refuted (mean)  sd        expected                                    rung  ok 
---------  --------  --------------  --------  ------------------------------------------  ----  ---
-plasmode  0.14782   0.10308         0.004594  readings inside their bands around 0.10287  L2    yes
-
-plasmode: process=bounded_beta_adjustment_dependent; family=gaussian; effect=0.10287; successful=400; failed=0
-reading: bias 0.04522 [-0.05278, 0.1432] inside [-0.2, 0.2]; se_ratio 1.001 [0.932, 1.075] inside [0.85, 1.15]; coverage 0.95 [0.9238, 0.9692] inside [0.88, 0.99]
-  bias = 0.04522, 95% interval [-0.05278, 0.1432], band [-0.2, 0.2]: inside
-  se_ratio = 1.001, 95% interval [0.932, 1.075], band [0.85, 1.15]: inside
-  coverage = 0.95, 95% interval [0.9238, 0.9692], band [0.88, 0.99]: inside
-  On the plasmode law named here, the bias lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. On the plasmode law named here, the standard-error ratio lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. On the plasmode law named here, the 95% interval coverage lies inside its equivalence band. The plasmode resembles your data and does not estimate its truth. Generated law: bounded_beta_adjustment_dependent (phi 20), 400 draws on resampled covariates and a frozen treatment model clipped to [0.00953177, 0.990468], a frozen outcome response model, truth 0.10287.
-
-VERDICT: every refutation test with a verdict passed it.
-SECONDS 566
-
+                               Refutation tests
+==============================================================================
+Estimate tested:  ate = 0.1478          Repeats per test:                  400
+Tests run:        1                     Result:                         passed
+==============================================================================
+test                   mean         SD   expected                   result
+------------------------------------------------------------------------------
+plasmode outcome     0.1031     0.0046   about 0.10287, see bands   passed
+==============================================================================
+Readings against their allowed bands
+test              reading    estimate           95% CI  allowed band  inside
+------------------------------------------------------------------------------
+plasmode outcome  std. bias     0.045  [-0.053, 0.143]   [-0.2, 0.2]     yes
+plasmode outcome  SE ratio      1.001   [0.932, 1.075]  [0.85, 1.15]     yes
+plasmode outcome  coverage      0.950   [0.924, 0.969]  [0.88, 0.99]     yes
+==============================================================================
+Every test that gives a pass or fail passed.
+Notes:
+[1] Plasmode outcome: cleverly resamples your covariates, draws treatment from
+    a frozen treatment model and the outcome from the process you declared,
+    with a known effect, and checks the bias, the std. error and the coverage
+    against it. The plasmode resembles your data and does not estimate its
+    truth. For this kind of fit the test gives a pass or fail backed by an
+    exact reference or by a simulation study of this kind of fit.
+SECONDS 582

@@ -1,0 +1,16 @@
+run under: cleverly 0.2.8, commit e671bb7c5d91 (clean)
+machine: x86_64, 4 CPUs visible, one thread per fit
+slope on the page's draw: 0.2688
+wall time for the three checks at 400 refits each: 24 s
+dummy_outcome: 400 draws, level L2, verdict passed, true slope 0.0000, mean estimate -0.0001
+  bias -0.008 in (-0.106, 0.090), band (-0.2, 0.2), inside True
+  se_ratio 0.950 in (0.885, 1.020), band (0.85, 1.15), inside True
+  coverage 0.935 in (0.906, 0.957), band (0.88, 0.99), inside True
+simulated_outcome: 400 draws, level L2, verdict passed, true slope 0.2657, mean estimate 0.2658
+  bias 0.006 in (-0.092, 0.104), band (-0.2, 0.2), inside True
+  se_ratio 0.927 in (0.863, 0.996), band (0.85, 1.15), inside True
+  coverage 0.935 in (0.906, 0.957), band (0.88, 0.99), inside True
+plasmode: 400 draws, level L2, verdict passed, true slope 0.2657, mean estimate 0.2663
+  bias 0.053 in (-0.045, 0.151), band (-0.2, 0.2), inside True
+  se_ratio 0.961 in (0.899, 1.028), band (0.85, 1.15), inside True
+  coverage 0.930 in (0.900, 0.953), band (0.88, 0.99), inside True

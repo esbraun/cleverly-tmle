@@ -148,7 +148,10 @@ on a pilot pooled with outside rows.
 
 Use `Static`, `Rule`, or `Stochastic` interventions with `RegimeMean`, which reports the mean
 outcome under each plan, or `RegimeContrast`, which reports each plan's difference from the
-reference plan.
+reference plan. With two competing events, `Separable` sets the part of a treatment that acts on
+each event to its own level, as
+[A medicine with two effects on readmission and death](../examples/separable-effects.ipynb)
+shows.
 
 ```python
 import numpy as np

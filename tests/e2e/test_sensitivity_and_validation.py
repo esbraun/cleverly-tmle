@@ -28,6 +28,7 @@ import sklearn.linear_model
 
 from cleverly import AssessmentStatus, SuperLearner
 from cleverly._summary import vocabulary
+from cleverly.data.weighting import weighted_load_ratio
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -620,7 +621,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         details = report.summary("full").section(vocabulary.SECTION_DETAILS).lines
         for row, (group, load) in zip(table.rows, report.group_score_load.items(), strict=True):
             assert row[0].value == group
-            assert row[1].value == load["n_targeted"]
+            assert row[1].value == load["n_targeted"] - load["zero_load"]
             assert row[table.columns.index("largest")].value == load["max_load"]
             assert any(
                 line.startswith(f"{group}: equation {load['equation']},") for line in details
@@ -642,12 +643,13 @@ class TestThePerGroupCovariateLeverageIsReported:
 
         The two are different weightings and the narrower is not always the arm's, so the
         verdict carries both. Neither is graded: this fit clips nothing and reads
-        ``adequate`` with a group retaining under half of the rows it weights.
+        ``adequate`` with a group retaining under half of its score-mask rows.
         """
         report = loaded_fit.diagnostics.support()
         summary = report.summary()
+        # Narrowest over the rows with a nonzero load, the denominator the note prints.
         group, narrow = min(
-            report.group_score_load.items(), key=lambda item: item[1]["targeted_ratio"]
+            report.group_score_load.items(), key=lambda item: weighted_load_ratio(item[1])
         )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 

@@ -4,4 +4,11 @@ tmle_known_in     mean error -0.0009  SD 0.0211  mean SE 0.0207  SE/SD 0.98  cov
 tmle_known_xf     mean error -0.0007  SD 0.0211  mean SE 0.0208  SE/SD 0.98  covered 186 of 200
 drtmle_known_in   mean error -0.0010  SD 0.0214  mean SE 0.0207  SE/SD 0.97  covered 186 of 200
 aiptw_known_xf    mean error -0.0006  SD 0.0210  mean SE 0.0211  SE/SD 1.00  covered 187 of 200
-tmle_fitted_g_in  mean error -0.0622  SD 0.0211  mean SE 0.0269  SE/SD 1.27  covered 61 of 200
+tmle_fitted_g_in  mean error -0.0622  SD 0.0211  mean SE 0.0269  SE/SD 1.27  covered 58 of 200
+
+the in-sample TMLE with the recorded chances, other estimands (rr: SE on the log scale; _ks: the known-score form)
+att     true 0.1789  mean error -0.0017  SD 0.0241  mean SE 0.0243  SE/SD 1.01  covered 192 of 200
+atc     true 0.1051  mean error -0.0002  SD 0.0245  mean SE 0.0239  SE/SD 0.98  covered 189 of 200
+rr      true 1.3296  mean error -0.0018  SD 0.0429  mean SE 0.0426  SE/SD 0.99  covered 189 of 200
+att_ks  true 0.1789  mean error -0.0016  SD 0.0241  mean SE 0.0244  SE/SD 1.01  covered 192 of 200
+atc_ks  true 0.1051  mean error -0.0002  SD 0.0244  mean SE 0.0239  SE/SD 0.98  covered 189 of 200

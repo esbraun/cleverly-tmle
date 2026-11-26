@@ -190,6 +190,9 @@ gives the conditions.
 | the external arms may differ from the trial by a different amount each | `AdaptiveTMLEMethod(force_arm=True)` always lets the two external arms differ by a free shift. It matches the R package `atmle`, and the external rows then add no information on the effect's level, so the interval is no narrower than the trial's own |
 | your own list of candidate terms | `working_basis=` takes a scikit-learn transformer that maps covariates to the candidate terms |
 
+The [worked example](../examples/trial-with-external-data.ipynb) runs each of these options on
+simulated data under its "Go deeper" heading, beside the known answer.
+
 By default, a covariate with nine or more distinct values becomes its standardized value
 (rescaled to mean 0 and standard deviation 1) and five bent-line pieces. A covariate with fewer
 values, such as a yes/no site flag or a short count, becomes one on/off column for each value above
@@ -228,8 +231,9 @@ Four checks run on the fit:
 - `corrections()`: how many passes adjusted the trial-membership model, and whether they met the
   stopping rule.
 
-`result.assess()` collects the four and lists each refused check with its reason, and
-`result.diagnostics.run_all()` gives the four plus the two refused refits. Neither runs
+`result.assess()` collects the four, naming the model and update rows `the three prediction
+models` (four with a missingness model) and `targeting updates`. It lists each refused check with
+its reason, and `result.diagnostics.run_all()` gives the four plus the two refused refits. Neither runs
 `result.diagnostics.influence()`. It counts the effective rows, how many equal contributions would
 give the same spread, and flags the estimate `noisy` when the standard error is itself uncertain
 enough that the interval may miss its 95% level ([checking a fit](assessment.md) explains the
