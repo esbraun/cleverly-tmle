@@ -148,7 +148,9 @@ def check(namespace: dict[str, Any]) -> None:
     outcome = _weights(weights, "outcome model")
     treatment = _weights(weights, "treatment model")
     assert outcome.idxmax() == "boosting"
-    assert outcome["linear"] == 0.0
+    # The stored output prints 0.0000; the simplex solver can leave a float residue on another
+    # platform (CI read a nonzero value), so check the printed reading rather than exact zero.
+    assert outcome["linear"] < 5e-5
     assert treatment.idxmax() == "splines"
     assert (treatment > 0).all()
 
@@ -194,7 +196,7 @@ def check(namespace: dict[str, Any]) -> None:
     picks = {
         model.name: model.learner_weights for model in discrete.diagnostics.nuisance_models().models
     }
-    assert picks["outcome"]["boosting"] == 1.0
+    assert np.isclose(picks["outcome"]["boosting"], 1.0)
     assert np.isclose(picks["propensity"]["splines"], 0.8)
     assert np.isclose(picks["propensity"]["boosting"], 0.2)
 
