@@ -80,12 +80,13 @@ Three functions serve the team readmission part of the
 | `team_readmission_truth` | the exact share readmitted by day 90 under one plan of offer and call |
 | `team_readmission_protocol` | the `StudyProtocol` of the two-decision readmission question |
 
-Three functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
+Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.ipynb).
 
 | function | what it returns |
 | --- | --- |
-| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, and by the best rule |
+| `make_treatment_rules` | a frame of patients with a need score, living alone, the navigation offer, and staying home for 30 days, with the exact value of offering to everyone, to no one, by the best rule, and under the recorded offers |
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
+| `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
 
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
@@ -95,6 +96,11 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
 | `make_heart_failure` | a frame of patients sent home on no water pill, a standard dose or a high dose, with the day and code of the first event (readmission or death) or of leaving follow-up, and the exact risks for every pair of doses of the pill's two parts |
 | `heart_failure_truth` | the exact risk of each event by each check when the part acting on readmission and the part acting on death are set to two doses, in either event order |
 | `heart_failure_protocol` | the `StudyProtocol` of the separable-effects question |
+
+The [readmission when death can come first](../examples/longitudinal-survival.ipynb) tutorial
+draws its patients with `make_longitudinal_competing`, whose truth holds the exact risk of each
+cause under four fixed plans. `competing_rule_truth` gives the same risk when the day-31 offer
+follows a rule of the needs recorded before it.
 
 ```{eval-rst}
 .. autosummary::
@@ -121,6 +127,7 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
    cleverly.datasets.make_longitudinal_repeated
    cleverly.datasets.make_longitudinal_competing
    cleverly.datasets.make_longitudinal_weighted
+   cleverly.datasets.competing_rule_truth
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact
@@ -152,6 +159,7 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth

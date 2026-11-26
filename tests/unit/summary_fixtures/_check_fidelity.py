@@ -769,10 +769,13 @@ def read_overlap(report: Any, text: str) -> None:
         ], labels
         assert [row[0] for row in rows] == list(report.group_score_load), rows
         for row, load in zip(rows, report.group_score_load.values(), strict=True):
+            # The table counts the rows with a nonzero load, not the score mask's structural
+            # zeros.
+            weighted = load["n_targeted"] - load["zero_load"]
             wanted = (
-                load["n_targeted"],
+                weighted,
                 load["effective"],
-                load["targeted_ratio"],
+                load["effective"] / weighted,
                 load["top_1pct"],
                 load["top_5pct"],
                 load["max_load"],

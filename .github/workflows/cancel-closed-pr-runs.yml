@@ -4,7 +4,9 @@ name: cancel-closed-pr-runs
 # (its concurrency group is the ref). That does not stop the runs of the last commit once the
 # pull request merges or closes, so they keep a runner busy for the whole job. This workflow
 # cancels them. It never touches a run on `main`: it selects only `pull_request` runs on the
-# head branch of the pull request that just closed.
+# head branch of the pull request that just closed, and only those of its last commit: this
+# job can wait in the queue long enough for a new pull request to reuse the branch, and that
+# pull request's runs must survive.
 
 on:
   pull_request:
@@ -23,6 +25,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           CURRENT_RUN: ${{ github.run_id }}
         run: |
@@ -34,7 +37,7 @@ jobs:
           for status in queued in_progress waiting; do
             gh api --paginate \
               "repos/$REPO/actions/runs?event=pull_request&status=$status&branch=$HEAD_REF&per_page=100" \
-              --jq '.workflow_runs[] | select(.head_branch == env.HEAD_REF) | .id' |
+              --jq '.workflow_runs[] | select(.head_branch == env.HEAD_REF and .head_sha == env.HEAD_SHA) | .id' |
             while read -r run_id; do
               [ "$run_id" = "$CURRENT_RUN" ] && continue
               echo "Cancelling run $run_id"

@@ -130,8 +130,9 @@ lists every refusal. Without a known finite support, fit in sample with
 one fold balances nothing.
 
 [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) runs an `ATE` from start to
-finish, and [Gain over current practice](../examples/population-impact.ipynb) adds counterfactual
-means, risk and odds ratios, and the population-impact estimands.
+finish, and its "Go deeper" section fits the `ATT`, the `ATC` and both counterfactual means. [Gain
+over current practice](../examples/population-impact.ipynb) adds risk and odds ratios and the
+population-impact estimands.
 
 ## The trial's effect with external data
 
@@ -148,7 +149,10 @@ on a pilot pooled with outside rows.
 
 Use `Static`, `Rule`, or `Stochastic` interventions with `RegimeMean`, which reports the mean
 outcome under each plan, or `RegimeContrast`, which reports each plan's difference from the
-reference plan.
+reference plan. With two competing events, `Separable` sets the part of a treatment that acts on
+each event to its own level, as
+[A medicine with two effects on readmission and death](../examples/separable-effects.ipynb)
+shows.
 
 ```python
 import numpy as np

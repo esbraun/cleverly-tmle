@@ -153,9 +153,17 @@ jobs:
         run: scripts/ci_resources.sh report
 
   # One check for branch protection: green only when every shard of every interpreter passed.
+  #
+  # `!cancelled()` rather than `always()`: the verdict still runs, and fails, when a shard fails,
+  # but a cancelled run (superseded by a newer push, or its pull request closed) no longer creates
+  # it. Under `always()` it was created at the moment of cancelling and then waited for a runner
+  # behind every queued job. Until it ran, the cancelled run stayed open and held the concurrency
+  # group, so the newer push sat `pending` for over an hour (2026-11-26). Cancelling does not
+  # remove such a job either. A run cancelled by hand on the head commit therefore reports this
+  # check as skipped: re-run it rather than reading skipped as green.
   tests-verdict:
     name: tests
-    if: always()
+    if: ${{ !cancelled() }}
     needs: tests
     runs-on: ubuntu-latest
     steps:
@@ -243,9 +251,10 @@ jobs:
         if: always() && steps.scope.outputs.run == 'true'
         run: scripts/ci_resources.sh report
   # One check for branch protection: green only when every part of the differential succeeded.
+  # `!cancelled()` for the reason given at `tests-verdict`.
   property-differential-verdict:
     name: property-differential
-    if: always()
+    if: ${{ !cancelled() }}
     needs: property-differential
     runs-on: ubuntu-latest
     steps:

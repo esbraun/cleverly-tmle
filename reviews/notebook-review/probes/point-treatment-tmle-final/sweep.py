@@ -1,12 +1,13 @@
 """Seed sweep of the configurations that docs/examples/point-treatment-tmle.ipynb shows.
 
 Each seed ``s`` draws ``navigation_data(n=3000, seed=s)`` and runs the notebook's Step 6 fit,
-its Step 8 fits, its Step 9 assessment and truncation curve, and its Step 10 sensitivity calls,
-with every ``random_state`` set to ``s``.  The code of each fit is the notebook's, with ``21``
-replaced by ``s``.
+its Step 8 fits, its Step 9 assessment and truncation curve, its Step 10 sensitivity calls (all
+four benchmarks and the tipping search), and the "Who gains" lesson's ATT, ATC and counterfactual
+mean fits, with every ``random_state`` set to ``s``.  The code of each fit is the notebook's,
+with ``21`` replaced by ``s``.
 
 Usage: ``python sweep.py <first seed> <count> <workers>``.  The page cites
-``python sweep.py 6000 200 12``.  Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``,
+``python sweep.py 6000 200 4``.  Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``,
 which ``summarize.py`` reads.  Every worker is single-threaded (``OMP_NUM_THREADS=1``,
 ``n_jobs=1``).
 """
@@ -17,6 +18,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+import subprocess
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -35,8 +37,11 @@ def one_seed(seed: int) -> dict:
     from sklearn.linear_model import LinearRegression, LogisticRegression
 
     from cleverly import (
+        ATC,
         ATE,
+        ATT,
         CausalStudy,
+        CounterfactualMean,
         CrossFitting,
         Inference,
         ModelSpec,
@@ -132,21 +137,60 @@ def one_seed(seed: int) -> dict:
     row["rv"] = robustness["rv"]
     row["rva"] = robustness["rva"]
     row["nu2"] = sensitivity.elements(estimand="ate").nu2
-    strong = sensitivity.benchmark(covariates=("discharge_risk",))
+    records = {name: sensitivity.benchmark(covariates=(name,)) for name in COVARIATES}
+    for name, record in records.items():
+        row[f"bench_{name}_cf_y"] = record.cf_y
+        row[f"bench_{name}_cf_d"] = record.cf_d
+    strong = records["discharge_risk"]
     row["strong_cf_y"] = strong.cf_y
     row["strong_gain_y"] = strong.sigma2_short / strong.sigma2_long - 1.0
     row["strong_cf_d"] = strong.cf_d
-    benchmark = sensitivity.benchmark(covariates=("medication_burden",))
+    strong_bounds = sensitivity.omitted_confounding(benchmark=strong)
+    row["strong_bias"] = strong_bounds.bias
+    row["strong_limit_lower"] = strong_bounds.ci_lower
+    benchmark = records["medication_burden"]
     row["med_cf_y"] = benchmark.cf_y
     row["med_cf_d"] = benchmark.cf_d
     row["med_rho"] = benchmark.rho
-    bounds = sensitivity.omitted_confounding(cf_y=benchmark.cf_y, cf_d=benchmark.cf_d, rho=1.0)
+    bounds = sensitivity.omitted_confounding(benchmark=benchmark)
+    # The page's tipping search: the weight-side strength at which the one-sided lower limit
+    # reaches zero for cf_y = 1, by bisection from the largest benchmarked cf_d.
+    max_cf_d = max(record.cf_d for record in records.values())
+    row["max_bench_cf_d"] = max_cf_d
+    row["max_bench_name"] = max(records, key=lambda name: records[name].cf_d)
+    low, high = max_cf_d, 0.99
+    for _ in range(40):
+        middle = (low + high) / 2
+        if sensitivity.omitted_confounding(cf_y=1.0, cf_d=middle).ci_lower > 0:
+            low = middle
+        else:
+            high = middle
+    row["tipping_cf_d"] = (low + high) / 2
     row |= {
         "bound_lower": bounds.lower,
         "bound_upper": bounds.upper,
         "limit_lower": bounds.ci_lower,
         "limit_upper": bounds.ci_upper,
     }
+
+    # "Who gains": the conditional effects and both counterfactual means on the same fit.
+    for estimand in (ATT(), ATC(), CounterfactualMean()):
+        fitted = study.identify(estimand).estimate(method=flexible)
+        influence = fitted.diagnostics.influence().to_frame().set_index("name")
+        for key in fitted.parameter_keys:
+            value = fitted[key]
+            target = truth[key.replace("[", "").replace("]", "")]
+            label = key.replace("[", "").replace("]", "")
+            row |= {
+                f"{label}_psi": value.psi,
+                f"{label}_se": value.std_error,
+                f"{label}_ci_low": value.ci[0],
+                f"{label}_ci_high": value.ci[1],
+                f"{label}_covers": value.ci[0] <= target <= value.ci[1],
+                f"{label}_df": value.effective_df,
+                f"{label}_kish": influence.loc[key, "kish"],
+                f"{label}_variance_rel_sd": influence.loc[key, "variance_rel_sd"],
+            }
     row["seconds"] = time.perf_counter() - start
     return row
 
@@ -161,7 +205,14 @@ def main() -> None:
         rows = list(pool.map(one_seed, seeds))
     frame = pd.DataFrame(rows).sort_values("seed")
     frame.to_csv(HERE / "sweep.csv", index=False, float_format="%.10g")
-    print(f"{len(frame)} seeds, {first} to {first + count - 1}; cleverly {cleverly.__file__}")
+    import sklearn
+
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=HERE, check=True
+    ).stdout.strip()
+    print(f"{len(frame)} seeds, {first} to {first + count - 1}; {workers} workers")
+    print(f"commit {commit}; cleverly {cleverly.__version__}")
+    print(f"numpy {np.__version__}; pandas {pd.__version__}; scikit-learn {sklearn.__version__}")
     print(f"median seconds per seed: {np.median(frame['seconds']):.1f}")
 
 

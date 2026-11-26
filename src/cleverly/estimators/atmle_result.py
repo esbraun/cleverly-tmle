@@ -22,7 +22,7 @@ import numpy as np
 
 from .._assessment_cache import AssessmentCache
 from .._inference_status import STATUS_RECORDS, WORKING_MODEL_STATUS, InferenceStatus
-from .._summary import Detail, Summary, check_detail
+from .._summary import Detail, Summary, check_detail, vocabulary
 from .._support import Support
 from .._trial_family import AUGMENTED_TRIAL_FAMILY
 from .._typing import FloatArray
@@ -213,11 +213,22 @@ class AdaptiveTMLENuisanceReport:
         ``form="pooled"``.
     n_folds : int
         The outer folds of the fit.
+
+    Attributes
+    ----------
+    check_label : str
     """
 
     learners: tuple[tuple[str, str], ...]
     folds: tuple[WorkingModelFold, ...]
     n_folds: int
+
+    @property
+    def check_label(self) -> str:
+        """The assessment battery's name for this row, which names every fitted model."""
+        if any(role == "missingness" for role, _ in self.learners):
+            return vocabulary.ATMLE_NUISANCE_NAME_MISSING
+        return vocabulary.ATMLE_NUISANCE_NAME
 
 
 @dataclass(frozen=True)
@@ -243,6 +254,9 @@ class AdaptiveTMLECorrections:
     epsilon_bias: tuple[float, ...]
     passes: int
     converged: bool
+
+    #: The battery's row label: these are the adaptive fit's own updates, not DR-TMLE's.
+    check_label: ClassVar[str] = vocabulary.ATMLE_CORRECTIONS_NAME
 
 
 # ----------------------------------------------------------------------- the result

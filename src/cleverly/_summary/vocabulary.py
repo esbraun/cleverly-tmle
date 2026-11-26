@@ -1622,8 +1622,20 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_MODEL_NOTE_TEXTS})
 
 #: Sentences of the ``calibration`` note.
 CALIBRATION_IN_SAMPLE: Final = (
-    "Calibration slopes are in sample and carry no test: an unpenalized logistic model with "
-    "an intercept has an in-sample slope of {one} by construction."
+    "Calibration slopes are in sample and carry no test: a slope read on the rows a model "
+    "was fitted to says nothing about how it predicts new rows."
+)
+CALIBRATION_SLOPE_ONE: Final[Mapping[bool, str]] = MappingProxyType(
+    {
+        False: (
+            "The {models} is an unpenalized logistic regression with an intercept, so its "
+            "in-sample slope is {one} by construction."
+        ),
+        True: (
+            "The {models} are unpenalized logistic regressions with an intercept, so their "
+            "in-sample slopes are {one} by construction."
+        ),
+    }
 )
 CALIBRATION_OUT_OF_FOLD: Final = (
     "The calibration slope refits the out-of-fold predictions by logistic regression with "
@@ -1745,9 +1757,13 @@ T3_OVERLAP_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
         ),
         "equation_concentration": (
             "In the estimating equation the weights concentrate most for {group}: {effective} "
-            "effective rows of {rows} ({share}). This describes how unevenly rows are "
-            "weighted; it is not the estimator's sample size, its precision or a test of "
-            "overlap."
+            "effective rows of {rows} ({share}), counting the rows with a nonzero weight in "
+            "that equation. This describes how unevenly rows are weighted; it is not the "
+            "estimator's sample size, its precision or a test of overlap."
+        ),
+        "equation_concentration_empty": (
+            "In the estimating equation no row carries weight for {group}: every row's term "
+            "in equation {equation} is zero."
         ),
         "simplex": (
             "With more than two arms each arm's probability is capped on its own and not "
@@ -2143,6 +2159,16 @@ NOTE_TEXTS = MappingProxyType({**NOTE_TEXTS, **T3_BATTERY_NOTE_TEXTS})
 #: The battery's label of the nuisance row of a continuous-time survival fit, whose models are
 #: the cause hazards, the censoring hazard and the treatment model.
 CONTINUOUS_SURVIVAL_NUISANCE_NAME: Final = "hazard, censoring and treatment models"
+
+#: The battery's label of the nuisance row of an adaptive TMLE fit, which adds the
+#: trial-membership model (and, with missing outcomes, the missingness model) to the two models
+#: the default label names. Short enough to keep the checks table's finding column whole.
+ATMLE_NUISANCE_NAME: Final = "the three prediction models"
+ATMLE_NUISANCE_NAME_MISSING: Final = "the four prediction models"
+
+#: The battery's label of the corrections row of an adaptive TMLE fit: the effect- and
+#: bias-model steps and the trial-membership passes after selection, not DR-TMLE corrections.
+ATMLE_CORRECTIONS_NAME: Final = "targeting updates"
 
 #: The name a reader recognises for each operation, the battery's row label (X89 T3 2.3).
 CHECK_NAMES: Final[Mapping[str, str]] = MappingProxyType(

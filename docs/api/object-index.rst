@@ -309,6 +309,7 @@ categorized API tables.
    cleverly.datasets.make_longitudinal_survival
    cleverly.datasets.make_longitudinal_repeated
    cleverly.datasets.make_longitudinal_competing
+   cleverly.datasets.competing_rule_truth
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival
    cleverly.datasets.point_survival_truth
@@ -335,6 +336,7 @@ categorized API tables.
    cleverly.datasets.team_readmission_protocol
    cleverly.datasets.make_treatment_rules
    cleverly.datasets.treatment_rule_value
+   cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship

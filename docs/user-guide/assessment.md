@@ -342,11 +342,15 @@ measures the spread of the predictions, so a finding says nothing about bias in 
 
 A fit without cross-fitting gets no finding. The report tests out-of-fold predictions only, and such
 a fit's model report records `nuisance.evaluation` as `in_sample` (`nuisance` is the outcome and
-treatment model report from `result.diagnostics.nuisance_models()`). An unpenalized logistic model
-with an intercept has an in-sample slope of exactly 1, so that slope cannot show how the model does
-on new rows. When a slope is missing, `nuisance["propensity"].calibration_omission` names the cause
-for that model, for example predictions that are constant within every fold. `nuisance.summary()`
-prints each cause under the table, and `nuisance.to_frame()` has no column for it. The
+treatment model report from `result.diagnostics.nuisance_models()`). A slope read on the rows a
+model was fitted to cannot show how the model does on new rows. For an unpenalized two-class
+`LogisticRegression` with an intercept, fitted by an ordinary TMLE, the slope is 1 by construction,
+up to the solver's tolerance. The summary note names such models, and their reports have
+`slope_one_in_sample` set to `True`.
+
+When a slope is missing, `nuisance["propensity"].calibration_omission` names the cause for that
+model, for example predictions that are constant within every fold. `nuisance.summary()` prints
+each cause under the table, and `nuisance.to_frame()` has no column for it. The
 [calibration-slope study](../technical-reference/method-evidence/calibration-slope-warning.md)
 measures the rule's false-warning rate and its detection rate for a yes/no treatment.
 
@@ -365,9 +369,10 @@ all_cached = result.diagnostics.run_all()
 
 `support()` and `nuisance_models()` return the overlap and model reports behind the first two
 `Results` rows, and `battery.report("support")` returns the same overlap report from a combined run.
-`corrections()` applies only to a `DRTMLE` fit (a TMLE variant whose interval aims to stay valid
+`corrections()` applies to a `DRTMLE` fit (a TMLE variant whose interval aims to stay valid
 when one of the two models is wrong) fitted with a guard, an extra term the fit subtracts to protect
-that interval; ordinary and collaborative TMLE report it as `not_applicable`. `run_all()` with no
+that interval, and to an adaptive TMLE fit of a [trial with external data](trial-with-external-data.md),
+which reports its own updates. Ordinary and collaborative TMLE report it as `not_applicable`. `run_all()` with no
 flags runs every check of `result.diagnostics` that reads only what the fit stored, and
 `result.diagnostics.run_all(include_refits=True, include_retargets=True)` runs the model and weight
 checks, including the refutation tests, without the missing-confounder analyses. `random_state`
@@ -579,9 +584,8 @@ The correction step solves one estimating equation per estimate. In each, every 
 the correction step is multiplied by a weight built from the treatment model: for row $i$ and
 equation $j$ that multiplier is $w_i H_{ij}$, which for a mean grows as one over the row's predicted
 chance of its own treatment. The `group_score_load` table summarizes how unevenly those multipliers
-are spread. Its group row picks the equation whose multipliers concentrate most: the one with the
-smallest Kish load ratio, the effective share of rows, among the rows the equation reads (its
-targeted rows). Its `equation` field names it.
+are spread. Its group row picks the equation whose multipliers concentrate most: the one with the smallest Kish
+load ratio, the effective share of rows, among the rows whose multiplier is not zero. Its `equation` field names it.
 
 ```python
 mean_load = support.group_score_load["mean"]
@@ -593,7 +597,8 @@ print("fitted bound:", (mean_load["lower_bound"], mean_load["upper_bound"]))
 
 Read this row as a measure of how concentrated the weights are. It does not include the residual, so
 it describes neither the estimate's sample size nor any row's pull on the estimate. `n_targeted`
-counts the rows the equation reads, including rows whose term is zero by construction. The row also
+counts the rows the equation reads, including rows whose term is zero by construction. The
+printed overlap summary instead counts only the rows with a nonzero multiplier. The row also
 cannot prove or rule out overlap in the population.
 
 The overlap report provides these group rows for `mean`, `att`, `atc`, and `msm` fits. Regime,

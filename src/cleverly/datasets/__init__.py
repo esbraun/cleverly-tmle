@@ -7,6 +7,7 @@ from .longitudinal import (
     REPEATED_RULE_LABEL,
     RULE_LABEL,
     WEIGHTED_SELECTION_PROBABILITIES,
+    competing_rule_truth,
     competing_truth,
     longitudinal_rule_truth,
     longitudinal_truth,
@@ -102,7 +103,12 @@ from .synthetic import (
     shift_dgp,
     weak_overlap_dgp,
 )
-from .treatment_rules import learned_rule_truth, make_treatment_rules, treatment_rule_value
+from .treatment_rules import (
+    learned_rule_truth,
+    make_treatment_rules,
+    treatment_rule_effect,
+    treatment_rule_value,
+)
 from .weekly_orders import (
     ORDER_PLANS,
     ORDER_TILTS,
@@ -140,6 +146,7 @@ __all__ = [
     "binary_outcome_dgp",
     "cde_dgp",
     "clustered_dgp",
+    "competing_rule_truth",
     "competing_truth",
     "contact_schedules_truth",
     "heart_failure_protocol",
@@ -212,6 +219,7 @@ __all__ = [
     "survival_truth",
     "team_readmission_protocol",
     "team_readmission_truth",
+    "treatment_rule_effect",
     "treatment_rule_value",
     "weak_overlap_dgp",
     "weekly_orders_protocol",

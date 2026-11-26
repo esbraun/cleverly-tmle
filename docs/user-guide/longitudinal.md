@@ -645,6 +645,12 @@ A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a p
 bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
 The bootstrap is opt in. A fit never turns it on.
 
+A study fit computes each plan's estimate and each difference between plans, then reports only the
+ones you asked for, and it checks all of them for this warning. So a fit of the differences
+(`RegimeContrast`) can warn about one plan's estimate, which its table does not show. The warning
+then says so, and names each reported difference whose interval is built from that estimate's
+interval. It does not name a restricted mean that adds up the flagged estimate.
+
 A policy that shifts a continuous dose needs another interval, because the bootstrap does not
 help there. [When few customers carry the interval](#when-few-customers-carry-the-interval)
 gives it.
@@ -724,7 +730,12 @@ across the estimates in each replicate. Its critical value is a high order stati
 maxima.
 
 The band is $\hat\psi_j \pm c^* \widehat{SE}_j$ for each estimate. The multiplier band in
-`result.simultaneous` does not change. The summary lists both.
+`result.simultaneous` does not change. The summary lists both. A `CausalStudy` fit computes each
+plan's estimate and each difference, and its band covers only the estimates its table reports: a
+fit of the differences (`RegimeContrast`) bands the differences, and a fit of the plans' estimates
+(`RegimeMean`) bands those estimates. When the fit computed more than its table reports, the band
+reads `experimental`, because no simulation study measures a band over part of what the fit
+computed.
 
 **The influence report.** `result.diagnostics.influence()` returns one row for each estimate.
 
