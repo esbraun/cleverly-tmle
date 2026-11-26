@@ -47,8 +47,8 @@ print(result.check_model().summary())
 `result.check_model()` compares the structural contrasts with the contrasts of `LTMLE`.
 
 The [model-based-over-time tutorial](../examples/model-based-over-time.ipynb) fits this estimator
-on three binary nodes with a baseline feature in the first two blips, compares its regimen levels
-with the parametric g-formula, and reads `check_model()`.
+on three binary nodes with a baseline feature in the first two blips, compares its gain of `always`
+over `never` with the parametric g-formula and longitudinal TMLE, and reads `check_model()`.
 
 ## The model
 

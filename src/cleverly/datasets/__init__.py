@@ -50,6 +50,7 @@ from .recovery import (
     RECOVERY_BOUNDS,
     RECOVERY_PLANS,
     make_recovery_score,
+    recovery_offer_count,
     recovery_score_protocol,
     recovery_score_truth,
 )
@@ -201,6 +202,7 @@ __all__ = [
     "pricing_protocol",
     "pricing_truth",
     "randomized_pilot_truth",
+    "recovery_offer_count",
     "recovery_score_protocol",
     "recovery_score_truth",
     "repeated_truth",

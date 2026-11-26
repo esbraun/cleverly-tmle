@@ -319,6 +319,7 @@ categorized API tables.
    cleverly.datasets.longitudinal_navigation_protocol
    cleverly.datasets.make_recovery_score
    cleverly.datasets.recovery_score_truth
+   cleverly.datasets.recovery_offer_count
    cleverly.datasets.recovery_score_protocol
    cleverly.datasets.make_randomized_pilot
    cleverly.datasets.randomized_pilot_truth
