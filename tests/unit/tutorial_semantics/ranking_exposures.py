@@ -77,6 +77,11 @@ def _check_ranking(namespace: dict[str, Any]) -> None:
     table = namespace["table"]
     truth = namespace["truth"]
     assert namespace["planned"].total_fits == 50
+    # Each default fit adjusts for the three characteristics and the other four practices.
+    covariates = namespace["covariates"]
+    for name, adjusted_for in ranking.to_frame().set_index("candidate")["adjustment_set"].items():
+        others = {other for other in PRACTICES if other != name}
+        assert set(adjusted_for.split(", ")) == set(covariates) | others, name
     frame = ranking.to_frame()
     # Sorted by adjusted p-value, not by size.
     adjusted = list(frame["p_value_adjusted"])
@@ -106,22 +111,37 @@ def _check_chain(namespace: dict[str, Any]) -> None:
     # "In this sample the first interval also contains 0.0506".
     first = table.loc[NAVIGATION]
     assert first["ci_lower"] <= total <= first["ci_upper"]
+    navigation_set = second.loc[NAVIGATION, "adjustment_set"]
+    assert navigation_set.split(", ") == namespace["covariates"]
+    booking_set = second.loc["followup_booked", "adjustment_set"]
+    assert booking_set.split(", ") == [*namespace["covariates"], NAVIGATION]
     booking = abs(second.loc["followup_booked", "psi"] - table.loc["followup_booked", "psi"])
     assert booking < 0.001
     # "it missed 0.0506 on 254" of the 400 swept draws.
     assert _sweep_rate("default navigation interval excludes the total truth") == (254, 400)
+    # Both single-draw relations are qualified "in this sample": they fail on many draws.
+    assert _sweep_rate("second-fit navigation interval excludes the adjusted truth")[0] < 360
+    assert _sweep_rate("all five default intervals cover their truth")[0] < 360
 
 
 def _check_assessment(namespace: dict[str, Any]) -> None:
-    support = namespace["support"]
+    reports = namespace["reports"]
     smallest = {
-        name: report.propensity_quantiles["overall"][0.0] for name, report in support.items()
+        name: report.propensity_quantiles["overall"][0.0] for name, report in reports.items()
     }
     assert min(smallest, key=smallest.get) == "home_health_referral"
     ratios = {
-        name: report.effective_sample_size["treated"]["ratio"] for name, report in support.items()
+        name: report.effective_sample_size["treated"]["ratio"] for name, report in reports.items()
     }
     assert min(ratios, key=ratios.get) == "home_health_referral"
+    # "which its standard error, the largest of the five, already shows".
+    table = namespace["table"]
+    assert table["std_err"].idxmax() == "home_health_referral"
+    # The one check that needs attention, and the simulated-confounder test it skips.
+    assessment = namespace["ranking"].assess()
+    assert [item.name for item in assessment.attention] == ["omitted_confounding"]
+    rows = assessment.to_frame().set_index("check")
+    assert rows.loc["simulated_confounding", "status"] == "unavailable"
 
 
 def _check_multiplicity() -> None:
@@ -154,4 +174,11 @@ def check_refits(namespace: dict[str, Any]) -> None:
     refutation = namespace["refutation"].to_frame()
     assert set(refutation["verdict"]) == {"descriptive"}
     noise = refutation[refutation["test"] == "random_common_cause"]
-    assert (noise["refuted_mean"] - noise["original"]).abs().max() < 0.0003
+    assert (noise["refuted_mean"] - noise["original"]).abs().max() < 0.0002
+    placebo = refutation[refutation["test"] == "placebo"]
+    assert ((placebo["refuted_mean"]).abs() < 2 * placebo["refuted_sd"]).all()
+    subset = refutation[refutation["test"] == "subset"]
+    for test in namespace["refutation"].tests:
+        if test.name == "subset":
+            assert 0.75 < test.statistic < 1.25, test.statistic
+    assert len(subset) == len(PRACTICES)
