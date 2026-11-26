@@ -3577,10 +3577,18 @@ times the measured resident footprint of the parent and every worker. The lowest
 `SDR` and `IPSI` at 5,000 units and 7 to 10 folds (`rev9/coldterm.out`).
 
 The prediction counts the arrays the estimator holds, calibrated with GLM, logistic and linear
-learners, and other learners' own memory is not counted. With the default learner library the
-prediction read 0.74 to 1.40 times the traced peak on eight small cells (5,000 units, two nodes,
-four for the one-node hazard fit, and two regimens; the `gap` rows of `part_d/fit.out`), so a fit with
-heavier learners can pass the check and still run out of memory.
+learners. On the binned density route a data-adaptive treatment learner, the default library among
+them, adds 3.8 bytes per unit, node and squared bin (`LEARNER_ALLOWANCE`). The default library's
+random forest and boosting candidates keep their own copies of the pooled hazard design, which
+grows with the units times the squared bins, and the calibration's logistic learner keeps none. On
+the eight default-library cells it was fitted to (1,000 to 5,000 units, two nodes, two regimens,
+three folds, 28 to 80 bins; `part_d/gap.jsonl`) the prediction reads 1.35 to 1.51 times the traced
+peak, against 0.60 to 0.89 without the allowance.
+
+Other learners' own memory is not counted. With the default learner library the other families'
+six small `gap` cells read 1.00 to 1.40 times the traced peak (5,000 units, two nodes, four for the
+one-node hazard fit, and two regimens; `part_d/fit.out`), so a fit with heavier learners can pass
+the check and still run out of memory.
 
 The four continuous families of the binned and index routes were refitted in X106 part D, after the
 binned density began to build its pooled hazard design once rather than twice. The refit's fitted

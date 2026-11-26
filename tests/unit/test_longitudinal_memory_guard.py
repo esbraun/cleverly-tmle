@@ -708,6 +708,83 @@ def test_a_default_or_stacked_treatment_learner_counts_as_binned(learner: Any) -
     assert (counts.family, counts.bins) == ("ltmle_continuous", 12)
 
 
+#: The default-library cells of the binned route (X106 part D follow-up, plans
+#: ``rows/X106/D/evidence/2026-11-26-guard-main/``): T 2, R 2, F 3, 28 to 80 refined bins.
+GAP = Path(generate.__file__).parent / "part_d" / "gap.jsonl"
+
+
+def _gap_cells() -> list[tuple[FitCounts, int]]:
+    import json
+
+    cells = []
+    for line in GAP.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        counts = dict(row["counts"], horizons=tuple(row["counts"]["horizons"]))
+        cells.append((replace(FitCounts(**counts), adaptive_density=True), int(row["peak"])))
+    return cells
+
+
+def test_the_learner_allowance_covers_every_default_library_cell_by_the_margin() -> None:
+    # The allowance is the largest uncounted peak per unit, node and squared bin, so the binding
+    # cell reads exactly MARGIN; a refit of the records that moved it would fail the pin.
+    cells = _gap_cells()
+    assert len(cells) == 8
+    assert {counts.family for counts, _ in cells} == {"ltmle_continuous", "sdr_continuous"}
+    needed = max(
+        (peak - _memory_guard.draw_bytes(replace(counts, adaptive_density=False)))
+        / (counts.n * counts.n_times * counts.bins**2)
+        for counts, peak in cells
+    )
+    assert needed <= _memory_guard.LEARNER_ALLOWANCE < needed + 0.01
+    for counts, peak in cells:
+        assert _memory_guard.predicted_bytes(counts) >= _memory_guard.MARGIN * peak * (1 - 1e-6)
+
+
+def test_mutation_a_dropped_learner_allowance_reads_below_the_peak() -> None:
+    # Without the allowance the 80-bin cells read about 0.6 of their peak.
+    lowest = min(
+        _memory_guard.predicted_bytes(replace(counts, adaptive_density=False)) / peak
+        for counts, peak in _gap_cells()
+    )
+    assert lowest < 0.65
+
+
+def test_the_allowance_grows_with_the_squared_bins_and_the_nodes() -> None:
+    counts = _continuous("ltmle_continuous", 1_000, 2, 2, 3, width=5, bins=40, panel_bytes=58_000)
+    base = _memory_guard.draw_bytes(counts)
+    added = _memory_guard.draw_bytes(replace(counts, adaptive_density=True)) - base
+    assert added == pytest.approx(_memory_guard.LEARNER_ALLOWANCE * 1_000 * 2 * 40 * 40)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "adaptive"),
+    [
+        ({}, False),
+        ({"treatment_learner": None}, True),
+        (
+            {
+                "treatment_learner": SuperLearner(
+                    [LogisticRegression(max_iter=1000)], task="classification"
+                )
+            },
+            False,
+        ),
+        ({"treatment_learner": _IndexLogistic(max_iter=1000)}, False),
+        ({"treatment_learner": None, "ratio": "classifier"}, False),
+    ],
+    ids=["logistic", "default", "parametric_stack", "index", "classifier"],
+)
+def test_only_an_adaptive_learner_on_the_binned_route_takes_the_allowance(
+    overrides: dict[str, Any], adaptive: bool
+) -> None:
+    # The support builder's own treatment learner is a logistic regression; ``None`` is the
+    # default library.  The classifier route fits no binned density, the index route no
+    # indicator block.
+    bins = 0 if overrides.get("ratio") == "classifier" else 12
+    counts = _route_counts("mtp", overrides=dict(overrides), B=bins)
+    assert counts.adaptive_density is adaptive
+
+
 def test_a_bin_design_lost_on_cloning_keeps_the_binned_family() -> None:
     # The density step may receive a clone of the learner, which drops an instance attribute;
     # the guard then counts the binned route, which over-counts.

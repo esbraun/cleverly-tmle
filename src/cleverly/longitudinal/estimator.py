@@ -10021,9 +10021,10 @@ class LTMLE(_SequentialEstimator):
         the budget.  With ``None`` it reads the memory available when the fit starts
         (:func:`~cleverly.utils.memory.available_memory`), and checks nothing where the
         platform does not report it, as on macOS.  The prediction counts the arrays the
-        estimator holds, calibrated with GLM, logistic and linear learners, and other
-        learners' own memory is not counted, so a fit with heavier learners can pass the
-        check and still run out of memory.  Outside the calibrated ranges, which the "Memory"
+        estimator holds, calibrated with GLM, logistic and linear learners, plus an allowance
+        for a data-adaptive treatment learner on the binned density route.  Other learners'
+        own memory is not counted, so a fit with heavier learners can pass the check and
+        still run out of memory.  Outside the calibrated ranges, which the "Memory"
         section of ``docs/technical-reference/longitudinal-tmle.md`` lists, the prediction is
         an extrapolation and the refusal says so.  Its worker constants assume workers that
         start cold, so a repeated call with ``n_jobs > 1`` can be over-counted by about
@@ -10319,8 +10320,9 @@ class SDR(_SequentialEstimator):
         :class:`~cleverly.exceptions.MethodConfigurationError`, when the prediction exceeds
         the budget.  ``None`` reads the memory available when the fit starts and checks
         nothing where the platform does not report it.  The prediction counts the arrays the
-        estimator holds, calibrated with GLM, logistic and linear learners, and other
-        learners' own memory is not counted.  Outside the calibrated ranges, which the
+        estimator holds, calibrated with GLM, logistic and linear learners, plus an allowance
+        for a data-adaptive treatment learner on the binned density route; other learners'
+        own memory is not counted.  Outside the calibrated ranges, which the
         "Memory" section of ``docs/technical-reference/longitudinal-tmle.md`` lists, it is an
         extrapolation.  The hazard path limit that :class:`LTMLE` also applies does not arise
         here.

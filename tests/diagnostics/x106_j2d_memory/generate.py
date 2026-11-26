@@ -46,6 +46,7 @@ import ast
 import json
 import re
 from pathlib import Path
+from typing import Any, cast
 
 HERE = Path(__file__).parent
 
@@ -326,6 +327,9 @@ def extensions_table() -> str:
 #: library, which the prediction does not count.
 GAP = "gap"
 
+#: The binned continuous families, whose data-adaptive treatment learner takes the allowance.
+BINNED = ("ltmle_continuous", "sdr_continuous")
+
 #: The four continuous families the part D refit changed.
 REFITTED = (
     "ltmle_continuous",
@@ -368,6 +372,26 @@ def _two(value: float) -> str:
     return f"{value:.2f}"
 
 
+def _allowance_readings() -> tuple[int, float, float, float, float]:
+    """The default-library cells of the binned route with and without the learner allowance.
+
+    Returns the cell count, the lowest and highest margined prediction over the traced peak
+    with the allowance, and the same without it.
+    """
+    from dataclasses import replace
+
+    from cleverly.longitudinal._memory_guard import FitCounts, predicted_bytes
+
+    with_it, without = [], []
+    for row in _jsonl(HERE / "part_d" / "gap.jsonl"):
+        raw = cast(dict[str, Any], row["counts"])
+        counts = FitCounts(**dict(raw, horizons=tuple(raw["horizons"])))
+        peak = float(cast(int, row["peak"]))
+        with_it.append(predicted_bytes(replace(counts, adaptive_density=True)) / peak)
+        without.append(predicted_bytes(replace(counts, adaptive_density=False)) / peak)
+    return len(with_it), min(with_it), max(with_it), min(without), max(without)
+
+
 def accuracy_readings() -> dict[str, object]:
     """The ranges the accuracy and range sections quote, read from the copied outputs.
 
@@ -383,7 +407,9 @@ def accuracy_readings() -> dict[str, object]:
     in_range = [c for c in cells if c["kind"] != GAP and not _excluded_extension(c)]
     low = min(in_range, key=lambda c: c["ratio"])
     high = max(in_range, key=lambda c: c["ratio"])
-    gap = [c["ratio"] for c in cells if c["kind"] == GAP]
+    # The binned families' gap cells take the learner allowance, read from ``part_d/gap.jsonl``.
+    gap = [c["ratio"] for c in cells if c["kind"] == GAP and c["family"] not in BINNED]
+    allowance = _allowance_readings()
     held_out = [
         c["ratio"]
         for c in cells
@@ -473,6 +499,7 @@ def accuracy_readings() -> dict[str, object]:
         "outside": float(outside[1]) if outside else None,
         "parallel": (len(parallel), min(parallel), max(parallel)),
         "gap": (len(gap), min(gap), max(gap)),
+        "allowance": allowance,
         "held_out": (min(held_out), max(held_out)),
         "part_d_band": (
             float(part_d_off[1]) if part_d_off else None,
@@ -496,6 +523,8 @@ def accuracy_phrases() -> tuple[str, ...]:
     (paths,) = r["paths"]
     count, parallel_low, parallel_high = r["parallel"]
     gaps, gap_low, gap_high = r["gap"]
+    cells, allowed_low, allowed_high, bare_low, bare_high = r["allowance"]
+    words = {6: "six", 8: "eight"}
     over = r["band_over"]
     if len(over) != 3 or {row[0] for row in over} != {"hazard_separable"}:
         raise AssertionError(f"the band cells above 3.5 changed: {over}")
@@ -514,7 +543,9 @@ def accuracy_phrases() -> tuple[str, ...]:
         f"band-on cells read down to {_two(r['outside'])} (`rev9/band_check-outside.out`)",
         f"Over the {count} parallel runs",
         f"the prediction reads {_two(parallel_low)} to {_two(parallel_high)} times the measured resident footprint",
-        f"read {_two(gap_low)} to {_two(gap_high)} times the traced peak on {('eight' if gaps == 8 else str(gaps))} small cells",
+        f"the other families' {words.get(gaps, str(gaps))} small `gap` cells read {_two(gap_low)} to {_two(gap_high)} times the traced peak",
+        f"On the {words.get(cells, str(cells))} default-library cells it was fitted to",
+        f"the prediction reads {_two(allowed_low)} to {_two(allowed_high)} times the traced peak, against {_two(bare_low)} to {_two(bare_high)} without the allowance",
         f"Without it the index families read up to {_two(r['no_ceiling']['ltmle_continuous_index'])} and {_two(r['no_ceiling']['sdr_continuous_index'])} at 20,000 units",
         f"Fitted cells now read {_two(r['refitted'][0])} to {_two(r['refitted'][1])}, the held-out cells {_two(r['held_out'][0])} to {_two(r['held_out'][1])}, and their band cells {_two(r['part_d_band'][0])} to {_two(r['part_d_band'][1])}",
         f"read {summed_high:.2f} on a fitted `{summed_family}` cell at {summed_n:,} units",
