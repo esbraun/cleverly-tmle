@@ -49,6 +49,8 @@ study = CausalStudy(
   model, refuses `cluster=` at every setting except `strategy="derivative"`
   ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
+  [Flexible models and shared teams](../examples/cross-fitting.ipynb) declares the navigator team
+  of each patient as the cluster.
 
   Clusters may differ in size. Below 40 clusters that hold at least one row with a nonzero
   weight, a clustered fit reports a Student t interval with the cluster count minus 2 degrees of
@@ -142,8 +144,7 @@ gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the 
 per node ([known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms)).
 
 [A randomized pilot](../examples/randomized-pilot.ipynb) passes the known treatment chances of a
-trial, and [Flexible models and shared teams](../examples/cross-fitting.ipynb) declares a `cluster=`
-column for patients who share a care team.
+trial.
 
 ### Known chances beside weights
 
@@ -315,7 +316,8 @@ is right. They come with no interval
 missing data in the per-arm design", and the status table in
 [inference](../technical-reference/inference.md)).
 
-[Missing survey answers](../examples/survey-nonresponse.ipynb) fits an effect when some outcomes
+[Missing survey answers](../examples/survey-nonresponse.ipynb) and
+[Gain over current practice](../examples/population-impact.ipynb) fit effects when some outcomes
 were never recorded.
 
 ## Continuous treatment

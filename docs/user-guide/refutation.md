@@ -535,7 +535,8 @@ which fits get a pass or fail.
 
 | tutorial | what it runs |
 | --- | --- |
-| [One treatment, one outcome](../examples/point-treatment-tmle.ipynb), [A randomized pilot](../examples/randomized-pilot.ipynb) | the default checks |
+| [A randomized pilot](../examples/randomized-pilot.ipynb) | the default checks |
+| [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) | the default checks, and a known answer from a simulated outcome and a plasmode |
 | [Smoking and twins' birth weight](../examples/twins-causal-inference.ipynb), [A strong predictor of treatment](../examples/collaborative-tmle.ipynb) | the default checks and a check against a known answer |
 | [Flexible models and shared teams](../examples/cross-fitting.ipynb) | random common cause and subset with varied fold seeds, and a known answer on clustered data |
 | [Missing survey answers](../examples/survey-nonresponse.ipynb), [A trend across three contact schedules](../examples/msm-projections.ipynb) | the default checks and the generated-outcome checks |

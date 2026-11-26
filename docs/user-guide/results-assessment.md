@@ -391,7 +391,7 @@ bootstrap is published as `bootstrap sd` and a percentile range, and its summary
 diagnostics ([few clusters](../technical-reference/inference.md#few-clusters)).
 
 [Flexible models and shared teams](../examples/cross-fitting.ipynb) compares the interval with
-patients and with care teams as the units.
+patients and with navigator teams as the units.
 
 ### Bands that cover several estimates at once
 

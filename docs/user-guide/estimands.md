@@ -631,13 +631,14 @@ lists what the studies do not cover. The [monthly prices](../examples/sequential
 example raises a price at each of three months.
 
 A randomized policy draws one of its maps for each row, with the chances you declare in
-`Randomizer`, and the fit averages over the draw. In the example, a random quarter of rows get 0.5
+`Randomizer`, and the fit averages over the draw. A `randomizer=` that is not a `Randomizer`,
+such as a continuous draw, is refused
+([modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)). In the example, a random quarter of rows get 0.5
 more, held at their own dose where the raise would pass 4.0, as with the capped shifts above.
 `ModifiedTreatmentPolicy` reports the mean outcome under each policy, where
 `ModifiedTreatmentPolicyEffect` reports each policy's difference from the first one by default.
 `Shift(0.0, cap=None)` changes no dose, so its row is the mean under current practice, named
-`natural course`. A `randomizer=` that is not a `Randomizer`, such as a continuous draw, is
-refused ([modified treatment policies](../technical-reference/point-treatment-tmle.md#modified-treatment-policies)).
+`natural course`.
 
 ```python
 from cleverly import ModifiedTreatmentPolicy
@@ -659,6 +660,10 @@ policy_means = dose_study.estimate(
     ModifiedTreatmentPolicy((Shift(0.0, cap=None), raise_some)), method=quick, random_state=5
 )
 ```
+
+[Three offer policies](../examples/interventions.ipynb) shifts a continuous intensity of navigation, and
+[More contacts and more service time](../examples/schedules-and-intensity.ipynb) shifts two doses
+at once.
 
 ## Incremental propensity-score interventions
 
@@ -703,8 +708,8 @@ odds_means = study.estimate(IncrementalMean(tilts), method=quick, random_state=3
 ```
 
 [Three offer policies](../examples/interventions.ipynb) and
-[More contacts and more service time](../examples/schedules-and-intensity.ipynb) run shifts and
-odds multipliers side by side, the second with two treatments at once.
+[More contacts and more service time](../examples/schedules-and-intensity.ipynb) each multiply the
+odds of treatment, the second on a schedule with three levels.
 
 ## Marginal structural models
 
