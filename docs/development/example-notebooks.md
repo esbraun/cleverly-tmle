@@ -386,7 +386,7 @@ change.
 | Point and longitudinal MSM projections | msm-projections (point). No tutorial fits a longitudinal projection: its supported rows need a two-decision binary law with dropout |
 | Longitudinal end-of-study TMLE | sequential-offers, sequential-pricing, discharge-to-readmission |
 | Sequentially doubly robust longitudinal estimation | weekly-outcomes (on a repeated outcome; no tutorial fits end-of-study SDR) |
-| Sequential g-computation and IPW over time | sequential-offers (g-computation). No tutorial fits `IPWMethod`: its supported row needs a bounded outcome with dropout |
+| Sequential g-computation and IPW over time | sequential-offers (g-computation, and `IPWMethod` with a `GLM` censoring model; its support reads experimental on that fit) |
 | Structural nested mean model | model-based-over-time |
 | Parametric g-formula over time | model-based-over-time |
 | Longitudinal survival and competing risks | longitudinal-survival; separable-effects (separable effects of a treatment's two parts, `Separable`) |
