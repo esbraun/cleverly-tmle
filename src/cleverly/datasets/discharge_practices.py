@@ -64,10 +64,16 @@ from typing import Any
 import numpy as np
 
 from .._typing import Backend, FloatArray
+from ..protocol import StudyProtocol
 from ..utils.bounds import expit
 from ..utils.frames import frame_from_dict
 
-__all__ = ["PRACTICES", "discharge_practices_truth", "make_discharge_practices"]
+__all__ = [
+    "PRACTICES",
+    "discharge_practices_protocol",
+    "discharge_practices_truth",
+    "make_discharge_practices",
+]
 
 #: The baseline covariates, in the order of the latent columns.
 COVARIATES = ("discharge_risk", "age", "prior_utilization")
@@ -280,3 +286,69 @@ def make_discharge_practices(
     for index, name in enumerate(COVARIATES):
         payload[name] = w[:, index]
     return frame_from_dict(payload, backend=backend), discharge_practices_truth()
+
+
+def discharge_practices_protocol() -> StudyProtocol:
+    """Return the protocol for ranking the five discharge practices.
+
+    Returns
+    -------
+    StudyProtocol
+        The protocol that compares giving each discharge practice to every patient going
+        home with giving it to none, on staying home for 30 days.
+
+    See Also
+    --------
+    cleverly.StudyProtocol : The record this function fills.
+    cleverly.datasets.make_discharge_practices : The data this protocol describes.
+    cleverly.variable_importance : The ranking that records it.
+
+    Notes
+    -----
+    One record covers every candidate: each practice in turn is the treatment, compared with
+    usual discharge without it.  The synthetic generator makes the identification assumptions
+    true by construction.  The rationale here describes the program, not the draw.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import discharge_practices_protocol
+    >>> protocol = discharge_practices_protocol()
+    >>> protocol.horizon
+    '30 days after discharge'
+    >>> protocol.fingerprint
+    '1456eadcd6636694'
+    """
+    return StudyProtocol(
+        target_population=(
+            "Adults with a discharge-home order at a participating hospital "
+            "during the enrollment period"
+        ),
+        eligibility=(
+            "Age 18 years or older",
+            "Discharge home ordered at a participating hospital",
+        ),
+        time_zero="Discharge-home order, after baseline measurement and before any practice",
+        treatment_strategies=(
+            "Give the practice to every patient going home",
+            "Give the practice to no patient",
+        ),
+        treatment_versions=(
+            "Each practice in turn, as the teams deliver it: the transition-navigation offer, "
+            "a follow-up visit booked before discharge, a pharmacist's medication review, "
+            "teach-back education, or a home-health referral",
+            "Usual discharge without that practice",
+        ),
+        outcome="Stayed home: no readmission by day 30 (1 or 0)",
+        horizon="30 days after discharge",
+        intercurrent_event_handling=(
+            "Analyze the navigation offer regardless of the contacts the patient completed",
+        ),
+        interference_unit="Individual patient",
+        assumption_rationale=(
+            "Discharge risk, age and prior utilization, recorded before discharge, cover the "
+            "common causes of each practice and of staying home",
+            "Every kind of patient had some chance of getting each practice and of not getting it",
+            "Each practice follows one written version, and one patient's practices do not "
+            "change another's outcome",
+        ),
+    )

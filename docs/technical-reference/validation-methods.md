@@ -4240,7 +4240,8 @@ and it introduces no new influence function.
 
 Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
 with more than two levels gives one contrast per non-reference level, each a row, and the
-Benjamini-Hochberg adjustment counts rows. Before any fit, `_checked_candidates` refuses data that
+Benjamini-Hochberg adjustment counts rows. Before any fit, a `protocol=` that is not a
+`StudyProtocol` or `None` is refused (`TypeError`). `_checked_candidates` then refuses data that
 is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
 as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
 Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
@@ -4265,6 +4266,13 @@ are the same under both settings, and so is the summary, except that a fit warni
 in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
+
+A `protocol=` record is the study's scientific protocol for the whole ranking. It changes no fit.
+The result keeps it as `result.protocol`, `summary(detail="full")` prints its fields as the study
+description (or that none was recorded), and each candidate's fit stores its fingerprint in
+`provenance.protocol_fingerprint`, as a fit from a `CausalStudy` does. Each candidate's own
+summary still reports no protocol, because the fit has no identified effect to carry one
+(`tests/unit/test_variable_importance.py`).
 
 `result.diagnostics`, `result.sensitivity`, `result.validate()` and `result.assess()` run each
 operation on every candidate's own fit, through that fit's facade, and return a
