@@ -104,8 +104,8 @@ from .synthetic import (
 from .treatment_rules import (
     learned_rule_truth,
     make_treatment_rules,
-    treatment_rule_value,
     treatment_rule_effect,
+    treatment_rule_value,
 )
 from .weekly_orders import (
     ORDER_PLANS,
@@ -215,8 +215,8 @@ __all__ = [
     "survival_truth",
     "team_readmission_protocol",
     "team_readmission_truth",
-    "treatment_rule_value",
     "treatment_rule_effect",
+    "treatment_rule_value",
     "weak_overlap_dgp",
     "weekly_orders_protocol",
     "weekly_orders_truth",

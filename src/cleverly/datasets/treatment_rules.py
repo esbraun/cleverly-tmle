@@ -53,8 +53,8 @@ if TYPE_CHECKING:
 __all__ = [
     "learned_rule_truth",
     "make_treatment_rules",
-    "treatment_rule_value",
     "treatment_rule_effect",
+    "treatment_rule_value",
 ]
 
 #: The coefficients of the law, each on the logit scale.

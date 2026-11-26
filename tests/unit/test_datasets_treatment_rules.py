@@ -33,8 +33,8 @@ from cleverly import (
 from cleverly.datasets import (
     learned_rule_truth,
     make_treatment_rules,
-    treatment_rule_value,
     treatment_rule_effect,
+    treatment_rule_value,
 )
 from cleverly.datasets import treatment_rules as law
 from cleverly.learners import random_partition
