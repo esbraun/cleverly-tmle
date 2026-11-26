@@ -576,9 +576,9 @@ AREAS: tuple[Area, ...] = (
     _area(
         "plots",
         (S + "plotting/*",),
-        (API + "plotting.md",),
+        (API + "plotting.md", UG + "plots.md"),
         see=(EX + "plots.ipynb",),
-        guards=("tests/unit/test_plotting_result_matrix.py",),
+        guards=("tests/unit/test_plotting_result_matrix.py", "tests/unit/test_plots_guide.py"),
     ),
     # ---- example data -----------------------------------------------------------------------
     _area("datasets", (S + "datasets/*",), (API + "datasets.md",)),
