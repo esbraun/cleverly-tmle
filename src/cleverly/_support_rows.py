@@ -587,7 +587,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P7",),
             outcome=CONTINUOUS,
             treatment=("continuous",),
-            options={"ratio": "density"},
+            options={"ratio": "density", "density_learner_family": "known"},
             cells=["continuous_modified_policy"],
         )
     )
@@ -597,7 +597,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ["policy-point-mtp"],
             families=("P7",),
             treatment=("continuous",),
-            options={"ratio": "density"},
+            options={"ratio": "density", "density_learner_family": "known"},
             cells=["policy_point"],
             limits=["One calibration cell is red."],
         )
@@ -1803,7 +1803,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 ["vector-mtp"],
                 families=("P7",),
                 treatment=("vector",),
-                options={"ratio": suffix},
+                options={"ratio": suffix}
+                | ({"density_learner_family": "known"} if suffix == "density" else {}),
                 cells=cells,
             )
         )
