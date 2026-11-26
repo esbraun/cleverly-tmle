@@ -22,8 +22,8 @@ a blank or any other value, because a blank would otherwise read as a pass. The 
 
 One red row is not on the ledger. The `s6_cv` truth row of
 [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) belongs to a `gated` study,
-and the repo owner accepted it by a named exception on 2026-11-10
-(`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`). The test fails if the cell turns
+and it is accepted by a named exception (`ACCEPTED_BY_EXCEPTION` in
+`tests/studies/evidence/red_cells.py`). The test fails if the cell turns
 green or the study is rerun, and it admits no other row.
 
 The ledger reads verdict rows and accounting rows only. Thirteen study modules also define a `scientific_failures` hook.

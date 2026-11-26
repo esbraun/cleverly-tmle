@@ -430,8 +430,8 @@ has a committed result, recorded in the [method-evidence page](method-evidence/a
 Study S6, `adaptive-tmle-selective`, has a committed result, recorded in the
 [study page](method-evidence/adaptive-tmle-selective.md). `s6_pooled` is inside every margin. `s6_cv`
 covers in 0.937 of replications, and its bias is 0.0290 (0.20 error SDs), from a finite-sample term
-of its targeting step with no defect. The repo owner accepted the study with that reading by a named
-exception on 2026-11-10, and the study was not rerun. The label of every fit stays
+of its targeting step with no defect. The study is accepted with that reading by a named exception,
+`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`, and was not rerun. The label of every fit stays
 experimental. No support row covers the method, and a row would not change the label: the
 `working_model_projection` status keeps an estimate experimental inside any row until F40 closes
 (see Inference status).
@@ -519,7 +519,7 @@ All 16 gated tests passed, with coverage of the gated target from 0.931 to 0.953
 | efficiency contrast | RMSE ratio 0.677 on `a0` (99% interval 0.651 to 0.703), gated. 1.022 on `a1a` and 1.056 on `a1b`, reported |
 | K1 to K3, K5 | naive pooled $\Psi$ coverage 0.846 on `a1b`; main-terms $\Psi$ coverage 0.0146 beside projection coverage 0.948 on `e1`; coverage 0.931 with the $\Pi$ step and 0.529 without it on `a3_pi`; pooled fit against $\Psi_2$ 0.0221 |
 | K4 ladder on `e1` | bias over SE of $\Psi$ 1.80, 2.78 and 4.07 at n = 1,000, 2,000 and 4,000, as expected for a fixed projection offset, with projection coverage 0.935, 0.948 and 0.948 |
-| study S6 | `s6_pooled` inside every margin; `s6_cv` coverage 0.937 and bias 0.0290, whose 99% upper end, 0.0364, is above the 0.0355 margin, so the study was accepted by named exception on 2026-11-10 ([study page](method-evidence/adaptive-tmle-selective.md)) |
+| study S6 | `s6_pooled` inside every margin; `s6_cv` coverage 0.937 and bias 0.0290, whose 99% upper end, 0.0364, is above the 0.0355 margin, so the study was accepted by a named exception ([study page](method-evidence/adaptive-tmle-selective.md)) |
 | R `atmle` pairing | pending; declared, not blocking |
 
 The [study A page](method-evidence/adaptive-tmle-trial.md) lists every row of study A. The study declares no

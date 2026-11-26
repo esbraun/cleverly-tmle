@@ -545,10 +545,10 @@ their own $n$, so no row compares displacement between the two arms. The study h
 cell, because the bootstrap band of `SDR` stays experimental.
 
 **Replicate budgets.** The pilot merge sets each count (`tests/studies/long_horizon_sdr_properties.py`). The bias
-families keep 2,000 although the bias ladder reads 1,000. Calibration takes 8,000 replications by the sizing
-rule of the plan. No replicate count on the pilot ladder reaches a family pass probability of 0.95 for the full
+families keep 2,000 although the bias ladder reads 1,000. Calibration takes 8,000 replications by the declared
+sizing rule. No replicate count on the pilot ladder reaches a family pass probability of 0.95 for the full
 family. The module comment records that the family without its four low arms passes with probability 0.963 at
-8,000. The owner chose 8,000 on 2026-10-21 rather than the largest feasible count.
+8,000. The study declared 8,000 before the run rather than the largest feasible count.
 
 The four low arms are the
 three-level SDR contrasts at $K$ = 4 and 5. They read SE ratios of 0.954 to 0.972 in the pilot. A low arm that
@@ -644,7 +644,7 @@ the committed results and checked at the precision printed.
 | the comparator is exact on 100 replications | R `lmtp` 9996b04 matches the estimate and standard error of every Wald cell on the first 100 replications of each scenario. Its own truth rows cannot resolve the declared margins at that count, so they add no evidence about bias or coverage beyond the match. The margins rows state no verdict |
 | the declared mechanism is exact | the law's probabilities enter as columns, so the study measures the regressions with the mechanism known. The `learned_mechanism` rows report two learned cases and gate nothing |
 | one reporting Wald row is red | `ey_regimen[switch]` in `sdr_categorical_k5_switch` covers 0.9133 at an $n$ below its tail size. Its Wald row and its BCa row both report |
-| the calibration count is below the 0.95 family pass probability | the owner chose 8,000 replications. The four low three-level arms read SE ratios of 0.954 to 0.972 in the pilot. A reader must treat the 99% interval of each calibration row as the evidence, not the count |
+| the calibration count is below the 0.95 family pass probability | the study declared 8,000 replications. The four low three-level arms read SE ratios of 0.954 to 0.972 in the pilot. A reader must treat the 99% interval of each calibration row as the evidence, not the count |
 | the Wald interval gates only at $n \ge 2 n_\kappa$ | below that size the Wald row reports and the BCa row gates. A reader who needs a valid interval at a smaller $n$ must read the BCa row |
 | the cross-fitted scenario reports Wald rows only | the cross-fitted bootstrap is experimental (X20). The cross-fitted rows gate through `interval_calibration` cells at $2 n_\kappa$ |
 | the bootstrap band is not gated | the study has no `simultaneous_coverage` cell. The bootstrap band of `SDR` stays experimental |

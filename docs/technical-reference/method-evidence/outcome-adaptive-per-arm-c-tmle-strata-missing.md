@@ -1,4 +1,4 @@
-# Outcome-adaptive per-arm C-TMLE with strata and missing data
+# Outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)
 
 This study measures `CTMLE(strategy="oat")` with the default `oat_design="per_arm"` on fits
 with baseline strata (`strata=`), a missing outcome (`delta=`) or a missing treatment

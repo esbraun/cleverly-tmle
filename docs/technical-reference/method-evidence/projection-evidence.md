@@ -1,4 +1,4 @@
-# Projection evidence
+# Projection evidence (CDE, pooled regression, band)
 
 This study validates three parts of the projection TMLE of a conditional contrast that
 [conditional-projection](conditional-projection.md) left unmeasured. The first is the projection of

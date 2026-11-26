@@ -12,8 +12,8 @@ The study declares no property cell and no reference, so it is not a validation 
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row) states, and
 the [validation grid](validation-grid.md) does not list it. It keeps the `gated` policy of its
 declared run. The run read `s6_pooled` within its margins. It read the bias leg of `s6_cv` at 0.20
-error SDs, from a finite-sample term with no defect, and the repo owner accepted the study with
-that reading by a named exception, as [The accepted reading](#the-accepted-reading) states.
+error SDs, from a finite-sample term with no defect, and the study is accepted with that reading
+by a named exception, as [The accepted reading](#the-accepted-reading) states.
 
 **No canonical implementation is compared.** The R `atmle` comparator is declared and pending, as
 a separate pairing record. It never blocks this study.
@@ -65,8 +65,7 @@ The one change that removed the term, a targeting direction fitted on the valida
 destabilized the trial study's separating law `e1` (its SE ratio fell from 0.97 to 0.86). It is
 not adopted.
 
-The repo owner decided on 2026-11-10 not to repeat the study and to accept it with this reading by
-a named exception. The exception is `ACCEPTED_BY_EXCEPTION` in
+The study is not repeated, and it is accepted with this reading by a named exception. The exception is `ACCEPTED_BY_EXCEPTION` in
 `tests/studies/evidence/red_cells.py`. It names this study, the `s6_cv/psi` truth row and the
 replication file of this run, and it admits no other row. It stops applying when the cell reads
 green or the study is rerun. No margin, replication count, law, seed, learner or label moved.

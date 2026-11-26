@@ -478,7 +478,7 @@ STUDY = StudyRecord(
     document=(
         "docs/technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md"
     ),
-    anchor="outcome-adaptive-per-arm-c-tmle-parametric",
+    anchor="outcome-adaptive-per-arm-c-tmle-with-a-parametric-outcome",
     scenarios={SCENARIO: BINARY_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,

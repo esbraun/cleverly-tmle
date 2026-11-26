@@ -1076,7 +1076,7 @@ dominates. In the pilot at hte3's noise SD of 1 the misspecified-learner EP has 
 of about 1.45 at $n = 4{,}000$ under both overlaps, an ISE about four times the oracle's, against
 $\log 3 = 1.10$. Under App B.2's SD of 2, the setting of the paper's rescue claim, it reads 0.71
 (moderate overlap) and 0.64 (limited). The code-law reading stays in the study as an ungated
-diagnostic row, and the gate runs at App B.2's noise (plan amendment rev 2.4).
+diagnostic row, and the gate runs at App B.2's noise, as the study declared before its run.
 
 The replicate count of each law comes from pilots on their own streams
 (`tests/studies/ep_cate_pilot.csv`; the rescue laws' stream is separate) by the plan's sizing
@@ -1150,7 +1150,7 @@ the constant CATE 0.1, at $n = 2{,}000$ with the ensemble:
 
 The pilot (`tests/studies/ep_assessment_pilot.csv`) reads the slope at 0.987 (SD 0.005) and
 the stretched slope at 0.658, so the calibration claim and its control pass with probability
-1.0, as does the sign share. Stability is reported, not gated (plan amendment rev 2.4).
+1.0, as does the sign share. The study declared stability as reported, not gated.
 Refits under other split seeds reuse the same draw, and a curve's wiggle at a constant effect
 comes from the draw, so `relative_sd` reads 0.088 at the weak law (0.009 at the complex law).
 A claim that the weak law reads above 0.5 would fail at any R, and no control could make the

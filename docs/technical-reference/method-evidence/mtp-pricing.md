@@ -1,4 +1,4 @@
-# MTP pricing
+# Boundary-binding price plans over follow-up lengths
 
 This study validates a longitudinal modified treatment policy on a price at 2, 3 and 5 nodes. The
 declared support of each price depends on the node's engagement. `LTMLE` and `SDR` read each plan on
@@ -8,11 +8,9 @@ section states the estimator and its conditions. The
 [sequential pricing tutorial](../../examples/sequential-pricing.ipynb) fits law P at 3 nodes with
 `LTMLE` on one draw.
 
-**Status of this page.** The study is registered, and its Python phases and its `lmtp` phase have
-run. The study record sets `reference="lmtp"`, so the page publishes a paired row for each estimand.
-The publication policy is `reporting`.
-A red cell stays red on this page and in the [red-cell ledger](red-cells.md), with the owner row
-that names it.
+The study record sets `reference="lmtp"`, so the page publishes a paired row for each estimand. The
+publication policy is `reporting`. A red cell stays red on this page and in the
+[red-cell ledger](red-cells.md), with the owner row that names it.
 
 | part | what it is | status |
 | --- | --- | --- |

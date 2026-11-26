@@ -1,4 +1,4 @@
-# Ordinary missing-outcome TMLE
+# Ordinary point-treatment TMLE with MAR outcomes
 
 This study validates ordinary, non-cross-fitted point-treatment TMLE when the outcome is missing
 at random. It compares `cleverly` with R [`tmle`](https://cran.r-project.org/package=tmle) 2.1.1

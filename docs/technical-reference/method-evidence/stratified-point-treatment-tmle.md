@@ -1,4 +1,4 @@
-# Stratified point-treatment TMLE
+# Ordinary point-treatment TMLE with baseline strata
 
 This study validates ordinary point-treatment TMLE with baseline strata, `strata=["V"]`. A stratum
 parameter is the marginal point-treatment parameter of the law inside one of a fixed number of

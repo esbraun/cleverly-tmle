@@ -47,8 +47,6 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "refute-regimes-reading: -0.2": "the lower end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
-    "refute-regimes-reading: 0.2": "the upper end of the bias band of the 400-refit probe runs (reviews/x86d/), in refit standard deviations",
     # The mean density ratio of the shown dose configuration, quad_rboost40.
     "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
     # The earlier printed weight of 1.03 is gone with the smooth reading; the sweep still says it.
@@ -464,7 +462,7 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
 
 
 def _check_generated_limits(namespace: dict[str, Any]) -> None:
-    """The refusals that the tests on simulated scores meet, as the refutation Details state."""
+    """The refusals that the tests on simulated scores meet; the Details name the raise's."""
     # The limits of the step table.
     regimes, incremental = namespace["regime_result"], namespace["incremental_result"]
     shift = namespace["shift_result"]

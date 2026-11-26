@@ -1,4 +1,4 @@
-# Canonical DR-TMLE
+# DR-TMLE for binary complete data
 
 This reporting study evaluates the binary complete-data DR-TMLE against the primary simulation
 law in Benkeser et al. (2017), Section 5.1, and against R

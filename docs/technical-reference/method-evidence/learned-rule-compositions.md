@@ -51,8 +51,8 @@ Under clusters the row-level $\bar Q_0$ is the marginal over $u$, by Gauss-Hermi
 64 nodes. A main-terms learner is then misspecified for it, and inference rests on condition C4
 with the treatment model correct. The intra-cluster correlation of the curve is 0.144.
 
-The X11 plan and its study design record fixed the settings, the learners, the budgets, the
-seeds, the truth rule and the run form before any run.
+The settings, the learners, the budgets, the seeds, the truth rule and the run form were fixed
+before any run.
 `tests/unit/test_learned_rule_compositions_design.py` computes the design constants again.
 
 ## Accuracy against known truth

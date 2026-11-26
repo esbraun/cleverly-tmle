@@ -52,8 +52,8 @@ optimal value is 0.57711, against 0.53162 for `Static(1)` and 0.51218 for `Stati
 `misspecified_limit` the same values are 0.56025, 0.51083 and 0.51218. The primary law is
 `non_exceptional` only, because the primary gate's SE band is an SE claim, which a misspecified
 outcome model does not license. The laws, the learners, the budgets, the seeds, the truth rule,
-the variance rules and the support-row condition were fixed before any run, in the X11 plan, its
-review, the Corollary 3 reading and the study design record. `tests/unit/test_learned_rule_contrast_design.py`
+the variance rules and the support-row condition were fixed before any run, with the variance
+rules read from Corollary 3. `tests/unit/test_learned_rule_contrast_design.py`
 pins the bounds, the true contrasts, the necessity learner's limit, the sizing and the seeds, and
 `tests/unit/test_learned_rule_contrast_harness.py` checks the fits, the truth, the controls and
 the property path. `tests/unit/test_learned_rule_contrast.py` holds the unit witnesses of the

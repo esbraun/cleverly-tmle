@@ -1,4 +1,4 @@
-# Point modified treatment policies
+# Ordinary point modified treatment policies
 
 This study validates point-treatment TMLE under modified treatment policies beyond the additive
 shift. The law has one dose, a normal truncated to $[0, 6]$ given two covariates, and a binary

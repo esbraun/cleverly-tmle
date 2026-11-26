@@ -1362,9 +1362,12 @@ def main() -> None:
     # The ledger reads the same committed tables, so a regeneration that moves a verdict moves
     # the ledger in the same run rather than leaving it for a second command nobody remembers.
     # Imported here because ``red_cells`` imports this module.
-    from tests.studies.evidence import red_cells
+    from tests.studies.evidence import navigation, red_cells
 
     red_cells.report()
+    # The navigation pages' registry-decided lists move when a study registers, which is when
+    # this command runs.
+    navigation.report()
 
 
 if __name__ == "__main__":

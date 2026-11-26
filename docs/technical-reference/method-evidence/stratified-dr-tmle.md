@@ -1,4 +1,4 @@
-# Stratified DR-TMLE
+# DR-TMLE with baseline strata
 
 This study validates `DRTMLE(guard=("Q", "g"))` with baseline strata, `strata=["V"]`. The fit
 solves every equation of the doubly robust alternation with one block per stratum. It fits every

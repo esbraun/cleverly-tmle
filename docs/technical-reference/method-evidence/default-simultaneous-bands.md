@@ -1,4 +1,4 @@
-# Default simultaneous bands
+# Default simultaneous bands across shipped fit shapes
 
 This study measures the default simultaneous band of 25 shipped fit shapes. `TMLE` and `LTMLE`
 default to `simultaneous=True`. A fit that reports two or more inferential estimates then

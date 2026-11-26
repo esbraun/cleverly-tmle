@@ -7,10 +7,9 @@ one-sided binomial bound of its hazard (`cleverly.inference.node_variance`). The
 [node with no event](../longitudinal-tmle.md#a-node-with-no-event) section states the
 construction and its reach.
 
-**Status of this page.** The study is registered, and its run has completed. No other
-implementation adds such a supplement, so the study has no comparator. The publication policy is
-`reporting`. Two primary rows are red on their SE-ratio leg alone, as declared before the run.
-They stay red in the [red-cell ledger](red-cells.md) under the owner `X54-supplement-width`.
+No other implementation adds such a supplement, so the study has no comparator. The publication
+policy is `reporting`. Two primary rows are red on their SE-ratio leg alone, as declared before the
+run. They stay red in the [red-cell ledger](red-cells.md) under the owner `X54-supplement-width`.
 
 | part | what it is | status |
 | --- | --- | --- |
