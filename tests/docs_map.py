@@ -292,7 +292,12 @@ AREAS: tuple[Area, ...] = (
         "nuisance learners",
         (S + "learners/*",),
         (UG + "methods-learners.md", TR + "nuisance-learners.md"),
-        see=(API + "learners.md", UG + "settings.md", UG + "run-time-and-memory.md"),
+        see=(
+            API + "learners.md",
+            UG + "settings.md",
+            UG + "run-time-and-memory.md",
+            EX + "learner-choice.ipynb",
+        ),
     ),
     _area(
         "cross-fitting",

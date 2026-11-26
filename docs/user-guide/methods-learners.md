@@ -364,7 +364,9 @@ R's `method.NNLS`, which fits weights without the sum-to-one limit and rescales 
 It carries no such guarantee and can put all its weight on a much worse candidate.
 
 Library size multiplies with both fold layers below, so it is the first thing to reach for when a
-fit is slower than expected.
+fit is slower than expected. The [choosing the prediction models](../examples/learner-choice.ipynb) example declares two
+small libraries, reads their weights and risks, and shows what screening the treatment model's
+columns can drop.
 
 Outcome regressions need predictions on the outcome's mean scale. Binary treatment and censoring
 mechanisms need probability predictions. Continuous treatment policies use a conditional density

@@ -1,0 +1,21 @@
+draws: 200, seeds 9000..9199
+declared: bias 0.0002 (MC SE 0.0007), emp SD 0.0100, mean SE 0.0095, SE/SD 0.95, coverage 0.950 (MC SE 0.015), draws with any row at the cap 0.000
+discrete: bias -0.0002 (MC SE 0.0007), emp SD 0.0101, mean SE 0.0098, SE/SD 0.97, coverage 0.960 (MC SE 0.014), draws with any row at the cap 0.010
+unscreened: bias -0.0018 (MC SE 0.0007), emp SD 0.0105, mean SE 0.0106, SE/SD 1.01, coverage 0.965 (MC SE 0.013), draws with any row at the cap 0.010
+screened: bias -0.0016 (MC SE 0.0008), emp SD 0.0107, mean SE 0.0108, SE/SD 1.01, coverage 0.960 (MC SE 0.014), draws with any row at the cap 0.060
+screened minus unscreened: mean 0.0003 (MC SE 0.0002), SD 0.0032
+screened SE / unscreened SE: median 1.018
+screen keeps discharge_risk: 1.000
+screen keeps prior_utilization: 0.910
+screen keeps medication_burden: 0.265
+screen keeps age: 0.190
+draws where the screen drops medication_burden: 147
+draws where the screen drops age: 162
+draws where the declared interval contains the truth: 190
+draws where the screened interval contains the truth: 192
+screen drops both medication_burden and age: 0.595
+kept columns: median 6
+declared propensity top candidate shares: {'splines': 0.655, 'boosting': 0.27, 'logistic': 0.075}
+declared outcome top candidate shares: {'boosting': 0.92, 'splines': 0.08}
+discrete propensity top candidate shares: {'splines': 0.88, 'boosting': 0.075, 'logistic': 0.045}
+discrete outcome top candidate shares: {'boosting': 0.91, 'splines': 0.09}
