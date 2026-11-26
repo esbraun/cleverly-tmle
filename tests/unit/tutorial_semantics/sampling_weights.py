@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from matplotlib.text import Text
 from scipy import integrate, stats
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -254,6 +255,13 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping - 0.01).lower > 0.0
     assert sensitivity.omitted_confounding(cf_y=1.0, cf_d=tipping + 0.01).lower <= 0.0
     assert f"{tipping:.2f}" == "0.15"
+
+    # The reading's figure: the grid reaches both benchmarks and draws the zero line.
+    figure = namespace["confounding_fig"]
+    gids = {artist.get_gid() for artist in figure.findobj() if hasattr(artist, "get_gid")}
+    assert "cleverly-null-contour" in gids
+    texts = {text.get_text() for text in figure.findobj(Text)}
+    assert {"discharge_risk", "age"} <= texts
 
     refutation = namespace["refutation"]
     tests = {test.name: test for test in refutation.tests}
