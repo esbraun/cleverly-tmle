@@ -434,8 +434,8 @@ Three sources supply the two mechanisms.
 | `treatment_candidates=(g, plus)` | an unfitted learner, or a full-sample array | the same kinds | `ctmleGeneral(ctmletype = 3, g1W, g1WPrev)` |
 
 Under the first two calls `treatment_learner` fits neither mechanism, and the same holds for every
-candidate of `strategy="lasso"`. A declared `treatment_learner` then serves only as the fallback of
-the missingness learners, and the fit warns so (`UserWarning`, recorded in `fit_warnings`).
+candidate of `strategy="lasso"`. A declared `treatment_learner` then serves at most as the fallback of
+`missingness_learner`, and the fit warns so (`UserWarning`, recorded in `fit_warnings`).
 
 The partner is fitted on exactly the rows of the mechanism: every row in sample, and each outer
 fold's training rows when cross-fitted. The grid is fixed once on the analysis sample, and it reads

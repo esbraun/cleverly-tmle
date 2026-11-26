@@ -194,9 +194,15 @@ derivative of the clever covariate along the lasso penalty. The strategy selects
 reports the TMLE interval. Declare two penalties in `lambdas=`: the mechanism first, then its
 partner. Omit `lambdas=` to choose the mechanism penalty by cross-validation.
 
+The strategy fits both as L1-penalized logistic regressions, so a `treatment_learner` fits no
+treatment mechanism and the fit warns. Leave it out of the `ModelSpec`.
+
 ```python
+outcome_only = ModelSpec(outcome_learner=LinearRegression())
 derivative = effect.estimate(
-    method=CollaborativeTMLEMethod(models=parametric, strategy="derivative", lambdas=(0.02, 0.01)),
+    method=CollaborativeTMLEMethod(
+        models=outcome_only, strategy="derivative", lambdas=(0.02, 0.01)
+    ),
     random_state=3,
 )
 print(derivative.extra["ctmle"].summary())
@@ -211,7 +217,8 @@ lists the other two sources of the pair and the refusals.
 `strategy="lasso"` takes its penalties from `lambdas=`. To start the grid at a cross-validated
 penalty, fit `LogisticRegressionCV` with an L1 penalty on standardized covariates. Then convert its
 `C` with `lambda = 1 / (C n)`. Use the `saga` solver. The `liblinear` solver penalizes the
-intercept, and the lasso candidates do not.
+intercept, and the lasso candidates do not. Every candidate is a lasso fit, so this example reuses
+`outcome_only` and passes no `treatment_learner`.
 
 `l1_ratios=(1.0,)` selects the L1 penalty in scikit-learn 1.8 and later. `cleverly` requires
 scikit-learn 1.8 or later. Earlier releases ignore `l1_ratios` without `penalty="elasticnet"` and
@@ -235,7 +242,7 @@ search.fit(scaled, frame["A"])
 start = 1.0 / (search.C_ * len(frame))
 lambdas = start * np.geomspace(1.0, 0.01, 6)
 lasso = effect.estimate(
-    method=CollaborativeTMLEMethod(models=parametric, strategy="lasso", lambdas=lambdas),
+    method=CollaborativeTMLEMethod(models=outcome_only, strategy="lasso", lambdas=lambdas),
     random_state=3,
 )
 ```

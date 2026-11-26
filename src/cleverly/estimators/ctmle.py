@@ -3470,7 +3470,10 @@ default="greedy"
             else None
         )
         label = learner_name(self.treatment_learner)
-        if self.strategy == "learners":
+        if self.strategy == "lasso":
+            # Every lasso candidate is the in-house L1-penalized logistic fit, never the learner.
+            label = "L1-penalized LogisticRegression"
+        elif self.strategy == "learners":
             label = ", ".join(
                 dict.fromkeys(
                     [
@@ -3540,7 +3543,7 @@ default="greedy"
                 "strategy='derivative' fits its treatment mechanism and partner as L1-penalized "
                 "logistic regressions (lambdas=None picks the penalty by cross-validation), so "
                 f"treatment_learner={learner_name(self.treatment_learner)} fits no treatment "
-                "mechanism; it serves only as the fallback of the missingness learners. To use "
+                "mechanism; it serves at most as the fallback of missingness_learner. To use "
                 "your own learners, pass treatment_candidates=(mechanism, partner)"
             )
         elif self.strategy == "lasso":
@@ -3548,7 +3551,7 @@ default="greedy"
                 "strategy='lasso' fits every candidate treatment mechanism as an L1-penalized "
                 "logistic regression on the penalty grid, so "
                 f"treatment_learner={learner_name(self.treatment_learner)} fits no candidate; it "
-                "serves only as the fallback of the missingness learners. To select among your "
+                "serves at most as the fallback of missingness_learner. To select among your "
                 "own learners, use strategy='learners' with treatment_candidates="
             )
         else:

@@ -2,7 +2,8 @@
 
 * A ``treatment_learner`` declared beside ``strategy="derivative"`` without
   ``treatment_candidates=``, or beside ``strategy="lasso"``, fits no treatment mechanism. The fit
-  warns, records the warning on the result, and gives the same estimate as without the learner.
+  warns, records the warning once on the result, and gives the same estimate as without the
+  learner unless an outcome is missing, where the learner still fits the missingness mechanism.
 * A ``ParametricOutcome`` in a DR-TMLE reduced regression slot, explicit or through the
   ``outcome_learner=`` fallback, is refused before any learner fits, with a message that names it.
 * ``refute`` annotates every declaration its generated tests accept.
@@ -69,6 +70,53 @@ class TestUnusedTreatmentLearner:
             default = _ctmle(frame, strategy="derivative")
         assert not [text for text in _messages(plain) if UNUSED in text]
         assert declared["ate"].psi == default["ate"].psi
+
+    def test_with_a_missing_outcome_the_learner_still_fits_the_missingness_mechanism(
+        self, frame: pd.DataFrame
+    ) -> None:
+        # The warning says "at most the fallback": with no missingness_learner= the declared
+        # learner fits P(Delta = 1 | W), so it must move the estimate while the fit still warns.
+        rng = np.random.default_rng(11)
+        missing = frame.copy()
+        missing["Delta"] = (rng.uniform(size=len(missing)) < 0.85).astype(int)
+        missing.loc[missing["Delta"] == 0, "Y"] = np.nan
+
+        def fit(learner: Any) -> float:
+            estimator = CTMLE(
+                outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
+                treatment_learner=learner,
+                strategy="derivative",
+                estimands=["ate"],
+                cross_fit=False,
+                random_state=7,
+            )
+            result = estimator.fit(
+                missing, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta"
+            )
+            return float(result.single()["ate"].psi)
+
+        with pytest.warns(UserWarning, match=UNUSED):
+            flexible = fit(LogisticRegression(C=np.inf, max_iter=1000))
+        with pytest.warns(UserWarning, match=UNUSED):
+            shrunk = fit(LogisticRegression(C=1e-3, max_iter=1000))
+        assert abs(flexible - shrunk) > 1e-6
+
+    def test_repeated_draws_record_the_warning_once(self, frame: pd.DataFrame) -> None:
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            estimator = CTMLE(
+                outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                strategy="derivative",
+                estimands=["ate"],
+                cross_fit=True,
+                n_folds=2,
+                repeats=2,
+                random_state=7,
+            )
+            result = estimator.fit(frame, outcome="Y", treatment="A", covariates=COVARIATES)
+        records = [item for item in result.single().fit_warnings if UNUSED in item.message]
+        assert len(records) == 1
 
     def test_declared_candidates_use_the_learners_and_do_not_warn(
         self, frame: pd.DataFrame
